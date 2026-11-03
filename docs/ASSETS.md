@@ -39,7 +39,7 @@ The file is optional; the assets.* commands create and update it. Schema: `schem
 - `assets` is keyed by the project-relative path. An entry has `import` (settings that override `defaults`),
   `provenance`, `sheet` (sprite-sheet layout) and `analysis` (measurements the tools cache; do not edit).
 - `defaults` holds import settings per kind (`texture`, `audio`); each setting is listed below with its default.
-- `style` is the house style of generated images.
+- `style` is the house style: how images are generated and the rules art is measured against (see "House style").
 - Exports ship the import settings and leave `provenance` and `style` at home.
 
 ## Generating assets
@@ -85,13 +85,23 @@ a warning), `overwrite` and `author` (the credit in the provenance; default `fac
 
 ### House style
 
-Consistent art comes from saying the same things every time, so assets.json keeps them in `style`:
+Consistent art comes from saying the same things every time, so assets.json keeps them in `style`. The first three
+settings steer the generation of images; the others are rules that `assets.check_art` and `factoria validate` measure
+(M51):
 
 ```json
 "style": {
   "prompt": "16-bit pixel art, black outline, flat colours",
   "references": ["assets/style/hero.png"],
-  "palette": ["#1a1c2c", "#5d275d", "#b13e53", "#ef7d57"]
+  "palette": ["#1a1c2c", "#5d275d", "#b13e53", "#ef7d57"],
+  "outline": {"color": "#1a1c2c", "width": 1},
+  "lightDirection": "upper-left",
+  "texelsPerUnit": 16,
+  "pixelArt": true,
+  "value": {"min": 0.1, "max": 0.95},
+  "saturation": {"min": 0.3, "max": 0.9},
+  "audio": {"loudnessLufs": {"music": -18, "sfx": -14, "ui": -20}, "toleranceLu": 3},
+  "ignore": ["assets/ui/", "assets/fx/spark.png"]
 }
 ```
 
@@ -103,8 +113,40 @@ Consistent art comes from saying the same things every time, so assets.json keep
 - `palette` locks the colours: after the picture is resized, every pixel takes the nearest colour of the palette (alpha is
   kept). It is a list of colours (`"#rrggbb"`, or a colour name), or the path of an image whose distinct colours are the
   palette (at most 256; more is an error that is raised before the provider is called). This is the right tool for pixel
-  art and a poor one for painted art.
-- `style: false` in a call skips all three for that call.
+  art and a poor one for painted art. It is also a rule: the share of pixels that are far from every palette colour.
+- `style: false` in a call skips the prompt, the references and the palette lock for that call.
+- `outline` is `{"color", "width"}`: the colour of the line around a sprite's silhouette and its thickness in texture
+  pixels (default 1, 0.5 to 64). `color` is required.
+- `lightDirection` is where the light comes from, as a name (`right`, `upper-right`, `top`, `upper-left`, `left`,
+  `lower-left`, `bottom`, `lower-right`; also `top-left`, `up`, `down` and so on) or as degrees **towards the light, counter-clockwise from the right**: 0 is right, 90 is
+  top, 135 is upper-left, 180 is left, 270 is bottom. A name that is not one is an error with the closest name.
+- `texelsPerUnit` is how many texture pixels a world unit holds (0.01 to 4096): a 16 x 16 sprite drawn 1 x 1 units
+  large has 16. It is read from the scenes (Sprite size, the scale of the entity and its parents, a sheet frame or a
+  region), so it only judges textures a Sprite draws.
+- `pixelArt` is `true` when the art is pixel art: no soft edges (partly transparent pixels), few colours, and a palette
+  that is matched strictly.
+- `value` and `saturation` are `{"min", "max"}` in 0 to 1 (either end may be left out; min must not be above max).
+  `value` is the HSV brightness of the darkest and the lightest pixels (the 1st and the 99th percentile of the visible
+  pixels, so a stray pixel does not count); `saturation` is the mean HSV saturation of the visible pixels.
+- `audio` is `{"loudnessLufs": {"<bus>": <LUFS>}, "toleranceLu"}`: the integrated loudness each mixer bus aims at (-70
+  to 0) and how far a sound may be from it (0.5 to 24 LU, default 3). It is parsed and checked here; `assets.check_mix`
+  is the reader that compares sounds with it.
+- `ignore` is a list of project-relative files, and folders (end the path with `/`), that the style rules skip: UI,
+  effects and art that is meant to differ. `assets.check_art` still measures them; it just does not judge them against
+  the style rules, and `factoria validate` stays silent about them.
+
+Only the rules you write are checked: a style without `outline` never complains about outlines. A mistake in `style` is
+an error that names the JSON pointer and the fix (`/style/outline/width: style.outline.width is 90, outside 0.5 to 64`,
+an unknown key comes with the closest known one). Every reader (the generation commands, `assets.check_art`,
+`factoria validate`) parses `style` with the same code (`load_style_guide`, fa/tooling/style_guide.h), so they always agree.
+
+`factoria validate` adds a warning for each rule that a texture drawn by a `Sprite` **clearly** breaks (the `fail` verdict
+of `assets.check_art`, below), for example `assets/hero.png: Breaks the style rule 'texelsPerUnit' (assets.json style): The scenes
+draw this texture at 32 texture pixels per world unit ...`. The warning names the rule and the numbers, and the hint names
+the fix and `style.ignore`. A `warn` verdict is only in `assets.check_art`, so validate never nags about borderline
+art. A rule that cannot be judged for a picture is skipped: no silhouette (an opaque tile), no clear light (a flat picture),
+no scene drawing the texture (`texelsPerUnit`). The measurements of a picture do not depend on the style and are cached by the SHA-256 of the file in
+`.factoria/art-cache/` (ignored by git; deleting it is safe), so validating a project measures each picture once.
 
 ### Sprite sheets
 
@@ -382,6 +424,70 @@ holds, a clip outside the sheet, an empty frame, ink touching the edge of the ce
 centre of its ink moves by more than 30% of the frame) and a looping clip whose last frame jumps from the first or repeats it.
 The result also has `frames` (for each shown frame: `empty` and the `bbox` of its ink in frame pixels) and `nextSteps`.
 The Project panel plays the same clips (see [EDITOR.md](EDITOR.md)).
+
+### Checking art: assets.check_art
+
+`assets.check_art {"path":"assets/hero.png"}` (or `{"paths":[...]}`, up to 12 pictures, checked one by one and as a set) looks
+at a picture the way the game shows it and returns a temporary annotated picture (`$image`) plus numbers. It reads the
+project and writes only the temporary picture (and the cache `.factoria/art-cache/`), and it is deterministic. Every rule in the
+result has a `value`, a `threshold` (the limit of `ok`), usually a `failThreshold` (the limit of `warn`), a `verdict` (`ok`,
+`warn` or `fail`), a `message` with the numbers of this picture and, unless `ok`, a `hint` that names a real command or setting.
+The asset's verdict, the result's and the `counts` are the worst of their rules.
+
+Arguments:
+
+- `backgrounds`: what the picture is drawn over, a list of colours (`"#203040"`, a name, `[r, g, b]`) and project image
+  paths (an image stands for its dark, middle and light parts). Without it: the clear colour and the large background sprites (covering at
+  least half of the view, on a lower layer) of the scenes that draw the picture, else a light and a dark default.
+  `assets[].backgrounds.source` says which: `explicit`, `scenes` or `default`.
+- `onScreenPx`: the longer side of the sprite on screen, in screen pixels (a number or up to 4). Without it the size comes from
+  the scenes (Sprite size, the scale of the entity and its parents, the camera's `orthoSize`) on two reference screens: a phone, 844 x 390
+  points, and a desktop monitor, 1920 x 1080 (turned for a `portrait` project), with the design resolution of
+  `factoria.json` `display` fitted inside (`fit`). A picture no scene draws is not judged for readability (a `note` says so).
+- `style: false`: skip the rules of `style` (below).
+
+The rules (default thresholds; `style` rules override only what they set):
+
+| Rule | What it measures | ok | warn |
+|---|---|---|---|
+| `contrast` | per background: the WCAG contrast ratio of the silhouette edge pixels (over the background) | at least 3:1 | at least 1.5:1 |
+| `readability.size` | per screen: the longer side of the sprite on screen | 16 px or more | 8 px or more |
+| `readability.silhouette` | share of the silhouette still there after shrinking to the on-screen size | 85% | 60% |
+| `readability.edge` | thickness of the outline line on screen (only when the picture has one) | 0.7 px | 0.4 px |
+| `fringe.partial` | share of the partly transparent edge pixels that are darker or lighter than every opaque pixel they touch | at most 10% | at most 30% |
+| `fringe.bleed` | share of the transparent pixels next to the shape that hold a far colour, for a picture drawn with a smooth filter | at most 20% (warn above) | |
+| `outline.color` | share of the edge pixels near the colour of `style.outline` (RGB distance up to 48) | 80% | 50% |
+| `outline.width` | median thickness of the outline against `style.outline.width` | within 1 px | within 2 px |
+| `value.min`, `value.max` | the darkest and the lightest pixels against `style.value` | inside, or up to 0.05 beyond | up to 0.15 beyond |
+| `saturation.min`, `saturation.max` | mean saturation against `style.saturation` | inside, or up to 0.05 beyond | up to 0.15 beyond |
+| `lightDirection` | which way the shading gets brighter against `style.lightDirection` | within 45 degrees | within 90 degrees |
+| `pixelArt.edges` | share of partly transparent pixels (`style.pixelArt`) | at most 1% | at most 5% |
+| `pixelArt.colours` | distinct colours (`style.pixelArt`) | at most 64 | at most 256 |
+| `palette.offShare` | share of pixels farther than 40 (2 for pixel art) from every colour of `style.palette` | at most 20% (0.1% pixel art) | at most 50% (2%) |
+| `texelsPerUnit` | texture pixels per world unit, median of the scenes' uses, against `style.texelsPerUnit` | within 15% | within 35% |
+
+Anything beyond the `warn` limit is `fail`. Style rules need the rule to be set in `style` (and `style.ignore` removes the
+file); a rule the picture cannot answer is left out of the result (no silhouette, a light with no clear lean,
+`texelsPerUnit` of a texture no scene draws). `fringe.bleed` does not mean the file is wrong:
+a picture with black transparent pixels is normal, and it only shows as a dark line when the sprite is drawn with the smooth filter (set
+`Sprite.pixelArt` true for pixel art). The edge pixels of a picture are those with alpha of at least 128 next to a pixel under 128. A sprite
+sheet is measured in its cells, so the light does not mix frames.
+
+With `paths` the result also has `set.rules`: `set.density` (the pixel density of the scenes' uses differs by more than 15%
+between two pictures, warn above 50%), `set.pixelSize` (pixel art drawn with different pixel sizes), `set.outlineColour` and
+`set.outlineWidth` (pictures with an outline that differ: the colour by more than 48, warn; the thickness by 1 px), and `set.paletteSpread` (the share of
+pixels with a colour that no other picture has, within 24: ok up to 60%, warn up to 90%). Set rules are `warn` at most
+(except density and the spread, which can be `fail`).
+
+The picture has one row per asset, with numbered tiles listed in `assets[].tiles`: the picture on a checkerboard, its value
+(greyscale on grey: is the shape readable without colour?), the picture over each background, and the picture at each
+on-screen size (shrunk, then magnified by whole steps so you see what a player sees). The result has `assets[]` (`palette`
+with the commonest colours, `measure`, `backgrounds`, `onScreen`, `scenes`, `rules`, `tiles`, `notes`), `set`, `style` (whether
+rules were applied, and any `problems` found in `style`), `picture` and `nextSteps`. The rules are the very ones
+`factoria validate` uses for the style, so a fix that clears one clears the other.
+
+sky-hopper adopts it as the example: its `assets.json` `style` sets `texelsPerUnit` 1, `saturation` 0.3 to 0.9 and `ignore`s the two sheets that are baked at twice the size (`assets/crawler_sheet.png`,
+`assets/parts_atlas.png`). Its art was not repainted, and `factoria validate` is clean.
 
 ### The game icon without a provider: assets.draw_icon
 
@@ -916,6 +1022,9 @@ with warnings still runs and exports):
 - **Atlas groups.** A texture in an `atlas` group used by a component that cannot draw from an atlas (a `Tilemap`
   tileset, a `MeshRenderer` texture): the exported game would show the whole atlas image there. Remove the texture from
   the group, or use a copy of it.
+- **House style.** When `assets.json` `style` sets a rule (see "House style"), a Sprite texture that clearly breaks it (the
+  `fail` verdict of `assets.check_art`): `Breaks the style rule '<rule>' ...`, with the numbers and the fix. Files in `style.ignore`
+  are skipped; rules that are not set are never checked.
 
 The shipped files are the ones the export includes ([EXPORTING.md](EXPORTING.md), "What is shipped").
 
