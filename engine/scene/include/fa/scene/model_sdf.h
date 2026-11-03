@@ -16,6 +16,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -25,7 +26,18 @@
 
 namespace fa {
 
-enum class ModelSdfShape : std::uint8_t { Sphere, Capsule, Ellipsoid, Box, Cylinder, Cone, Torus };
+enum class ModelSdfShape : std::uint8_t { Sphere, Capsule, Ellipsoid, Box, Cylinder, Cone, Torus, Volume };
+
+// A field sampled on a regular grid (the shape `Volume`): `values` holds nx * ny * nz signed distances in metres, x fastest, the first at `origin`,
+// `cell` metres apart. A point inside the grid reads the trilinear interpolation; a point outside reads the nearest edge value plus its distance to
+// the grid, so a grid whose outer layer is positive is a closed shape. model.import_clean builds one from a triangle mesh to remesh it.
+struct ModelSdfVolume {
+    Vec3 origin{};
+    float cell = 1;
+    int nx = 0, ny = 0, nz = 0;
+    std::vector<float> values;
+    float sample(Vec3 p) const;
+};
 enum class ModelSdfBlend : std::uint8_t { Union, Subtract, Intersect };
 
 // The numbers of one shape, in its own space (centred on its origin, axis along Y, like the mesh primitives). Fields a shape does not use are ignored.
@@ -37,6 +49,7 @@ struct ModelSdfShapeParams {
     float round = 0;          // Box, Cylinder: radius of the rounded edges
     float tube = 0.15f;       // Torus: radius of the tube
     Vec3 size{1, 1, 1};       // Box: full size; Ellipsoid: the three radii
+    std::shared_ptr<const ModelSdfVolume> volume;  // Volume: the sampled field (shared, never null for that shape)
 };
 
 // Where a point of the field "comes from".

@@ -1653,6 +1653,36 @@ Reads or changes the `gameReady` settings of a model document (docs/MODELING.md,
 | `bake` | boolean | no | Bake after writing. Default true. |
 | `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
 
+## `model.import_clean` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Clean a generated or imported mesh (.glb, .gltf, .obj) into a game-ready model document: weld, drop floating bits, recentre, scale to a reference, decimate to a platform budget, optionally remesh, unwrap, and bake.
+
+Takes the mesh `source` (project-relative; assets.generate_model and assets.import put meshes there) and does, in order: `upAxis` (z-up exports are turned to y-up), weld (vertices at the same place with the same uv, colour and a similar normal become one, so seams stay), degenerate and repeated triangles removed, floating pieces removed (separate pieces whose size is under `minPieceSize`, default 2%, of the biggest piece's; the biggest is always kept, and the report lists what went), a consistent winding (neighbouring triangles agree and closed pieces face outward), scale (`height` in metres, `reference` = "human" (1.8 m) or a project model whose height to match, or `scale` factor; without one the size is kept, with a warning when it is not a size a game uses), `origin` (keep, center, bottom or bottom_center, the ground centre: the default), an optional remesh (`remesh: true`: the surface is rebuilt from a thickened distance field, so holes, non-manifold edges and self-intersections of AI meshes become one closed manifold surface; `remeshCells` along the longest side or `remeshVoxel` metres; texture coordinates cannot survive it, so base colour textures are sampled into vertex colours and the surface is unwrapped again; thin sheets become thin solids), and decimation to `triangles` or the `platform` budget (desktop 100000, mobile 20000, web 40000; meshoptimizer, keeping uvs, colours and part seams). `unwrap`: auto (default; unwrap with model_uv when the mesh has no uvs or was remeshed), always, never. A .obj goes through assets.import's converter first (the .gltf is written next to it and reused when it exists). Materials and textures of the source stay (embedded textures are written as project files). The result is a model document `<name>_clean.model.json` (or `out`) with a `mesh` node reading the cleaned mesh `<name>_clean.mesh.glb`, baked to `<name>_clean.glb`: modifiers, selections, uv and gameReady apply to it like to any model. The report teaches what was done: triangles and vertices before and after, vertices welded, pieces found and removed (size, place), triangles reoriented, non-manifold and open edges before and after, scale factor and its reason, the origin shift, remesh and decimation details, the fit to every platform's budget, and warnings. Example: {"source":"assets/models/robot.glb","height":1.8,"platform":"mobile"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | yes | The mesh to clean: a project-relative .glb, .gltf or .obj. |
+| `out` | string | no | The model document to write, under assets/, ending in .model.json. Default <source folder>/<name>_clean.model.json. |
+| `overwrite` | boolean | no | Replace the document, and a .glb that no model document baked. Default false. |
+| `upAxis` | string ["y","z"] | no | Which axis is up in the source: y (glTF, the engine) or z (Blender and CAD exports; turned to y). Default "y". |
+| `weldDistance` | number | no | Vertices closer than this many metres are one (when uv, colour and normal agree). 0 = a millionth of the model's size. Default 0.0. |
+| `removeFloating` | boolean | no | Remove separate pieces smaller than `minPieceSize` of the biggest piece. Default true. |
+| `minPieceSize` | number | no | A piece whose size is under this fraction of the biggest piece's is floating and removed (0..1). Default 0.02. |
+| `origin` | string ["keep","center","bottom","bottom_center"] | no | Where the model's origin goes: keep, center, bottom, bottom_center (the ground centre). Default "bottom_center". |
+| `height` | number | no | Scale so the model is this many metres tall (Y extent). Exclusive with reference and scale. |
+| `reference` | string | no | Scale to the height of this model: "human" (1.8 m) or a project .model.json, .glb or .gltf. Exclusive with height and scale. |
+| `scale` | number | no | Multiply the size by this factor (0.01 for centimetres). Exclusive with height and reference. |
+| `platform` | string ["desktop","mobile","web"] | no | The budget to decimate to: desktop, mobile or web (model.game_ready lists them). Default "desktop". |
+| `triangles` | integer | no | Decimate to at most this many triangles instead of the platform budget. |
+| `remesh` | boolean | no | Rebuild the surface through a signed distance field: closed, manifold, no self-intersection; loses texture coordinates. Default false. |
+| `remeshCells` | integer | no | Remesh: cells along the longest side. Default 128. |
+| `remeshVoxel` | number | no | Remesh: the cell size in metres instead of remeshCells (0 = use remeshCells). Default 0.0. |
+| `unwrap` | string ["auto","always","never"] | no | Unwrap with xatlas into the document's uv section: auto (when the mesh has no uvs or was remeshed), always or never. Default "auto". |
+| `texelsPerUnit` | number | no | Texels per metre of the unwrap (default the project's style guide, else 128). |
+| `bake` | boolean | no | Bake the document to its .glb. Default true. |
+
 ## `model.info`
 
 Not released yet (on main after 0.14.1).

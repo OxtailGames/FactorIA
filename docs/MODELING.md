@@ -85,6 +85,7 @@ range. `model.info {}` lists them all with their doc strings and defaults.
 | `lathe` | A profile turned about the Y axis (a vase, a chess piece, a column). See "Shapes from a profile". | `profile` (required), `segments` (24), `angle` (360), `cap` (true), `creaseAngle` (40) |
 | `sweep` | A closed profile moved along a path (a pipe, a rail, a handle). | `profile`, `path` (required), `smooth`, `pathSegments` (8), `closed`, `scaleStart`, `scaleEnd`, `twist`, `cap`, `creaseAngle` (50) |
 | `loft` | A skin through several cross-sections (a hull, a bottle). | `sections` (required), `closed` (true), `smooth` (true), `steps` (4), `cap`, `creaseAngle` (50) |
+| `mesh` | A triangle mesh read from a project `.glb`/`.gltf` (`source`): how an imported or generated mesh joins a document so modifiers, selections, `uv` and `gameReady` apply to it. The file is an input of the bake (changing it makes the `.glb` stale). `model.import_clean` writes this node. See "Cleaning an imported mesh". | `source` (required) |
 | `group` | No geometry of its own: its `children` (a list of nodes) are placed by the group's transform. | `children` |
 
 Segment and resolution fields trade smoothness for triangles. A model above 200,000 triangles gets a warning (it is heavy
@@ -716,6 +717,51 @@ triangle counts and hashes).
 Limits: the capsule is always along Y (the report warns when the model is wider than tall); a decomposition that finds no
 pieces falls back to the convex hull and says so; a LOD never removes a submesh entirely.
 
+## Cleaning an imported mesh: `model.import_clean`
+
+Meshes from outside (`assets.generate_model`, a downloaded `.glb`, an `.obj`) are rarely ready for a game: doubled vertices,
+floating crumbs, a wrong size, the origin anywhere, far too many triangles. `model.import_clean {source}` fixes them in one
+call and wraps the result in a model document:
+
+```
+factoria call model.import_clean '{"source":"assets/models/robot.glb","height":1.8,"platform":"mobile"}'
+```
+
+It writes `<name>_clean.mesh.glb` (the cleaned mesh), `<name>_clean.model.json` (a `mesh` node reading it, a `materials`
+section from the source and, when it unwraps, a `uv` section) and bakes `<name>_clean.glb` like any model, so the document
+can be edited afterwards (`model.edit`, `model.uv`, `model.game_ready`). Embedded textures are written next to the document
+as `<name>_clean.texN.<ext>`. `out` chooses the document; an existing one needs `overwrite`.
+
+The steps, in this order, all deterministic:
+
+1. `upAxis` `z` turns a Blender or CAD export upright. An `.obj` goes through the importer of `assets.import` first.
+2. Weld: vertices closer than `weldDistance` (default a millionth of the model's size) become one when their uv, colour and
+   normal agree, so texture seams and hard edges stay. Degenerate and repeated triangles are dropped.
+3. Floating pieces: the mesh is split into connected pieces; those smaller than `minPieceSize` (default 2%) of the biggest are
+   removed (`removeFloating: false` keeps them). The report lists each one with its size and place.
+4. Winding: neighbouring triangles are made to agree and a closed piece faces outward.
+5. Scale: `height` (metres), `reference` (`"human"` is 1.8 m, or a project model whose height to match) or `scale`
+   (factor), only one of them. With none the size stays; a model that is not a size anything has in a game gets a warning.
+6. Origin: `bottom_center` (default; the ground centre), `center`, `bottom` or `keep`.
+7. `remesh: true` (optional): the surface is rebuilt through the signed distance field path (`remeshCells` along the longest
+   side, or `remeshVoxel` metres). The result is closed, manifold and free of self-intersections.
+8. Decimation to `triangles` or the `platform` budget (`desktop` 100000, `mobile` 20000, `web` 40000) with meshoptimizer,
+   keeping uvs, colours and part seams.
+9. Unwrap with `model_uv` (xatlas) into the document's `uv` section: `unwrap` `auto` does it when the mesh has no uvs or was
+   remeshed, `always` replaces the source's uvs, `never` skips it. A model whose surface is far bigger than a game object gets
+   a lower `texelsPerUnit` (and a warning) so that the atlas stays near 2048 px; give `height` or `scale` instead.
+
+**The report** answers with `report`: `before` and `after` (vertices, triangles, size, surface: boundary, non-manifold and
+degenerate counts), `weld`, `pieces` (found, removed, the list), `trianglesReoriented`, `nonManifoldEdgesFixed`, `scale`
+(factor and reason), `origin.offset`, `remesh` and `decimate` when they ran, and `warnings` that say what to change, and `budget`
+(the triangles and draw calls against every platform). The answer also carries `summary`, the `bake` result and `nextSteps`.
+
+**Limits.** Remeshing loses texture coordinates: base colour textures are sampled into vertex colours and the surface is
+unwrapped again; thin sheets (a leaf, a flag) become thin solids; the grid is bounded by the SDF sample limit, so a very
+fine `remeshCells` is an error. The decimator will not open non-manifold edges, so a thin shell or an open mesh may stay above
+the budget; the report says so and `remesh` helps. Skins and animations of the source are not read. `gameReady` (LODs, collider)
+is not written for you: add it with `model.game_ready` when the model is final.
+
 ## Determinism
 
 The same document gives the same mesh and the same `.glb` bytes on every platform. The kernel builds with `+ - * /`, `sqrt`
@@ -732,6 +778,7 @@ a `text` node: an engine font is data the binary ships; a project `.ttf` is a fi
 | `model.create {path, nodes?, materials?, uv?, output?, doc?, overwrite?, bake?}` | Writes a document (default: one box), gives the nodes ids, bakes it. |
 | `model.edit {path, op, ...}` | `add` (`node`, `parent?`, `index?`), `set` (`target`, `values`; a null value removes a field), `remove` (`target`), `move` (`target`, `parent?`, `index?`), `document` (`doc`, `output`, `materials`, `uv`, `gameReady`; each replaces the whole field, null removes it). `target` and `parent` are a node id or a JSON pointer such as `/nodes/1/children/0`. The whole document is checked before anything is written. Then it bakes again. |
 | `model.uv {path, set?, replace?, clear?, bake?, overwrite?, picture?}` | Gives the model UVs: merges `set` into the document's `uv` section (or replaces or clears it), checks the whole document, bakes the `.glb` again and returns the measurements and the layout picture. With neither `set` nor `clear` it only measures. See "UVs". |
+| `model.import_clean {source, out?, height? | reference? | scale?, platform?, triangles?, remesh?, ...}` | Cleans a `.glb`, `.gltf` or `.obj` (weld, floating pieces, scale, ground-centre origin, optional remesh, decimation to the platform budget, unwrap) into a baked model document with a `mesh` node, and reports what it did. See "Cleaning an imported mesh". |
 | `model.game_ready {path, origin?, merge?, lods?, collider?, platforms?, clear?, bake?}` | Sets the game-ready settings of a document (each value given replaces that setting; null removes it; `clear` removes all), then bakes the `.glb`, LODs, collider and prefab. With no setting it only reports the budget check. See Game-ready models. |
 | `model.bake {path?, force?, dryRun?, overwrite?}` | Builds the documents whose `.glb` is missing or stale (one with `path`; `force` also the fresh ones). Writes the `.glb` the way `mesh.save` writes a mesh, with provenance and a recipe in `assets.json`. |
 
