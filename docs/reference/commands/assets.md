@@ -1105,6 +1105,152 @@ Draws on an INDEXED layer (kind "indexed": the pixels are palette indices; docs.
 | `frame` | integer | no | Which frame of an animated document to draw on (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
 | `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
 
+## `image.pixel.cleanup` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Clean an indexed layer: orphan pixels, doubles at line bends and uneven steps on nearly straight lines; reports what changed.
+
+Three passes (`passes`, default all, in this order). orphans: a pixel with no neighbour of its own colour takes the commonest opaque colour around it, or disappears when only transparency is around (`connectivity` 8 default counts diagonal neighbours, `holes` also fills single transparent holes inside colour). doubles: the corner pixel of a one-pixel line where it bends in an L (two pixels thick at the bend) is removed so the line is one pixel wide everywhere; the right-angled corners of shapes are left alone. jaggies: a one-pixel line that is nearly straight (never more than `tolerance` pixels, default 1, from the straight line between its ends) but has uneven steps (3,3,1,3) is redrawn evenly between its ends, when the pixels it needs are free. `keep` lists palette colours never touched (a one-pixel highlight on purpose). A single-pixel highlight or eye dot is an orphan to this command: name its colour in `keep`. Frames: `frame` or `frames`. Result: as image.pixel, plus per frame `orphans`, `doubles`, `jaggies` (pixels changed by each pass) and `changedPixels` ([x, y] on the canvas, the first 100). Example: {"path":"assets/art/hero.image.json","layer":"sprite","frames":"all","keep":["shine"]} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to change: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `layer` | any | yes | The indexed layer to change: its name or an index path like "1/0". (A pixels layer: image.layer.convert it first, or image.to_pixel_art.) |
+| `selection` | string | no | A stored selection (image.select): only its pixels (coverage 128 or more) may change. Default: the whole layer. |
+| `frames` | any | no | Several frames at once: "all", a list [0, 2, 3] or {"from": 0, "to": 3}. The same change is made on each frame's cel; the result lists the pixels changed per frame (`perFrame`) and the picture shown is the first of them. Not with `frame`. |
+| `scale` | integer | no | Magnification of the preview picture (default: automatic). |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+| `passes` | array | no | Which passes to run (default all three). |
+| `holes` | boolean | no | orphans: also fill a single transparent pixel enclosed by colour. Default false. |
+| `connectivity` | integer [4,8] | no | orphans: 8 counts a diagonal neighbour of the same colour as connected, 4 only edge neighbours. Default 8. |
+| `tolerance` | number | no | jaggies: the most a line may stray from the straight line between its ends to be redrawn evenly. Default 1. |
+| `keep` | array | no | Palette colours the clean-up never changes. |
+| `frame` | integer | no | Which frame of an animated document to change (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
+| `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
+
+## `image.pixel.dither` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Fill a region of an indexed layer with a dithered blend of palette colours (Bayer or checker), constant or as a gradient along a direction.
+
+Writes into the region (`selection`, and/or `rect`, else the whole layer box; transparent pixels too unless `onlyFilled`) a blend of palette colours made of pixels of exactly those colours, arranged by an ordered pattern. `colors` are 2 or more palette colours (or `ramp`: any colour of a declared ramp uses the whole ramp). Either `level` 0..1, the share of the second colour (bayer2 has 5 steps, bayer4 17, bayer8 65; checker alternates the two between a quarter and three quarters), or `gradient` {from [x,y], to [x,y]} in canvas pixels: the first colour at `from`, the last at `to`, the colours between spaced evenly and dithered into each other (with `ramp` the gradient runs from the lightest colour to the darkest). The patterns line up with the canvas, not with the layer, so two layers dithered alike match. Frames: `frame` or `frames`. Result as image.pixel: the baked document, `region` {x,y,width,height} of the changed pixels (of the first frame), `changed`, `pixelsChanged`, `layer` and `$image` = the picture magnified with hard pixels (`previewScale`). Every pixel stays a palette colour: nothing is blended and there is no anti-aliasing. Example: {"path":"assets/art/sky.image.json","layer":"sky","colors":["sky-light","sky","sky-dark"],"gradient":{"from":[0,0],"to":[0,31]},"pattern":"bayer4"} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to change: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `layer` | any | yes | The indexed layer to change: its name or an index path like "1/0". (A pixels layer: image.layer.convert it first, or image.to_pixel_art.) |
+| `selection` | string | no | A stored selection (image.select): only its pixels (coverage 128 or more) may change. Default: the whole layer. |
+| `frames` | any | no | Several frames at once: "all", a list [0, 2, 3] or {"from": 0, "to": 3}. The same change is made on each frame's cel; the result lists the pixels changed per frame (`perFrame`) and the picture shown is the first of them. Not with `frame`. |
+| `scale` | integer | no | Magnification of the preview picture (default: automatic). |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+| `colors` | array | no | Two or more palette colours (index, name, single character or #rrggbb in the palette). With `level` the first two are blended. |
+| `ramp` | any | no | Any palette colour of a declared ramp: use that whole ramp as the colours (dark to light; a gradient runs light to dark). |
+| `pattern` | string ["checker","bayer2","bayer4","bayer8"] | no | The ordered pattern that decides which pixels take the second colour. Default "bayer4". |
+| `level` | number | no | A constant blend: the share of the second colour. Give this or `gradient`. |
+| `gradient` | object | no | A blend along a direction: {from: [x, y], to: [x, y]} canvas pixels. Give this or `level`. |
+| `onlyFilled` | boolean | no | Only change pixels that already have a colour (leave transparent ones transparent). Default false. |
+| `rect` | object | no | Limit the region to a box {x, y, width, height} in canvas pixels (with `selection`, the part in both). |
+| `frame` | integer | no | Which frame of an animated document to change (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
+| `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
+
+## `image.pixel.outline` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Outline an indexed pixel-art layer by palette colour: inside or outside, 4- or 8-connected, flat, darkest of the ramp, or selective (sel-out).
+
+Outlines the shape of an INDEXED layer (everything that is not transparent). `side`: "outer" (default) puts the outline on the transparent pixels next to the shape, "inner" on the shape's own edge pixels. `connectivity` 4 (default) is a thin outline whose corners stay open, 8 closes the corners. `mode`: "flat" paints `color` (the default when `color` is given); "darkest" (default without `color`) uses, for each outline pixel, the darkest colour of the ramp of the fill colour it touches (a colour in no declared ramp: the darkest palette colour derived from it, see image.palette); "selective" is sel-out: the outline pixel takes its fill colour `shade` steps darker (default 2) along the ramp, and on the side that faces the light `litShade` steps (default shade - 1), so the outline is lighter where the light hits. The light is `light` or style.lightDirection; without one every pixel is `shade` steps darker. With `selection` only outline pixels inside it are written (the shape is still read from the whole layer). Frames: `frame` or `frames`. Only indexed layers: pixel art is palette-exact; a pixels layer must be converted first. Result as image.pixel: the baked document, `region` {x,y,width,height} of the changed pixels (of the first frame), `changed`, `pixelsChanged`, `layer` and `$image` = the picture magnified with hard pixels (`previewScale`). Every pixel stays a palette colour: nothing is blended and there is no anti-aliasing. Example: {"path":"assets/art/hero.image.json","layer":"sprite","mode":"selective","light":"upper-left"} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to change: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `layer` | any | yes | The indexed layer to change: its name or an index path like "1/0". (A pixels layer: image.layer.convert it first, or image.to_pixel_art.) |
+| `selection` | string | no | A stored selection (image.select): only its pixels (coverage 128 or more) may change. Default: the whole layer. |
+| `frames` | any | no | Several frames at once: "all", a list [0, 2, 3] or {"from": 0, "to": 3}. The same change is made on each frame's cel; the result lists the pixels changed per frame (`perFrame`) and the picture shown is the first of them. Not with `frame`. |
+| `scale` | integer | no | Magnification of the preview picture (default: automatic). |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+| `side` | string ["outer","inner"] | no | outer: on the transparent pixels around the shape. inner: on the shape's own edge pixels. Default "outer". |
+| `mode` | string ["flat","darkest","selective"] | no | flat: one palette colour (`color`). darkest: the darkest of the ramp of the fill colour it touches. selective: sel-out, the fill colour a few steps darker, lighter on the lit side. Default flat with `color`, else darkest. |
+| `color` | any | no | mode flat: the palette colour of the outline (index, name, single character or #rrggbb that is in the palette). |
+| `connectivity` | integer [4,8] | no | 4: pixels touching by an edge count as next to the shape; 8: corners too (a thicker outline with closed corners). Default 4. |
+| `shade` | integer | no | mode selective: steps darker than the fill colour (on the shadow side). Default 2. |
+| `litShade` | integer | no | mode selective: steps darker on the side facing the light (default shade - 1, at least 1). |
+| `light` | any | no | The direction TOWARDS the light: degrees counter-clockwise from the right (135 = upper-left, 90 = above), a name (upper-left, top, ...) or "style". Default: style.lightDirection of assets.json. |
+| `frame` | integer | no | Which frame of an animated document to change (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
+| `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
+
+## `image.pixel.rotate` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Rotate the pixels of an indexed layer (or a selection) by any angle, RotSprite-style: no new colours, no blur.
+
+Rotates the visible pixels of the layer (or of the `selection`) `angle` degrees clockwise about `pivot` (canvas pixels; default the centre of those pixels) and draws them back; the layer's box grows to hold the result. A multiple of 90 degrees is an exact turn of the pixels. Otherwise `method` "rotsprite" (default) enlarges the picture 8 times with Scale2x (EPX) three times, rotates by nearest sample and takes the commonest colour of each 8x8 block back down, which keeps edges and thin lines far better than a plain nearest rotation ("nearest", fast and blocky); the pixels to rotate are at most 256 x 256 for rotsprite. Only palette colours appear. Frames: `frame` or `frames`. Result as image.pixel: the baked document, `region` {x,y,width,height} of the changed pixels (of the first frame), `changed`, `pixelsChanged`, `layer` and `$image` = the picture magnified with hard pixels (`previewScale`). Every pixel stays a palette colour: nothing is blended and there is no anti-aliasing. Example: {"path":"assets/art/hero.image.json","layer":"sword","angle":30,"pivot":[12,20]} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to change: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `layer` | any | yes | The indexed layer to change: its name or an index path like "1/0". (A pixels layer: image.layer.convert it first, or image.to_pixel_art.) |
+| `selection` | string | no | A stored selection (image.select): only its pixels (coverage 128 or more) may change. Default: the whole layer. |
+| `frames` | any | no | Several frames at once: "all", a list [0, 2, 3] or {"from": 0, "to": 3}. The same change is made on each frame's cel; the result lists the pixels changed per frame (`perFrame`) and the picture shown is the first of them. Not with `frame`. |
+| `scale` | integer | no | Magnification of the preview picture (default: automatic). |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+| `angle` | number | yes | Degrees, clockwise (negative: counter-clockwise). |
+| `method` | string ["rotsprite","nearest"] | no | rotsprite: x8 with Scale2x, rotate, most-common-colour downscale. nearest: plain nearest-neighbour rotation. Default "rotsprite". |
+| `pivot` | array | no | [x, y] canvas pixels the rotation turns about (the pixel (x, y) spans x to x + 1). Default: the centre of the pixels. |
+| `frame` | integer | no | Which frame of an animated document to change (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
+| `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
+
+## `image.pixel.scale` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Scale the pixels of an indexed layer (or a selection) cleanly: whole factors repeat pixels, reductions take the commonest colour, scale2x/scale3x round corners; no blending.
+
+Scales the visible pixels of the layer (or of the `selection`) by `factor` (a number, or [horizontal, vertical]) or to `size` {width, height} (one of them keeps the proportions), around `pivot` (canvas pixels, default the centre of the pixels); the layer's box grows to hold the result. `method`: "nearest" repeats the pixel under each new pixel's centre (a whole factor makes exact blocks); "mode" gives each new pixel the commonest colour of the old pixels it covers (the clean way to shrink; opaque wins a tie); "scale2x" / "scale3x" are the EPX-style enlargers by exactly 2 / 3 that round off corners instead of copying them; "auto" (default) is nearest when enlarging and mode when shrinking. A non-integer enlargement works but repeats some rows and columns and not others, and a warning says so. Only palette colours appear. Frames: `frame` or `frames`. Result as image.pixel: the baked document, `region` {x,y,width,height} of the changed pixels (of the first frame), `changed`, `pixelsChanged`, `layer` and `$image` = the picture magnified with hard pixels (`previewScale`). Every pixel stays a palette colour: nothing is blended and there is no anti-aliasing. Example: {"path":"assets/art/hero.image.json","layer":"sprite","factor":2,"method":"scale2x"} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to change: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `layer` | any | yes | The indexed layer to change: its name or an index path like "1/0". (A pixels layer: image.layer.convert it first, or image.to_pixel_art.) |
+| `selection` | string | no | A stored selection (image.select): only its pixels (coverage 128 or more) may change. Default: the whole layer. |
+| `frames` | any | no | Several frames at once: "all", a list [0, 2, 3] or {"from": 0, "to": 3}. The same change is made on each frame's cel; the result lists the pixels changed per frame (`perFrame`) and the picture shown is the first of them. Not with `frame`. |
+| `scale` | integer | no | Magnification of the preview picture (default: automatic). |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+| `factor` | any | no | A multiplier (2 doubles, 0.5 halves) or [horizontal, vertical]. Give this or `size`. |
+| `size` | object | no | The new size {width, height} in pixels of the scaled pixels; give one to keep the proportions. Give this or `factor`. |
+| `method` | string ["auto","nearest","mode","scale2x","scale3x"] | no | auto: nearest to enlarge, mode to shrink. scale2x / scale3x: exactly x2 / x3 with rounded corners. Default "auto". |
+| `pivot` | array | no | [x, y] canvas pixels that stay in place. Default: the centre of the pixels. |
+| `frame` | integer | no | Which frame of an animated document to change (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
+| `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
+
+## `image.pixel.shade` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Shade an indexed pixel-art shape from a light direction: shadow and highlight bands stepping along the colour ramps, optional dithered transition.
+
+Shades the shape (the non-transparent pixels of the layer, or of the `selection`) as if lit from `light`: along the light's axis, `shadowLevels` bands of `shadowWidth` pixels at the edge facing away from the light step the colour darker (the outermost the most, the inner bands one step less), and `highlightLevels` bands of `highlightWidth` pixels at the edge facing the light step it lighter. A step follows the colour's declared ramp, or the nearest darker / lighter palette colour (image.palette). Shadow wins where both reach a pixel. `dither` N makes the first N pixels of each band after the first a Bayer-ordered mix with the stronger band before it, so the transition is not a hard line. The light is `light` or style.lightDirection (an error teaches both when neither exists). Run it on a flat-coloured shape (a body, a ball, a hat): shading is relative to what is in the pixel, so shading twice shades twice. Frames: `frame` or `frames`. Result as image.pixel: the baked document, `region` {x,y,width,height} of the changed pixels (of the first frame), `changed`, `pixelsChanged`, `layer` and `$image` = the picture magnified with hard pixels (`previewScale`). Every pixel stays a palette colour: nothing is blended and there is no anti-aliasing. Example: {"path":"assets/art/hero.image.json","layer":"sprite","selection":"body","light":"upper-left","shadowWidth":2,"dither":1} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to change: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `layer` | any | yes | The indexed layer to change: its name or an index path like "1/0". (A pixels layer: image.layer.convert it first, or image.to_pixel_art.) |
+| `selection` | string | no | A stored selection (image.select): only its pixels (coverage 128 or more) may change. Default: the whole layer. |
+| `frames` | any | no | Several frames at once: "all", a list [0, 2, 3] or {"from": 0, "to": 3}. The same change is made on each frame's cel; the result lists the pixels changed per frame (`perFrame`) and the picture shown is the first of them. Not with `frame`. |
+| `scale` | integer | no | Magnification of the preview picture (default: automatic). |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+| `light` | any | no | The direction TOWARDS the light: degrees counter-clockwise from the right (135 = upper-left, 90 = above), a name (upper-left, top, ...) or "style". Default: style.lightDirection of assets.json. |
+| `shadowWidth` | integer | no | Pixels per shadow band, measured along the light's direction. Default 2. |
+| `shadowLevels` | integer | no | Shadow bands (steps darker at the edge). 0 = no shadow. Default 1. |
+| `highlightWidth` | integer | no | Pixels per highlight band. Default 1. |
+| `highlightLevels` | integer | no | Highlight bands (steps lighter at the edge). 0 = no highlight. Default 1. |
+| `dither` | integer | no | Pixels of Bayer-dithered transition at the inner edge of each band (at most the band width). 0 or false = hard bands; true = 1. Default 0. |
+| `frame` | integer | no | Which frame of an animated document to change (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
+| `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
+
 ## `image.save` (modifies state)
 
 Not released yet (on main after 0.14.1).
@@ -1179,6 +1325,38 @@ Creates the tag `name`, or changes it when it exists (omitted fields keep their 
 | `direction` | string ["forward","reverse","pingpong"] | no | Play order (default forward). pingpong goes to the end and back without repeating the end frames. |
 | `repeat` | integer | no | How many times it plays; 0 (default) loops for ever. |
 | `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
+
+## `image.to_pixel_art` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Turn a painted, generated or imported picture (a layer or a PNG) into palette-exact pixel art: area-aware downscale, quantize, clean up, into an indexed layer.
+
+Takes `source` (a layer of the document of any kind: a pixels layer, a painted, generated or vector one, drawn alone with its masks and effects) or `png` (a PNG of the project), makes it `width` x `height` pixels (one keeps the proportions) or `pixelSize` source pixels per art pixel, and writes the result into the indexed layer `into` (created at the top, or replaced). `method`: "dominant" (default) turns every source pixel into its nearest palette colour (OKLab) first and gives each art pixel the commonest colour of the source pixels it covers, so edges stay crisp and no colour is a blend; "average" averages the covered area (a box filter with exact fractional edges, not bilinear) and then quantizes to the palette with the dither of image.layer.convert (`dither` none, bayer2/4/8, floydSteinberg, atkinson; `strength`; `space` oklab or rgb). Art pixels under `alphaThreshold` opaque (default 0.5) are transparent. Then `orphans` (default true, but false with a `dither`, whose pixels would look stray) removes stray single pixels (image.pixel.cleanup) and `outline` (a palette colour, or "darkest" for the darkest of each fill colour's ramp) adds a 4-connected outer outline. The palette is the document's, else `palette` (written into the document), else the style palette. The art lands where the source's pixels were (a PNG: at 0, 0) unless `x` / `y` say otherwise. `frame` chooses the frame whose cel receives it. Result: as image.pixel plus `sourceSize`, `size`, `at`, `colorsUsed`, `orphansFixed`, `outlinePixels`. Example: {"path":"assets/art/hero.image.json","source":"painting","into":"sprite","width":32,"outline":"darkest"} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame whose cel receives the pixel art: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `source` | any | no | The layer to convert: its name or an index path. Give this or `png`. |
+| `png` | string | no | A PNG (or JPG, BMP, TGA) of the project to convert. Give this or `source`. |
+| `into` | string | yes | The name of the indexed layer that receives the pixel art: created at the top when it does not exist, replaced when it does. |
+| `width` | integer | no | Width of the pixel art in pixels (alone: the height follows the proportions). |
+| `height` | integer | no | Height of the pixel art in pixels. |
+| `pixelSize` | integer | no | Source pixels per art pixel (4 turns 128 x 128 into 32 x 32). Instead of width / height. |
+| `method` | string ["dominant","average"] | no | dominant: palette colour first, then the commonest in each area. average: area average, then quantize (with an optional dither). Default "dominant". |
+| `palette` | any | no | The palette when the document has none (a list of colours or "style"); it is written into the document. |
+| `dither` | string ["none","bayer2","bayer4","bayer8","floydSteinberg","atkinson"] | no | method average: how colours between palette colours are mixed. Default "none". |
+| `strength` | number | no | method average: how strong the dither is. Default 1. |
+| `space` | string ["oklab","rgb"] | no | method average: how colour distance is measured. Default "oklab". |
+| `alphaThreshold` | number | no | Art pixels at least this opaque become palette colours, the rest transparent. Default 0.5. |
+| `orphans` | boolean | no | Remove single stray pixels afterwards. Default true, false when `dither` is set (a dither is made of single pixels). |
+| `outline` | any | no | Add an outer outline: a palette colour, or "darkest" (the darkest of the ramp of the colour it touches). |
+| `x` | integer | no | Canvas column of the left edge of the result (default: where the source's pixels start; a PNG: 0). |
+| `y` | integer | no | Canvas row of the top edge of the result. |
+| `scale` | integer | no | Magnification of the preview picture (default: automatic). |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+| `frame` | integer | no | Which frame of an animated document whose cel receives the pixel art (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
+| `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
 
 ## `sfx.bake` (modifies state)
 

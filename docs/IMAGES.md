@@ -512,6 +512,117 @@ The layer in the document now reads:
 Every command returned the baked `assets/art/face.png` and a magnified preview; the document is the source, so a later
 `image.pixel` edits single pixels of it and the diff shows exactly which.
 
+### Pixel helpers
+
+The finishing work of pixel art, done on an INDEXED layer by palette index only, so nothing is ever blended and the art stays
+palette-exact. All of them take `layer` (an indexed layer), `frame` or `frames` (below), `selection` (a stored
+[selection](#selections-imageselect): only its pixels, coverage 128 or more, may change) and `scale` / `bake` like `image.pixel`,
+and they answer like it: the baked picture, the changed `region`, `changed`, `pixelsChanged` and `$image` magnified with hard pixels,
+plus the counts of the helper. A helper that changes nothing says so in `warnings`. A layer of any other kind is refused: turn a
+painted one into pixel art with `image.to_pixel_art`.
+
+- `image.pixel.outline {path, layer, side?, mode?, color?, connectivity?, shade?, litShade?, light?}`: `side` `outer` (default;
+  on the transparent pixels around the shape) or `inner` (the shape's own edge pixels); `connectivity` 4 (default; a thin outline
+  whose corners stay open) or 8 (corners closed). `mode` `flat` paints `color`; `darkest` (default without `color`) takes, for each
+  outline pixel, the darkest colour of the ramp of the fill it touches; `selective` is sel-out: the fill it touches `shade` steps
+  darker (default 2) and, on the side facing the light, only `litShade` (default `shade - 1`), so the outline is lighter where the
+  light hits. Without a light direction every pixel is `shade` steps darker, and a `note` says so.
+- `image.pixel.shade {path, layer, light?, shadowWidth?, shadowLevels?, highlightWidth?, highlightLevels?, dither?}`: lights the
+  shape (its non-transparent pixels, or the `selection`) from `light`. Along the light's axis, `shadowLevels` bands of
+  `shadowWidth` pixels at the edge facing away step the colour darker (the outermost the most) and `highlightLevels` bands of
+  `highlightWidth` at the edge facing the light step it lighter, along the colour's ramp (`{"step": -1}` above). `dither` N turns
+  the first N pixels of each following band into a Bayer-ordered mix with the stronger band, so the transition is not a hard line.
+  Shading reads the pixel as it is, so run it once on flat-coloured shapes (select a part with `selection` and shade it as its
+  own shape). The light is `light` (degrees counter-clockwise from the right, 135 = upper-left; a name such as `upper-left`;
+  `"style"`), else `style.lightDirection` of assets.json; with neither the command stops and says how to give one. The result
+  names it in `light` {degrees, name, from}.
+- `image.pixel.dither {path, layer, colors | ramp, level | gradient, pattern?, onlyFilled?, rect?}`: fills the `selection` / `rect`
+  (else the whole layer box) with pixels of exactly the given palette colours arranged by an ordered pattern: `pattern` `bayer4`
+  (default; also `bayer2` with 5 levels, `bayer8` with 65, and `checker`). `level` (0 to 1) is a constant share of the second
+  colour; `gradient` {from [x, y], to [x, y]} runs the first colour into the last along that line, through any colours between
+  them. `ramp` names any colour of a declared ramp and uses the whole ramp (a gradient then runs from its lightest to its darkest).
+  `onlyFilled` leaves transparent pixels alone. The pattern lines up with the canvas, so two layers dithered alike match.
+- `image.pixel.cleanup {path, layer, passes?, holes?, connectivity?, tolerance?, keep?}`: `orphans` (a pixel with no neighbour of
+  its colour takes the commonest opaque colour around it, or goes when only transparency is around), `doubles` (the corner pixel
+  of a one-pixel line where it bends in an L; the right-angled corners of shapes stay) and `jaggies` (a nearly straight line with
+  uneven steps, 3-3-1-3, is redrawn evenly between its ends when `tolerance` allows). `keep` lists colours never touched: a
+  one-pixel eye highlight is an orphan to the command, so keep its colour. The result has `orphans`, `doubles`, `jaggies` (pixels
+  changed by each) and `changedPixels` (canvas `[x, y]`, the first 100).
+- `image.pixel.rotate {path, layer, angle, method?, pivot?}`: turns the layer's pixels (or the `selection`'s) `angle` degrees
+  clockwise about `pivot` (default their centre) and draws them back; the layer's box grows to hold them. A multiple of 90 is an
+  exact permutation of the pixels. Otherwise `rotsprite` (default) enlarges 8 times with Scale2x, rotates by nearest sample and
+  takes the commonest colour of each 8x8 block, which keeps edges and one-pixel lines far better than `nearest`; only palette
+  colours can appear. RotSprite takes at most 256 x 256 pixels. A one-pixel line still frays: rotate big, then clean up.
+- `image.pixel.scale {path, layer, factor | size, method?, pivot?}`: `factor` (2, 0.5 or `[2, 1]`) or `size` {width, height} (one
+  keeps the proportions). `method` `nearest` repeats pixels (a whole factor makes exact blocks), `mode` takes the commonest colour
+  of the old pixels each new one covers (the clean way to shrink), `scale2x` / `scale3x` enlarge by exactly 2 / 3 rounding corners
+  instead of copying them, and `auto` (default) picks nearest to enlarge and mode to shrink. A non-integer enlargement works but
+  repeats some rows and not others; a warning says so.
+- `image.to_pixel_art {path, source | png, into, width? height? | pixelSize?, method?, palette?, dither?, strength?, space?,
+  alphaThreshold?, orphans?, outline?, x?, y?}`: converts a layer of the document (any kind, drawn alone with its masks and effects)
+  or a project PNG into the indexed layer `into` (created on top, or replaced). The size is `width` and/or `height` (one keeps the
+  proportions) or `pixelSize` (source pixels per art pixel). `method` `dominant` (default) maps every source pixel to its
+  nearest palette colour (OKLab) and gives each art pixel the commonest colour of the area it covers, so edges stay crisp;
+  `average` averages the area (a box filter with exact fractional edges, not bilinear) and quantizes with the `dither` of
+  `image.layer.convert` (`none`, `bayer2/4/8`, `floydSteinberg`, `atkinson`). Then it removes orphans (`orphans`, default true, but
+  false with a `dither`, which is made of single pixels) and can add an outer outline (`outline`: a colour, or `darkest`). The
+  palette is the document's, else `palette`, else `style.palette`. The art lands where the source's pixels were (a PNG at 0, 0);
+  the result has `sourceSize`, `size`, `at`, `colorsUsed`, `orphansFixed`, `outlinePixels`.
+
+**Frames.** `frame` (default 0) changes one cel; `frames` changes several in one call: `"all"`, a list `[0, 2]` or
+`{"from": 1, "to": 3}`. The same change is made on each frame's cel, `perFrame` lists the counts per frame, and the picture and
+`region` are the first frame's. Only a frame that shows the layer's own cel is changed in place; as with `image.pixel`, a frame
+that held a copy of an earlier cel gets its own cel first.
+
+A worked example, from real runs in a project whose `assets.json` has `"style": {"lightDirection": "upper-left"}` and a 16x16
+document with a red ramp (`red-dark`, `red`, `red-light`). A 12x12 ellipse of `red` is the starting point
+(`image.draw {layer: "ball", create: true, shapes: [{type: "ellipse", x: 2, y: 2, width: 12, height: 12, fill: "red"}]}`).
+
+```
+image.pixel.shade {path, layer: "ball", shadowWidth: 3, highlightWidth: 1}
+-> pixelsChanged 49, light {degrees: 135, name: "upper-left", from: "style.lightDirection"}
+......2222......        ......3333......
+....22222222....        ....33322221....
+...2222222222...   ->   ...3322222221...      (3 = red-light, 1 = red-dark: light on the upper left,
+...2222222222...        ...3222222221...       shadow on the lower right, along the ramp)
+```
+
+Then `image.pixel.outline {layer: "ball", mode: "selective"}` (`pixelsChanged` 36) puts a ring around
+it that is `red` (2) on the lit upper-left and `red-dark` (1) elsewhere, from the same style light:
+
+```
+......2222......
+....22333311....
+...2333222211...
+..233222222211..
+...
+```
+
+`image.pixel.dither {layer: "ball", colors: ["red", "red-dark"], gradient: {from: [8, 9], to: [12, 13]}, onlyFilled: true, rect:
+{x: 8, y: 9, width: 6, height: 5}}` softens the shadow (10 pixels), and `image.pixel.cleanup {layer: "ball"}` then reports
+`orphans 0, doubles 1, jaggies 0` and a one-pixel `region` at the single double it removed. A sword of 4 x 7 pixels rotated with
+`image.pixel.rotate {angle: 45}` (RotSprite) keeps its two colours and its shape:
+
+```
+......2.....
+......2.....                    .......22...
+.....22.....                    .....222....
+.....22.....        ->          ...2222.....
+.....22.....                    ....22......
+....2222....                    ....12......
+......1.....
+```
+
+and `image.to_pixel_art {source: "sky", into: "art", width: 8, method: "average", dither: "bayer4"}` turns a 16x16 gradient layer into
+an 8x8 indexed layer of four palette colours (the first four rows) (`sourceSize` 16x16, `size` 8x8, `colorsUsed` 4, `orphansFixed` 0):
+
+```
+13131313
+32434242
+23243423
+43434342
+```
+
 ## Frames and tags
 
 A document becomes an animation when it has several frames. The layers stay as they are; each `pixels` or `indexed` layer
