@@ -19,6 +19,7 @@
 //   - The same document and the same files give the same bytes (no clock, no random numbers, no threads) with the same build.
 #pragma once
 
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -254,6 +255,10 @@ struct ImageRenderOptions {
     std::string projectDir;         // where project-relative files (PNGs, SVGs, fonts) are read
     int frame = 0;                  // which frame to draw (0 to image_frame_count - 1)
     std::optional<ImageOnionSkin> onion;  // ghost the neighbouring frames under it (a preview; never used by the bake)
+    // Pictures that stand in for project files: a layer (or mask, or operation) that names a file found here as a key reads this picture
+    // instead of the PNG on disk, and the file need not exist. The editor's Image panel shows a stroke being painted this way (the pixels
+    // are not on disk yet). The bake never sets it. Pictures read this way are not listed in `inputs`.
+    const std::map<std::string, Image>* pictures = nullptr;
 };
 struct ImageRender {
     Image image;                    // width x height, straight-alpha RGBA8

@@ -606,6 +606,62 @@ badge (`WAV`, `JS`, `SCN`, `PFB`, `MAT`...) for the rest. Hover a file for its p
 - **Right-click** a file: **Show in Finder** (Explorer, file manager), **Copy path**, **Delete...** (asks first, then `fs.delete`;
   it is not an Undo step, the file is gone from disk).
 
+## Image panel
+
+View > Image opens the Image panel; double-clicking a `*.image.json` in the Project panel opens that document in it
+([IMAGES.md](IMAGES.md)). It is a floating window the first time (1100 x 720; dock it like any panel) and edits ONE document at a time.
+Every edit runs the same `image.*` command an AI would call (`image.layer.*`, `image.paint`, `image.select`, `image.edit`) and the
+brush, fill and transform use the code of `fa/tooling/image_paint.h`, so a stroke, a fill or a selection made with the mouse is the
+same pixels the command writes. The picture on the canvas is drawn by the one compositor (`composite_image_document`), never a second
+one. An edit writes the document (and the layer's PNG) as it happens; the baked picture next to the document is written only by
+**Save** (the toolbar shows "baked", or "not baked (stale)" and so on), like `image.save`.
+
+- **Toolbar.** The document (a menu of the project's `*.image.json`), **New** (a name and a square size: `image.create` makes `assets/<name>.image.json` with a white background layer),
+  **Save**, **Reload** (re-reads the files; the panel also re-reads them by itself when they change on disk and no gesture is
+  running), **Fit**, **1:1**, a zoom percentage, **Grid** (a pixel grid from 800% up) and **Checker** (the transparency
+  checkerboard).
+- **Canvas.** The wheel zooms around the pointer, Ctrl+wheel (a trackpad pinch) too; Shift+wheel and a sideways wheel pan, and so do
+  the middle button or Space + left drag. Above 100% the picture is drawn with nearest-neighbour sampling, below it smoothed. The
+  selection is outlined with marching ants (they crawl up to 3000 edges, stand still above that, and a selection of more than 60000
+  edges is shown as a tint only); **Tint** shows it as a tint as well.
+- **Tools** (left column, shortcut in brackets): Move (V), Brush (B), Eraser (E), Fill (G), Picker (I; Alt+click picks with any
+  Brush, Eraser and Fill), Rectangle and Ellipse selection (M, Shift+M), Lasso and Polygon selection (L, Shift+L; a click on the first
+  point, a double click or Enter closes a polygon, Esc drops it), Magic wand (W) and Transform (T). `[` and `]` change the brush size. The options bar above the canvas has
+  the brush colour, size, hardness and opacity, the wand's tolerance and contiguous switch, and the selection operation.
+- **Painting** draws on the selected layer, inside the selection if there is one, as one undo step per stroke. On an `indexed` layer
+  the brush paints palette indices only (hardness and opacity do not apply) and the **palette bar** under the canvas shows the layer's
+  palette (the bar shows whenever the document has a palette): click a swatch to paint with it, right-click to type another hex
+  colour, which recolours every pixel that uses it. A locked layer or a layer that is not `pixels` or `indexed` is not painted on
+  (the status line says why).
+- **Selections.** Plain drag replaces the selection, Shift adds, Alt subtracts and Shift+Alt intersects (the same as the operation
+  menu). All (Ctrl+A), None (Ctrl+D), Invert, Grow, Shrink and Feather are buttons of the options bar. The selection is the stored
+  selection `image.select` writes, so a command sees it too.
+- **Transform** shows a box with eight handles around the selected pixels (or the whole layer without a selection): drag a handle to
+  scale, inside the box to move, outside it to rotate; Shift keeps the aspect ratio or snaps the angle to 15 degrees. The numeric
+  fields of the options bar do the same by value, and the **Nearest** box chooses hard pixel edges (on by default in a document with a
+  palette) or smooth ones. **Apply** (or Enter) runs `image.edit` once, **Cancel** (Esc) drops it. It works on the pixels of a
+  `pixels` layer only; for another kind the status line says to convert the layer first.
+- **Layers** (right column, top layer first): a kind badge, an eye (visible), a padlock (locked), the name (double-click to rename),
+  a triangle that opens or closes a group; drag a row to reorder it or to drop it into a group; **+ Add** (pixels, indexed, fill,
+  gradient, text, group, adjustment), **Duplicate** and **Remove**. The lock and the open/closed state of a group are kept for this
+  editor session only, by layer name: they are not in the document. Procedural, svg and provider layers are added with the Console
+  (`image.layer.add`); once there they can be selected, reordered, hidden and have their opacity, blend mode and offset edited.
+- **Layer inspector.** Visible, clip, opacity, blend mode, offset, and the fields of the layer's kind (colour, text, gradient angle).
+  Under it the **Adjustments** and **Effects** lists: add one by type, remove, reorder, and edit each field. A slider previews on the
+  canvas while it is dragged, writes nothing until it is released and is then one undo step. The curve and stops fields (`curves`,
+  `gradientMap`) are typed as JSON text.
+- **Frames.** A document with frames gets a strip under the canvas: one button per frame and an **Onion skin** box (the neighbouring
+  frames drawn faint under the picture, a preview that the bake never uses, [IMAGES.md](IMAGES.md), "Onion skin"). Switching frame
+  only changes what the panel shows and where painting goes; the document is not changed.
+- **Undo and redo** are the editor's (Ctrl+Z, Ctrl+Shift+Z, Edit menu): each stroke, selection, layer edit, adjustment edit and
+  transform is one step, and one slider drag is one step. An undo puts back the files the edit changed (the document, the PNGs of
+  the layers, the stored selection) from a table the panel keeps in memory; a step of another document opens that document first. The
+  editor's stacks hold only a pointer to the step, so the files are not part of a scene's undo history on disk.
+- **Speed.** While a stroke, a slider or a transform is live, the shared compositor draws the document with the changing layer taken
+  from memory instead of its PNG on disk, and nothing is written until the gesture ends. The layers under the one being edited are
+  composited once and reused for every frame of the gesture (the layers above it, and the whole picture when the edited layer is
+  clipped or the onion skin is on, are drawn each time). The status line shows the last composite time in ms.
+
 ## Animation panel
 
 View > Animation (a tab next to Console; the View menu reopens it) edits the 2D clips of an entity's `Animator`
@@ -741,7 +797,7 @@ wrapping, right-click menu), G (delete a project), H (Export window), I (Platfor
 agent through the MCP endpoint), P (revert an AI run), Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
 the stuck warning, Check activity, the detached worker and its single continuation), R (a program updated on disk: the Restart notice,
 its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout), V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator), B2 (the Animation panel: New clip, keys written in record mode by a gizmo drag, a key moved and its Undo, an easing from the context menu, an event, scrubbing that poses without changing the scene, the onion skin), C2 (the bone tools: a chain drawn by clicks, a sprite bound, weights painted as one undo step, an IK handle dragged, the overlay following the selected bone), Y (recipes: a stale badge and a banner when a source is saved, Regenerate from the toolbar and the banner, Not now, a deleted source), X (the AI settings window against a scratch `ai.json`: routes, a key, sites, a bad site stopping Save, Remove stored key), D2 (the External tools tab of that window: a server added with the form, Test, a pasted Claude Code JSON, Save keeping the other keys of `ai.json`, Remove), Z (sprite sheets: the Project panel previews a sheet's clips, the Inspector lists them and one click sets `SpriteAnimator.clip`) and W (two AI chats at once against a scripted model: both finish with their own answers, the
-same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run) and E2 (feedback sharing against a fake transport: the consent dialog and its preview, the Send feedback window (Send feedback with no mode chosen, the checked rows, unchecking one, Send, Cancel, the AI check against a scripted model that passes, rewrites and fails, a row that cannot be sent), the Add feedback window (Add and Cancel), a closed entry moving to the archive, the Feedback Settings sign-in and Send now; it never touches the network and writes its settings under `<FA_EDITOR_AUTOTEST_OUT>/share_config`), E3 (the Extensions tab of the AI settings: a plugin folder and pasted hooks added, a role switched off, Save keeping the other keys, a project's hooks needing the trust and a changed file dropping it), S2 (its Token savers section: switches and judge saved in `ai.json` keeping the other keys, the proposals of a project's runs, AGENTS.md and the tool groups changed only by Load up front / Add to AGENTS.md, No thanks), K2 (the Skills table of that tab: the engine's and the project's skills listed, a role and an On box switched, Save keeping them as skill entries, and a role then being offered exactly the skills left on for it) H2 (its Hooks section: the saved hooks with where each runs, three real runs listed as ok, failed and blocked, Clear) and F2 (its TokenEconomizer section against a fake Claude Code CLI: the confirmation that runs nothing, the install, the entry added to `ai.json` keeping the other keys, Save, and only the entry offered when the plugin is already installed). While you work on one part of the editor, run only the sections that cover it:
+same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run) and E2 (feedback sharing against a fake transport: the consent dialog and its preview, the Send feedback window (Send feedback with no mode chosen, the checked rows, unchecking one, Send, Cancel, the AI check against a scripted model that passes, rewrites and fails, a row that cannot be sent), the Add feedback window (Add and Cancel), a closed entry moving to the archive, the Feedback Settings sign-in and Send now; it never touches the network and writes its settings under `<FA_EDITOR_AUTOTEST_OUT>/share_config`), E3 (the Extensions tab of the AI settings: a plugin folder and pasted hooks added, a role switched off, Save keeping the other keys, a project's hooks needing the trust and a changed file dropping it), S2 (its Token savers section: switches and judge saved in `ai.json` keeping the other keys, the proposals of a project's runs, AGENTS.md and the tool groups changed only by Load up front / Add to AGENTS.md, No thanks), K2 (the Skills table of that tab: the engine's and the project's skills listed, a role and an On box switched, Save keeping them as skill entries, and a role then being offered exactly the skills left on for it) H2 (its Hooks section: the saved hooks with where each runs, three real runs listed as ok, failed and blocked, Clear) and F2 (its TokenEconomizer section against a fake Claude Code CLI: the confirmation that runs nothing, the install, the entry added to `ai.json` keeping the other keys, Save, and only the entry offered when the plugin is already installed), and I2 (the Image panel: a document created and opened, a brush stroke, a rectangle selection, a transform applied from its handles, an adjustment previewed then committed, six undos and six redos, and Save baking the PNG whose pixels the section reads back). While you work on one part of the editor, run only the sections that cover it:
 
 ```bash
 FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M build/macos-debug/tools/editor/fa_editor_autotest
