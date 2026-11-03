@@ -680,3 +680,30 @@ Good for placeholders and simple effects; for richer sounds import a CC0 kit (do
 | `seconds` | number | no | Length in seconds. Default: the preset's own length. |
 | `overwrite` | boolean | no | Replace the file when it already exists. Default false. |
 
+## `image.bake` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Draw a layered image document (*.image.json) into its PNG and return the picture.
+
+Composites the layers of the image document at `path` (project-relative, ending in .image.json) on the CPU and writes the PNG next to it (hero.image.json -> hero.png, or the document's `output`). Bytes are deterministic: the same document and files give the same PNG. Records provenance and the recipe {command image.bake, args {path}, inputs: the document and every file it reads} in assets.json, so assets.regenerate remakes the PNG and `factoria validate` warns when the document or a source file changed since (stale). A picture with a provider layer, or built from AI-made files, is recorded as AI-made. The result has the picture as `$image`, its size and any warnings. A problem in the document is an error with the file, the JSON pointer and a fix. Format and layers: docs.read IMAGES. Example: {"path":"assets/art/hero.image.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. "assets/art/hero.image.json". |
+| `onlyIfNeeded` | boolean | no | Skip the drawing when the PNG already matches the document and every file it reads (what the export does). Default false. |
+
+## `image.save` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Check an image document, write it to a *.image.json file and bake its PNG; nothing is written when the document has a problem.
+
+Validates `document` (the layered image document as JSON: canvas width and height, background, layers bottom first; see docs.read IMAGES), writes it to `path` (project-relative, ending in .image.json) as canonical JSON and bakes the PNG like image.bake. A problem in the document is an error naming the JSON pointer (/layers/2/blend), what is wrong and how to fix it, and writes nothing. Example: {"path":"assets/art/sky.image.json","document":{"width":128,"height":128,"layers":[{"kind":"gradient","gradient":{"angle":0,"stops":[{"at":0,"color":"#102040"},{"at":1,"color":"#e08040"}]}},{"kind":"text","text":"Hi","size":32,"x":8,"y":8}]}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Where to write the document, project-relative, ending in .image.json. |
+| `document` | object | yes | The image document: {"width", "height", "background"?, "output"?, "layers": [...]}. See docs.read IMAGES for the layer kinds. |
+| `bake` | boolean | no | Also draw the PNG. False only checks and writes the document. Default true. |
+

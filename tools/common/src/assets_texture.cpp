@@ -770,20 +770,27 @@ Image normal_map(const Canvas& c, double strength) {
 
 constexpr const char* kCommand = "assets.generate_texture";
 
-double number_arg(const Json& a, const char* key, double def, double lo, double hi, const char* hint) {
+// Where an argument error is reported: "<command> <prefix>/<key>: ...". assets.generate_texture uses its own name and no prefix;
+// a procedural layer of an image document names the document file and the layer's JSON pointer.
+struct ArgCtx {
+    std::string command = kCommand;
+    std::string prefix;
+};
+
+double number_arg(const ArgCtx& c, const Json& a, const char* key, double def, double lo, double hi, const char* hint) {
     auto it = a.find(key);
     if (it == a.end() || it->is_null()) return def;
-    if (!it->is_number()) arg_error(kCommand, std::string("/") + key, "expected a number.", hint);
+    if (!it->is_number()) arg_error(c.command.c_str(), c.prefix + "/" + key, "expected a number.", hint);
     const double v = it->get<double>();
-    if (!(v >= lo && v <= hi)) arg_error(kCommand, std::string("/") + key, std::format("{} is outside {} to {}.", v, lo, hi), hint);
+    if (!(v >= lo && v <= hi)) arg_error(c.command.c_str(), c.prefix + "/" + key, std::format("{} is outside {} to {}.", v, lo, hi), hint);
     return v;
 }
 
-int size_arg(const Json& a, const char* key, int def) {
+int size_arg(const ArgCtx& c, const Json& a, const char* key, int def) {
     auto it = a.find(key);
     if (it == a.end() || it->is_null()) return def;
     if (!it->is_number_integer() || it->get<long long>() < 8 || it->get<long long>() > kMaxSide)
-        arg_error(kCommand, std::string("/") + key, std::format("expected a whole number of pixels from 8 to {}.", kMaxSide),
+        arg_error(c.command.c_str(), c.prefix + "/" + key, std::format("expected a whole number of pixels from 8 to {}.", kMaxSide),
                   std::format("Make a texture up to {0}x{0} and tile it (Sprite.tiled / uvScale) for larger areas.", kMaxSide));
     return int(it->get<long long>());
 }
@@ -814,47 +821,55 @@ std::string checked_png_path(const std::string& path) {
     return *norm;
 }
 
-Json generate_texture(const std::string& projectDir, const Json& a) {
-    if (!a.is_object()) fail("invalid_argument", "assets.generate_texture expects an object.", "See the description of the command for the fields.");
-    check_arg_keys(kCommand, a, "",
-                   {"path", "preset", "width", "height", "seed", "color", "accent", "scale", "roughness", "tileable", "vignette", "vignetteWidth", "angle",
-                    "normalMap", "normalStrength", "overwrite", "author", "plankCount", "plankLength", "gapWidth", "gapDarkness"});
-    const std::string presetName = to_lower(tooling_detail::arg_string(a, "preset", true));
-    const Preset* preset = find_preset(presetName);
-    if (!preset) {
-        const auto names = preset_names();
-        fail("invalid_argument", "Unknown preset '" + presetName + "'.", did_you_mean(presetName, names) + " Presets: " + join(names, ", ") + ".");
-    }
-    const std::string rel = checked_png_path(tooling_detail::arg_string(a, "path", true));
-    const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
+// The arguments of one texture, checked: everything assets.generate_texture and a procedural layer of an image document share
+// (the picture itself; the file, overwrite, author and normal map belong to the command).
+struct TextureSpec {
+    std::string presetName;
+    const Preset* preset = nullptr;
     Params p;
-    p.w = size_arg(a, "width", 512);
-    p.h = size_arg(a, "height", a.contains("width") ? p.w : 512);
+    long seedArg = 0;
+    Json used;                         // the arguments that were used, for the notes
+    std::vector<std::string> warnings;
+};
+
+const std::vector<std::string> kPictureKeys = {"preset", "width", "height", "seed", "color", "accent", "scale", "roughness", "tileable", "vignette",
+                                               "vignetteWidth", "angle", "plankCount", "plankLength", "gapWidth", "gapDarkness"};
+
+TextureSpec parse_texture_spec(const ArgCtx& ctx, const Json& a) {
+    TextureSpec spec;
+    spec.presetName = to_lower(tooling_detail::arg_string(a, "preset", true));
+    spec.preset = find_preset(spec.presetName);
+    if (!spec.preset) {
+        const auto names = preset_names();
+        arg_error(ctx.command.c_str(), ctx.prefix + "/preset", "unknown preset '" + spec.presetName + "'.", did_you_mean(spec.presetName, names) + " Presets: " + join(names, ", ") + ".");
+    }
+    const Preset* preset = spec.preset;
+    const std::string& presetName = spec.presetName;
+    Params& p = spec.p;
+    p.w = size_arg(ctx, a, "width", 512);
+    p.h = size_arg(ctx, a, "height", a.contains("width") ? p.w : 512);
     p.seed = u32(mix_bits(u32(tooling_detail::arg_int(a, "seed", 0))) ^ mix_bits(u32(tooling_detail::arg_int(a, "seed", 0) >> 32) + 0x51ed27u));
     p.base = preset->base;
     p.accent = preset->accent;
-    if (a.contains("color")) p.base = from_color(colour_arg(kCommand, a["color"], "/color"));
-    if (a.contains("accent")) p.accent = from_color(colour_arg(kCommand, a["accent"], "/accent"));
-    p.scale = number_arg(a, "scale", 1.0, 0.1, 10.0, "1 is the preset's natural size; 2 makes every feature twice as big, 0.5 half as big.");
-    p.rough = number_arg(a, "roughness", 0.5, 0.0, 1.0, "0 is smooth and even, 1 is rough and uneven; 0.5 is the default.");
-    p.vignette = number_arg(a, "vignette", preset->vignette, 0.0, 1.0, "0 is no darkened edge, 1 a strong one.");
-    p.vignetteWidth = number_arg(a, "vignetteWidth", p.vignetteWidth, 0.005, 0.5, "A fraction of the picture's short side: 0.035 (the default) is a narrow worn edge, 0.17 a wide frame.");
-    p.angle = number_arg(a, "angle", 0.0, -360.0, 360.0, "Degrees: 0 runs from the top to the bottom, 90 from the left to the right.");
+    if (a.contains("color")) p.base = from_color(colour_arg(ctx.command.c_str(), a["color"], ctx.prefix + "/color"));
+    if (a.contains("accent")) p.accent = from_color(colour_arg(ctx.command.c_str(), a["accent"], ctx.prefix + "/accent"));
+    p.scale = number_arg(ctx, a, "scale", 1.0, 0.1, 10.0, "1 is the preset's natural size; 2 makes every feature twice as big, 0.5 half as big.");
+    p.rough = number_arg(ctx, a, "roughness", 0.5, 0.0, 1.0, "0 is smooth and even, 1 is rough and uneven; 0.5 is the default.");
+    p.vignette = number_arg(ctx, a, "vignette", preset->vignette, 0.0, 1.0, "0 is no darkened edge, 1 a strong one.");
+    p.vignetteWidth = number_arg(ctx, a, "vignetteWidth", p.vignetteWidth, 0.005, 0.5, "A fraction of the picture's short side: 0.035 (the default) is a narrow worn edge, 0.17 a wide frame.");
+    p.angle = number_arg(ctx, a, "angle", 0.0, -360.0, 360.0, "Degrees: 0 runs from the top to the bottom, 90 from the left to the right.");
     p.tile = tooling_detail::arg_bool(a, "tileable", false);
     if (a.contains("plankCount") && !a["plankCount"].is_null()) {
         const Json& pc = a["plankCount"];
         if (!pc.is_number_integer() || pc.get<long long>() < 1 || pc.get<long long>() > 64)
-            arg_error(kCommand, "/plankCount", "expected a whole number of boards from 1 to 64.", "It is how many boards are stacked from the top to the bottom of the picture; leave it out to follow `scale`.");
+            arg_error(ctx.command.c_str(), ctx.prefix + "/plankCount", "expected a whole number of boards from 1 to 64.", "It is how many boards are stacked from the top to the bottom of the picture; leave it out to follow `scale`.");
         p.plankCount = int(pc.get<long long>());
     }
-    p.plankLength = number_arg(a, "plankLength", p.plankLength, 0.0, 1.0, "A fraction of the picture's width: 0 is boards that run from side to side, 0.5 is two boards per row, 0.25 four.");
-    p.gapWidth = number_arg(a, "gapWidth", p.gapWidth, 0.0, 0.2, "A fraction of a board's width: 0.01 is a fine seam, 0.05 a wide gap.");
-    p.gapDarkness = number_arg(a, "gapDarkness", p.gapDarkness, 0.0, 1.0, "0 leaves the gaps the colour of the wood, 1 makes them as dark as the accent allows.");
-    const bool wantNormal = tooling_detail::arg_bool(a, "normalMap", false);
-    const double normalStrength = number_arg(a, "normalStrength", 3.0, 0.1, 20.0, "3 is a clear relief; 1 is subtle, 10 is deep.");
-    const std::string author = tooling_detail::arg_string(a, "author", false, "factoria");
+    p.plankLength = number_arg(ctx, a, "plankLength", p.plankLength, 0.0, 1.0, "A fraction of the picture's width: 0 is boards that run from side to side, 0.5 is two boards per row, 0.25 four.");
+    p.gapWidth = number_arg(ctx, a, "gapWidth", p.gapWidth, 0.0, 0.2, "A fraction of a board's width: 0.01 is a fine seam, 0.05 a wide gap.");
+    p.gapDarkness = number_arg(ctx, a, "gapDarkness", p.gapDarkness, 0.0, 1.0, "0 leaves the gaps the colour of the wood, 1 makes them as dark as the accent allows.");
 
-    std::vector<std::string> warnings;
+    std::vector<std::string>& warnings = spec.warnings;
     if (p.tile && !preset->canTile) {
         warnings.push_back(std::format("tileable was ignored: a {} has an edge by nature. Use paper, wood, leather or another material preset to tile.", presetName));
         p.tile = false;
@@ -872,6 +887,56 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
     if (a.contains("vignetteWidth") && !a["vignetteWidth"].is_null() && (presetName == "vignette" || p.vignette <= 0))
         warnings.push_back("vignetteWidth only matters when the edge is darkened (a `vignette` above 0 on a preset other than vignette, not tileable); it was ignored.");
     if (p.angle != 0 && presetName != "gradient") warnings.push_back("angle only turns the gradient preset; it was ignored.");
+
+    spec.seedArg = tooling_detail::arg_int(a, "seed", 0);
+    Json used = Json::object({{"preset", presetName}, {"width", p.w}, {"height", p.h}, {"seed", spec.seedArg}, {"scale", p.scale}, {"roughness", p.rough}});
+    if (a.contains("color")) used["color"] = a["color"];
+    if (a.contains("accent")) used["accent"] = a["accent"];
+    if (p.tile) used["tileable"] = true;
+    if (p.vignette > 0 && presetName != "vignette") {
+        used["vignette"] = p.vignette;
+        used["vignetteWidth"] = p.vignetteWidth;
+    }
+    if (presetName == "gradient") used["angle"] = p.angle;
+    if (presetName == "planks") {
+        if (p.plankCount > 0) used["plankCount"] = p.plankCount;
+        used["plankLength"] = p.plankLength;
+        used["gapWidth"] = p.gapWidth;
+        used["gapDarkness"] = p.gapDarkness;
+    }
+    spec.used = std::move(used);
+    return spec;
+}
+
+Canvas paint_texture(const TextureSpec& spec) {
+    const Params& p = spec.p;
+    Grid grid;
+    grid.w = p.w;
+    grid.h = p.h;
+    grid.tile = p.tile;
+    grid.seed = p.seed;
+    Canvas canvas(p.w, p.h, p.tile);
+    spec.preset->draw(canvas, p, grid);
+    if (p.vignette > 0 && spec.presetName != "vignette") apply_edge_vignette(canvas, p, grid, p.vignette);
+    return canvas;
+}
+
+Json generate_texture(const std::string& projectDir, const Json& a) {
+    if (!a.is_object()) fail("invalid_argument", "assets.generate_texture expects an object.", "See the description of the command for the fields.");
+    std::vector<std::string> keys = kPictureKeys;
+    keys.insert(keys.end(), {"path", "normalMap", "normalStrength", "overwrite", "author"});
+    check_arg_keys(kCommand, a, "", keys);
+    const ArgCtx ctx;
+    const std::string rel = checked_png_path(tooling_detail::arg_string(a, "path", true));
+    const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
+    TextureSpec spec = parse_texture_spec(ctx, a);
+    const std::string& presetName = spec.presetName;
+    const Params& p = spec.p;
+    const bool wantNormal = tooling_detail::arg_bool(a, "normalMap", false);
+    const double normalStrength = number_arg(ctx, a, "normalStrength", 3.0, 0.1, 20.0, "3 is a clear relief; 1 is subtle, 10 is deep.");
+    const std::string author = tooling_detail::arg_string(a, "author", false, "factoria");
+
+    std::vector<std::string> warnings = spec.warnings;
     if (wantNormal && (presetName == "gradient" || presetName == "radial" || presetName == "vignette"))
         warnings.push_back("a gradient has no relief, so its normal map is flat.");
 
@@ -888,33 +953,11 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
     }
     require_usable_manifest(projectDir);
 
-    Grid grid;
-    grid.w = p.w;
-    grid.h = p.h;
-    grid.tile = p.tile;
-    grid.seed = p.seed;
-    Canvas canvas(p.w, p.h, p.tile);
-    preset->draw(canvas, p, grid);
-    if (p.vignette > 0 && presetName != "vignette") apply_edge_vignette(canvas, p, grid, p.vignette);
-    const Image image = to_image(canvas, p.seed, !preset->textured);
+    const Canvas canvas = paint_texture(spec);
+    const Image image = to_image(canvas, p.seed, !spec.preset->textured);
 
-    const long seedArg = tooling_detail::arg_int(a, "seed", 0);
-    Json used = Json::object({{"preset", presetName}, {"width", p.w}, {"height", p.h}, {"seed", seedArg}, {"scale", p.scale}, {"roughness", p.rough}});
-    if (a.contains("color")) used["color"] = a["color"];
-    if (a.contains("accent")) used["accent"] = a["accent"];
-    if (p.tile) used["tileable"] = true;
-    if (p.vignette > 0 && presetName != "vignette") {
-        used["vignette"] = p.vignette;
-        used["vignetteWidth"] = p.vignetteWidth;
-    }
-    if (presetName == "gradient") used["angle"] = p.angle;
-    if (presetName == "planks") {
-        if (p.plankCount > 0) used["plankCount"] = p.plankCount;
-        used["plankLength"] = p.plankLength;
-        used["gapWidth"] = p.gapWidth;
-        used["gapDarkness"] = p.gapDarkness;
-    }
-    const std::string notes = "Procedural texture from assets.generate_texture " + used.dump() + ". Same arguments, same picture.";
+    const long seedArg = spec.seedArg;
+    const std::string notes = "Procedural texture from assets.generate_texture " + spec.used.dump() + ". Same arguments, same picture.";
     const Json recipe = make_recipe(projectDir, kCommand, recipe_args(a, {{"path", rel}, {"seed", seedArg}}), {});
     auto provenance_for = [&](const std::string& extra) {
         return Json::object({{"origin", "original"}, {"ai", false}, {"kind", "image"}, {"provider", "factoria assets.generate_texture"}, {"seed", seedArg},
@@ -938,6 +981,18 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
 }
 
 }  // namespace
+
+Image procedural_texture_image(const Json& args, const std::string& command, const std::string& pointer, std::vector<std::string>& warnings) {
+    TextureSpec spec = parse_texture_spec({command, pointer}, args);
+    warnings.insert(warnings.end(), spec.warnings.begin(), spec.warnings.end());
+    return to_image(paint_texture(spec), spec.p.seed, !spec.preset->textured);
+}
+
+void check_procedural_texture_args(const Json& args, const std::string& command, const std::string& pointer) {
+    check_arg_keys(command.c_str(), args, pointer, kPictureKeys);
+    if (!args.contains("preset")) arg_error(command.c_str(), pointer, "missing 'preset'.", "Presets: " + join(preset_names(), ", ") + ".");
+    (void)parse_texture_spec({command, pointer}, args);
+}
 
 void register_texture_command(CommandRegistry& registry, const std::string& projectDir) {
     std::string presets;

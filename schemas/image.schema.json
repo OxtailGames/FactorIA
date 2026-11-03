@@ -1,0 +1,490 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factoria.dev/schemas/image.schema.json",
+  "title": "FactorIA layered image (*.image.json)",
+  "description": "The source of a picture: a canvas and a list of layers (pixels, fill, gradient, procedural texture, SVG, text, provider image, group, adjustment) with opacity, blend mode, masks, clipping and an offset. One CPU compositor draws it; the PNG a Sprite uses is baked next to it (hero.image.json -> hero.png) with a recipe in assets.json, so assets.regenerate remakes it and a changed source warns as stale. Errors name the file and the JSON pointer; docs/IMAGES.md explains the format, the colour rules and the blend modes.",
+  "type": "object",
+  "required": [
+    "width",
+    "height",
+    "layers"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference for editors."
+    },
+    "format": {
+      "const": "factoria.image/1",
+      "description": "File format identifier. Always \"factoria.image/1\"; may be left out."
+    },
+    "width": {
+      "type": "integer",
+      "description": "Canvas width in pixels, 1 to 4096.",
+      "minimum": 1,
+      "maximum": 4096
+    },
+    "height": {
+      "type": "integer",
+      "description": "Canvas height in pixels, 1 to 4096.",
+      "minimum": 1,
+      "maximum": 4096
+    },
+    "background": {
+      "description": "Colour the canvas starts with, under the first layer (a colour with alpha 0 or no background gives a transparent canvas).",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 4
+        }
+      ]
+    },
+    "output": {
+      "type": "string",
+      "description": "Project-relative PNG the document bakes to, ending in .png. Default: the document's own path with .image.json replaced by .png."
+    },
+    "description": {
+      "type": "string",
+      "description": "What the picture shows and what it is for."
+    },
+    "layers": {
+      "type": "array",
+      "description": "The layers, BOTTOM first: each layer is drawn over the ones before it.",
+      "items": {
+        "$ref": "#/$defs/layer"
+      }
+    }
+  },
+  "$defs": {
+    "layer": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false,
+      "description": "One layer. The fields that apply depend on `kind`: pixels and provider take `source`; fill `color`; gradient `gradient`; procedural `texture`; svg `source` or `svg`; text `text`, `font`, `size`, `color`, `align`, `lineHeight`; group `layers`; adjustment only `adjustments` (it applies them to everything below it and takes no `blend` or `effects`). A field a kind does not take is an error.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "pixels",
+            "fill",
+            "gradient",
+            "procedural",
+            "svg",
+            "text",
+            "provider",
+            "group",
+            "adjustment"
+          ],
+          "description": "pixels: a PNG of the project. fill: one colour. gradient: linear or radial colour stops. procedural: a texture made by the arguments of assets.generate_texture. svg: an SVG rasterized with the engine's rasterizer. text: text in an engine font. provider: a PNG made by an image provider (counts as AI-made). group: layers drawn together, then blended as one. adjustment: colour operations on everything below."
+        },
+        "name": {
+          "type": "string",
+          "description": "A label for people and tools; not used for drawing."
+        },
+        "visible": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the layer (and hides the layers clipped to it)."
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 1,
+          "description": "0 invisible, 1 opaque. Multiplies the layer's alpha."
+        },
+        "blend": {
+          "type": "string",
+          "enum": [
+            "normal",
+            "multiply",
+            "screen",
+            "overlay",
+            "darken",
+            "lighten",
+            "colorDodge",
+            "colorBurn",
+            "hardLight",
+            "softLight",
+            "difference",
+            "exclusion",
+            "add",
+            "subtract",
+            "hue",
+            "saturation",
+            "color",
+            "luminosity"
+          ],
+          "default": "normal",
+          "description": "How the layer mixes with what is below: the W3C blend modes, on the stored (sRGB-encoded) values like Photoshop. hue, saturation, color and luminosity are the non-separable ones. Not for adjustment layers."
+        },
+        "x": {
+          "type": "integer",
+          "description": "Moves the layer right by whole pixels from the top-left of the canvas (or of its group); may be negative.",
+          "minimum": -100000,
+          "maximum": 100000
+        },
+        "y": {
+          "type": "integer",
+          "description": "Moves the layer down by whole pixels; may be negative.",
+          "minimum": -100000,
+          "maximum": 100000
+        },
+        "clip": {
+          "type": "boolean",
+          "default": false,
+          "description": "Clip to the opaque part of the layer below (the nearest layer that is not itself clipped). Not for the first layer of a list."
+        },
+        "masks": {
+          "type": "array",
+          "description": "Masks, multiplied together, in the layer's own coordinates (before x and y).",
+          "items": {
+            "$ref": "#/$defs/mask"
+          }
+        },
+        "adjustments": {
+          "type": "array",
+          "description": "Colour operations applied to the layer's pixels, in order, before the masks. For an adjustment layer: what it applies to everything below. Types: invert, brightness.",
+          "items": {
+            "$ref": "#/$defs/operation"
+          }
+        },
+        "effects": {
+          "type": "array",
+          "description": "Operations applied after the masks, in order; they may change the layer's footprint. Types: colorOverlay.",
+          "items": {
+            "$ref": "#/$defs/operation"
+          }
+        },
+        "source": {
+          "type": "string",
+          "description": "pixels and provider: a PNG of the project. svg: an .svg file of the project. Pixels sit at the layer's x and y."
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "provider layer: where the picture came from. Recorded in assets.json for the PNG when it has no record there yet.",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "description": "Provider name (\"openai\"...)."
+            },
+            "model": {
+              "type": "string",
+              "description": "Model the provider used."
+            },
+            "prompt": {
+              "type": "string",
+              "description": "The prompt the picture was made from."
+            },
+            "seed": {
+              "type": "integer",
+              "description": "Seed, when the provider takes one."
+            },
+            "references": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Reference images sent with the request."
+            },
+            "license": {
+              "type": "string",
+              "description": "License or terms of the picture."
+            },
+            "author": {
+              "type": "string",
+              "description": "Who made or chose it."
+            },
+            "notes": {
+              "type": "string",
+              "description": "Anything else."
+            }
+          }
+        },
+        "color": {
+          "description": "fill: the colour. text: the colour of the letters.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 4
+            }
+          ]
+        },
+        "width": {
+          "type": "integer",
+          "description": "fill, gradient: the size of the layer's box in pixels (default: the canvas). svg: the width the SVG is fitted into (aspect kept, centred).",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "height": {
+          "type": "integer",
+          "description": "fill, gradient: the height of the box (default: the canvas). svg: the height the SVG is fitted into.",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "gradient": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "stops"
+          ],
+          "description": "gradient layer: the colour ramp. Interpolated on premultiplied colour, so a stop with alpha 0 fades out without tinting.",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "linear",
+                "radial"
+              ],
+              "default": "linear",
+              "description": "linear runs along `angle`; radial grows from `center`."
+            },
+            "angle": {
+              "type": "number",
+              "default": 0,
+              "description": "linear: degrees, 0 runs from the top to the bottom, 90 from the left to the right."
+            },
+            "center": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2,
+              "default": [
+                0.5,
+                0.5
+              ],
+              "description": "radial: [x, y] as fractions of the layer's box."
+            },
+            "radius": {
+              "type": "number",
+              "minimum": 0.001,
+              "default": 1,
+              "description": "radial: 1 reaches the corners of the box (half its diagonal), 0.5 the middle of its sides."
+            },
+            "stops": {
+              "type": "array",
+              "minItems": 2,
+              "description": "At least two, in order of `at`.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "at",
+                  "color"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "at": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Place along the gradient, 0 (start) to 1 (end)."
+                  },
+                  "color": {
+                    "description": "A colour: \"#rrggbb\", \"#rrggbbaa\", a name such as \"white\", or [r, g, b(, a)] with components in 0..1 (bytes if any is above 1). Used as stored: no conversion to linear light.",
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 3,
+                        "maxItems": 4
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "texture": {
+          "type": "object",
+          "description": "procedural layer: the picture arguments of assets.generate_texture (preset, width, height, seed, color, accent, scale, roughness, tileable, vignette, angle, planks fields); width and height default to the canvas. Run docs.commands on assets.generate_texture for the presets.",
+          "properties": {
+            "preset": {
+              "type": "string",
+              "description": "The material: paper, parchment, wood, planks, leather, fabric, stone, noise, gradient, radial, vignette..."
+            }
+          },
+          "additionalProperties": true
+        },
+        "svg": {
+          "type": "string",
+          "description": "svg layer: the SVG text, starting with <svg ...>. Give this or `source`."
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "description": "text layer: the text; \\n starts a new line. One colour, no shaping or kerning."
+        },
+        "font": {
+          "type": "string",
+          "description": "text layer: \"\" (DejaVu Sans), \"builtin:pixel\", \"builtin:serif\", \"builtin:hand\", \"builtin:blackletter\", \"builtin:display\", or a project .ttf/.otf path."
+        },
+        "size": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1024,
+          "default": 16,
+          "description": "text layer: the em height in pixels."
+        },
+        "align": {
+          "type": "string",
+          "enum": [
+            "left",
+            "center",
+            "right"
+          ],
+          "default": "left",
+          "description": "text layer: which side of the layer's x the lines hang from."
+        },
+        "lineHeight": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 10,
+          "default": 1.2,
+          "description": "text layer: distance between baselines, in ems."
+        },
+        "layers": {
+          "type": "array",
+          "description": "group layer: its layers, bottom first. A group is drawn on a transparent canvas of its own, so a child's blend mode acts inside the group.",
+          "items": {
+            "$ref": "#/$defs/layer"
+          }
+        }
+      }
+    },
+    "mask": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "description": "A mask multiplies the layer's alpha by its coverage (0 hides, 1 shows). Coordinates are the layer's own pixels.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "pixels",
+            "rect",
+            "ellipse",
+            "polygon",
+            "path"
+          ],
+          "description": "pixels: a PNG (white shows, black hides, its alpha counts; outside it everything is hidden). rect and ellipse: a box (the ellipse is inscribed in it). polygon: corner points. path: SVG path data."
+        },
+        "invert": {
+          "type": "boolean",
+          "default": false,
+          "description": "Swap shown and hidden."
+        },
+        "feather": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 512,
+          "default": 0,
+          "description": "Width of the soft edge in pixels (a Gaussian blur of the mask with sigma = feather / 2); 0 is a hard edge."
+        },
+        "source": {
+          "type": "string",
+          "description": "pixels: the PNG."
+        },
+        "x": {
+          "type": "integer",
+          "description": "pixels, rect, ellipse: left edge.",
+          "minimum": -100000,
+          "maximum": 100000
+        },
+        "y": {
+          "type": "integer",
+          "description": "pixels, rect, ellipse: top edge.",
+          "minimum": -100000,
+          "maximum": 100000
+        },
+        "width": {
+          "type": "integer",
+          "description": "rect, ellipse: width in pixels.",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "description": "rect, ellipse: height in pixels.",
+          "minimum": 1
+        },
+        "points": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "description": "polygon: at least three [x, y] corners."
+        },
+        "path": {
+          "type": "string",
+          "description": "path: SVG path data, e.g. \"M10 10 L90 10 L50 80 Z\" (M L H V C S Q T A Z, absolute or relative). Filled with the nonzero rule; anti-aliased."
+        }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "description": "One adjustment or effect: {\"type\": name, ...fields}. The fields depend on the type.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "adjustments: invert, brightness (amount -1..1). effects: colorOverlay (color, amount 0..1)."
+        },
+        "amount": {
+          "type": "number",
+          "description": "brightness: -1..1 added to red, green and blue. colorOverlay: 0..1, how far towards `color`."
+        },
+        "color": {
+          "description": "A colour: \"#rrggbb\", \"#rrggbbaa\", a name such as \"white\", or [r, g, b(, a)] with components in 0..1 (bytes if any is above 1). Used as stored: no conversion to linear light.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 4
+            }
+          ]
+        }
+      }
+    }
+  }
+}
