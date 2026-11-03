@@ -19,6 +19,7 @@
 #include "fa/core/strings.h"
 #include "fa/render/fonts.h"
 #include "fa/tooling/project_fs.h"
+#include "fa/tooling/style_guide.h"
 #include "image_doc_internal.h"
 #include "util.h"
 
@@ -39,6 +40,20 @@ struct Ctx {
     std::map<std::string, Image> images;
     std::set<std::string> inputs;
     std::vector<std::string> warnings;
+    std::optional<StyleGuide> styleGuide;  // read from assets.json the first time an operation asks
+
+    const StyleGuide& style() {
+        if (!styleGuide) styleGuide = projectDir.empty() ? StyleGuide{} : load_style_guide(projectDir).guide;
+        return *styleGuide;
+    }
+    // The environment of the operations of the layer at `pointer` (`list`: "adjustments" or "effects").
+    OpEnv op_env(const std::string& pointer, const char* list) {
+        OpEnv env;
+        env.image = [this, pointer, list](const std::string& rel) -> const Image& { return image(pointer + "/" + list, rel); };
+        env.style = [this]() -> const StyleGuide& { return style(); };
+        env.fail = [this, pointer, list](const std::string& message, const std::string& hint) { fail(pointer + "/" + list, message, hint); };
+        return env;
+    }
 
     [[noreturn]] void fail(const std::string& pointer, const std::string& message, const std::string& hint) const {
         throw RenderFailure{(doc.file.empty() ? std::string("image document") : doc.file) + " " + pointer + ": " + message, hint};
@@ -299,7 +314,7 @@ void composite_layers(Ctx& ctx, const std::vector<ImageLayer>& layers, Raster& c
                 base.valid = false;
             }
             Raster adjusted = canvas;
-            apply_adjustments(layer.adjustments, adjusted);
+            apply_adjustments(layer.adjustments, adjusted, ctx.op_env(layer.pointer, "adjustments"));
             for (std::size_t i = 0; i < cov.v.size(); ++i) {
                 float c = cov.v[i] * layer.opacity;
                 if (layer.clip) c *= base.alpha.v[i];
@@ -313,12 +328,12 @@ void composite_layers(Ctx& ctx, const std::vector<ImageLayer>& layers, Raster& c
 
         Raster r = render_content(ctx, layer);
         if (!r.empty()) {
-            apply_adjustments(layer.adjustments, r);
+            apply_adjustments(layer.adjustments, r, ctx.op_env(layer.pointer, "adjustments"));
             if (!layer.masks.empty()) {
                 const Plane cov = masks_plane(ctx, layer.masks, r.ox, r.oy, r.w, r.h);
                 for (std::size_t i = 0; i < cov.v.size(); ++i) r.px[i * 4 + 3] *= cov.v[i];
             }
-            apply_effects(layer.effects, r);
+            apply_effects(layer.effects, r, ctx.op_env(layer.pointer, "effects"));
         }
         // r's pixel (i, j) lies at canvas (layer.x + r.ox + i, layer.y + r.oy + j)
         const int cx0 = layer.x + r.ox, cy0 = layer.y + r.oy;

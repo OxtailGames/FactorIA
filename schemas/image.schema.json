@@ -154,14 +154,14 @@
         },
         "adjustments": {
           "type": "array",
-          "description": "Colour operations applied to the layer's pixels, in order, before the masks. For an adjustment layer: what it applies to everything below. Types: invert, brightness.",
+          "description": "Colour operations applied to the layer's pixels, in order, before the masks. For an adjustment layer: what it applies to everything below. Types: invert, brightness, levels, curves, hsv, posterize, quantize, dither, gradientMap, colorBalance, threshold.",
           "items": {
             "$ref": "#/$defs/operation"
           }
         },
         "effects": {
           "type": "array",
-          "description": "Operations applied after the masks, in order; they may change the layer's footprint. Types: colorOverlay.",
+          "description": "Operations applied after the masks, in order; they may change the layer's footprint. Types: colorOverlay, outline, stroke, dropShadow, outerGlow, innerGlow, blur, sharpen, noise, shade.",
           "items": {
             "$ref": "#/$defs/operation"
           }
@@ -462,11 +462,11 @@
       "properties": {
         "type": {
           "type": "string",
-          "description": "adjustments: invert, brightness (amount -1..1). effects: colorOverlay (color, amount 0..1)."
+          "description": "adjustments: invert, brightness, levels, curves, hsv, posterize, quantize, dither, gradientMap, colorBalance, threshold. effects: colorOverlay, outline, stroke, dropShadow, outerGlow, innerGlow, blur, sharpen, noise, shade. The keys of each are in docs/IMAGES.md; the error for a wrong key lists them."
         },
         "amount": {
           "type": "number",
-          "description": "brightness: -1..1 added to red, green and blue. colorOverlay: 0..1, how far towards `color`."
+          "description": "brightness: -1..1 added to red, green and blue. colorOverlay: 0..1, how far towards `color`. sharpen: 0..10. noise: 0..1. shade: 0..1, how much of the lighting is mixed in."
         },
         "color": {
           "description": "A colour: \"#rrggbb\", \"#rrggbbaa\", a name such as \"white\", or [r, g, b(, a)] with components in 0..1 (bytes if any is above 1). Used as stored: no conversion to linear light.",
@@ -483,6 +483,263 @@
               "maxItems": 4
             }
           ]
+        },
+        "inBlack": {
+          "type": "number",
+          "description": "levels: input black point, 0..1."
+        },
+        "inWhite": {
+          "type": "number",
+          "description": "levels: input white point, 0..1, above inBlack."
+        },
+        "outBlack": {
+          "type": "number",
+          "description": "levels: output black, 0..1."
+        },
+        "outWhite": {
+          "type": "number",
+          "description": "levels: output white, 0..1."
+        },
+        "gamma": {
+          "type": "number",
+          "description": "levels: 0.1..10, above 1 brightens the midtones."
+        },
+        "channel": {
+          "type": "string",
+          "enum": [
+            "rgb",
+            "red",
+            "green",
+            "blue"
+          ],
+          "description": "levels, curves: rgb, red, green or blue."
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "description": "curves: [[x, y], ...] 2 to 32 points, x increasing, both 0..1 (monotone cubic)."
+        },
+        "hue": {
+          "type": "number",
+          "description": "hsv: degrees, -180..180 (0..360 with colorize)."
+        },
+        "saturation": {
+          "type": "number",
+          "description": "hsv: -1..1 (0..1 with colorize)."
+        },
+        "value": {
+          "type": "number",
+          "description": "hsv: -1..1 added to the value."
+        },
+        "colorize": {
+          "type": "boolean",
+          "description": "hsv: give every pixel the hue and saturation."
+        },
+        "levels": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 256,
+          "description": "posterize: 2..256 values per channel. dither: values per channel when there is no palette."
+        },
+        "palette": {
+          "anyOf": [
+            {
+              "const": "style"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "array"
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 256
+            }
+          ],
+          "description": "quantize, dither: \"style\" (style.palette of assets.json) or a list of 1 to 256 colours."
+        },
+        "space": {
+          "type": "string",
+          "enum": [
+            "oklab",
+            "rgb"
+          ],
+          "description": "quantize, dither: the colour space of \"nearest\": oklab (default) or rgb."
+        },
+        "dither": {
+          "type": "string",
+          "enum": [
+            "none",
+            "bayer2",
+            "bayer4",
+            "bayer8",
+            "floydSteinberg",
+            "atkinson"
+          ],
+          "description": "quantize: none, bayer2, bayer4, bayer8, floydSteinberg or atkinson."
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "none",
+            "bayer2",
+            "bayer4",
+            "bayer8",
+            "floydSteinberg",
+            "atkinson"
+          ],
+          "description": "dither: none, bayer2, bayer4 (default), bayer8, floydSteinberg or atkinson."
+        },
+        "strength": {
+          "type": "number",
+          "description": "quantize, dither: 0..1 scale of the dither. shade: 0..32 slope of the alpha height map. outerGlow, innerGlow: 0..8."
+        },
+        "stops": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "at",
+              "color"
+            ],
+            "properties": {
+              "at": {
+                "type": "number"
+              }
+            }
+          },
+          "description": "gradientMap: 2 to 64 {at, color}, at 0..1 not decreasing."
+        },
+        "shadows": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "colorBalance: [red, green, blue] each -1..1."
+        },
+        "midtones": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "colorBalance: [red, green, blue] each -1..1."
+        },
+        "highlights": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "colorBalance: [red, green, blue] each -1..1."
+        },
+        "level": {
+          "type": "number",
+          "description": "threshold: luma 0..1, default 0.5."
+        },
+        "above": {
+          "description": "threshold: colour at or above the level (default white).",
+          "$ref": "#/$defs/operation/properties/color"
+        },
+        "below": {
+          "description": "threshold: colour below the level (default black).",
+          "$ref": "#/$defs/operation/properties/color"
+        },
+        "width": {
+          "type": "number",
+          "description": "outline, stroke: 0.5..64 pixels, default 1."
+        },
+        "position": {
+          "type": "string",
+          "enum": [
+            "outside",
+            "inside",
+            "center"
+          ],
+          "description": "outline, stroke: outside, inside or center."
+        },
+        "smooth": {
+          "type": [
+            "boolean",
+            "number"
+          ],
+          "description": "outline, stroke: true anti-aliases the edge of the stroke (boolean). shade: sigma 0..16 of the alpha height map (number)."
+        },
+        "offsetX": {
+          "type": "number",
+          "description": "dropShadow: pixels, -512..512."
+        },
+        "offsetY": {
+          "type": "number",
+          "description": "dropShadow: pixels, -512..512."
+        },
+        "blur": {
+          "type": "number",
+          "description": "dropShadow: 0..64, Gaussian sigma blur / 2."
+        },
+        "opacity": {
+          "type": "number",
+          "description": "dropShadow, outerGlow, innerGlow: 0..1."
+        },
+        "size": {
+          "type": "number",
+          "description": "outerGlow, innerGlow: 0..64, Gaussian sigma size / 2."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "gaussian",
+            "box",
+            "mono",
+            "color"
+          ],
+          "description": "blur: gaussian or box. noise: mono or color."
+        },
+        "radius": {
+          "type": "number",
+          "description": "blur: sigma (gaussian, 0..64) or half-width (box). sharpen: sigma 0.1..32."
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "noise: whole number, 0 or more."
+        },
+        "normalMap": {
+          "type": "string",
+          "description": "shade: project path of a normal map PNG (tangent space, green up)."
+        },
+        "flipGreen": {
+          "type": "boolean",
+          "description": "shade: the normal map has green down."
+        },
+        "lightDirection": {
+          "type": "number",
+          "description": "shade: degrees counter-clockwise from +x, default style.lightDirection, else 135."
+        },
+        "elevation": {
+          "type": "number",
+          "description": "shade: degrees above the layer, 1..90, default 45."
+        },
+        "intensity": {
+          "type": "number",
+          "description": "shade: 0..4, default 1."
+        },
+        "threshold": {
+          "type": "number",
+          "description": "sharpen: differences below this (0..1) are left alone."
         }
       }
     }
