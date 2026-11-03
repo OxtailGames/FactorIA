@@ -1400,7 +1400,7 @@ assets_rasterize_svg {"path":"assets/art/crest.png","width":256,"svg":"<svg xmln
   keeps the origin still (feet: `[0.5, 1]`), `frameWidth` / `frameHeight` fix the cell. Its `pivot` is counted from the
   top-left of the frame and `Sprite.pivot` from the bottom-left: set `Sprite.pivot` to `[x, 1 - y]`. It needs a GPU.
 - **Look at the picture** in the result, change one thing and call again with `overwrite: true`. The icon and the store
-  images are `assets_draw_icon` and `assets_draw_capsules`; sounds are `assets_synth_sound`, or, to design one, a sound patch (`sfx_preset`, edit the `*.sfx.json`, `sfx_render`: docs/SOUND.md).
+  images are `assets_draw_icon` and `assets_draw_capsules`; sounds are `assets_synth_sound`, or, to design one, a sound patch (`sfx_preset`, edit the `*.sfx.json`, `sfx_render`: docs/SOUND.md)). To change a recording or a render without losing the original (trim, fade, pitch, EQ, reverb, a seamless loop), write an audio document: `audio_create`, `audio_edit`, `audio_render`, `audio_bake` (`*.audio.json`, docs/SOUND.md "Audio documents").
 - **Provenance** is recorded: a texture is `original` (not AI); an SVG you wrote counts as AI-made unless you pass
   `ai: false`. These are plain materials and vector shapes: say so to the user, who may want a real provider (or an
   artist) for the final art.

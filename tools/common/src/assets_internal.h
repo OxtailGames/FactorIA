@@ -116,6 +116,7 @@ void register_check_art_command(CommandRegistry& registry, const std::string& pr
 void register_bake_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.bake_sheet
 void register_contact_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.contact_sheet
 void register_preview_scene_command(CommandRegistry& registry, const std::string& projectDir);  // assets.preview_in_scene
+void register_audio_doc_commands(CommandRegistry& registry, const std::string& projectDir);  // audio.info, audio.render, audio.bake, audio.create, audio.edit (assets_audio_doc.cpp)
 void register_audio_commands(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_loop, assets.convert_audio
 void register_subset_font_command(CommandRegistry& registry, const std::string& projectDir);
 void register_image_commands(CommandRegistry& registry, const std::string& projectDir);  // image.bake, image.save (image_doc_commands.cpp)
@@ -174,6 +175,9 @@ void check_recipes(const std::string& projectDir, std::vector<ValidationIssue>& 
 // project.validate: every *.image.json that does not load is an error (file, JSON pointer, fix); one never baked, or whose PNG
 // assets.json does not record as its bake, is a warning with the image.bake command. (A stale bake is check_recipes' warning.)
 void check_image_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
+// project.validate: every *.audio.json that does not load (or would overwrite its own source) is an error with its JSON pointer and fix; one never
+// baked, or whose sound assets.json does not record as its bake, is a warning with the audio.bake command. (A stale bake is check_recipes' warning.)
+void check_audio_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
 
 // ---- command helpers -------------------------------------------------------------------------------------
 

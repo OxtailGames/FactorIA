@@ -378,7 +378,7 @@ struct Biquad {
 double lufs_of(double meanSquare) { return meanSquare > 0.0 ? -0.691 + 10.0 * kLog10Of2 * log2(meanSquare) : -1e9; }
 
 // Integrated loudness of a clip played on both sides, -70 for silence; and its sample peak.
-void measure(const std::vector<double>& samples, int rate, double& lufs, double& peak) {
+void measure_channels(const std::vector<const std::vector<double>*>& channels, int rate, double& lufs, double& peak) {
     const double fs = double(rate);
     Biquad shelf, highpass;
     {
@@ -407,10 +407,17 @@ void measure(const std::vector<double>& samples, int rate, double& lufs, double&
     std::size_t hopFill = 0, hops = 0;
     std::vector<double> blocks;
     peak = 0.0;
-    for (double s : samples) {
-        peak = std::max(peak, std::fabs(s));
-        const double y = highpass.process(shelf.process(s));
-        hopEnergy += 2.0 * y * y;  // both sides
+    // One K-weighting filter pair per channel; the first channel's is the one set up above, the others copy it (same coefficients, own state).
+    std::vector<Biquad> shelves(channels.size(), shelf), highpasses(channels.size(), highpass);
+    const std::size_t frames = channels.empty() ? 0 : channels[0]->size();
+    const double weight = channels.size() == 1 ? 2.0 : 1.0;  // a mono clip plays on both sides
+    for (std::size_t i = 0; i < frames; ++i) {
+        for (std::size_t c = 0; c < channels.size(); ++c) {
+            const double s = (*channels[c])[i];
+            peak = std::max(peak, std::fabs(s));
+            const double y = highpasses[c].process(shelves[c].process(s));
+            hopEnergy += weight * y * y;
+        }
         if (++hopFill < hop) continue;
         ring[hops++ % 4] = hopEnergy;
         hopEnergy = 0.0;
@@ -431,7 +438,17 @@ void measure(const std::vector<double>& samples, int rate, double& lufs, double&
     if (count > 0) lufs = lufs_of(sum / double(count));
 }
 
+void measure(const std::vector<double>& samples, int rate, double& lufs, double& peak) { measure_channels({&samples}, rate, lufs, peak); }
+
 }  // namespace
+
+void sfx_run_effects(std::vector<double>& buf, const std::vector<SfxEffect>& effects, int rate) { apply_effects(buf, effects, rate); }
+
+void sfx_measure_loudness(const std::vector<std::vector<double>>& channels, int rate, double& lufs, double& peak) {
+    std::vector<const std::vector<double>*> list;
+    for (const auto& c : channels) list.push_back(&c);
+    measure_channels(list, rate, lufs, peak);
+}
 
 Result<SfxAudio> render_sfx(const SfxPatch& base, const SfxRenderOptions& options) {
     // Macros and variants change a copy of the patch; a patch without them is rendered as it is, bit for bit as before.

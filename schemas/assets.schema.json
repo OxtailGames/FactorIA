@@ -131,6 +131,18 @@
           "enum": ["none", "qoa"],
           "default": "none",
           "description": "Conversion applied by `factoria export`. qoa: WAV files become QOA (lossy, about 5x smaller than 16-bit WAV, cheap to decode). none: ship the file as it is."
+        },
+        "loopStart": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "Seconds into the sound where a looping AudioSource jumps back to (with loopEnd). Written by audio.bake for a document with a `loop` step; a sound with loop points is decoded whole, never streamed. Without loopEnd the whole sound loops."
+        },
+        "loopEnd": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "Seconds into the sound where a looping AudioSource wraps to loopStart (the end is exclusive). 0 (or not after loopStart) means the end of the sound."
         }
       }
     },
