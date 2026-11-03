@@ -213,6 +213,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`model.create`](commands/assets.md#modelcreate-modifies-state): Write a new model document (a tree of primitives, modifiers, groups and transforms) and bake it to a .glb. _Not released yet._
 - [`model.edit`](commands/assets.md#modeledit-modifies-state): Add, change, remove or move one node of a model document by its id (or JSON pointer), or change its materials, output or note; then bake it. _Not released yet._
 - [`model.info`](commands/assets.md#modelinfo): Check a model document and measure what it builds; with no arguments, list the operations (primitives, modifiers, group) and their fields. _Not released yet._
+- [`model.uv`](commands/assets.md#modeluv-modifies-state): Give a model document UVs (automatic unwrap, or box, cylinder, sphere and planar projections per part, packed into one texture at the style's texel density) and measure them; returns the UV layout picture. _Not released yet._
 - [`music.arpeggio`](commands/assets.md#musicarpeggio-modifies-state): Make an arpeggio over a chord progression as note text, and optionally put it in a song. _Not released yet._
 - [`music.bassline`](commands/assets.md#musicbassline-modifies-state): Make a bassline over a chord progression as note text, and optionally put it in a song. _Not released yet._
 - [`music.check`](commands/assets.md#musiccheck): Find what is wrong in a song before listening: notes outside the key or the instrument's range, clashes, mud, silent tracks, loudness. _Not released yet._

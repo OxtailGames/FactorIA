@@ -104,6 +104,24 @@ else()
     target_compile_options(fa_ext_manifold PRIVATE $<$<CONFIG:Debug>:-O2>)
 endif()
 
+# ---- xatlas (UV unwrapping and chart packing for model documents) ---------------------------------------------
+# xatlas (MIT, jpcy/xatlas): automatic UV parameterization and chart packing (fa_scene, model_uv_*.cpp). xatlas.cpp and xatlas.h
+# are upstream's, unmodified; xatlas_fa.cpp (ours) includes xatlas.cpp with sinf, cosf, acosf and atan2f swapped for fa::det's so the
+# UVs are the same on every platform. Single-threaded (XA_MULTITHREADED=0: no std::thread, so the Web and Android builds need no
+# threads), no debug asserts or print hooks.
+add_library(fa_ext_xatlas STATIC ${FA_EXT}/xatlas/xatlas_fa.cpp)
+target_include_directories(fa_ext_xatlas SYSTEM PUBLIC ${FA_EXT}/xatlas)
+target_include_directories(fa_ext_xatlas PRIVATE ${FA_EXT}/xatlas ${CMAKE_SOURCE_DIR}/engine/core/include)
+target_compile_definitions(fa_ext_xatlas PRIVATE XA_MULTITHREADED=0 XA_DEBUG=0)
+set_target_properties(fa_ext_xatlas PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+if(MSVC)
+    target_compile_definitions(fa_ext_xatlas PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    target_compile_options(fa_ext_xatlas PRIVATE /bigobj)
+else()
+    # A Debug build of the engine keeps this library optimized: the packer rasterizes every chart, unoptimized it is far too slow.
+    target_compile_options(fa_ext_xatlas PRIVATE $<$<CONFIG:Debug>:-O2>)
+endif()
+
 # ---- Dear ImGui (editor + debug UI) ----------------------------------------
 add_library(fa_ext_imgui STATIC
     ${FA_EXT}/imgui/imgui.cpp
@@ -182,7 +200,7 @@ target_include_directories(fa_ext_sheenbidi SYSTEM PUBLIC ${FA_EXT}/sheenbidi/He
 target_include_directories(fa_ext_sheenbidi PRIVATE ${FA_EXT}/sheenbidi/Source)
 target_compile_definitions(fa_ext_sheenbidi PRIVATE SB_CONFIG_UNITY)
 
-foreach(t fa_ext_quickjs fa_ext_box2d fa_ext_imgui fa_ext_basisu_transcoder fa_ext_basisu_encoder fa_ext_harfbuzz fa_ext_harfbuzz_subset fa_ext_sheenbidi fa_ext_manifold)
+foreach(t fa_ext_quickjs fa_ext_box2d fa_ext_imgui fa_ext_basisu_transcoder fa_ext_basisu_encoder fa_ext_harfbuzz fa_ext_harfbuzz_subset fa_ext_sheenbidi fa_ext_manifold fa_ext_xatlas)
     if(NOT TARGET ${t})
         continue()
     endif()

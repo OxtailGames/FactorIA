@@ -831,7 +831,7 @@ Result<ModelDoc> parse_model_doc(const Json& json, std::string_view file, std::v
         r.err("", "a model document must be a JSON object, got " + describe_json_value(json), "Start from `model.create`, or write {\"format\": \"factoria.model/1\", \"nodes\": [{\"op\": \"box\"}]}.");
         return finish();
     }
-    static const std::vector<std::string> topKeys = {"$schema", "format", "doc", "output", "materials", "nodes"};
+    static const std::vector<std::string> topKeys = {"$schema", "format", "doc", "output", "materials", "uv", "nodes"};
     for (auto it = json.begin(); it != json.end(); ++it)
         if (std::find(topKeys.begin(), topKeys.end(), it.key()) == topKeys.end())
             r.err("/" + it.key(), "\"" + it.key() + "\" is not a field of a model document", did_you_mean(it.key(), topKeys));
@@ -890,6 +890,7 @@ Result<ModelDoc> parse_model_doc(const Json& json, std::string_view file, std::v
         r.err("/nodes", "nodes must be a list, got " + describe_json_value(*it), "Write \"nodes\": [{\"op\": \"box\"}].");
     else
         for (std::size_t i = 0; i < it->size(); ++i) doc.nodes.push_back(read_node(r, (*it)[i], "/nodes/" + std::to_string(i), 1));
+    if (auto it = json.find("uv"); it != json.end()) doc.uv = parse_model_uv(*it, r.issues);
     return finish();
 }
 
@@ -1043,7 +1044,7 @@ Json model_doc_schema() {
          {"description", "A material, named by its key in `materials`. Written into the .glb as a glTF material."},
          {"properties",
           Json::object({{"color", Json::object({{"type", "array"}, {"items", Json::object({{"type", "number"}})}, {"minItems", 3}, {"maxItems", 4}, {"description", "Base colour [r, g, b, a], 0..1. Default white."}})},
-                        {"texture", Json::object({{"type", "string"}, {"description", "A project image used as the base colour texture, e.g. \"assets/textures/wood.png\". The model's uvs are per primitive (docs/MODELING.md)."}})},
+                        {"texture", Json::object({{"type", "string"}, {"description", "A project image used as the base colour texture, e.g. \"assets/textures/wood.png\". The model's uvs are the primitives' own unless the document has a `uv` section (docs/MODELING.md)."}})},
                         {"metallic", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"description", "0..1. Default 0."}})},
                         {"roughness", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"description", "0..1. Default 0.6."}})},
                         {"emissive", Json::object({{"type", "array"}, {"items", Json::object({{"type", "number"}})}, {"minItems", 3}, {"maxItems", 4}, {"description", "Light the surface gives off [r, g, b], 0..1. Default none."}})},
@@ -1064,6 +1065,7 @@ Json model_doc_schema() {
                         {"output", Json::object({{"type", "object"}, {"additionalProperties", false}, {"description", "Where `model.bake` writes the .glb."},
                                                  {"properties", Json::object({{"path", Json::object({{"type", "string"}, {"pattern", "\\.[gG][lL][bB]$"}, {"description", "Project-relative file under assets/ ending in .glb. Left out: next to the document, with .glb instead of .model.json."}})}})}})},
                         {"materials", Json::object({{"type", "object"}, {"description", "Named materials the nodes refer to with `material`."}, {"additionalProperties", material}})},
+                        {"uv", model_uv_schema()},
                         {"nodes", Json::object({{"type", "array"}, {"description", "The tree: operations evaluated in order and merged into one mesh."}, {"items", Json::object({{"$ref", "#/$defs/node"}})}})}})},
          {"$defs", defs}});
 }

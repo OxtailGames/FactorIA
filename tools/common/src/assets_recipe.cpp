@@ -49,6 +49,16 @@ void add_style_loudness_context(Json& recipe, const std::optional<double>& targe
     recipe["context"]["styleMusicLufs"] = target ? Json(*target) : Json();
 }
 
+std::optional<double> style_texels_per_unit(const std::string& projectDir) {
+    StyleParse style = load_style_guide(projectDir);
+    return style.guide.texelsPerUnit;
+}
+
+void add_style_texels_context(Json& recipe, const std::optional<double>& value) {
+    if (!recipe.contains("context") || !recipe["context"].is_object()) recipe["context"] = Json::object();
+    recipe["context"]["styleTexelsPerUnit"] = value ? Json(*value) : Json();
+}
+
 RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe) {
     RecipeCheck check;
     if (!recipe.is_object()) return check;
@@ -60,6 +70,14 @@ RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe) {
         const std::optional<double> now = style_music_loudness(projectDir);
         if (before.has_value() != now.has_value() || (before && std::abs(*before - *now) > 1e-9))
             check.changed.push_back(std::string(assets::kManifestFile) + " (style.audio.loudnessLufs.music)");
+    }
+    // The same for the texel density a model document's `uv` section took from the style guide.
+    if (recipe.contains("context") && recipe["context"].is_object() && recipe["context"].contains("styleTexelsPerUnit")) {
+        const Json& recorded = recipe["context"]["styleTexelsPerUnit"];
+        const std::optional<double> before = recorded.is_number() ? std::optional<double>(recorded.get<double>()) : std::nullopt;
+        const std::optional<double> now = style_texels_per_unit(projectDir);
+        if (before.has_value() != now.has_value() || (before && std::abs(*before - *now) > 1e-9))
+            check.changed.push_back(std::string(assets::kManifestFile) + " (style.texelsPerUnit)");
     }
     if (!recipe.contains("inputs") || !recipe["inputs"].is_array()) return check;
     for (const Json& input : recipe["inputs"]) {

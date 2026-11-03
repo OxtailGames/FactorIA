@@ -13,8 +13,9 @@
 namespace fa {
 
 // How a `text` node gets its glyph outlines: fa_render's outline_text (the engine's own fonts, or a project .ttf/.otf read through the VFS
-// project root, so hold a ProjectRootGuard / set_project_root while evaluating).
-ModelEvalOptions model_project_eval_options();
+// project root, so hold a ProjectRootGuard / set_project_root while evaluating), and the texel density of the project's style guide
+// (assets.json style.texelsPerUnit) as the default of a document's `uv` section.
+ModelEvalOptions model_project_eval_options(const std::string& projectDir);
 
 // The project-relative .glb a document at `rel` bakes to: `output.path`, else `rel` with ".model.json" replaced by ".glb".
 std::string model_document_output(const ModelDoc& doc, const std::string& rel);

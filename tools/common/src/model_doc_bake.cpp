@@ -50,8 +50,9 @@ bool load_for_bake(const std::string& projectDir, const std::string& rel, ModelD
 
 }  // namespace
 
-ModelEvalOptions model_project_eval_options() {
+ModelEvalOptions model_project_eval_options(const std::string& projectDir) {
     ModelEvalOptions options;
+    if (const auto density = assets_detail::style_texels_per_unit(projectDir)) options.defaultTexelsPerMeter = float(*density);
     options.text = [](const ModelTextRequest& r) -> Result<ModelTextOutline> {
         const TextAnchor anchor = r.anchor == "start" ? TextAnchor::Start : r.anchor == "end" ? TextAnchor::End : TextAnchor::Middle;
         auto outline = outline_text(r.text, r.font, 1.0f, anchor, r.letterSpacing, r.lineSpacing);
@@ -150,7 +151,7 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
     }
 
     ProjectRootGuard root(projectDir);
-    auto build = evaluate_model(doc, model_project_eval_options());
+    auto build = evaluate_model(doc, model_project_eval_options(projectDir));
     if (!build.ok()) return make_error(rel + ": " + build.error().message, build.error().hint);
     auto bytes = mesh_to_glb(build->data, result.output);
     if (!bytes.ok()) return make_error(rel + ": cannot write '" + result.output + "': " + bytes.error().message, bytes.error().hint);
@@ -206,6 +207,9 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
                                   {"notes", notes},
                                   {"date", assets::today()}});
         prov["recipe"] = assets_detail::make_recipe(projectDir, kBakeCommand, Json::object({{"path", rel}}), inputs);
+        // a `uv` section that leaves the texel density to the style guide depends on it: the bake is stale when the style changes it
+        if (doc.uv && !doc.uv->texelsPerUnit)
+            assets_detail::add_style_texels_context(prov["recipe"], assets_detail::style_texels_per_unit(projectDir));
         result.provenance = prov;
         auto updated = assets::update_entry(result.output, [&](Json& e) {
             e.erase("analysis");

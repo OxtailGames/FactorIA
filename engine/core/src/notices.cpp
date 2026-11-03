@@ -18,6 +18,8 @@ const std::vector<ThirdPartyComponent>& third_party_components() {
          "Polygon clipping and offsetting of the vector.* commands (path booleans, offset, stroke to path)", false},
         {"Manifold", "https://github.com/elalish/manifold", "Apache-2.0", "external/manifold/LICENSE",
          "Solid booleans (union, difference, intersection) of the boolean modifier of model documents", false},
+        {"xatlas", "https://github.com/jpcy/xatlas", "MIT", "external/xatlas/LICENSE",
+         "Automatic UV unwrapping and packing of model documents' `uv` section (includes parts of thekla_atlas and Fast-BVH, both MIT)", false},
         {"Basis Universal", "https://github.com/BinomialLLC/basis_universal", "Apache-2.0", "external/basis_universal/LICENSE",
          "GPU texture compression: games decode KTX2 textures, `factoria export` encodes them", true},
         // Parts of the Basis Universal encoder, which only the developer tools contain.
