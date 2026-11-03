@@ -178,9 +178,11 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`image.save`](commands/assets.md#imagesave-modifies-state): Check an image document, write it to a *.image.json file and bake its PNG; nothing is written when the document has a problem. _Not released yet._
 - [`image.select`](commands/assets.md#imageselect-modifies-state): Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint. _Not released yet._
 - [`sfx.bake`](commands/assets.md#sfxbake-modifies-state): Render every sound patch of the project whose WAV is missing or out of date. _Not released yet._
+- [`sfx.family`](commands/assets.md#sfxfamily-modifies-state): Make a consistent set of interface sounds (click, hover, confirm, cancel, error, open, close, notify) from one base patch. _Not released yet._
 - [`sfx.info`](commands/assets.md#sfxinfo): Check a sound patch and say what it holds and how loud it renders, without writing anything. _Not released yet._
 - [`sfx.preset`](commands/assets.md#sfxpreset-modifies-state): List the sound presets, return one as an editable patch, or write it to a *.sfx.json file. _Not released yet._
 - [`sfx.render`](commands/assets.md#sfxrender-modifies-state): Render a sound patch (*.sfx.json) to a WAV or OGG next to it and see its spectrogram: the engine's own synthesizer, offline and deterministic. _Not released yet._
+- [`sfx.tweak`](commands/assets.md#sfxtweak-modifies-state): Turn a patch's macros by meaning (brighter, longer tail, heavier) and write the change back to the patch. _Not released yet._
 
 ### [audio](commands/audio.md)
 
