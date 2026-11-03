@@ -9,6 +9,7 @@
 #include "fa/tooling/project_fs.h"
 #include "image_doc_internal.h"
 #include "image_edit.h"
+#include "image_frames.h"
 #include "util.h"
 
 namespace fa::imgedit {
@@ -187,12 +188,16 @@ static bool find_impl(Json& doc, const Json& ref, const char* command, const std
 }
 
 bool try_find_layer(Json& doc, const Json& ref, const char* command, const std::string& argName, LayerRef& out) {
-    return find_impl(doc, ref, command, argName, out, false);
+    const bool found = find_impl(doc, ref, command, argName, out, false);
+    if (found)
+        if (FrameScope* fs = FrameScope::current()) fs->open_layer(doc, out);   // the layer as it is in the frame the command works on
+    return found;
 }
 
 LayerRef find_layer(Json& doc, const Json& ref, const char* command, const std::string& argName) {
     LayerRef r;
     find_impl(doc, ref, command, argName, r, true);
+    if (FrameScope* fs = FrameScope::current()) fs->open_layer(doc, r);
     return r;
 }
 
@@ -253,11 +258,18 @@ Json bake_result_json(const std::string& projectDir, const ImageBakeResult& r) {
     if (!r.inputs.empty()) out["inputs"] = r.inputs;
     if (!r.provenance.is_null()) out["provenance"] = r.provenance;
     if (!r.warnings.empty()) out["warnings"] = r.warnings;
+    if (r.sheet.is_object()) out["sheet"] = r.sheet;
     auto png = resolve_project_path(projectDir, r.output);
     std::error_code ec;
     if (png.ok() && stdfs::is_regular_file(*png, ec)) out["$image"] = Json::object({{"path", png->string()}, {"mimeType", "image/png"}});
-    out["nextSteps"] = Json::array({"Look at the picture in this result. To change it, edit the layers of '" + r.document + "' and call image.bake again.",
-                                    "Use it as a Sprite texture: Sprite.texture \"" + r.output + "\"."});
+    if (r.sheet.is_object()) {
+        std::vector<std::string> steps = assets_detail::sheet_next_steps(r.output, r.sheet, 10);
+        steps.insert(steps.begin(), "The PNG is a sprite sheet of the document's frames and tags. To change a frame, edit it (image.pixel, image.draw, image.edit, image.paint with `frame`) and call image.bake again.");
+        out["nextSteps"] = steps;
+    } else {
+        out["nextSteps"] = Json::array({"Look at the picture in this result. To change it, edit the layers of '" + r.document + "' and call image.bake again.",
+                                        "Use it as a Sprite texture: Sprite.texture \"" + r.output + "\"."});
+    }
     return out;
 }
 
@@ -285,21 +297,45 @@ void write_png_file(const std::string& projectDir, const std::string& rel, const
 }  // namespace
 
 std::optional<Image> render_document_json(const std::string& projectDir, const Json& doc) {
-    auto parsed = parse_image_document(doc, "document", projectDir);
-    if (!parsed.ok()) return std::nullopt;
-    auto render = composite_image_document(*parsed, {projectDir});
-    if (!render.ok()) return std::nullopt;
-    return std::move(render->image);
+    const FrameScope* fs = FrameScope::current();
+    return render_frame_json(projectDir, doc, fs ? fs->frame() : 0);
 }
 
-Json commit_document(const std::string& projectDir, const std::string& rel, const Json& doc, const std::optional<Image>& before, bool bake, Json extra,
+std::optional<Image> render_preview_json(const std::string& projectDir, const Json& doc) {
+    const FrameScope* fs = FrameScope::current();
+    return render_frame_json(projectDir, doc, fs ? fs->frame() : 0, fs ? fs->onion() : std::nullopt);
+}
+
+Json commit_document(const std::string& projectDir, const std::string& rel, const Json& docIn, const std::optional<Image>& before, bool bake, Json extra,
                      const std::vector<std::string>& warnings, const char* command) {
-    (void)command;
+    FrameScope* fs = FrameScope::current();
+    // in a frame, the layers the command opened are folded back into their cels first
+    const Json doc = fs ? fs->folded(docIn) : docIn;
+    Json oldDoc;   // the document as it was on disk, for the pictures nothing reads any more
+    if (auto oldPath = resolve_project_path(projectDir, rel); oldPath.ok())
+        if (auto text = tooling_detail::read_file(*oldPath)) oldDoc = Json::parse(*text, nullptr, false);
     auto r = save_image_document(projectDir, rel, doc, bake);
     if (!r.ok()) fail("invalid_argument", r.error().message, r.error().hint);
+    if (fs) fs->record_files(command);
+    const std::vector<std::string> pruned = oldDoc.is_object() ? prune_orphan_cels(projectDir, rel, oldDoc, doc) : std::vector<std::string>();
     Json out = bake_result_json(projectDir, *r);
-    std::optional<Image> after = bake ? read_png_file(projectDir, r->output) : render_document_json(projectDir, doc);
+    if (!pruned.empty()) out["removedFiles"] = pruned;
+    // the picture of the frame (the bake of an animated document is the whole sheet)
+    const bool animated = r->sheet.is_object();
+    std::optional<Image> after;
+    if (animated || fs) after = render_frame_json(projectDir, doc, fs ? fs->frame() : 0);
+    else if (bake) after = read_png_file(projectDir, r->output);
+    else after = render_document_json(projectDir, doc);
     if (!bake) out.erase("$image");
+    if (fs && fs->frames() > 1) {
+        out["frame"] = fs->frame();
+        out["frames"] = fs->frames();
+        if (bake)
+            if (Json shown = frame_preview(projectDir, rel, doc, fs->frame(), fs->onion(), 1); shown.is_object()) {
+                out["$image"] = shown;
+                out["preview"] = ".factoria/previews/" + rel + ".png";
+            }
+    }
     Region region;
     if (after) region = before ? changed_region(*before, *after) : Region{0, 0, after->width, after->height};
     else region = {0, 0, r->width, r->height};
@@ -317,6 +353,17 @@ Json commit_document(const std::string& projectDir, const std::string& rel, cons
 
 Image render_layer_alone(const std::string& projectDir, const Json& layerJson, int width, int height, int offX, int offY, std::vector<std::string>* warnings, const Json* docJson) {
     Json layer = layerJson;
+    if (layer.contains("cels")) {
+        // outside a frame (FrameScope) a layer is what it shows in frame 0; a document of one frame has no cels
+        layer.erase("cels");
+        if (layer.value("kind", std::string()) == "pixels" && !layer.contains("source")) {
+            Image blank;
+            blank.width = width;
+            blank.height = height;
+            blank.rgba.assign(std::size_t(width) * height * 4, 0);
+            return blank;
+        }
+    }
     for (const char* k : {"visible", "opacity", "blend", "clip"}) layer.erase(k);
     layer["x"] = int_or(layerJson, "x", 0) + offX;
     layer["y"] = int_or(layerJson, "y", 0) + offY;

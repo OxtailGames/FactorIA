@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://factoria.dev/schemas/image.schema.json",
   "title": "FactorIA layered image (*.image.json)",
-  "description": "The source of a picture: a canvas and a list of layers (pixels, fill, gradient, procedural texture, SVG, text, provider image, group, adjustment, indexed pixel art) with opacity, blend mode, masks, clipping and an offset. One CPU compositor draws it; the PNG a Sprite uses is baked next to it (hero.image.json -> hero.png) with a recipe in assets.json, so assets.regenerate remakes it and a changed source warns as stale. Errors name the file and the JSON pointer; docs/IMAGES.md explains the format, the colour rules and the blend modes.",
+  "description": "The source of a picture: a canvas and a list of layers (pixels, fill, gradient, procedural texture, SVG, text, provider image, group, adjustment, indexed pixel art) with opacity, blend mode, masks, clipping and an offset. One CPU compositor draws it; the PNG a Sprite uses is baked next to it (hero.image.json -> hero.png) with a recipe in assets.json, so assets.regenerate remakes it and a changed source warns as stale. With `frames` and `tags` it is an animation: pixels and indexed layers have cels per frame and the bake is a sprite sheet whose clips are the tags. Errors name the file and the JSON pointer; docs/IMAGES.md explains the format, the colour rules and the blend modes.",
   "type": "object",
   "required": [
     "width",
@@ -54,6 +54,83 @@
     "description": {
       "type": "string",
       "description": "What the picture shows and what it is for."
+    },
+    "frames": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1024,
+      "description": "Makes the document an animation: one entry per frame, with how long it shows. Left out, the document is one still picture (and bakes a plain PNG). With frames, the bake is a SPRITE SHEET (one cell per frame, plus the extra cells a reverse, ping-pong or repeated tag needs) and `tags` become its SpriteAnimator clips. Each pixels / indexed layer shows its own picture in frame 0 and changes in later frames through `cels`.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "duration": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60000,
+            "default": 100,
+            "description": "How long the frame shows, in milliseconds (1 to 60000)."
+          }
+        }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "description": "Named runs of frames. Each is a clip of the baked sheet, so a SpriteAnimator plays it by name (SpriteAnimator.clip, entity.spriteAnimator.play(name)).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "from",
+          "to"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The clip name; unique in the document."
+          },
+          "from": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "First frame (0-based)."
+          },
+          "to": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Last frame, inclusive; not before `from`."
+          },
+          "direction": {
+            "enum": [
+              "forward",
+              "reverse",
+              "pingpong"
+            ],
+            "default": "forward",
+            "description": "The order the frames play in. A ping-pong turns around at both ends without repeating the end frames."
+          },
+          "repeat": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000,
+            "default": 0,
+            "description": "How many times the tag plays; 0 loops for ever, 1 plays once (the clip is not a loop)."
+          }
+        }
+      }
+    },
+    "sheet": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the animated document bakes to a sprite sheet.",
+      "properties": {
+        "columns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024,
+          "description": "Frames (cells) per row of the sheet; default ceil(sqrt(cells))."
+        }
+      }
     },
     "layers": {
       "type": "array",
@@ -138,7 +215,7 @@
         "kind"
       ],
       "additionalProperties": false,
-      "description": "One layer. The fields that apply depend on `kind`: pixels and provider take `source`; fill `color`; gradient `gradient`; procedural `texture`; svg `source` or `svg`; text `text`, `font`, `size`, `color`, `align`, `lineHeight`; group `layers`; indexed `rows` (or a blank `width` x `height`) and `ai`; adjustment only `adjustments` (it applies them to everything below it and takes no `blend` or `effects`). A field a kind does not take is an error.",
+      "description": "One layer. The fields that apply depend on `kind`: pixels and provider take `source` (pixels and indexed layers of an animated document also `cels`); fill `color`; gradient `gradient`; procedural `texture`; svg `source` or `svg`; text `text`, `font`, `size`, `color`, `align`, `lineHeight`; group `layers`; indexed `rows` (or a blank `width` x `height`) and `ai`; adjustment only `adjustments` (it applies them to everything below it and takes no `blend` or `effects`). A field a kind does not take is an error.",
       "properties": {
         "kind": {
           "type": "string",
@@ -237,7 +314,7 @@
         },
         "source": {
           "type": "string",
-          "description": "pixels and provider: a PNG of the project. svg: an .svg file of the project. Pixels sit at the layer's x and y."
+          "description": "pixels and provider: a PNG of the project. svg: an .svg file of the project. Pixels sit at the layer's x and y. A pixels layer with `cels` may leave `source` out: it shows nothing in frame 0."
         },
         "provenance": {
           "type": "object",
@@ -457,6 +534,105 @@
         "ai": {
           "type": "boolean",
           "description": "indexed layer: true when AI made these pixels; the baked PNG is then recorded as AI-made (image.layer.convert sets it when the source was AI-made)."
+        },
+        "cels": {
+          "type": "array",
+          "description": "Animated documents: what a pixels or indexed layer shows from each listed frame on (frame 0 is the layer itself: its `source` / `rows`, x and y). Listed in increasing frame order, one cel per frame; a frame without a cel keeps showing the one before. Cels need `frames` in the document. For a pixels layer the items are {frame, source|link|empty, x?, y?, opacity?}; for an indexed layer {frame, rows|link|empty, x?, y?, opacity?}.",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "frame"
+                ],
+                "properties": {
+                  "frame": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "The frame this cel starts at. It shows from there until the next cel of the layer (a frame with no cel of its own HOLDS the one before)."
+                  },
+                  "empty": {
+                    "const": true,
+                    "description": "The layer shows nothing from this frame."
+                  },
+                  "link": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Shows the same picture as the layer shows at that earlier frame (a linked cel: no copy, same place and opacity)."
+                  },
+                  "source": {
+                    "type": "string",
+                    "description": "A PNG of the project: what the layer shows from this frame."
+                  },
+                  "x": {
+                    "type": "integer",
+                    "description": "Where the cel's top-left corner lands; default: the layer's x."
+                  },
+                  "y": {
+                    "type": "integer",
+                    "description": "Where the cel's top-left corner lands; default: the layer's y."
+                  },
+                  "opacity": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 1,
+                    "description": "Multiplies the layer's opacity for this cel."
+                  }
+                },
+                "description": "A cel gives exactly one of `empty`, `link` and `source`; empty and link take no x, y or opacity."
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "frame"
+                ],
+                "properties": {
+                  "frame": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "The frame this cel starts at. It shows from there until the next cel of the layer (a frame with no cel of its own HOLDS the one before)."
+                  },
+                  "empty": {
+                    "const": true,
+                    "description": "The layer shows nothing from this frame."
+                  },
+                  "link": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Shows the same picture as the layer shows at that earlier frame (a linked cel: no copy, same place and opacity)."
+                  },
+                  "rows": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "description": "The picture as text rows (see the layer's `rows`); the rows of a cel may be a different size from the layer's."
+                  },
+                  "x": {
+                    "type": "integer",
+                    "description": "Where the cel's top-left corner lands; default: the layer's x."
+                  },
+                  "y": {
+                    "type": "integer",
+                    "description": "Where the cel's top-left corner lands; default: the layer's y."
+                  },
+                  "opacity": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 1,
+                    "description": "Multiplies the layer's opacity for this cel."
+                  }
+                },
+                "description": "A cel gives exactly one of `empty`, `link` and `rows`; empty and link take no x, y or opacity."
+              }
+            ]
+          }
         }
       }
     },

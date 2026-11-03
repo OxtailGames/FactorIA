@@ -119,9 +119,25 @@ Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const
     result.height = doc->height;
     if (options.onlyIfNeeded && image_bake_status(projectDir, rel).state == ImageBakeState::Fresh) return result;
 
-    auto render = composite_image_document(*doc, {projectDir});
+    // An animated document bakes to a sprite sheet (every frame in a grid, the tags as clips); any other to the picture itself.
+    std::optional<ImageSheetPlan> plan;
+    Result<ImageRender> render = Result<ImageRender>(make_error("", ""));
+    if (doc->animated) {
+        auto planned = plan_image_sheet(*doc);
+        if (!planned.ok()) return make_error(rel + ": " + planned.error().message, planned.error().hint);
+        plan = std::move(*planned);
+        render = composite_image_sheet(*doc, *plan, {projectDir});
+    } else {
+        render = composite_image_document(*doc, {projectDir});
+    }
     if (!render.ok()) return make_error(render.error().message, render.error().hint);
     result.warnings = render->warnings;
+    if (plan) {
+        result.width = render->image.width;
+        result.height = render->image.height;
+        result.sheet = plan->sheet;
+        for (const std::string& w : plan->warnings) result.warnings.push_back(w);
+    }
 
     bool opaque = true;
     for (std::size_t i = 3; i < render->image.rgba.size() && opaque; i += 4) opaque = render->image.rgba[i] == 255;
@@ -171,6 +187,8 @@ Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const
         std::string author = "factoria";
         if (previousProv.is_object() && previousProv.contains("author") && previousProv["author"].is_string()) author = previousProv["author"].get<std::string>();
         std::string notes = std::format("Composited from the image document '{}' ({} layer{}), {}x{}.", rel, doc->layers.size(), doc->layers.size() == 1 ? "" : "s", doc->width, doc->height);
+        if (plan) notes = std::format("Sprite sheet of the image document '{}': {} frame{} of {}x{} ({} layer{}), {} tag{} as clips.", rel, image_frame_count(*doc), image_frame_count(*doc) == 1 ? "" : "s",
+                                      doc->width, doc->height, doc->layers.size(), doc->layers.size() == 1 ? "" : "s", doc->tags.size(), doc->tags.size() == 1 ? "" : "s");
         if (!aiSources.empty()) notes += " Contains AI-made pictures: " + join(std::vector<std::string>(aiSources.begin(), aiSources.end()), ", ") + ".";
         Json prov = Json::object({{"origin", result.ai ? "generated" : "original"},
                                   {"ai", result.ai},
@@ -182,11 +200,22 @@ Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const
                                   {"notes", notes},
                                   {"date", assets::today()}});
         prov["recipe"] = assets_detail::make_recipe(projectDir, kBakeCommand, Json::object({{"path", rel}}), inputs);
+        // a picture imported from another program's file keeps saying so (the recipe says what bakes it now)
+        if (previousProv.is_object() && previousProv.value("origin", std::string()) == "imported") {
+            prov["origin"] = "imported";
+            if (previousProv.contains("source") && previousProv["source"].is_string()) prov["source"] = previousProv["source"];
+            if (previousProv.contains("notes") && previousProv["notes"].is_string()) prov["notes"] = previousProv["notes"];
+        }
         result.provenance = prov;
         ProjectRootGuard root(projectDir);
+        const Json previousRecipe = previousProv.is_object() ? previousProv.value("recipe", Json()) : Json();
+        const bool bakedFromThis = previousRecipe.is_object() && previousRecipe.value("command", std::string()) == kBakeCommand &&
+                                   previousRecipe.contains("args") && previousRecipe["args"].value("path", std::string()) == rel;
         auto updated = assets::update_entry(result.output, [&](Json& e) {
             e.erase("analysis");
             e["provenance"] = prov;
+            if (plan) e["sheet"] = plan->sheet;
+            else if (bakedFromThis) e.erase("sheet");  // the document is no longer animated
         });
         if (!updated.ok()) return make_error("The picture was written, but assets.json was not updated: " + updated.error().message, updated.error().hint);
         // a provider layer's record: when the picture has none in assets.json yet, the document's goes there

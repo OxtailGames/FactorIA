@@ -15,6 +15,7 @@
 //     straight alpha, with the W3C compositing formula (alpha first, then the blend function of the two straight colours, so
 //     a half-transparent layer never darkens or tints its edge). Gradients, masks and blurs interpolate premultiplied values.
 //   - The result is quantized to 8 bits once, at the end. A fully transparent pixel is written as (0, 0, 0, 0).
+//   - An animated document (`frames`, `tags`, `cels`) bakes a SPRITE SHEET; a document without them bakes the same PNG as ever.
 //   - The same document and the same files give the same bytes (no clock, no random numbers, no threads) with the same build.
 #pragma once
 
@@ -87,6 +88,29 @@ struct ImageMask {
     std::string path;               // SVG path data ("M10 10 L90 10 L50 80 Z"), coordinates in the layer's own pixels
 };
 
+// A cel is what a pixels or indexed layer shows in one frame after the first. The layer's own `source` / `rows` / x / y is the cel of
+// frame 0; a frame with no cel of its own keeps showing the cel before it (it is HELD), so a layer that never changes needs none.
+struct ImageCel {
+    std::string pointer;            // "/layers/1/cels/0"
+    int frame = 1;                  // the frame it starts at (>= 1); cels are listed in increasing frame order
+    bool empty = false;             // the layer shows nothing from this frame
+    int link = -1;                  // >= 0: shows the same picture as the cel that is current at that earlier frame (a linked cel)
+    std::string source;             // pixels: a PNG of the project
+    std::vector<std::string> rows;  // indexed: the picture as text rows (fa/tooling/pixel_art.h)
+    std::optional<int> x, y;        // where the cel's top-left corner lands; default: the layer's x and y
+    float opacity = 1;              // multiplies the layer's opacity
+};
+
+// What a layer shows in one frame, resolved: held cels and links followed.
+struct ImageCelView {
+    bool empty = true;              // nothing is drawn (pixels: no source)
+    const std::string* source = nullptr;                // pixels
+    const std::vector<std::string>* rows = nullptr;     // indexed (null or empty: a blank layer)
+    int x = 0, y = 0;
+    float opacity = 1;
+    int origin = 0;                 // the frame whose cel supplies it (frames with the same origin share one picture)
+};
+
 struct ImageLayer {
     ImageLayerKind kind = ImageLayerKind::Fill;
     std::string pointer;            // "/layers/2" or "/layers/1/layers/0"
@@ -120,7 +144,32 @@ struct ImageLayer {
     // a blank layer of `width` x `height` (0 = the canvas size). The colours are the document's `palette`.
     std::vector<std::string> rows;
     bool ai = false;                // indexed: the pixels were made from an AI-made picture (image.layer.convert records it), so the bake is AI-made
+    // pixels and indexed: the cels of the frames after the first (see ImageCel). A pixels layer with `cels` may have no `source`: it is
+    // empty in frame 0.
+    std::vector<ImageCel> cels;
+    bool hasCels = false;           // the JSON has a `cels` key (even an empty list)
 };
+
+// The cel `layer` shows in `frame` (0 = the layer's own content). Layers of other kinds show the same in every frame.
+ImageCelView image_layer_cel(const ImageLayer& layer, int frame);
+
+enum class ImageTagDirection { Forward, Reverse, PingPong };
+const char* image_tag_direction_name(ImageTagDirection direction);
+std::vector<std::string> image_tag_direction_names();
+
+// One frame of an animated document.
+struct ImageFrame {
+    int duration = 100;             // milliseconds
+};
+// A named run of frames; the bake makes a SpriteAnimator clip of it.
+struct ImageTag {
+    std::string pointer;            // "/tags/0"
+    std::string name;
+    int from = 0, to = 0;           // first and last frame, inclusive
+    ImageTagDirection direction = ImageTagDirection::Forward;
+    int repeat = 0;                 // how many times it plays; 0 = it loops for ever
+};
+inline constexpr int kImageMaxFrames = 1024;
 
 struct ImageDocument {
     std::string file;               // the project-relative path it was read from ("" when parsed from memory)
@@ -132,8 +181,15 @@ struct ImageDocument {
     // Empty when the document has no indexed layer and declares no palette.
     PixelPalette palette;
     std::vector<ImageLayer> layers; // bottom first: later layers are drawn over earlier ones
+    // Animation. A document is animated when its JSON has `frames` or `tags`: the bake is then a sprite sheet (image_sheet below).
+    bool animated = false;
+    std::vector<ImageFrame> frames; // empty = one frame (a document that is not animated)
+    std::vector<ImageTag> tags;
+    int sheetColumns = 0;           // `sheet.columns`: frames per row of the baked sheet; 0 = ceil(sqrt(cells))
     Json json;                      // the document as written
 };
+// The number of frames (1 for a document with no `frames`).
+int image_frame_count(const ImageDocument& doc);
 
 // One problem of a document, with the JSON pointer inside it.
 struct ImageIssue {
@@ -150,16 +206,54 @@ Result<ImageDocument> parse_image_document(const Json& json, const std::string& 
 // The same for a project-relative file. A JSON syntax error is reported with its line and column.
 Result<ImageDocument> load_image_document(const std::string& projectDir, const std::string& rel, std::vector<ImageIssue>* issues = nullptr);
 
+// Onion skin: the frames around the one drawn, ghosted under it. A ghost is the frame with its colours pulled towards `beforeColor` /
+// `afterColor` (60%) and its alpha multiplied by `opacity`, by 1/2 for the second frame away, 1/3 for the third, and so on.
+struct ImageOnionSkin {
+    int before = 1, after = 1;      // how many frames before and after (0 to 8)
+    float opacity = 0.4f;           // of the nearest ghost
+    Color beforeColor{1.0f, 0.25f, 0.25f, 1.0f};
+    Color afterColor{0.25f, 0.5f, 1.0f, 1.0f};
+    bool loop = false;              // frames wrap around: the frame before 0 is the last one
+};
+
 struct ImageRenderOptions {
     std::string projectDir;         // where project-relative files (PNGs, SVGs, fonts) are read
+    int frame = 0;                  // which frame to draw (0 to image_frame_count - 1)
+    std::optional<ImageOnionSkin> onion;  // ghost the neighbouring frames under it (a preview; never used by the bake)
 };
 struct ImageRender {
     Image image;                    // width x height, straight-alpha RGBA8
     std::vector<std::string> inputs;    // every project file read (sorted, no duplicates): what the recipe hashes
     std::vector<std::string> warnings;  // things that were ignored or clamped
 };
-// Draws the document. Fails (with the layer's pointer and a fix) when a file cannot be read or an SVG cannot be drawn.
+// Draws the document (one frame: `options.frame`). Fails (with the layer's pointer and a fix) when a file cannot be read or an SVG
+// cannot be drawn, or when the frame does not exist.
 Result<ImageRender> composite_image_document(const ImageDocument& doc, const ImageRenderOptions& options);
+
+// ---- the sprite sheet of an animated document -------------------------------------------------------------------------
+
+// The clip of a tag as the sheet stores it. SpriteAnimator plays a contiguous run of cells at one speed, so a tag that is not a plain
+// forward run of equal frames (reverse, ping-pong, repeated, frames of different durations) gets extra cells after the frames
+// that spell out its play order.
+struct ImageSheetClip {
+    std::string name;
+    int firstFrame = 0, lastFrame = 0;  // cells of the sheet, inclusive
+    double fps = 10;
+    bool loop = true;
+};
+struct ImageSheetPlan {
+    int columns = 1, rows = 1;
+    int cells = 0;                      // frames + the extra cells of the clips that need them
+    std::vector<int> cellFrame;         // the document frame drawn in each cell (cells 0 .. frames-1 are the frames in order)
+    std::vector<ImageSheetClip> clips;
+    std::vector<std::string> warnings;  // a duration that could not be kept exactly
+    Json sheet;                         // the `sheet` entry of assets.json
+};
+// How the document's frames and tags lay out in the sheet. Needs only the document (no files). Fails when the sheet would be larger
+// than a texture (16384 px on a side).
+Result<ImageSheetPlan> plan_image_sheet(const ImageDocument& doc);
+// The sheet picture: every cell drawn (`plan.cellFrame`), left to right, top to bottom.
+Result<ImageRender> composite_image_sheet(const ImageDocument& doc, const ImageSheetPlan& plan, const ImageRenderOptions& options);
 
 // ---- baking: the PNG next to the document -----------------------------------------------------------------------------
 
@@ -190,12 +284,14 @@ struct ImageBakeResult {
     int width = 0, height = 0;
     bool written = false;           // false: it was Fresh and onlyIfNeeded was set
     bool ai = false;                // recorded as AI-made (a provider layer, or a file whose provenance says so)
+    Json sheet;                     // animated document: the `sheet` entry written to assets.json (null otherwise)
     std::string sha256;             // of the PNG's bytes
     std::vector<std::string> inputs;
     std::vector<std::string> warnings;
     Json provenance;                // the record written to assets.json
 };
-// Composites the document and writes the PNG (deterministic bytes), then records provenance + recipe {command "image.bake",
+// Composites the document and writes the PNG (deterministic bytes; for an animated document, the sprite sheet of its frames plus the
+// SpriteAnimator clips of its tags in the `sheet` entry), then records provenance + recipe {command "image.bake",
 // args {path}, inputs: the document and every file it read} in assets.json. Keeps the license and author a person recorded.
 Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const std::string& rel, const ImageBakeOptions& options = {});
 

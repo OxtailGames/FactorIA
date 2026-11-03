@@ -493,6 +493,7 @@ Json import_asset(const std::string& projectDir, const Json& a) {
     request.source = source;
     request.dest = plan_destination(arg_string(a, "path", false), source, route->second);
     request.columns = int(tooling_detail::arg_int(a, "columns", 0));
+    request.flat = arg_bool(a, "flat", false);
     const bool overwrite = arg_bool(a, "overwrite", false);
     auto exists = [&](const std::string& rel) { std::error_code ec; return stdfs::exists(project_file(projectDir, rel), ec); };
     if (!overwrite && exists(request.dest))
@@ -565,6 +566,12 @@ Json import_asset(const std::string& projectDir, const Json& a) {
         if (!saved.ok()) fail("failed", "The layers were written, but the image document could not be saved: " + saved.error().message, saved.error().hint);
         written.push_back(Json::object({{"path", out.documentPath}, {"kind", "image document"}}));
         for (const std::string& w : saved->warnings) out.warnings.push_back(w);
+        if (out.sheet.is_null() && saved->sheet.is_object()) {
+            // An animated document bakes a sprite sheet: report it and how to play it, like an importer that makes a sheet.
+            out.sheet = saved->sheet;
+            if (out.nextSteps.empty()) out.nextSteps = default_next_steps(request.dest);
+            for (const std::string& step : sheet_next_steps(request.dest, out.sheet, 10)) out.nextSteps.push_back(step);
+        }
     }
 
     Json result = Json::object({{"importer", route->second.importer}, {"path", request.dest}, {"written", written}, {"provenance", provenance}});
@@ -601,11 +608,19 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "the same name is kept and the result warns (kits ship different Textures/colormap.png files: import each kit into its own "
         "folder with `path`, or pass overwrite), and a DIFFERENT buffer is an `exists` error. project.validate reports a model whose "
         "texture or buffer is missing.\n"
-        "- .aseprite .ase: becomes ONE PNG sprite sheet (frames in a grid, `columns` per row, default ceil(sqrt(frames))) and the "
-        "`sheet` entry of assets.json: columns, rows, frameWidth, frameHeight, frames and a clip per tag (firstFrame, lastFrame, fps from "
-        "the frame durations). Hidden layers are left out, layer and cel opacity apply, RGBA, grayscale and indexed colors work. "
-        "Blend modes other than normal are drawn as normal, and ping-pong or reverse tags become forward clips (set SpriteAnimator.mode to play them that way); the result says so. "
-        "The result lists the Sprite and SpriteAnimator settings that play it.\n"
+        "- .aseprite .ase: becomes an image document (<name>.image.json, one PNG per layer and changing cel in <name>.layers/) and the "
+        "sprite sheet is baked from it: layers (hidden ones kept hidden; groups are flattened, their visibility and opacity kept), cels "
+        "(a cel the file links to an earlier frame is a `link`), frame durations, tags (name, range, direction, repeat count) and blend "
+        "modes. An indexed file stays an INDEXED document with its palette when the colors fit (opaque, at most 81); otherwise the layers "
+        "are pixels layers and the result says why. Tags become the clips of the baked sheet's `sheet` entry (frames in a grid, "
+        "`columns` per row, default ceil(sqrt(cells)); a reverse, ping-pong or repeated tag gets extra cells so it plays that way), so "
+        "a SpriteAnimator plays a tag by clip name. A file with one frame and no tags bakes a plain PNG. Edit the result with image.* "
+        "(image.pixel, image.draw, image.edit and image.paint take a `frame`; image.frame.* and image.tag.* change the animation). "
+        "Not kept: tilemap layers, reference layers, cel z-indexes, the blend mode of a group and the 'divide' blend mode (the result "
+        "warns). Pass flat: true for the old result: ONE PNG sprite sheet and the `sheet` entry of assets.json (columns, rows, "
+        "frameWidth, frameHeight, frames and a clip per tag, fps from the frame durations), no document and no layers; hidden layers "
+        "are left out, blend modes other than normal are drawn as normal and ping-pong or reverse tags become forward clips (the "
+        "result says so). The result lists the Sprite and SpriteAnimator settings that play the sheet.\n"
         "- .psd: the layers become an image document (<name>.image.json, one PNG per layer in <name>.layers/; names, opacity, visibility, blend modes, clipping, groups and layer masks are kept) and the PNG is baked from it; a file whose layers cannot be read imports its merged image as a PNG with a warning.\n"
         "- .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are "
         "triangulated, objects/groups/materials become separate meshes, missing normals give flat shading, and the result has the "
@@ -629,7 +644,8 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "author":{"type":"string","description":"Who made it. Recorded in assets.json for the credits."},
         "sourceUrl":{"type":"string","description":"Where the file came from (a page URL). Recorded as the provenance source instead of the local path."},
         "ai":{"type":"boolean","description":"Set true when AI made the content elsewhere (Steam's AI disclosure reads it). Leave out when unknown."},
-        "columns":{"type":"integer","minimum":1,"description":"Aseprite only: frames per row of the sheet (default ceil(sqrt(frames)))."},
+        "columns":{"type":"integer","minimum":1,"description":"Aseprite only: frames per row of the baked sprite sheet (default ceil(sqrt(frames))); recorded as `sheet.columns` of the document."},
+        "flat":{"type":"boolean","default":false,"description":"Aseprite only: skip the image document and write ONE PNG sprite sheet with its `sheet` entry (the layers are flattened, a ping-pong or reverse tag becomes a forward clip)."},
         "overwrite":{"type":"boolean","default":false,"description":"Replace files that already exist."}
       }})");
     registry.add(info, [projectDir](const Json& args) { return import_asset(projectDir, args); });
