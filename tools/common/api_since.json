@@ -792,6 +792,7 @@
     "assets.provenance": "0.1.6",
     "assets.rasterize_svg": "0.4.0",
     "assets.regenerate": "0.6.0",
+    "assets.review": "unreleased",
     "assets.set_provenance": "0.1.6",
     "assets.slice_sheet": "0.1.6",
     "assets.spectrogram": "unreleased",

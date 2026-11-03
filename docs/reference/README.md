@@ -155,6 +155,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.provenance`](commands/assets.md#assetsprovenance): Show where assets came from: the provenance record of one file, or all of them. _Since 0.1.6._
 - [`assets.rasterize_svg`](commands/assets.md#assetsrasterize_svg-modifies-state): Turn an SVG (text or a project file) into a PNG at a given size, offline: art you write as vector shapes, no provider and no key. _Since 0.4.0._
 - [`assets.regenerate`](commands/assets.md#assetsregenerate-modifies-state): Make a made asset again from the recipe its provenance records, and say what changed. _Since 0.6.0._
+- [`assets.review`](commands/assets.md#assetsreview): A cheap one-shot vision review of the pictures you made: a verdict and concrete fixes, grounded on assets.check_art and the style references. _Not released yet._
 - [`assets.set_provenance`](commands/assets.md#assetsset_provenance-modifies-state): Record where an asset came from (hand-made, imported, or made with AI elsewhere). _Since 0.1.6._
 - [`assets.slice_sheet`](commands/assets.md#assetsslice_sheet-modifies-state): Make an image playable by SpriteAnimator: check its frame grid, or find the frames of an uneven sheet and repack them. _Since 0.1.6._
 - [`assets.spectrogram`](commands/assets.md#assetsspectrogram): See a sound: a picture of its waveform, spectrogram (log frequency) and loudness curve, with the clipped samples and the loop seam marked. _Not released yet._

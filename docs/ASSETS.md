@@ -580,6 +580,29 @@ rules were applied, and any `problems` found in `style`), `picture` and `nextSte
 sky-hopper adopts it as the example: its `assets.json` `style` sets `texelsPerUnit` 1, `saturation` 0.3 to 0.9 and `ignore`s the two sheets that are baked at twice the size (`assets/crawler_sheet.png`,
 `assets/parts_atlas.png`). Its art was not repainted, and `factoria validate` is clean.
 
+### Reviewing art: assets.review
+
+`assets.review {"path":"assets/hero.png","focus":"does the outline match the references?"}` (or `{"paths":[...]}`, up to 4 pictures
+as a set) is the optional last look of the loop *make, preview, check, fix*: one call to a vision model, made by the AI that is
+building the game (the user-only art critics of `ai.review` are a different, costlier thing). It is **grounded**: it first runs
+`assets.check_art` on the same pictures, then sends the model the check's numbers (every rule with value, threshold, verdict and
+hint), the `style` of `assets.json` as written, the `style.references` images (the first 3 that exist), the pictures (a file over
+1 MB is shrunk to 1024 px on its long side) and the annotated picture of the check. The model is asked what numbers cannot say:
+does it match the references and the style, does it read at its on-screen size, does it suit its use, are there artifacts.
+
+Result: `verdict` (`good`, `fix` or `redo`; never `good` while the check has a `fail`), `summary`, `fixes` (each `{what, where,
+command}`: the problem and the change, the picture and the part of it, and the command or `assets.json` setting to use), `checkArt`
+(the check's verdict, counts, per-asset measures and rules), `role`, `provider`, `model`, `warnings` (a style reference that could
+not be sent, a fix that names a command this engine does not have, a `good` overruled by the check) and `nextSteps`. It writes
+nothing to the project.
+
+It needs a model that accepts pictures. It uses the "fast" role of `ai.json` (the orchestrator when fast is off), because it is a
+cheap one-shot question and the "artist" role is usually an image generator, not a viewer. API providers get the pictures as image
+blocks (Anthropic) or `image_url` data URLs (OpenAI-compatible: OpenAI, Gemini, Ollama...); a CLI agent gets them inline or as
+files in its empty work folder; a provider that only makes assets is refused. With no provider, no key or a text-only model it fails
+with `no_model` or `review_failed` and a hint, and the loop goes on with `assets.check_art` alone. Call it once the check shows no
+`fail`, not after every edit: each call is a paid request.
+
 ### The game icon without a provider: assets.draw_icon
 
 A game made without an image provider still gets a real icon. `assets.draw_icon` draws one from a short description,
