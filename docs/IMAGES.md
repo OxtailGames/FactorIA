@@ -441,6 +441,11 @@ pixels (`scale` 1 to 32, default as large as fits 512 pixels; `previewScale` tel
 - `image.palette {path, palette?, ramps?}`: without `palette` or `ramps` it reads the palette, each colour with its index and
   character, name, `#rrggbb`, how many pixels use it, its ramp, `shade` and `light`. With them it rewrites them (`null` removes)
   and bakes.
+- `image.palette.move {path, from, to, bake?}`: moves a palette colour (index, name or `#rrggbb`) to the position of `to`; the
+  colours between shift by one, the rows of every indexed layer, cel and tileset part and the ramps are rewritten, so the picture
+  does not change. `image.palette.remove {path, index, replaceWith?, bake?}`: takes a colour out; its pixels take `replaceWith`
+  or become transparent (a warning counts them), the other pixels keep their colour. The palette keeps at least one colour. The
+  Image panel's palette bar runs them (docs/EDITOR.md, "Image panel").
 - `image.layer.convert {path, layer, to, palette?, dither?, space?, strength?, alphaThreshold?}`: `to: "indexed"` draws the layer
   alone (with its masks, adjustments and effects), crops it to what it shows and gives each pixel its nearest palette colour
   (OKLab, or `space: "rgb"`), with the optional `dither` of the `dither` adjustment (`bayer2`, `bayer4`, `bayer8`,

@@ -51,12 +51,13 @@ ImVec2 Editor::image_from_screen(ImVec2 p) const {
 void Editor::image_fit() {
     ImageUi& u = image_;
     if (!u.model || !u.model->is_open() || u.canvasW < 8 || u.canvasH < 8) return;
-    const float iw = float(std::max(1, u.model->width())), ih = float(std::max(1, u.model->height()));
+    const float repeat = u.tiled ? 3.0f : 1.0f;   // the tiled preview shows the picture three times across
+    const float iw = float(std::max(1, u.model->width())) * repeat, ih = float(std::max(1, u.model->height())) * repeat;
     float z = std::min((u.canvasW - 24.0f) / iw, (u.canvasH - 24.0f) / ih);
     if (z >= 1.0f) z = std::floor(z);   // whole pixels when enlarging, so pixel art stays crisp
     u.zoom = std::clamp(z, kMinZoom, kMaxZoom);
-    u.panX = (u.canvasW - iw * u.zoom) * 0.5f;
-    u.panY = (u.canvasH - ih * u.zoom) * 0.5f;
+    u.panX = (u.canvasW - iw * u.zoom) * 0.5f + (repeat - 1.0f) * 0.5f * float(u.model->width()) * u.zoom;
+    u.panY = (u.canvasH - ih * u.zoom) * 0.5f + (repeat - 1.0f) * 0.5f * float(u.model->height()) * u.zoom;
 }
 
 // ------------------------------------------------------------------------------------------------------------ textures --
@@ -77,6 +78,7 @@ void Editor::image_update_textures(ImageModel& m) {
             u.picture = t;
         }
     }
+    if (!m.tileset_layer() && u.terrain.view) retire(u.terrain);
     const bool wantTint = m.has_selection() && (u.tint || m.selection_edges_truncated());
     if (!wantTint) {
         if (u.selectionTint.view) retire(u.selectionTint);
@@ -209,14 +211,38 @@ void Editor::draw_image_canvas(ImageModel& m, ImVec2 size) {
     } else {
         dl->AddRectFilled(p0, p1, IM_COL32(20, 20, 22, 255));
     }
+    u.tiledDrawn = false;
+    if (u.picture.view && u.tiled) {
+        // the picture repeated around itself: a seam shows where one copy meets the next
+        const float w = p1.x - p0.x, h = p1.y - p0.y;
+        for (int ty = -1; ty <= 1; ++ty)
+            for (int tx = -1; tx <= 1; ++tx) {
+                if (tx == 0 && ty == 0) continue;
+                const ImVec2 a(p0.x + float(tx) * w, p0.y + float(ty) * h), b(a.x + w, a.y + h);
+                if (b.x < cmin.x || a.x > cmax.x || b.y < cmin.y || a.y > cmax.y) continue;
+                dl->AddImage(texture_ref(u.picture, u.zoom < 1.0f), a, b);
+            }
+        u.tiledDrawn = true;
+    }
     if (u.picture.view) dl->AddImage(texture_ref(u.picture, u.zoom < 1.0f), p0, p1);
     dl->AddRect(p0, p1, IM_COL32(0, 0, 0, 160));
 
+    u.gridDrawn = false;
     if (u.showGrid && u.zoom >= kGridZoom) {
         const int gx0 = std::max(0, int(std::floor((cmin.x - p0.x) / u.zoom))), gx1 = std::min(m.width(), int(std::ceil((cmax.x - p0.x) / u.zoom)));
         const int gy0 = std::max(0, int(std::floor((cmin.y - p0.y) / u.zoom))), gy1 = std::min(m.height(), int(std::ceil((cmax.y - p0.y) / u.zoom)));
-        for (int x = gx0; x <= gx1; ++x) dl->AddLine(image_to_screen(float(x), float(gy0)), image_to_screen(float(x), float(gy1)), IM_COL32(0, 0, 0, 70));
-        for (int y = gy0; y <= gy1; ++y) dl->AddLine(image_to_screen(float(gx0), float(y)), image_to_screen(float(gx1), float(y)), IM_COL32(0, 0, 0, 70));
+        // the stronger lines: the tiles of a tile document, else every gridMajor pixels
+        const ImageTileMode& tm = m.doc().tile;
+        const int majorX = tm.enabled && tm.width > 0 ? tm.width : u.gridMajor, majorY = tm.enabled && tm.height > 0 ? tm.height : u.gridMajor;
+        for (int x = gx0; x <= gx1; ++x) {
+            const bool major = majorX > 0 && x % majorX == 0;
+            dl->AddLine(image_to_screen(float(x), float(gy0)), image_to_screen(float(x), float(gy1)), major ? IM_COL32(0, 0, 0, 150) : IM_COL32(0, 0, 0, 70));
+        }
+        for (int y = gy0; y <= gy1; ++y) {
+            const bool major = majorY > 0 && y % majorY == 0;
+            dl->AddLine(image_to_screen(float(gx0), float(y)), image_to_screen(float(gx1), float(y)), major ? IM_COL32(0, 0, 0, 150) : IM_COL32(0, 0, 0, 70));
+        }
+        u.gridDrawn = true;
     }
 
     image_draw_selection(m, dl);
@@ -244,6 +270,13 @@ void Editor::draw_image_canvas(ImageModel& m, ImVec2 size) {
         dl->AddPolyline(pts.data(), int(pts.size()), IM_COL32(0, 0, 0, 255), 0, 3.0f);
         dl->AddPolyline(pts.data(), int(pts.size()), IM_COL32(255, 255, 255, 255), 0, 1.0f);
         if (u.polygonOpen) dl->AddCircle(pts.front(), 5.0f, IM_COL32(255, 200, 80, 255));
+    }
+    // the pixel under the mouse for the tools that act on one pixel of a pixel-art document
+    if (hovered && editable && !m.palette().empty() && u.mouseImageX >= 0 && u.drag == ImageUi::Drag::None &&
+        (u.tool == ImageTool::Fill || u.tool == ImageTool::Picker || u.tool == ImageTool::Wand)) {
+        const ImVec2 a = image_to_screen(u.mouseImageX, u.mouseImageY), b = image_to_screen(u.mouseImageX + 1, u.mouseImageY + 1);
+        dl->AddRect(a, b, IM_COL32(0, 0, 0, 255), 0, 0, 2.0f);
+        dl->AddRect(a, b, IM_COL32(255, 255, 255, 255));
     }
     // brush outline
     if (hovered && editable && (u.tool == ImageTool::Brush || u.tool == ImageTool::Eraser) && u.drag != ImageUi::Drag::Pan) {
@@ -296,7 +329,7 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
     }
 
     // ---- a drag in progress
-    const bool down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+    const bool down = ImGui::IsMouseDown(u.dragButton == 1 ? ImGuiMouseButton_Right : ImGuiMouseButton_Left);
     const bool downMiddle = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
     const auto sel_op = [&] {
         if (io.KeyShift && io.KeyAlt) return SelectOp::Intersect;
@@ -424,6 +457,10 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
         if (ImGui::IsKeyPressed(ImGuiKey_L, false)) pick_tool(shift ? ImageTool::SelectPolygon : ImageTool::SelectLasso);
         if (ImGui::IsKeyPressed(ImGuiKey_W, false)) pick_tool(ImageTool::Wand);
         if (ImGui::IsKeyPressed(ImGuiKey_T, false)) pick_tool(ImageTool::Transform);
+        if (ImGui::IsKeyPressed(ImGuiKey_X, false)) {   // swap the primary and secondary colours
+            std::swap(u.brush.paletteIndex, u.secondaryIndex);
+            std::swap(u.brush.color, u.secondaryColor);
+        }
         if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket)) u.brush.size = std::max(1.0, std::floor(u.brush.size * 0.8 - 0.5));
         if (ImGui::IsKeyPressed(ImGuiKey_RightBracket)) u.brush.size = std::min(256.0, std::ceil(u.brush.size * 1.25 + 0.5));
         if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
@@ -452,11 +489,22 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
     // ---- a button went down on the canvas
     if (!hovered || u.drag != ImageUi::Drag::None) return;
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsKeyDown(ImGuiKey_Space))) {
+        u.dragButton = 0;
         u.drag = ImageUi::Drag::Pan;
         return;
     }
-    if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return;
+    // the right button paints with the secondary colour (brush, eraser and fill)
+    const bool rightClick = ImGui::IsMouseClicked(ImGuiMouseButton_Right) &&
+                            (u.tool == ImageTool::Brush || u.tool == ImageTool::Eraser || u.tool == ImageTool::Fill);
+    if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !rightClick) return;
+    u.playing = false;   // the timeline preview stops when you start to draw
     if (!editable) return;
+    u.dragButton = rightClick && !ImGui::IsMouseClicked(ImGuiMouseButton_Left) ? 1 : 0;
+    ImageBrushSettings brush = u.brush;
+    if (u.dragButton == 1) {
+        brush.color = u.secondaryColor;
+        brush.paletteIndex = u.secondaryIndex;
+    }
     std::string why;
     const std::string layerPath = m.selected_layer();
     const int px = int(std::floor(f.x)), py = int(std::floor(f.y));
@@ -471,11 +519,11 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
                 pick_at(px, py);
                 break;
             }
-            if (m.begin_stroke(u.tool == ImageTool::Eraser, u.brush, f.x, f.y)) u.drag = ImageUi::Drag::Stroke;
+            if (m.begin_stroke(u.tool == ImageTool::Eraser, brush, f.x, f.y)) u.drag = ImageUi::Drag::Stroke;
             break;
         case ImageTool::Fill:
             if (io.KeyAlt) pick_at(px, py);
-            else if (inside) image_edited(m.fill_at(px, py, u.brush, u.wand.tolerance));
+            else if (inside) image_edited(m.fill_at(px, py, brush, u.wand.tolerance));
             break;
         case ImageTool::Picker: pick_at(px, py); break;
         case ImageTool::SelectRect:
@@ -548,6 +596,57 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
             break;
         }
     }
+}
+
+// ----------------------------------------------------------------------------------------------- terrain preview --
+// A tileset document: a small map painted with its terrain (the engine's autotile rules choose each tile from its neighbours), drawn
+// from the sheet the document shows, so a wrong edge or corner is seen in place.
+void Editor::draw_image_terrain(ImageModel& m) {
+    ImageUi& u = image_;
+    u.terrainShown = false;
+    if (!m.tileset_layer()) return;
+    static const std::vector<std::string> kPattern = {
+        "............",
+        ".#####..##..",
+        ".######.##..",
+        ".#####..##..",
+        ".##.##..###.",
+        ".#####......",
+        "..###..#.#..",
+        "............",
+    };
+    if (!ImGui::CollapsingHeader("Terrain preview", ImGuiTreeNodeFlags_DefaultOpen)) return;
+    at_track("img:terrain");
+    if (u.terrain.view == 0 || u.terrain.revision != m.revision()) {
+        Image pic = m.terrain_preview(kPattern);
+        if (u.terrain.view || u.terrain.image) u.graveyard.push_back({u.terrain.image, u.terrain.view, uiFrame_});
+        u.terrain = ImageTexture{};
+        if (!pic.empty()) {
+            ImageTexture t;
+            if (ui::make_texture(pic.width, pic.height, pic.rgba.data(), t.image, t.view)) {
+                t.w = pic.width;
+                t.h = pic.height;
+                t.revision = m.revision();
+                u.terrain = t;
+            }
+        }
+        if (u.terrain.view == 0) u.terrain.revision = m.revision();   // do not retry every frame
+    }
+    if (u.terrain.view == 0) {
+        ImGui::TextDisabled("The sheet is not drawn yet: see the document's tileset layer.");
+        return;
+    }
+    const float avail = std::max(32.0f, ImGui::GetContentRegionAvail().x);
+    float scale = avail / float(u.terrain.w);
+    if (scale >= 1.0f) scale = std::floor(scale);
+    const ImVec2 size(float(u.terrain.w) * scale, float(u.terrain.h) * scale);
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(size);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), IM_COL32(38, 38, 42, 255));
+    dl->AddImage(texture_ref(u.terrain, scale < 1.0f), at, ImVec2(at.x + size.x, at.y + size.y));
+    u.terrainShown = true;
+    ImGui::TextDisabled("Each '#' cell of this shape is a terrain cell; the tile is chosen by its neighbours like Tilemap's terrain paint does.");
 }
 
 }  // namespace fa::editor

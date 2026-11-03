@@ -595,6 +595,116 @@ Json image_palette(const std::string& projectDir, const Json& a) {
     return out;
 }
 
+// ---- image.palette.move / image.palette.remove -----------------------------------------------------------------------------------------
+
+// Gives every pixel of every `rows` text under `node` (layers, cels, tileset parts) its new index: map[old] = new, -1 = transparent.
+void remap_rows(Json& node, const std::vector<int>& map) {
+    if (node.is_array()) {
+        for (Json& c : node) remap_rows(c, map);
+        return;
+    }
+    if (!node.is_object()) return;
+    for (auto it = node.begin(); it != node.end(); ++it) {
+        if (it.key() == "rows" && it.value().is_array()) {
+            for (Json& row : it.value()) {
+                if (!row.is_string()) continue;
+                std::string text = row.get<std::string>();
+                for (char& c : text) {
+                    const int i = pixel_char_index(c);
+                    if (i >= 0 && std::size_t(i) < map.size()) c = map[std::size_t(i)] < 0 ? kPixelTransparentChar : pixel_index_char(map[std::size_t(i)]);
+                }
+                row = text;
+            }
+        } else {
+            remap_rows(it.value(), map);
+        }
+    }
+}
+
+// Writes the palette reordered or shortened by `order` (new position -> old index) into the document and rewrites the pixels and ramps.
+void apply_palette_order(Json& docJson, const PixelPalette& pal, const std::vector<int>& order) {
+    std::vector<int> map(std::size_t(pal.size()), -1);
+    for (std::size_t n = 0; n < order.size(); ++n) map[std::size_t(order[n])] = int(n);
+    Json list = Json::array();
+    for (int old : order) {
+        const auto& e = pal.entries[std::size_t(old)];
+        const std::string hex = std::format("#{:02x}{:02x}{:02x}", e.rgb[0], e.rgb[1], e.rgb[2]);
+        list.push_back(e.name.empty() ? Json(hex) : Json::object({{"name", e.name}, {"color", hex}}));
+    }
+    if (docJson.contains("layers")) remap_rows(docJson["layers"], map);
+    if (!pal.ramps.empty()) {
+        Json ramps = Json::array();
+        for (const auto& ramp : pal.ramps) {
+            Json r = Json::array();
+            for (int i : ramp)
+                if (map[std::size_t(i)] >= 0) r.push_back(map[std::size_t(i)]);
+            if (r.size() >= 2) ramps.push_back(std::move(r));
+        }
+        if (ramps.empty()) docJson.erase("ramps");
+        else docJson["ramps"] = std::move(ramps);
+    }
+    docJson["palette"] = std::move(list);
+}
+
+Json image_palette_edit(const std::string& projectDir, const Json& a, bool remove) {
+    const char* cmd = remove ? "image.palette.remove" : "image.palette.move";
+    if (remove) check_arg_keys(cmd, a, "", {"path", "index", "replaceWith", "bake"});
+    else check_arg_keys(cmd, a, "", {"path", "from", "to", "bake"});
+    DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd);
+    assets_detail::require_usable_manifest(projectDir);
+    const PixelPalette pal = load_doc_palette(projectDir, d.rel, d.json, true, cmd);
+    const int n = pal.size();
+    if (n == 0) arg_error(cmd, "/path", "the document has no palette.", "Give it one with image.palette {\"palette\":[...]} or set style.palette in assets.json.");
+    auto colour_arg = [&](const char* key, bool required) -> int {
+        auto it = a.find(key);
+        if (it == a.end() || it->is_null()) {
+            if (required) arg_error(cmd, std::string("/") + key, std::string("`") + key + "` is required: a palette colour (index, name or #rrggbb).", std::string("Read the palette with image.palette. Example: \"") + key + "\": 2.");
+            return -1;
+        }
+        auto found = pixel_palette_find(pal, *it, false);
+        if (!found.ok()) arg_error(cmd, std::string("/") + key, found.error().message, found.error().hint);
+        return *found;
+    };
+    std::vector<int> order;
+    for (int i = 0; i < n; ++i) order.push_back(i);
+    std::vector<std::string> warnings;
+    Json extra = Json::object();
+    if (remove) {
+        const int index = colour_arg("index", true);
+        const int repl = colour_arg("replaceWith", false);
+        if (repl == index) arg_error(cmd, "/replaceWith", "`replaceWith` is the colour being removed.", "Name another colour, or leave it out to make those pixels transparent.");
+        if (n <= 1) arg_error(cmd, "/index", "the palette has only one colour.", "A palette keeps at least one colour.");
+        std::vector<std::size_t> use(std::size_t(n), 0);
+        count_use(d.json["layers"], pal, use);
+        std::vector<int> map(static_cast<std::size_t>(n), 0);
+        for (int i = 0; i < n; ++i) map[std::size_t(i)] = i;
+        map[std::size_t(index)] = repl;   // in old indices; apply_palette_order then turns them into new ones
+        if (use[std::size_t(index)] > 0)
+            warnings.push_back(std::format("{} pixels used {}; {}.", use[std::size_t(index)], pal.label(index),
+                                           repl >= 0 ? "they now use " + pal.label(repl) : std::string("they are transparent now")));
+        if (d.json.contains("layers")) remap_rows(d.json["layers"], map);
+        order.erase(order.begin() + index);
+        extra["removed"] = Json::object({{"index", index}, {"color", pal.hex(index)}, {"pixels", use[std::size_t(index)]}});
+    } else {
+        const int from = colour_arg("from", true);
+        const int to = colour_arg("to", true);
+        if (from == to) arg_error(cmd, "/to", "`from` and `to` are the same colour.", "Pick another position.");
+        order.erase(order.begin() + from);
+        order.insert(order.begin() + to, from);
+        extra["moved"] = Json::object({{"from", from}, {"to", to}, {"color", pal.hex(from)}});
+    }
+    const std::optional<Image> before = render_document_json(projectDir, d.json);
+    apply_palette_order(d.json, pal, order);
+    const PixelPalette after = load_doc_palette(projectDir, d.rel, d.json, true, cmd);
+    extra["palette"] = palette_report(d.json, after, false);
+    Json out = commit_document(projectDir, d.rel, d.json, before, arg_bool(a, "bake", true), extra, warnings, cmd);
+    if (arg_bool(a, "bake", true)) attach_preview(projectDir, d.rel, d.json, out, 0);
+    return out;
+}
+
+Json image_palette_move(const std::string& projectDir, const Json& a) { return image_palette_edit(projectDir, a, false); }
+Json image_palette_remove(const std::string& projectDir, const Json& a) { return image_palette_edit(projectDir, a, true); }
+
 // ---- image.layer.convert -------------------------------------------------------------------------------------------------------
 
 const std::vector<std::string> kDithers = {"none", "bayer2", "bayer4", "bayer8", "floydSteinberg", "atkinson"};
@@ -836,6 +946,28 @@ void register_indexed_commands(CommandRegistry& registry, const std::string& pro
         "\"ramps\":{\"description\":\"New ramps: [[colour, colour, ...], ...] darkest first, colours by index, name or \\\"#rrggbb\\\"; null removes them.\"},"
         "\"bake\":{\"type\":\"boolean\",\"default\":true,\"description\":\"" + bakeDoc + "\"}}}",
         image_palette);
+
+    add("image.palette.move", "Move one colour of an image document's palette to another position; the pixels follow it, so the picture does not change.",
+        "Reorders the palette of the document (the colours of its indexed layers, cels and tileset parts keep looking the same: the index characters of the rows are rewritten) and the ramps that name the colour. "
+        "`from` and `to` are palette colours (index, name or #rrggbb); the colour ends at the position of `to` and the colours between shift by one. A document with no `palette` gets the style palette copied into it. "
+        "Result: the baked document, the new `palette` report and `moved`. Example: {\"path\":\"assets/art/hero.image.json\",\"from\":\"skin\",\"to\":0}",
+        "{\"type\":\"object\",\"required\":[\"path\",\"from\",\"to\"],\"properties\":{"
+        "\"path\":{\"type\":\"string\",\"description\":\"" + pathDoc + "\"},"
+        "\"from\":{\"description\":\"The colour to move: its index, name or #rrggbb.\"},"
+        "\"to\":{\"description\":\"The colour whose position it takes (index, name or #rrggbb); an index is where it ends up.\"},"
+        "\"bake\":{\"type\":\"boolean\",\"default\":true,\"description\":\"" + bakeDoc + "\"}}}",
+        image_palette_move);
+
+    add("image.palette.remove", "Remove one colour from an image document's palette; its pixels become another colour or transparent.",
+        "Takes the colour `index` (index, name or #rrggbb) out of the palette; the colours after it shift down and the rows of every indexed layer, cel and tileset part are rewritten to match, so the other pixels do not change. "
+        "Pixels that used the removed colour take the colour `replaceWith`, or become transparent when it is left out (a warning counts them). Ramps lose the colour. The palette keeps at least one colour. "
+        "Result: the baked document, the new `palette` report and `removed`. Example: {\"path\":\"assets/art/hero.image.json\",\"index\":\"skin-dark\",\"replaceWith\":\"skin\"}",
+        "{\"type\":\"object\",\"required\":[\"path\",\"index\"],\"properties\":{"
+        "\"path\":{\"type\":\"string\",\"description\":\"" + pathDoc + "\"},"
+        "\"index\":{\"description\":\"The colour to remove: its index, name or #rrggbb.\"},"
+        "\"replaceWith\":{\"description\":\"The palette colour its pixels take (index, name or #rrggbb). Left out: they become transparent.\"},"
+        "\"bake\":{\"type\":\"boolean\",\"default\":true,\"description\":\"" + bakeDoc + "\"}}}",
+        image_palette_remove);
 
     add("image.layer.convert", "Turn a layer into an indexed pixel-art layer (quantized to the palette, optional dither) or an indexed layer back into a pixels layer.",
         "`to: \"indexed\"`: the layer, drawn alone with its masks, adjustments and effects, is cropped to what it shows and each visible pixel takes its nearest palette colour (OKLab by default, `space: \"rgb\"` for stored values) "
