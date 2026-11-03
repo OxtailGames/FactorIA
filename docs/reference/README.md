@@ -214,14 +214,23 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`sfx.preset`](commands/assets.md#sfxpreset-modifies-state): List the sound presets, return one as an editable patch, or write it to a *.sfx.json file. _Not released yet._
 - [`sfx.render`](commands/assets.md#sfxrender-modifies-state): Render a sound patch (*.sfx.json) to a WAV or OGG next to it and see its spectrogram: the engine's own synthesizer, offline and deterministic. _Not released yet._
 - [`sfx.tweak`](commands/assets.md#sfxtweak-modifies-state): Turn a patch's macros by meaning (brighter, longer tail, heavier) and write the change back to the patch. _Not released yet._
+- [`vector.add`](commands/assets.md#vectoradd-modifies-state): Add a path, rectangle, ellipse or line to an SVG. _Not released yet._
 - [`vector.align`](commands/assets.md#vectoralign-modifies-state): Align SVG elements to each other, the canvas or a key element. _Not released yet._
+- [`vector.assign_ids`](commands/assets.md#vectorassign_ids-modifies-state): Give every drawn element without an id one. _Not released yet._
 - [`vector.blob`](commands/assets.md#vectorblob-modifies-state): Add a smooth organic shape or curve through or around a few points. _Not released yet._
 - [`vector.boolean`](commands/assets.md#vectorboolean-modifies-state): Union, subtract, intersect or exclude SVG shapes into one path. _Not released yet._
+- [`vector.delete`](commands/assets.md#vectordelete-modifies-state): Delete SVG elements. _Not released yet._
 - [`vector.distribute`](commands/assets.md#vectordistribute-modifies-state): Space SVG elements evenly along an axis. _Not released yet._
+- [`vector.duplicate`](commands/assets.md#vectorduplicate-modifies-state): Copy SVG elements right after the originals. _Not released yet._
+- [`vector.group`](commands/assets.md#vectorgroup-modifies-state): Wrap SVG elements in a new group. _Not released yet._
 - [`vector.info`](commands/assets.md#vectorinfo): List the shapes and groups of an SVG with ids, bounds and node counts. _Not released yet._
 - [`vector.mirror`](commands/assets.md#vectormirror-modifies-state): Mirror shapes across a vertical or horizontal axis and weld the halves, or add the mirrored copy. _Not released yet._
+- [`vector.nodes`](commands/assets.md#vectornodes-modifies-state): Edit the nodes of a path: move anchors and handles, insert, delete, convert, break, join, close, append. _Not released yet._
 - [`vector.offset`](commands/assets.md#vectoroffset-modifies-state): Grow or shrink SVG shapes by a distance (offset path, inset). _Not released yet._
+- [`vector.reorder`](commands/assets.md#vectorreorder-modifies-state): Change the drawing order of SVG elements or move them into another group. _Not released yet._
 - [`vector.repeat`](commands/assets.md#vectorrepeat-modifies-state): Repeat an SVG element in a grid or around a circle. _Not released yet._
+- [`vector.set`](commands/assets.md#vectorset-modifies-state): Set the style, visibility, lock, id or attributes of SVG elements. _Not released yet._
+- [`vector.set_path`](commands/assets.md#vectorset_path-modifies-state): Replace the path data of a shape. _Not released yet._
 - [`vector.shade`](commands/assets.md#vectorshade-modifies-state): Add a shadow band and a highlight band to shapes from the light direction. _Not released yet._
 - [`vector.shape`](commands/assets.md#vectorshape-modifies-state): Add a star, gear, rounded polygon, arrow, speech bubble or ribbon to an SVG. _Not released yet._
 - [`vector.simplify`](commands/assets.md#vectorsimplify-modifies-state): Reduce the nodes of SVG paths within a tolerance. _Not released yet._
@@ -230,6 +239,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`vector.style`](commands/assets.md#vectorstyle-modifies-state): Apply the project's style guide to an SVG: outline and palette. _Not released yet._
 - [`vector.text_to_path`](commands/assets.md#vectortext_to_path-modifies-state): Turn text into path outlines with the engine's fonts, so it needs no font. _Not released yet._
 - [`vector.to_rig`](commands/assets.md#vectorto_rig-modifies-state): Turn an SVG whose named groups are the parts of a character into part pictures, joints and a Bone2D prefab that animates in parts. _Not released yet._
+- [`vector.transform`](commands/assets.md#vectortransform-modifies-state): Move, scale, rotate or flip SVG elements in the drawing space. _Not released yet._
+- [`vector.ungroup`](commands/assets.md#vectorungroup-modifies-state): Dissolve SVG groups, keeping what is in them where it was. _Not released yet._
 
 ### [audio](commands/audio.md)
 

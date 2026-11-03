@@ -890,6 +890,15 @@ void Editor::draw_image_layer_inspector(ImageModel& m) {
     if (L.kind == ImageLayerKind::Pixels || L.kind == ImageLayerKind::Indexed) {
         ImGui::TextDisabled("%s%s", L.source.empty() ? "" : L.source.c_str(), L.hasCels ? "  (has cels)" : "");
     }
+    if (L.kind == ImageLayerKind::Svg) {
+        ImGui::TextDisabled("%s", L.source.empty() ? "inline svg" : L.source.c_str());
+        ImGui::BeginDisabled(!editable);
+        if (ImGui::Button("Edit in Vector panel")) open_vector_layer(m.path(), path);
+        at_track("img:insp:edit_vector");
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Open this layer's SVG in the Vector panel: pen, nodes, shapes, booleans and layers. Every edit is written to the layer; Save in either panel bakes the PNG.");
+    }
     if (!L.masks.empty()) ImGui::TextDisabled("%zu mask(s) (edit them with image.layer.set)", L.masks.size());
 
     ImGui::Spacing();

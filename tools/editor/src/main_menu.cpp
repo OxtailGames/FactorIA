@@ -110,6 +110,8 @@ menu::MainMenu Editor::build_main_menu(bool native) {
                         "The clips of the selected entity's Animator: dopesheet and curves, scrubbing, record mode, event markers and the onion skin"));
     view.push_back(with(toggle("Image", showImage_), "menu:image",
                         "Paint and edit an image document (*.image.json): layers, brushes, selections, transform, adjustments and effects; Save bakes the PNG"));
+    view.push_back(with(toggle("Vector", showVector_), "menu:vector",
+                        "Draw and edit an SVG (*.svg): pen, node editing, shape tools, boolean buttons, layers and an inspector; every edit is a vector.* command"));
     view.push_back(with(toggle("Bone tools", showBoneTools_), "menu:bonetools",
                         "Draw a bone chain by clicking in the viewport, bind a sprite to bones, paint weights and drag IK targets"));
     view.push_back(menu::separator());

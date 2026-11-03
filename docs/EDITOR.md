@@ -662,6 +662,78 @@ one. An edit writes the document (and the layer's PNG) as it happens; the baked 
   composited once and reused for every frame of the gesture (the layers above it, and the whole picture when the edited layer is
   clipped or the onion skin is on, are drawn each time). The status line shows the last composite time in ms.
 
+## Vector panel
+
+View > Vector opens the Vector panel; double-clicking a `*.svg` in the Project panel opens that drawing in it, and **Edit in Vector
+panel** in the Image panel's inspector opens the svg layer of the selected layer ([IMAGES.md](IMAGES.md)). It is a floating window the first
+time (1100 x 720) and edits ONE drawing at a time. SVG is the document: every edit that is kept runs the `vector.*` command an AI would
+call (`vector.add`, `vector.nodes`, `vector.transform`, `vector.set`, `vector.boolean`, `vector.reorder`, ...), so the SVG keeps its ids,
+groups, transforms and untouched text exactly as [VECTOR.md](VECTOR.md) says, and a person and an AI can take turns on the same file.
+The picture on the canvas is the engine's own SVG rasterizer (`vector_rasterize`, the one `assets.rasterize_svg` uses), never a second
+renderer. While a handle, a slider or a box is being dragged the canvas shows the same command run with `dryRun` on the text in memory;
+nothing is written until the mouse is released, and then the edit is ONE undo step. Edits are written to the file as they happen (the
+toolbar's **Save** says so); for an svg layer of an image document the edits go into the layer without baking, and **Save + bake**
+(`image.save`) bakes the document's PNG. The panel reads the file again by itself when it changes on disk (an AI, the Console, the Image
+panel) and no gesture is running.
+
+- **Toolbar.** The drawing (a menu of the project's `*.svg`), **New** (a name and a square size: writes `assets/<name>.svg` with a `viewBox`),
+  **Save**, **Reload**, **Fit**, **1:1** and a zoom percentage, then the snapping switches **Grid**, **Points** and **Guides** and **Snap...**
+  (the grid size and the guides). Grid snaps to a grid of that size in drawing units; Points snaps to the nodes, bounding-box corners and
+  centres of the other shapes and to the canvas corners and centre (a point wins over the grid and the guides); Guides are vertical and
+  horizontal lines added in **Snap...** by their position. Snapping applies to the Pen, the shape tools, node drags and moving shapes.
+- **Canvas.** The wheel zooms around the pointer, Shift+wheel and a sideways wheel pan, and so do the middle button or Space + left drag.
+  The drawing is drawn as a texture of the visible part (plus a margin, at most 4096 px a side) that is made again when the drawing
+  changes or, after the view stops moving for a few frames, when it no longer covers the view or the zoom changed; while the view moves
+  the old picture is stretched. The status line shows the selection's size, the zoom and the milliseconds the last read and picture took.
+- **Tools** (left column, shortcut in brackets): Select (V), Node (A), Pen (P), Rectangle (R), Ellipse (O), Line (L) and Shape (S).
+  Below them the style new shapes start with (fill, an optional line, its width and, when the project has a style palette in
+  `assets.json`, the palette's swatches).
+- **Select.** A click picks the topmost unlocked shape at the current group level (a click on a shape inside a group picks the group; a
+  double click on a group goes into it, a double click on empty space or Esc with nothing selected leaves it). A drag from empty space is a marquee: left to right picks the
+  shapes it contains, right to left the shapes it only touches; Shift adds and toggles. The selection's box has eight handles (drag to
+  scale, Shift keeps the aspect ratio, Alt scales from the centre), a drag outside a corner rotates (Shift snaps to 15 degrees) and a drag
+  inside moves (Shift locks to an axis). The arrow keys nudge by 1 drawing unit, with Shift by 10. Moving, scaling and rotating write a
+  `vector.transform` on the selection (the shapes keep their ids and get a `transform`, their nodes are not rewritten). Esc during a drag cancels it and changes nothing.
+- **Pen.** A click adds a corner, a drag adds a curve node (the out handle follows the mouse, the in handle is its mirror), a click on the
+  first node closes the path, Enter or a double click ends an open path, Esc drops it. A click on the end node of an open path continues
+  it from there (from its start, the new nodes are added before the first one and the path keeps its direction). A path needs two nodes.
+  The result is `vector.add` (a new path) or `vector.nodes` with `append` (a continued one).
+- **Node.** Shows the anchors and handles of the selected shapes. Drag an anchor or a handle; Alt while dragging a handle breaks the link
+  to the other handle; a double click on a segment inserts a node there; a double click on a node switches corner and smooth;
+  Shift-click and a marquee select several nodes, Delete removes them and the arrow keys push them (1 unit, 10 with Shift). When several shapes are selected a drag moves the selected
+  nodes of the shape that was grabbed. The **Nodes** row has Add node, Delete, Corner, Smooth, Symmetric, Break, Join, Close and Reverse:
+  each is a `vector.nodes` op (move, handle, insert, delete, convert, break, join, close, reverse, append).
+- **Rectangle, Ellipse, Line, Shape.** Drag a box (Shift makes it square or a circle, Alt draws from the centre; Shift on a Line snaps the
+  angle to 45 degrees). **Shape** drags out one of the `vector.shape` kinds chosen in the tools column (star, gear, polygon, arrow,
+  bubble, ribbon) with `parametric: true`: the element keeps `data-fa-shape` and `data-fa-args`, and the inspector shows its parameters
+  (points, inner ratio, teeth, sides, tail...) as live fields that call `vector.shape` with `replace`. Editing its nodes makes it a plain path.
+- **Actions.** Rows of buttons above the canvas, each one command and one undo step: **Shapes** (Union, Subtract, Intersect, Exclude =
+  `vector.boolean`; Group, Ungroup, Front, Back), **Path** (Offset..., Simplify..., Smooth..., Mirror..., Outline = `vector.stroke_to_path`),
+  **Arrange** (Align..., Distribute...) and **Style** (House style = `vector.style`, To palette, Shade... = `vector.shade`). The
+  buttons that need numbers open a small popup with the command's own arguments. A button that cannot act (too few shapes selected)
+  is greyed; a command that fails shows its message with the fix in a toast and the status line, and changes nothing.
+- **Layers** (right column, in drawing order, the top one first): the elements of the SVG as a tree of groups and shapes, each with an eye
+  (hide = `display="none"`), a padlock (lock = `data-locked="true"`: the canvas does not pick or move it), its id (double-click to rename: it
+  updates the `href` and `url(#...)` that point to it) and a triangle that opens or closes a group. Click selects (Ctrl, Cmd or Shift toggle a row of the same group level);
+  drag a row onto another to reorder it or drop it into a group (`vector.reorder` with `parent` and `before`, which compensates the
+  transforms of the old and new group so the picture does not change). Elements with no id show their selector in grey; an edit gives
+  them an id first (`vector.assign_ids`, in the same undo step), or **Give them ids** names every one.
+- **Inspector** (below the layers): the position and size of the selection (typing moves or scales it), Flip H, Flip V and Rotate 90,
+  fill and stroke (a colour popup, **none**, and, when the project has a palette, its swatches: the exact palette colour is written),
+  stroke width, opacity and fill rule, and the parameters of a parametric shape. A slider previews on the canvas while it is dragged
+  and is one undo step when released; a colour is one step when its popup closes. With several shapes selected it edits them all (the fields show the first one's values).
+- **Keys** (while the panel has the keyboard): V A P R O L S pick the tool, Delete and Backspace delete the selection, Ctrl+A selects
+  everything at the group level, Ctrl+D duplicates (a copy 10 units down and to the right), Ctrl+G and Ctrl+Shift+G group and ungroup,
+  Home fits the view, Esc drops the pen path, then the node selection, then the shape selection, then leaves the group. Ctrl+S saves.
+- **Undo and redo** are the editor's (Ctrl+Z, Ctrl+Shift+Z, Edit menu), the same stacks as the Image panel's: each edit is one step, and
+  an undo puts the files the edit changed back from a table the panel keeps in memory (so a file written byte for byte is restored
+  byte for byte); a step of another drawing, or of an svg layer, opens it first. The stacks hold only a pointer to the step.
+- **Speed.** A drawing of 600 paths, measured in a Release build on an Apple M-series Mac (the `vector_tests` case "a drawing of several
+  hundred paths" prints the times on every run): open and read in about 2 ms, a drag step (the command run with `dryRun` on the text in
+  memory) in about 1 ms, the edit written to the file in about 2.5 ms and a 1024 x 1024 picture of the drawing in about 21 ms. A Debug
+  build is ten to twenty times slower. The status line shows the last read and picture times. The hit test, the marquee and the snapping
+  use the scene read once per edit (bounds and flattened outlines), not the SVG text.
+
 ## Animation panel
 
 View > Animation (a tab next to Console; the View menu reopens it) edits the 2D clips of an entity's `Animator`
@@ -797,7 +869,7 @@ wrapping, right-click menu), G (delete a project), H (Export window), I (Platfor
 agent through the MCP endpoint), P (revert an AI run), Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
 the stuck warning, Check activity, the detached worker and its single continuation), R (a program updated on disk: the Restart notice,
 its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout), V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator), B2 (the Animation panel: New clip, keys written in record mode by a gizmo drag, a key moved and its Undo, an easing from the context menu, an event, scrubbing that poses without changing the scene, the onion skin), C2 (the bone tools: a chain drawn by clicks, a sprite bound, weights painted as one undo step, an IK handle dragged, the overlay following the selected bone), Y (recipes: a stale badge and a banner when a source is saved, Regenerate from the toolbar and the banner, Not now, a deleted source), X (the AI settings window against a scratch `ai.json`: routes, a key, sites, a bad site stopping Save, Remove stored key), D2 (the External tools tab of that window: a server added with the form, Test, a pasted Claude Code JSON, Save keeping the other keys of `ai.json`, Remove), Z (sprite sheets: the Project panel previews a sheet's clips, the Inspector lists them and one click sets `SpriteAnimator.clip`) and W (two AI chats at once against a scripted model: both finish with their own answers, the
-same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run) and E2 (feedback sharing against a fake transport: the consent dialog and its preview, the Send feedback window (Send feedback with no mode chosen, the checked rows, unchecking one, Send, Cancel, the AI check against a scripted model that passes, rewrites and fails, a row that cannot be sent), the Add feedback window (Add and Cancel), a closed entry moving to the archive, the Feedback Settings sign-in and Send now; it never touches the network and writes its settings under `<FA_EDITOR_AUTOTEST_OUT>/share_config`), E3 (the Extensions tab of the AI settings: a plugin folder and pasted hooks added, a role switched off, Save keeping the other keys, a project's hooks needing the trust and a changed file dropping it), S2 (its Token savers section: switches and judge saved in `ai.json` keeping the other keys, the proposals of a project's runs, AGENTS.md and the tool groups changed only by Load up front / Add to AGENTS.md, No thanks), K2 (the Skills table of that tab: the engine's and the project's skills listed, a role and an On box switched, Save keeping them as skill entries, and a role then being offered exactly the skills left on for it) H2 (its Hooks section: the saved hooks with where each runs, three real runs listed as ok, failed and blocked, Clear) and F2 (its TokenEconomizer section against a fake Claude Code CLI: the confirmation that runs nothing, the install, the entry added to `ai.json` keeping the other keys, Save, and only the entry offered when the plugin is already installed), and I2 (the Image panel: a document created and opened, a brush stroke, a rectangle selection, a transform applied from its handles, an adjustment previewed then committed, six undos and six redos, and Save baking the PNG whose pixels the section reads back). While you work on one part of the editor, run only the sections that cover it:
+same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run) and E2 (feedback sharing against a fake transport: the consent dialog and its preview, the Send feedback window (Send feedback with no mode chosen, the checked rows, unchecking one, Send, Cancel, the AI check against a scripted model that passes, rewrites and fails, a row that cannot be sent), the Add feedback window (Add and Cancel), a closed entry moving to the archive, the Feedback Settings sign-in and Send now; it never touches the network and writes its settings under `<FA_EDITOR_AUTOTEST_OUT>/share_config`), E3 (the Extensions tab of the AI settings: a plugin folder and pasted hooks added, a role switched off, Save keeping the other keys, a project's hooks needing the trust and a changed file dropping it), S2 (its Token savers section: switches and judge saved in `ai.json` keeping the other keys, the proposals of a project's runs, AGENTS.md and the tool groups changed only by Load up front / Add to AGENTS.md, No thanks), K2 (the Skills table of that tab: the engine's and the project's skills listed, a role and an On box switched, Save keeping them as skill entries, and a role then being offered exactly the skills left on for it) H2 (its Hooks section: the saved hooks with where each runs, three real runs listed as ok, failed and blocked, Clear) and F2 (its TokenEconomizer section against a fake Claude Code CLI: the confirmation that runs nothing, the install, the entry added to `ai.json` keeping the other keys, Save, and only the entry offered when the plugin is already installed), and I2 (the Image panel: a document created and opened, a brush stroke, a rectangle selection, a transform applied from its handles, an adjustment previewed then committed, six undos and six redos, and Save baking the PNG whose pixels the section reads back) and J2 (the Vector panel: an svg opened, a path drawn with the Pen with a dragged curve and closed on its first node, an anchor moved and made smooth with the Node tool, a marquee and Union, Undo and Redo through the editor's stack back to the original file byte for byte, then an image document's svg layer opened with Edit in Vector panel, an ellipse drawn into it, undone, and Save baking the PNG). While you work on one part of the editor, run only the sections that cover it:
 
 ```bash
 FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M build/macos-debug/tools/editor/fa_editor_autotest

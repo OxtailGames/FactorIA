@@ -114,6 +114,7 @@ struct VecItem {
     double opacity = 1;             // its own `opacity`
     std::string transform;          // its own transform attribute
     std::string shapeKind;          // data-fa-shape: the vector.shape kind that drew it, "" for any other element
+    std::string shapeArgs;          // data-fa-args: the arguments of that kind as JSON text ("" when there is none)
     VecRect bounds;                 // geometry in the drawing space (a group: the union of its shapes); empty when there is no shape
     VecRect visualBounds;           // bounds with half the stroke
     bool hasBounds = false;

@@ -61,6 +61,7 @@
 #include "feedback_share_ui.h"
 #include "gizmo_model.h"
 #include "image_ui.h"
+#include "vector_ui.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
 #include "inspector_model.h"
@@ -362,6 +363,37 @@ public:
     Vec2 image_screen_pos(float x, float y) const { auto p = image_to_screen(x, y); return Vec2{p.x, p.y}; }   // the autotest drives the canvas
     ImageUi image_;
     bool showImage_ = false;
+    // Vector panel (vector_panel.cpp, vector_canvas.cpp; View > Vector, or a double click on a *.svg in the Project panel): an SVG as a
+    // canvas with a pen, node editing, shape tools and boolean buttons, a layer list (the groups and elements of the SVG) and an
+    // inspector. The rules are in vector_model.h: every edit it keeps is a vector.* command, so the Console and an AI make the same
+    // edit, and each edit is ONE entry of the editor's undo stack. The svg layers of an image document open here too.
+    VectorModel& vector_ensure_model();                    // makes the panel's model on first use
+    void draw_vector_panel();
+    void draw_vector_toolbar(VectorModel& m);
+    void draw_vector_tools(VectorModel& m);
+    void draw_vector_actions(VectorModel& m);
+    void draw_vector_canvas(VectorModel& m, ImVec2 size);
+    void draw_vector_side(VectorModel& m);
+    void draw_vector_layers(VectorModel& m);
+    void draw_vector_inspector(VectorModel& m);
+    void draw_vector_shape_params(VectorModel& m, const VecItem& item);
+    void vector_canvas_input(VectorModel& m, bool hovered, bool editable);
+    void vector_draw_overlay(VectorModel& m, ImDrawList* dl);
+    void vector_update_texture(VectorModel& m);
+    void vector_fit();
+    ImVec2 vector_to_screen(VecPoint p) const;
+    VecPoint vector_from_screen(ImVec2 p) const;
+    bool open_vector_document(const std::string& rel);                              // a *.svg file; false and a toast on failure
+    bool open_vector_layer(const std::string& documentRel, const std::string& layer);   // an svg layer of an image document
+    void vector_edited(const VectorEditOutcome& out);     // after an edit: the undo entry, a toast for an error
+    void vector_apply_undo(const Json& entry, bool forward);
+    void vector_collect_steps();                          // drops the undo steps no stack entry points to
+    void vector_close_document();
+    void vector_release_textures();
+    void vector_save();
+    Vec2 vector_screen_pos(double x, double y) const { auto p = vector_to_screen(VecPoint{x, y}); return Vec2{p.x, p.y}; }   // the autotest drives the canvas
+    VectorUi vector_;
+    bool showVector_ = false;
     // Bone tools (bone_tools.cpp; View > Bone tools): draw a bone chain by clicking, bind a sprite to bones, the weight colours of
     // the selected bone and a brush to paint them, IK targets as handles. They call bones.create, skin.bind, skin.auto_weights,
     // skin.set_weights and scene.set_component through edit_command.
