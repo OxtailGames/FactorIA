@@ -54,7 +54,10 @@ struct ImageUi {
 
     // ---- tools
     ImageTool tool = ImageTool::Brush;
-    ImageBrushSettings brush;
+    ImageBrushSettings brush;       // the primary colour (left button)
+    int secondaryIndex = 1;         // the secondary colour (right button): a palette index on an indexed layer,
+    Color secondaryColor{1, 1, 1, 1};   // a colour on a pixels layer
+    int dragButton = 0;             // the mouse button of the drag in progress: 0 left, 1 right
     ImageWandSettings wand;
     SelectOp selectOp = SelectOp::Replace;
     float selectionPx = 2;          // grow / shrink / feather amount
@@ -65,7 +68,10 @@ struct ImageUi {
     float zoom = 1;
     float panX = 0, panY = 0;       // where the picture's top-left corner is, from the canvas's top-left (screen pixels)
     bool fitNext = true;            // fit the picture to the canvas on the next frame
-    bool showGrid = true;           // the pixel grid, when zoomed in far enough
+    bool showGrid = true;           // the pixel grid, when zoomed in far enough (from kGridZoom, 800%)
+    int gridMajor = 8;              // every Nth grid line is stronger (0 = none); a tile document uses its tile size instead
+    bool tiled = false;             // the picture repeated 3 x 3 around itself, to see the seams
+    bool gridDrawn = false, tiledDrawn = false;   // what the last frame drew (autotest)
     bool checker = true;            // the checkerboard under transparent pixels
     float canvasX = 0, canvasY = 0, canvasW = 0, canvasH = 0;   // the canvas, in screen coordinates (last frame)
     float mouseImageX = -1, mouseImageY = -1;                   // the pixel under the mouse (-1 = outside)
@@ -81,6 +87,13 @@ struct ImageUi {
     double tfStartScaleX = 1, tfStartScaleY = 1, tfStartRotate = 0, tfStartDist = 1, tfStartAngle = 0;
     int tfStartDx = 0, tfStartDy = 0;
     int tfDirX = 0, tfDirY = 0;         // the scale handle being dragged: -1, 0 or 1 along each axis
+
+    // ---- palette bar and frame timeline
+    std::string paletteHex = "#808080", paletteName;   // the "+" popup
+    bool playing = false;           // the timeline plays the frames (a preview: it changes the frame shown, never the document)
+    double playClock = 0;           // milliseconds spent on the frame shown
+    ImageTexture terrain;           // the terrain preview of a tileset document
+    bool terrainShown = false;      // the last frame drew it (autotest)
 
     // ---- provider pictures (Inpaint selection... / Generate layer...)
     std::unique_ptr<ImageProviderJob> job;      // the one in flight

@@ -17,6 +17,8 @@ namespace {
 
 constexpr float kToolsW = 106.0f;
 constexpr float kSideW = 310.0f;
+constexpr float kPaletteH = 46.0f;
+constexpr float kFramesH = 76.0f;
 const char* kLayerPayload = "FA_IMAGE_LAYER";
 
 std::string lower_slug(const std::string& s) {
@@ -128,6 +130,8 @@ bool Editor::open_image_document(const std::string& rel) {
     u.renaming.clear();
     const bool ok = u.model->open(rel);
     u.openError = ok ? std::string() : u.model->error();
+    u.playing = false;
+    u.tiled = ok && u.model->tile_mode();   // a tile document opens with its repeat preview on
     u.fitNext = true;
     showImage_ = true;
     focus_window("Image");
@@ -152,11 +156,12 @@ void Editor::image_close_document() {
 
 void Editor::image_release_textures() {
     ImageUi& u = image_;
-    for (ImageTexture* t : {&u.picture, &u.selectionTint})
+    for (ImageTexture* t : {&u.picture, &u.selectionTint, &u.terrain})
         if (t->image || t->view) ui::destroy_texture(t->image, t->view);
     for (const ImageUi::Dead& d : u.graveyard) ui::destroy_texture(d.image, d.view);
     u.picture = ImageTexture{};
     u.selectionTint = ImageTexture{};
+    u.terrain = ImageTexture{};
     u.graveyard.clear();
 }
 
@@ -274,10 +279,10 @@ void Editor::draw_image_panel() {
     draw_image_options(m);
     {
         const bool indexed = !m.palette().empty();
-        const bool frames = m.animated() || m.frame_count() > 1;
+        const bool frames = m.animated() || m.frame_count() > 1 || indexed;   // a pixel-art document can start an animation from here
         const float statusH = ImGui::GetTextLineHeightWithSpacing() + 6;
-        const float paletteH = indexed ? 34.0f : 0.0f;
-        const float framesH = frames ? 40.0f : 0.0f;
+        const float paletteH = indexed ? kPaletteH : 0.0f;
+        const float framesH = frames ? kFramesH : 0.0f;
         ImVec2 canvas = ImGui::GetContentRegionAvail();
         canvas.y = std::max(60.0f, canvas.y - statusH - paletteH - framesH - ImGui::GetStyle().ItemSpacing.y * (1 + (indexed ? 1 : 0) + (frames ? 1 : 0)));
         draw_image_canvas(m, canvas);
@@ -405,6 +410,14 @@ void Editor::draw_image_toolbar(ImageModel& m) {
     ImGui::TextDisabled("%%");
     ImGui::SameLine();
     ImGui::Checkbox("Grid", &u.showGrid);
+    at_track("img:grid");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The pixel grid, drawn from 800%% zoom up. Every %d pixels a stronger line (the tile size in a tile document).", u.gridMajor);
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Tiled", &u.tiled)) u.fitNext = true;
+    at_track("img:tiled");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Shows the picture repeated 3 x 3 so the seams show (a tile document opens with it on). Tools work on the middle copy.");
     ImGui::SameLine();
     ImGui::Checkbox("Checker", &u.checker);
 }
@@ -583,65 +596,253 @@ void Editor::draw_image_options(ImageModel& m) {
 }
 
 // ---------------------------------------------------------------------------------------------------- palette and frames --
+namespace {
+// Where palette colour `i` ends up when the colour at `from` moves to `to` (image.palette.move).
+int moved_index(int i, int from, int to) {
+    if (i == from) return to;
+    if (from < to && i > from && i <= to) return i - 1;
+    if (from > to && i >= to && i < from) return i + 1;
+    return i;
+}
+}  // namespace
+
 void Editor::draw_image_palette(ImageModel& m) {
     ImageUi& u = image_;
     const PixelPalette& pal = m.palette();
-    ImGui::BeginChild("##imgpalette", ImVec2(0, 34), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_HorizontalScrollbar);
+    const bool editable = play_ == PlayState::Edit && m.valid();
+    auto colour_of = [&](int i) {
+        const auto& rgb = pal.entries[std::size_t(i)].rgb;
+        return Color{rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f};
+    };
+    u.brush.paletteIndex = std::clamp(u.brush.paletteIndex, 0, std::max(0, pal.size() - 1));
+    u.secondaryIndex = std::clamp(u.secondaryIndex, 0, std::max(0, pal.size() - 1));
+    ImGui::BeginChild("##imgpalette", ImVec2(0, kPaletteH), false, ImGuiWindowFlags_HorizontalScrollbar);
     ImGui::AlignTextToFramePadding();
     ImGui::TextDisabled("Palette");
     for (int i = 0; i < pal.size(); ++i) {
         ImGui::SameLine();
         ImGui::PushID(i);
-        const auto& rgb = pal.entries[std::size_t(i)].rgb;
-        const ImVec4 col(rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f);
-        const bool sel = u.brush.paletteIndex == i;
-        if (sel) ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
+        const Color c = colour_of(i);
+        const ImVec4 col(c.r, c.g, c.b, 1.0f);
         if (ImGui::ColorButton("##sw", col, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoAlpha, ImVec2(22, 22))) {
             u.brush.paletteIndex = i;
-            u.brush.color = Color{col.x, col.y, col.z, 1.0f};
+            u.brush.color = c;
         }
-        if (sel) ImGui::PopStyleVar();
+        const bool right = ImGui::IsItemClicked(ImGuiMouseButton_Right);
+        if (right) {
+            u.secondaryIndex = i;
+            u.secondaryColor = c;
+        }
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        if (u.brush.paletteIndex == i) {
+            dl->AddRect(a, b, IM_COL32(0, 0, 0, 255), 0, 0, 4.0f);
+            dl->AddRect(a, b, IM_COL32(255, 255, 255, 255), 0, 0, 2.0f);
+        }
+        if (u.secondaryIndex == i) {
+            dl->AddRect(ImVec2(a.x - 2, a.y - 2), ImVec2(b.x + 2, b.y + 2), IM_COL32(255, 170, 40, 255), 0, 0, 2.0f);
+        }
         at_track("img:palette:" + std::to_string(i));
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%d: %s\nClick to paint with it. Right-click to change the colour of the palette (it recolours every pixel that uses it).", i, pal.label(i).c_str());
-        if (ImGui::BeginPopupContextItem("##swedit")) {
-            // a hex colour typed and applied: one undo step (image.palette.set would be many while a picker is dragged)
-            static std::string hexBuf;
-            if (ImGui::IsWindowAppearing()) hexBuf = pal.hex(i);
-            ImGui::TextUnformatted("Colour of the palette");
-            ImGui::SetNextItemWidth(110);
-            const bool enter = ImGui::InputText("##swhex", &hexBuf, ImGuiInputTextFlags_EnterReturnsTrue);
-            ImGui::SameLine();
-            if ((ImGui::Button("Apply") || enter) && play_ == PlayState::Edit) {
-                image_edited(m.set_palette_color(i, hexBuf));
-                ImGui::CloseCurrentPopup();
-            }
-            at_track("img:palette:apply");
-            ImGui::EndPopup();
-        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%d: %s\nClick: primary colour (left button, white frame). Right-click: secondary colour (right button, orange frame). X swaps them.",
+                              i, pal.label(i).c_str());
         ImGui::PopID();
     }
+    ImGui::SameLine(0, 16);
+    ImGui::BeginDisabled(!editable);
+    if (ImGui::SmallButton("+")) {
+        ImGui::OpenPopup("##paladd");
+        u.paletteName.clear();
+    }
+    at_track("img:palette:add");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Add a colour to the end of the palette (image.palette).");
+    if (ImGui::BeginPopup("##paladd")) {
+        ImGui::TextUnformatted("New palette colour");
+        ImGui::SetNextItemWidth(110);
+        ImGui::InputText("Colour", &u.paletteHex);
+        ImGui::SetNextItemWidth(110);
+        ImGui::InputText("Name", &u.paletteName);
+        if (ImGui::Button("Add")) {
+            const ImageEditOutcome out = m.add_palette_color(u.paletteHex, u.paletteName);
+            image_edited(out);
+            if (out.ok) {
+                u.brush.paletteIndex = m.palette().size() - 1;
+                u.brush.color = colour_of(u.brush.paletteIndex);
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        at_track("img:palette:add:apply");
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
+    const bool have = pal.size() > 0 && u.brush.paletteIndex < pal.size();
+    ImGui::BeginDisabled(!have);
+    if (ImGui::SmallButton("Edit")) ImGui::OpenPopup("##paledit");
+    at_track("img:palette:edit");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Change the primary colour of the palette (image.palette). Every pixel that uses it changes with it.");
+    if (ImGui::BeginPopup("##paledit")) {
+        static std::string hexBuf;
+        if (ImGui::IsWindowAppearing() && have) hexBuf = pal.hex(u.brush.paletteIndex);
+        ImGui::Text("Colour %d of the palette", u.brush.paletteIndex);
+        ImGui::SetNextItemWidth(110);
+        const bool enter = ImGui::InputText("##swhex", &hexBuf, ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine();
+        if ((ImGui::Button("Apply") || enter) && have) {
+            const int idx = u.brush.paletteIndex;
+            image_edited(m.set_palette_color(idx, hexBuf));
+            if (idx < m.palette().size()) u.brush.color = colour_of(idx);
+            ImGui::CloseCurrentPopup();
+        }
+        at_track("img:palette:apply");
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("<") && u.brush.paletteIndex > 0) {
+        const int from = u.brush.paletteIndex, to = from - 1;
+        if (m.move_palette_color(from, to).ok) {
+            u.brush.paletteIndex = to;
+            u.secondaryIndex = moved_index(u.secondaryIndex, from, to);
+        }
+    }
+    at_track("img:palette:left");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Move the primary colour one place left; its pixels follow it (image.palette.move).");
+    ImGui::SameLine();
+    if (ImGui::SmallButton(">") && u.brush.paletteIndex + 1 < pal.size()) {
+        const int from = u.brush.paletteIndex, to = from + 1;
+        if (m.move_palette_color(from, to).ok) {
+            u.brush.paletteIndex = to;
+            u.secondaryIndex = moved_index(u.secondaryIndex, from, to);
+        }
+    }
+    at_track("img:palette:right");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Move the primary colour one place right; its pixels follow it (image.palette.move).");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove") && pal.size() > 1) {
+        const int idx = u.brush.paletteIndex;
+        const int repl = u.secondaryIndex != idx ? u.secondaryIndex : -1;
+        ImageEditOutcome out = m.remove_palette_color(idx, repl);
+        image_edited(out);
+        if (out.ok) {
+            u.secondaryIndex = u.secondaryIndex == idx ? 0 : (u.secondaryIndex > idx ? u.secondaryIndex - 1 : u.secondaryIndex);
+            u.brush.paletteIndex = std::clamp(idx, 0, std::max(0, m.palette().size() - 1));
+            u.brush.color = colour_of(u.brush.paletteIndex);
+        }
+    }
+    at_track("img:palette:remove");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Remove the primary colour from the palette (image.palette.remove). Pixels that use it take the secondary colour, or become transparent when both are the same.");
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Swap")) {
+        std::swap(u.brush.paletteIndex, u.secondaryIndex);
+        std::swap(u.brush.color, u.secondaryColor);
+    }
+    at_track("img:palette:swap");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Swap the primary and secondary colours (X).");
+    ImGui::EndDisabled();
     ImGui::EndChild();
 }
 
 void Editor::draw_image_frames(ImageModel& m) {
-    ImGui::BeginChild("##imgframes", ImVec2(0, 40), false, ImGuiWindowFlags_HorizontalScrollbar);
+    ImageUi& u = image_;
+    const bool editable = play_ == PlayState::Edit && m.valid();
+    ImGui::BeginChild("##imgframes", ImVec2(0, kFramesH), false, ImGuiWindowFlags_HorizontalScrollbar);
+    const int count = m.frame_count();
+    // the preview plays the frames for their durations: it changes only the frame shown
+    if (u.playing) {
+        if (count < 2 || m.stroking() || m.moving() || m.transforming()) {
+            u.playing = false;
+        } else {
+            u.playClock += double(ImGui::GetIO().DeltaTime) * 1000.0;
+            for (int guard = 0; guard < count && u.playClock >= double(std::max(1, m.frame_duration(m.frame()))); ++guard) {
+                u.playClock -= double(std::max(1, m.frame_duration(m.frame())));
+                m.set_frame((m.frame() + 1) % count);
+            }
+        }
+    }
     ImGui::AlignTextToFramePadding();
-    ImGui::TextDisabled("Frame");
-    for (int f = 0; f < m.frame_count(); ++f) {
+    ImGui::TextDisabled("Frames");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(count < 2);
+    if (ImGui::Button(u.playing ? "Stop" : "Play", ImVec2(44, 0))) {
+        u.playing = !u.playing;
+        u.playClock = 0;
+    }
+    at_track("img:frame:play");
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Plays the frames for their durations. A preview: it changes only the frame shown. A click on the canvas stops it.");
+    for (int f = 0; f < count && (m.animated() || count > 1); ++f) {
         ImGui::SameLine();
         ImGui::PushID(f);
         char label[16];
         std::snprintf(label, sizeof label, "%d", f + 1);
-        if (toggle_button(label, m.frame() == f, ImVec2(28, 0))) m.set_frame(f);
+        if (toggle_button(label, m.frame() == f, ImVec2(28, 0))) {
+            m.set_frame(f);
+            u.playing = false;
+        }
         at_track("img:frame:" + std::to_string(f));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Frame %d, %d ms. The tools paint into this frame.", f + 1, m.frame_duration(f));
         ImGui::PopID();
     }
     ImGui::SameLine(0, 16);
+    ImGui::BeginDisabled(!editable);
+    if (ImGui::SmallButton("+ Add")) image_edited(m.add_frame(false));
+    at_track("img:frame:add");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Insert an empty frame after this one (image.frame.add with blank). The first one makes the picture an animation.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Duplicate")) image_edited(m.add_frame(true));
+    at_track("img:frame:duplicate");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Insert a copy of this frame after it (image.frame.add with from).");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(count < 2 || !m.animated());
+    if (ImGui::SmallButton("Delete")) image_edited(m.remove_frame(m.frame()));
+    at_track("img:frame:delete");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Delete this frame on every layer (image.frame.remove).");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("<##fmove") && m.frame() > 0) image_edited(m.move_frame(m.frame(), m.frame() - 1));
+    at_track("img:frame:left");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Move this frame one place earlier (image.frame.move).");
+    ImGui::SameLine();
+    if (ImGui::SmallButton(">##fmove") && m.frame() + 1 < count) image_edited(m.move_frame(m.frame(), m.frame() + 1));
+    at_track("img:frame:right");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Move this frame one place later (image.frame.move).");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(84);
+    int ms = m.frame_duration(m.frame());
+    if (ImGui::InputInt("ms##fdur", &ms, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue) && ms != m.frame_duration(m.frame()))
+        image_edited(m.set_frame_duration(m.frame(), ms));
+    at_track("img:frame:duration");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("How long this frame shows, in milliseconds (image.frame.set). Press Enter to apply.");
+    ImGui::EndDisabled();
+    ImGui::EndDisabled();
+
+    // the onion skin
     bool onion = m.onion();
     if (ImGui::Checkbox("Onion skin", &onion)) m.set_onion(onion);
     at_track("img:onion");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Shows the frames before and after faintly under the current one (not baked).");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Shows the frames before (red) and after (blue) faintly under the current one. A preview: the bake never has it.");
+    ImageModel::OnionSettings o = m.onion_settings();
+    bool changed = false;
+    ImGui::BeginDisabled(!onion);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(56);
+    changed |= ImGui::DragInt("before##onion", &o.before, 0.1f, 0, 8);
+    at_track("img:onion:before");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(56);
+    changed |= ImGui::DragInt("after##onion", &o.after, 0.1f, 0, 8);
+    at_track("img:onion:after");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(90);
+    changed |= ImGui::SliderFloat("opacity##onion", &o.opacity, 0.05f, 1.0f, "%.2f");
+    at_track("img:onion:opacity");
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("wrap##onion", &o.loop);
+    at_track("img:onion:wrap");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The frame before the first is the last one, and the other way round.");
+    ImGui::EndDisabled();
+    if (changed) m.set_onion_settings(o);
     ImGui::EndChild();
 }
 
@@ -649,6 +850,7 @@ void Editor::draw_image_frames(ImageModel& m) {
 void Editor::draw_image_side(ImageModel& m) {
     draw_image_layers(m);
     ImGui::Separator();
+    draw_image_terrain(m);
     draw_image_layer_inspector(m);
 }
 

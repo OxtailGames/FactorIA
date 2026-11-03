@@ -23,9 +23,25 @@
       "provenance": {
         "origin": "original",
         "ai": false,
-        "date": "2026-10-19",
+        "kind": "image",
+        "provider": "factoria image.bake",
         "license": "CC0",
-        "source": "Lantern Keep: drawn or synthesized with a small script (no AI)"
+        "author": "factoria",
+        "source": "assets/enemy.image.json",
+        "notes": "Composited from the image document 'assets/enemy.image.json' (2 layers), 40x30.",
+        "date": "2026-11-03",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/enemy.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/enemy.image.json",
+              "sha256": "305cbad2d282d7b6e1639dd8a1d784db5e5229555453cacb6956659c1fd0256e"
+            }
+          ]
+        }
       },
       "import": {
         "atlas": "characters"
@@ -137,9 +153,25 @@
       "provenance": {
         "origin": "original",
         "ai": false,
-        "date": "2026-10-19",
+        "kind": "image",
+        "provider": "factoria image.bake",
         "license": "CC0",
-        "source": "Lantern Keep: drawn or synthesized with a small script (no AI)"
+        "author": "factoria",
+        "source": "assets/spikes.image.json",
+        "notes": "Composited from the image document 'assets/spikes.image.json' (1 layer), 32x32.",
+        "date": "2026-11-03",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/spikes.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/spikes.image.json",
+              "sha256": "b05ec62976d90cc8e173d545d7040602da20850aba5dad284419869aa8482cb2"
+            }
+          ]
+        }
       }
     },
     "assets/tileset.png": {
