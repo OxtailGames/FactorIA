@@ -73,7 +73,8 @@ The kinds and the fields they add:
 - **`svg`**: `svg` (the SVG text) or `source` (an `.svg` of the project), rasterized with the engine's SVG rasterizer and
   fitted inside `width` x `height` (default the canvas) keeping its aspect ratio. The `vector.*` commands edit the SVG of an svg layer
   in place (`{"document": "assets/art/hero.image.json", "layer": "crest"}`): boolean operations, offsets, strokes to outlines,
-  alignment, repeats and the project style, keeping its ids and transforms and baking the document ([VECTOR.md](VECTOR.md)).
+  alignment, repeats and the project style, keeping its ids and transforms and baking the document ([VECTOR.md](VECTOR.md)). The
+  editor's Vector panel draws on such a layer by hand (pen, nodes, shapes, layers): see "The Image panel" below.
 - **`text`**: `text` (`\n` starts a new line), `font` (default the engine's DejaVu Sans; `"builtin:pixel"` and the other
   built-in fonts, or a `.ttf` / `.otf` of the project), `size` (the em height in pixels), `color`, `align` (`left`, `center`
   or `right` of the layer's `x`) and `lineHeight` (in ems, default 1.2). `y` is the top of the first line.
@@ -796,6 +797,12 @@ use, and the canvas is drawn by `composite_image_document`. So a stroke you pain
 pixel, and an AI and a person can take turns on the same document. An edit writes the document at once; the PNG next to it is baked
 by **Save** (the panel says "not baked" until then), the way `image.save` bakes. Each edit is one step of the editor's Undo. The panel's
 section of [EDITOR.md](EDITOR.md) lists the tools, shortcuts and what is kept only for the session.
+
+An **svg** layer is edited in the Vector panel: its inspector has **Edit in Vector panel**, which opens that layer's SVG there (the
+`source` file, or the inline text of the layer). The Vector panel runs the `vector.*` commands with `document` and `layer`, so each edit
+is written into the layer at once, with `bake: false`, and the Image panel shows the new picture; **Save + bake** in the Vector panel (or
+**Save** in the Image panel) calls `image.save`, which bakes the PNG. An svg layer is an ordinary SVG there: ids, groups and transforms are
+kept, so the layers of the drawing (its groups) can be hidden, locked, renamed and reordered in the Vector panel's own layer list.
 
 ## Validation
 

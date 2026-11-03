@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<g id="coin">
+  <circle id="rim" cx="12" cy="12" r="11" fill="#b97a0c" stroke="#f6f0dc" stroke-width="1.4"/>
+  <circle id="face" cx="12" cy="12" r="8.4" fill="#f2c14e" stroke="#a66a0c" stroke-width="1"/>
+  <path id="emblem" d="M12.1111 7.0671 L13.3701 10.0942 C13.4383 10.2582 13.5925 10.3702 13.7696 10.3844 L17.0376 10.6464 C17.1442 10.6549 17.1875 10.7881 17.1062 10.8577 L14.6164 12.9905 C14.4815 13.1061 14.4226 13.2874 14.4638 13.4601 L15.2245 16.6491 C15.2493 16.7532 15.1361 16.8355 15.0447 16.7797 L12.2469 15.0708 C12.0953 14.9782 11.9047 14.9782 11.7531 15.0708 L8.9553 16.7797 C8.8639 16.8355 8.7507 16.7532 8.7755 16.6491 L9.5362 13.4601 C9.5774 13.2874 9.5185 13.1061 9.3836 12.9905 L6.8938 10.8577 C6.8125 10.7881 6.8558 10.6549 6.9624 10.6464 L10.2304 10.3844 C10.4075 10.3702 10.5617 10.2582 10.6299 10.0942 L11.8889 7.0671 C11.93 6.9683 12.07 6.9683 12.1111 7.0671 Z" fill="#c98a14" data-fa-shape="star" data-fa-args="{&quot;center&quot;:[12,12.4],&quot;radius&quot;:5.6,&quot;points&quot;:5,&quot;innerRatio&quot;:0.45,&quot;roundness&quot;:0.15}"/>
+  <path id="shine" d="M5.6 9.2 C6.4 6.6 8.2 4.8 10.6 4.6" fill="none" stroke="#fff3c2" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g></svg>

@@ -68,11 +68,6 @@ Json refs_json(const std::vector<std::string>& v) {
     return a;
 }
 
-Mat inverse_or_fail(const Mat& m, Ctx& c, const XNode& n) {
-    if (!m.invertible()) fail("invalid_svg", std::format("{}: {} sits inside a transform that scales it to nothing.", c.cmd, describe_element(n)), "Fix the transform of the group.");
-    return inverse(m);
-}
-
 // Moves `node` (and everything in it) under `parent`, in front of `before` (null = at the end). The element is rebuilt by clone, so the
 // pointer you had is dead; the new one is returned.
 XNode* move_node(SvgDoc& doc, XNode* node, XNode* parent, XNode* before) {
@@ -627,7 +622,6 @@ Json cmd_ungroup(Ctx& c) {
             out.push_back(element_ref(*moved));
             // `next` stays valid: it is not touched
         }
-        out.size();
         c.doc.remove(g);
     }
     return Json::object({{"children", refs_json(out)}, {"ungrouped", int(units.size())}});

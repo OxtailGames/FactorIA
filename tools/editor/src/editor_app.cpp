@@ -547,6 +547,7 @@ bool Editor::boot(const std::string& dirIn) {
         }
         iconPreviews_.clear();
         image_release_textures();
+        vector_release_textures();
         engine_->shutdown();
         engine_.reset();
     } else if (gfxUp_) {
@@ -957,6 +958,7 @@ bool Editor::command_edits_scene(const std::string& name, const Json& args) cons
     if (name == "prefab.save" || name == "scene.format" || name == "scene.ascii_edit" || name == "fs.delete") return false;  // files only
     if (name.rfind("anim.", 0) == 0 && name != "anim.pose" && name != "anim.check" && name != "anim.filmstrip") return false;  // clip files only
     if (name.rfind("image.", 0) == 0) return false;  // image documents are files; the Image panel keeps its own undo steps
+    if (name.rfind("vector.", 0) == 0) return false;  // drawings are files; the Vector panel keeps its own undo steps
     if (name == "scene.import_ascii" && args.is_object() && args.contains("path")) return false;  // file mode: the world is not touched
     return true;
 }
@@ -967,7 +969,7 @@ void Editor::after_command(const std::string& name, const Json& args, const Comm
     if (name.rfind("anim.", 0) == 0 && command_edits_scene(name, args) == false && name != "anim.check" && name != "anim.filmstrip") anim_.dirtyPose = true;
     // Commands that write or delete project files: the Project panel reads the folder again (it never walks the disk per frame).
     if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly)
-        for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "image.", "scene.save", "scene.format", "scene.import_ascii",
+        for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "image.", "vector.", "scene.save", "scene.format", "scene.import_ascii",
                                    "scene.ascii_edit"})
             if (name.rfind(prefix, 0) == 0) { project_files_changed(); break; }
     // A file-mode import (scene.import_ascii with `path`, or scene.ascii_edit rebuilding its level) returns `path` and, unless
@@ -1150,6 +1152,13 @@ void Editor::undo() {
         image_apply_undo(entry, false);
         return;
     }
+    if (undo_.back().is_object() && undo_.back().contains("$vector")) {  // a step of a drawing (vector_panel.cpp)
+        Json entry = std::move(undo_.back());
+        undo_.pop_back();
+        lastEditKey_.clear();
+        vector_apply_undo(entry, false);
+        return;
+    }
     redo_.push_back(save_scene(world()));
     Json s = std::move(undo_.back());
     undo_.pop_back();
@@ -1172,6 +1181,13 @@ void Editor::redo() {
         redo_.pop_back();
         lastEditKey_.clear();
         image_apply_undo(entry, true);
+        return;
+    }
+    if (redo_.back().is_object() && redo_.back().contains("$vector")) {
+        Json entry = std::move(redo_.back());
+        redo_.pop_back();
+        lastEditKey_.clear();
+        vector_apply_undo(entry, true);
         return;
     }
     undo_.push_back(save_scene(world()));
@@ -1217,7 +1233,7 @@ void Editor::open_screenshots_folder() {
 // The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
 int Editor::panels_mask() const {
     const bool flags[] = {showViewport_, showHierarchy_, showInspector_, showConsole_,  showProject_,  showAi_,
-                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_, showImage_};
+                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_, showImage_, showVector_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1226,7 +1242,7 @@ int Editor::panels_mask() const {
 
 void Editor::set_panels_mask(int mask) {
     bool* flags[] = {&showViewport_, &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,  &showAi_,
-                     &showFeedback_, &showAudio_,     &showProfiler_,  &showAnimation_, &showBoneTools_, &showImage_};
+                     &showFeedback_, &showAudio_,     &showProfiler_,  &showAnimation_, &showBoneTools_, &showImage_, &showVector_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1297,6 +1313,7 @@ void Editor::build_ui() {
         const bool ctrl = io.KeyCtrl && !nativeMenu_;
         if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
             if (showImage_ && image_.focused) image_save();   // the Image panel has the keyboard: it saves its document, not the scene
+            else if (showVector_ && vector_.focused) vector_save();
             else save_scene_now();
         }
         if (ctrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)) undo();
@@ -1364,6 +1381,7 @@ void Editor::build_ui() {
         if (showAnimation_) draw_animation_panel();
         else if (anim_.posed) anim_unpose();  // the panel was closed: the entity goes back to its rest values
         if (showImage_) draw_image_panel();
+        if (showVector_) draw_vector_panel();
         if (showBoneTools_) draw_bone_tools_panel();
         else if (bone_.tool != BoneTool::Off) bone_cancel_chain(), bone_.tool = BoneTool::Off;
         if (pendingFocus_) {

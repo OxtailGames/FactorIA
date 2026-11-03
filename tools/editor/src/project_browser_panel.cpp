@@ -292,6 +292,7 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
         else open_scene(f.path);
     }
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".image.json")) open_image_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".svg")) open_vector_document(f.path);
     const AssetRecipeStatus* recipe = recipe_of_file(pb.listing, f.path);
     if (hovered && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
         std::string made;
@@ -302,7 +303,7 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
             else made += ": up to date";
         }
         ImGui::SetTooltip("%s\n%s, %s%s%s", f.path.c_str(), f.type.c_str(), size_text(f.size).c_str(),
-                          f.type == "scene" || ends_with(f.path, ".image.json") ? "\nDouble-click to open" : f.type == "prefab" ? "\nDrag onto the Viewport to spawn it" : "",
+                          f.type == "scene" || ends_with(f.path, ".image.json") || ends_with(f.path, ".svg") ? "\nDouble-click to open" : f.type == "prefab" ? "\nDrag onto the Viewport to spawn it" : "",
                           made.c_str());
     }
 

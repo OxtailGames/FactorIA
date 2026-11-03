@@ -152,6 +152,7 @@ Result<VecScene> vector_scene(const std::string& svg) {
             }
             it.transform = k->attr_or("transform");
             it.shapeKind = k->attr_or("data-fa-shape");
+            it.shapeArgs = k->attr_or("data-fa-args");
             const int index = it.index;
             if (shape) {
                 Path local;
