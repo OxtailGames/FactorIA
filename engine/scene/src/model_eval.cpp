@@ -8,6 +8,7 @@
 #include "fa/core/strings.h"
 #include "fa/scene/model_doc.h"
 #include "fa/scene/model_modifiers.h"
+#include "fa/scene/model_sdf.h"
 
 namespace fa {
 
@@ -375,6 +376,114 @@ bool eval_modifier(Eval& eval, const ModelNode& n, const Inherited& in, ModelMes
     return false;
 }
 
+// ---- sdf: the children are signed-distance shapes, meshed together ---------------------------------------------------------------
+
+ModelSdfBlend sdf_blend_of(const Json& p) {
+    const std::string b = p["blend"].get<std::string>();
+    return b == "subtract" ? ModelSdfBlend::Subtract : b == "intersect" ? ModelSdfBlend::Intersect : ModelSdfBlend::Union;
+}
+
+ModelSdfShapeParams sdf_shape_of(const ModelNode& n) {
+    const Json& p = n.params;
+    ModelSdfShapeParams s;
+    if (n.op == "sdf_sphere") {
+        s.shape = ModelSdfShape::Sphere;
+        s.radius = f(p, "radius");
+    } else if (n.op == "sdf_capsule") {
+        s.shape = ModelSdfShape::Capsule;
+        s.radius = f(p, "radius");
+        s.radiusTop = p.contains("radiusTop") ? f(p, "radiusTop") : -1.0f;
+        s.height = f(p, "height");
+    } else if (n.op == "sdf_ellipsoid") {
+        s.shape = ModelSdfShape::Ellipsoid;
+        s.size = v3(p["radii"]);
+    } else if (n.op == "sdf_box") {
+        s.shape = ModelSdfShape::Box;
+        s.size = v3(p["size"]);
+        s.round = f(p, "round");
+    } else if (n.op == "sdf_cylinder") {
+        s.shape = ModelSdfShape::Cylinder;
+        s.radius = f(p, "radius");
+        s.height = f(p, "height");
+        s.round = f(p, "round");
+    } else if (n.op == "sdf_cone") {
+        s.shape = ModelSdfShape::Cone;
+        s.radius = f(p, "radius");
+        s.radiusTop = f(p, "radiusTop");
+        s.height = f(p, "height");
+    } else {  // sdf_torus
+        s.shape = ModelSdfShape::Torus;
+        s.radius = f(p, "radius");
+        s.tube = f(p, "tube");
+    }
+    return s;
+}
+
+// Adds the enabled `nodes` to `sdf` and returns their indices in order. Each leaf names its group the way a primitive does (its own part, material
+// and colour over the inherited ones).
+std::vector<int> add_sdf_nodes(Eval& eval, ModelSdf& sdf, const std::vector<ModelNode>& nodes, const Inherited& parent) {
+    std::vector<int> indices;
+    for (const ModelNode& c : nodes) {
+        if (!c.enabled) continue;
+        Inherited in = parent;
+        if (c.part) in.part = c.part;
+        if (c.material) in.material = c.material;
+        if (c.color) in.color = c.color;
+        const Mat4 local = Mat4::trs(c.position, c.rotation, c.scale);
+        const ModelSdfBlend blend = sdf_blend_of(c.params);
+        const float smooth = f(c.params, "smooth");
+        if (c.op == "sdf_group") {
+            const std::vector<int> kids = add_sdf_nodes(eval, sdf, c.children, in);
+            if (kids.empty()) continue;  // a group with nothing enabled in it is left out
+            const std::string m = c.params["mirror"].get<std::string>();
+            indices.push_back(sdf.add_group(kids, local, blend, smooth, m == "x" ? 0 : m == "y" ? 1 : m == "z" ? 2 : -1));
+        } else {
+            indices.push_back(sdf.add_shape(sdf_shape_of(c), local, blend, smooth, eval.group_of(in), in.color));
+        }
+    }
+    return indices;
+}
+
+bool eval_sdf(Eval& eval, const ModelNode& n, const Inherited& in, ModelMesh& mesh) {
+    ModelSdf sdf;
+    const std::vector<int> roots = add_sdf_nodes(eval, sdf, n.children, in);
+    if (roots.empty()) {
+        fail(eval, n, "an sdf needs at least one enabled shape in its `children`",
+             "Add one, e.g. {\"op\": \"sdf_sphere\", \"radius\": 0.5}; the shape list is in model.info.");
+        return false;
+    }
+    sdf.set_root(roots.size() == 1 ? roots[0] : sdf.add_group(roots, Mat4::identity(), ModelSdfBlend::Union, 0, -1));
+    const Json& p = n.params;
+    ModelSdfMeshParams q;
+    if (p.contains("voxelSize")) q.voxelSize = f(p, "voxelSize");
+    else {
+        const std::string quality = p["quality"].get<std::string>();
+        q.cells = quality == "draft" ? 40 : quality == "fine" ? 160 : quality == "ultra" ? 200 : 96;
+    }
+    q.noiseAmplitude = f(p, "noiseAmplitude");
+    q.noiseFrequency = f(p, "noiseFrequency");
+    q.noiseOctaves = i(p, "noiseOctaves");
+    q.noiseSeed = i(p, "noiseSeed");
+    if (p.contains("targetTriangles")) q.targetTriangles = static_cast<std::size_t>(i(p, "targetTriangles"));
+    if (p.contains("maxError")) q.maxError = f(p, "maxError");
+    ModelSdfMeshInfo info;
+    auto made = model_sdf_mesh(sdf, q, &info);
+    if (!made) {
+        fail(eval, n, made.error().message, made.error().hint);
+        return false;
+    }
+    if (made->empty()) {
+        eval.out.warnings.push_back(n.pointer + ": the sdf has no surface (everything was subtracted away, or the shapes are smaller than a cell of " +
+                                    std::format("{:g}", info.voxelSize) + " m): lower `voxelSize` or check the subtractions");
+        return true;
+    }
+    if (info.touchedEdge)
+        eval.out.warnings.push_back(n.pointer + ": the sdf surface reached the edge of its sampling box and was cut there; lower `noiseAmplitude` or report this");
+    if (!within_limit(eval, n, "the sdf", made->triangle_count(), "Raise `voxelSize`, lower `quality` or set `targetTriangles`.")) return false;
+    mesh = std::move(*made);
+    return true;
+}
+
 bool eval_node(Eval& eval, const ModelNode& n, const Inherited& parent, ModelMesh& into) {
     if (!n.enabled) return true;
     Inherited in = parent;
@@ -386,6 +495,13 @@ bool eval_node(Eval& eval, const ModelNode& n, const Inherited& parent, ModelMes
         if (!eval_nodes(eval, n.children, in, mesh)) return false;
     } else if (is_modifier(n.op)) {
         if (!eval_modifier(eval, n, in, mesh)) return false;
+    } else if (n.op == "sdf") {
+        if (!eval_sdf(eval, n, in, mesh)) return false;
+        if (mesh.empty()) return true;
+        Vec3 bmin, bmax;
+        mesh.bounds(bmin, bmax);
+        if (n.align == "bottom") mesh.transform(Mat4::translate({0, -bmin.y, 0}));
+        else if (n.align == "top") mesh.transform(Mat4::translate({0, -bmax.y, 0}));
     } else {
         if (!build_primitive(eval, n, mesh)) return false;
         if (mesh.empty()) return true;
