@@ -613,6 +613,17 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         I.startupProblems.push_back("audio: " + aerr);
     }
     I.audio.set_clock(&I.world);  // play log entries carry the frame/time scripts see
+    {
+        // MusicPlayer.mode "auto" chooses between live synthesis and stems for this device (docs/MUSIC.md).
+        const Json device = device_info();
+        MusicDeviceProfile music;
+        music.formFactor = device.value("formFactor", std::string("desktop"));
+        music.tier = device.value("tier", std::string("high"));
+#if defined(__EMSCRIPTEN__)
+        music.web = true;
+#endif
+        I.audio.set_music_device(music);
+    }
     register_builtin_commands(*this, I);  // before scripts.init: JS tools (tools/*.js) are added on top
     // Native plugins: their commands, and their functions for the scripts (plugins.<name>), before scripts.init.
     PluginInstall installed = install_plugins(I.project, dir, config.pluginDir, I.commands, I.scripts);

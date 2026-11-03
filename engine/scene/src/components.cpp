@@ -1450,6 +1450,42 @@ void register_builtin_components(TypeRegistry& r) {
         .field("spatial", &AudioSource::spatial, "true = pan and attenuate relative to the AudioListener; false = plain stereo (music, UI).")
         .field("range", &AudioSource::range, "Spatial only: distance in world units where the volume reaches 0.").range(0, 1000000);
 
+    r.add<MusicPlayer>(
+          "MusicPlayer",
+          "Plays a song document (*.song.json, docs/MUSIC.md) as adaptive music. `intensity` (0..1) brings the song's layers in and out with "
+          "smooth fades; goToSection, stingers and crossfades to another song wait for the next beat, bar or section end (`quantize`); beats, "
+          "bars and sections reach scripts as events (music.beat, music.bar, music.section ...). `mode` picks how the song sounds: live "
+          "(rendered from the document when the player starts, the same bytes as music.preview) or stems (the files music.render wrote, for "
+          "phones). The musical clock is the mixer's sample count, so a headless run gives the same beats on every machine. Script API: "
+          "entity.music (docs/SCRIPTING.md); docs/MUSIC.md, \"Playing a song in a game\".",
+          "Audio")
+        .asset_field("song", &MusicPlayer::song, "music", "Project-relative path of the song document (*.song.json). Set it while playing to crossfade to the new song (crossfadeBars, quantize).")
+        .enum_field("mode", &MusicPlayer::mode, {"auto", "live", "stems"},
+                    "How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). "
+                    "stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; it falls back to live, with a warning, when they are missing. "
+                    "auto: stems on phones and tablets that are not high-tier, on any low-tier device and on the web, live elsewhere (docs/MUSIC.md).")
+        .field("volume", &MusicPlayer::volume, "Loudness of the player, 0 (silent) to 1 (full). Changes fade over 20 ms.").range(0, 1)
+        .field("bus", &MusicPlayer::bus, "Mixer bus the music is summed into: \"music\" (default), \"sfx\", \"ui\" or a bus of the project (factoria.json audio.buses). Its volume, effects and ducking apply.")
+        .field("intensity", &MusicPlayer::intensity, "0..1: how much of the song plays. Each layer of the song has a threshold (music.edit set_layers); a layer is silent below threshold - layerRange and full from its threshold. The first layer (threshold 0) always plays.").range(0, 1)
+        .field("playOnStart", &MusicPlayer::playOnStart, "Start playing when the entity spawns / the scene loads.")
+        .field("loop", &MusicPlayer::loop, "true: stay in the song's loop section (the loop sections, repeats included) until a section change or stop; a song without a loop section restarts at its end. false: play through the outro to the end, then music.ended.")
+        .field("startSection", &MusicPlayer::startSection, "Name of the section to start at (\"\" = the beginning of the song). An unknown name logs an error that lists the song's sections and starts at the beginning.")
+        .enum_field("quantize", &MusicPlayer::quantize, {"none", "beat", "bar", "section"},
+                    "When a section change, stinger or crossfade lands unless the call says otherwise. none: at once. beat: on the next beat (a dotted quarter in 6/8, 9/8, 12/8). bar: on the next bar line. section: when the current section pass ends (the loop wrap counts as the end of the loop).")
+        .enum_field("layerQuantize", &MusicPlayer::layerQuantize, {"none", "beat", "bar", "section"},
+                    "When a change of `intensity` starts its layer fades. none: at once.")
+        .field("layerFade", &MusicPlayer::layerFade, "Seconds a layer takes to fade in or out when intensity changes.").range(0, 30)
+        .field("layerRange", &MusicPlayer::layerRange, "How far below its threshold a layer starts to fade in (0.25: a layer with threshold 0.5 begins at 0.25 and is full at 0.5). 0 switches layers at their thresholds.").range(0, 1)
+        .field("transitionFade", &MusicPlayer::transitionFade, "Seconds of the equal-power crossfade between the old and the new position at a section jump.").range(0, 5)
+        .field("crossfadeBars", &MusicPlayer::crossfadeBars, "Length of the crossfade to another song, in bars of the outgoing song (so it follows its tempo).").range(0, 64)
+        .field("playing", &MusicPlayer::playing, "Runtime state: true while the song plays (or waits for its first section to land). Set true to play, false to stop.").runtime_only()
+        .field("ready", &MusicPlayer::ready, "Runtime state: the song is rendered or loaded. False while a live render is still working (play waits for it).").runtime_only()
+        .field("section", &MusicPlayer::section, "Runtime state: name of the section being played (\"\" when stopped).").runtime_only()
+        .field("bar", &MusicPlayer::bar, "Runtime state: bar of the song being played, 1-based (0 when stopped).").runtime_only()
+        .field("beat", &MusicPlayer::beat, "Runtime state: beat of the bar, 1-based (0 when stopped).").runtime_only()
+        .field("tempo", &MusicPlayer::tempo, "Runtime state: quarter notes per minute of the song being played (0 when stopped).").runtime_only()
+        .field("activeMode", &MusicPlayer::activeMode, "Runtime state: \"live\" or \"stems\", what `mode` resolved to for the song being played.").runtime_only();
+
     r.add<AudioListener>("AudioListener",
                          "The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the first camera drawn is used (the primary camera with the lowest depth: player one's in a split screen).",
                          "Audio")

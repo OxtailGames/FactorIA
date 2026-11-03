@@ -372,6 +372,9 @@ is decoded whole, not streamed.
 A song gets its loop points the same way: `music.render` writes the `smpl` chunk and `import.loopStart`/`loopEnd` for the song's loop sections, and one stem file per layer with the same
 points (docs/MUSIC.md, "Rendering a song for a game").
 
+The `MusicPlayer` component plays a song document in a game: its layers by intensity, sections and stingers on the beat or the bar, crossfades between songs, and beat events for
+scripts. It is summed into a bus (`music` by default) of this mixer (docs/MUSIC.md, "Playing a song in a game").
+
 ### Commands
 
 | Command | What it does |

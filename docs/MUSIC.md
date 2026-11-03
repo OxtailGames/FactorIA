@@ -14,9 +14,9 @@ platform.
   `music.render` (the whole song, its loop points and its stems), `music.import_midi` and `music.export_midi`.
 - `project.validate` (and `assets validate`) reads every `*.song.json`: mistakes are errors with the file, the JSON pointer and,
   inside note text, the line and column; check findings (off-key notes, clashes) are warnings.
-- What this is not: the in-game player. The *document*, its instruments ("Instruments"), its mixer ("The mixer"), its checks and the
-  offline preview exist; the runtime that plays a song in a game (transitions between stems) is a later milestone that reads the
-  same document. `music.render` already writes what that runtime needs: the loop points and one file per layer. The tempo is one number for the whole song (no tempo changes yet).
+- In a game the song is played by the `MusicPlayer` component (layers that follow an intensity, sections that change on the beat or the bar,
+  stingers, crossfades between songs, beat events for scripts): "Playing a song in a game" below. It reads the same document, or the files
+  `music.render` wrote. The tempo is one number for the whole song (no tempo changes yet).
 
 The loop for a song: **`music.create` a starting point, `music.info` to see it (the result has a piano-roll picture), `music.edit`
 the patterns and sections, `music.check` before listening, `music.preview` to render it**, edit, check again.
@@ -353,11 +353,11 @@ whole. A **layer** names a group of tracks and how intense the game should be wh
 "layers": {
   "base":   { "tracks": ["pad", "bass"], "intensity": 0, "doc": "always on" },
   "rhythm": ["drums"],
-  "action": { "tracks": ["arp", "lead"], "intensity": 2 }
+  "action": { "tracks": ["arp", "lead"], "intensity": 0.8 }
 }
 ```
 
-- A layer is a list of track names, or an object with `tracks`, `intensity` (0 to 10, default: its position in the list) and `doc`.
+- A layer is a list of track names, or an object with `tracks`, `intensity` (0 to 1, the player intensity from which the layer plays; left out, the layers are spread evenly in the order written, the first at 0 and the last at 1) and `doc`.
 - A track in two layers is an error. Tracks that no layer lists go to a layer named `other`, which `music.render` makes only when it is not empty.
 - `music.edit` `set_layers {"layers": {"base": ["pad","bass"], "old": null}}` sets or removes layers; renaming or removing a track follows the layers.
 - `music.info` lists the layers.
@@ -395,6 +395,100 @@ The data the in-game player reads (it is in `assets.json`, under the asset's `im
 ```
 
 `music.render` returns the same lists (`loop`, `stems`, `stemSum`) plus the measurements of the mix.
+
+## Playing a song in a game
+
+A `MusicPlayer` component plays a song document as adaptive music. `scene.set_component {id, component: "MusicPlayer", fields: {song: "assets/music/theme.song.json"}}`
+is the whole setup for music that starts with the scene; a script drives the rest with `entity.music` (docs/SCRIPTING.md) and tools with `audio.music_state` and
+`audio.music`.
+
+```json
+{ "id": "theme", "components": { "MusicPlayer": {
+    "song": "assets/music/theme.song.json", "mode": "auto", "bus": "music", "volume": 0.8,
+    "intensity": 0, "quantize": "bar", "layerQuantize": "bar", "layerFade": 1.5 } } }
+```
+
+```js
+const theme = world.find("theme").music;
+theme.on("bar", (d) => { if (d.count % 4 === 0) spawnWave(); });   // d.frame is the audio frame, d.time seconds
+theme.setIntensity(0.8);                                          // the layers fade in on the next bar line
+theme.goToSection("boss", { quantize: "bar" });                   // jumps on the bar line with a short crossfade
+theme.playStinger({ clip: "assets/sfx/hit.wav", quantize: "beat", duck: 0.5 });
+theme.crossfadeTo("assets/music/calm.song.json", { quantize: "section", bars: 2 });
+```
+
+**Layers and intensity.** The song's layers ("Layers and stems") are the stems; each has a threshold, the layer's `intensity`. A layer is silent
+below `threshold - layerRange`, full at its threshold and fades between (smoothstep); a layer at 0 always plays. A change of `intensity` takes effect
+on the boundary of `layerQuantize` and each layer then fades over `layerFade` seconds. A song with no layers is one stem that always plays.
+
+**Sections.** The player knows the song's sections and the order of their passes (`sections`, `section`, `bar`, `beat` of the component and of
+`entity.music`). `loop: true` stays in the song's loop sections (repeats included) until a section change or a stop; a song without a loop section
+restarts at its end. `loop: false` plays through the outro to the end, then fires `music.ended` and `playing` becomes false. `startSection` is where it starts;
+an unknown name logs an error that lists the song's sections and starts at the beginning (`goToSection` throws instead). `goToSection` jumps to the first pass of a section with an equal-power crossfade of
+`transitionFade` seconds between where the music was and the new section. When the jump would land after the end of the loop (or of the song) it lands at the wrap.
+
+**Quantize.** `none` is at once; `beat` is the next beat (a dotted quarter in 6/8, 9/8 and 12/8); `bar` the next bar line; `section` the end of the current
+section pass. A request that arrives exactly on a boundary lands on it. A change that waits is queued in the mixer at an exact audio frame (`pending` in
+`audio.music_state`); stopping waits too, but `playing` is false at once.
+
+**Stingers.** `playStinger({clip})` plays an audio clip so that it starts on the boundary's audio frame, on the player's bus (or `bus`).
+`playStinger({section})` plays a section of the song over the music with all its layers, then `tail` seconds of what rings after it.
+`duck` (0..1) dips the music for the length of the clip or section (`duckHold` to say otherwise), over `duckAttack` seconds down and `duckRelease` seconds back.
+A clip stinger is an ordinary voice: stopping the player does not stop it.
+
+**Crossfades between songs.** Setting `MusicPlayer.song` while it plays, or `crossfadeTo(song)`, waits for the boundary of the song that plays, then the old song fades
+out and the new one in over `crossfadeBars` bars **of the old song** (so the length follows its tempo); the new song starts at `section` or its beginning and keeps its own
+tempo. `music.play(song)` is the hard start instead: what played is cut after a short fade. Both fail at once, with a hint, for a song file that does not exist.
+
+**Events.** A player sends game events: `music.ready` (`mode`), `music.beat` (`bar`, `beat`, `section`, `index`), `music.bar` (`bar`, `section`, `count`),
+`music.section` (`section`, `pass`, `bar`), `music.loop` (`count`), `music.ended` (`stopped`), `music.stinger` (`kind`, `section`) and `music.crossfade`. Every
+one carries `id` (the entity), `song`, `frame` (the audio frame it happened on) and `time` (`frame` / the device rate). `entity.music.on(name, fn)` listens to one
+player; `world.on("music.beat", fn)` to all.
+
+### Live and stems
+
+`mode` says how the song becomes sound.
+
+- **live**: when the player starts, the engine renders the song's layers from the document into memory (the same synthesis as `music.preview`; no extra files) and the
+  audio thread only mixes those buffers. A song costs a few seconds of CPU once and about 10 MB of memory per minute per layer (16-bit stereo at 44100 Hz). A windowed
+  game renders on a worker thread and starts the music when it is done (`ready` is false and `music.ready` has not come until then); a headless run (`factoria call`, tests)
+  renders at once, so the music is there on the first frame. The renders are kept in a cache shared by the players (two players of one song render it once) and the ones no
+  player uses are dropped when the cache passes 128 MB.
+- **stems**: plays the stem files `music.render` wrote (`import.music` in `assets.json`, "Rendering a song for a game"). They start at once and cost no synthesis.
+  Without them, or when a stem file is missing, the stems differ in length or are shorter than the song now is (it changed after `music.render`), the player renders live and logs a warning that says why.
+- **auto** (default): stems on a phone or tablet that is not high-tier, on any low-tier device and on the web (there is no worker thread to render on there); live elsewhere,
+  and always live when the song has no stem files. `device_info()` (docs/MOBILE.md) is what decides; the `game.setDevice` override of a script does not reach it,
+  so a test that wants one mode or the other writes `mode: "stems"` or `"live"`.
+
+What differs between them: the loudness of the master. Stems carry the mix's gain, so the style guide's music loudness (`loudness: "style"`, "The mixer") is part of
+them. A live render is made without a target, so it does **not** apply the style loudness; give the song's master a `loudness` number, or use stems, if the two must sound equally
+loud. Everything else is the same bytes: the live render is the one `music.render` writes (the loop's tail folded onto its start, so the wrap is seamless; a song that ends with an
+outro plays its tail out, or a 20 ms fade when more music follows the outro).
+
+### Time, determinism and the mixer
+
+The musical clock is the mixer's frame counter, never the wall clock. The playhead moves `44100 / device rate` song frames per output frame; the beats, the quantized
+changes and the events are placed at output frames computed from it, and the mix is split at each of those frames, so what lands where does not depend on the block
+size, the threads or the machine. On the null device (headless runs, `game.step`, tests) the mixer advances exactly the time the game clock gives it, so a run puts the same
+beat at the same `frame` every time (this is tested). On a sound device the clock follows the real audio position. Events reach scripts one game frame after they sound,
+because the mixer queues them and `Audio::update` hands them over; `frame` and `time` say when they sounded.
+
+The player is summed into its `bus` (default `music`): the bus volume, effects, ducking and snapshots apply, and `audio.stopAll()` stops the players with a 50 ms fade. The audio thread
+allocates nothing for the player: the playheads, the queue of changes and the event ring are fixed-size.
+
+### Lifetime
+
+- `playOnStart` (default true) starts the player the first time the engine sees it; `playing = false` stops it with a 0.3 s fade; an inactive entity stops and does not restart by itself.
+- A scene change fades the players of the old scene out over 0.5 s, unless the new scene has a player with the same song and `playOnStart`: that one takes over the music that
+  plays, so the same song does not restart.
+- A song that cannot be loaded (a file that is not a valid song, a render that fails) logs one error and shows it in `audio.music_state` (`error`); the player stays silent.
+
+### Commands
+
+| Command | What it does |
+| --- | --- |
+| `audio.music_state` | Every player (or one `entity`): song, mode, ready, playing, section, bar, beat, intensity, the gain of each layer, pending changes. Read-only. |
+| `audio.music` | `action` play, stop, setIntensity, goToSection, playStinger or crossfadeTo with their arguments: the same calls as `entity.music`, to try the music while the game runs. |
 
 ## MIDI
 

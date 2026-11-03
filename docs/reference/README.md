@@ -31,6 +31,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 
 - [AudioListener](components/audio.md#audiolistener): The 'ears' for spatial audio, usually on the camera or player.
 - [AudioSource](components/audio.md#audiosource): Plays a sound clip from the entity.
+- [MusicPlayer](components/audio.md#musicplayer): Plays a song document (*.song.json, docs/MUSIC.md) as adaptive music. _Not released yet._
 
 ### [Camera](components/camera.md)
 
@@ -264,6 +265,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 - [`audio.bus`](commands/audio.md#audiobus-modifies-state): Set a bus's volume and effects (low-pass, reverb, ducking), or read its state. _Since 0.3.0._
 - [`audio.log`](commands/audio.md#audiolog): List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.
+- [`audio.music`](commands/audio.md#audiomusic-modifies-state): Drive a MusicPlayer: play, stop, setIntensity, goToSection, playStinger or crossfadeTo. _Not released yet._
+- [`audio.music_state`](commands/audio.md#audiomusic_state): What the MusicPlayer components are doing: song, section, bar, beat, layers and pending changes. _Not released yet._
 - [`audio.snapshot`](commands/audio.md#audiosnapshot-modifies-state): Apply a named mixer snapshot from factoria.json, or list the snapshots. _Since 0.3.0._
 
 ### [docs](commands/docs.md)

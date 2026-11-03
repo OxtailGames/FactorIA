@@ -567,6 +567,36 @@ Plays a sound clip from the entity. Set playOnStart to start automatically, or s
 | `spatial` | bool | `false` | true = pan and attenuate relative to the AudioListener; false = plain stereo (music, UI). |
 | `range` | float | `800.0` | Spatial only: distance in world units where the volume reaches 0. Range 0.0..1000000.0. |
 
+### MusicPlayer
+
+Not released yet (on main after 0.14.1).
+
+Plays a song document (*.song.json, docs/MUSIC.md) as adaptive music. `intensity` (0..1) brings the song's layers in and out with smooth fades; goToSection, stingers and crossfades to another song wait for the next beat, bar or section end (`quantize`); beats, bars and sections reach scripts as events (music.beat, music.bar, music.section ...). `mode` picks how the song sounds: live (rendered from the document when the player starts, the same bytes as music.preview) or stems (the files music.render wrote, for phones). The musical clock is the mixer's sample count, so a headless run gives the same beats on every machine. Script API: entity.music (docs/SCRIPTING.md); docs/MUSIC.md, "Playing a song in a game".
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `song` | asset (music) | `""` | Project-relative path of the song document (*.song.json). Set it while playing to crossfade to the new song (crossfadeBars, quantize). |
+| `mode` | enum: auto \\| live \\| stems | `"auto"` | How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; it falls back to live, with a warning, when they are missing. auto: stems on phones and tablets that are not high-tier, on any low-tier device and on the web, live elsewhere (docs/MUSIC.md). |
+| `volume` | float | `0.8` | Loudness of the player, 0 (silent) to 1 (full). Changes fade over 20 ms. Range 0.0..1.0. |
+| `bus` | string | `"music"` | Mixer bus the music is summed into: "music" (default), "sfx", "ui" or a bus of the project (factoria.json audio.buses). Its volume, effects and ducking apply. |
+| `intensity` | float | `0.0` | 0..1: how much of the song plays. Each layer of the song has a threshold (music.edit set_layers); a layer is silent below threshold - layerRange and full from its threshold. The first layer (threshold 0) always plays. Range 0.0..1.0. |
+| `playOnStart` | bool | `true` | Start playing when the entity spawns / the scene loads. |
+| `loop` | bool | `true` | true: stay in the song's loop section (the loop sections, repeats included) until a section change or stop; a song without a loop section restarts at its end. false: play through the outro to the end, then music.ended. |
+| `startSection` | string | `""` | Name of the section to start at ("" = the beginning of the song). An unknown name logs an error that lists the song's sections and starts at the beginning. |
+| `quantize` | enum: none \\| beat \\| bar \\| section | `"bar"` | When a section change, stinger or crossfade lands unless the call says otherwise. none: at once. beat: on the next beat (a dotted quarter in 6/8, 9/8, 12/8). bar: on the next bar line. section: when the current section pass ends (the loop wrap counts as the end of the loop). |
+| `layerQuantize` | enum: none \\| beat \\| bar \\| section | `"none"` | When a change of `intensity` starts its layer fades. none: at once. |
+| `layerFade` | float | `1.0` | Seconds a layer takes to fade in or out when intensity changes. Range 0.0..30.0. |
+| `layerRange` | float | `0.25` | How far below its threshold a layer starts to fade in (0.25: a layer with threshold 0.5 begins at 0.25 and is full at 0.5). 0 switches layers at their thresholds. Range 0.0..1.0. |
+| `transitionFade` | float | `0.05` | Seconds of the equal-power crossfade between the old and the new position at a section jump. Range 0.0..5.0. |
+| `crossfadeBars` | float | `2.0` | Length of the crossfade to another song, in bars of the outgoing song (so it follows its tempo). Range 0.0..64.0. |
+| `playing` | bool | `false` | Runtime state: true while the song plays (or waits for its first section to land). Set true to play, false to stop. Runtime-only (not saved). |
+| `ready` | bool | `false` | Runtime state: the song is rendered or loaded. False while a live render is still working (play waits for it). Runtime-only (not saved). |
+| `section` | string | `""` | Runtime state: name of the section being played ("" when stopped). Runtime-only (not saved). |
+| `bar` | int | `0` | Runtime state: bar of the song being played, 1-based (0 when stopped). Runtime-only (not saved). |
+| `beat` | int | `0` | Runtime state: beat of the bar, 1-based (0 when stopped). Runtime-only (not saved). |
+| `tempo` | float | `0.0` | Runtime state: quarter notes per minute of the song being played (0 when stopped). Runtime-only (not saved). |
+| `activeMode` | string | `""` | Runtime state: "live" or "stems", what `mode` resolved to for the song being played. Runtime-only (not saved). |
+
 ### AudioListener
 
 The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the first camera drawn is used (the primary camera with the lowest depth: player one's in a split screen).
@@ -2365,6 +2395,45 @@ Every play request is logged: audio.play and audio.music from scripts, AudioSour
 | `after` | integer | no | Only entries with seq greater than this. Default 0. |
 | `path` | string | no | Only this clip: a project-relative path or a file name like "jump.wav". |
 | `max` | integer | no | Return at most this many (the newest). Default 200. |
+
+### `audio.music` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Drive a MusicPlayer: play, stop, setIntensity, goToSection, playStinger or crossfadeTo.
+
+The same calls as `entity.music` in a script, for trying the music while the game runs (game.step, then audio.music_state). `action` picks the call and the other fields are its arguments: play {song?, section?, intensity?} starts at once; stop {quantize?, fade?} fades out on the boundary; setIntensity {intensity, quantize?} moves the layers; goToSection {section, quantize?, fade?} jumps on the boundary with a crossfade; playStinger {clip | section, quantize?, volume?, tail?, bus?, duck?, duckAttack?, duckHold?, duckRelease?} plays a short piece over the music; crossfadeTo {song, section?, quantize?, bars?} changes song on the boundary. `quantize` is none, beat, bar or section; without it the player's own settings apply. A change that waits for a boundary is queued in the mixer (audio.music_state shows `pending`). Example: audio.music {"entity":"music","action":"goToSection","section":"battle","quantize":"bar"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | Entity with the MusicPlayer (id or name). |
+| `action` | string ["play","stop","setIntensity","goToSection","playStinger","crossfadeTo"] | yes | The call to make. |
+| `song` | string | no | play, crossfadeTo: the song (*.song.json). play without it uses the player's own. |
+| `section` | string | no | play, crossfadeTo: the section to start at. goToSection, playStinger: the section to go to or to play as a stinger. |
+| `intensity` | number | no | play, setIntensity: 0..1. |
+| `quantize` | string ["none","beat","bar","section"] | no | When the change lands. Default: the player's quantize (layerQuantize for setIntensity). |
+| `fade` | number | no | stop, goToSection: seconds of the fade. Default 0.3 for stop, the player's transitionFade for goToSection. |
+| `bars` | number | no | crossfadeTo: bars of the old song the crossfade lasts. Default: the player's crossfadeBars. |
+| `clip` | string | no | playStinger: an audio clip to play on the boundary. |
+| `volume` | number | no | playStinger: volume on top of the player's. Default 1. |
+| `tail` | number | no | playStinger with a section: seconds of what rings after it ends. Default 1.5. |
+| `bus` | string | no | playStinger with a clip: the bus (default the player's). |
+| `duck` | number | no | playStinger: how much the music dips while it plays (0 = not at all). Default 0. |
+| `duckAttack` | number | no | playStinger: seconds to dip. Default 0.05. |
+| `duckHold` | number | no | playStinger: seconds the dip lasts; omitted: the length of the clip or section. |
+| `duckRelease` | number | no | playStinger: seconds to come back. Default 0.5. |
+
+### `audio.music_state`
+
+Not released yet (on main after 0.14.1).
+
+What the MusicPlayer components are doing: song, section, bar, beat, layers and pending changes.
+
+Without `entity`: every player, including one still fading out after a scene change, as {mixedFrames, players: [{entity, song, mode, ready, playing, ended, section, bar, beat, positionSeconds, tempo, intensity, volume, bus, stems, stemGains, pending, heads, error}]}. With `entity`: that player only (`exists: false` when it has none). `stemGains` is the gain each layer has now (it follows `intensity` with the layer fade); `pending` counts the quantized changes waiting for their beat; `heads` is more than 1 while a section jump or crossfade is under way; `mixedFrames` is the musical clock (the frames the mixer has mixed). Example: audio.music_state {"entity":"music"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | Only this entity (id or name); it needs a MusicPlayer. |
 
 ## assets
 
@@ -6865,6 +6934,11 @@ declare module "factoria" {
      * @since 0.3.0
      */
     readonly video: VideoAPI;
+    /**
+     * Playback of this entity's MusicPlayer component (play, stop, setIntensity, goToSection, playStinger, crossfadeTo, the beat/bar/section events, the current bar, beat and section). Throws if the entity has no MusicPlayer; entity.get("MusicPlayer") answers null instead.
+     * @since unreleased
+     */
+    readonly music: MusicAPI;
   }
 
   /**
@@ -10766,6 +10840,103 @@ declare module "factoria" {
   }
 
   /**
+   * Controls a MusicPlayer component (entity.music): a song played as layers that fade with `intensity`, sections that change on the beat or the bar, stingers, crossfades between songs and beat events. The mixer does the playing and counts the musical time in audio frames, so a headless run puts beats, bars and section changes on the same frames every time. A change with a `quantize` waits for that boundary and lands on its exact frame; without `quantize` the player's own settings apply (MusicPlayer.quantize, layerQuantize). Events reach scripts one frame after they sound; `data.frame` is the audio frame they happened on. Example: `const m = theme.music; m.on("bar", () => ...); m.setIntensity(0.8); m.goToSection("battle", {quantize: "bar"})`.
+   * @since unreleased
+   */
+  export class MusicAPI {
+    /**
+     * Starts at once (a hard start: what played is cut after a short fade). A string is the song; `song` defaults to the component's, `section` to its startSection and `intensity` to its own. Sets playing to true. The song loads first when it is not loaded yet (the "ready" event says when it sounds).
+     * @since unreleased
+     */
+    play(options?: string | { song?: string; section?: string; intensity?: number }): void;
+    /**
+     * Fades the music out over `fade` seconds (default 0.3) once the `quantize` boundary comes (default none: now). The component's `playing` is false at once. Fires "ended" with stopped true.
+     * @since unreleased
+     */
+    stop(options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): void;
+    /**
+     * Sets MusicPlayer.intensity (0..1); the layers follow it from the `quantize` boundary on (default the component's layerQuantize), each fading over layerFade.
+     * @since unreleased
+     */
+    setIntensity(intensity: number, options?: { quantize?: "none" | "beat" | "bar" | "section" }): void;
+    /**
+     * Jumps to the first pass of a section on the `quantize` boundary (default the component's quantize) with an equal-power crossfade of `fade` seconds (default transitionFade). Throws for a section the song does not have, listing the ones it has. Before the song is loaded it only sets where it will start.
+     * @since unreleased
+     */
+    goToSection(section: string, options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): void;
+    /**
+     * Plays a short piece over the music from the next boundary: an audio `clip` (starts on that audio frame) or a `section` of the playing song (all its layers, then `tail` seconds of what rings after it). A string is the clip. `duck` (0..1) dips the music while it plays: down in duckAttack seconds, held for duckHold (default the length of the clip or section), back in duckRelease. Fires "stinger".
+     * @since unreleased
+     */
+    playStinger(options: string | { clip?: string; section?: string; quantize?: "none" | "beat" | "bar" | "section"; volume?: number; tail?: number; bus?: string; duck?: number; duckAttack?: number; duckHold?: number; duckRelease?: number }): void;
+    /**
+     * Changes to another song on the `quantize` boundary of the one playing: the old fades out and the new fades in over `bars` bars of the old song (default crossfadeBars), the new one starting at `section` (default its beginning). Each song keeps its own tempo. Without music playing the song just starts. Fires "crossfade". Throws for a song that does not exist or is not a song.
+     * @since unreleased
+     */
+    crossfadeTo(song: string, options?: { section?: string; quantize?: "none" | "beat" | "bar" | "section"; bars?: number }): void;
+    /**
+     * Listens to an event of THIS entity's player; returns the unsubscribe function. world.on("music.beat", fn) hears every player. Besides id, song, frame (the audio frame) and time (seconds): ready has mode; beat has bar, beat, section, index (beats since play); bar has bar, section, count; section has section, pass, bar; loop has count; ended has stopped; stinger has kind ("clip" or "section") and section.
+     * @since unreleased
+     */
+    on(event: "ready" | "beat" | "bar" | "section" | "loop" | "ended" | "stinger" | "crossfade", fn: (data: { id: string; song: string; frame: number; time: number; [key: string]: any }, source: Entity | null) => void): () => void;
+    /**
+     * A snapshot of the player (what audio.music_state shows). `mode` is "live" or "stems" (how it was made); `stemGains` the gain each layer has now; `pending` the quantized changes waiting; `error` why it could not start.
+     * @since unreleased
+     */
+    readonly status: { exists: boolean; ready: boolean; playing: boolean; ended: boolean; song: string; mode: string; section: string; sections: string[]; bar: number; beat: number; positionSeconds: number; tempo: number; intensity: number; volume: number; bus: string; stems: string[]; stemGains: number[]; pending: number; heads: number; error: string };
+    /**
+     * True once the song is loaded and can sound.
+     * @since unreleased
+     */
+    readonly ready: boolean;
+    /**
+     * True while music sounds or a start is waiting for the song to load.
+     * @since unreleased
+     */
+    readonly playing: boolean;
+    /**
+     * The song that plays (or is loading).
+     * @since unreleased
+     */
+    readonly song: string;
+    /**
+     * The section the playhead is in; empty before the song plays.
+     * @since unreleased
+     */
+    readonly section: string;
+    /**
+     * 1-based bar of the song at the playhead; 0 when nothing plays.
+     * @since unreleased
+     */
+    readonly bar: number;
+    /**
+     * 1-based beat of the bar at the playhead; 0 when nothing plays.
+     * @since unreleased
+     */
+    readonly beat: number;
+    /**
+     * Quarter notes per minute of the song that plays.
+     * @since unreleased
+     */
+    readonly tempo: number;
+    /**
+     * MusicPlayer.intensity: the value last set, not the layers' fades (status.stemGains).
+     * @since unreleased
+     */
+    readonly intensity: number;
+    /**
+     * The section names of the song, in order; empty until it is loaded.
+     * @since unreleased
+     */
+    readonly sections: string[];
+    /**
+     * The MusicPlayer component view (song, mode, volume, bus, quantize...).
+     * @since unreleased
+     */
+    readonly component: Components["MusicPlayer"];
+  }
+
+  /**
    * An easing function: maps progress 0..1 to eased progress (0 at 0, 1 at 1; back and elastic overshoot in between).
    * @since 0.2.0
    */
@@ -13010,6 +13181,119 @@ declare module "factoria" {
     range: number;
   }
   /**
+   * Plays a song document (*.song.json, docs/MUSIC.md) as adaptive music. `intensity` (0..1) brings the song's layers in and out with smooth fades; goToSection, stingers and crossfades to another song wait for the next beat, bar or section end (`quantize`); beats, bars and sections reach scripts as events (music.beat, music.bar, music.section ...). `mode` picks how the song sounds: live (rendered from the document when the player starts, the same bytes as music.preview) or stems (the files music.render wrote, for phones). The musical clock is the mixer's sample count, so a headless run gives the same beats on every machine. Script API: entity.music (docs/SCRIPTING.md); docs/MUSIC.md, "Playing a song in a game".
+   * 
+   * Category: Audio
+   * @since unreleased
+   */
+  export interface MusicPlayerComponent {
+    /**
+     * Project-relative path of the song document (*.song.json). Set it while playing to crossfade to the new song (crossfadeBars, quantize). (asset path: music)
+     * @since unreleased
+     */
+    song: string;
+    /**
+     * How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; it falls back to live, with a warning, when they are missing. auto: stems on phones and tablets that are not high-tier, on any low-tier device and on the web, live elsewhere (docs/MUSIC.md).
+     * @since unreleased
+     */
+    mode: "auto" | "live" | "stems";
+    /**
+     * Loudness of the player, 0 (silent) to 1 (full). Changes fade over 20 ms.
+     * @since unreleased
+     */
+    volume: number;
+    /**
+     * Mixer bus the music is summed into: "music" (default), "sfx", "ui" or a bus of the project (factoria.json audio.buses). Its volume, effects and ducking apply.
+     * @since unreleased
+     */
+    bus: string;
+    /**
+     * 0..1: how much of the song plays. Each layer of the song has a threshold (music.edit set_layers); a layer is silent below threshold - layerRange and full from its threshold. The first layer (threshold 0) always plays.
+     * @since unreleased
+     */
+    intensity: number;
+    /**
+     * Start playing when the entity spawns / the scene loads.
+     * @since unreleased
+     */
+    playOnStart: boolean;
+    /**
+     * true: stay in the song's loop section (the loop sections, repeats included) until a section change or stop; a song without a loop section restarts at its end. false: play through the outro to the end, then music.ended.
+     * @since unreleased
+     */
+    loop: boolean;
+    /**
+     * Name of the section to start at ("" = the beginning of the song). An unknown name logs an error that lists the song's sections and starts at the beginning.
+     * @since unreleased
+     */
+    startSection: string;
+    /**
+     * When a section change, stinger or crossfade lands unless the call says otherwise. none: at once. beat: on the next beat (a dotted quarter in 6/8, 9/8, 12/8). bar: on the next bar line. section: when the current section pass ends (the loop wrap counts as the end of the loop).
+     * @since unreleased
+     */
+    quantize: "none" | "beat" | "bar" | "section";
+    /**
+     * When a change of `intensity` starts its layer fades. none: at once.
+     * @since unreleased
+     */
+    layerQuantize: "none" | "beat" | "bar" | "section";
+    /**
+     * Seconds a layer takes to fade in or out when intensity changes.
+     * @since unreleased
+     */
+    layerFade: number;
+    /**
+     * How far below its threshold a layer starts to fade in (0.25: a layer with threshold 0.5 begins at 0.25 and is full at 0.5). 0 switches layers at their thresholds.
+     * @since unreleased
+     */
+    layerRange: number;
+    /**
+     * Seconds of the equal-power crossfade between the old and the new position at a section jump.
+     * @since unreleased
+     */
+    transitionFade: number;
+    /**
+     * Length of the crossfade to another song, in bars of the outgoing song (so it follows its tempo).
+     * @since unreleased
+     */
+    crossfadeBars: number;
+    /**
+     * Runtime state: true while the song plays (or waits for its first section to land). Set true to play, false to stop.
+     * @since unreleased
+     */
+    playing: boolean;
+    /**
+     * Runtime state: the song is rendered or loaded. False while a live render is still working (play waits for it).
+     * @since unreleased
+     */
+    ready: boolean;
+    /**
+     * Runtime state: name of the section being played ("" when stopped).
+     * @since unreleased
+     */
+    section: string;
+    /**
+     * Runtime state: bar of the song being played, 1-based (0 when stopped).
+     * @since unreleased
+     */
+    bar: number;
+    /**
+     * Runtime state: beat of the bar, 1-based (0 when stopped).
+     * @since unreleased
+     */
+    beat: number;
+    /**
+     * Runtime state: quarter notes per minute of the song being played (0 when stopped).
+     * @since unreleased
+     */
+    tempo: number;
+    /**
+     * Runtime state: "live" or "stems", what `mode` resolved to for the song being played.
+     * @since unreleased
+     */
+    activeMode: string;
+  }
+  /**
    * The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the first camera drawn is used (the primary camera with the lowest depth: player one's in a split screen).
    * 
    * Category: Audio
@@ -15021,6 +15305,7 @@ declare module "factoria" {
     NavMesh3D: NavMesh3DComponent;
     NavLink3D: NavLink3DComponent;
     AudioSource: AudioSourceComponent;
+    MusicPlayer: MusicPlayerComponent;
     AudioListener: AudioListenerComponent;
     Panel: PanelComponent;
     Button: ButtonComponent;
@@ -15069,6 +15354,7 @@ declare module "factoria" {
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
     AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
+    MusicPlayer: { song?: string; mode?: "auto" | "live" | "stems"; volume?: number; bus?: string; intensity?: number; playOnStart?: boolean; loop?: boolean; startSection?: string; quantize?: "none" | "beat" | "bar" | "section"; layerQuantize?: "none" | "beat" | "bar" | "section"; layerFade?: number; layerRange?: number; transitionFade?: number; crossfadeBars?: number; playing?: boolean; ready?: boolean; section?: string; bar?: number; beat?: number; tempo?: number; activeMode?: string };
     AudioListener: { volume?: number; zoom?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; modal?: boolean; wheelPassThrough?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
     Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; icon?: string; iconRegion?: RectLike; iconSize?: Vec2Like; iconPosition?: "left" | "top" | "alone" };

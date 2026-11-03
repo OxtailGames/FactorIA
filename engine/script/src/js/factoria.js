@@ -517,6 +517,11 @@
         throw new Error(`entity '${this.id}' has no Video component; add one: entity.add("Video", {path: "assets/video/intro.mpg"})`);
       return new VideoApi(this.$h);
     }
+    get music() {
+      if (!N.hasComp(this.$h, "MusicPlayer"))
+        throw new Error(`entity '${this.id}' has no MusicPlayer component; add one: entity.add("MusicPlayer", {song: "music/theme.song.json"})`);
+      return new MusicApi(this.$h);
+    }
     toJSON() { return N.entityJson(this.$h, true, false); }
     toString() { return `Entity(${this.id})`; }
   }
@@ -681,6 +686,78 @@
     set loop(v) { this.component.loop = v; }
     get volume() { return this.component.volume; }
     set volume(v) { this.component.volume = v; }
+  }
+
+  // entity.music: a MusicPlayer component (a song played as layers, sections, stingers and beat events). The mixer does the playing;
+  // everything here asks it, and a change that waits for a beat or a bar is queued there and lands on that exact audio frame.
+  const MUSIC_QUANTIZE = ["none", "beat", "bar", "section"];
+  const MUSIC_EVENTS = ["ready", "beat", "bar", "section", "loop", "ended", "stinger", "crossfade"];
+  function musicOptions(call, options, allowed) {
+    if (options === undefined || options === null) return {};
+    if (typeof options !== "object" || Array.isArray(options))
+      throw new Error(`music.${call}(options) expects an object like {${allowed[0]}: ...}, got ${Array.isArray(options) ? "an array" : typeof options}`);
+    for (const k of Object.keys(options)) {
+      if (!allowed.includes(k)) {
+        const c = closest(k, allowed);
+        throw new Error(`music.${call}: unknown option '${k}'${c ? `; did you mean '${c}'?` : ""}; the options are ${allowed.join(", ")}`);
+      }
+      if (options[k] === undefined) continue;
+      if (k === "quantize") {
+        if (!MUSIC_QUANTIZE.includes(options[k]))
+          throw new Error(`music.${call}: quantize must be ${MUSIC_QUANTIZE.map((x) => `"${x}"`).join(", ")}, got ${JSON.stringify(options[k])}${closest(String(options[k]), MUSIC_QUANTIZE) ? `; did you mean '${closest(String(options[k]), MUSIC_QUANTIZE)}'?` : ""}`);
+      } else if (["song", "section", "clip", "bus"].includes(k)) {
+        if (typeof options[k] !== "string") throw new Error(`music.${call}: ${k} must be a string, got ${typeof options[k]}`);
+      } else if (typeof options[k] !== "number" || !Number.isFinite(options[k])) {
+        throw new Error(`music.${call}: ${k} must be a number, got ${typeof options[k]}`);
+      }
+    }
+    return options;
+  }
+  class MusicApi {
+    constructor(h) { this.$h = h; }
+    get component() { return viewOf(this.$h, typeOf("MusicPlayer")); }
+    play(options) {
+      const o = typeof options === "string" ? { song: options } : musicOptions("play", options, ["song", "section", "intensity"]);
+      N.musicCall(this.$h, "play", o);
+    }
+    stop(options) { N.musicCall(this.$h, "stop", musicOptions("stop", options, ["quantize", "fade"])); }
+    setIntensity(intensity, options) {
+      if (typeof intensity !== "number" || !Number.isFinite(intensity))
+        throw new Error(`music.setIntensity(intensity) expects a number from 0 (calm) to 1 (full), got ${typeof intensity === "number" ? intensity : typeof intensity}`);
+      N.musicCall(this.$h, "setIntensity", Object.assign({}, musicOptions("setIntensity", options, ["quantize"]), { intensity }));
+    }
+    goToSection(section, options) {
+      if (typeof section !== "string" || !section)
+        throw new Error(`music.goToSection(section) expects the name of a section of the song, e.g. "battle"; music.sections lists them`);
+      N.musicCall(this.$h, "goToSection", Object.assign({}, musicOptions("goToSection", options, ["quantize", "fade"]), { section }));
+    }
+    playStinger(options) {
+      const o = typeof options === "string" ? { clip: options } : musicOptions("playStinger", options, ["clip", "section", "quantize", "volume", "tail", "bus", "duck", "duckAttack", "duckHold", "duckRelease"]);
+      N.musicCall(this.$h, "playStinger", o);
+    }
+    crossfadeTo(song, options) {
+      if (typeof song !== "string" || !song)
+        throw new Error(`music.crossfadeTo(song) expects the path of a song, e.g. "music/battle.song.json"`);
+      N.musicCall(this.$h, "crossfadeTo", Object.assign({}, musicOptions("crossfadeTo", options, ["section", "quantize", "bars"]), { song }));
+    }
+    on(name, fn) {
+      if (!MUSIC_EVENTS.includes(name)) {
+        const c = closest(name, MUSIC_EVENTS);
+        throw new Error(`music.on: unknown event '${name}'${c ? `; did you mean '${c}'?` : ""}; the events are ${MUSIC_EVENTS.join(", ")}`);
+      }
+      const id = N.idOf(this.$h);
+      return addListener("music." + name, (data, source) => { if (data && data.id === id) fn(data, source); }, null);
+    }
+    get status() { return N.musicCall(this.$h, "status"); }
+    get ready() { return this.status.ready; }
+    get playing() { return this.status.playing; }
+    get song() { return this.status.song; }
+    get section() { return this.status.section; }
+    get bar() { return this.status.bar; }
+    get beat() { return this.status.beat; }
+    get tempo() { return this.status.tempo; }
+    get intensity() { return this.component.intensity; }
+    get sections() { return N.musicCall(this.$h, "status").sections; }
   }
 
   // ========================================================================================================= tween
