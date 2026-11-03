@@ -161,6 +161,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.spectrogram`](commands/assets.md#assetsspectrogram): See a sound: a picture of its waveform, spectrogram (log frequency) and loudness curve, with the clipped samples and the loop seam marked. _Not released yet._
 - [`assets.subset_font`](commands/assets.md#assetssubset_font-modifies-state): Cut a font down to the characters of the locale tables plus Latin and punctuation (a CJK font from 17 MB to a few hundred KB), pinning a variable font's axes. _Since 0.3.0._
 - [`assets.synth_sound`](commands/assets.md#assetssynth_sound-modifies-state): Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key. _Since 0.3.0._
+- [`image.bake`](commands/assets.md#imagebake-modifies-state): Draw a layered image document (*.image.json) into its PNG and return the picture. _Not released yet._
+- [`image.save`](commands/assets.md#imagesave-modifies-state): Check an image document, write it to a *.image.json file and bake its PNG; nothing is written when the document has a problem. _Not released yet._
 
 ### [audio](commands/audio.md)
 
