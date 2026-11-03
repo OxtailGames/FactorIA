@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factoria.dev/schemas/rig.schema.json",
+  "title": "FactorIA rig document (*.rig.json)",
+  "description": "A skeleton for a model document: a template (humanoid, quadruped, bird, tail, chain, generic) fitted to the model by its parts and landmarks. `rig.bake` writes the skinned .glb (joints and inverse bind matrices; each vertex bound rigidly to its nearest bone). Errors name the file and the JSON pointer; docs/RIGGING.md explains the format and `rig.templates {}` lists the templates.",
+  "type": "object",
+  "required": [
+    "format",
+    "model",
+    "template"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference for editors."
+    },
+    "format": {
+      "const": "factoria.rig/1",
+      "description": "File format identifier. Always \"factoria.rig/1\"."
+    },
+    "doc": {
+      "type": "string",
+      "description": "What the rig is for."
+    },
+    "model": {
+      "type": "string",
+      "pattern": "\\.[mM][oO][dD][eE][lL]\\.[jJ][sS][oO][nN]$",
+      "description": "The model document it fits (project-relative, *.model.json)."
+    },
+    "template": {
+      "enum": [
+        "humanoid",
+        "quadruped",
+        "bird",
+        "tail",
+        "chain",
+        "generic"
+      ],
+      "description": "Which skeleton: humanoid, quadruped, bird, tail, chain or generic."
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Options of the template (rig.templates lists them); a key the template does not have is an error.",
+      "properties": {
+        "spine": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Bones between the hips and the neck: spine_1..spine_N. [humanoid: default 3] (quadruped: default 3) (bird: default 2)"
+        },
+        "neck": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "description": "Bones between the shoulders and the head: neck (one) or neck_1..neck_N. [humanoid: default 1] (quadruped: default 2) (bird: default 3)"
+        },
+        "tail": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12,
+          "description": "Tail bones tail_1..tail_N from the hips backwards; 0 = none. [humanoid: default 0] (quadruped: default 4) (bird: default 2)"
+        },
+        "toes": {
+          "type": "boolean",
+          "description": "A toe bone on each foot (the ball of the foot bends). false: the foot ends at the ball. [humanoid: default true]"
+        },
+        "pose": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "down",
+            "out"
+          ],
+          "description": "The arms' rest pose: \"down\" (hanging), \"out\" (held out sideways, T pose) or \"auto\" (out when the model is wider than 0.75 of its height). [humanoid: default \"auto\"] (bird: default \"auto\")"
+        },
+        "segments": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 32,
+          "description": "Bones tail_1..tail_N. [tail: default 5] (chain: default 6)"
+        },
+        "axis": {
+          "type": "string",
+          "enum": [
+            "+x",
+            "-x",
+            "+y",
+            "-y",
+            "+z",
+            "-z"
+          ],
+          "description": "The direction the chain grows from its base: +x, -x, +y, -y, +z or -z. The base is at the opposite end of the model. [tail: default \"-z\"] (chain: default \"-y\")"
+        }
+      }
+    },
+    "parts": {
+      "type": "object",
+      "description": "Bone name -> the model part(s) that decide where it is, when the names of the parts do not say so. A name that is not a part of the model is an error.",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        ]
+      }
+    },
+    "landmarks": {
+      "type": "object",
+      "description": "Explicit joint positions [x, y, z] in the model's space (after its gameReady origin), by bone name; \"<bone>.tail\" is the end of a bone with no children. Wins over parts and proportions.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "number"
+        },
+        "minItems": 3,
+        "maxItems": 3
+      }
+    },
+    "symmetryX": {
+      "type": "number",
+      "description": "The x of the symmetry plane (left = +X of it). Default: the centre of the model's bounds."
+    },
+    "strict": {
+      "type": "boolean",
+      "description": "A landmark that could only be estimated from the template's proportions is an error. Default false."
+    },
+    "binding": {
+      "const": "rigid",
+      "description": "How the .glb binds vertices: \"rigid\", each vertex wholly to its nearest bone among the bones of its part. Default \"rigid\"."
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where `rig.bake` writes the skinned .glb.",
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "\\.[gG][lL][bB]$",
+          "description": "Project-relative file under assets/ ending in .glb. Left out: next to the document, with .glb instead of .rig.json."
+        }
+      }
+    },
+    "bones": {
+      "type": "array",
+      "description": "generic template only: the bones, parents before children.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,47}$",
+            "description": "The bone's name: lowercase letters, digits and underscores."
+          },
+          "parent": {
+            "type": "string",
+            "description": "The bone it hangs from, listed earlier. Left out: root."
+          },
+          "role": {
+            "type": "string",
+            "description": "What the bone is for retargeting (arm_upper, hand...). Left out: the name."
+          },
+          "part": {
+            "type": "string",
+            "description": "The model part this bone moves; its joint is placed in that part's bounds."
+          },
+          "anchor": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "minItems": 3,
+            "maxItems": 3,
+            "description": "Where in the part's bounds the joint is, -1..1 around the centre. Default [0, 0, 0]."
+          },
+          "tailAnchor": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "minItems": 3,
+            "maxItems": 3,
+            "description": "The same for the end of a bone with no children. Left out: the opposite side of the part from `anchor`."
+          }
+        }
+      }
+    }
+  }
+}

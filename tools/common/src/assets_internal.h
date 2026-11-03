@@ -121,6 +121,7 @@ void register_preview_scene_command(CommandRegistry& registry, const std::string
 void register_music_commands(CommandRegistry& registry, const std::string& projectDir);  // music.* (assets_music.cpp, assets_music_edit.cpp, docs/MUSIC.md)
 void register_audio_doc_commands(CommandRegistry& registry, const std::string& projectDir);  // audio.info, audio.render, audio.bake, audio.create, audio.edit (assets_audio_doc.cpp)
 void register_model_commands(CommandRegistry& registry, const std::string& projectDir);  // model.info, model.bake, model.create, model.edit (assets_model.cpp)
+void register_rig_commands(CommandRegistry& registry, const std::string& projectDir);  // rig.templates, rig.info, rig.create, rig.fit, rig.bake (assets_rig.cpp, docs/RIGGING.md)
 void register_model_uv_command(CommandRegistry& registry, const std::string& projectDir);  // model.uv (assets_model_uv.cpp)
 void register_model_texture_commands(CommandRegistry& registry, const std::string& projectDir);  // model.texture, model.decal, model.palette, model.bake_maps (assets_model_texture.cpp)
 void register_model_eyes_commands(CommandRegistry& registry, const std::string& projectDir);  // model.preview, model.check (assets_model_preview.cpp)
@@ -212,6 +213,9 @@ void check_audio_documents(const std::string& projectDir, std::vector<Validation
 // project.validate: every *.model.json that does not load is an error (file, JSON pointer, fix); one never baked, or whose .glb assets.json does not record as its
 // bake, is a warning with the model.bake command. (A stale bake is check_recipes' warning.)
 void check_model_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
+// project.validate: every *.rig.json that does not load or fit is an error (file, JSON pointer, fix); one never baked, or whose .glb assets.json does not
+// record as its bake, is a warning with the rig.bake command.
+void check_rig_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
 // project.validate: every *.song.json that does not parse is an error (file, JSON pointer, line and column inside note text, fix), so is an
 // instrument or drum-kit file it names that is missing or not a sound patch; the findings of the music checks that need no render (off-key
 // notes, clashes, mud, a track that never plays...) are warnings (docs/MUSIC.md).
