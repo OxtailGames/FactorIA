@@ -4,7 +4,9 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <set>
 
+#include "../../../engine/audio/tests/tiny_sf2.h"
 #include "asset_test_helpers.h"
 #include "fa/audio/analysis.h"
 #include "fa/core/json_schema.h"
@@ -28,6 +30,11 @@ Json make_song(const AssetsProject& p, Json extra = Json::object()) {
 Json song_file(const AssetsProject& p, const std::string& rel = kSong) { return parse_json(read_all(p.file(rel)), rel).value(); }
 
 Json edit(const AssetsProject& p, const Json& ops) { return p.ok("music.edit", {{"path", kSong}, {"ops", ops}}); }
+
+void write_sf2(const AssetsProject& p, const std::string& rel) {
+    const std::vector<std::uint8_t> bytes = fa::testing::tiny_sf2();
+    write_all(p.file(rel), std::string(bytes.begin(), bytes.end()));
+}
 
 bool issue_mentions(const Json& issues, const std::string& pointer, const std::string& text) {
     for (const Json& i : issues)
@@ -422,6 +429,184 @@ TEST_CASE("music.instrument, music.chord, music.scale: lists, detail and errors"
     CHECK(p.call("music.scale", {{"key", "Z"}}).ok == false);
 }
 
+TEST_CASE("music.instrument: families, kits and the presets of a SoundFont in the project") {
+    AssetsProject p;
+    const Json list = p.ok("music.instrument", {});
+    CHECK(list["instruments"].size() >= 40);
+    std::set<std::string> families;
+    for (const Json& i : list["instruments"]) {
+        families.insert(i["family"]);
+        CHECK_FALSE(i["what"].get<std::string>().empty());
+        CHECK(i["range"].get<std::string>().find(" to ") != std::string::npos);
+    }
+    CHECK(families.size() == list["families"].size());
+    CHECK(families.size() >= 8);
+    CHECK(list["kits"].size() == 3);
+    CHECK(list["kits"][1]["instrument"] == "kit:electronic");
+    CHECK(list["soundfonts"].empty());
+
+    // a whole kit: its lanes and the patch behind each
+    const Json kit = p.ok("music.instrument", {{"name", "kit:electronic"}});
+    CHECK(kit["kit"] == "electronic");
+    REQUIRE(kit["lanes"].size() >= 12);
+    CHECK(kit["lanes"][0]["patch"] == "kit:electronic:kick");
+    const Json lane = p.ok("music.instrument", {{"name", kit["lanes"][0]["patch"]}});
+    CHECK(lane["patch"]["format"] == "factoria.sfx/1");
+    CHECK(p.ok("music.instrument", {{"name", "kit"}})["kit"] == "acoustic");
+    CHECK(p.call("music.instrument", {{"name", "kit:jazz"}}).ok == false);
+
+    // a SoundFont: listed, and its presets by name, bank and program
+    write_sf2(p, "assets/audio/tiny.sf2");
+    CHECK(p.ok("music.instrument", {})["soundfonts"] == Json::array({"assets/audio/tiny.sf2"}));
+    const Json font = p.ok("music.instrument", {{"name", "assets/audio/tiny.sf2"}});
+    REQUIRE(font["presets"].size() == 3);
+    CHECK(font["presets"][0]["name"] == "Test Sine");
+    CHECK(font["presets"][1]["program"] == 5);
+    CHECK(font["presets"][2]["drums"] == true);
+    CHECK(font["nextSteps"][0].get<std::string>().find("assets/audio/tiny.sf2") != std::string::npos);
+    CommandResult missing = p.call("music.instrument", {{"name", "assets/audio/none.sf2"}});
+    REQUIRE_FALSE(missing.ok);
+    CHECK(missing.error["message"].get<std::string>().find("none.sf2") != std::string::npos);
+    write_all(p.file("assets/audio/bad.sf2"), "this is not a soundfont, only text that is long enough to be read as a file");
+    CHECK(p.call("music.instrument", {{"name", "assets/audio/bad.sf2"}}).ok == false);
+    CHECK(p.call("music.instrument", {{"name", "assets/audio/tiny.sf2"}, {"path", "assets/audio/x.sfx.json"}}).error["code"] == "invalid_argument");
+    CHECK(p.call("music.instrument", {{"name", "../tiny.sf2"}}).ok == false);
+}
+
+TEST_CASE("music.edit: the mixer (buses, master) and the track mix fields, and a bad one writes nothing") {
+    AssetsProject p;
+    make_song(p, {{"arpeggio", false}});
+    const Json reverb = {{"type", "reverb"}, {"decay", 1.6}, {"mix", 1.0}};
+    Json setMixer = {{"op", "set_mixer"}};
+    setMixer["buses"] = {{"hall", {{"effects", Json::array({reverb})}, {"volume", 0.8}}}};
+    setMixer["master"] = {{"loudness", -14}, {"limiter", {{"ceilingDb", -2}}}};
+    Json setTrack = {{"op", "set_track"}, {"track", "pad"}, {"sends", {{"hall", 0.4}}}, {"mute", false}, {"solo", false}, {"voices", 6}};
+    setTrack["effects"] = Json::array({{{"type", "eq"}, {"bands", Json::array({{{"type", "highShelf"}, {"freq", 6000}, {"gainDb", -3}}})}}});
+    const Json r = edit(p, Json::array({setMixer, setTrack}));
+    CHECK(r["edits"][0].get<std::string>().find("bus hall") != std::string::npos);
+    Json doc = song_file(p);
+    CHECK(doc["mixer"]["buses"]["hall"]["volume"] == 0.8);
+    CHECK(doc["mixer"]["master"]["loudness"] == -14);
+    CHECK(doc["tracks"]["pad"]["sends"]["hall"] == 0.4);
+    CHECK(doc["tracks"]["pad"]["voices"] == 6);
+    CHECK(doc["tracks"]["pad"]["effects"].size() == 1);
+
+    // fields merge into a bus and null puts one back to its default; the master merges the same way
+    edit(p, Json::array({{{"op", "set_mixer"}, {"buses", {{"hall", {{"volume", nullptr}, {"pan", 0.2}}}}}, {"master", {{"loudness", nullptr}}}}}));
+    doc = song_file(p);
+    CHECK_FALSE(doc["mixer"]["buses"]["hall"].contains("volume"));
+    CHECK(doc["mixer"]["buses"]["hall"]["pan"] == 0.2);
+    CHECK(doc["mixer"]["buses"]["hall"]["effects"].size() == 1);
+    CHECK_FALSE(doc["mixer"]["master"].contains("loudness"));
+    CHECK(doc["mixer"]["master"]["limiter"]["ceilingDb"] == -2);
+
+    // removing a bus removes the sends to it, so the song stays valid
+    edit(p, Json::array({{{"op", "set_mixer"}, {"buses", {{"hall", nullptr}}}}}));
+    doc = song_file(p);
+    CHECK_FALSE(doc["mixer"].contains("buses"));
+    CHECK_FALSE(doc["tracks"]["pad"].contains("sends"));
+    CHECK(p.ok("music.info", {{"path", kSong}, {"picture", false}})["tracks"].size() == 3);
+
+    // a bad edit names the operation and the field, and the file is as it was
+    const std::string before = read_all(p.file(kSong));
+    CommandResult none = p.call("music.edit", {{"path", kSong}, {"ops", Json::array({{{"op", "set_mixer"}}})}});
+    REQUIRE_FALSE(none.ok);
+    CHECK(none.error["message"].get<std::string>().find("nothing to set") != std::string::npos);
+    CommandResult gone = p.call("music.edit", {{"path", kSong}, {"ops", Json::array({{{"op", "set_mixer"}, {"buses", {{"hll", nullptr}}}}})}});
+    REQUIRE_FALSE(gone.ok);
+    CHECK(gone.error["message"].get<std::string>().find("no bus 'hll'") != std::string::npos);
+    CommandResult unknownBus = p.call("music.edit", {{"path", kSong}, {"ops", Json::array({{{"op", "set_track"}, {"track", "pad"}, {"sends", {{"hall", 0.3}}}}})}});
+    REQUIRE_FALSE(unknownBus.ok);
+    CHECK(unknownBus.error["message"].get<std::string>().find("/tracks/pad/sends/hall") != std::string::npos);
+    CommandResult badLoud = p.call("music.edit", {{"path", kSong}, {"ops", Json::array({{{"op", "set_mixer"}, {"master", {{"loudness", -2}}}}})}});
+    REQUIRE_FALSE(badLoud.ok);
+    CHECK(badLoud.error["message"].get<std::string>().find("-40 to -5") != std::string::npos);
+    CommandResult badKey = p.call("music.edit", {{"path", kSong}, {"ops", Json::array({{{"op", "set_mixer"}, {"master", Json::object()}, {"bus", Json::object()}}})}});
+    REQUIRE_FALSE(badKey.ok);
+    CHECK(badKey.error["hint"].get<std::string>().find("buses") != std::string::npos);
+    CHECK(read_all(p.file(kSong)) == before);
+}
+
+TEST_CASE("music.mix: what every track, bus and the master did, without writing a file") {
+    AssetsProject p;
+    make_song(p, {{"arpeggio", false}});
+    edit(p, Json::array({{{"op", "set_mixer"}, {"buses", {{"hall", {{"effects", Json::array({{{"type", "reverb"}, {"decay", 1.4}}})}}}}}, {"master", {{"loudness", -16}}}},
+                         {{"op", "set_track"}, {"track", "pad"}, {"sends", {{"hall", 0.5}}}}}));
+    const Json r = p.ok("music.mix", {{"path", kSong}, {"sampleRate", 22050}});
+    REQUIRE(r["mix"]["tracks"].size() == 3);
+    CHECK(r["mix"]["tracks"][0]["track"] == "pad");
+    CHECK(r["mix"]["tracks"][0]["sends"]["hall"] == 0.5);
+    for (const Json& t : r["mix"]["tracks"]) {
+        CHECK(t["notes"].get<int>() > 0);
+        CHECK(t["peakDb"].get<double>() < 0);
+    }
+    REQUIRE(r["mix"]["buses"].size() == 1);
+    CHECK(r["mix"]["buses"][0]["effects"] == Json::array({"reverb"}));
+    const Json& master = r["mix"]["master"];
+    CHECK(master["targetLufs"] == -16);
+    CHECK(std::abs(master["lufs"].get<double>() - (-16.0)) < 1.5);
+    CHECK(master["peakDb"].get<double>() <= -0.9);
+    CHECK(master["limiter"] == true);
+    CHECK_FALSE(std::filesystem::exists(p.file("assets/music/theme.preview.wav")));
+
+    // the same numbers come with a preview; the style guide's target is the default
+    const Json preview = p.ok("music.preview", {{"path", kSong}, {"sampleRate", 22050}, {"picture", false}});
+    CHECK(preview["mix"]["master"]["lufs"] == master["lufs"]);
+
+    // solo and mute are the renderer's: a muted track is not in the mix
+    const Json solo = p.ok("music.mix", {{"path", kSong}, {"sampleRate", 22050}, {"solo", Json::array({"bass"})}});
+    CHECK(solo["mix"]["tracks"].size() == 1);
+    CHECK(solo["mix"]["tracks"][0]["track"] == "bass");
+    CHECK(p.call("music.mix", {{"path", kSong}, {"solo", Json::array({"bas"})}}).error["hint"].get<std::string>().find("bass") != std::string::npos);
+    CHECK(p.call("music.mix", {}).ok == false);
+    CHECK(p.call("music.mix", {{"path", kSong}, {"out", "x.wav"}}).ok == false);
+
+    // a song that asks for no normalization keeps the level its tracks add up to
+    edit(p, Json::array({{{"op", "set_mixer"}, {"master", {{"loudness", "off"}}}}}));
+    const Json off = p.ok("music.mix", {{"path", kSong}, {"sampleRate", 22050}});
+    CHECK(off["mix"]["master"]["loudness"] == "off");
+    CHECK(off["mix"]["master"]["normalizeGainDb"] == 0.0);
+}
+
+TEST_CASE("music.check: the loudness rule judges the mastered mix against the song's own target") {
+    AssetsProject p;
+    make_song(p, {{"arpeggio", false}});
+    edit(p, Json::array({{{"op", "set_mixer"}, {"master", {{"loudness", -20}}}}}));
+    // the song asks for -20 LUFS and the render brings it there: no finding with the same target
+    const Json fine = p.ok("music.check", {{"path", kSong}, {"render", true}, {"targetLufs", -20}});
+    CHECK(std::abs(fine["loudness"]["lufs"].get<double>() - (-20.0)) < 1.5);
+    for (const Json& i : fine["issues"]) CHECK(i["rule"] != "loudness");
+    // limiter off: the mix may exceed full scale and the check says so
+    edit(p, Json::array({{{"op", "set_mixer"}, {"master", {{"loudness", -8}, {"limiter", false}}}}}));
+    const Json hot = p.ok("music.check", {{"path", kSong}, {"render", true}, {"targetLufs", -8}});
+    CHECK(hot["loudness"]["peakDb"].get<double>() > -1.0);
+}
+
+TEST_CASE("music.preview: a SoundFont track plays the project's .sf2 and the file is an input of the recipe") {
+    AssetsProject p;
+    make_song(p, {{"arpeggio", false}});
+    write_sf2(p, "assets/audio/tiny.sf2");
+    edit(p, Json::array({{{"op", "set_track"}, {"track", "pad"}, {"instrument", {{"soundfont", "assets/audio/tiny.sf2"}, {"preset", "Test Sine"}}}}}));
+    CHECK(song_file(p)["tracks"]["pad"]["instrument"]["preset"] == "Test Sine");
+    const Json r = p.ok("music.preview", {{"path", kSong}, {"sampleRate", 22050}, {"picture", false}, {"solo", Json::array({"pad"})}});
+    CHECK(r["measurements"]["peakDb"].get<double>() > -40.0);
+    const Json recipe = p.manifest()["assets"]["assets/music/theme.preview.wav"]["provenance"]["recipe"];
+    bool sawFont = false;
+    for (const Json& in : recipe["inputs"]) sawFont = sawFont || in["path"] == "assets/audio/tiny.sf2";
+    CHECK(sawFont);
+    // a preset that is not in the file teaches
+    edit(p, Json::array({{{"op", "set_track"}, {"track", "pad"}, {"instrument", "assets/audio/tiny.sf2#Test Sin"}}}));
+    CommandResult wrong = p.call("music.preview", {{"path", kSong}, {"picture", false}});
+    REQUIRE_FALSE(wrong.ok);
+    CHECK(wrong.error["message"].get<std::string>().find("Test Sin") != std::string::npos);
+    CHECK((wrong.error["hint"].get<std::string>() + wrong.error["message"].get<std::string>()).find("Test Sine") != std::string::npos);
+    // a missing file is an error of the project check too
+    edit(p, Json::array({{{"op", "set_track"}, {"track", "pad"}, {"instrument", "assets/audio/gone.sf2"}}}));
+    CommandResult gone = p.call("music.preview", {{"path", kSong}, {"picture", false}});
+    REQUIRE_FALSE(gone.ok);
+    CHECK(gone.error["message"].get<std::string>().find("gone.sf2") != std::string::npos);
+}
+
 TEST_CASE("music.arpeggio, music.bassline, music.drums: text for a pattern, or written into a song and played in a section") {
     AssetsProject p;
     make_song(p, {{"arpeggio", false}});
@@ -488,6 +673,22 @@ TEST_CASE("project.validate: a broken song is an error with its pointer and colu
     CHECK(sawInvalid);
     std::filesystem::remove(p.file("assets/music/missing.song.json"));
 
+    // a SoundFont track: a missing file and a file that is not a SoundFont are errors, a real one is not
+    Json font = song_file(p);
+    font["tracks"]["pad"]["instrument"] = "assets/audio/tiny.sf2#Test Sine";
+    write_all(p.file("assets/music/font.song.json"), dump_json(font));
+    auto fontErrors = [&](const std::string& text) {
+        for (const ValidationIssue& e : validate_project(p.dir).errors)
+            if (e.file == "assets/music/font.song.json" && e.pointer == "/tracks/pad/instrument" && e.message.find(text) != std::string::npos) return true;
+        return false;
+    };
+    CHECK(fontErrors("tiny.sf2' does not exist"));
+    write_all(p.file("assets/audio/tiny.sf2"), "this is not a soundfont, only text that is long enough to be read as a file");
+    CHECK(fontErrors("is not a SoundFont 2 file"));
+    write_sf2(p, "assets/audio/tiny.sf2");
+    CHECK_FALSE(fontErrors("tiny.sf2"));
+    std::filesystem::remove(p.file("assets/music/font.song.json"));
+
     // a note outside the key is a warning, not an error
     edit(p, Json::array({{{"op", "set_pattern"}, {"track", "bass"}, {"pattern", "line"}, {"notes", "A1:4 C#2 A1 E2 | F2:4 C3 F2 C3 | C2:4 G2 C2 G2 | G1:4 D2 G1 D2"}}}));
     const ValidationReport report = validate_project(p.dir);
@@ -507,10 +708,11 @@ TEST_CASE("song schema: the document music.create writes passes it, an unknown k
     Json doc = song_file(p);
     CHECK(validate_json(*schema, doc).empty());
     // every key the parser knows is a property of the schema
-    for (const char* key : {"format", "doc", "tempo", "meter", "key", "mode", "swing", "swingGrid", "seed", "volume", "tracks", "sections", "automation"})
+    for (const char* key : {"format", "doc", "tempo", "meter", "key", "mode", "swing", "swingGrid", "seed", "volume", "mixer", "tracks", "sections", "automation"})
         CHECK((*schema)["properties"].contains(key));
     const Json& trackProps = (*schema)["properties"]["tracks"]["additionalProperties"]["properties"];
-    for (const char* key : {"instrument", "volume", "pan", "transpose", "swing", "range", "kit", "patterns", "automation"}) CHECK(trackProps.contains(key));
+    for (const char* key : {"instrument", "volume", "pan", "mute", "solo", "voices", "effects", "sends", "transpose", "swing", "range", "kit", "patterns", "automation"}) CHECK(trackProps.contains(key));
+    for (const char* key : {"buses", "master"}) CHECK((*schema)["properties"]["mixer"]["properties"].contains(key));
     const Json& sectionProps = (*schema)["properties"]["sections"]["items"]["properties"];
     for (const char* key : {"name", "kind", "repeat", "bars", "mute", "play"}) CHECK(sectionProps.contains(key));
 
@@ -530,4 +732,31 @@ TEST_CASE("song schema: the document music.create writes passes it, an unknown k
                  {"tracks", {{"lead", {{"instrument", "bell"}, {"range", Json::array({"C4", 84})}, {"patterns", {{"a", {{"notes", "C4:4 E4 G4"}, {"bars", 2}}}}}, {"automation", Json::array({{{"param", "pan"}, {"points", Json::array({Json::array({0, -1}), Json::array({8, 1})})}, {"curve", "smooth"}}})}}}}},
                  {"sections", Json::array({{{"name", "loop"}, {"kind", "loop"}, {"play", {{"lead", Json::array({"a", {{"rest", 1}}, {{"pattern", "a"}, {"repeat", 2}}})}}}}})}};
     CHECK(validate_json(*schema, rich).empty());
+
+    // the mixer, effects and the SoundFont forms of an instrument
+    Json mixed = rich;
+    mixed["mixer"] = {{"buses", {{"hall", {{"volume", 0.8}, {"effects", Json::array({{{"type", "reverb"}, {"decay", 1.8}}})}}}}},
+                      {"master", {{"limiter", {{"ceilingDb", -2}, {"release", 0.2}}}, {"loudness", -16}, {"effects", Json::array({{{"type", "filter"}, {"cutoff", 9000}}})}}}};
+    mixed["tracks"]["lead"]["sends"] = {{"hall", 0.3}};
+    mixed["tracks"]["lead"]["effects"] = Json::array({{{"type", "delay"}, {"time", 0.3}}});
+    mixed["tracks"]["lead"]["voices"] = 4;
+    mixed["tracks"]["lead"]["mute"] = false;
+    CHECK(validate_json(*schema, mixed).empty());
+    for (const Json& instrument : {Json("assets/audio/piano.sf2#Piano"), Json("kit:electronic"), Json({{"soundfont", "assets/audio/piano.sf2"}, {"preset", 0}, {"bank", 0}})}) {
+        Json sf = mixed;
+        sf["tracks"]["lead"]["instrument"] = instrument;
+        CHECK(validate_json(*schema, sf).empty());
+    }
+    Json masterKey = mixed;
+    masterKey["mixer"]["master"]["loudnes"] = "style";
+    CHECK_FALSE(validate_json(*schema, masterKey).empty());
+    Json loud = mixed;
+    loud["mixer"]["master"]["loudness"] = -2;
+    CHECK_FALSE(validate_json(*schema, loud).empty());
+    Json badEffect = mixed;
+    badEffect["tracks"]["lead"]["effects"] = Json::array({{{"type", "flanger"}}});
+    CHECK_FALSE(validate_json(*schema, badEffect).empty());
+    Json badFont = mixed;
+    badFont["tracks"]["lead"]["instrument"] = {{"soundfont", "assets/audio/piano.wav"}};
+    CHECK_FALSE(validate_json(*schema, badFont).empty());
 }

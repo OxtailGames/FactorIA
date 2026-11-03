@@ -24,7 +24,7 @@ const std::vector<SongCheckRule>& song_check_rules() {
         {"mud", "warning", false, "two notes sounding together below C3 closer than a minor third plus one semitone (up to 3 semitones apart): the low register turns to mud"},
         {"structure", "warning", false, "a track that never plays, a section with no notes, a pattern no section uses (info)"},
         {"loudness", "warning", true,
-         "needs a render: a peak above -1 dBFS (error above 0), an integrated loudness more than 3 LU from the target (the style guide's music bus, when there is one) or below -35 LUFS"},
+         "needs a render through the mixer: a peak above -1 dBFS or a clip with the master limiter off, a limiter pulling the level down by more than 3 dB, an integrated loudness more than 3 LU from the target (the style guide's music bus, when there is one) or below -35 LUFS"},
     };
     return rules;
 }
@@ -258,6 +258,7 @@ void rule_loudness(Reporter& r, const SongCheckOptions& o, SongCheckReport& repo
     ro.sampleRate = o.sampleRate;
     ro.tailSeconds = 0.5;
     ro.maxSeconds = 600.0;
+    ro.targetLufs = o.targetLufs;
     auto rendered = render_song(r.song, r.timeline, ro);
     if (!rendered) { status = rendered.error(); return; }
     report.rendered = true;
@@ -271,17 +272,31 @@ void rule_loudness(Reporter& r, const SongCheckOptions& o, SongCheckReport& repo
         i.hint = std::move(hint);
         r.out.push_back(std::move(i));
     };
-    if (report.peakDb > 0.0)
-        add("error", std::format("the mix clips: its peak is {:.1f} dBFS", report.peakDb),
-            std::format("Lower the song's `volume` by about {:.0f} dB (multiply it by {:.2f}).", report.peakDb + 1.0, sfx_math::db_to_gain(-(report.peakDb + 1.0))));
-    else if (report.peakDb > -1.0)
-        add("warning", std::format("the mix peaks at {:.1f} dBFS, which leaves no headroom", report.peakDb), "Lower the song's `volume` by 2 dB or more (0.8 -> 0.6).");
+    const SongMasterStats& ms = rendered->master;
+    report.limiterReductionDb = ms.limiterReductionDb;
+    if (!ms.limiter && report.peakDb > 0.0)
+        add("error", std::format("the mix clips: its peak is {:.1f} dBFS and the master limiter is off", report.peakDb),
+            std::format("Turn the limiter on (mixer.master.limiter: true), or lower the song's `volume` by about {:.0f} dB (multiply it by {:.2f}).", report.peakDb + 1.0,
+                        sfx_math::db_to_gain(-(report.peakDb + 1.0))));
+    else if (!ms.limiter && report.peakDb > -1.0)
+        add("warning", std::format("the mix peaks at {:.1f} dBFS, which leaves no headroom", report.peakDb), "Lower the song's `volume` by 2 dB or more (0.8 -> 0.6), or turn the master limiter on.");
+    if (ms.limiter && ms.limiterReductionDb > 6.0)
+        add("warning", std::format("the master limiter pulls the level down by {:.1f} dB: the mix is far too hot and its dynamics are squashed", ms.limiterReductionDb),
+            "Lower the loud tracks' `volume` (or the song's), thin out what plays together, or lower the master's loudness target so peaks stay under the ceiling.");
+    else if (ms.limiter && ms.limiterReductionDb > 3.0)
+        add("info", std::format("the master limiter pulls the level down by {:.1f} dB at its deepest", ms.limiterReductionDb),
+            "That is audible pumping if it happens often: lower the loudest track's `volume` or the master's loudness target.");
     if (report.lufs < -35.0)
         add("warning", std::format("the mix is very quiet: {:.1f} LUFS", report.lufs), "Raise the song's `volume` or the quiet tracks' `volume`; check that no track is muted by mistake.");
-    else if (o.targetLufs && std::abs(report.lufs - *o.targetLufs) > 3.0)
+    else if (o.targetLufs && std::abs(report.lufs - *o.targetLufs) > 3.0 && !ms.targetLufs)
         add("warning", std::format("the mix is {:.1f} LUFS, {:.1f} LU {} the target {:.1f} LUFS of the music bus", report.lufs, std::abs(report.lufs - *o.targetLufs),
                                    report.lufs > *o.targetLufs ? "above" : "below", *o.targetLufs),
-            std::format("Multiply the song's `volume` by {:.2f} ({:+.1f} dB); it is a gain, so tracks keep their balance.", sfx_math::db_to_gain(*o.targetLufs - report.lufs), *o.targetLufs - report.lufs));
+            std::format("The master's loudness is \"off\": set mixer.master.loudness to \"style\" to bring it to the target, or multiply the song's `volume` by {:.2f} ({:+.1f} dB).",
+                        sfx_math::db_to_gain(*o.targetLufs - report.lufs), *o.targetLufs - report.lufs));
+    else if (ms.targetLufs && std::abs(report.lufs - *ms.targetLufs) > 3.0)
+        add("warning", std::format("the master could not bring the mix to {:.1f} LUFS: it ends at {:.1f} LUFS", *ms.targetLufs, report.lufs),
+            ms.limiter ? "The limiter's ceiling stops a louder mix (peaks are in the way) or the gain needed is more than the +18 dB the normalization adds: raise the quiet tracks' `volume` or lower the target."
+                       : "The gain needed is more than the +18 dB the normalization adds: raise the quiet tracks' `volume`.");
 }
 
 }  // namespace

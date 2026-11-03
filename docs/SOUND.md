@@ -94,7 +94,7 @@ release; default: until the patch's `length`), `gain`, and:
 - `pitch`: the base pitch and how it moves.
 - `amp`: the loudness envelope (default attack 0.002, sustain 1, release 0.01).
 - `tremolo`: `{rate, depth}` a volume wobble.
-- `filter`: `{mode, cutoff, resonance, env}` on the layer.
+- `filter`: `{mode, cutoff, resonance, keytrack, env}` on the layer.
 - `effects`: up to 8, applied to this layer before it is mixed.
 
 ### Oscillators
@@ -134,9 +134,12 @@ opposite. A sound that dies away on its own wants `sustain` 0. Envelopes that mo
 
 ### Filters
 
-Layer filter: `{mode, cutoff, resonance, env}`. `mode` is `lowpass` (muffles), `highpass` (thins) or `bandpass`; `cutoff` is in Hz;
+Layer filter: `{mode, cutoff, resonance, keytrack, env}`. `mode` is `lowpass` (muffles), `highpass` (thins) or `bandpass`; `cutoff` is in Hz;
 `resonance` is Q (0.707 flat, 2 to 8 adds a whistle). `env.amount` is how many **octaves** the envelope opens the cutoff at its
 peak: a wah or a laser's closing filter. The filter is a state-variable filter that stays stable and smooth while it moves.
+`keytrack` (0 to 1, default 0) makes the cutoff follow the pitch when the patch is played at another note (`sfx.render` with `note`, an instrument of
+a song): the cutoff is multiplied by the pitch ratio raised to `keytrack`, so 1 keeps a note as bright as the patch's own whatever its pitch and
+0 keeps the cutoff where it is (a high note is then duller). The built-in instruments of songs (docs/MUSIC.md) use it.
 
 ### Effects
 
@@ -338,13 +341,19 @@ A sound can be at most 120 seconds long at any point of the chain.
 | `stretch` | Changes the duration and keeps the pitch (WSOLA). | `factor`, `seconds` |
 | `speed` | Plays the sound `factor` times as fast, so pitch and duration move together like a tape (2: half as long, an octave up). | `factor` |
 | `eq` | An equalizer: low and high shelves, peaking bands and 12 dB/octave low-pass and high-pass filters (RBJ biquads). | `bands` |
+| `filter` | A resonant low-pass, high-pass or band-pass (the synth's state-variable filter, 12 dB/octave); `to` slides the cutoff over the whole sound, `mix` blends it with the dry sound. | `mode`, `cutoff`, `resonance`, `to`, `mix` |
 | `compressor` | Reduces the dynamic range: above `thresholdDb` the level rises only 1 dB for every `ratio` dB. | `thresholdDb`, `ratio`, `attack`, `release`, `kneeDb`, `makeupDb` |
+| `distortion` | Waveshaping: `drive` into a `soft`, `hard` or `fold` curve, `level` after it, `mix` with the dry sound. | `mode`, `drive`, `level`, `mix` |
+| `bitcrush` | Lo-fi: `bits` per sample, held at a lower `rate`, `mix` with the dry sound. | `bits`, `rate`, `mix` |
 | `reverb` | Adds a room: the synth's reverb (eight damped combs and four all-passes). | `mix`, `decay`, `damping`, `size`, `preDelay`, `tail` |
 | `delay` | An echo: the synth's feedback delay. | `time`, `feedback`, `mix`, `tone`, `tail` |
 | `reverse` | Plays the sound backwards (a reverse cymbal, a suck-in before a hit). | (none) |
 | `layer` | Mixes another sound over this one: `source` is a WAV/OGG, an .sfx.json patch or another .audio.json. | `source`, `offset`, `gainDb`, `semitones`, `seed`, `note` |
 | `loop` | Makes the sound loop without a seam. | `start`, `end`, `crossfade`, `curve` |
 | `granular` | Replaces the sound by a texture made of tiny grains of it (a rain from a click, a swarm from a vowel): each grain is `grainSize` seconds of the sound, Hann-windowed, and `density` grains start per second. | `length`, `grainSize`, `density`, `jitter`, `pitchSpread`, `scan`, `start`, `end`, `seed` |
+
+The effect steps (`eq`, `filter`, `compressor`, `distortion`, `bitcrush`, `delay`, `reverb`) are also the effects of a song's mixer: a track, a bus
+or the master of a `*.song.json` takes the same steps with the same fields (docs/MUSIC.md "The mixer").
 
 `pitch` and `stretch` are WSOLA time stretching plus a windowed-sinc resampler, written for the engine. `reverb` and `delay` are the
 synth's effects, so a patch and a document with the same settings sound the same. `normalize` with `mode: lufs` uses the

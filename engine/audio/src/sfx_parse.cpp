@@ -285,15 +285,16 @@ struct Parser {
         static const std::vector<std::string> modes = {"lowpass", "highpass", "bandpass"};
         if (!inEffect && !object(j, pointer, "filter", "{\"mode\": \"lowpass\", \"cutoff\": 2000}")) return;
         f.enabled = true;
-        if (!inEffect) unknown_keys(j, pointer, {"mode", "cutoff", "resonance", "env"}, "a filter");
+        if (!inEffect) unknown_keys(j, pointer, {"mode", "cutoff", "resonance", "env", "keytrack"}, "a filter");
         if (int m = choice(j, pointer, "mode", modes, " lowpass removes highs (muffles), highpass removes lows (thins), bandpass keeps a band (nasal, radio)."); m >= 0) f.mode = SfxFilterMode(m);
         if (!j.contains("cutoff")) err(pointer + "/cutoff", "a filter needs `cutoff`", "Write \"cutoff\": 2000, the frequency in Hz where the filter starts to act.");
         number(j, pointer, "cutoff", f.cutoff, 20.0, 20000.0, " (Hz)", "The frequency where the filter acts, e.g. 800 for a dull sound or 6000 for a bright one.");
         number(j, pointer, "resonance", f.resonance, 0.5, 30.0, " (Q)", "0.707 is flat; 2 to 8 adds a whistle at the cutoff; above 15 it nearly rings by itself.");
         if (inEffect) {
             number(j, pointer, "to", f.cutoffTo, 20.0, 20000.0, " (Hz)", "The cutoff the filter slides to by the end of the sound.");
-        } else if (auto it = j.find("env"); it != j.end()) {
-            modulation(*it, pointer + "/env", f.env, "octaves");
+        } else {
+            number(j, pointer, "keytrack", f.keytrack, 0.0, 1.0, "", "0 keeps the cutoff where it is for every note; 1 moves it with the note's pitch, so a high note is as bright as a low one.");
+            if (auto it = j.find("env"); it != j.end()) modulation(*it, pointer + "/env", f.env, "octaves");
         }
     }
 

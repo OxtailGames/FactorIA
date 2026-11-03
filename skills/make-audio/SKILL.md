@@ -32,3 +32,12 @@ then listen to the preview.
    beat, mud in the low register, tracks that never play, loudness. Fix the findings from the top.
 4. `music_preview {path}` renders the WAV (offline, same bytes every time) and returns its loudness and a spectrogram;
    `music_info` draws the notes as a piano roll. The preview is for judging the music, not the in-game player.
+5. `music_instrument {}` lists the instruments by family (what each is for, its range, its voices); `music_instrument {name: "kit:electronic"}`
+   lists a drum kit's lanes. A track's `instrument` is one of them, a project `.sfx.json` patch, or a SoundFont preset
+   (`"assets/audio/x.sf2#Grand Piano"`; `music_instrument {name: "assets/audio/x.sf2"}` lists its presets). Pick one instrument per
+   role and keep the kit the same across the game's songs.
+6. Mix with `music_edit` `set_mixer` and the track fields: `volume` and `pan` per track, `effects` on a track (eq, filter, compressor,
+   distortion, bitcrush, delay, reverb), `sends` to a shared `reverb` bus, `mute`/`solo` while you listen. The master brings the mix to
+   the style's loudness and a limiter keeps it under the ceiling. `music_mix {path}` shows what every track, bus and the master did
+   (peak, LUFS, limiter reduction) without writing a file, and `music_check {path, render: true}` judges that mastered loudness.
+   Fix a muddy or buried track with its fader, a pan and an eq cut before touching the notes.

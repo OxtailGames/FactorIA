@@ -50,6 +50,10 @@ struct AudioStepInfo {
 // Every step type the format knows, in the order the docs describe them.
 const std::vector<AudioStepInfo>& audio_step_types();
 
+// The effect steps (eq, filter, compressor, distortion, bitcrush, delay, reverb): the ones that process a sound in place without needing a
+// source, so a song's mixer (song.h) can run the same steps on a track, a bus or the master.
+bool audio_step_is_effect(std::string_view type);
+
 // Where the sound comes from: a file of the project (.wav, .ogg, .mp3, .qoa), a sound patch (.sfx.json, rendered with `seed` and,
 // when `note` is given, transposed to that note) or another audio document.
 struct AudioSourceRef {
@@ -84,6 +88,13 @@ struct AudioDoc {
 Result<AudioDoc> parse_audio_doc(const Json& json, std::string_view file = {}, std::vector<AudioDocIssue>* issues = nullptr);
 // parse_audio_doc of a file read through the VFS (project-relative).
 Result<AudioDoc> load_audio_doc(std::string_view path, std::vector<AudioDocIssue>* issues = nullptr);
+
+// Reads one step on its own (the object of `steps[i]`), with `pointer` as the base of the issues' JSON pointers. Every problem is added to
+// `issues`; the error returned is the first one. Used by the song document for the effects of a track.
+Result<AudioStep> parse_audio_step(const Json& json, std::string_view pointer, std::vector<AudioDocIssue>* issues = nullptr);
+// Runs an effect step (audio_step_is_effect) over the channels in place, without changing their length: a reverb or delay tail is cut
+// where the buffer ends, so leave room for it. `rate` in Hz. An enabled:false step does nothing.
+void audio_apply_effect(std::vector<std::vector<double>>& channels, int rate, const AudioStep& step);
 
 // Loop points of a rendered sound: frames of the output where playback wraps (end exclusive).
 struct AudioLoop {
