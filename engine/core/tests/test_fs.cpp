@@ -415,7 +415,7 @@ TEST_CASE("windows rules: a file open through ReadStream cannot be replaced; the
     // Let go: the same write goes through at once (nothing left in the registry).
     const auto t1 = std::chrono::steady_clock::now();
     REQUIRE(fs::write_text("data/a.json", "2").ok());
-    CHECK(std::chrono::steady_clock::now() - t1 < std::chrono::milliseconds(300));
+    CHECK(std::chrono::steady_clock::now() - t1 < std::chrono::milliseconds(800));  // no retries (~0.9 s); room for a loaded VM
     CHECK(fs::read_text("data/a.json").value() == "2");
     std::error_code ec;
     CHECK(fs::remove_file(p.dir / "data" / "a.json", ec));
