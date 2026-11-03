@@ -20,6 +20,7 @@
 #include "fa/render/fonts.h"
 #include "fa/tooling/project_fs.h"
 #include "fa/tooling/style_guide.h"
+#include "fa/tooling/image_tileset.h"
 #include "image_doc_internal.h"
 #include "util.h"
 
@@ -248,6 +249,13 @@ Raster render_content(Ctx& ctx, const ImageLayer& layer, const ImageCelView& cel
                     d[3] = 1.0f;
                 }
             return r;
+        }
+        case ImageLayerKind::Tileset: {
+            auto built = build_tileset(layer.tileset, ctx.doc.palette, [&ctx](const std::string& pointer, const std::string& rel) -> const Image& { return ctx.image(pointer, rel); });
+            if (!built.ok())
+                throw RenderFailure{(ctx.doc.file.empty() ? std::string("image document") : ctx.doc.file) + " " + built.error().message, built.error().hint};
+            for (const std::string& w : built->warnings) ctx.warnings.push_back(layer.pointer + ": " + w);
+            return from_image(built->sheet);
         }
         case ImageLayerKind::Adjustment: break;
     }

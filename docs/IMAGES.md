@@ -36,6 +36,7 @@ picture (`$image`). The schema is `schemas/image.schema.json`; `$schema` may poi
 | `output` | The PNG to bake, project-relative, ending in `.png`. Default: the document's name with `.image.json` replaced by `.png`. |
 | `description` | A sentence for people and AIs; unused by the drawing. |
 | `palette`, `ramps` | The colours the `indexed` layers are locked to, and their shades (see "Pixel art"). |
+| `tile` | Tile mode: the picture repeats, so editing wraps around the edges of a tile (see "Tiles"). `true`, or `{"width", "height"}` for a sheet of tiles. |
 | `frames`, `tags`, `sheet` | Make the document an animation: how long each frame shows, named runs of frames, the sheet's layout (see "Frames and tags"). |
 | `layers` | The layers, **bottom first**: a later layer is drawn over the earlier ones. |
 
@@ -79,6 +80,8 @@ The kinds and the fields they add:
   or `right` of the layer's `x`) and `lineHeight` (in ems, default 1.2). `y` is the top of the first line.
 - **`indexed`**: pixel art as palette indices: `rows` (text), or `width` / `height` for a blank layer, and `ai`. No masks,
   adjustments or effects (see "Pixel art").
+- **`tileset`**: the 16 or 47 tiles of an autotile set, built from a few parts (`mode`, `tileWidth`, `tileHeight`, `parts`,
+  `columns`, `variations`, `seed`, `terrain`), drawn onto the canvas at its `x` and `y` like any layer (see "Tiles").
 - **`provider`**: a PNG made by an image provider (`source`), drawn like `pixels`, plus `provenance`: the record of how it was
   made (`provider`, `model`, `prompt`, `seed`, `references`, `license`, `author`, `notes`). A provider layer makes the
   baked picture AI-made (see "Baking"); the record goes to `assets.json` for the source PNG when it has none yet.
@@ -251,6 +254,8 @@ child of the group at 1. A wrong name or index is an error with "did you mean" a
   inputs, provenance, warnings, $image, nextSteps}`.
 - `image.save {path, document, bake?}`: checks `document` (the JSON of a layered image), writes it to `path` as canonical JSON
   (2-space indent) and bakes it. A document with a problem is an error and nothing is written.
+- `image.tile.set`, `image.tile.check`, `image.tileset.build`, `image.tileset.info`, `image.tileset.check`,
+  `image.tileset.rules`: tile mode, the seam check and the autotile generator (see "Tiles").
 
 ### Make, look at, export
 
@@ -785,6 +790,163 @@ lists the paths in `removedFiles` (the file and its `assets.json` entry go). Onl
 still names it: another frame, layer or `link` of the document, or any other image document of the project. A file you put
 somewhere else and pointed a cel at is never deleted.
 
+## Tiles
+
+A ground, a wall or a whole tile set is a picture that REPEATS, and a repeating picture shows a line wherever one copy meets
+the next. Three things in the document help, all offline and deterministic:
+
+- **tile mode** (`tile`): editing wraps around the edges of a tile, so the edges keep matching while you draw;
+- the **seam check** (`image.tile.check`): compares the pixels that touch when the tile repeats, and shows 3 x 3 copies with the
+  bad pixels marked;
+- the **`tileset` layer** (`image.tileset.build`): builds the 16 or 47 tiles of an autotile set from a few parts (inside, edge,
+  corner), bakes the sheet and writes the `Tilemap` rules, with variations picked by a seed.
+
+### Tile mode
+
+`image.tile.set {"path": "assets/art/ground.image.json"}` writes `"tile": true` into the document: the whole canvas is ONE tile.
+`{"path": ..., "width": 16, "height": 16}` writes `"tile": {"width": 16, "height": 16}`: the canvas is a sheet of tiles of that
+size (each size must divide the canvas). `"enabled": false` removes it. With tile mode on:
+
+- `image.pixel`, `image.draw` (every shape, `fill` too), `image.paint` and the `move` action of `image.edit` wrap: what leaves
+  the right edge comes back in on the left, what leaves the bottom comes back at the top. A line from (14, 3) to (20, 3) in a
+  16-pixel tile is drawn from 14 to 15 and from 0 to 4.
+- A shape wraps inside the ONE tile that holds its anchor (a pixel, the first point of a line, the corner of a rectangle, the
+  `at` of a fill, the first point of a stroke), so on a sheet a stroke never spills into the next tile. `fill` is a flood that
+  also crosses the edges. A brush wider than the tile is stamped once for every copy of the tile that it reaches.
+- The pixel helpers `image.pixel.outline`, `shade`, `dither` and `cleanup` work on each tile as if it repeated: the pixels
+  across an edge are the pixels on the opposite edge of the same tile.
+- `image.pixel.rotate`, `image.pixel.scale`, `image.to_pixel_art` and the `transform` action of `image.edit` do NOT wrap (the
+  result warns): run `image.tile.check` afterwards, or draw the result again with `image.pixel` / `image.draw`.
+- A dither pattern is laid out from the canvas, not from the tile: keep the tile size a multiple of the pattern's size (2 for
+  `checker` and `bayer2`, 4 for `bayer4`, 8 for `bayer8`) and the pattern continues across the seam.
+
+### The seam check: `image.tile.check`
+
+`image.tile.check {"path": "assets/art/ground.image.json"}` bakes nothing: it reads the document as it is and compares, for every
+tile that is not empty, its right column with its own left column and its bottom row with its top row. The tile is the
+document's `tile`, or `tileWidth` / `tileHeight`, or the whole canvas. It returns `seamless`, the `tolerance` used and
+`problems` (the tile, the side, the runs of mismatching pixels in canvas coordinates, how many and how far apart), and writes
+a preview to `.factoria/previews/` (also returned as `$image`): the tile 3 x 3 with a red line on every mismatching pixel of the
+central copy.
+
+`tolerance` (0 to 255) is how far apart two touching pixels may look. Without it a picture with a palette (or
+`style.pixelArt`) gets 0, because pixel art keeps hard colours; any other picture gets 1.5 times the mean difference between
+neighbouring pixels inside the tiles, rounded up, so a soft texture is not failed for its own gradient. The result says which
+one was used.
+
+What the check does not see: it compares the edges of tiles only. Inside a tile of an autotile set, the line down the middle where
+two quadrants from different parts meet (the corner part next to the edge part) is not compared, so a corner whose half does not
+continue into the edge shows only in the preview of the tile, not in the check.
+
+### The `tileset` layer
+
+A `tileset` layer builds an autotile sheet from parts. Each part is ONE tile picture drawn for ONE orientation, and the
+generator makes the other orientations by flipping (and, for square tiles, transposing) it.
+
+| Field | Meaning |
+|---|---|
+| `mode` | `"blob47"` (default): the 47 tiles of the 8 neighbours. `"basic16"`: the 16 tiles of the 4 orthogonal neighbours (no inner corners). |
+| `tileWidth`, `tileHeight` | One tile in pixels, both even (a tile is cut into four quadrants). Giving one makes the tile square. |
+| `parts` | The pictures, below. |
+| `columns` | Tiles per row of the sheet. Default 4 for basic16 and 8 for blob47. |
+| `variations`, `seed` | Pictures per tile (1 to 8) and the seed that picks variants of the parts for the others. |
+| `terrain` | The terrain's name in the rules file. Default: the layer's name, else `terrain`. |
+
+The parts, each a PNG path, `{"source": "x.png"}` (exactly one tile big), `{"rows": [...]}` (text rows of the document's
+`palette`, as in an `indexed` layer) or `{"color": "#4a8a2c"}` (one flat colour), or a list of those for variants:
+
+| Part | Draw | Needed |
+|---|---|---|
+| `inside` | a flat tile of the terrain | always |
+| `edge` | the terrain's TOP edge: terrain below, nothing above | always |
+| `corner` | the terrain's top-left OUTER corner | always |
+| `innerCorner` | an inside tile with the top-left corner cut out | blob47 |
+| `edgeLeft` | the terrain's left edge | a tile that is not square |
+| `edgeBottom`, `edgeRight`, `cornerNE`, `cornerSW`, `cornerSE`, `innerCornerNE`, `innerCornerSW`, `innerCornerSE` | an orientation drawn by hand instead of derived | never |
+
+A tile is built from four quadrants (a quarter of the tile each). What a quadrant shows depends on the two neighbours next to
+it and the diagonal one between them: with neither neighbour it is the outer corner; with only one it is the edge facing the
+missing neighbour; with both and the diagonal missing it is the inner corner (blob47 only); with all three it is the inside.
+Each quadrant is cut from the part, flipped to its orientation. Draw a part so that it can be flipped: a light source from the
+top left is wrong on the right and bottom edges, so give `edgeRight` / `edgeBottom` (and the other optional parts) when the
+flipped copy would look wrong. Variation 0 of a tile always uses the first variant of every part; variation `v` >= 1 picks a variant
+of each quadrant from `seed`, `v` and the tile, so the same seed always gives the same sheet. A tile whose parts have fewer variants
+than variations repeats an earlier one, and the result warns with the tiles affected.
+
+Tile `s * variations + v` of the sheet is variation `v` of slot `s`, row by row, left to right: the numbering of the `Tilemap`
+autotile rules (docs/AI_GUIDE.md, section 9.8).
+
+### Commands
+
+- `image.tileset.build {path, mode, tileWidth, tileHeight, parts, ...}`: creates the document (or adds the layer to an existing
+  one, or updates it), sets the canvas to the sheet and `tile` to the tile size, bakes the PNG and writes the rules file
+  (default `<document>.terrains.json`). Running it again changes only the keys you pass: `parts` merge by name (`null` removes a
+  part) and the PNG and the rules are rewritten in place. A rules file that is not this layer's is not replaced without
+  `overwrite`. The result has `tileset` (layer, layout, parts), `rules`, `terrain` and `tilemap` (the `Tilemap` fields to set).
+- `image.tileset.info`: what the parts are, with a drawing of each, which ones the tile shape needs, and the table of slots with
+  their neighbour masks. With `path` it also lists every tile with its place in the sheet.
+- `image.tileset.check {path}`: every part is present and exactly one tile big (an error names its JSON pointer), then the
+  seams between every pair of tiles that can stand side by side in a map are compared. Tile A east of tile B needs A to have an
+  east neighbour and B a west one. For blob47 the whole seam is compared. For basic16 the set has no tile for the cell on the
+  diagonal, so only the half of the seam where both tiles have the neighbour (or both lack it) is compared. The result and the
+  preview (`.factoria/previews/<document>.tilesetcheck.png`, red marks on the failing sides) work as in `image.tile.check`.
+- `image.tileset.rules {path}`: writes the rules file alone. `image.tileset.build` already does; this is the command the recipe of
+  the rules file records.
+
+### The files and when they go stale
+
+`image.tileset.build` writes the sheet PNG next to the document and records, in `assets.json`, the recipe of two outputs. The PNG is
+an ordinary bake (`image.bake`), with every part PNG as an input. The rules file has the recipe `image.tileset.rules` with the
+document as input. Change a part PNG and the sheet is stale; change the document and both are. `assets.regenerate {"stale": true}`
+redraws what is stale in place, and `factoria validate` warns about a sheet that was never baked or no longer matches. The rules
+file is a JSON of format `factoria.terrains/1`: `{"terrains": [{"name", "mode", "seed", "tiles"}]}`, the tile of every neighbour
+combination (a list of tiles when `variations` is more than 1).
+
+### A ground tile set, step by step
+
+A 47-tile ground from four 8 x 8 parts and three palette colours.
+
+1. Build it. The `rows` use the palette in order: `0` the dark outline, `1` the grass, `2` a lighter speck. `.` is transparent.
+
+   ```json
+   {"path": "assets/art/ground.image.json", "mode": "blob47", "tileWidth": 8, "tileHeight": 8, "terrain": "ground",
+    "palette": ["#1e4a14", "#4a8a2c", "#5fa23a"],
+    "parts": {
+      "inside": {"rows": ["11111111", "11211111", "11111111", "11111111", "11111121", "11111111", "11111111", "11111111"]},
+      "edge": {"rows": ["........", "........", "00000000", "11111111", "11111111", "11111111", "11111111", "11111111"]},
+      "corner": {"rows": ["........", "........", "..000000", "..011111", "..011111", "..011111", "..011111", "..011111"]},
+      "innerCorner": {"rows": ["..011111", "..011111", "00011111", "11111111", "11111111", "11111111", "11111111", "11111111"]}}}
+   ```
+
+   `factoria call image.tileset.build @ground.json` writes `assets/art/ground.image.json`, bakes the 64 x 48 sheet
+   `assets/art/ground.png` (47 tiles, 8 per row) and writes `assets/art/ground.terrains.json`.
+2. Check that the tiles fit: `factoria call image.tileset.check '{"path":"assets/art/ground.image.json"}'` says
+   `seamless: true` with `badSeams: 0` (338 seams compared). A part that does not match its neighbour lists the pair, and the
+   preview marks the sides in red.
+3. Make a level with a Tilemap and give it the rules. In one engine (the batch), build an empty map, load the rules and paint:
+
+   ```json
+   [
+    {"command": "scene.import_ascii", "args": {"entity": "map", "rows": ["............", "............", "............", "............", "............", "............", "............", "............"], "legend": {".": -1}, "tilemap": {"tileset": "assets/art/ground.png", "tileSize": [8, 8]}}},
+    {"command": "tilemap.set_terrains", "args": {"id": "map", "path": "assets/art/ground.terrains.json"}},
+    {"command": "tilemap.paint_terrain", "args": {"id": "map", "terrain": "ground", "rect": {"col": 2, "row": 1, "width": 7, "height": 5}}},
+    {"command": "tilemap.paint_terrain", "args": {"id": "map", "terrain": "ground", "erase": true, "cells": [[5, 3]]}}
+   ]
+   ```
+
+   Painting writes the tile that fits each cell and re-tiles the cells around it: the 7 x 5 block gets its edges and corners,
+   and erasing the middle cell leaves a hole that is ringed with the right edges and inner corners. Each changed cell is written the way
+   `tilemap.set_tile` writes it, so solid tiles keep their collision.
+4. More looks: run the build again with `"variations": 3, "seed": 7` and a list for a part, for example
+   `"parts": {"inside": [{"rows": [...]}, {"rows": [...]}, {"rows": [...]}]}`. The sheet has 141 tiles, the rules number them, and
+   `tilemap.retile` re-picks the tiles of a painted map. With fewer variants than variations the build warns with the tiles that
+   repeat.
+5. Change a part later and run `image.tileset.build` again (only the part), or `assets.regenerate {"stale": true}`.
+
+The `Tilemap` side (the `terrains` field, `tilemap.paint_terrain`, `retile`, `terrains`, `set_terrains` and the script calls
+`paintTerrain`, `eraseTerrain`, `retile`, `terrainAt`) is described in [AI_GUIDE.md](AI_GUIDE.md), section 9.8, and
+[SCRIPTING.md](SCRIPTING.md).
+
 ## Validation
 
 A document is checked completely before anything is drawn: every problem is collected, and the error names the file, the
@@ -799,6 +961,8 @@ art/bad.image.json /layers/1/blend: Unknown blend mode 'multiplyy'. (and 2 more 
 - Wrong types and values out of range (`opacity` 2, a canvas of 0 or 5000 pixels, stops out of order, `clip` on the bottom layer).
 - A `source`, mask picture, SVG or font that is not in the project (or climbs out of it).
 - A `procedural` layer's `texture` arguments are checked by the texture generator (a wrong preset lists the real ones).
+- A `tile` that does not divide the canvas; a `tileset` layer's mode, odd or missing tile size, `columns`, `variations` and parts (a
+  missing required part, a picture that is not exactly one tile big, a part with two of `source`, `rows` and `color`), each with its pointer.
 - An `indexed` layer's `rows` (equal lengths, valid characters, indices inside the palette) and the `palette` and `ramps` (unique names, unique opaque colours, at most 81, ramps that name palette colours), each with its pointer.
 
 `factoria validate` reports a document that does not load as an **error** (file, pointer, hint), and a document never baked,

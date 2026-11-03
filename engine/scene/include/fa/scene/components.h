@@ -319,6 +319,7 @@ struct Tilemap {
     Json tiles = Json::array();       // row-major tile values, row 0 = TOP row; array of ints (width*height) or array of rows.
                                       // A value is the tile index plus optional flip/rotate flag bits (fa/scene/tilemap.h)
     Json solidTiles = Json::array();  // tile indices that collide (empty = none collide); flags are not part of them
+    Json terrains = Json::array();    // autotile rules: terrains painted with tilemap.paint_terrain (fa/scene/autotile.h)
     Color color{1, 1, 1, 1};
     std::int32_t layer = -10;
     bool lit = false;                 // shaded by Light2D entities and SceneSettings.ambientLight

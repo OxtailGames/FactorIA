@@ -196,6 +196,12 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`image.select`](commands/assets.md#imageselect-modifies-state): Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint. _Not released yet._
 - [`image.tag.remove`](commands/assets.md#imagetagremove-modifies-state): Remove a tag (and so its clip) from an image document. _Not released yet._
 - [`image.tag.set`](commands/assets.md#imagetagset-modifies-state): Name a run of frames (a tag); the bake makes a SpriteAnimator clip of it. _Not released yet._
+- [`image.tile.check`](commands/assets.md#imagetilecheck): Check that a picture (or each tile of a sheet) repeats without a visible seam, with a preview of 3 x 3 copies. _Not released yet._
+- [`image.tile.set`](commands/assets.md#imagetileset-modifies-state): Turn tile mode (wrap-around editing) on or off for an image document. _Not released yet._
+- [`image.tileset.build`](commands/assets.md#imagetilesetbuild-modifies-state): Make an autotile tileset (16 or 47 tiles) from a few parts (inside, edge, corner), bake the sheet and write the Tilemap rules. _Not released yet._
+- [`image.tileset.check`](commands/assets.md#imagetilesetcheck): Check an autotile tileset: every part is one tile big, and every pair of tiles that can touch in a map fits. _Not released yet._
+- [`image.tileset.info`](commands/assets.md#imagetilesetinfo): Explain the parts of an autotile tileset and list its tiles (slot, neighbours, position in the sheet). _Not released yet._
+- [`image.tileset.rules`](commands/assets.md#imagetilesetrules-modifies-state): Write the Tilemap autotile rules file of a tileset layer (the recipe command that keeps it current). _Not released yet._
 - [`image.to_pixel_art`](commands/assets.md#imageto_pixel_art-modifies-state): Turn a painted, generated or imported picture (a layer or a PNG) into palette-exact pixel art: area-aware downscale, quantize, clean up, into an indexed layer. _Not released yet._
 - [`sfx.bake`](commands/assets.md#sfxbake-modifies-state): Render every sound patch of the project whose WAV is missing or out of date. _Not released yet._
 - [`sfx.family`](commands/assets.md#sfxfamily-modifies-state): Make a consistent set of interface sounds (click, hover, confirm, cancel, error, open, close, notify) from one base patch. _Not released yet._
@@ -378,7 +384,11 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`skin.set_weights`](commands/scene.md#skinset_weights-modifies-state): Paint the bone weights of chosen vertices: set, add or smooth. _Since 0.7.0._
 - [`tilemap.cell_at`](commands/scene.md#tilemapcell_at): The cell of a Tilemap under a world point (orthogonal squares or isometric diamonds). _Since 0.3.0._
 - [`tilemap.cell_to_world`](commands/scene.md#tilemapcell_to_world): The world position of the centre of a Tilemap cell (orthogonal squares or isometric diamonds). _Since 0.3.0._
+- [`tilemap.paint_terrain`](commands/scene.md#tilemappaint_terrain-modifies-state): Paint (or erase) a terrain on a Tilemap's cells and re-tile the cells around them with its autotile rules. _Not released yet._
+- [`tilemap.retile`](commands/scene.md#tilemapretile-modifies-state): Re-tile every terrain cell of a Tilemap from its neighbours. _Not released yet._
+- [`tilemap.set_terrains`](commands/scene.md#tilemapset_terrains-modifies-state): Set a Tilemap's autotile rules from a list or a rules file (as image.tileset.build writes them). _Not released yet._
 - [`tilemap.set_tile`](commands/scene.md#tilemapset_tile-modifies-state): Change one tile of a Tilemap in the running scene, in place. _Since 0.3.0._
+- [`tilemap.terrains`](commands/scene.md#tilemapterrains): The autotile rules of a Tilemap: its terrains, their slots and how many cells belong to each. _Not released yet._
 
 ### [screen](commands/screen.md)
 
