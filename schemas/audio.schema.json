@@ -1,0 +1,906 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factoria.dev/schemas/audio.schema.json",
+  "title": "FactorIA audio document (*.audio.json)",
+  "description": "A non-destructive chain of steps over a sound: a WAV or OGG, a sound patch (`*.sfx.json`) or another audio document. `audio.render` applies the steps offline, `audio.bake` writes the result next to the document as a WAV or OGG; the same bytes on every platform. Errors name the file and the JSON pointer; docs/SOUND.md, \"Audio documents\", explains the format and `audio.info {}` lists the steps.",
+  "type": "object",
+  "required": [
+    "format",
+    "source",
+    "steps"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference for editors."
+    },
+    "format": {
+      "const": "factoria.audio/1",
+      "description": "File format identifier. Always \"factoria.audio/1\"."
+    },
+    "doc": {
+      "type": "string",
+      "description": "What the sound is and where the game plays it."
+    },
+    "source": {
+      "description": "Where the sound comes from: a project path (.wav, .ogg, .mp3, .qoa, .sfx.json or .audio.json), or an object that also picks the take and the note of a sound patch.",
+      "anyOf": [
+        {
+          "type": "string",
+          "description": "Project path of the source."
+        },
+        {
+          "type": "object",
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Project path of the source."
+            },
+            "seed": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "An .sfx.json source: added to the patch's seed (another take of its noise)."
+            },
+            "note": {
+              "type": "string",
+              "description": "An .sfx.json source: transpose the patch so its root pitch becomes this note, e.g. \"C4\"."
+            }
+          }
+        }
+      ]
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Picks the take of every random step (granular, an .sfx.json source)."
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What bake writes.",
+      "properties": {
+        "format": {
+          "enum": [
+            "wav",
+            "ogg"
+          ],
+          "default": "wav",
+          "description": "wav (16-bit PCM) or ogg (the engine's Vorbis encoder)."
+        },
+        "channels": {
+          "enum": [
+            "source",
+            "mono"
+          ],
+          "default": "source",
+          "description": "source keeps the source's channels; mono mixes down to one."
+        },
+        "quality": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.5,
+          "description": "Ogg quality."
+        },
+        "path": {
+          "type": "string",
+          "description": "Project path bake writes, ending in .wav or .ogg as the format says. Leave out to bake next to the document."
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "maxItems": 64,
+      "description": "The chain, applied in order. At most 64.",
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/trim"
+          },
+          {
+            "$ref": "#/$defs/fade"
+          },
+          {
+            "$ref": "#/$defs/normalize"
+          },
+          {
+            "$ref": "#/$defs/gain"
+          },
+          {
+            "$ref": "#/$defs/pitch"
+          },
+          {
+            "$ref": "#/$defs/stretch"
+          },
+          {
+            "$ref": "#/$defs/speed"
+          },
+          {
+            "$ref": "#/$defs/eq"
+          },
+          {
+            "$ref": "#/$defs/compressor"
+          },
+          {
+            "$ref": "#/$defs/reverb"
+          },
+          {
+            "$ref": "#/$defs/delay"
+          },
+          {
+            "$ref": "#/$defs/reverse"
+          },
+          {
+            "$ref": "#/$defs/layer"
+          },
+          {
+            "$ref": "#/$defs/loop"
+          },
+          {
+            "$ref": "#/$defs/granular"
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "trim": {
+      "type": "object",
+      "description": "Cuts the sound to a part: from `start` to `end` (or `length` after `start`), in seconds. With `auto` it also removes the silence at both ends: everything quieter than `thresholdDb` before the first and after the last loud sample, keeping `padding` seconds of it. Use it first, so later steps and the loop work on the sound itself.",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "trim",
+          "description": "Step type."
+        },
+        "start": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 3600.0,
+          "description": "Seconds cut from the beginning (default 0)."
+        },
+        "end": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 3600.0,
+          "description": "Seconds where the sound ends (default: its end). Not with `length`."
+        },
+        "length": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 3600.0,
+          "description": "Seconds to keep from `start`. Not with `end`."
+        },
+        "auto": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also trim the silence at the start and the end."
+        },
+        "thresholdDb": {
+          "type": "number",
+          "minimum": -120.0,
+          "maximum": 0.0,
+          "default": -50.0,
+          "description": "auto: samples below this level (dBFS) count as silence."
+        },
+        "padding": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 5.0,
+          "default": 0.01,
+          "description": "auto: seconds of silence kept at each end."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "fade": {
+      "type": "object",
+      "description": "Fades the start in and/or the end out over `in` / `out` seconds. `curve` shapes it: linear, equalPower (a quarter sine: constant loudness when two sounds cross), smooth (a half cosine: S-shaped), exponential (slow start: x squared), logarithmic (fast start). A fade out of a few milliseconds removes the click at the end of a cut.",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "fade",
+          "description": "Step type."
+        },
+        "in": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 60.0,
+          "default": 0.0,
+          "description": "Seconds of fade in at the start."
+        },
+        "out": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 60.0,
+          "default": 0.0,
+          "description": "Seconds of fade out at the end."
+        },
+        "curve": {
+          "type": "string",
+          "enum": [
+            "linear",
+            "equalPower",
+            "smooth",
+            "exponential",
+            "logarithmic"
+          ],
+          "default": "linear",
+          "description": "The shape of the fade."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "normalize": {
+      "type": "object",
+      "description": "Sets the level: `mode` peak makes the loudest sample reach `target` dBFS (default -1); `mode` lufs makes the integrated loudness (BS.1770, the measure assets.check_mix uses) reach `target` LUFS (default -16) but never lets the peak pass `ceilingDb`. Put it last, or after the steps that change the level.",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "normalize",
+          "description": "Step type."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "peak",
+            "lufs"
+          ],
+          "default": "peak",
+          "description": "peak or lufs."
+        },
+        "target": {
+          "type": "number",
+          "minimum": -70.0,
+          "maximum": 0.0,
+          "description": "dBFS (peak) or LUFS (lufs). Default -1 for peak, -16 for lufs."
+        },
+        "ceilingDb": {
+          "type": "number",
+          "minimum": -40.0,
+          "maximum": 0.0,
+          "default": -1.0,
+          "description": "lufs: the loudest sample stays under this (dBFS)."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "gain": {
+      "type": "object",
+      "description": "Multiplies the level by `db` decibels (negative is quieter).",
+      "required": [
+        "type",
+        "db"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "gain",
+          "description": "Step type."
+        },
+        "db": {
+          "type": "number",
+          "minimum": -60.0,
+          "maximum": 60.0,
+          "description": "Decibels, -60 to 60."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "pitch": {
+      "type": "object",
+      "description": "Moves the pitch by `semitones` and keeps the duration (a time stretch and a resample, both written for this engine). Good to about +/-7 semitones for sound effects; beyond, voices and tones start to sound processed.",
+      "required": [
+        "type",
+        "semitones"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "pitch",
+          "description": "Step type."
+        },
+        "semitones": {
+          "type": "number",
+          "minimum": -24.0,
+          "maximum": 24.0,
+          "description": "Semitones, -24 to 24 (12 is an octave up)."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "stretch": {
+      "type": "object",
+      "description": "Changes the duration and keeps the pitch (WSOLA). `factor` multiplies the length (2 is twice as long) or `seconds` sets the length. Noise and tones stretch well; sharp transients smear a little at large factors.",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "stretch",
+          "description": "Step type."
+        },
+        "factor": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4.0,
+          "description": "Length multiplier, 0.25 to 4. Not with `seconds`."
+        },
+        "seconds": {
+          "type": "number",
+          "minimum": 0.02,
+          "maximum": 120.0,
+          "description": "The new length in seconds. Not with `factor`."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "speed": {
+      "type": "object",
+      "description": "Plays the sound `factor` times as fast, so pitch and duration move together like a tape (2: half as long, an octave up).",
+      "required": [
+        "type",
+        "factor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "speed",
+          "description": "Step type."
+        },
+        "factor": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4.0,
+          "description": "Speed, 0.25 to 4."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "eq": {
+      "type": "object",
+      "description": "An equalizer: low and high shelves, peaking bands and 12 dB/octave low-pass and high-pass filters (RBJ biquads).",
+      "required": [
+        "type",
+        "bands"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "eq",
+          "description": "Step type."
+        },
+        "bands": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "freq"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "enum": [
+                  "lowShelf",
+                  "highShelf",
+                  "peak",
+                  "lowPass",
+                  "highPass"
+                ],
+                "description": "Kind of band."
+              },
+              "freq": {
+                "type": "number",
+                "description": "Centre or corner frequency in Hz."
+              },
+              "gainDb": {
+                "type": "number",
+                "minimum": -24,
+                "maximum": 24,
+                "default": 0,
+                "description": "Boost or cut in dB (shelf and peak)."
+              },
+              "q": {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 18,
+                "description": "Width of the band."
+              }
+            }
+          },
+          "description": "1 to 8 bands, applied in order. Each is {\"type\": lowShelf|highShelf|peak|lowPass|highPass, \"freq\": Hz, \"gainDb\": dB (shelf, peak), \"q\": 0.1-18}."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "compressor": {
+      "type": "object",
+      "description": "Reduces the dynamic range: above `thresholdDb` the level rises only 1 dB for every `ratio` dB. `attack` and `release` (seconds) say how fast the gain follows, `kneeDb` softens the corner, `makeupDb` brings the level back up. The detector looks at the loudest channel, so a stereo image does not shift.",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "compressor",
+          "description": "Step type."
+        },
+        "thresholdDb": {
+          "type": "number",
+          "minimum": -80.0,
+          "maximum": 0.0,
+          "default": -18.0,
+          "description": "Level above which the compressor acts, dBFS."
+        },
+        "ratio": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 100.0,
+          "default": 4.0,
+          "description": "dB in for 1 dB out above the threshold (1 = off, 100 = limiter)."
+        },
+        "attack": {
+          "type": "number",
+          "minimum": 0.0001,
+          "maximum": 1.0,
+          "default": 0.005,
+          "description": "Seconds to clamp down."
+        },
+        "release": {
+          "type": "number",
+          "minimum": 0.005,
+          "maximum": 5.0,
+          "default": 0.1,
+          "description": "Seconds to let go."
+        },
+        "kneeDb": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 24.0,
+          "default": 0.0,
+          "description": "Width of the soft knee in dB (0 = hard)."
+        },
+        "makeupDb": {
+          "type": "number",
+          "minimum": -24.0,
+          "maximum": 48.0,
+          "default": 0.0,
+          "description": "Gain added after compressing."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "reverb": {
+      "type": "object",
+      "description": "Adds a room: the synth's reverb (eight damped combs and four all-passes). The sound is extended by `tail` seconds so the reverb can die away.",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "reverb",
+          "description": "Step type."
+        },
+        "mix": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.3,
+          "description": "Level of the wet signal added to the dry one."
+        },
+        "decay": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 10.0,
+          "default": 1.5,
+          "description": "Seconds the room rings (RT60)."
+        },
+        "damping": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.5,
+          "description": "How fast high frequencies die: 0 bright, 1 dull."
+        },
+        "size": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 4.0,
+          "default": 1.0,
+          "description": "Scales the delay lines: 0.25 small room, 4 hall."
+        },
+        "preDelay": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 0.5,
+          "default": 0.0,
+          "description": "Seconds before the reverb starts."
+        },
+        "tail": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 30.0,
+          "description": "Seconds added after the sound (default: decay, at most 5)."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "delay": {
+      "type": "object",
+      "description": "An echo: the synth's feedback delay. The sound is extended by `tail` seconds so the repeats can die away.",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "delay",
+          "description": "Step type."
+        },
+        "time": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 2.0,
+          "default": 0.25,
+          "description": "Seconds between repeats."
+        },
+        "feedback": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 0.95,
+          "default": 0.4,
+          "description": "Share of each repeat fed back (0.95 at most)."
+        },
+        "mix": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.4,
+          "description": "Level of the echoes added to the dry sound."
+        },
+        "tone": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 20000.0,
+          "default": 0.0,
+          "description": "Low-pass in the feedback loop in Hz, 0 = off (darker repeats)."
+        },
+        "tail": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 30.0,
+          "description": "Seconds added after the sound (default: until the repeats are 60 dB down, at most 8 repeats)."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "reverse": {
+      "type": "object",
+      "description": "Plays the sound backwards (a reverse cymbal, a suck-in before a hit).",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "reverse",
+          "description": "Step type."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "layer": {
+      "type": "object",
+      "description": "Mixes another sound over this one: `source` is a WAV/OGG, an .sfx.json patch or another .audio.json. It starts `offset` seconds in, at `gainDb`, optionally moved by `semitones`. If it ends later than the sound, the sound grows. A mono layer on a stereo sound plays on both sides.",
+      "required": [
+        "type",
+        "source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "layer",
+          "description": "Step type."
+        },
+        "source": {
+          "type": "string",
+          "description": "Project path of the sound to mix in."
+        },
+        "offset": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 120.0,
+          "default": 0.0,
+          "description": "Seconds after the start where the layer begins."
+        },
+        "gainDb": {
+          "type": "number",
+          "minimum": -60.0,
+          "maximum": 24.0,
+          "default": 0.0,
+          "description": "Level of the layer."
+        },
+        "semitones": {
+          "type": "number",
+          "minimum": -24.0,
+          "maximum": 24.0,
+          "default": 0.0,
+          "description": "Pitch of the layer (duration kept)."
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0.0,
+          "maximum": 1000000000000000.0,
+          "default": 0,
+          "description": "An .sfx.json layer: added to the patch's seed (another take of its noise)."
+        },
+        "note": {
+          "type": "string",
+          "description": "An .sfx.json layer: transpose the patch to this note, e.g. \"C4\"."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "loop": {
+      "type": "object",
+      "description": "Makes the sound loop without a seam. The part from `start` to `end` is the loop body; its last `crossfade` seconds are blended into its first ones, so when playback wraps from the end to the start the wave carries on. Whatever is before `start` is kept as an intro that plays once; whatever is after `end` is dropped. The loop points are written to the baked file's import settings (loopStart, loopEnd in assets.json), which AudioSource, audio.play and audio.music honour with loop on. Only gain and normalize may follow a loop step.",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "loop",
+          "description": "Step type."
+        },
+        "start": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 3600.0,
+          "default": 0.0,
+          "description": "Seconds where the loop body begins (default 0)."
+        },
+        "end": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 3600.0,
+          "description": "Seconds where the loop body ends (default: the end of the sound)."
+        },
+        "crossfade": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 10.0,
+          "default": 0.05,
+          "description": "Seconds blended over the seam; at most half the body."
+        },
+        "curve": {
+          "type": "string",
+          "enum": [
+            "equalPower",
+            "linear"
+          ],
+          "default": "equalPower",
+          "description": "equalPower suits unrelated material, linear suits the same wave."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "granular": {
+      "type": "object",
+      "description": "Replaces the sound by a texture made of tiny grains of it (a rain from a click, a swarm from a vowel): each grain is `grainSize` seconds of the sound, Hann-windowed, and `density` grains start per second. The read position moves through the sound (see `scan`) with a random offset (`jitter`), each grain's pitch is moved up to +/-`pitchSpread` semitones. Seeded, so the same step always makes the same texture.",
+      "required": [
+        "type",
+        "length"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "granular",
+          "description": "Step type."
+        },
+        "length": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 120.0,
+          "description": "Seconds of texture to make."
+        },
+        "grainSize": {
+          "type": "number",
+          "minimum": 0.005,
+          "maximum": 1.0,
+          "default": 0.06,
+          "description": "Seconds per grain."
+        },
+        "density": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 500.0,
+          "default": 40.0,
+          "description": "Grains started per second."
+        },
+        "jitter": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.2,
+          "description": "Random offset of each grain's read position, as a share of the sound, up to half of it either way (0 = none, 1 = up to half the sound before or after the scan position)."
+        },
+        "pitchSpread": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 24.0,
+          "default": 0.0,
+          "description": "Each grain is moved by a random amount up to this many semitones either way."
+        },
+        "scan": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 1.0,
+          "description": "How much the read position moves through the sound over the texture: 1 once from start to end, 0 stays in the middle."
+        },
+        "start": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 3600.0,
+          "default": 0.0,
+          "description": "Seconds where the part of the sound to read from begins."
+        },
+        "end": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 3600.0,
+          "description": "Seconds where it ends (default: the end of the sound)."
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0.0,
+          "maximum": 1000000000000000.0,
+          "default": 0,
+          "description": "Another seed is another texture."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    }
+  }
+}

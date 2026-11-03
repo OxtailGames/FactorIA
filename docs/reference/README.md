@@ -161,6 +161,11 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.spectrogram`](commands/assets.md#assetsspectrogram): See a sound: a picture of its waveform, spectrogram (log frequency) and loudness curve, with the clipped samples and the loop seam marked. _Not released yet._
 - [`assets.subset_font`](commands/assets.md#assetssubset_font-modifies-state): Cut a font down to the characters of the locale tables plus Latin and punctuation (a CJK font from 17 MB to a few hundred KB), pinning a variable font's axes. _Since 0.3.0._
 - [`assets.synth_sound`](commands/assets.md#assetssynth_sound-modifies-state): Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key. _Since 0.3.0._
+- [`audio.bake`](commands/assets.md#audiobake-modifies-state): Render audio documents to WAV/OGG files next to them (only the missing or stale ones unless forced), with their recipe in assets.json. _Not released yet._
+- [`audio.create`](commands/assets.md#audiocreate-modifies-state): Write a new audio document (a source and a chain of steps) and bake it. _Not released yet._
+- [`audio.edit`](commands/assets.md#audioedit-modifies-state): Add, change, remove or move one step of an audio document (or change its source, seed or output), then bake it. _Not released yet._
+- [`audio.info`](commands/assets.md#audioinfo): Check an audio document and say what its chain renders to; with no arguments, list the step types and their fields. _Not released yet._
+- [`audio.render`](commands/assets.md#audiorender): Render an audio document in memory: measurements, what each step did, and a waveform/spectrogram picture. Writes nothing. _Not released yet._
 - [`image.bake`](commands/assets.md#imagebake-modifies-state): Draw a layered image document (*.image.json) into its PNG and return the picture. _Not released yet._
 - [`image.create`](commands/assets.md#imagecreate-modifies-state): Make a new layered image document (*.image.json) with a canvas size, a background and optional first layers, and bake its PNG. _Not released yet._
 - [`image.draw`](commands/assets.md#imagedraw-modifies-state): Draw pixel-exact shapes (lines, rectangles, ellipses, polygons, flood fills) onto an indexed pixel-art layer by palette colour. _Not released yet._

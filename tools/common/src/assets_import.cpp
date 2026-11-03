@@ -639,6 +639,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
     register_draw_capsules_command(registry, projectDir);
     register_synth_sound_command(registry, projectDir);
     register_sfx_commands(registry, projectDir);
+    register_audio_doc_commands(registry, projectDir);
     register_texture_command(registry, projectDir);
     register_svg_command(registry, projectDir);
     register_animate_svg_command(registry, projectDir);
