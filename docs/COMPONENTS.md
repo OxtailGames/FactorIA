@@ -4593,6 +4593,42 @@ Moves the picked elements (shapes or whole groups) so their bounds line up: hori
 | `to` | string ["selection","canvas","key"] | no | What to align to: the bounds of the selection (default with two or more elements), the canvas (default with one element) or the `key` element. |
 | `key` | string | no | With to "key" (implied when given): the element the others align to; it does not move. |
 
+### `vector.blob` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Add a smooth organic shape or curve through or around a few points.
+
+Inserts a smooth closed blob (or, with closed: false, an open curve) built from a few [x, y] points. fit "through" (default): the curve passes through every point as a cardinal spline, `tension` 0 (straight lines) to 1.5, 0.5 is the usual smooth curve. fit "around": the points are a control polygon, a uniform B-spline that stays inside it and never touches it, always smooth. A closed blob needs 3 points, an open curve 2 and gets a stroke and no fill by default. Same placement arguments as vector.shape. Returns the new element and a preview as `$image`. Example: {"source": "assets/art/cloud.svg", "points": [[20,60],[35,35],[60,30],[80,50],[70,75],[40,80]], "tension": 0.6, "fill": "#e8eef7"}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `id` | string | no | The id of the new element (default: the kind, "star", "blob"..., or the next free "star-2"). An id the SVG already uses is an error. |
+| `parent` | string | no | An id or selector of ONE group (<g>) to put the element in, at its end. Default: the top level. Coordinates are the parent's own, so a translated or scaled group moves and scales the shape. |
+| `before` | string | no | An id or selector of ONE element: the new one goes in front of it in the drawing order (behind it on the picture), in the same group. |
+| `transform` | string | no | A transform attribute for the new element, e.g. "rotate(15 50 50)". |
+| `fill` | string | no | A CSS fill colour or "none". Default: a blue for closed shapes, none for open curves. |
+| `stroke` | string | no | A CSS stroke colour. Default: none for closed shapes, a dark slate for open curves. |
+| `strokeWidth` | number | no | Stroke width in the parent's units (default 1% of the drawing's longer side for open curves). |
+| `opacity` | number | no | 0 to 1. |
+| `attributes` | object | no | Any other attributes of the new element: {"class": "body", "stroke-linejoin": "round"}. |
+| `tolerance` | number | no | The largest distance, in drawing units (viewBox units), between the result and the exact outline. Default: 1/4000 of the drawing's longer side (1/500 for vector.simplify). |
+| `curves` | boolean | no | Return curves as cubic Beziers fitted to the result (the default). false keeps the polygon the operation computed. Default true. |
+| `cornerAngle` | number | no | Degrees of direction change (1 to 89) above which a vertex stays a sharp corner instead of being smoothed into a curve. Default 28. |
+| `points` | array | yes | The points the curve goes through or around, in order (3 or more when closed, 2 or more when open). |
+| `closed` | boolean | no | A closed blob (default) or an open curve. Default true. |
+| `fit` | string ["through","around"] | no | through: the curve passes through the points (default). around: the points are a control polygon the curve stays inside of. |
+| `tension` | number | no | With fit "through": 0 straight lines, 0.5 smooth (default), up to 1.5 loose and overshooting. |
+
 ### `vector.boolean` (modifies state)
 
 Not released yet (on main after 0.14.1).
@@ -4665,6 +4701,34 @@ Reads an SVG and lists its drawable elements: id, tag, bounds in the drawing spa
 | `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
 | `elements` | any | no | The shapes to work on: an SVG id, a selector, or a list of them. A group stands for the shapes in it. Default: every shape in the drawing. |
 
+### `vector.mirror` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Mirror shapes across a vertical or horizontal axis and weld the halves, or add the mirrored copy.
+
+For each picked shape, reflects it across the line x = at (axis "vertical") or y = at (axis "horizontal"). weld: true (default) unions the shape with its reflection into ONE path that keeps the shape's id and style, so you draw half a face, a wing or a vase and get the whole; points within `snap` of the axis are put on it first, so the halves meet without a hairline. weld: false adds the mirrored copy after the original instead (id <id>-mirror) with the exact curves. `at` is a number (the coordinate of the axis in the drawing), "canvas" (the drawing's middle line, default) or "start" / "end" (the shape's own left or top / right or bottom edge). Open lines cannot be welded and get a copy. Transforms are honoured. Returns a preview as `$image`. Example: {"source": "assets/art/face.svg", "elements": ["half"], "axis": "vertical", "at": 50}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `elements` | any | yes | The shapes to work on: an SVG id, a selector, or a list of them. A group stands for the shapes in it. Selectors: #id, .class, tag, [attr=value], g > path, path:first-child, :nth-child(2), lists with commas. |
+| `tolerance` | number | no | The largest distance, in drawing units (viewBox units), between the result and the exact outline. Default: 1/4000 of the drawing's longer side (1/500 for vector.simplify). |
+| `curves` | boolean | no | Return curves as cubic Beziers fitted to the result (the default). false keeps the polygon the operation computed. Default true. |
+| `cornerAngle` | number | no | Degrees of direction change (1 to 89) above which a vertex stays a sharp corner instead of being smoothed into a curve. Default 28. |
+| `axis` | string ["vertical","horizontal"] | yes | vertical: the mirror line is vertical, left and right swap. horizontal: top and bottom swap. |
+| `at` | any | no | Where the mirror line is: a number (x for a vertical axis, y for a horizontal one, in the drawing), "canvas" (default), "start" or "end" (the shape's own edge). |
+| `weld` | boolean | no | Union the shape with its reflection into one path (default). false adds the reflection as a copy. Default true. |
+| `snap` | number | no | Points this close to the axis are put on it before welding, in drawing units. Default: twice the tolerance. |
+
 ### `vector.offset` (modifies state)
 
 Not released yet (on main after 0.14.1).
@@ -4724,6 +4788,101 @@ Adds copies of one element (a shape or a group): mode "grid" lays out `columns` 
 | `orient` | boolean | no | Radial: turn each copy to follow the circle (default). false keeps every copy upright. Default true. |
 | `rotation` | number | no | Degrees each copy turns more than the previous one, about its own centre. Default 0. |
 | `bounds` | string ["visual","geometry"] | no | What a copy's size is measured with: "visual" (default) includes the stroke. |
+
+### `vector.shade` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Add a shadow band and a highlight band to shapes from the light direction.
+
+For each picked shape builds a shadow band (the part of the shape on the side away from the light: the shape minus itself pushed toward the light by `depth`) and a highlight band (on the light side, `highlightDepth` wide), as two new paths right after the shape (ids <id>-shadow, <id>-highlight) with the shape's transform, so they stay inside it. Colours: if the project's style palette (assets.json style.palette) has the fill, the next darker and lighter palette colours (its ramp when one is declared); otherwise the fill shifted in OKLab by `strength`; `shadowColour` / `highlightColour` override. `light` is the direction TOWARDS the light in degrees counter-clockwise from +x (90 from above, 135 upper-left) or a name; default: the style guide's lightDirection, else 135. Shapes need a solid fill (or explicit colours). Returns the bands and the light used, plus a preview as `$image`. Example: {"source": "assets/art/orb.svg", "elements": ["orb"], "light": "upper-left", "depth": 6}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `elements` | any | yes | The shapes to work on: an SVG id, a selector, or a list of them. A group stands for the shapes in it. Selectors: #id, .class, tag, [attr=value], g > path, path:first-child, :nth-child(2), lists with commas. |
+| `tolerance` | number | no | The largest distance, in drawing units (viewBox units), between the result and the exact outline. Default: 1/4000 of the drawing's longer side (1/500 for vector.simplify). |
+| `curves` | boolean | no | Return curves as cubic Beziers fitted to the result (the default). false keeps the polygon the operation computed. Default true. |
+| `cornerAngle` | number | no | Degrees of direction change (1 to 89) above which a vertex stays a sharp corner instead of being smoothed into a curve. Default 28. |
+| `light` | any | no | The direction TOWARDS the light: degrees counter-clockwise from +x (right) with y up, so 90 is from above and 135 from the upper left; or a name ("upper-left", "top"...); or "style". Default: the style guide's lightDirection, else 135. |
+| `depth` | number | no | The width of the shadow band in drawing units. Default 10% of the shape's smaller side. |
+| `highlightDepth` | number | no | The width of the highlight band. Default 60% of the shadow's. |
+| `shadow` | boolean | no | Build the shadow band. Default true. |
+| `highlight` | boolean | no | Build the highlight band. Default true. |
+| `shadowColour` | string | no | The shadow's colour. Default: derived from the fill. |
+| `highlightColour` | string | no | The highlight's colour. Default: derived from the fill. |
+| `strength` | number | no | How much lighter or darker the derived colours are, in OKLab lightness 0.01 to 0.6. Default 0.12. |
+| `shadowOpacity` | number | no | 0 to 1. Default 1. |
+| `highlightOpacity` | number | no | 0 to 1. Default 1. |
+
+### `vector.shape` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Add a star, gear, rounded polygon, arrow, speech bubble or ribbon to an SVG.
+
+Inserts a new element with exact geometry (the shapes AIs draw badly by hand) into an SVG file, SVG text or an svg layer of an image document, at the end of the drawing or of `parent`, with the `id`, `fill`, `stroke` and `transform` you give. kind "star" (points, innerRatio, roundness), "gear" (teeth, depth, toothWidth, hole), "polygon" (sides, cornerRadius: a rounded regular polygon), "arrow" (from, to, shaftWidth, headLength, headWidth, curve: straight or bent), "bubble" (width, height, cornerRadius, tailTo: a speech bubble whose tail points at the speaker) and "ribbon" (a banner with folded ends, a group of five paths). Curves are cubic Beziers. Sizes and positions are in the parent's coordinates (the viewBox for the top level); anything left out defaults to a good size in the middle of the drawing, so {"kind": "star"} works. Returns the new element, its bounds in the drawing and a preview as `$image`. Example: {"source": "assets/art/badge.svg", "kind": "gear", "teeth": 12, "center": [50, 50], "radius": 30, "fill": "#c0c4cc"}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `id` | string | no | The id of the new element (default: the kind, "star", "blob"..., or the next free "star-2"). An id the SVG already uses is an error. |
+| `parent` | string | no | An id or selector of ONE group (<g>) to put the element in, at its end. Default: the top level. Coordinates are the parent's own, so a translated or scaled group moves and scales the shape. |
+| `before` | string | no | An id or selector of ONE element: the new one goes in front of it in the drawing order (behind it on the picture), in the same group. |
+| `transform` | string | no | A transform attribute for the new element, e.g. "rotate(15 50 50)". |
+| `fill` | string | no | A CSS fill colour or "none". Default: a blue for closed shapes, none for open curves. |
+| `stroke` | string | no | A CSS stroke colour. Default: none for closed shapes, a dark slate for open curves. |
+| `strokeWidth` | number | no | Stroke width in the parent's units (default 1% of the drawing's longer side for open curves). |
+| `opacity` | number | no | 0 to 1. |
+| `attributes` | object | no | Any other attributes of the new element: {"class": "body", "stroke-linejoin": "round"}. |
+| `kind` | string ["star","gear","polygon","arrow","bubble","ribbon"] | yes | The shape to build. star: points, innerRatio, roundness. gear: teeth, depth, toothWidth, hole. polygon: sides, cornerRadius. arrow: from, to, shaftWidth, headLength, headWidth, curve. bubble: width, height, cornerRadius, tailTo, tailWidth. ribbon: width, height, extent, drop, notch, foldFill. |
+| `center` | array | no | The middle of the shape [x, y] in the parent's coordinates (star, gear, polygon, bubble, ribbon). Default: the middle of the drawing. |
+| `radius` | number | no | star, gear, polygon: the radius to the tips (star, gear) or corners (polygon). Default: 40% of the drawing's shorter side. |
+| `rotation` | number | no | star, gear, polygon: degrees clockwise on screen; where the first tip, tooth or corner points. Default -90 (up). |
+| `points` | integer | no | star: the number of tips, 3 to 128. Default 5. |
+| `innerRatio` | number | no | star: the radius of the valleys as a fraction of `radius` (0.02 to 0.98). Default 0.5. |
+| `roundness` | number | no | star: 0 sharp corners to 1 as round as the edges allow. Default 0. |
+| `teeth` | integer | no | gear: the number of teeth, 3 to 128. Default 8. |
+| `depth` | number | no | gear: the height of a tooth as a fraction of `radius` (0.02 to 0.6). Default 0.2. |
+| `toothWidth` | number | no | gear: the width of a tooth at its tip as a fraction of the distance between two teeth (0.1 to 0.9). Default 0.5. |
+| `hole` | number | no | gear: the radius of the centre hole as a fraction of `radius` (0 for none). Default 0.3. |
+| `sides` | integer | no | polygon: the number of sides, 3 to 128. Default 6. |
+| `cornerRadius` | number | no | polygon, bubble: the radius of the rounded corners, in the parent's units. polygon default 0; bubble default a quarter of the smaller side. |
+| `from` | array | no | arrow: where the shaft starts [x, y]. |
+| `to` | array | no | arrow: the tip of the head [x, y]. |
+| `shaftWidth` | number | no | arrow: the thickness of the shaft. Default 12% of the length. |
+| `headLength` | number | no | arrow: how far the head reaches back from the tip. Default 2.5 shaft widths. |
+| `headWidth` | number | no | arrow: the width of the head. Default 2.2 shaft widths. |
+| `curve` | number | no | arrow: the bend, -0.5 to 0.5 (the sagitta as a fraction of the length; 0.5 is a half circle); positive bends to the right of from -> to. Default 0. |
+| `width` | number | no | bubble: the width of the box; ribbon: the width of the front band. |
+| `height` | number | no | bubble: the height of the box; ribbon: the height of the front band. |
+| `tail` | boolean | no | bubble: false for a box without a tail (default true). |
+| `tailTo` | array | no | bubble: the tip of the tail [x, y], outside the box; the tail grows from the side nearest to it. Default: below the lower left. |
+| `tailWidth` | number | no | bubble: the width of the tail where it leaves the box. Default 30% of the smaller side. |
+| `tailRoundness` | number | no | bubble: 0 sharp tip to 1 round. Default 0.5. |
+| `extent` | number | no | ribbon: how far each tail sticks out past the band. Default 20% of the width. |
+| `drop` | number | no | ribbon: how much lower the tails sit than the band, also the size of the folds. Default 35% of the height. |
+| `notch` | number | no | ribbon: the depth of the V cut in the tail ends; 0 for straight ends. |
+| `foldFill` | string | no | ribbon: the colour of the folds (the tails are a step lighter). Default: darker shades of `fill`. |
+| `tolerance` | number | no | The largest distance, in drawing units (viewBox units), between the result and the exact outline. Default: 1/4000 of the drawing's longer side (1/500 for vector.simplify). |
+| `curves` | boolean | no | Return curves as cubic Beziers fitted to the result (the default). false keeps the polygon the operation computed. Default true. |
+| `cornerAngle` | number | no | Degrees of direction change (1 to 89) above which a vertex stays a sharp corner instead of being smoothed into a curve. Default 28. |
 
 ### `vector.simplify` (modifies state)
 
@@ -4827,6 +4986,46 @@ Applies assets.json `style` to the SVG: `outline` puts the guide's outline colou
 | `elements` | any | no | The shapes to work on: an SVG id, a selector, or a list of them. A group stands for the shapes in it. Default: every shape in the drawing. |
 | `outline` | any | no | true: the guide's outline. An object {"width", "color"}: that outline. false: none. Width is in pixels of the SVG's declared size. |
 | `palette` | any | no | true: snap to the guide's palette. A list of colours: snap to those. false: leave colours. |
+
+### `vector.text_to_path` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Turn text into path outlines with the engine's fonts, so it needs no font.
+
+Outlines text with the engine's own font stack (HarfBuzz shaping: kerning, ligatures, Arabic and other joining scripts, right-to-left; DejaVu Sans, the built-in families or a project .ttf / .otf) and inserts it as ONE <path> (fill-rule nonzero), so the picture does not depend on a font being installed. Give `text` (new outlines at `at`, with `size` the em height, `anchor` start / middle / end, `letterSpacing`, `lineSpacing`; \n starts a line) or `elements` (ids of <text> elements of the drawing, which become paths with their own id, fill, class and transform; position, font-size and text-anchor are read from them; pass `font` since families cannot be looked up by name). Characters no font has are left out with a warning. Returns the element, `advance` (the width of the widest line, in the parent's units), `glyphs` and a preview as `$image`. Example: {"source": "assets/art/title.svg", "text": "LEVEL 3", "font": "builtin:display", "size": 24, "at": [50, 40], "anchor": "middle"}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `id` | string | no | The id of the new element (default: the kind, "star", "blob"..., or the next free "star-2"). An id the SVG already uses is an error. |
+| `parent` | string | no | An id or selector of ONE group (<g>) to put the element in, at its end. Default: the top level. Coordinates are the parent's own, so a translated or scaled group moves and scales the shape. |
+| `before` | string | no | An id or selector of ONE element: the new one goes in front of it in the drawing order (behind it on the picture), in the same group. |
+| `transform` | string | no | A transform attribute for the new element, e.g. "rotate(15 50 50)". |
+| `fill` | string | no | A CSS fill colour or "none". Default: a blue for closed shapes, none for open curves. |
+| `stroke` | string | no | A CSS stroke colour. Default: none for closed shapes, a dark slate for open curves. |
+| `strokeWidth` | number | no | Stroke width in the parent's units (default 1% of the drawing's longer side for open curves). |
+| `opacity` | number | no | 0 to 1. |
+| `attributes` | object | no | Any other attributes of the new element: {"class": "body", "stroke-linejoin": "round"}. |
+| `elements` | any | no | The shapes to work on: an SVG id, a selector, or a list of them. A group stands for the shapes in it. Default: every shape in the drawing. |
+| `tolerance` | number | no | The largest distance, in drawing units (viewBox units), between the result and the exact outline. Default: 1/4000 of the drawing's longer side (1/500 for vector.simplify). |
+| `curves` | boolean | no | Return curves as cubic Beziers fitted to the result (the default). false keeps the polygon the operation computed. Default true. |
+| `cornerAngle` | number | no | Degrees of direction change (1 to 89) above which a vertex stays a sharp corner instead of being smoothed into a curve. Default 28. |
+| `text` | string | no | The text to outline (UTF-8). A newline starts a new line. |
+| `font` | string | no | "" / "builtin" (DejaVu Sans, the default), "builtin:serif", "builtin:hand", "builtin:display", "builtin:blackletter", "builtin:pixel", or a project-relative .ttf / .otf. The built-in DejaVu Sans fills in characters the font lacks. |
+| `size` | number | no | The em height in the parent's units (the font size). Default 20% of the drawing's shorter side. |
+| `at` | array | no | The start (see `anchor`) of the first baseline [x, y] in the parent's coordinates. Default: the middle of the drawing, centred. |
+| `anchor` | string ["start","middle","end"] | no | Which point of each line sits at `at`: its start (default when `at` is given), middle (default without `at`) or end. |
+| `letterSpacing` | number | no | Extra space after each letter, in ems. Default 0. |
+| `lineSpacing` | number | no | A multiplier of the font's line height for several lines. Default 1. |
 
 
 ## Scripting API (TypeScript declarations)

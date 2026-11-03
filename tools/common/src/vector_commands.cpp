@@ -15,6 +15,7 @@
 #include "util.h"
 #include "fa/tooling/image_doc.h"
 #include "vector_ops.h"
+#include "vector_shapes.h"
 
 namespace fa::vec {
 
@@ -547,6 +548,382 @@ Json cmd_style(Ctx& c) {
     return r;
 }
 
+// ---- shape builders: placement and the new elements -------------------------------------------------------------------------
+
+bool valid_id(const std::string& id) {
+    if (id.empty() || !(std::isalpha(static_cast<unsigned char>(id[0])) || id[0] == '_')) return false;
+    return std::all_of(id.begin(), id.end(), [](char ch) { return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-' || ch == '.' || ch == ':'; });
+}
+
+std::string str_arg(const Json& a, const char* cmd, const char* key, const std::string& def, const char* hint = "") {
+    auto it = a.find(key);
+    if (it == a.end() || it->is_null()) return def;
+    if (!it->is_string() || it->get<std::string>().empty())
+        arg_error(cmd, std::string("/") + key, std::format("`{}` must be a non-empty string, got {}.", key, describe_json_value(*it)), hint);
+    return it->get<std::string>();
+}
+
+bool point_arg(const Json& a, const char* cmd, const char* key, P& out, const char* meaning) {
+    auto it = a.find(key);
+    if (it == a.end() || it->is_null()) return false;
+    if (!it->is_array() || it->size() != 2 || !(*it)[0].is_number() || !(*it)[1].is_number() || !std::isfinite((*it)[0].get<double>()) || !std::isfinite((*it)[1].get<double>()))
+        arg_error(cmd, std::string("/") + key, "expected [x, y], got " + describe_json_value(*it) + ".", std::string(meaning) + " Example: [50, 40].");
+    out = P{(*it)[0].get<double>(), (*it)[1].get<double>()};
+    return true;
+}
+
+XNode* single_element(Ctx& c, const char* key) {
+    const Json& v = c.a[key];
+    if (!v.is_string()) arg_error(c.cmd, std::string("/") + key, "expected one SVG id or selector, got " + describe_json_value(v) + ".", "Run vector.info to list the ids.");
+    const std::vector<XNode*> found = select_elements(c.doc, v.get<std::string>(), c.cmd, std::string("/") + key);
+    if (found.size() != 1)
+        arg_error(c.cmd, std::string("/") + key, std::format("'{}' matches {} elements; exactly one is needed.", v.get<std::string>(), found.size()), "Use an id, or a more specific selector.");
+    return found[0];
+}
+
+Placement placement_of(Ctx& c, bool lineArt, const Settings& s) {
+    Placement at;
+    at.lineArt = lineArt;
+    at.id = str_arg(c.a, c.cmd, "id", "");
+    if (!at.id.empty() && !valid_id(at.id))
+        arg_error(c.cmd, "/id", std::format("'{}' is not a usable SVG id.", at.id), "Start with a letter or underscore, then letters, digits, - _ . : only (e.g. \"hero-star\").");
+    if (c.a.contains("parent")) {
+        at.parent = single_element(c, "parent");
+        if (!is_group_element(*at.parent))
+            arg_error(c.cmd, "/parent", std::format("{} is not a group, so nothing can be put in it.", describe_element(*at.parent)), "Name a <g> (or leave `parent` out for the top level).");
+    }
+    if (c.a.contains("before")) {
+        at.before = single_element(c, "before");
+        if (at.before == c.doc.root()) arg_error(c.cmd, "/before", "the root <svg> has no place before it.", "Name an element inside the drawing.");
+        if (at.parent && at.before->parent != at.parent)
+            arg_error(c.cmd, "/before", std::format("{} is not inside the `parent` group.", describe_element(*at.before)), "Name an element of that group, or leave `parent` out.");
+    }
+    at.transform = str_arg(c.a, c.cmd, "transform", "");
+    if (!at.transform.empty()) {
+        Mat m;
+        std::string err;
+        if (!parse_transform(at.transform, m, err)) arg_error(c.cmd, "/transform", err, "Example: \"rotate(15 50 50)\" or \"translate(10 0) scale(1.5)\".");
+    }
+    at.fill = str_arg(c.a, c.cmd, "fill", "", "A CSS colour such as \"#d94f4f\", or \"none\".");
+    at.stroke = str_arg(c.a, c.cmd, "stroke", "", "A CSS colour such as \"#101018\", or \"none\".");
+    if (c.a.contains("strokeWidth")) at.strokeWidth = num_arg(c.a, c.cmd, "strokeWidth", 0.0, 1e6, 1, "In the units of the parent.");
+    if (c.a.contains("opacity")) at.opacity = format_number(num_arg(c.a, c.cmd, "opacity", 0.0, 1.0, 1), 3);
+    const Rect canvas = c.doc.canvas();
+    at.defaultStrokeWidth = std::max(1.0, std::max(canvas.width(), canvas.height()) / 100.0);
+    (void)s;
+    if (c.a.contains("attributes")) {
+        const Json& at_ = c.a["attributes"];
+        if (!at_.is_object()) arg_error(c.cmd, "/attributes", "expected an object of attribute names and values, got " + describe_json_value(at_) + ".", "Example: {\"class\": \"body\", \"stroke-linejoin\": \"round\"}.");
+        for (auto it = at_.begin(); it != at_.end(); ++it) {
+            if (it.key() == "d" || it.key() == "id" || !valid_id(it.key()) || !(it->is_string() || it->is_number()))
+                arg_error(c.cmd, "/attributes/" + it.key(), "cannot be set here: `d` and `id` have their own arguments, names must be plain attribute names and values strings or numbers.", "");
+            at.attrs[it.key()] = it->is_string() ? it->get<std::string>() : format_number(it->get<double>(), 6);
+        }
+    }
+    return at;
+}
+
+// The parent's coordinates: the drawing's centre and a size to draw at when the call gives none.
+struct Frame {
+    P centre;
+    double unit;  // 40% of the drawing's shorter side, in the parent's units
+};
+Frame frame_of(Ctx& c, const Placement& at) {
+    XNode* parent = at.before ? (at.before->parent ? at.before->parent : c.doc.root()) : at.parent ? at.parent : c.doc.root();
+    const Mat m = element_ctm(*parent);
+    const Rect canvas = c.doc.canvas();
+    Frame f;
+    f.centre = m.invertible() ? inverse(m).apply(canvas.center()) : canvas.center();
+    f.unit = 0.4 * std::min(canvas.width(), canvas.height()) / std::max(m.scale(), 1e-9);
+    if (!(f.unit > 0)) f.unit = 40;
+    return f;
+}
+
+using KeyList = std::vector<std::string>;
+// The arguments each kind of vector.shape takes (besides the placement and the file arguments).
+const std::vector<std::pair<std::string, KeyList>>& shape_kinds() {
+    static const std::vector<std::pair<std::string, KeyList>> kinds = {
+        {"star", {"center", "radius", "points", "innerRatio", "roundness", "rotation"}},
+        {"gear", {"center", "radius", "teeth", "depth", "toothWidth", "hole", "rotation"}},
+        {"polygon", {"center", "radius", "sides", "cornerRadius", "rotation"}},
+        {"arrow", {"from", "to", "shaftWidth", "headLength", "headWidth", "curve"}},
+        {"bubble", {"center", "width", "height", "cornerRadius", "tail", "tailTo", "tailWidth", "tailRoundness"}},
+        {"ribbon", {"center", "width", "height", "extent", "drop", "notch", "foldFill"}},
+    };
+    return kinds;
+}
+
+Json cmd_shape(Ctx& c) {
+    std::vector<std::string> names;
+    for (const auto& k : shape_kinds()) names.push_back(k.first);
+    const std::string kind = enum_arg(c.a, c.cmd, "kind", names, "", true);
+    const KeyList* mine = nullptr;
+    for (const auto& k : shape_kinds())
+        if (k.first == kind) mine = &k.second;
+    // an argument of another kind is a mistake worth naming
+    for (const auto& k : shape_kinds()) {
+        if (k.first == kind) continue;
+        for (const std::string& key : k.second) {
+            if (c.a.contains(key) && std::find(mine->begin(), mine->end(), key) == mine->end()) {
+                std::string list;
+                for (const std::string& m : *mine) list += (list.empty() ? "" : ", ") + m;
+                arg_error(c.cmd, "/" + key, std::format("`{}` does not apply to kind \"{}\" (it belongs to \"{}\").", key, kind, k.first), "The arguments of \"" + kind + "\": " + list + ".");
+            }
+        }
+    }
+    const Settings s = settings_of(c, 4000);
+    const Placement at = placement_of(c, false, s);
+    const Frame fr = frame_of(c, at);
+    P centre = fr.centre;
+    point_arg(c.a, c.cmd, "center", centre, "The middle of the shape, in the parent's coordinates (default: the middle of the drawing).");
+    const double u = fr.unit;
+    auto num = [&](const char* key, double lo, double hi, double def, const char* hint = "") { return num_arg(c.a, c.cmd, key, lo, hi, def, hint); };
+    Path path;
+    std::vector<RibbonPiece> pieces;
+    Json extra = Json::object();
+    if (kind == "star") {
+        VecStarSpec sp;
+        sp.center = {centre.x, centre.y};
+        sp.radius = num("radius", 1e-6, 1e7, u, "The distance from the centre to the tips.");
+        sp.points = int_arg(c.a, c.cmd, "points", 3, 128, 5);
+        sp.innerRatio = num("innerRatio", 0.02, 0.98, 0.5, "The radius of the valleys as a fraction of `radius`: 0.5 is a classic star, 0.8 a fat one, 0.2 a sharp one.");
+        sp.roundness = num("roundness", 0, 1, 0, "0 keeps sharp corners, 1 rounds as far as the edges allow.");
+        sp.rotation = num("rotation", -3600, 3600, -90, "Degrees, clockwise on screen, 0 points right; -90 (default) puts the first tip up.");
+        path = build_star(sp);
+        extra["points"] = sp.points;
+    } else if (kind == "gear") {
+        VecGearSpec sp;
+        sp.center = {centre.x, centre.y};
+        sp.radius = num("radius", 1e-6, 1e7, u, "The distance from the centre to the tips of the teeth.");
+        sp.teeth = int_arg(c.a, c.cmd, "teeth", 3, 128, 8);
+        sp.depth = num("depth", 0.02, 0.6, 0.2, "The height of a tooth as a fraction of `radius`.");
+        sp.toothWidth = num("toothWidth", 0.1, 0.9, 0.5, "The width of a tooth at its tip as a fraction of the distance between two teeth.");
+        sp.hole = num("hole", 0, 0.9, 0.3, "The radius of the centre hole as a fraction of `radius`; 0 for none.");
+        sp.rotation = num("rotation", -3600, 3600, -90, "Degrees, clockwise on screen; where the first tooth points (-90 = up).");
+        if (sp.hole >= 1 - sp.depth - 0.05) arg_error(c.cmd, "/hole", std::format("a hole of {} of the radius reaches the teeth (their roots are at {}).", sp.hole, 1 - sp.depth), "Use a smaller hole or a smaller depth.");
+        path = build_gear(sp);
+        extra["teeth"] = sp.teeth;
+    } else if (kind == "polygon") {
+        VecPolygonSpec sp;
+        sp.center = {centre.x, centre.y};
+        sp.radius = num("radius", 1e-6, 1e7, u, "The radius of the circle through the corners.");
+        sp.sides = int_arg(c.a, c.cmd, "sides", 3, 128, 6);
+        sp.cornerRadius = num("cornerRadius", 0, 1e7, 0, "The radius of the rounded corners, in the parent's units. It is cut down where the sides are too short.");
+        sp.rotation = num("rotation", -3600, 3600, -90, "Degrees, clockwise on screen; where the first corner points (-90 = up).");
+        path = build_polygon(sp);
+        extra["sides"] = sp.sides;
+    } else if (kind == "arrow") {
+        VecArrowSpec sp;
+        P from{centre.x - u, centre.y}, to{centre.x + u, centre.y};
+        point_arg(c.a, c.cmd, "from", from, "Where the shaft starts, in the parent's coordinates.");
+        point_arg(c.a, c.cmd, "to", to, "The tip of the head.");
+        if (dist(from, to) < 1e-6) arg_error(c.cmd, "/to", "`from` and `to` are the same point, so the arrow has no length.", "Give two different points.");
+        const double len_ = dist(from, to);
+        sp.from = {from.x, from.y};
+        sp.to = {to.x, to.y};
+        sp.shaftWidth = num("shaftWidth", 1e-6, 1e7, len_ * 0.12, "The thickness of the shaft.");
+        sp.headLength = num("headLength", 1e-6, 1e7, std::min(len_ * 0.3, sp.shaftWidth * 2.5), "How far the head reaches back from the tip, along the arrow.");
+        sp.headWidth = num("headWidth", 1e-6, 1e7, sp.shaftWidth * 2.2, "The width of the head across the arrow.");
+        sp.curve = num("curve", -0.5, 0.5, 0, "The bend: 0 is straight; the sagitta as a fraction of the length (0.5 = a half circle); positive bends to the right of from -> to.");
+        if (sp.headLength > len_) arg_error(c.cmd, "/headLength", std::format("the head ({}) is longer than the arrow ({}).", sp.headLength, len_), "Use a shorter head or move `from` and `to` apart.");
+        path = build_arrow(sp);
+    } else if (kind == "bubble") {
+        VecBubbleSpec sp;
+        sp.center = {centre.x, centre.y};
+        sp.width = num("width", 1e-6, 1e7, u * 1.8, "The width of the box.");
+        sp.height = num("height", 1e-6, 1e7, u * 1.1, "The height of the box.");
+        sp.cornerRadius = num("cornerRadius", 0, 1e7, std::min(sp.width, sp.height) * 0.25, "The radius of the box's corners.");
+        sp.hasTail = arg_bool(c.a, "tail", true);
+        P tip{centre.x - sp.width * 0.25, centre.y + sp.height * 0.5 + sp.height * 0.55};
+        const bool tipGiven = point_arg(c.a, c.cmd, "tailTo", tip, "The tip of the tail, outside the box: it grows from the side of the box nearest to this point.");
+        if (!sp.hasTail && tipGiven) c.warnings.push_back("`tailTo` is ignored because `tail` is false.");
+        sp.tailTo = {tip.x, tip.y};
+        if (sp.hasTail && tip.x > centre.x - sp.width / 2 && tip.x < centre.x + sp.width / 2 && tip.y > centre.y - sp.height / 2 && tip.y < centre.y + sp.height / 2)
+            arg_error(c.cmd, "/tailTo", std::format("the tip [{}, {}] is inside the box (x {} to {}, y {} to {}).", tip.x, tip.y, centre.x - sp.width / 2, centre.x + sp.width / 2, centre.y - sp.height / 2, centre.y + sp.height / 2),
+                      "Put the tip outside the box, in the direction of whoever is speaking, or pass tail: false.");
+        sp.tailWidth = num("tailWidth", 1e-6, 1e7, std::min(sp.width, sp.height) * 0.3, "The width of the tail where it leaves the box.");
+        sp.tailRoundness = num("tailRoundness", 0, 1, 0.5, "0 is a sharp tip, 1 a round one.");
+        path = build_bubble(sp);
+    } else {
+        VecRibbonSpec sp;
+        sp.center = {centre.x, centre.y};
+        sp.width = num("width", 1e-6, 1e7, u * 1.4, "The width of the front band.");
+        sp.height = num("height", 1e-6, 1e7, sp.width * 0.27, "The height of the front band.");
+        sp.extent = num("extent", 0, 1e7, sp.width * 0.2, "How far each tail sticks out past the band.");
+        sp.drop = num("drop", 0, 1e7, sp.height * 0.35, "How much lower the tails sit than the band; also the size of the folds.");
+        sp.notch = num("notch", 0, 1e7, std::min(sp.extent, sp.height * 0.3), "The depth of the V cut in the end of a tail; 0 for a straight end.");
+        const VecRibbonPieces rp = vector_ribbon_paths(sp, s.outDecimals);
+        std::string foldFill = str_arg(c.a, c.cmd, "foldFill", "", "A CSS colour for the folds and tails; default: a darker shade of `fill`.");
+        std::string bandFill = !at.fill.empty() ? at.fill : "#d94f4f";
+        if (foldFill.empty()) {
+            std::array<std::uint8_t, 3> rgb{};
+            double al = 1;
+            foldFill = parse_css_colour(bandFill, rgb, al) ? oklab_shift(rgb, -1, 0.14) : "#8a2f2f";
+        }
+        std::string tailFill = foldFill;
+        {
+            std::array<std::uint8_t, 3> rgb{};
+            double al = 1;
+            if (c.a.contains("foldFill") == false && parse_css_colour(bandFill, rgb, al)) tailFill = oklab_shift(rgb, -1, 0.07);
+        }
+        pieces = {{"tail-left", rp.leftTail, tailFill}, {"tail-right", rp.rightTail, tailFill}, {"fold-left", rp.leftFold, foldFill}, {"fold-right", rp.rightFold, foldFill}, {"band", rp.band, bandFill}};
+    }
+    Placement placed = at;
+    Json r;
+    if (kind == "ribbon") {
+        placed.fill.clear();
+        r = op_add_group(c.doc, placed, "ribbon", pieces, s, c.warnings);
+    } else {
+        r = op_add_path(c.doc, placed, kind, path, s, c.warnings);
+    }
+    r["kind"] = kind;
+    for (auto it = extra.begin(); it != extra.end(); ++it) r[it.key()] = it.value();
+    return r;
+}
+
+Json cmd_blob(Ctx& c) {
+    const Settings s = settings_of(c, 4000);
+    VecBlobSpec sp;
+    auto it = c.a.find("points");
+    if (it == c.a.end() || !it->is_array())
+        arg_error(c.cmd, "/points", "`points` is required: a list of [x, y] points.", "Example: {\"points\": [[20, 50], [50, 20], [80, 50], [50, 85]]}.");
+    for (std::size_t i = 0; i < it->size(); ++i) {
+        const Json& p = (*it)[i];
+        if (!p.is_array() || p.size() != 2 || !p[0].is_number() || !p[1].is_number() || !std::isfinite(p[0].get<double>()) || !std::isfinite(p[1].get<double>()))
+            arg_error(c.cmd, std::format("/points/{}", i), "expected [x, y], got " + describe_json_value(p) + ".", "Each point is two numbers in the parent's coordinates: [50, 20].");
+        sp.points.push_back({p[0].get<double>(), p[1].get<double>()});
+    }
+    sp.closed = arg_bool(c.a, "closed", true);
+    const std::string fit = enum_arg(c.a, c.cmd, "fit", {"through", "around"}, "through");
+    sp.around = fit == "around";
+    sp.tension = num_arg(c.a, c.cmd, "tension", 0, 1.5, 0.5, "0 = straight lines between the points, 0.5 = the usual smooth curve (Catmull-Rom), more overshoots.");
+    if (sp.around && c.a.contains("tension")) c.warnings.push_back("`tension` is ignored with fit \"around\" (the curve is a B-spline of the control polygon).");
+    const std::size_t need = sp.closed ? 3 : 2;
+    if (sp.points.size() < need)
+        arg_error(c.cmd, "/points", std::format("{} point(s) are not enough for {}: at least {} are needed.", sp.points.size(), sp.closed ? "a closed blob" : "an open curve", need),
+                  sp.closed ? "Add points, or pass closed: false for an open curve." : "Add a second point.");
+    const Placement at = placement_of(c, !sp.closed, s);
+    Json r = op_add_path(c.doc, at, sp.closed ? "blob" : "curve", build_blob(sp), s, c.warnings);
+    r["fit"] = fit;
+    r["closed"] = sp.closed;
+    return r;
+}
+
+Json cmd_mirror(Ctx& c) {
+    const std::vector<XNode*> els = pick(c, "elements", true);
+    MirrorArgs a;
+    a.axis = enum_arg(c.a, c.cmd, "axis", {"vertical", "horizontal"}, "", true) == "vertical" ? Axis::Vertical : Axis::Horizontal;
+    auto it = c.a.find("at");
+    if (it != c.a.end() && !it->is_null()) {
+        if (it->is_number() && std::isfinite(it->get<double>())) {
+            a.atMode = "value";
+            a.at = it->get<double>();
+        } else if (it->is_string() && (it->get<std::string>() == "canvas" || it->get<std::string>() == "start" || it->get<std::string>() == "end")) {
+            a.atMode = it->get<std::string>();
+        } else {
+            arg_error(c.cmd, "/at", "expected a number or \"canvas\", \"start\" or \"end\", got " + describe_json_value(*it) + ".",
+                      "A number is the coordinate of the mirror line in the drawing (x for a vertical axis, y for a horizontal one); \"canvas\" is the drawing's middle line (default); \"start\" / \"end\" are the left (top) and right (bottom) edge of each shape.");
+        }
+    }
+    a.weld = arg_bool(c.a, "weld", true);
+    const Settings s = settings_of(c, 4000);
+    if (c.a.contains("snap")) a.snap = num_arg(c.a, c.cmd, "snap", 0, 1e6, 0, "Points of the shape this close to the axis are put on it, so the halves meet exactly. Drawing units.");
+    return op_mirror(c.doc, els, a, s, c.warnings);
+}
+
+Json cmd_text(Ctx& c) {
+    const Settings s = settings_of(c, 4000);
+    const bool hasText = c.a.contains("text"), hasEls = c.a.contains("elements");
+    if (hasText == hasEls)
+        arg_error(c.cmd, hasText ? "" : "/text", hasText ? "`text` and `elements` were both given." : "neither `text` nor `elements` was given.",
+                  "Give `text` to draw new outlines, or `elements` (the ids of <text> elements) to turn the ones in the drawing into paths.");
+    const std::string font = str_arg(c.a, c.cmd, "font", "", "\"\" / \"builtin\" (DejaVu Sans), \"builtin:serif\", \"builtin:hand\", \"builtin:display\", \"builtin:blackletter\", \"builtin:pixel\", or a project .ttf / .otf.");
+    if (hasEls) {
+        for (const char* k : {"size", "at", "anchor", "letterSpacing", "lineSpacing", "id", "parent", "before", "transform", "fill", "stroke", "strokeWidth", "opacity", "attributes"})
+            if (c.a.contains(k)) arg_error(c.cmd, std::string("/") + k, std::format("`{}` is for new text; with `elements` each <text> keeps its own position, size, fill and id.", k), "Leave it out, or use `text` instead of `elements`.");
+        assets_detail::ProjectRootGuard rootGuard(c.projectDir);
+        return op_text_to_path(c.doc, pick(c, "elements", true), font, s, c.warnings);
+    }
+    if (!c.a["text"].is_string() || c.a["text"].get<std::string>().empty())
+        arg_error(c.cmd, "/text", "`text` must be a non-empty string.", "Example: {\"text\": \"LEVEL 3\", \"size\": 24}.");
+    const Placement at = placement_of(c, false, s);
+    const Frame fr = frame_of(c, at);
+    TextArgs t;
+    t.text = c.a["text"].get<std::string>();
+    t.font = font;
+    t.size = num_arg(c.a, c.cmd, "size", 1e-3, 1e6, fr.unit * 0.5, "The height of an em in the parent's units (the font size).");
+    t.anchor = enum_arg(c.a, c.cmd, "anchor", {"start", "middle", "end"}, "start");
+    t.letterSpacing = num_arg(c.a, c.cmd, "letterSpacing", -2, 5, 0, "Extra space after each letter, in ems.");
+    t.lineSpacing = num_arg(c.a, c.cmd, "lineSpacing", 0.2, 5, 1, "A multiplier of the font's line height for texts with several lines.");
+    t.at = P{fr.centre.x, fr.centre.y};
+    if (t.anchor == "start") t.at.x -= 0.0;
+    point_arg(c.a, c.cmd, "at", t.at, "Where the text sits: the start (or middle, or end, see `anchor`) of the first baseline, in the parent's coordinates.");
+    if (!c.a.contains("at")) {
+        // centred in the drawing when no position is given
+        t.anchor = c.a.contains("anchor") ? t.anchor : "middle";
+    }
+    assets_detail::ProjectRootGuard rootGuard(c.projectDir);
+    return op_add_text(c.doc, at, t, s, c.warnings);
+}
+
+Json cmd_shade(Ctx& c) {
+    const std::vector<XNode*> els = pick(c, "elements", true);
+    const Settings s = settings_of(c, 4000);
+    ShadeArgs a;
+    assets_detail::ProjectRootGuard rootGuard(c.projectDir);
+    const StyleParse guide = load_style_guide();
+    for (const StyleProblem& p : guide.problems) c.warnings.push_back(std::format("assets.json {}: {}", p.pointer, p.message));
+    auto it = c.a.find("light");
+    if (it != c.a.end() && !it->is_null()) {
+        if (it->is_number() && std::isfinite(it->get<double>())) {
+            a.lightDegrees = std::fmod(std::fmod(it->get<double>(), 360.0) + 360.0, 360.0);
+            a.lightSource = "argument";
+        } else if (it->is_string() && it->get<std::string>() != "style") {
+            std::vector<std::string> names;
+            bool found = false;
+            for (const auto& n : light_direction_names()) {
+                names.push_back(n.first);
+                if (n.first == it->get<std::string>()) {
+                    a.lightDegrees = n.second;
+                    found = true;
+                }
+            }
+            if (!found) arg_error(c.cmd, "/light", std::format("'{}' is not a light direction.", it->get<std::string>()), did_you_mean(it->get<std::string>(), names) + " Names: " + [&] { std::string l; for (const auto& n : names) l += (l.empty() ? "" : ", ") + n; return l; }() + "; or degrees.");
+            a.lightSource = "argument";
+        } else if (!it->is_string()) {
+            arg_error(c.cmd, "/light", "expected degrees or a name, got " + describe_json_value(*it) + ".",
+                      "The direction TOWARDS the light, counter-clockwise from +x (right): 90 = from above, 135 = upper-left, 0 = from the right. Or a name: \"upper-left\", \"top\"... or \"style\".");
+        }
+    }
+    if (a.lightSource == "default") {
+        if (guide.guide.lightDirection) {
+            a.lightDegrees = *guide.guide.lightDirection;
+            a.lightSource = "style";
+        } else if (it != c.a.end() && it->is_string() && it->get<std::string>() == "style") {
+            c.warnings.push_back("The style guide (assets.json style.lightDirection) has no light direction; the default upper-left (135) was used.");
+        }
+    }
+    a.shadow = arg_bool(c.a, "shadow", true);
+    a.highlight = arg_bool(c.a, "highlight", true);
+    if (!a.shadow && !a.highlight) arg_error(c.cmd, "/shadow", "both `shadow` and `highlight` are false, so there is nothing to build.", "Leave one of them on.");
+    if (c.a.contains("depth")) a.depth = num_arg(c.a, c.cmd, "depth", 1e-6, 1e7, 1, "The width of the shadow band, in drawing units (default: 10% of the shape's smaller side).");
+    if (c.a.contains("highlightDepth")) a.highlightDepth = num_arg(c.a, c.cmd, "highlightDepth", 1e-6, 1e7, 1, "The width of the highlight band (default: 60% of the shadow's).");
+    a.strength = num_arg(c.a, c.cmd, "strength", 0.01, 0.6, 0.12, "How much lighter or darker the derived colours are, in OKLab lightness (0 to 1).");
+    a.shadowOpacity = num_arg(c.a, c.cmd, "shadowOpacity", 0, 1, 1);
+    a.highlightOpacity = num_arg(c.a, c.cmd, "highlightOpacity", 0, 1, 1);
+    for (const char* key : {"shadowColour", "highlightColour"}) {
+        std::string v = str_arg(c.a, c.cmd, key, "", "A CSS colour such as \"#2a2e5c\".");
+        std::array<std::uint8_t, 3> rgb{};
+        double al = 1;
+        if (!v.empty() && !parse_css_colour(v, rgb, al)) arg_error(c.cmd, std::string("/") + key, "'" + v + "' is not a colour this command can read.", "Use #rgb, #rrggbb, rgb(...), or a CSS colour name.");
+        (std::string_view(key) == "shadowColour" ? a.shadowColour : a.highlightColour) = v;
+    }
+    if (guide.guide.palette && !guide.guide.palette->empty()) a.palette = *guide.guide.palette;
+    Json r = op_shade(c.doc, els, a, s, c.warnings);
+    r["palette"] = a.palette.has_value() ? int(a.palette->size()) : 0;
+    return r;
+}
+
 Json cmd_info(Ctx& c) {
     const std::vector<XNode*> els = pick(c, "elements", false);
     return op_info(c.doc, els, c.warnings);
@@ -667,6 +1044,110 @@ void register_vector_commands(CommandRegistry& registry, const std::string& proj
                     Json::object({{"outline", Json::object({{"description", "true: the guide's outline. An object {\"width\", \"color\"}: that outline. false: none. Width is in pixels of the SVG's declared size."}})},
                                   {"palette", Json::object({{"description", "true: snap to the guide's palette. A list of colours: snap to those. false: leave colours."}})}}))),
         {}, false, cmd_style});
+    // ---- shape builders --------------------------------------------------------------------------------------------------
+    const Json placementProps = Json::object(
+        {{"id", str_prop("The id of the new element (default: the kind, \"star\", \"blob\"..., or the next free \"star-2\"). An id the SVG already uses is an error.")},
+         {"parent", str_prop("An id or selector of ONE group (<g>) to put the element in, at its end. Default: the top level. Coordinates are the parent's own, so a translated or scaled group moves and scales the shape.")},
+         {"before", str_prop("An id or selector of ONE element: the new one goes in front of it in the drawing order (behind it on the picture), in the same group.")},
+         {"transform", str_prop("A transform attribute for the new element, e.g. \"rotate(15 50 50)\".")},
+         {"fill", str_prop("A CSS fill colour or \"none\". Default: a blue for closed shapes, none for open curves.")},
+         {"stroke", str_prop("A CSS stroke colour. Default: none for closed shapes, a dark slate for open curves.")},
+         {"strokeWidth", num_prop("Stroke width in the parent's units (default 1% of the drawing's longer side for open curves).")},
+         {"opacity", num_prop("0 to 1.")},
+         {"attributes", Json::object({{"type", "object"}, {"description", "Any other attributes of the new element: {\"class\": \"body\", \"stroke-linejoin\": \"round\"}."}})}});
+    auto point_prop = [](const char* desc) { return Json::object({{"type", "array"}, {"items", Json::object({{"type", "number"}})}, {"minItems", 2}, {"maxItems", 2}, {"description", desc}}); };
+    auto int_prop = [](const char* desc, int lo, int hi) { return Json::object({{"type", "integer"}, {"minimum", lo}, {"maximum", hi}, {"description", desc}}); };
+    const Json shapeProps = Json::object(
+        {{"kind", enum_prop({"star", "gear", "polygon", "arrow", "bubble", "ribbon"}, "The shape to build. star: points, innerRatio, roundness. gear: teeth, depth, toothWidth, hole. polygon: sides, cornerRadius. arrow: from, to, shaftWidth, headLength, headWidth, curve. bubble: width, height, cornerRadius, tailTo, tailWidth. ribbon: width, height, extent, drop, notch, foldFill.")},
+         {"center", point_prop("The middle of the shape [x, y] in the parent's coordinates (star, gear, polygon, bubble, ribbon). Default: the middle of the drawing.")},
+         {"radius", num_prop("star, gear, polygon: the radius to the tips (star, gear) or corners (polygon). Default: 40% of the drawing's shorter side.")},
+         {"rotation", num_prop("star, gear, polygon: degrees clockwise on screen; where the first tip, tooth or corner points. Default -90 (up).")},
+         {"points", int_prop("star: the number of tips, 3 to 128. Default 5.", 3, 128)},
+         {"innerRatio", num_prop("star: the radius of the valleys as a fraction of `radius` (0.02 to 0.98). Default 0.5.")},
+         {"roundness", num_prop("star: 0 sharp corners to 1 as round as the edges allow. Default 0.")},
+         {"teeth", int_prop("gear: the number of teeth, 3 to 128. Default 8.", 3, 128)},
+         {"depth", num_prop("gear: the height of a tooth as a fraction of `radius` (0.02 to 0.6). Default 0.2.")},
+         {"toothWidth", num_prop("gear: the width of a tooth at its tip as a fraction of the distance between two teeth (0.1 to 0.9). Default 0.5.")},
+         {"hole", num_prop("gear: the radius of the centre hole as a fraction of `radius` (0 for none). Default 0.3.")},
+         {"sides", int_prop("polygon: the number of sides, 3 to 128. Default 6.", 3, 128)},
+         {"cornerRadius", num_prop("polygon, bubble: the radius of the rounded corners, in the parent's units. polygon default 0; bubble default a quarter of the smaller side.")},
+         {"from", point_prop("arrow: where the shaft starts [x, y].")},
+         {"to", point_prop("arrow: the tip of the head [x, y].")},
+         {"shaftWidth", num_prop("arrow: the thickness of the shaft. Default 12% of the length.")},
+         {"headLength", num_prop("arrow: how far the head reaches back from the tip. Default 2.5 shaft widths.")},
+         {"headWidth", num_prop("arrow: the width of the head. Default 2.2 shaft widths.")},
+         {"curve", num_prop("arrow: the bend, -0.5 to 0.5 (the sagitta as a fraction of the length; 0.5 is a half circle); positive bends to the right of from -> to. Default 0.")},
+         {"width", num_prop("bubble: the width of the box; ribbon: the width of the front band.")},
+         {"height", num_prop("bubble: the height of the box; ribbon: the height of the front band.")},
+         {"tail", Json::object({{"type", "boolean"}, {"description", "bubble: false for a box without a tail (default true)."}})},
+         {"tailTo", point_prop("bubble: the tip of the tail [x, y], outside the box; the tail grows from the side nearest to it. Default: below the lower left.")},
+         {"tailWidth", num_prop("bubble: the width of the tail where it leaves the box. Default 30% of the smaller side.")},
+         {"tailRoundness", num_prop("bubble: 0 sharp tip to 1 round. Default 0.5.")},
+         {"extent", num_prop("ribbon: how far each tail sticks out past the band. Default 20% of the width.")},
+         {"drop", num_prop("ribbon: how much lower the tails sit than the band, also the size of the folds. Default 35% of the height.")},
+         {"notch", num_prop("ribbon: the depth of the V cut in the tail ends; 0 for straight ends.")},
+         {"foldFill", str_prop("ribbon: the colour of the folds (the tails are a step lighter). Default: darker shades of `fill`.")}});
+    defs.push_back({"vector.shape", "Add a star, gear, rounded polygon, arrow, speech bubble or ribbon to an SVG.",
+        "Inserts a new element with exact geometry (the shapes AIs draw badly by hand) into an SVG file, SVG text or an svg layer of an image document, at the end of the drawing or of `parent`, with the `id`, `fill`, `stroke` and `transform` you give. "
+        "kind \"star\" (points, innerRatio, roundness), \"gear\" (teeth, depth, toothWidth, hole), \"polygon\" (sides, cornerRadius: a rounded regular polygon), \"arrow\" (from, to, shaftWidth, headLength, headWidth, curve: straight or bent), "
+        "\"bubble\" (width, height, cornerRadius, tailTo: a speech bubble whose tail points at the speaker) and \"ribbon\" (a banner with folded ends, a group of five paths). Curves are cubic Beziers. "
+        "Sizes and positions are in the parent's coordinates (the viewBox for the top level); anything left out defaults to a good size in the middle of the drawing, so {\"kind\": \"star\"} works. "
+        "Returns the new element, its bounds in the drawing and a preview as `$image`. Example: {\"source\": \"assets/art/badge.svg\", \"kind\": \"gear\", \"teeth\": 12, \"center\": [50, 50], \"radius\": 30, \"fill\": \"#c0c4cc\"}. Docs: docs.read VECTOR.",
+        merge_props(merge_props(common, merge_props(placementProps, shapeProps)), geometry_props()), {"kind"}, false, cmd_shape});
+    defs.push_back({"vector.blob", "Add a smooth organic shape or curve through or around a few points.",
+        "Inserts a smooth closed blob (or, with closed: false, an open curve) built from a few [x, y] points. fit \"through\" (default): the curve passes through every point as a cardinal spline, `tension` 0 (straight lines) to 1.5, 0.5 is the usual smooth curve. "
+        "fit \"around\": the points are a control polygon, a uniform B-spline that stays inside it and never touches it, always smooth. A closed blob needs 3 points, an open curve 2 and gets a stroke and no fill by default. "
+        "Same placement arguments as vector.shape. Returns the new element and a preview as `$image`. Example: {\"source\": \"assets/art/cloud.svg\", \"points\": [[20,60],[35,35],[60,30],[80,50],[70,75],[40,80]], \"tension\": 0.6, \"fill\": \"#e8eef7\"}. Docs: docs.read VECTOR.",
+        merge_props(merge_props(common, merge_props(placementProps, geometry_props())),
+                    Json::object({{"points", Json::object({{"type", "array"}, {"items", point_prop("One [x, y] point in the parent's coordinates.")}, {"description", "The points the curve goes through or around, in order (3 or more when closed, 2 or more when open)."}})},
+                                  {"closed", bool_prop("A closed blob (default) or an open curve.", true)},
+                                  {"fit", enum_prop({"through", "around"}, "through: the curve passes through the points (default). around: the points are a control polygon the curve stays inside of.")},
+                                  {"tension", num_prop("With fit \"through\": 0 straight lines, 0.5 smooth (default), up to 1.5 loose and overshooting.")}})),
+        {"points"}, false, cmd_blob});
+    defs.push_back({"vector.mirror", "Mirror shapes across a vertical or horizontal axis and weld the halves, or add the mirrored copy.",
+        "For each picked shape, reflects it across the line x = at (axis \"vertical\") or y = at (axis \"horizontal\"). weld: true (default) unions the shape with its reflection into ONE path that keeps the shape's id and style, so you draw half a face, a wing or a vase and get the whole; "
+        "points within `snap` of the axis are put on it first, so the halves meet without a hairline. weld: false adds the mirrored copy after the original instead (id <id>-mirror) with the exact curves. "
+        "`at` is a number (the coordinate of the axis in the drawing), \"canvas\" (the drawing's middle line, default) or \"start\" / \"end\" (the shape's own left or top / right or bottom edge). Open lines cannot be welded and get a copy. "
+        "Transforms are honoured. Returns a preview as `$image`. Example: {\"source\": \"assets/art/face.svg\", \"elements\": [\"half\"], \"axis\": \"vertical\", \"at\": 50}. Docs: docs.read VECTOR.",
+        merge_props(merge_props(common, merge_props(elementsRequired, geometry_props())),
+                    Json::object({{"axis", enum_prop({"vertical", "horizontal"}, "vertical: the mirror line is vertical, left and right swap. horizontal: top and bottom swap.")},
+                                  {"at", Json::object({{"description", "Where the mirror line is: a number (x for a vertical axis, y for a horizontal one, in the drawing), \"canvas\" (default), \"start\" or \"end\" (the shape's own edge)."},
+                                                       {"oneOf", Json::array({Json::object({{"type", "number"}}), Json::object({{"type", "string"}, {"enum", Json::array({"canvas", "start", "end"})}})})}})},
+                                  {"weld", bool_prop("Union the shape with its reflection into one path (default). false adds the reflection as a copy.", true)},
+                                  {"snap", num_prop("Points this close to the axis are put on it before welding, in drawing units. Default: twice the tolerance.")}})),
+        {"elements", "axis"}, false, cmd_mirror});
+    defs.push_back({"vector.text_to_path", "Turn text into path outlines with the engine's fonts, so it needs no font.",
+        "Outlines text with the engine's own font stack (HarfBuzz shaping: kerning, ligatures, Arabic and other joining scripts, right-to-left; DejaVu Sans, the built-in families or a project .ttf / .otf) and inserts it as ONE <path> (fill-rule nonzero), "
+        "so the picture does not depend on a font being installed. Give `text` (new outlines at `at`, with `size` the em height, `anchor` start / middle / end, `letterSpacing`, `lineSpacing`; \\n starts a line) or `elements` (ids of <text> elements of the drawing, which become paths with their own id, fill, class and transform; "
+        "position, font-size and text-anchor are read from them; pass `font` since families cannot be looked up by name). Characters no font has are left out with a warning. "
+        "Returns the element, `advance` (the width of the widest line, in the parent's units), `glyphs` and a preview as `$image`. Example: {\"source\": \"assets/art/title.svg\", \"text\": \"LEVEL 3\", \"font\": \"builtin:display\", \"size\": 24, \"at\": [50, 40], \"anchor\": \"middle\"}. Docs: docs.read VECTOR.",
+        merge_props(merge_props(common, merge_props(placementProps, merge_props(elementsOptional, geometry_props()))),
+                    Json::object({{"text", str_prop("The text to outline (UTF-8). A newline starts a new line.")},
+                                  {"font", str_prop("\"\" / \"builtin\" (DejaVu Sans, the default), \"builtin:serif\", \"builtin:hand\", \"builtin:display\", \"builtin:blackletter\", \"builtin:pixel\", or a project-relative .ttf / .otf. The built-in DejaVu Sans fills in characters the font lacks.")},
+                                  {"size", num_prop("The em height in the parent's units (the font size). Default 20% of the drawing's shorter side.")},
+                                  {"at", point_prop("The start (see `anchor`) of the first baseline [x, y] in the parent's coordinates. Default: the middle of the drawing, centred.")},
+                                  {"anchor", enum_prop({"start", "middle", "end"}, "Which point of each line sits at `at`: its start (default when `at` is given), middle (default without `at`) or end.")},
+                                  {"letterSpacing", num_prop("Extra space after each letter, in ems. Default 0.")},
+                                  {"lineSpacing", num_prop("A multiplier of the font's line height for several lines. Default 1.")}})),
+        {}, false, cmd_text});
+    defs.push_back({"vector.shade", "Add a shadow band and a highlight band to shapes from the light direction.",
+        "For each picked shape builds a shadow band (the part of the shape on the side away from the light: the shape minus itself pushed toward the light by `depth`) and a highlight band (on the light side, `highlightDepth` wide), "
+        "as two new paths right after the shape (ids <id>-shadow, <id>-highlight) with the shape's transform, so they stay inside it. Colours: if the project's style palette (assets.json style.palette) has the fill, the next darker and lighter palette colours (its ramp when one is declared); otherwise the fill shifted in OKLab by `strength`; `shadowColour` / `highlightColour` override. "
+        "`light` is the direction TOWARDS the light in degrees counter-clockwise from +x (90 from above, 135 upper-left) or a name; default: the style guide's lightDirection, else 135. Shapes need a solid fill (or explicit colours). Returns the bands and the light used, plus a preview as `$image`. "
+        "Example: {\"source\": \"assets/art/orb.svg\", \"elements\": [\"orb\"], \"light\": \"upper-left\", \"depth\": 6}. Docs: docs.read VECTOR.",
+        merge_props(merge_props(common, merge_props(elementsRequired, geometry_props())),
+                    Json::object({{"light", Json::object({{"description", "The direction TOWARDS the light: degrees counter-clockwise from +x (right) with y up, so 90 is from above and 135 from the upper left; or a name (\"upper-left\", \"top\"...); or \"style\". Default: the style guide's lightDirection, else 135."},
+                                                          {"oneOf", Json::array({Json::object({{"type", "number"}}), Json::object({{"type", "string"}})})}})},
+                                  {"depth", num_prop("The width of the shadow band in drawing units. Default 10% of the shape's smaller side.")},
+                                  {"highlightDepth", num_prop("The width of the highlight band. Default 60% of the shadow's.")},
+                                  {"shadow", bool_prop("Build the shadow band.", true)},
+                                  {"highlight", bool_prop("Build the highlight band.", true)},
+                                  {"shadowColour", str_prop("The shadow's colour. Default: derived from the fill.")},
+                                  {"highlightColour", str_prop("The highlight's colour. Default: derived from the fill.")},
+                                  {"strength", num_prop("How much lighter or darker the derived colours are, in OKLab lightness 0.01 to 0.6. Default 0.12.")},
+                                  {"shadowOpacity", num_prop("0 to 1. Default 1.")},
+                                  {"highlightOpacity", num_prop("0 to 1. Default 1.")}})),
+        {"elements"}, false, cmd_shade});
     defs.push_back({"vector.info", "List the shapes and groups of an SVG with ids, bounds and node counts.",
         "Reads an SVG and lists its drawable elements: id, tag, bounds in the drawing space (viewBox units), node count, fill, stroke and transform, plus the canvas. Use it to find the ids the other vector.* commands take. Changes nothing. "
         "Example: {\"source\": \"assets/art/badge.svg\"}. Docs: docs.read VECTOR.",
