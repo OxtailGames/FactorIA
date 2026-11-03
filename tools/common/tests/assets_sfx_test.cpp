@@ -255,3 +255,138 @@ TEST_CASE("assets.synth_sound is a preset rendered through the patch synthesizer
     CHECK(loudness->seconds == doctest::Approx(0.3).epsilon(0.05));
     CHECK(p.manifest()["assets"]["assets/audio/hit.wav"]["provenance"]["recipe"]["command"] == "assets.synth_sound");
 }
+
+namespace {
+
+// The failed call as {"error": {code, message, hint}}.
+Json failed_call(const AssetsProject& p, const std::string& name, const Json& args) {
+    CommandResult r = p.call(name, args);
+    REQUIRE_FALSE(r.ok);
+    return Json::object({{"error", r.error}});
+}
+
+// A sustained, filtered saw: long enough that every family member reaches the loudness target instead of the peak ceiling.
+const char* kBase = R"({"format": "factoria.sfx/1", "doc": "ui base", "length": 0.5, "seed": 3,
+    "variations": {"count": 4, "seed": 9},
+    "layers": [{"oscillators": [{"wave": "saw"}, {"wave": "square", "detune": 7, "gain": 0.5}], "pitch": {"note": "C5"},
+                "amp": {"attack": 0.004, "decay": 0.06, "sustain": 0.5, "release": 0.05}, "filter": {"mode": "lowpass", "cutoff": 3200, "resonance": 1}}],
+    "master": {"effects": [{"type": "reverb", "size": 0.3, "decay": 0.2, "mix": 0.12}], "normalize": {"mode": "lufs", "target": -18, "ceilingDb": -0.5}}})";
+
+}  // namespace
+
+TEST_CASE("sfx.render: macros change one render, are remembered in the recipe and reject unknown names") {
+    AssetsProject p;
+    write_all(p.file("assets/audio/base.sfx.json"), kBase);
+    const Json plain = p.ok("sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"picture", false}});
+    const Json bright = p.ok("sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"picture", false}, {"macros", {{"brightness", 0.8}}}});
+    CHECK(bright["measurements"]["centroidHz"].get<double>() > plain["measurements"]["centroidHz"].get<double>());
+    const Json longer = p.ok("sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"picture", false}, {"macros", {{"tail", 0.6}}}});
+    CHECK(longer["measurements"]["seconds"].get<double>() > plain["measurements"]["seconds"].get<double>());
+    CHECK(recipe_of(p, "assets/audio/base.wav")["args"]["macros"]["tail"] == 0.6);
+
+    const Json bad = failed_call(p, "sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"macros", {{"brigthness", 0.2}}}});
+    CHECK(bad["error"]["message"].get<std::string>().find("brigthness") != std::string::npos);
+    CHECK(bad["error"]["hint"].get<std::string>().find("brightness") != std::string::npos);
+    const Json range = failed_call(p, "sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"macros", {{"weight", 3}}}});
+    INFO(range.dump());
+    CHECK(range["error"]["message"].get<std::string>().find("/macros/weight") != std::string::npos);
+}
+
+TEST_CASE("sfx.render, sfx.bake: variants are baked as name_NN.wav, each with its own recipe, stale together with the patch") {
+    AssetsProject p;
+    write_all(p.file("assets/audio/base.sfx.json"), kBase);
+
+    const Json one = p.ok("sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"variant", 2}, {"picture", false}});
+    CHECK(one["path"] == "assets/audio/base_02.wav");
+    CHECK(one["variant"] == 2);
+    CHECK(recipe_of(p, "assets/audio/base_02.wav")["args"]["variant"] == 2);
+
+    const Json all = p.ok("sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"variants", true}});
+    REQUIRE(all["variants"].size() == 4);
+    CHECK(all["variants"][3]["path"] == "assets/audio/base_04.wav");
+    CHECK(all.contains("$image"));
+    CHECK(all["loudness"]["spreadLu"].get<double>() <= 2.1);
+    // the variants are different takes, not copies
+    CHECK(read_all(p.file("assets/audio/base_01.wav")) != read_all(p.file("assets/audio/base_02.wav")));
+    CHECK(p.exists("assets/audio/base_04.wav"));
+    CHECK_FALSE(p.exists("assets/audio/base.wav"));
+
+    const Json noVariants = failed_call(p, "sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"variant", 5}});
+    CHECK(noVariants["error"]["message"].get<std::string>().find("has 4") != std::string::npos);
+    const Json both = failed_call(p, "sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"variants", true}, {"out", "assets/audio/x.wav"}});
+    CHECK(both["error"]["code"] == "invalid_argument");
+
+    // bake: the base is missing, the variants are up to date until the patch changes
+    const Json b1 = p.ok("sfx.bake", {});
+    CHECK(b1["count"] == 1);
+    CHECK(b1["baked"][0]["out"] == "assets/audio/base.wav");
+    CHECK(p.ok("sfx.bake", {})["count"] == 0);
+    Json patch = parse_json(read_all(p.file("assets/audio/base.sfx.json")), "t").value();
+    patch["length"] = 0.3;
+    write_all(p.file("assets/audio/base.sfx.json"), patch.dump(2));
+    const Json b2 = p.ok("sfx.bake", {});
+    CHECK(b2["count"] == 5);
+    const Json info = p.ok("sfx.info", {{"path", "assets/audio/base.sfx.json"}});
+    CHECK(info["variations"]["count"] == 4);
+    CHECK(info["variations"]["files"][0]["exists"] == true);
+    CHECK(info["macros"].contains("brightness"));
+    CHECK(info["measurements"].contains("centroidHz"));
+}
+
+TEST_CASE("sfx.tweak: macro amounts are added to the declared ones, written to the patch, and the measurements move") {
+    AssetsProject p;
+    write_all(p.file("assets/audio/base.sfx.json"), kBase);
+    const Json r = p.ok("sfx.tweak", {{"path", "assets/audio/base.sfx.json"}, {"macros", {{"brightness", 0.5}}}});
+    CHECK(r["macros"]["brightness"]["before"] == 0.0);
+    CHECK(r["macros"]["brightness"]["after"] == 0.5);
+    CHECK(r["measurements"]["centroidHz"].get<double>() > r["measurementsBefore"]["centroidHz"].get<double>());
+    CHECK(r.contains("$image"));
+    CHECK(r["variants"].size() == 4);
+    const Json written = parse_json(read_all(p.file("assets/audio/base.sfx.json")), "t").value();
+    CHECK(written["macros"]["brightness"] == 0.5);
+    CHECK(written["doc"] == "ui base");
+
+    const Json again = p.ok("sfx.tweak", {{"path", "assets/audio/base.sfx.json"}, {"macros", {{"brightness", 0.9}}}, {"picture", false}});
+    CHECK(again["macros"]["brightness"]["before"] == 0.5);
+    CHECK(again["macros"]["brightness"]["after"] == 1.0);  // clamped
+    const Json absolute = p.ok("sfx.tweak", {{"path", "assets/audio/base.sfx.json"}, {"macros", {{"brightness", -0.25}}}, {"absolute", true}, {"render", false}});
+    CHECK(absolute["macros"]["brightness"]["after"] == -0.25);
+    CHECK_FALSE(absolute.contains("measurements"));
+
+    const Json bad = failed_call(p, "sfx.tweak", {{"path", "assets/audio/base.sfx.json"}, {"macros", {{"tial", 0.1}}}});
+    CHECK(bad["error"]["hint"].get<std::string>().find("tail") != std::string::npos);
+    const Json empty = failed_call(p, "sfx.tweak", {{"path", "assets/audio/base.sfx.json"}, {"macros", Json::object()}});
+    CHECK(empty["error"]["code"] == "invalid_argument");
+}
+
+TEST_CASE("sfx.family: a set of interface sounds from one base that share its timbre and loudness") {
+    AssetsProject p;
+    write_all(p.file("assets/audio/ui.sfx.json"), kBase);
+    const Json r = p.ok("sfx.family", {{"from", "assets/audio/ui.sfx.json"}, {"preset", "ui"}});
+    CHECK(r["out"] == "assets/audio/ui_family");
+    REQUIRE(r["sounds"].size() == 8);
+    CHECK(r.contains("$image"));
+    CHECK(r["loudness"]["spreadLu"].get<double>() < 3.0);
+    for (const Json& s : r["sounds"]) {
+        const double lufs = s["measurements"]["lufs"].get<double>();
+        CHECK(lufs == doctest::Approx(-18.0).epsilon(0.14));
+        CHECK(s["measurements"]["peakDb"].get<double>() <= -0.4);
+    }
+    CHECK(p.exists("assets/audio/ui_family/click.sfx.json"));
+    CHECK(p.exists("assets/audio/ui_family/error.wav"));
+    // each member is a patch of its own, copied from the base
+    const Json confirm = parse_json(read_all(p.file("assets/audio/ui_family/confirm.sfx.json")), "t").value();
+    CHECK(confirm["layers"][0]["oscillators"] == parse_json(kBase, "t").value()["layers"][0]["oscillators"]);
+    CHECK(confirm["layers"][0]["pitch"]["arpeggio"]["steps"].size() == 2);
+    CHECK(recipe_of(p, "assets/audio/ui_family/confirm.wav")["inputs"][0]["path"] == "assets/audio/ui_family/confirm.sfx.json");
+    // the sounds differ from each other
+    CHECK(read_all(p.file("assets/audio/ui_family/click.wav")) != read_all(p.file("assets/audio/ui_family/hover.wav")));
+
+    const Json exists = failed_call(p, "sfx.family", {{"from", "assets/audio/ui.sfx.json"}, {"preset", "ui"}});
+    CHECK(exists["error"]["code"] == "exists");
+    const Json some = p.ok("sfx.family", {{"from", "assets/audio/ui.sfx.json"}, {"names", Json::array({"click", "open"})}, {"out", "assets/audio/few"}, {"render", false}});
+    CHECK(some["sounds"].size() == 2);
+    CHECK_FALSE(p.exists("assets/audio/few/click.wav"));
+    const Json bad = failed_call(p, "sfx.family", {{"from", "assets/audio/ui.sfx.json"}, {"names", Json::array({"clik"})}});
+    CHECK(bad["error"]["hint"].get<std::string>().find("click") != std::string::npos);
+}

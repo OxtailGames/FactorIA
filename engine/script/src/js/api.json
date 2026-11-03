@@ -1188,6 +1188,10 @@
        "doc": "The bus to play on: \"sfx\" (default), \"music\", \"ui\" or a bus declared in factoria.json \"audio\".\"buses\". Throws, listing the buses, for another name."
       },
       {
+       "sig": "variants?: number",
+       "doc": "The clip has this many baked variants (2..64): play one of path_01 ... path_NN instead of `path` itself (\"assets/sfx/step.wav\" plays assets/sfx/step_03.wav), picked with the world RNG (seeded per run, so a replay hears the same takes) and never the one played last for that path. sfx.bake writes the variants of a sound patch that declares `variations`. Example: audio.play(\"assets/sfx/step.wav\", { variants: 6 })."
+      },
+      {
        "sig": "caption?: string",
        "doc": "A subtitle for this sound, plain text. It shows on the Captions component while the sound plays and goes when the sound ends or is stopped (audio.stop, audio.stopAll). With no Captions entity it is only tracked (game.captions() in tests). Use captionKey for a text that follows the language."
       },
@@ -1252,6 +1256,10 @@
       {
        "sig": "play(path: string, opts?: PlayOptions): number",
        "doc": "Plays a clip, returns a voice id. With caption / captionKey the sound also shows a subtitle on the Captions component for as long as it plays (docs/TEXT.md, \"Captions\")."
+      },
+      {
+       "sig": "variantPath(path: string, variant: number, count: number): string",
+       "doc": "The file name of baked variant `variant` (1..count) of a clip: variantPath(\"assets/sfx/step.wav\", 3, 8) is \"assets/sfx/step_03.wav\". The naming sfx.bake uses for a sound patch with `variations`: two digits, three from 100 variants. Throws for a count outside 2..64 or a variant outside 1..count."
       },
       {
        "sig": "stop(voice: number): void",

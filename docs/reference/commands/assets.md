@@ -850,70 +850,6 @@ Validates `document` (the layered image document as JSON: canvas width and heigh
 | `path` | string | yes | Where to write the document, project-relative, ending in .image.json. |
 | `document` | object | yes | The image document: {"width", "height", "background"?, "output"?, "layers": [...]}. See docs.read IMAGES for the layer kinds. |
 | `bake` | boolean | no | Also draw the PNG. False only checks and writes the document. Default true. |
-## `sfx.bake` (modifies state)
-
-Not released yet (on main after 0.14.1).
-
-Render every sound patch of the project whose WAV is missing or out of date.
-
-Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's path with .wav) does not exist, or was made by sfx.render from a patch that has changed since (the recipe's input hash differs: the same check project.validate does). Sounds that are up to date are left alone, a file at that path that sfx.render did not make is skipped and reported, and a patch with mistakes is listed in `failed` with its issues while the others are still baked. An existing recipe keeps its own arguments (seed, note, an .ogg `out`). No pictures are returned; use sfx.render for one patch. Example: {"dryRun":true} lists what would be rendered.
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `force` | boolean | no | Render every patch again, even when its sound is up to date. Default false. |
-| `dryRun` | boolean | no | List what would be rendered and why, and write nothing. Default false. |
-
-## `sfx.info`
-
-Not released yet (on main after 0.14.1).
-
-Check a sound patch and say what it holds and how loud it renders, without writing anything.
-
-Reads a sound patch from `path`, or takes it inline as `patch` (JSON) or by `preset` name, and checks it against the format (docs/SOUND.md). A patch with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and how to fix it, so one call is enough to repair it. A valid patch returns its layers (oscillators, start, pitch), its effects, the base pitch (rootHz), whether its baked sound exists and is stale, and the loudness, peak and length it renders to (it is rendered in memory; nothing is written). Example: {"path":"assets/audio/coin.sfx.json"}
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `path` | string | no | A sound patch file, project-relative, ending in .sfx.json. |
-| `patch` | object | no | The patch itself, as JSON, to check before writing it to a file. |
-| `preset` | string | no | The name of a preset (see sfx.preset). |
-| `seed` | integer | no | Render this take for the measurements (default 0). |
-
-## `sfx.preset` (modifies state)
-
-Not released yet (on main after 0.14.1).
-
-List the sound presets, return one as an editable patch, or write it to a *.sfx.json file.
-
-The presets of assets.synth_sound (bark, growl, meow, screech, whoosh, explosion, hit, coin, pickup, jump, powerup, laser, blip, click, error, splash, footstep) are sound patches shipped in the engine. Without `name` this lists them. With `name` it returns the patch (the exact JSON that renders): read it to learn the format, or change it. With `name` and `path` it writes the patch to that *.sfx.json file under assets/ (an existing file is an error unless overwrite is true), ready for sfx.render. Example: {"name":"laser","path":"assets/audio/laser.sfx.json"}
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | no | The preset to return. Leave out to list them all. |
-| `path` | string | no | Write the patch here: project-relative, under assets/, ending in .sfx.json. |
-| `overwrite` | boolean | no | Replace the file when it exists. Default false. |
-
-## `sfx.render` (modifies state)
-
-Not released yet (on main after 0.14.1).
-
-Render a sound patch (*.sfx.json) to a WAV or OGG next to it and see its spectrogram: the engine's own synthesizer, offline and deterministic.
-
-Reads the sound patch at `path` (assets/.../name.sfx.json, format factoria.sfx/1: layers of oscillators with envelopes, pitch sweeps and arpeggios, filters, FM and ring modulation, distortion, bitcrush, delay and reverb; docs/SOUND.md and schemas/sfx.schema.json) and renders it to mono 16-bit WAV at `out` (default: the patch's path with .wav; a path ending in .ogg encodes Ogg Vorbis). No provider, no key, no other program: the same patch, `seed` and options give the same bytes on every platform. The sound is levelled to the patch's normalization (default -18 LUFS, peak under -1 dBFS). The file gets provenance and a recipe in assets.json whose input is the patch, so project.validate warns when the patch changed after the sound was made and assets.regenerate renders it again. A patch with mistakes fails with `invalid_patch` and every problem in data.issues (JSON pointer, what is wrong, how to fix it). The result has measurements (lufs, peakDb, seconds), the numbers of the file as written (`analysis`, from assets.spectrogram) and the picture (`$image`): waveform, spectrogram and loudness curve. Options that change one render without editing the patch: `seed` (another take of the noise), `freq` or `note` (transpose so the patch's base pitch becomes this), `length`, `tail`. An existing file that sfx.render did not make is an `exists` error unless overwrite is true. Example: {"path":"assets/audio/coin.sfx.json"}
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `path` | string | yes | The sound patch, project-relative, under assets/ and ending in .sfx.json, e.g. "assets/audio/coin.sfx.json". |
-| `out` | string | no | Where to write the sound: .wav or .ogg under assets/. Default: the patch's path with .wav. |
-| `seed` | integer | no | Added to the patch's seed: another take of every noise. The same seed always gives the same file. Default 0. |
-| `freq` | number | no | Transpose the patch so its base pitch (the first pitched layer's pitch.freq) becomes this frequency in Hz. Fixed-frequency oscillators stay. |
-| `note` | string | no | The same as freq as a note name: "C4" (middle C), "A4" (440 Hz), "C#3", "Bb2". |
-| `length` | number | no | Seconds the sound is held, replacing the patch's `length` for this render. |
-| `tail` | number | no | Seconds after the length for releases, echoes and reverb, replacing the patch's `tail`. |
-| `picture` | boolean | no | Return the spectrogram picture (`$image`) of the sound. Turn it off when rendering many. Default true. |
-| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). Default: a temporary screenshot. |
-| `width` | integer | no | Width of the picture in pixels (default 1000). |
-| `height` | integer | no | Height of the picture in pixels (default 640). |
-| `overwrite` | boolean | no | Replace the sound when it exists and was not made by sfx.render (a sound made by it is always replaced). Default false. |
 
 ## `image.select` (modifies state)
 
@@ -942,4 +878,113 @@ Builds a selection: a coverage (0..255) per canvas pixel. `by` picks how: color 
 | `width` | number | no | rect / ellipse: width of the box. |
 | `height` | number | no | rect / ellipse: height of the box. |
 | `points` | array | no | polygon: the corners [[x,y],...], at least three. |
+
+## `sfx.bake` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Render every sound patch of the project whose WAV is missing or out of date.
+
+Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's path with .wav) does not exist, or was made by sfx.render from a patch that has changed since (the recipe's input hash differs: the same check project.validate does). Sounds that are up to date are left alone, a file at that path that sfx.render did not make is skipped and reported, and a patch with mistakes is listed in `failed` with its issues while the others are still baked. An existing recipe keeps its own arguments (seed, note, macros, an .ogg `out`). A patch with `variations` is baked with all its takes (name_01.wav ... each with a recipe of its own). `macros` replaces the macro values of every render in this call (it forces them and is kept in the recipes). No pictures are returned; use sfx.render for one patch. Example: {"dryRun":true} lists what would be rendered.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `force` | boolean | no | Render every patch again, even when its sound is up to date. Default false. |
+| `macros` | object | no | Macro values for every sound rendered by this call, e.g. {"weight": 0.4}. Forces the render and is kept in the recipes. |
+| `dryRun` | boolean | no | List what would be rendered and why, and write nothing. Default false. |
+
+## `sfx.family` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Make a consistent set of interface sounds (click, hover, confirm, cancel, error, open, close, notify) from one base patch.
+
+Writes one patch per sound into the `out` directory (default: the base's path without .sfx.json plus _family), each a COPY of the base patch `from` with what that role changes: its length and tail, macros (brighter for a hover, heavier and gritty for an error), an arpeggio (confirm goes up, cancel down) or a pitch slide (open up, close down). They share the base's oscillators, filters, effects and master.normalize, so they share timbre and loudness; being copies they stand alone (editing the base later does not change them; make the family again with overwrite: true). Names: click, hover, confirm, cancel, error, open, close, notify; `preset: "ui"` makes all eight. Unless `render` is false each is baked to name.wav with a recipe (so sfx.bake keeps them current). The result lists the measurements of each (lufs, peakDb, seconds, centroidHz), the spread of loudness in LU, and one picture with a row per sound. Example: {"from":"assets/audio/ui.sfx.json","preset":"ui"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `from` | string | yes | The base patch, project-relative, ending in .sfx.json: the timbre every sound shares. |
+| `names` | array | no | Which sounds to make: click, hover, confirm, cancel, error, open, close, notify. |
+| `preset` | string | no | "ui": make all eight sounds. Give this or `names`. |
+| `out` | string | no | Directory under assets/ for the patches (and their sounds). Default: the base's path without .sfx.json plus _family. |
+| `overwrite` | boolean | no | Replace patches and sounds that exist. Default false. |
+| `render` | boolean | no | Bake each sound to a WAV too (default); false writes only the patches and measures them in memory. Default true. |
+| `picture` | boolean | no | Return the contact sheet (`$image`): one row per sound. Default true. |
+| `pictureOut` | string | no | Also keep the sheet's PNG at this project path (ends in .png). |
+| `width` | integer | no | Width of the picture in pixels (default 1000). |
+
+## `sfx.info`
+
+Not released yet (on main after 0.14.1).
+
+Check a sound patch and say what it holds and how loud it renders, without writing anything.
+
+Reads a sound patch from `path`, or takes it inline as `patch` (JSON) or by `preset` name, and checks it against the format (docs/SOUND.md). A patch with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and how to fix it, so one call is enough to repair it. A valid patch returns its layers (oscillators, start, pitch), its effects, the base pitch (rootHz), its macros (the declared values) and variations (count and the files they bake to), whether its baked sound exists and is stale, and the loudness, peak, length, brightness (centroidHz) and attack (riseSeconds) it renders to (it is rendered in memory; nothing is written). Example: {"path":"assets/audio/coin.sfx.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | A sound patch file, project-relative, ending in .sfx.json. |
+| `patch` | object | no | The patch itself, as JSON, to check before writing it to a file. |
+| `preset` | string | no | The name of a preset (see sfx.preset). |
+| `seed` | integer | no | Render this take for the measurements (default 0). |
+
+## `sfx.preset` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+List the sound presets, return one as an editable patch, or write it to a *.sfx.json file.
+
+The presets of assets.synth_sound (bark, growl, meow, screech, whoosh, explosion, hit, coin, pickup, jump, powerup, laser, blip, click, error, splash, footstep) are sound patches shipped in the engine. Without `name` this lists them. With `name` it returns the patch (the exact JSON that renders): read it to learn the format, or change it. With `name` and `path` it writes the patch to that *.sfx.json file under assets/ (an existing file is an error unless overwrite is true), ready for sfx.render. Example: {"name":"laser","path":"assets/audio/laser.sfx.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | no | The preset to return. Leave out to list them all. |
+| `path` | string | no | Write the patch here: project-relative, under assets/, ending in .sfx.json. |
+| `overwrite` | boolean | no | Replace the file when it exists. Default false. |
+
+## `sfx.render` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Render a sound patch (*.sfx.json) to a WAV or OGG next to it and see its spectrogram: the engine's own synthesizer, offline and deterministic.
+
+Reads the sound patch at `path` (assets/.../name.sfx.json, format factoria.sfx/1: layers of oscillators with envelopes, pitch sweeps and arpeggios, filters, FM and ring modulation, distortion, bitcrush, delay and reverb; docs/SOUND.md and schemas/sfx.schema.json) and renders it to mono 16-bit WAV at `out` (default: the patch's path with .wav; a path ending in .ogg encodes Ogg Vorbis). No provider, no key, no other program: the same patch, `seed` and options give the same bytes on every platform. The sound is levelled to the patch's normalization (default -18 LUFS, peak under -1 dBFS). The file gets provenance and a recipe in assets.json whose input is the patch, so project.validate warns when the patch changed after the sound was made and assets.regenerate renders it again. A patch with mistakes fails with `invalid_patch` and every problem in data.issues (JSON pointer, what is wrong, how to fix it). The result has measurements (lufs, peakDb, seconds), the numbers of the file as written (`analysis`, from assets.spectrogram) and the picture (`$image`): waveform, spectrogram and loudness curve. Options that change one render without editing the patch: `seed` (another take of the noise), `freq` or `note` (transpose so the patch's base pitch becomes this), `length`, `tail`, and `macros` (meaning knobs from -1 to 1: attack, brightness, weight, tail, pitch, grit, plus the patch's own; they replace the values the patch declares). A patch that declares `variations` renders one take with `variant` (1-based; the file is name_NN.wav) or all of them with `variants: true`, which returns the measurements of each and one picture with a row per variant. The measurements also have centroidHz (the brightness) and riseSeconds (the attack). An existing file that sfx.render did not make is an `exists` error unless overwrite is true. Example: {"path":"assets/audio/coin.sfx.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The sound patch, project-relative, under assets/ and ending in .sfx.json, e.g. "assets/audio/coin.sfx.json". |
+| `out` | string | no | Where to write the sound: .wav or .ogg under assets/. Default: the patch's path with .wav. |
+| `seed` | integer | no | Added to the patch's seed: another take of every noise. The same seed always gives the same file. Default 0. |
+| `freq` | number | no | Transpose the patch so its base pitch (the first pitched layer's pitch.freq) becomes this frequency in Hz. Fixed-frequency oscillators stay. |
+| `note` | string | no | The same as freq as a note name: "C4" (middle C), "A4" (440 Hz), "C#3", "Bb2". |
+| `length` | number | no | Seconds the sound is held, replacing the patch's `length` for this render. |
+| `tail` | number | no | Seconds after the length for releases, echoes and reverb, replacing the patch's `tail`. |
+| `macros` | object | no | Macro values for this render, e.g. {"brightness": 0.3, "tail": -0.5}: attack, brightness, weight, tail, pitch, grit or a macro the patch declares. Replaces the patch's declared value; kept in the recipe. |
+| `variant` | integer | no | Render this variation (1-based) of a patch that declares `variations`; the default out is name_NN.wav. |
+| `variants` | boolean | no | Render every variation of the patch to name_01.wav, name_02.wav... and return one picture with a row per variant. Takes neither `out` nor `variant`. Default false. |
+| `picture` | boolean | no | Return the spectrogram picture (`$image`) of the sound. Turn it off when rendering many. Default true. |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). Default: a temporary screenshot. |
+| `width` | integer | no | Width of the picture in pixels (default 1000). |
+| `height` | integer | no | Height of the picture in pixels (default 640). |
+| `overwrite` | boolean | no | Replace the sound when it exists and was not made by sfx.render (a sound made by it is always replaced). Default false. |
+
+## `sfx.tweak` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Turn a patch's macros by meaning (brighter, longer tail, heavier) and write the change back to the patch.
+
+`macros` is {name: amount}: attack, brightness, weight, tail, pitch, grit (each from -1 to 1; 0 is the patch as written) or a macro the patch declares. Each amount is ADDED to the value the patch declares now (+0.2 brighter than it is), or is the new value when `absolute` is true; the result is clamped to -1..1 and written to the patch's `macros` (the file is rewritten with the same keys in the same order). Then the sound (and its variations) is rendered again and the result compares the measurements before and after: centroidHz rises with brightness, seconds with tail, riseSeconds with a slower attack. An unknown macro is an error with a 'did you mean'. Example: {"path":"assets/audio/coin.sfx.json","macros":{"brightness":0.2}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The sound patch, project-relative, ending in .sfx.json. |
+| `macros` | object | yes | Macro name to amount, e.g. {"brightness": 0.2, "tail": -0.3}. |
+| `absolute` | boolean | no | Set the macros to these values instead of adding to the declared ones. Default false. |
+| `render` | boolean | no | Render the sound again and compare the measurements. Turn it off to only edit the patch. Default true. |
+| `seed` | integer | no | Seed of the renders (default 0). |
+| `picture` | boolean | no | Return the spectrogram picture (`$image`). Default true. |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `width` | integer | no | Width of the picture in pixels. |
+| `height` | integer | no | Height of the picture in pixels. |
 

@@ -1,5 +1,7 @@
 #include <doctest.h>
 
+#include <set>
+
 #include "audio_test_helpers.h"
 #include "fa/audio/audio.h"
 #include "fa/core/fs.h"
@@ -500,4 +502,51 @@ TEST_CASE("audio: the mix is the same however it is cut into chunks (web AudioWo
     for (std::size_t i = 0; i < n; ++i) worst = std::max(worst, std::fabs(a.l[i] - b.l[i]));
     CHECK(worst < 0.001f);
     CHECK(a.peak() > 0.3f);
+}
+
+TEST_CASE("audio: an AudioSource with variants picks one per play, never the last one twice, the same on every run with the same seed") {
+    auto run = [](std::uint64_t seed, int plays) {
+        Fixture fx;
+        World world;
+        world.rng().reseed(seed);
+        Entity e = world.create("step", "step");
+        AudioSource& src = world.add<AudioSource>(e);
+        src.clip = "sounds/step.wav";  // the variants (step_01.wav ...) do not exist: the play log still names what was picked
+        src.variants = 4;
+        std::vector<std::string> picked;
+        for (int i = 0; i < plays; ++i) {
+            world.get<AudioSource>(e)->playing = true;
+            fx.audio.update(world, 1.0f / 60.0f);
+        }
+        for (const AudioEvent& ev : fx.audio.play_log()) picked.push_back(ev.path);
+        return picked;
+    };
+    const std::vector<std::string> a = run(7, 24), b = run(7, 24), other = run(8, 24);
+    REQUIRE(a.size() == 24);
+    CHECK(a == b);      // deterministic
+    CHECK(a != other);  // the seed matters
+    std::set<std::string> distinct(a.begin(), a.end());
+    CHECK(distinct.size() == 4);
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        CHECK(a[i].starts_with("sounds/step_0"));
+        CHECK(a[i].ends_with(".wav"));
+        if (i > 0) CHECK(a[i] != a[i - 1]);
+    }
+    // the world's random numbers are not consumed by the picks
+    World world;
+    world.rng().reseed(3);
+    const std::uint64_t before = world.rng().state();
+    Fixture fx;
+    Entity e = world.create("step", "step");
+    AudioSource& src = world.add<AudioSource>(e);
+    src.clip = "sounds/step.wav";
+    src.variants = 4;
+    src.playing = true;
+    fx.audio.update(world, 1.0f / 60.0f);
+    CHECK(world.rng().state() == before);
+    // variants 0 or 1 plays the clip itself
+    src.variants = 1;
+    world.get<AudioSource>(e)->playing = true;
+    fx.audio.update(world, 1.0f / 60.0f);
+    CHECK(fx.audio.play_log().back().path == "sounds/step.wav");
 }
