@@ -5114,6 +5114,91 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 | `position` | array | yes | [x, y] in design pixels (origin top-left). |
 | `max` | integer | no | At most this many hits. Default 20. |
 
+## assets
+
+### `rig.bake` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Fit rig documents to their models and write the skinned .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json.
+
+Without `path` this bakes every *.rig.json of the project whose .glb is missing or out of date (the rig document, its model document or a file they read changed: the recipe's hashes), like model.bake. With `path` it bakes that document. The .glb is the model's mesh exactly as model.bake writes it plus one glTF skin: a node per bone named like the bone (translation = head minus the parent's head, extras {role, and index and side when the bone has them}), inverseBindMatrices that make the rest pose draw the model unchanged, and JOINTS_0 / WEIGHTS_0 binding every vertex to ONE bone with weight 1 (the nearest of the bones its part is bound to; real blended weights come with M59.2). The origin follows the model's gameReady.origin; a textured model uses the picture its own bake made (bake the model first). The same inputs give the same bytes. assets.json records provenance and the recipe, so assets.regenerate and project.validate know when it is stale. A file that nothing baked is never replaced unless overwrite is true. `factoria export` bakes the stale documents first. Example: {} or {"path":"assets/models/hero.rig.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Bake only this document (project-relative, ending in .rig.json). Leave out for every document. |
+| `force` | boolean | no | Bake documents that are fresh too. Default false. |
+| `dryRun` | boolean | no | List what would be baked and why, and write nothing. Default false. |
+| `overwrite` | boolean | no | Replace a file at the output that no rig document baked. Default false. |
+
+### `rig.create` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Write a rig document for a model: a skeleton template (humanoid, quadruped, bird, tail, chain, generic) fitted to the model by its parts and landmarks, and bake it to a skinned .glb.
+
+Writes `path` (*.rig.json under assets/) that names the model document (`model`) and a `template`, with the template's `options` (rig.templates lists them: spine, neck and tail bone counts, toes, pose, segments, axis), optional `parts` ({bone: [model parts]}: which parts decide where a bone is, when their names do not say) and `landmarks` ({bone: [x,y,z], "<bone>.tail": [x,y,z]}: explicit joint positions in the model's space). The template is fitted to the model before anything is written (a fit that cannot be made fails and writes nothing): the answer lists every bone with its head and tail, whether each came from a part, the geometry or an estimate, which parts each bone follows, the parts nobody used and the warnings (a landmark that could not be found says what to name or give). A `generic` rig gets one bone per part of the model under `root`; edit the bones in the file. Unless bake is false it is baked: <name>.rig.glb next to the document is the model with a glTF skin (joints named like the bones, rest pose = the model's pose); until skin weights exist (M59.2) every vertex follows ONE bone, the nearest of those its part is bound to (weight 1). The model must be a model document (*.model.json). Example: {"path":"assets/models/hero.rig.json","model":"assets/models/hero.model.json","template":"humanoid","options":{"spine":4}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `model` | string | yes | The model document to fit, project-relative, ending in .model.json. |
+| `template` | string ["humanoid","quadruped","bird","tail","chain","generic"] | yes | The skeleton template. |
+| `options` | object | no | The template's options, e.g. {"spine":4,"tail":3} (rig.templates {} lists them); the rest keep their defaults. |
+| `parts` | object | no | {bone: part name or list of part names}: the model parts that decide where a bone is. Normally the fit recognises parts by their names. |
+| `landmarks` | object | no | {bone or "bone.tail": [x,y,z]}: explicit joint positions in the model's space; they win over everything the fit finds. |
+| `strict` | boolean | no | Make a landmark that could only be estimated from proportions an error instead of a warning (default false). |
+| `output` | object | no | {path: where to bake, under assets/, ending in .glb}. Default: <name>.rig.glb next to the document. |
+| `doc` | string | no | A note on what the rig is for. |
+| `overwrite` | boolean | no | Replace the document when it exists (and the .glb when nothing baked it). Default false. |
+| `bake` | boolean | no | Bake the skinned .glb after writing. Default true. |
+
+### `rig.fit` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Change what a rig document tells the fit (parts, landmarks, options, symmetry, strict), fit the template to the model again and show what it matched; then bake.
+
+Reads `path` (*.rig.json), applies the changes you give, checks the document as a whole and fits the template to the model with the changes (a bad bone or part name, or a fit that cannot be made, fails with the issues, their JSON pointers and a "did you mean", and writes nothing), writes it and answers with the fit: each bone's head and tail and where it came from (override, part, geometry, proportion = estimate), the parts each bone follows (`matched`), the bones that follow no part, the parts no bone used and the warnings. `parts` and `landmarks` are merged key by key: a value sets that bone, null removes it, null as the whole value removes them all. Use `parts` when a part's name does not say which bone it is ({"arm_l": ["sleeve_left"]}), `landmarks` when a joint is somewhere the fit cannot know ({"head": [0, 1.62, 0.03], "head.tail": [0, 1.9, 0.03]}); `strict` makes every estimated joint an error so nothing is silently guessed. With nothing to change this only shows the fit. dryRun shows the fit the changes would give without writing. Unless bake is false the skinned .glb is baked again after a change. Example: {"path":"assets/models/hero.rig.json","landmarks":{"neck":[0,1.55,0]},"strict":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `parts` | any | no | {bone: part name or list of part names}; a null value removes that bone's entry, null removes all of them. |
+| `landmarks` | any | no | {bone or "bone.tail": [x,y,z]}; a null value removes that landmark, null removes all of them. |
+| `options` | any | no | The template's options to change (rig.templates {} lists them); null as a value returns one to its default. |
+| `symmetryX` | any | no | The x of the symmetry plane left and right bones mirror about. Null: the centre of the model's bounds. |
+| `strict` | boolean | no | Make estimated landmarks errors: true or false, left as it is when not given. |
+| `dryRun` | boolean | no | Fit with the changes but write nothing. Default false. |
+| `bake` | boolean | no | Bake the skinned .glb after writing. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no rig document baked. Default false. |
+
+### `rig.info`
+
+Not released yet (on main after 0.14.1).
+
+Check a rig document and fit it to its model without writing anything: every issue with its fix, the bones, where each joint came from and what the fit noticed.
+
+Reads `path` (*.rig.json). A document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix (a bone or part name that does not exist gets a "did you mean"). A valid one returns where it bakes to and whether that .glb is fresh or stale, and (unless fit is false) the fit: for each bone its head and tail in the model's space and where they came from (override = the document's landmarks, part = a model part named for the bone, geometry = measured from the mesh, proportion = an ESTIMATE from the template's default proportions), which model parts each bone follows (`matched`), the parts no bone looked at (`unusedParts`) and the warnings. A fit that cannot be made returns state failed with the reason. Example: {"path":"assets/models/hero.rig.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `fit` | boolean | no | Fit the template to the model for the report (evaluates the model). Default true. |
+
+### `rig.templates`
+
+Not released yet (on main after 0.14.1).
+
+List the skeleton templates (humanoid, quadruped, bird, tail, chain, generic) with their options and the words in part names they recognise; with `name`, the bones of one.
+
+A rig document (`*.rig.json`, docs/RIGGING.md) fits a skeleton template to a model. Every template names its bones the same way, `<role>[_<index>][_<side>]` (root, spine_1, neck, head, clavicle_l, arm_upper_l, arm_lower_l, hand_l, thigh_l, shin_l, foot_l, toe_l, tail_1...), and the (role, index, side) triple is what retargeting between templates maps. With no argument this returns the catalog: for each template what it is for, the pose it assumes, its options (spine, neck, tail, toes, pose, segments, axis) with range and default, and the words in a model part name that tell the fit which bone it is ("arm_l", "left leg", "head"...). With `name` (and optionally `options`) it returns the bones that template has for those options, in order (parents first): name, role, index, side, parent, leaf, and the landmark names a rig document's `landmarks` may use ("<bone>" for a joint, "<bone>.tail" for the end of a leaf bone). Example: {"name":"quadruped","options":{"tail":6}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | no | The template: humanoid, quadruped, bird, tail, chain or generic. Leave out for the catalog. |
+| `options` | object | no | The template's options (rig.templates {} lists them), to see the bones they give. |
+
 ## scene
 
 ### `scene.ascii_edit` (modifies state)
