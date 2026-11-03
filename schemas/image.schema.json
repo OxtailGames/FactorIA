@@ -55,6 +55,32 @@
       "type": "string",
       "description": "What the picture shows and what it is for."
     },
+    "tile": {
+      "description": "Tile mode: the picture is a tile (or a sheet of tiles) that repeats, so drawing wraps around the edges of a tile and image.tile.check compares the sides that touch when it repeats. `true`: the canvas is one tile. {width, height}: the canvas is a sheet of tiles of that size (each size must divide the canvas). image.pixel, image.draw, image.paint, the pixel helpers and the move action of image.edit wrap; rotate, scale and the transform action do not (they warn). Set it with image.tile.set; image.tileset.build sets it on the sheet it makes.",
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096,
+              "description": "One tile's width in pixels; it divides the canvas width (default: the canvas width)."
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096,
+              "description": "One tile's height in pixels; it divides the canvas height (default: the canvas height)."
+            }
+          }
+        }
+      ]
+    },
     "frames": {
       "type": "array",
       "minItems": 1,
@@ -215,7 +241,7 @@
         "kind"
       ],
       "additionalProperties": false,
-      "description": "One layer. The fields that apply depend on `kind`: pixels and provider take `source` (pixels and indexed layers of an animated document also `cels`); fill `color`; gradient `gradient`; procedural `texture`; svg `source` or `svg`; text `text`, `font`, `size`, `color`, `align`, `lineHeight`; group `layers`; indexed `rows` (or a blank `width` x `height`) and `ai`; adjustment only `adjustments` (it applies them to everything below it and takes no `blend` or `effects`). A field a kind does not take is an error.",
+      "description": "One layer. The fields that apply depend on `kind`: pixels and provider take `source` (pixels and indexed layers of an animated document also `cels`); fill `color`; gradient `gradient`; procedural `texture`; svg `source` or `svg`; text `text`, `font`, `size`, `color`, `align`, `lineHeight`; group `layers`; indexed `rows` (or a blank `width` x `height`) and `ai`; tileset `mode`, `tileWidth`, `tileHeight`, `columns`, `variations`, `seed`, `terrain` and `parts`; adjustment only `adjustments` (it applies them to everything below it and takes no `blend` or `effects`). A field a kind does not take is an error.",
       "properties": {
         "kind": {
           "type": "string",
@@ -229,9 +255,10 @@
             "provider",
             "group",
             "adjustment",
-            "indexed"
+            "indexed",
+            "tileset"
           ],
-          "description": "pixels: a PNG of the project. fill: one colour. gradient: linear or radial colour stops. procedural: a texture made by the arguments of assets.generate_texture. svg: an SVG rasterized with the engine's rasterizer. text: text in an engine font. provider: a PNG made by an image provider (counts as AI-made). group: layers drawn together, then blended as one. adjustment: colour operations on everything below. indexed: pixel art stored as palette indices (`rows`), locked to the document's palette; it takes no masks, adjustments or effects, and image.paint / image.edit refuse it (use image.pixel / image.draw)."
+          "description": "pixels: a PNG of the project. fill: one colour. gradient: linear or radial colour stops. procedural: a texture made by the arguments of assets.generate_texture. svg: an SVG rasterized with the engine's rasterizer. text: text in an engine font. provider: a PNG made by an image provider (counts as AI-made). group: layers drawn together, then blended as one. adjustment: colour operations on everything below. indexed: pixel art stored as palette indices (`rows`), locked to the document's palette; it takes no masks, adjustments or effects, and image.paint / image.edit refuse it (use image.pixel / image.draw). tileset: the 16 or 47 tiles of an autotile set, built from a few parts (inside, edge, corner, innerCorner) of one tile each; see docs/IMAGES.md, \"Tiles\"."
         },
         "name": {
           "type": "string",
@@ -633,6 +660,250 @@
               }
             ]
           }
+        },
+        "mode": {
+          "enum": [
+            "basic16",
+            "blob47"
+          ],
+          "default": "blob47",
+          "description": "tileset layer: basic16 = 16 tiles from the 4 orthogonal neighbours (no inner corners), blob47 = the 47 tiles of the 8 neighbours. Tile order is the one of the Tilemap autotile rules: slot s, variation v is tile s * variations + v, row by row."
+        },
+        "terrain": {
+          "type": "string",
+          "description": "tileset layer: the terrain's name in the rules file (default: the layer's name, else \"terrain\")."
+        },
+        "tileWidth": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 512,
+          "description": "tileset layer: the width of one tile in pixels, even (a tile is cut into four quadrants). Giving only one of tileWidth / tileHeight makes square tiles."
+        },
+        "tileHeight": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 512,
+          "description": "tileset layer: the height of one tile in pixels, even. A tile that is not square also needs the edgeLeft part."
+        },
+        "columns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "description": "tileset layer: tiles per row of the baked sheet (default 4 for basic16, 8 for blob47)."
+        },
+        "variations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "default": 1,
+          "description": "tileset layer: pictures per tile. Variation 0 uses the first variant of every part; the others pick variants by `seed`."
+        },
+        "seed": {
+          "type": "integer",
+          "default": 0,
+          "description": "tileset layer: picks the variants of variations 1 and up. The same seed always gives the same sheet."
+        },
+        "parts": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "tileset layer: the pictures the set is built from, one tile each, drawn for ONE orientation: inside (a flat tile of the terrain), edge (its top edge: terrain below, nothing above), corner (its top-left outer corner), innerCorner (an inside tile with the top-left corner cut out; blob47 only). Optional parts replace an orientation that is otherwise made by flipping: edgeBottom, edgeLeft, edgeRight, cornerNE, cornerSW, cornerSE, innerCornerNE, innerCornerSW, innerCornerSE. A tile that is not square also needs edgeLeft. A part may be a list of variants.",
+          "properties": {
+            "inside": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/tilesetPicture"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/tilesetPicture"
+                  },
+                  "description": "Variants of the part."
+                }
+              ]
+            },
+            "edge": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/tilesetPicture"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/tilesetPicture"
+                  },
+                  "description": "Variants of the part."
+                }
+              ]
+            },
+            "corner": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/tilesetPicture"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/tilesetPicture"
+                  },
+                  "description": "Variants of the part."
+                }
+              ]
+            },
+            "innerCorner": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/tilesetPicture"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/tilesetPicture"
+                  },
+                  "description": "Variants of the part."
+                }
+              ]
+            },
+            "edgeBottom": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/tilesetPicture"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/tilesetPicture"
+                  },
+                  "description": "Variants of the part."
+                }
+              ]
+            },
+            "edgeLeft": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/tilesetPicture"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/tilesetPicture"
+                  },
+                  "description": "Variants of the part."
+                }
+              ]
+            },
+            "edgeRight": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/tilesetPicture"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/tilesetPicture"
+                  },
+                  "description": "Variants of the part."
+                }
+              ]
+            },
+            "cornerNE": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/tilesetPicture"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/tilesetPicture"
+                  },
+                  "description": "Variants of the part."
+                }
+              ]
+            },
+            "cornerSW": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/tilesetPicture"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/tilesetPicture"
+                  },
+                  "description": "Variants of the part."
+                }
+              ]
+            },
+            "cornerSE": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/tilesetPicture"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/tilesetPicture"
+                  },
+                  "description": "Variants of the part."
+                }
+              ]
+            },
+            "innerCornerNE": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/tilesetPicture"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/tilesetPicture"
+                  },
+                  "description": "Variants of the part."
+                }
+              ]
+            },
+            "innerCornerSW": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/tilesetPicture"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/tilesetPicture"
+                  },
+                  "description": "Variants of the part."
+                }
+              ]
+            },
+            "innerCornerSE": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/tilesetPicture"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/tilesetPicture"
+                  },
+                  "description": "Variants of the part."
+                }
+              ]
+            }
+          }
         }
       }
     },
@@ -1001,6 +1272,40 @@
           "description": "sharpen: differences below this (0..1) are left alone."
         }
       }
+    },
+    "tilesetPicture": {
+      "description": "One tile of a tileset part: a PNG path, or an object with exactly one of source, rows and color.",
+      "anyOf": [
+        {
+          "type": "string",
+          "description": "A PNG of the project, one tile big."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "A PNG of the project, exactly tileWidth x tileHeight."
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Text rows of the document's palette (like an indexed layer): tileHeight rows of tileWidth characters."
+            },
+            "color": {
+              "type": [
+                "string",
+                "array"
+              ],
+              "description": "One flat colour for the whole tile."
+            }
+          }
+        }
+      ]
     }
   }
 }

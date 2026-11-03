@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/tooling/image_tile.h"
 #include "fa/tooling/pixel_art.h"
 #include "image_edit.h"
 
@@ -18,6 +19,7 @@ struct Target {
     int ox = 0, oy = 0;       // canvas position of the grid's top-left pixel
     Json extra = Json::object();
     std::vector<std::string> warnings;
+    TileGrid tile;            // the document's tile mode (tile.on); the grid then covers every tile cell it touches
 };
 
 Json layer_summary(const LayerRef& r);

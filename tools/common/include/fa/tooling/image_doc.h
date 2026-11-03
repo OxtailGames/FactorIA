@@ -23,6 +23,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "fa/core/image.h"
@@ -37,7 +38,7 @@ inline constexpr const char* kImageDocFormat = "factoria.image/1";
 inline constexpr const char* kImageDocSuffix = ".image.json";
 inline constexpr int kImageDocMaxSide = 4096;
 
-enum class ImageLayerKind { Pixels, Fill, Gradient, Procedural, Svg, Text, Provider, Group, Adjustment, Indexed };
+enum class ImageLayerKind { Pixels, Fill, Gradient, Procedural, Svg, Text, Provider, Group, Adjustment, Indexed, Tileset };
 
 enum class ImageBlend {
     Normal, Multiply, Screen, Overlay, Darken, Lighten, ColorDodge, ColorBurn, HardLight, SoftLight,
@@ -112,6 +113,31 @@ struct ImageCelView {
     int origin = 0;                 // the frame whose cel supplies it (frames with the same origin share one picture)
 };
 
+// One picture of a tileset part (docs/IMAGES.md, "Tiles"): a PNG of the project, indexed text rows (the document's palette) or one flat
+// colour. It is one tile big (tileWidth x tileHeight).
+struct TilesetPart {
+    std::string pointer;            // "/layers/0/parts/inside" (a list of variants: ".../inside/1")
+    std::string source;             // a PNG of the project
+    std::vector<std::string> rows;  // indexed rows
+    std::optional<Color> color;     // one flat colour
+};
+// The settings of a `tileset` layer: a generated tile sheet built from a few parts (fa/tooling/image_tileset.h).
+struct TilesetSpec {
+    std::string mode = "blob47";    // "basic16" (4 neighbours, 16 tiles) or "blob47" (8 neighbours, 47 tiles)
+    std::string terrain;            // the terrain name in the rules file ("" = the layer's name, else "terrain")
+    int tileWidth = 0, tileHeight = 0;   // both even
+    int columns = 0;                // tiles per sheet row; 0 = 4 for basic16, 8 for blob47
+    int variations = 1;             // pictures per tile look (1 to 8): variation 0 is the canonical look, the others pick other variants of the parts by seed
+    long long seed = 0;
+    // part name -> variants, in the order of kTilesetParts (fa/tooling/image_tileset.h)
+    std::vector<std::pair<std::string, std::vector<TilesetPart>>> parts;
+    const std::vector<TilesetPart>* part(const std::string& name) const {
+        for (const auto& p : parts)
+            if (p.first == name) return &p.second;
+        return nullptr;
+    }
+};
+
 struct ImageLayer {
     ImageLayerKind kind = ImageLayerKind::Fill;
     std::string pointer;            // "/layers/2" or "/layers/1/layers/0"
@@ -149,6 +175,7 @@ struct ImageLayer {
     // empty in frame 0.
     std::vector<ImageCel> cels;
     bool hasCels = false;           // the JSON has a `cels` key (even an empty list)
+    TilesetSpec tileset;            // tileset: the sheet's settings and parts
 };
 
 // The cel `layer` shows in `frame` (0 = the layer's own content). Layers of other kinds show the same in every frame.
@@ -172,6 +199,12 @@ struct ImageTag {
 };
 inline constexpr int kImageMaxFrames = 1024;
 
+// Tile mode: the picture is a tile (or a sheet of tiles) that repeats, so drawing wraps around the edges of a tile.
+struct ImageTileMode {
+    bool enabled = false;
+    int width = 0, height = 0;      // the tile in pixels (resolved: the canvas size when the document does not declare one)
+};
+
 struct ImageDocument {
     std::string file;               // the project-relative path it was read from ("" when parsed from memory)
     int width = 0, height = 0;
@@ -182,6 +215,7 @@ struct ImageDocument {
     // Empty when the document has no indexed layer and declares no palette.
     PixelPalette palette;
     std::vector<ImageLayer> layers; // bottom first: later layers are drawn over earlier ones
+    ImageTileMode tile;             // `tile`: wrap-around editing (the image.* drawing commands) and the seam check (image.tile.check)
     // Animation. A document is animated when its JSON has `frames` or `tags`: the bake is then a sprite sheet (image_sheet below).
     bool animated = false;
     std::vector<ImageFrame> frames; // empty = one frame (a document that is not animated)

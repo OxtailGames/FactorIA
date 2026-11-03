@@ -6,6 +6,7 @@
 
 #include "fa/core/strings.h"
 #include "fa/tooling/style_guide.h"
+#include "fa/tooling/image_tile.h"
 #include "image_edit.h"
 #include "image_frames.h"
 #include "util.h"
@@ -212,16 +213,19 @@ Json image_edit(const std::string& projectDir, const Json& a) {
         Work w = open_work(projectDir, d.json, ref, cmd, true, true);
         ImagePatch p = image_patch_extract(w.img, w.ox, w.oy, sel);
         if (!act.contains("copy") || act["copy"] != true) image_patch_erase(w.img, w.ox, w.oy, sel);
+        const int fromX = p.x, fromY = p.y;
         p.x += int(dx);
         p.y += int(dy);
-        const std::size_t dropped = image_patch_draw(w.img, w.ox, w.oy, p);
+        const TileGrid tiles = tile_grid_of(d.json);
+        const std::size_t dropped = tiles.on ? image_patch_draw_wrapped(w.img, w.ox, w.oy, p, fromX, fromY, tiles) : image_patch_draw(w.img, w.ox, w.oy, p);
         if (dropped) warnings.push_back(std::format("{} moved pixels fell outside the {} and were dropped.", dropped, w.fixedRect ? "layer's box (a layer with masks keeps its box)" : "canvas"));
         commit_work(projectDir, d.rel, d.json, ref, w, cmd);
         for (const std::string& s : w.warnings) warnings.push_back(s);
         if (!act.contains("moveSelection") || act["moveSelection"] != false) {
             Mask moved(W, H);
             for (int y = 0; y < H; ++y)
-                for (int x = 0; x < W; ++x) moved.ref(x, y) = sel.at(x - int(dx), y - int(dy));
+                for (int x = 0; x < W; ++x)
+                    moved.ref(x, y) = tiles.on ? sel.at(tiles.wrap_x(x - int(dx), tiles.cell_x(x)), tiles.wrap_y(y - int(dy), tiles.cell_y(y))) : sel.at(x - int(dx), y - int(dy));
             if (a["selection"].get<std::string>() != "all") {
                 save_selection(projectDir, d.rel, a["selection"].get<std::string>(), moved);
                 extra["selectionMoved"] = true;
@@ -269,6 +273,8 @@ Json image_edit(const std::string& projectDir, const Json& a) {
         if (!tr.ok()) fail("invalid_argument", "image.edit /action: " + tr.error().message, tr.error().hint);
         const ImagePatch& t = *tr;
         const std::size_t dropped = image_patch_draw(w.img, w.ox, w.oy, t);
+        if (tile_grid_of(d.json).on)
+            warnings.push_back("Tile mode is on but a transform does not wrap around the tile edges: check the seams with image.tile.check afterwards.");
         if (dropped) warnings.push_back(std::format("{} transformed pixels fell outside the {} and were dropped.", dropped, w.fixedRect ? "layer's box (a layer with masks keeps its box)" : "canvas"));
         commit_work(projectDir, d.rel, d.json, ref, w, cmd);
         for (const std::string& s : w.warnings) warnings.push_back(s);
@@ -330,6 +336,7 @@ Json image_paint(const std::string& projectDir, const Json& a) {
     }
     extra["layer"] = layer_summary(ref);
     Work w = open_work(projectDir, d.json, ref, cmd, true, true);
+    const TileGrid tiles = tile_grid_of(d.json);
 
     std::size_t stamped = 0;
     for (std::size_t si = 0; si < a["strokes"].size(); ++si) {
@@ -364,7 +371,7 @@ Json image_paint(const std::string& projectDir, const Json& a) {
         brush.spacing = spacing;
         brush.color = col;
         brush.erase = erase;
-        stamped += paint_image_stroke(w.img, w.ox, w.oy, pts, brush, hasSel ? &sel : nullptr);
+        stamped += paint_image_stroke(w.img, w.ox, w.oy, pts, brush, hasSel ? &sel : nullptr, &tiles);
     }
     commit_work(projectDir, d.rel, d.json, ref, w, cmd);
     for (const std::string& s : w.warnings) warnings.push_back(s);

@@ -266,6 +266,7 @@ A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is t
 | `height` | int | `0` | Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows. Range 0.0..65536.0. |
 | `tiles` | json | `[]` | Tile values, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. A value is the tileset index, optionally plus flags that mirror or turn that tile when drawn: 268435456 flips it left-right (flipX), 536870912 top-bottom (flipY), 1073741824 mirrors it across the diagonal (transpose). The image is transposed first, then flipped in x, then in y; a 90 degree clockwise turn is transpose + flipX = 1342177280 + index, 180 is flipX + flipY = 805306368 + index, 90 counter-clockwise is transpose + flipY = 1610612736 + index. scene.import_ascii legends write these for you: {"tile": 3, "rotate": 90, "flipX": true}. |
 | `solidTiles` | json | `[]` | List of plain tile indices (no flip flags) that block movement; static colliders are generated for them. A flipped or rotated copy of a solid tile is still solid. Empty = nothing collides. |
+| `terrains` | json | `[]` | Autotile rules: an array of terrains that tilemap.paint_terrain (scripts: entity.tilemap.paintTerrain) paints, choosing for every cell the edge, corner or inside tile that fits the cells around it. A terrain is {"name": "grass", "mode": "blob47", "first": 0}. mode: "basic16" looks at the 4 neighbours (16 tiles, slot = N*1 + E*2 + S*4 + W*8) and "blob47" at the 8 (47 tiles; a diagonal counts only when both cells next to it are in the terrain; the slots are the 47 reduced masks N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128 in ascending order, `factoria call image.tileset.info` prints them). The tiles come as "first": the tileset index of slot 0, the rest follow; or "tiles": one entry per slot, each a tile index or an array of tile indices that are variations of that look (one is picked from the cell's column, row and the terrain's "seed", the same every time). A cell belongs to the terrain whose tiles contain its tile index, so two terrains cannot share a tile. Optional: "seed" (integer, default 0), "joins" (names of terrains whose cells count as neighbours, e.g. a path that meets the grass), "outside": "terrain" (the map edge counts as this terrain, so no border is drawn there; default "empty"). image.tileset.build writes the terrain of a tileset it bakes; tilemap.set_terrains sets them from a rules file. Empty = no rules. (not released yet, on main after 0.14.1) |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Tint multiplied with the tileset. |
 | `layer` | int | `-10` | Draw order. Defaults below sprites (-10). |
 | `lit` | bool | `false` | true: the tiles are shaded by the Light2D entities and SceneSettings.ambientLight, like Sprite.lit. Default false. (since 0.2.0) |
@@ -3466,6 +3467,113 @@ Creates the tag `name`, or changes it when it exists (omitted fields keep their 
 | `repeat` | integer | no | How many times it plays; 0 (default) loops for ever. |
 | `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
 
+### `image.tile.check`
+
+Not released yet (on main after 0.14.1).
+
+Check that a picture (or each tile of a sheet) repeats without a visible seam, with a preview of 3 x 3 copies.
+
+Compares the pixels that touch when a tile repeats: its right column against its own left column and its bottom row against its top row, for every tile that is not empty. The tile is `tileWidth` x `tileHeight`, else the document's `tile`, else the whole canvas. `tolerance` (0 to 255) is how far apart two touching pixels may look: by default 0 for pixel art (a palette or style.pixelArt) and else 1.5 x the mean difference of neighbouring pixels inside the tiles, so a soft texture is not failed for its own gradient. Returns {seamless, tolerance, problems: [{tile, column, row, axis, sides, columns, rows (canvas coordinates, with the runs of mismatching pixels), mismatched, worst, mean, message}]} (the first 40), and the preview as `$image` and in `preview` (.factoria/previews/<document>.tilecheck.png): the tile 3 x 3 with red lines on the mismatching seam pixels. Reads the document as it is; for an autotile set use image.tileset.check. Example: {"path":"assets/art/ground.image.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. |
+| `tileWidth` | integer | no | One tile's width; must divide the picture. Default: the document's tile, else the whole canvas. |
+| `tileHeight` | integer | no | One tile's height. Default as tileWidth. |
+| `tolerance` | integer | no | The largest difference between two touching pixels that still counts as matching. Default: automatic (0 for pixel art). |
+| `scale` | integer | no | Magnification of the preview. Default: fits about 768 pixels. |
+| `tile` | integer | no | Which tile of a sheet the preview shows (row-major, 0-based). Default: the first with a problem. |
+
+### `image.tile.set` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Turn tile mode (wrap-around editing) on or off for an image document.
+
+Sets the `tile` key of the document at `path`. With tile mode on, the drawing commands (image.pixel, image.draw, image.paint, the pixel helpers outline / shade / dither / cleanup, image.edit move) wrap around the edges of a tile: what leaves the right edge comes back in on the left, so the edges keep matching while you draw. A shape wraps inside the tile that holds its first point (a pixel, the start of a line or run, the corner of a rectangle, the `at` of a fill, the first point of a stroke). Without `width` and `height` the whole canvas is one tile; with them the canvas is a sheet of tiles of that size (they must divide the canvas). `enabled` false turns it off. image.edit transform and the helpers rotate and scale do not wrap (they warn). Returns the tile grid and the picture. Example: {"path":"assets/art/ground.image.json"} or {"path":"assets/art/sheet.image.json","width":16,"height":16}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. |
+| `enabled` | boolean | no | False turns tile mode off (removes `tile` from the document). Default true. |
+| `width` | integer | no | One tile's width in pixels; must divide the canvas width. Default: the canvas width. |
+| `height` | integer | no | One tile's height in pixels; must divide the canvas height. Default: the canvas height. |
+| `bake` | boolean | no | Also draw the PNG (default true). Default true. |
+
+### `image.tileset.build` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Make an autotile tileset (16 or 47 tiles) from a few parts (inside, edge, corner), bake the sheet and write the Tilemap rules.
+
+Makes the image document `path` (or adds the layer to an existing one) with a `tileset` layer that builds the whole set from parts: each part is one tile picture, a PNG (`source`), text `rows` of the document's palette, or one flat `color`; a list gives variants. Minimal parts: inside, edge, corner (+ innerCorner for blob47, + edgeLeft for tiles that are not square); image.tileset.info draws each one. Modes: basic16 (4 neighbours) and blob47 (8 neighbours, the common 47-tile set). `variations` 1 to 8 makes several pictures of every tile (the other variations pick variants of the parts by `seed`, the same seed always gives the same sheet). The canvas becomes the sheet (columns x rows of tiles), `tile` is set to the tile size, the PNG is baked, and the rules file (default <document>.terrains.json: the Tilemap.terrains entry with the exact tile of every neighbour combination) is written and recorded in assets.json. Run it again to update: keys you give override, `parts` merge by name (null removes one), nothing else changes, and the files are rewritten in place; assets.regenerate {"stale":true} does the same after a part PNG changed. Returns the bake result plus tileset {layer, mode, layout}, rules {path}, terrain (the rule) and tilemap {tileset, tileSize, columns, terrains} (what to put in the Tilemap). Example: {"path":"assets/art/ground.image.json","mode":"blob47","tileWidth":16,"tileHeight":16,"palette":["#1e4a14","#2d5a1e","#4a8a2c"],"parts":{"inside":{"rows":[...16 rows...]},"edge":{"rows":[...]},"corner":{"rows":[...]},"innerCorner":{"rows":[...]}}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. Created when it does not exist. |
+| `layer` | string | no | The tileset layer's name. Found and updated, or added. Default "tileset". |
+| `mode` | string ["basic16","blob47"] | no | basic16: 4 neighbours, 16 tiles. blob47: 8 neighbours, 47 tiles. Default "blob47". |
+| `tileWidth` | integer | no | One tile's width in pixels (even). Required for a new layer; with only one of the sizes the tile is square. |
+| `tileHeight` | integer | no | One tile's height in pixels (even). |
+| `parts` | object | no | {partName: picture \| [pictures]}; a picture is {source}, {rows} or {color}, or a PNG path. Merged into the layer's parts by name; null removes a part. Names: inside, edge, corner, innerCorner, edgeBottom, edgeLeft, edgeRight, cornerNE, cornerSW, cornerSE, innerCornerNE, innerCornerSW, innerCornerSE. |
+| `columns` | integer | no | Tiles per row of the sheet. Default 4 for basic16, 8 for blob47. |
+| `variations` | integer | no | Pictures per tile; the others pick variants of the parts by seed. Default 1. |
+| `seed` | integer | no | Picks the variants of the tiles (and is stored in the rules, so painting picks the same variations). Default 0. |
+| `terrain` | string | no | The terrain's name in the rules (paint with tilemap.paint_terrain {terrain}). Default: the layer name. |
+| `rules` | string | no | Where the rules file goes. Default: <document>.terrains.json. |
+| `writeRules` | boolean | no | False writes no rules file. Default true. |
+| `palette` | array | no | The document's palette (colours) when parts use `rows`. |
+| `ramps` | array | no | The document's colour ramps. |
+| `description` | string | no | The document's description. |
+| `output` | string | no | The PNG the document bakes to. Default: next to the document. |
+| `overwrite` | boolean | no | Replace the rules file when it exists and is not this layer's. Default false. |
+| `bake` | boolean | no | Also draw the PNG (default true). Default true. |
+
+### `image.tileset.check`
+
+Not released yet (on main after 0.14.1).
+
+Check an autotile tileset: every part is one tile big, and every pair of tiles that can touch in a map fits.
+
+Reads the tileset layer of the document at `path`, reports every part that is missing, unreadable or the wrong size (with its JSON pointer), then builds the sheet and compares the sides of the tiles that stand side by side in a map: tile A east of tile B needs A to have an east neighbour and B a west one (and for blob47 the cells around the pair to agree), and likewise north-south. It also checks the joins INSIDE each tile, where two quadrants cut from different parts meet (corner next to edge, edge next to inside, inner corner next to edge): the two parts must show the same pixels on both sides of the middle line, within the tolerance; `tolerance` as in image.tile.check (automatic by default: 0 for pixel art). Returns {seamless, problems: [{axis, a, b (tile, slot, neighbours, sheet position), mismatched, worst, message}]} (axis "horizontal" / "vertical" for a seam between tiles, "centreColumn" / "centreRow" for a join inside tile a, with `half`, `parts` and `runs`) and the sheet magnified with red marks on the failing sides and on the middle line of a tile that does not join as `$image` (.factoria/previews/<document>.tilesetcheck.png). Example: {"path":"assets/art/ground.image.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. |
+| `layer` | string | no | The tileset layer. Default: the only one. |
+| `tolerance` | integer | no | The largest difference between two touching pixels that still counts as matching. Default: automatic (0 for pixel art). |
+| `scale` | integer | no | Magnification of the preview. Default: fits about 768 pixels. |
+
+### `image.tileset.info`
+
+Not released yet (on main after 0.14.1).
+
+Explain the parts of an autotile tileset and list its tiles (slot, neighbours, position in the sheet).
+
+Describes what image.tileset.build is made of: for the mode (basic16 or blob47), each part with a small drawing, which are required for the tile shape, how the quadrants and flips make the set, and the table of slots with their neighbour masks. With `path` (and `layer`) also the layout of that tileset layer and every tile with its sheet position and neighbours. Example: {"mode":"blob47"} or {"path":"assets/art/ground.image.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. Optional: describe its tileset layer. |
+| `layer` | string | no | The tileset layer. Default: the only one. |
+| `mode` | string ["basic16","blob47"] | no | Without `path`: which set to describe. Default blob47. |
+| `squareTile` | boolean | no | Without `path`: false for a tile that is not square (it also needs edgeLeft). Default true. |
+
+### `image.tileset.rules` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Write the Tilemap autotile rules file of a tileset layer (the recipe command that keeps it current).
+
+Writes the rules file of the tileset layer: {"format":"factoria.terrains/1","terrains":[{name, mode, seed, tiles}]}, with the tile of every neighbour combination (variations as lists). image.tileset.build already does this; this command is what assets.json records as the recipe of the rules file, so assets.regenerate keeps it current when the document changes. Read by tilemap.set_terrains {id, path}. Refuses to replace a file that is not this layer's unless `overwrite`. Example: {"path":"assets/art/ground.image.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/ground.image.json'. |
+| `layer` | string | no | The tileset layer. Default: the only one. |
+| `rules` | string | no | The rules file. Default: <document>.terrains.json. |
+| `overwrite` | boolean | no | Replace a file that is not this layer's rules. Default false. |
+
 ### `image.to_pixel_art` (modifies state)
 
 Not released yet (on main after 0.14.1).
@@ -5079,6 +5187,49 @@ Returns {id, col, row, x, y} for the Tilemap on entity `id`: the world position 
 | `col` | integer | yes | Tile column, 0 = leftmost. |
 | `row` | integer | yes | Tile row, 0 = TOP row. |
 
+### `tilemap.paint_terrain` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Paint (or erase) a terrain on a Tilemap's cells and re-tile the cells around them with its autotile rules.
+
+Sets the cells to the terrain `terrain` of the Tilemap on entity `id` (rules in Tilemap.terrains) and re-tiles them and the 8 cells around each one, so the edge, corner and inside tiles line up: paint a lake and the shore appears. Name the cells with `cells` ([[col, row], ...], row 0 = TOP row) and/or `rect` ({col, row, width, height}). `erase` true empties the cells instead (-1) and re-tiles what was next to them. Cells outside the map are skipped and counted in `outside`. Only cells that already belong to a terrain are re-tiled: tiles you placed by hand stay. A terrain cell's tile is picked from the terrain's variations by column, row and seed, so the same painting always looks the same. Changes the RUNNING world only (scene.save keeps it); the script form is `entity.tilemap.paintTerrain(terrain, cells)`. Returns {id, painted, outside, changed, changes: [{col, row, from, to}] (the first 200), changesTruncated}. Example: tilemap.paint_terrain {"id":"map","terrain":"grass","rect":{"col":2,"row":2,"width":5,"height":3}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
+| `terrain` | string | yes | Name of a terrain in Tilemap.terrains. |
+| `cells` | array | no | Cells to paint: [col, row] pairs (or {col, row} objects), row 0 = TOP row. |
+| `rect` | object | no | A block of cells to paint: {col, row, width, height}. |
+| `erase` | boolean | no | Empty the cells (-1) instead of painting the terrain, and re-tile their neighbours. Default false. |
+
+### `tilemap.retile` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Re-tile every terrain cell of a Tilemap from its neighbours.
+
+Recomputes the tile of every cell that belongs to a terrain of the Tilemap on entity `id` from the cells around it, with the terrain's rules (Tilemap.terrains). Use it after writing `tiles` by hand, after tilemap.set_terrains with new rules, or after resizing the map. Cells that belong to no terrain are not touched. Changes the RUNNING world only. Returns {id, changed, changes (the first 200), changesTruncated}. Example: tilemap.retile {"id":"map"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
+
+### `tilemap.set_terrains` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Set a Tilemap's autotile rules from a list or a rules file (as image.tileset.build writes them).
+
+Replaces Tilemap.terrains of the entity `id` with `terrains` (an array of terrain objects) or with the `terrains` of the rules file `path` (a JSON file {"format": "factoria.terrains/1", "terrains": [...]}, such as the .terrains.json that image.tileset.build writes next to the tileset). The rules are checked first: a bad rule changes nothing and the error names its JSON pointer and the fix. `retile` true also re-tiles the map with the new rules. Changes the RUNNING world only (scene.save keeps it). Returns {id, terrains: [names], retiled}. Example: tilemap.set_terrains {"id":"map","path":"assets/art/ground.terrains.json","retile":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
+| `terrains` | array | no | Terrain objects: {name, mode: basic16\|blob47, first \| tiles, seed?, joins?, outside?}. See the Tilemap component's `terrains` field. |
+| `path` | string | no | Project-relative path of a rules file ({format, terrains}). Instead of `terrains`. |
+| `retile` | boolean | no | Re-tile every terrain cell with the new rules. Default false. |
+
 ### `tilemap.set_tile` (modifies state)
 
 Since 0.3.0.
@@ -5093,6 +5244,18 @@ Writes tile `tile` (a tileset index plus optional flip flags, or -1 for empty) a
 | `col` | integer | yes | Tile column, 0 = leftmost. |
 | `row` | integer | yes | Tile row, 0 = TOP row. |
 | `tile` | integer | yes | Tileset index (plus optional flip flags, see Tilemap.tiles), or -1 to empty the cell. |
+
+### `tilemap.terrains`
+
+Not released yet (on main after 0.14.1).
+
+The autotile rules of a Tilemap: its terrains, their slots and how many cells belong to each.
+
+Reads Tilemap.terrains of the entity `id` and returns {id, valid, issues, terrains: [{name, mode, seed, tiles (the count), slots: [{slot, mask, tiles}], cells (how many map cells belong to it)}]}. `mask` is the neighbour mask the slot draws (N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128). `issues` lists every problem of the rules with its JSON pointer and the fix. Example: tilemap.terrains {"id":"map"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
 
 ## ui
 
@@ -9945,6 +10108,26 @@ declare module "factoria" {
      */
     cellToWorld(col: number, row: number): Vec2;
     /**
+     * Autotile: sets the cells (a list of [col, row] pairs or {col, row} objects, row 0 = TOP row) to the terrain `terrain` of Tilemap.terrains and re-tiles them and the 8 cells around each one, so painting grass next to water draws the shore. Only cells that already belong to a terrain are re-tiled: tiles you placed by hand stay. The tile of a cell is picked from the terrain's variations by column, row and seed, so the same painting looks the same every run. Returns the number of cells `painted`, the cells that were `outside` the map (skipped), `changed` (how many cells got another tile) and `changes` (each cell's `from` and `to` tile value). Throws an Error that names the terrains of the map (did-you-mean) when `terrain` is not one, or that points at the invalid rule. Example: `map.tilemap.paintTerrain("grass", [[3, 4], [4, 4], [5, 4]])`.
+     * @since unreleased
+     */
+    paintTerrain(terrain: string, cells: ({ col: number; row: number } | [number, number])[]): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] };
+    /**
+     * Empties the cells (-1) and re-tiles the cells next to them, as paintTerrain does for painting: removing a lake cell turns its neighbours into shore. `terrain` names the rules used to re-tile (the terrain being removed). Same result as paintTerrain.
+     * @since unreleased
+     */
+    eraseTerrain(terrain: string, cells: ({ col: number; row: number } | [number, number])[]): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] };
+    /**
+     * Recomputes the tile of every cell that belongs to a terrain from the cells around it (after writing tiles with setTile or changing Tilemap.terrains). Cells that belong to no terrain are not touched. Throws when the map has no terrains.
+     * @since unreleased
+     */
+    retile(): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] };
+    /**
+     * The name of the terrain the tile at column col, row row belongs to (its tile index is one of the terrain's tiles), or null for an empty cell, a cell outside the map or a tile that is no terrain's.
+     * @since unreleased
+     */
+    terrainAt(col: number, row: number): string | null;
+    /**
      * Map width in tiles.
      * @since 0.3.0
      */
@@ -11306,6 +11489,11 @@ declare module "factoria" {
      * List of plain tile indices (no flip flags) that block movement; static colliders are generated for them. A flipped or rotated copy of a solid tile is still solid. Empty = nothing collides. Returns a plain-object COPY; assign a new value to write.
      */
     solidTiles: any;
+    /**
+     * Autotile rules: an array of terrains that tilemap.paint_terrain (scripts: entity.tilemap.paintTerrain) paints, choosing for every cell the edge, corner or inside tile that fits the cells around it. A terrain is {"name": "grass", "mode": "blob47", "first": 0}. mode: "basic16" looks at the 4 neighbours (16 tiles, slot = N*1 + E*2 + S*4 + W*8) and "blob47" at the 8 (47 tiles; a diagonal counts only when both cells next to it are in the terrain; the slots are the 47 reduced masks N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128 in ascending order, `factoria call image.tileset.info` prints them). The tiles come as "first": the tileset index of slot 0, the rest follow; or "tiles": one entry per slot, each a tile index or an array of tile indices that are variations of that look (one is picked from the cell's column, row and the terrain's "seed", the same every time). A cell belongs to the terrain whose tiles contain its tile index, so two terrains cannot share a tile. Optional: "seed" (integer, default 0), "joins" (names of terrains whose cells count as neighbours, e.g. a path that meets the grass), "outside": "terrain" (the map edge counts as this terrain, so no border is drawn there; default "empty"). image.tileset.build writes the terrain of a tileset it bakes; tilemap.set_terrains sets them from a rules file. Empty = no rules. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    terrains: any;
     /**
      * Tint multiplied with the tileset.
      */
@@ -14312,7 +14500,7 @@ declare module "factoria" {
     IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd" };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };

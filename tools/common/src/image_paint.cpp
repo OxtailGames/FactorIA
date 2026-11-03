@@ -5,6 +5,7 @@
 #include <cmath>
 #include <format>
 
+#include "fa/tooling/image_tile.h"
 #include "image_edit.h"
 #include "image_frames.h"
 
@@ -56,7 +57,7 @@ void image_over_pixel(std::uint8_t* p, double r, double g, double b, double a) {
 }
 
 std::size_t paint_image_stroke(Image& img, int originX, int originY, const std::vector<std::pair<double, double>>& pts, const ImageBrush& brush,
-                               const ImageSelection* selection) {
+                               const ImageSelection* selection, const TileGrid* tiles) {
     if (pts.empty() || img.width <= 0 || img.height <= 0) return 0;
     const double size = brush.size, hardness = brush.hardness, opacity = brush.opacity;
     const double spacing = std::max(0.25, brush.spacing > 0 ? brush.spacing : std::max(1.0, size * 0.2));
@@ -65,9 +66,12 @@ std::size_t paint_image_stroke(Image& img, int originX, int originY, const std::
     const double r = size / 2, inner = r * hardness;
     std::size_t stamped = 0;
     int minX = img.width, minY = img.height, maxX = -1, maxY = -1;  // the box the stamps touched: only it is blended
-    auto stamp = [&](double cx, double cy) {
-        const int x0 = std::max(0, int(std::floor(cx - r - 1 - originX))), x1 = std::min(img.width - 1, int(std::ceil(cx + r + 1 - originX)));
-        const int y0 = std::max(0, int(std::floor(cy - r - 1 - originY))), y1 = std::min(img.height - 1, int(std::ceil(cy + r + 1 - originY)));
+    const bool wrap = tiles && tiles->on;
+    // tile mode: the stroke wraps inside the tile that holds its first point, so a stamp is drawn once per copy of the tile that reaches it
+    const int cellX = wrap ? tiles->cell_x(int(std::floor(pts[0].first))) : 0, cellY = wrap ? tiles->cell_y(int(std::floor(pts[0].second))) : 0;
+    auto stamp_one = [&](double cx, double cy, int clipX0, int clipY0, int clipX1, int clipY1) {   // clip: buffer pixels [x0, x1] x [y0, y1]
+        const int x0 = std::max(clipX0, int(std::floor(cx - r - 1 - originX))), x1 = std::min(clipX1, int(std::ceil(cx + r + 1 - originX)));
+        const int y0 = std::max(clipY0, int(std::floor(cy - r - 1 - originY))), y1 = std::min(clipY1, int(std::ceil(cy + r + 1 - originY)));
         if (x0 <= x1 && y0 <= y1) {
             minX = std::min(minX, x0);
             maxX = std::max(maxX, x1);
@@ -85,7 +89,19 @@ std::size_t paint_image_stroke(Image& img, int originX, int originY, const std::
                 float& slot = cov[std::size_t(y) * img.width + x];
                 if (c > slot) slot = float(c);
             }
+    };
+    auto stamp = [&](double cx, double cy) {
         ++stamped;
+        if (!wrap) return stamp_one(cx, cy, 0, 0, img.width - 1, img.height - 1);
+        // the centre moves into the cell, then every copy of the cell around it is tried: a brush wider than a tile touches several
+        const double fx = std::fmod(cx - cellX, double(tiles->tw)), fy = std::fmod(cy - cellY, double(tiles->th));
+        cx = cellX + (fx < 0 ? fx + tiles->tw : fx);
+        cy = cellY + (fy < 0 ? fy + tiles->th : fy);
+        const int clipX0 = std::max(0, cellX - originX), clipY0 = std::max(0, cellY - originY);
+        const int clipX1 = std::min(img.width - 1, cellX + tiles->tw - 1 - originX), clipY1 = std::min(img.height - 1, cellY + tiles->th - 1 - originY);
+        const int nx = int(std::ceil((r + 1) / tiles->tw)), ny = int(std::ceil((r + 1) / tiles->th));
+        for (int j = -ny; j <= ny; ++j)
+            for (int i = -nx; i <= nx; ++i) stamp_one(cx + i * tiles->tw, cy + j * tiles->th, clipX0, clipY0, clipX1, clipY1);
     };
     stamp(pts[0].first, pts[0].second);
     double carry = 0;
@@ -112,6 +128,23 @@ std::size_t paint_image_stroke(Image& img, int originX, int originY, const std::
             }
         }
     return stamped;
+}
+
+std::size_t image_patch_draw_wrapped(Image& img, int originX, int originY, const ImagePatch& p, int fromX, int fromY, const TileGrid& tiles) {
+    std::size_t dropped = 0;
+    for (int y = 0; y < p.img.height; ++y)
+        for (int x = 0; x < p.img.width; ++x) {
+            const std::uint8_t* s = &p.img.rgba[(std::size_t(y) * p.img.width + x) * 4];
+            if (!s[3]) continue;
+            const int cx = tiles.cell_x(fromX + x), cy = tiles.cell_y(fromY + y);
+            const int bx = tiles.wrap_x(p.x + x, cx) - originX, by = tiles.wrap_y(p.y + y, cy) - originY;
+            if (bx < 0 || by < 0 || bx >= img.width || by >= img.height) {
+                ++dropped;
+                continue;
+            }
+            image_over_pixel(&img.rgba[(std::size_t(by) * img.width + bx) * 4], s[0], s[1], s[2], s[3] / 255.0);
+        }
+    return dropped;
 }
 
 ImagePatch image_patch_extract(const Image& img, int originX, int originY, const ImageSelection& sel) {

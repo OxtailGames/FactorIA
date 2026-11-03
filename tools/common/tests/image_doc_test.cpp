@@ -164,7 +164,7 @@ TEST_CASE("image blend: names, parsing and the eighteen modes") {
         CHECK(names[i] == image_blend_name(*mode));
     }
     CHECK_FALSE(parse_image_blend("multiplyy").has_value());
-    CHECK(image_layer_kind_names().size() == 10);
+    CHECK(image_layer_kind_names().size() == 11);
 }
 
 TEST_CASE("image blend: every mode matches the W3C formulas for opaque, translucent and transparent backdrops") {

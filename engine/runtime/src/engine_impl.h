@@ -182,6 +182,7 @@ UiPageAimFn make_ui_page_aim(Engine::Impl& impl);  // surface_pointer.cpp: where
 UiSurfaceFn make_ui_surface_pointer(Engine::Impl& impl);  // surface_pointer.cpp: the pointer through a render target shown on a mesh
 void register_builtin_commands(Engine& engine, Engine::Impl& impl);
 void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
+void register_terrain_commands(Engine& engine, Engine::Impl& impl);  // terrain_commands.cpp: tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
 void register_scene_file_commands(Engine& engine, Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
 void register_play_session_commands(Engine& engine, Engine::Impl& impl);  // play_sessions.cpp: play.sessions, play.report
 void register_i18n_commands(Engine& engine, Engine::Impl& impl);  // localization.cpp: i18n.state, i18n.set_language

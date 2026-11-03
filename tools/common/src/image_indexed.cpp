@@ -124,6 +124,26 @@ int scale_arg(const Json& a, const char* cmd) {
 // ---- the layer to draw on -----------------------------------------------------------------------------------------------------
 
 
+// Tile mode: a drawing wraps inside a whole cell, so the grid must hold every cell it touches (new pixels transparent). The layer's own
+// x / y follow the new box.
+static void grow_to_cells(Target& t) {
+    const TileGrid& g = t.tile;
+    const int cx0 = std::min(g.cell_x(t.ox), t.ox), cy0 = std::min(g.cell_y(t.oy), t.oy);
+    const int cx1 = std::max(g.cell_x(t.ox + t.grid.w - 1) + g.tw, t.ox + t.grid.w), cy1 = std::max(g.cell_y(t.oy + t.grid.h - 1) + g.th, t.oy + t.grid.h);
+    if (cx0 == t.ox && cy0 == t.oy && cx1 - cx0 == t.grid.w && cy1 - cy0 == t.grid.h) return;
+    IndexGrid grown(cx1 - cx0, cy1 - cy0);
+    for (int y = 0; y < t.grid.h; ++y)
+        for (int x = 0; x < t.grid.w; ++x) grown.set(x + t.ox - cx0, y + t.oy - cy0, t.grid.at(x, y));
+    t.grid = std::move(grown);
+    t.ox = cx0;
+    t.oy = cy0;
+    Json& L = *t.ref.layer;
+    if (t.ox - t.ref.parentX) L["x"] = t.ox - t.ref.parentX;
+    else L.erase("x");
+    if (t.oy - t.ref.parentY) L["y"] = t.oy - t.ref.parentY;
+    else L.erase("y");
+}
+
 Target open_target(const std::string& projectDir, DocFile& d, const Json& a, const char* cmd) {
     Target t;
     const int W = d.json.value("width", 0), H = d.json.value("height", 0);
@@ -170,6 +190,8 @@ Target open_target(const std::string& projectDir, DocFile& d, const Json& a, con
     }
     t.ox = t.ref.parentX + L.value("x", 0);
     t.oy = t.ref.parentY + L.value("y", 0);
+    t.tile = tile_grid_of(d.json);
+    if (t.tile.on) grow_to_cells(t);
     return t;
 }
 
@@ -219,9 +241,23 @@ struct Painter {
     Target& t;
     std::size_t set = 0, outside = 0;
     std::size_t skipped = 0;    // relative steps on transparent pixels
+    int cellX = 0, cellY = 0;   // tile mode: the cell the current shape wraps inside
+
+    // Tile mode: the shape that starts at (x, y) wraps inside the cell that holds that pixel.
+    void anchor(int x, int y) {
+        if (!t.tile.on) return;
+        cellX = t.tile.cell_x(x);
+        cellY = t.tile.cell_y(y);
+    }
+    PixelPoint wrapped(PixelPoint p) const { return t.tile.on ? PixelPoint{t.tile.wrap_x(p.x, cellX), t.tile.wrap_y(p.y, cellY)} : p; }
 
     // Writes one pixel (canvas coordinates). `before` is the grid the shape started from (relative steps read it).
     void put(int x, int y, const Paint& paint, const IndexGrid* before) {
+        if (t.tile.on) {
+            const PixelPoint w = wrapped({x, y});
+            x = w.x;
+            y = w.y;
+        }
         const int gx = x - t.ox, gy = y - t.oy;
         if (!t.grid.inside(gx, gy)) {
             ++outside;
@@ -244,7 +280,7 @@ struct Painter {
             const IndexGrid before = t.grid;
             std::set<PixelPoint> done;
             for (const PixelPoint& p : pts)
-                if (done.insert(p).second) put(p.x, p.y, paint, &before);
+                if (done.insert(wrapped(p)).second) put(p.x, p.y, paint, &before);   // a pixel the shape reaches twice steps once
         } else {
             for (const PixelPoint& p : pts) put(p.x, p.y, paint, nullptr);
         }
@@ -268,6 +304,32 @@ std::vector<PixelPoint> points_arg(const char* cmd, const Json& v, const std::st
     std::vector<PixelPoint> pts;
     for (std::size_t i = 0; i < v.size(); ++i) pts.push_back(point_arg(cmd, v[i], ptr + "/" + std::to_string(i)));
     return pts;
+}
+
+// The area of equal colour around `at` in tile mode: the flood runs on the TORUS of the cell, so it leaves the right edge and comes back in
+// on the left. Canvas coordinates in and out.
+std::vector<PixelPoint> tile_flood(const Target& t, int cellX, int cellY, PixelPoint at, bool eight) {
+    const TileGrid& g = t.tile;
+    std::vector<PixelPoint> out;
+    const int target = t.grid.at(g.wrap_x(at.x, cellX) - t.ox, g.wrap_y(at.y, cellY) - t.oy);
+    if (target == -2) return out;
+    std::set<PixelPoint> seen;
+    std::vector<PixelPoint> stack{{g.wrap_x(at.x, cellX), g.wrap_y(at.y, cellY)}};
+    seen.insert(stack.back());
+    while (!stack.empty()) {
+        const PixelPoint p = stack.back();
+        stack.pop_back();
+        out.push_back(p);
+        for (int dy = -1; dy <= 1; ++dy)
+            for (int dx = -1; dx <= 1; ++dx) {
+                if ((!dx && !dy) || (!eight && dx && dy)) continue;
+                const PixelPoint n{g.wrap_x(p.x + dx, cellX), g.wrap_y(p.y + dy, cellY)};
+                if (t.grid.at(n.x - t.ox, n.y - t.oy) != target || !seen.insert(n).second) continue;
+                stack.push_back(n);
+            }
+    }
+    std::sort(out.begin(), out.end());
+    return out;
 }
 
 Json finish(const std::string& projectDir, DocFile& d, Target& t, const std::optional<Image>& before, const Json& a, const char* cmd, Json extra, const Painter& painter) {
@@ -314,7 +376,9 @@ Json image_pixel(const std::string& projectDir, const Json& a) {
             const Json& e = list[i];
             if (!e.is_array() || e.size() != 3) arg_error(cmd, ptr, "a pixel is [x, y, colour], got " + describe_json_value(e) + ".", "Example: [3, 4, \"skin\"]; the colour is a palette index, name or colour, null = transparent.");
             const Paint paint = parse_paint(cmd, e[2], ptr + "/2", t.pal);
-            painter.put_all({{whole(cmd, e[0], ptr + "/0"), whole(cmd, e[1], ptr + "/1")}}, paint);
+            const PixelPoint at{whole(cmd, e[0], ptr + "/0"), whole(cmd, e[1], ptr + "/1")};
+            painter.anchor(at.x, at.y);
+            painter.put_all({at}, paint);
         }
     }
     if (a.contains("runs")) {
@@ -330,6 +394,7 @@ Json image_pixel(const std::string& projectDir, const Json& a) {
             const Paint paint = parse_paint(cmd, e[3], ptr + "/3", t.pal);
             std::vector<PixelPoint> pts;
             const int x0 = whole(cmd, e[0], ptr + "/0"), y0 = whole(cmd, e[1], ptr + "/1");
+            painter.anchor(x0, y0);
             for (int k = 0; k < len; ++k) pts.push_back({x0 + k, y0});
             painter.put_all(pts, paint);
         }
@@ -349,6 +414,7 @@ Json image_pixel(const std::string& projectDir, const Json& a) {
         if (!g.ok()) arg_error(cmd, "/stamp/rows", g.error().message, g.error().hint);
         const bool clear = arg_bool(st, "clear", false);
         const int sx = st.contains("x") ? whole(cmd, st["x"], "/stamp/x") : 0, sy = st.contains("y") ? whole(cmd, st["y"], "/stamp/y") : 0;
+        painter.anchor(sx, sy);
         for (int y = 0; y < g->h; ++y)
             for (int x = 0; x < g->w; ++x) {
                 const int v = g->at(x, y);
@@ -401,6 +467,7 @@ Json image_draw(const std::string& projectDir, const Json& a) {
             check_arg_keys(cmd, sh, base, {"type", "points", "color", "perfect", "closed"});
             const auto pts = points_arg(cmd, need("points", "[[x, y], ...] corners of the line, at least two"), base + "/points", 2);
             const Paint paint = parse_paint(cmd, need("color", "a palette colour (null erases)"), base + "/color", t.pal);
+            painter.anchor(pts[0].x, pts[0].y);
             painter.put_all(pixel_polyline(pts, arg_bool(sh, "perfect", false), arg_bool(sh, "closed", false)), paint);
         } else if (type == "rect" || type == "ellipse" || type == "polygon") {
             check_arg_keys(cmd, sh, base, type == "polygon" ? std::vector<std::string>{"type", "points", "color", "fill"} : std::vector<std::string>{"type", "x", "y", "width", "height", "color", "fill"});
@@ -409,9 +476,11 @@ Json image_draw(const std::string& projectDir, const Json& a) {
                 const auto pts = points_arg(cmd, need("points", "[[x, y], ...] corners, at least three"), base + "/points", 3);
                 outline = pixel_polygon(pts, false);
                 inside = pixel_polygon(pts, true);
+                painter.anchor(pts[0].x, pts[0].y);
             } else {
                 int x, y, w, h;
                 box(x, y, w, h);
+                painter.anchor(x, y);
                 if (type == "rect") outline = pixel_rect(x, y, w, h, false), inside = pixel_rect(x, y, w, h, true);
                 else outline = pixel_ellipse(x, y, w, h, false), inside = pixel_ellipse(x, y, w, h, true);
             }
@@ -441,8 +510,14 @@ Json image_draw(const std::string& projectDir, const Json& a) {
             const int gx = at.x - t.ox, gy = at.y - t.oy;
             if (!t.grid.inside(gx, gy))
                 arg_error(cmd, base + "/at", std::format("({}, {}) is outside the layer's box ({} x {} at {}, {}).", at.x, at.y, t.grid.w, t.grid.h, t.ox, t.oy), "Pick a pixel inside the layer; coordinates are canvas pixels.");
-            auto region = pixel_flood(t.grid, gx, gy, connectivity == 8);
-            for (PixelPoint& p : region) p = {p.x + t.ox, p.y + t.oy};
+            std::vector<PixelPoint> region;
+            if (t.tile.on) {
+                painter.anchor(at.x, at.y);
+                region = tile_flood(t, painter.cellX, painter.cellY, at, connectivity == 8);
+            } else {
+                region = pixel_flood(t.grid, gx, gy, connectivity == 8);
+                for (PixelPoint& p : region) p = {p.x + t.ox, p.y + t.oy};
+            }
             painter.put_all(region, paint);
         }
     }
