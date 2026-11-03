@@ -117,6 +117,7 @@ std::vector<ValidationIssue> check_audio_loudness(const std::string& projectDir)
 }
 
 void register_audio_commands(CommandRegistry& registry, const std::string& projectDir) {
+    register_audio_mix_commands(registry, projectDir);
     CommandInfo info;
     info.name = "assets.analyze_audio";
     info.category = "assets";

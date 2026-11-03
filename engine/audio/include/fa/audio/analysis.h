@@ -40,6 +40,26 @@ struct Loudness {
 };
 Result<Loudness> measure_loudness(std::span<const std::uint8_t> encoded, std::string_view extension);
 
+// A whole clip decoded as the mixer hears it before resampling: interleaved float frames at the file's own rate, the
+// first one or two channels only (a mono clip feeds both sides, a clip with more channels contributes its first two).
+struct DecodedAudio {
+    int channels = 0;  // 1 or 2
+    int rate = 0;
+    std::vector<float> samples;  // frames * channels
+    std::size_t frames() const { return channels > 0 ? samples.size() / std::size_t(channels) : 0; }
+};
+// Decodes the clip into memory (a 3-minute stereo track holds about 60 MB); `maxSeconds` > 0 stops reading there.
+Result<DecodedAudio> decode_audio(std::span<const std::uint8_t> encoded, std::string_view extension, double maxSeconds = 0.0);
+
+// Loudness over time, K-weighted like measure_loudness: one value per 100 ms hop. `momentary[i]` is the loudness of the
+// 400 ms ending at the end of hop i (a shorter window at the start), `shortTerm[i]` that of the 3 s ending there. LUFS,
+// -80 for silence.
+struct LoudnessCurve {
+    double hopSeconds = 0.1;
+    std::vector<float> momentary, shortTerm;
+};
+LoudnessCurve loudness_curve(const DecodedAudio& audio);
+
 // Gain in dB that plays a clip of this loudness at `targetLufs`: at most 24 dB either way, and cut where the loudest
 // sample would pass -1 dBFS (there is no limiter). 0 for a silent clip.
 double normalization_gain_db(const Loudness& loudness, double targetLufs);
