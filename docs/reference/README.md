@@ -210,9 +210,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`image.tileset.rules`](commands/assets.md#imagetilesetrules-modifies-state): Write the Tilemap autotile rules file of a tileset layer (the recipe command that keeps it current). _Not released yet._
 - [`image.to_pixel_art`](commands/assets.md#imageto_pixel_art-modifies-state): Turn a painted, generated or imported picture (a layer or a PNG) into palette-exact pixel art: area-aware downscale, quantize, clean up, into an indexed layer. _Not released yet._
 - [`model.bake`](commands/assets.md#modelbake-modifies-state): Build model documents into .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json. _Not released yet._
-- [`model.create`](commands/assets.md#modelcreate-modifies-state): Write a new model document (a tree of primitives, groups and transforms) and bake it to a .glb. _Not released yet._
+- [`model.create`](commands/assets.md#modelcreate-modifies-state): Write a new model document (a tree of primitives, modifiers, groups and transforms) and bake it to a .glb. _Not released yet._
 - [`model.edit`](commands/assets.md#modeledit-modifies-state): Add, change, remove or move one node of a model document by its id (or JSON pointer), or change its materials, output or note; then bake it. _Not released yet._
-- [`model.info`](commands/assets.md#modelinfo): Check a model document and measure what it builds; with no arguments, list the operations (primitives, group) and their fields. _Not released yet._
+- [`model.info`](commands/assets.md#modelinfo): Check a model document and measure what it builds; with no arguments, list the operations (primitives, modifiers, group) and their fields. _Not released yet._
 - [`music.arpeggio`](commands/assets.md#musicarpeggio-modifies-state): Make an arpeggio over a chord progression as note text, and optionally put it in a song. _Not released yet._
 - [`music.bassline`](commands/assets.md#musicbassline-modifies-state): Make a bassline over a chord progression as note text, and optionally put it in a song. _Not released yet._
 - [`music.check`](commands/assets.md#musiccheck): Find what is wrong in a song before listening: notes outside the key or the instrument's range, clashes, mud, silent tracks, loudness. _Not released yet._

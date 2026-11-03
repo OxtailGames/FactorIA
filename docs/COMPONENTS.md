@@ -3918,14 +3918,14 @@ Without `path` this bakes every *.model.json of the project whose .glb is missin
 
 Not released yet (on main after 0.14.1).
 
-Write a new model document (a tree of primitives, groups and transforms) and bake it to a .glb.
+Write a new model document (a tree of primitives, modifiers, groups and transforms) and bake it to a .glb.
 
 Writes `path` (*.model.json under assets/) with the format, the `nodes` (a list of node objects; model.info {} lists the operations and fields; left out: one box named box_1 to start from), the optional `materials` ({name: {color, texture, metallic, roughness, emissive, doubleSided, blend}}), `output` ({path: where the .glb goes}) and `doc` note. Nodes without an `id` get one (box_1, cylinder_2...), so model.edit can address them later. The document is checked first: a mistake returns every issue (JSON pointer, what is wrong, how to fix it) and writes nothing. Then it is baked (unless bake is false) and the result holds the measurements. Example: {"path":"assets/models/door.model.json","materials":{"wood":{"color":[0.55,0.35,0.2,1]},"brass":{"color":[0.8,0.65,0.3,1],"metallic":1}},"nodes":[{"op":"box","id":"panel","size":[1,2,0.08],"part":"door","material":"wood"},{"op":"sphere","id":"knob","radius":0.05,"position":[0.4,0,0.07],"part":"knob","material":"brass"}]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
-| `nodes` | array | no | The tree, in order. Each node is {"op": ..., fields}; groups hold `children`. |
+| `nodes` | array | no | The tree, in order. Each node is {"op": ..., fields}; groups and modifiers hold `children`. |
 | `materials` | object | no | Named materials the nodes refer to with `material`: {name: {color, texture, metallic, roughness, emissive, doubleSided, blend}}. |
 | `output` | object | no | {path: where to bake, under assets/, ending in .glb}. |
 | `doc` | string | no | A note on what the model is for. |
@@ -3938,7 +3938,7 @@ Not released yet (on main after 0.14.1).
 
 Add, change, remove or move one node of a model document by its id (or JSON pointer), or change its materials, output or note; then bake it.
 
-`op` is one of: add (insert `node`, an object, into the group `parent` at `index`, default the end of the top level; a node without an id gets one), set (change the fields of `target` with `values`; a null value removes a field, back to its default), remove (delete `target` and everything below it), move (take `target` to the group `parent`, or the top level, at `index`), document (change `materials`, `output` or `doc`; `materials` replaces the whole table). `target` and `parent` are a node id (stable when the tree changes) or a JSON pointer such as /nodes/1/children/0. The result document is checked as a whole before anything is written, so a bad value returns every issue with its JSON pointer and writes nothing; the file keeps the other nodes as written. Then the .glb is baked again (unless bake is false) and the measurements tell what the edit did. Example: {"path":"assets/models/door.model.json","op":"set","target":"knob","values":{"radius":0.07}}
+`op` is one of: add (insert `node`, an object, into the group or modifier `parent` at `index`, default the end of the top level; a node without an id gets one), set (change the fields of `target` with `values`; a null value removes a field, back to its default), remove (delete `target` and everything below it), move (take `target` to the group or modifier `parent`, or the top level, at `index`), document (change `materials`, `output` or `doc`; `materials` replaces the whole table). `target` and `parent` are a node id (stable when the tree changes) or a JSON pointer such as /nodes/1/children/0. The result document is checked as a whole before anything is written, so a bad value returns every issue with its JSON pointer and writes nothing; the file keeps the other nodes as written. Then the .glb is baked again (unless bake is false) and the measurements tell what the edit did. Example: {"path":"assets/models/door.model.json","op":"set","target":"knob","values":{"radius":0.07}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3946,7 +3946,7 @@ Add, change, remove or move one node of a model document by its id (or JSON poin
 | `op` | string ["add","set","remove","move","document"] | yes | What to do. |
 | `target` | string | no | set, remove, move: the node to act on, by id or JSON pointer. |
 | `node` | object | no | add: the new node, {"op": ..., fields}. |
-| `parent` | string | no | add, move: the group to put the node in, by id or JSON pointer. Left out: the top level. |
+| `parent` | string | no | add, move: the group or modifier to put the node in, by id or JSON pointer. Left out: the top level. |
 | `index` | integer | no | add, move: the position in the list the node goes into. Left out: the end. |
 | `values` | object | no | set: fields to change; null removes a field. |
 | `doc` | string | no | document: the new note. |
@@ -3959,9 +3959,9 @@ Add, change, remove or move one node of a model document by its id (or JSON poin
 
 Not released yet (on main after 0.14.1).
 
-Check a model document and measure what it builds; with no arguments, list the operations (primitives, group) and their fields.
+Check a model document and measure what it builds; with no arguments, list the operations (primitives, modifiers, group) and their fields.
 
-A model document (`*.model.json`, docs/MODELING.md) is a 3D model written as a tree of operations: primitives (box, rounded_box, cylinder, cone, sphere, capsule, torus, grid, stairs, arch, pipe, text), groups, and a transform, a part name, a material and a vertex colour on any node. With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns the tree (pointer, op, id, part, material per node), where it bakes to and whether that .glb is fresh or stale, and (unless evaluate is false) builds it in memory: vertices, triangles, bounds and size in metres, whether the surface is closed, volume, and the triangles and bounds of every part. With no argument it returns the catalog of operations with every field, its range, default and doc string. Example: {"path":"assets/models/door.model.json"}
+A model document (`*.model.json`, docs/MODELING.md) is a 3D model written as a tree of operations: primitives (box, rounded_box, cylinder, cone, sphere, capsule, torus, grid, stairs, arch, pipe, text, lathe, sweep, loft), groups, modifiers that wrap their children and change the mesh they make (boolean, mirror, array, radial_array, bevel, subdivide, solidify, bend, twist, taper, noise, smooth, weld, shade), and a transform, a part name, a material and a vertex colour on any node. With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns the tree (pointer, op, id, part, material per node), where it bakes to and whether that .glb is fresh or stale, and (unless evaluate is false) builds it in memory: vertices, triangles, bounds and size in metres, whether the surface is closed, volume, and the triangles and bounds of every part. With no argument it returns the catalog of operations with every field, its range, default and doc string. Example: {"path":"assets/models/door.model.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

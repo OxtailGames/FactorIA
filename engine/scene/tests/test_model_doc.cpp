@@ -55,13 +55,18 @@ ModelTextOutline square_glyph() {
 }  // namespace
 
 TEST_CASE("model doc: the catalog lists every operation with documented fields") {
-    const char* expected[] = {"box", "rounded_box", "cylinder", "cone", "sphere", "capsule", "torus", "grid", "stairs", "arch", "pipe", "text", "group"};
+    const char* expected[] = {"box", "rounded_box", "cylinder", "cone", "sphere", "capsule", "torus", "grid", "stairs", "arch", "pipe", "text", "group",
+                              "lathe", "sweep", "loft", "boolean", "mirror", "array", "radial_array", "bevel", "subdivide", "solidify",
+                              "bend", "twist", "taper", "noise", "smooth", "weld", "shade"};
     REQUIRE(model_ops().size() == std::size(expected));
-    for (std::size_t i = 0; i < std::size(expected); ++i) {
-        const ModelOpInfo& op = model_ops()[i];
-        CHECK(op.op == expected[i]);
-        CHECK(!op.doc.empty());
-        for (const ModelFieldInfo& f : op.fields) CHECK_MESSAGE(!f.doc.empty(), op.op << "." << f.key);
+    for (const char* name : expected) {
+        const ModelOpInfo* found = nullptr;
+        for (const ModelOpInfo& op : model_ops())
+            if (op.op == name) found = &op;
+        REQUIRE_MESSAGE(found, name);
+        CHECK_MESSAGE(!found->doc.empty(), name);
+        CHECK_MESSAGE((found->kind == "group") == (std::string(name) == "group"), name);
+        for (const ModelFieldInfo& f : found->fields) CHECK_MESSAGE(!f.doc.empty(), name << "." << f.key);
     }
     for (const ModelFieldInfo& f : model_common_fields()) CHECK_MESSAGE(!f.doc.empty(), f.key);
 }
@@ -290,4 +295,142 @@ TEST_CASE("model doc: the schema accepts what the reader accepts and rejects wha
     CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"box","sise":1}]})")).empty());
     CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"sphere","segments":2}]})")).empty());
     CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"text"}]})")).empty());
+}
+
+// ---- modifiers, lathe, sweep and loft ------------------------------------------------------------------------------------------
+
+TEST_CASE("model doc: modifiers wrap their children and every field is read with its default and range") {
+    auto doc = parse_model_doc(J(R"({"format":"factoria.model/1","nodes":[
+        {"op":"mirror","children":[{"op":"box"}]},
+        {"op":"array","count":3,"offset":[2,0,0],"children":[{"op":"box"}]},
+        {"op":"bevel","children":[{"op":"box"}]},
+        {"op":"boolean","mode":"difference","children":[{"op":"box"},{"op":"sphere"}]}]})"));
+    REQUIRE(doc.ok());
+    CHECK(doc->nodes.size() == 4);
+    CHECK(doc->nodes[0].children.size() == 1);
+    CHECK(doc->nodes[1].params.contains("count"));
+
+    auto a = issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"array","count":0,"children":[{"op":"box"}]},
+        {"op":"bevel","segmnts":3,"children":[{"op":"box"}]},{"op":"shade","mode":"smoth","children":[{"op":"box"}]},
+        {"op":"bend","from":1,"to":-1,"children":[{"op":"box"}]},{"op":"mirror","axis":"w","children":[{"op":"box"}]}]})");
+    CHECK(has_issue(a, "/nodes/0/count", "from 1 to 4096"));
+    CHECK(has_issue(a, "/nodes/1/segmnts", "not a field", "segments"));
+    CHECK(has_issue(a, "/nodes/2/mode", "one of", "smooth"));
+    CHECK(has_issue(a, "/nodes/3/to", "not above"));
+    CHECK(has_issue(a, "/nodes/4/axis", "one of"));
+
+    // a primitive cannot hold children, and `align` belongs to primitives only
+    auto b = issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"box","children":[{"op":"box"}]},{"op":"mirror","align":"bottom","children":[]}]})");
+    CHECK(has_issue(b, "/nodes/0/children"));
+    CHECK(has_issue(b, "/nodes/1/align"));
+}
+
+TEST_CASE("model doc: lathe, sweep and loft check their lists") {
+    auto a = issues_of(R"({"format":"factoria.model/1","nodes":[
+        {"op":"lathe","profile":[[0.5,0]]},
+        {"op":"lathe","profile":[[0.5,0],[-0.2,1]]},
+        {"op":"lathe","profile":[[0.5,0],[0.5]]},
+        {"op":"sweep","profile":[[0,0],[1,0],[0,1]],"path":[[0,0,0]]},
+        {"op":"sweep","profile":[[0,0],[1,0]],"path":[[0,0,0],[0,1,0]]},
+        {"op":"sweep","profile":[[0,0],[1,0],[0,1]],"path":[[0,0,0],[0,1,0]],"closed":true},
+        {"op":"loft","sections":[[[0,0,0],[1,0,0],[0,1,0]]]},
+        {"op":"loft","sections":[[[0,0,0],[1,0,0],[0,1,0]],[[0,0,1],[1,0,1]]]}]})");
+    CHECK(has_issue(a, "/nodes/0/profile", "2 to 256"));
+    CHECK(has_issue(a, "/nodes/1/profile/1/0", "negative radius"));
+    CHECK(has_issue(a, "/nodes/2/profile/1", "[a, b]"));
+    CHECK(has_issue(a, "/nodes/3/path", "2 to 256"));
+    CHECK(has_issue(a, "/nodes/4/profile", "3 to 256"));
+    CHECK(has_issue(a, "/nodes/5/closed", "closed sweep path"));
+    CHECK(has_issue(a, "/nodes/6/sections", "2 to 64"));
+    CHECK(has_issue(a, "/nodes/7/sections/1", "section 1 has 2 points"));
+}
+
+TEST_CASE("model eval: modifiers keep parts and materials, and chain") {
+    const ModelBuild b = build_of(R"({"format":"factoria.model/1","materials":{"wood":{"color":[0.5,0.3,0.1,1]}},"nodes":[
+        {"op":"mirror","axis":"x","children":[
+            {"op":"array","count":2,"offset":[0,2,0],"children":[
+                {"op":"box","size":[1,1,1],"position":[1,0,0],"part":"leg","material":"wood"}]}]}]})");
+    REQUIRE(b.parts.size() == 1);
+    CHECK(b.parts[0].part == "leg");
+    CHECK(b.parts[0].material == "wood");
+    CHECK(b.parts[0].triangles == 48);  // 12 triangles x 2 copies x 2 sides
+    CHECK(b.stats.closed());
+    CHECK(b.parts[0].bmin.x == doctest::Approx(-1.5f));
+    CHECK(b.parts[0].bmax.y == doctest::Approx(2.5f));
+}
+
+TEST_CASE("model eval: a boolean cuts parts into the solid and says which operand is not closed") {
+    const ModelBuild b = build_of(R"({"format":"factoria.model/1","nodes":[
+        {"op":"boolean","mode":"difference","children":[
+            {"op":"box","size":[2,2,2],"part":"wall"},
+            {"op":"cylinder","radius":0.5,"height":4,"rotation":[90,0,0],"part":"hole","id":"tool"}]}]})");
+    CHECK(b.stats.closed());
+    CHECK(b.stats.volume < 8.0);
+    CHECK(b.stats.volume == doctest::Approx(8.0 - 3.14159 * 0.25 * 2.0).epsilon(0.03));
+    REQUIRE(b.parts.size() == 2);  // the walls of the hole come from the cutter: its part
+    CHECK(b.parts[0].part == "wall");
+    CHECK(b.parts[1].part == "hole");
+
+    auto doc = parse_model_doc(J(R"({"format":"factoria.model/1","nodes":[
+        {"op":"boolean","children":[{"op":"box","id":"a"},{"op":"grid","id":"flat"}]}]})"));
+    REQUIRE(doc.ok());
+    auto built = evaluate_model(*doc, {});
+    REQUIRE_FALSE(built.ok());
+    CHECK(built.error().message.find("/nodes/0/children/1") != std::string::npos);  // names the operand
+    CHECK(built.error().message.find("not a closed solid") != std::string::npos);
+}
+
+TEST_CASE("model eval: costs are bounded with errors that say how to lower them") {
+    auto doc = parse_model_doc(J(R"({"format":"factoria.model/1","nodes":[
+        {"op":"array","count":4096,"offset":[1,0,0],"children":[{"op":"sphere","segments":64,"rings":32}]}]})"));
+    REQUIRE(doc.ok());
+    auto built = evaluate_model(*doc, {});
+    REQUIRE_FALSE(built.ok());
+    CHECK(built.error().message.find("triangles") != std::string::npos);
+    CHECK(!built.error().hint.empty());
+
+    auto sub = parse_model_doc(J(R"({"format":"factoria.model/1","nodes":[
+        {"op":"subdivide","levels":4,"children":[{"op":"sphere","segments":128,"rings":64}]}]})"));
+    REQUIRE(sub.ok());
+    auto subBuilt = evaluate_model(*sub, {});
+    REQUIRE_FALSE(subBuilt.ok());
+    CHECK(subBuilt.error().message.find("triangles") != std::string::npos);
+}
+
+TEST_CASE("model eval: a modifier with nothing to work on is a warning, and lathe, sweep and loft build solids") {
+    const ModelBuild b = build_of(R"({"format":"factoria.model/1","nodes":[
+        {"op":"box"},
+        {"op":"mirror","children":[]},
+        {"op":"lathe","profile":[[0,0],[0.5,0],[0.5,1],[0,1]],"position":[3,0,0]},
+        {"op":"sweep","profile":[[-0.1,-0.1],[0.1,-0.1],[0.1,0.1],[-0.1,0.1]],"path":[[0,0,0],[0,1,0],[1,2,0]],"position":[6,0,0]},
+        {"op":"loft","sections":[[[-0.5,0,-0.5],[0.5,0,-0.5],[0.5,0,0.5],[-0.5,0,0.5]],[[-0.3,1,-0.3],[0.3,1,-0.3],[0.3,1,0.3],[-0.3,1,0.3]]],"position":[9,0,0]}]})");
+    CHECK(b.stats.closed());
+    CHECK(b.stats.volume > 0);
+    bool warned = false;
+    for (const std::string& w : b.warnings) warned |= w.find("mirror") != std::string::npos;
+    CHECK(warned);
+}
+
+TEST_CASE("model eval: modifier results are byte-identical between runs") {
+    const char* text = R"({"format":"factoria.model/1","nodes":[
+        {"op":"noise","seed":7,"amplitude":0.03,"children":[{"op":"subdivide","levels":1,"children":[{"op":"bevel","children":[{"op":"box"}]}]}]},
+        {"op":"boolean","position":[3,0,0],"children":[{"op":"sphere"},{"op":"box","position":[0.4,0,0]}]},
+        {"op":"twist","position":[6,0,0],"angle":60,"children":[{"op":"box","size":[0.5,2,0.5],"segments":[1,8,1]}]}]})";
+    const ModelBuild a = build_of(text), b = build_of(text);
+    REQUIRE(a.data.positions.size() == b.data.positions.size());
+    CHECK(std::memcmp(a.data.positions.data(), b.data.positions.data(), a.data.positions.size() * sizeof(float)) == 0);
+    CHECK(std::memcmp(a.data.normals.data(), b.data.normals.data(), a.data.normals.size() * sizeof(float)) == 0);
+    CHECK(a.data.indices == b.data.indices);
+}
+
+TEST_CASE("model doc: the schema covers the modifiers") {
+    const Json schema = model_doc_schema();
+    const Json good = J(R"({"format":"factoria.model/1","nodes":[
+        {"op":"boolean","mode":"union","children":[{"op":"box"},{"op":"lathe","profile":[[0.2,0],[0.4,1]]}]},
+        {"op":"array","count":4,"children":[{"op":"box"}]},
+        {"op":"loft","sections":[[[0,0,0],[1,0,0],[0,1,0]],[[0,0,1],[1,0,1],[0,1,1]]]}]})");
+    for (const SchemaError& e : validate_json(schema, good)) FAIL_CHECK(e.to_string());
+    CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"array","count":0,"children":[]}]})")).empty());
+    CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"lathe","profile":[[1,0]]}]})")).empty());
+    CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"mirror","axis":"q"}]})")).empty());
 }

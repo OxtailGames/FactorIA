@@ -84,6 +84,26 @@ if(FA_PLATFORM STREQUAL "web")
     target_compile_definitions(fa_ext_box2d PRIVATE BOX2D_DISABLE_SIMD)
 endif()
 
+# ---- Manifold (solid booleans for model documents) ---------------------------------------------------------
+# Manifold v3.5.4 core (Apache-2.0): robust union, difference and intersection of closed triangle meshes (fa_scene, model_boolean.cpp).
+# Built serial (MANIFOLD_PAR=-1: no TBB, no threads), without its CrossSection (Clipper2) and without bindings or tests: only
+# src/*.cpp and include/manifold as released. It reports problems through a status, and the few internal asserts throw: the wrapper
+# catches them (the Web build already uses WebAssembly exceptions, see cmake/FactoriaPlatform.cmake).
+file(GLOB FA_MANIFOLD_SOURCES ${FA_EXT}/manifold/src/*.cpp)
+add_library(fa_ext_manifold STATIC ${FA_MANIFOLD_SOURCES})
+target_include_directories(fa_ext_manifold SYSTEM PUBLIC ${FA_EXT}/manifold/include)
+target_include_directories(fa_ext_manifold PRIVATE ${FA_EXT}/manifold/src)
+target_compile_definitions(fa_ext_manifold PUBLIC MANIFOLD_PAR=-1)
+set_target_properties(fa_ext_manifold PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+target_link_libraries(fa_ext_manifold PUBLIC Threads::Threads)
+if(MSVC)
+    target_compile_definitions(fa_ext_manifold PRIVATE NOMINMAX)
+    target_compile_options(fa_ext_manifold PRIVATE /bigobj)
+else()
+    # A Debug build of the engine keeps this library optimized: unoptimized, a boolean of two small solids takes seconds.
+    target_compile_options(fa_ext_manifold PRIVATE $<$<CONFIG:Debug>:-O2>)
+endif()
+
 # ---- Dear ImGui (editor + debug UI) ----------------------------------------
 add_library(fa_ext_imgui STATIC
     ${FA_EXT}/imgui/imgui.cpp
@@ -162,7 +182,7 @@ target_include_directories(fa_ext_sheenbidi SYSTEM PUBLIC ${FA_EXT}/sheenbidi/He
 target_include_directories(fa_ext_sheenbidi PRIVATE ${FA_EXT}/sheenbidi/Source)
 target_compile_definitions(fa_ext_sheenbidi PRIVATE SB_CONFIG_UNITY)
 
-foreach(t fa_ext_quickjs fa_ext_box2d fa_ext_imgui fa_ext_basisu_transcoder fa_ext_basisu_encoder fa_ext_harfbuzz fa_ext_harfbuzz_subset fa_ext_sheenbidi)
+foreach(t fa_ext_quickjs fa_ext_box2d fa_ext_imgui fa_ext_basisu_transcoder fa_ext_basisu_encoder fa_ext_harfbuzz fa_ext_harfbuzz_subset fa_ext_sheenbidi fa_ext_manifold)
     if(NOT TARGET ${t})
         continue()
     endif()
