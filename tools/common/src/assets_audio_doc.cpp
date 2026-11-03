@@ -451,7 +451,7 @@ void register_audio_doc_commands(CommandRegistry& registry, const std::string& p
         info.summary = "Check an audio document and say what its chain renders to; with no arguments, list the step types and their fields.";
         info.description =
             "An audio document (`*.audio.json`, docs/SOUND.md \"Audio documents\") is a non-destructive chain over a sound: a WAV/OGG, an .sfx.json patch or another audio document, then steps (trim, fade, "
-            "normalize, gain, pitch, stretch, speed, eq, compressor, reverb, delay, reverse, layer, loop, granular). With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false "
+            "normalize, gain, pitch, stretch, speed, eq, filter, compressor, distortion, bitcrush, reverb, delay, reverse, layer, loop, granular). With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false "
             "and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns its steps, where it bakes to and whether that sound is fresh or stale, and (unless render is false) "
             "renders it in memory: seconds, loudness, peak, brightness (centroidHz), the loop points of a loop step and the length and peak after each step. With no argument it returns the catalog of step types with every field, "
             "its range, default and doc string. Example: {\"path\":\"assets/audio/door.audio.json\"}";

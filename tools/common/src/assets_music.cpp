@@ -488,6 +488,49 @@ std::optional<double> style_music_lufs(const std::string& projectDir) {
     return it->second;
 }
 
+// What the mixer did in a render: per-track levels, the buses and the master (loudness normalization and limiter).
+Json mix_json(const SongDoc& doc, const SongRender& render, const std::optional<double>& styleTarget) {
+    Json tracks = Json::array();
+    for (const SongTrackStats& t : render.tracks) {
+        const SongTrack* track = doc.find_track(t.name);
+        Json j = Json::object({{"track", t.name}, {"notes", t.notes}, {"peakDb", round_to(t.peakDb, 1)}, {"lufs", round_to(t.lufs, 1)}});
+        if (track) {
+            j["volume"] = track->volume;
+            j["pan"] = track->pan;
+            if (!track->effects.empty()) j["effects"] = Json::array();
+            for (const AudioStep& e : track->effects) j["effects"].push_back(e.type);
+            if (!track->sends.empty()) j["sends"] = track->sends;
+        }
+        tracks.push_back(j);
+    }
+    const SongMasterStats& m = render.master;
+    Json master = Json::object({{"lufs", round_to(render.clip.lufs, 1)}, {"peakDb", round_to(render.clip.peakDb, 1)},
+                                {"lufsBeforeLimiter", round_to(m.lufsBefore, 1)}, {"peakBeforeDb", round_to(m.peakBeforeDb, 1)},
+                                {"limiter", m.limiter}, {"limiterReductionDb", round_to(m.limiterReductionDb, 1)}, {"normalizeGainDb", round_to(m.normalizeGainDb, 1)}});
+    if (m.limiter) master["ceilingDb"] = m.ceilingDb;
+    if (m.targetLufs) {
+        master["targetLufs"] = *m.targetLufs;
+        master["loudness"] = doc.mixer.master.loudness == SongMaster::Loudness::Style ? "style" : "target";
+        if (doc.mixer.master.loudness == SongMaster::Loudness::Style) master["targetSource"] = "style.audio.loudnessLufs.music in assets.json";
+    } else {
+        master["loudness"] = doc.mixer.master.loudness == SongMaster::Loudness::Off ? "off" : "style";
+        if (doc.mixer.master.loudness == SongMaster::Loudness::Style && !styleTarget) master["loudnessNote"] = "style: the project's style guide sets no music loudness, so the level is what the mix adds up to";
+    }
+    Json buses = Json::array();
+    for (const SongBus& b : doc.mixer.buses) {
+        Json bj = Json::object({{"bus", b.name}, {"volume", b.volume}, {"pan", b.pan}, {"mute", b.mute}, {"effects", Json::array()}});
+        for (const AudioStep& e : b.effects) bj["effects"].push_back(e.type);
+        buses.push_back(bj);
+    }
+    return Json::object({{"tracks", tracks}, {"buses", buses}, {"master", master}});
+}
+
+// The music loudness the render brings the master to, when the song asks for the style's: the project's style guide.
+std::optional<double> style_target_for(const std::string& projectDir, const SongDoc& doc) {
+    if (doc.mixer.master.loudness != SongMaster::Loudness::Style) return std::nullopt;
+    return style_music_lufs(projectDir);
+}
+
 Json music_check_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("music.check", a, "", {"path", "song", "rules", "render", "targetLufs"});
     Loaded loaded = resolve_song(projectDir, a, "music.check");
@@ -539,44 +582,57 @@ Json music_check_command(const std::string& projectDir, const Json& a) {
 
 // ---------------------------------------------------------------- music.preview ---
 
+// The render options the arguments of music.preview and music.mix share: the range, the solo and mute lists, the seed, the sample rate
+// and the style's loudness target.
+SongRenderOptions render_options(const std::string& command, const std::string& projectDir, const Json& a, const SongDoc& doc, const SongTimeline& tl,
+                                 std::optional<double>& styleTarget) {
+    SongRenderOptions options;
+    if (a.contains("sampleRate")) {
+        const long sr = tooling_detail::arg_int(a, "sampleRate", 44100);
+        if (sr != 22050 && sr != 32000 && sr != 44100 && sr != 48000) fail("invalid_argument", command + ": `sampleRate` must be 22050, 32000, 44100 or 48000.", "44100 is the default; 22050 renders faster and is enough to judge a part.");
+        options.sampleRate = int(sr);
+    }
+    if (a.contains("fromBar")) {
+        const long b = tooling_detail::arg_int(a, "fromBar", 1);
+        if (b < 1 || b > std::max(1, tl.bars)) fail("invalid_argument", command + ": `fromBar` " + std::to_string(b) + " is outside the song's " + std::to_string(tl.bars) + " bars.", "Bars are numbered from 1; music.info lists where each section starts.");
+        options.fromBar = int(b);
+    }
+    if (a.contains("bars")) {
+        const long b = tooling_detail::arg_int(a, "bars", 0);
+        if (b < 1 || b > kSongMaxBars) fail("invalid_argument", command + ": `bars` must be a whole number of bars, 1 or more.", "Render a part of the song, e.g. {\"fromBar\": 9, \"bars\": 8}.");
+        options.bars = int(b);
+    }
+    for (const char* key : {"solo", "mute"}) {
+        if (!a.contains(key)) continue;
+        std::vector<std::string> names;
+        for (const SongTrack& t : doc.tracks) names.push_back(t.name);
+        if (!a[key].is_array()) fail("invalid_argument", std::string(command + ": `") + key + "` must be a list of track names.", "Tracks: " + join(names, ", ") + ".");
+        for (const Json& n : a[key]) {
+            const std::string name = n.is_string() ? n.get<std::string>() : std::string();
+            if (std::find(names.begin(), names.end(), name) == names.end())
+                fail("invalid_argument", std::string(command + ": `") + key + "` names the unknown track " + n.dump() + ".", did_you_mean(name, names) + " Tracks: " + join(names, ", ") + ".");
+            (std::string(key) == "solo" ? options.solo : options.mute).push_back(name);
+        }
+    }
+    styleTarget = style_target_for(projectDir, doc);
+    options.targetLufs = styleTarget;
+    if (a.contains("seed")) {
+        if (!a["seed"].is_number_integer() || a["seed"].get<long long>() < 0) fail("invalid_argument", command + ": `seed` must be a whole number, 0 or more.", "Another seed is another take of every noise in the instruments; the same seed always gives the same sound.");
+        options.seed = a["seed"].get<std::uint64_t>();
+    }
+
+    return options;
+}
+
+
 Json music_preview_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("music.preview", a, "", {"path", "out", "fromBar", "bars", "solo", "mute", "seed", "sampleRate", "overwrite", "picture", "pictureOut", "width", "height"});
     const std::string rel = song_path(tooling_detail::arg_string(a, "path", true));
     Loaded loaded = load_song_file(projectDir, rel);
     const SongTimeline tl = expand_or_fail(loaded.doc, rel);
 
-    SongRenderOptions options;
-    if (a.contains("sampleRate")) {
-        const long sr = tooling_detail::arg_int(a, "sampleRate", 44100);
-        if (sr != 22050 && sr != 32000 && sr != 44100 && sr != 48000) fail("invalid_argument", "music.preview: `sampleRate` must be 22050, 32000, 44100 or 48000.", "44100 is the default; 22050 renders faster and is enough to judge a part.");
-        options.sampleRate = int(sr);
-    }
-    if (a.contains("fromBar")) {
-        const long b = tooling_detail::arg_int(a, "fromBar", 1);
-        if (b < 1 || b > std::max(1, tl.bars)) fail("invalid_argument", "music.preview: `fromBar` " + std::to_string(b) + " is outside the song's " + std::to_string(tl.bars) + " bars.", "Bars are numbered from 1; music.info lists where each section starts.");
-        options.fromBar = int(b);
-    }
-    if (a.contains("bars")) {
-        const long b = tooling_detail::arg_int(a, "bars", 0);
-        if (b < 1 || b > kSongMaxBars) fail("invalid_argument", "music.preview: `bars` must be a whole number of bars, 1 or more.", "Render a part of the song, e.g. {\"fromBar\": 9, \"bars\": 8}.");
-        options.bars = int(b);
-    }
-    for (const char* key : {"solo", "mute"}) {
-        if (!a.contains(key)) continue;
-        std::vector<std::string> names;
-        for (const SongTrack& t : loaded.doc.tracks) names.push_back(t.name);
-        if (!a[key].is_array()) fail("invalid_argument", std::string("music.preview: `") + key + "` must be a list of track names.", "Tracks: " + join(names, ", ") + ".");
-        for (const Json& n : a[key]) {
-            const std::string name = n.is_string() ? n.get<std::string>() : std::string();
-            if (std::find(names.begin(), names.end(), name) == names.end())
-                fail("invalid_argument", std::string("music.preview: `") + key + "` names the unknown track " + n.dump() + ".", did_you_mean(name, names) + " Tracks: " + join(names, ", ") + ".");
-            (std::string(key) == "solo" ? options.solo : options.mute).push_back(name);
-        }
-    }
-    if (a.contains("seed")) {
-        if (!a["seed"].is_number_integer() || a["seed"].get<long long>() < 0) fail("invalid_argument", "music.preview: `seed` must be a whole number, 0 or more.", "Another seed is another take of every noise in the instruments; the same seed always gives the same sound.");
-        options.seed = a["seed"].get<std::uint64_t>();
-    }
+    std::optional<double> styleTarget;
+    const SongRenderOptions options = render_options("music.preview", projectDir, a, loaded.doc, tl, styleTarget);
 
     const std::string outArg = tooling_detail::arg_string(a, "out", false);
     const std::string out = outArg.empty() ? default_preview(rel) : outArg;
@@ -638,6 +694,7 @@ Json music_preview_command(const std::string& projectDir, const Json& a) {
                                 {"notes", render->notes},
                                 {"seed", options.seed},
                                 {"measurements", Json::object({{"lufs", num(render->clip.lufs, 1)}, {"peakDb", num(render->clip.peakDb, 1)}, {"sampleRate", render->clip.sampleRate}, {"channels", render->clip.channels}})},
+                                {"mix", mix_json(loaded.doc, *render, styleTarget)},
                                 {"provenance", provenance}});
     if (options.fromBar > 1 || options.bars > 0) result["range"] = Json::object({{"fromBar", options.fromBar}, {"bars", options.bars}});
     if (!options.solo.empty()) result["solo"] = options.solo;
@@ -656,8 +713,51 @@ Json music_preview_command(const std::string& projectDir, const Json& a) {
         result["analysis"] = pic;
         steps.push_back("Read the picture: waveform on top, spectrogram (log frequency) in the middle, loudness at the bottom. music.info draws the notes instead.");
     }
-    if (render->clip.peakDb > -0.5) steps.push_back("It peaks at " + std::format("{:.1f}", render->clip.peakDb) + " dBFS: lower a track `volume` or the song's `volume` with music.edit.");
+    if (render->master.limiter && render->master.limiterReductionDb > 3.0)
+        steps.push_back(std::format("The master limiter pulled the level down by {:.1f} dB: the mix is too hot, lower the loudest tracks' `volume` with music.edit (music.mix shows each track's level).", render->master.limiterReductionDb));
+    else if (!render->master.limiter && render->clip.peakDb > -0.5)
+        steps.push_back("It peaks at " + std::format("{:.1f}", render->clip.peakDb) + " dBFS and the master limiter is off: turn it on (music.edit set_mixer) or lower a track `volume` or the song's `volume`.");
     steps.push_back("Same song, same options, same bytes. After editing the song, music.preview again (assets.regenerate does it too while the preview is recorded as made by this command).");
+    result["nextSteps"] = steps;
+    return result;
+}
+
+// ---------------------------------------------------------------- music.mix ---
+
+Json music_mix_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("music.mix", a, "", {"path", "song", "fromBar", "bars", "solo", "mute", "seed", "sampleRate"});
+    Loaded loaded = resolve_song(projectDir, a, "music.mix");
+    const SongTimeline tl = expand_or_fail(loaded.doc, loaded.rel);
+    std::optional<double> styleTarget;
+    const SongRenderOptions options = render_options("music.mix", projectDir, a, loaded.doc, tl, styleTarget);
+    Result<SongRender> render = [&] {
+        ProjectRootGuard root(projectDir);
+        return render_song(loaded.doc, tl, options);
+    }();
+    if (!render.ok()) fail("failed", (loaded.rel.empty() ? std::string("the song") : loaded.rel) + ": " + render.error().message, render.error().hint);
+    Json result = Json::object({{"seconds", num(render->seconds, 2)},
+                                {"notes", render->notes},
+                                {"measurements", Json::object({{"lufs", num(render->clip.lufs, 1)}, {"peakDb", num(render->clip.peakDb, 1)}})},
+                                {"mix", mix_json(loaded.doc, *render, styleTarget)}});
+    if (!loaded.rel.empty()) result["path"] = loaded.rel;
+    Json steps = Json::array();
+    const SongMasterStats& m = render->master;
+    std::string loudest, quietest;
+    double hi = -1e9, lo = 1e9;
+    for (const SongTrackStats& t : render->tracks) {
+        if (t.notes == 0) continue;
+        if (t.lufs > hi) { hi = t.lufs; loudest = t.name; }
+        if (t.lufs < lo) { lo = t.lufs; quietest = t.name; }
+    }
+    if (!loudest.empty() && loudest != quietest && hi - lo > 12.0)
+        steps.push_back(std::format("`{}` is {:.0f} LU louder than `{}`: change a track `volume` with music.edit set_track to balance them.", loudest, hi - lo, quietest));
+    if (m.limiter && m.limiterReductionDb > 3.0)
+        steps.push_back(std::format("The master limiter pulls the level down by {:.1f} dB: lower the loudest tracks' `volume` instead of letting the limiter squash the mix.", m.limiterReductionDb));
+    if (!m.limiter && render->clip.peakDb > -1.0)
+        steps.push_back("The master limiter is off and the mix peaks at " + std::format("{:.1f}", render->clip.peakDb) + " dBFS: set mixer.master.limiter to true with music.edit set_mixer.");
+    if (m.targetLufs && std::abs(render->clip.lufs - *m.targetLufs) > 3.0)
+        steps.push_back(std::format("The mix is {:.1f} LUFS and the target is {:.1f}: the loudness gain was capped or the limiter held it back; lower the peaks of the loudest tracks.", render->clip.lufs, *m.targetLufs));
+    steps.push_back("music.edit set_track changes a track's volume, pan, mute, solo, effects and sends; set_mixer changes the buses and the master. music.preview writes the sound.");
     result["nextSteps"] = steps;
     return result;
 }
@@ -700,8 +800,9 @@ void register_music_commands_core(CommandRegistry& registry, const std::string& 
         info.summary = "Find what is wrong in a song before listening: notes outside the key or the instrument's range, clashes, mud, silent tracks, loudness.";
         info.description =
             "Runs the music checks on a song (`path` or inline `song`). Rules: off_key (a note outside the song's key and mode that is not a passing tone), range (a note outside the instrument's range or the track's `range`), clash (a minor "
-            "second or a tritone sounding together on a strong beat), mud (close low notes under C3), structure (a track that never plays, an empty section, an unused pattern) and loudness (the song is rendered: peak over 0 dBFS is an error, "
-            "under -1 dBFS a warning, and an integrated loudness more than 3 LU from the target a warning). Without `rules` every rule that needs no render runs; `render: true` adds loudness. The target is `targetLufs`, else "
+            "second or a tritone sounding together on a strong beat), mud (close low notes under C3), structure (a track that never plays, an empty section, an unused pattern) and loudness (the song is rendered with its mixer: with the master limiter off a clipping mix is an error and a peak over -1 dBFS "
+            "a warning; a limiter that pulls the level down by more than 6 dB is a warning, more than 3 dB a note; a mix below -35 LUFS is a warning; an integrated loudness more than 3 LU from the target is a warning, "
+            "unless the master `loudness` brings it there). Without `rules` every rule that needs no render runs; `render: true` adds loudness. The target is `targetLufs`, else "
             "style.audio.loudnessLufs.music of assets.json when the style guide says it. Every finding has the rule, severity, a message, a fix (`hint`), the track, pattern, section, bar and position, and for a note the pointer, line, column "
             "and token in the note text; equal findings are reported once with a `count`. `ok` is true when there is no error and no warning. A song with mistakes fails like music.info. Example: {\"path\":\"assets/music/theme.song.json\",\"render\":true}";
         auto props = songArgs();
@@ -728,7 +829,7 @@ void register_music_commands_core(CommandRegistry& registry, const std::string& 
             "program: the same song, options and seed give the same bytes on every platform. The file gets provenance and a recipe in assets.json whose inputs are the song and every patch it read, so project.validate warns when they "
             "changed after the preview was made and assets.regenerate renders it again. `fromBar` and `bars` render a part, `solo` and `mute` choose tracks, `seed` is another take of the instruments' noise, `sampleRate` 22050, 32000, 44100 "
             "(default) or 48000. A song longer than 180 s needs a range. An existing file that music.preview did not make is an `exists` error unless overwrite is true. The result has the measurements (lufs, peakDb), the numbers of the "
-            "file as written (`analysis`) and the spectrogram picture (`$image`). This is the preview, not the in-game player: the same notes will be played by the instruments and mixer of the next music milestones. "
+            "file as written (`analysis`) and the spectrogram picture (`$image`). The song's mixer applies: track effects and sends, the buses, the master limiter and the loudness normalization to the style's music loudness; `mix` in the result says what each did (music.mix gives the same without writing a file). "
             "Example: {\"path\":\"assets/music/theme.song.json\",\"fromBar\":5,\"bars\":4,\"solo\":[\"lead\"]}";
         auto props = songArgs();
         info.inputSchema = Json::object({{"type", "object"},
@@ -748,6 +849,30 @@ void register_music_commands_core(CommandRegistry& registry, const std::string& 
                                                              {"width", integer("Width of the picture in pixels (default 1000).", 400, 2400)},
                                                              {"height", integer("Height of the picture in pixels (default 640).", 280, 1600)}})}});
         registry.add(info, [projectDir](const Json& args) { return music_preview_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        CommandInfo info;
+        info.name = "music.mix";
+        info.category = "assets";
+        info.readOnly = true;
+        info.summary = "Render a song in memory and report the mix: each track's level, the buses and what the master's loudness normalization and limiter did.";
+        info.description =
+            "Renders the song (`path`, or inline `song`) like music.preview but writes no file, and returns the mix: for every track its notes, peak (dBFS) and loudness (LUFS) as heard in the mix, volume, pan, effects and sends; the buses "
+            "(volume, pan, effects); and the master: the loudness and peak before the loudness gain and the limiter, the gain the normalization added, the target loudness (`mixer.master.loudness`: \"style\" is the project's "
+            "style.audio.loudnessLufs.music, a number is LUFS, \"off\" leaves the level), whether the limiter is on and how many dB it pulled down at most. Use it to balance the tracks (a track 10 LU above the others covers them), "
+            "to see whether the limiter is squashing a hot mix, and before music.edit set_track / set_mixer. `fromBar`, `bars`, `solo`, `mute`, `seed` and `sampleRate` work as in music.preview. "
+            "Example: {\"path\":\"assets/music/theme.song.json\",\"bars\":8}";
+        info.inputSchema = Json::object({{"type", "object"},
+                                         {"additionalProperties", false},
+                                         {"properties", obj({{"path", str("The song, project-relative, under assets/ and ending in .song.json.")},
+                                                             {"song", Json::object({{"type", "object"}, {"description", "The song document inline (a song not saved yet); `path` or `song`."}})},
+                                                             {"fromBar", integer("First bar rendered, counted from 1 (default 1).", 1, kSongMaxBars)},
+                                                             {"bars", integer("Number of bars rendered from `fromBar` (default: to the end).", 1, kSongMaxBars)},
+                                                             {"solo", strings("Render only these tracks.")},
+                                                             {"mute", strings("Leave these tracks out.")},
+                                                             {"seed", Json::object({{"type", "integer"}, {"minimum", 0}, {"default", 0}, {"description", "Added to the song's seed."}})},
+                                                             {"sampleRate", Json::object({{"type", "integer"}, {"enum", Json::array({22050, 32000, 44100, 48000})}, {"default", 44100}, {"description", "Sample rate of the render (22050 is faster)."}})}})}});
+        registry.add(info, [projectDir](const Json& args) { return music_mix_command(projectDir, args.is_null() ? Json::object() : args); });
     }
 }
 

@@ -676,25 +676,41 @@ TEST_CASE("check loudness: renders the song, finds clipping and a loudness off t
     CHECK(r.lufs > -60.0);
     CHECK(r.peakDb < -1.0);
     CHECK(r.issues.empty());
-    // A target far from the measured loudness is a warning with the factor to apply.
+    // With the master's loudness off, a target far from the measured loudness is a warning with the factor to apply.
+    Json unnormalized = quiet;
+    unnormalized["mixer"] = Json{{"master", Json{{"loudness", "off"}}}};
     o.targetLufs = r.lufs + 8.0;
-    SongCheckReport off = check_of(quiet, o);
+    SongCheckReport off = check_of(unnormalized, o);
     REQUIRE(off.issues.size() == 1);
     CHECK(off.issues[0].message.find("target") != std::string::npos);
     CHECK(off.issues[0].hint.find("volume") != std::string::npos);
     o.targetLufs = r.lufs + 1.0;
-    CHECK(check_of(quiet, o).issues.empty());
-    // Many loud tracks at a high master volume clip.
+    CHECK(check_of(unnormalized, o).issues.empty());
+    // With the default master ("style") the mixer brings the render to the target, so the same song is fine.
+    o.targetLufs = r.lufs + 8.0;
+    SongCheckReport normalized = check_of(quiet, o);
+    CHECK(normalized.issues.empty());
+    CHECK(normalized.lufs == doctest::Approx(*o.targetLufs).epsilon(0.02));
+    // Many loud tracks at a high master volume clip when the limiter is off.
     std::vector<T> loud;
     for (int i = 0; i < 8; ++i) loud.push_back({"t" + std::to_string(i), "organ", "C3:1"});
     Json clip = song_of(loud);
     clip["volume"] = 1.5;
     for (auto& kv : clip["tracks"].items()) kv.value()["volume"] = 2.0;
+    clip["mixer"] = Json{{"master", Json{{"loudness", "off"}, {"limiter", false}}}};
     SongCheckReport c = check_of(clip, o);
     bool error = false;
     for (const SongCheckIssue& i : c.issues) error |= i.severity == "error" && i.message.find("clips") != std::string::npos;
     CHECK(error);
     CHECK(c.peakDb > 0.0);
+    // The default master has a limiter: the same song does not clip, and the report says how hard the limiter worked.
+    clip["mixer"] = Json{{"master", Json{{"loudness", "off"}}}};
+    SongCheckReport limited = check_of(clip, o);
+    CHECK(limited.peakDb <= -0.99);
+    CHECK(limited.limiterReductionDb > 3.0);
+    bool pulls = false;
+    for (const SongCheckIssue& i : limited.issues) pulls |= i.message.find("limiter pulls") != std::string::npos;
+    CHECK(pulls);
     // The default run does not render.
     CHECK_FALSE(check_of(quiet).rendered);
 }

@@ -466,7 +466,7 @@ TEST_CASE("audio doc: a document with mistakes lists every one with its pointer 
 
     auto empty = parse_audio_doc(*parse_json(R"({"steps": []})"), "x");
     CHECK_FALSE(empty.ok());
-    CHECK(audio_step_types().size() == 15);
+    CHECK(audio_step_types().size() == 18);
 }
 
 TEST_CASE("audio: loop points in the import settings make a looping clip wrap inside the region") {

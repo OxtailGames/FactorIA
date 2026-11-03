@@ -18,6 +18,8 @@ namespace {
 
 constexpr std::size_t kMaxPatternsPerTrack = 64;
 constexpr double kMaxBeat = 100000.0;
+constexpr std::size_t kMaxEffects = 8;
+constexpr std::size_t kSongMaxBuses = 8;
 
 std::string join(const std::vector<std::string>& names, std::size_t limit = 12) {
     std::string out;
@@ -40,7 +42,10 @@ std::string escape_pointer(const std::string& s) {
 struct Parser {
     std::vector<SongIssue> issues;
 
-    void err(const std::string& pointer, std::string message, std::string hint) { issues.push_back({pointer, std::move(message), std::move(hint), 0, 0}); }
+    void err(const std::string& pointer, std::string message, std::string hint) {
+        hint.erase(0, hint.find_first_not_of(' '));  // "did you mean" is empty when nothing is close, and the sentence after it starts with a space
+        issues.push_back({pointer, std::move(message), std::move(hint), 0, 0});
+    }
 
     void unknown_keys(const Json& obj, const std::string& pointer, std::initializer_list<const char*> allowed, const std::string& what) {
         std::vector<std::string> names;
@@ -151,29 +156,169 @@ struct Parser {
         }
     }
 
+    bool boolean(const Json& obj, const std::string& pointer, const char* key, bool& out, const std::string& hint) {
+        auto it = obj.find(key);
+        if (it == obj.end()) return false;
+        if (!it->is_boolean()) {
+            err(pointer + "/" + key, std::string(key) + " must be true or false, got " + describe_json_value(*it), hint);
+            return false;
+        }
+        out = it->get<bool>();
+        return true;
+    }
+
+    // ---- effects (the insert chain of a track, a bus or the master) --------------------------------------------------
+    void effects(const Json& j, const std::string& pointer, std::vector<AudioStep>& out) {
+        static const std::string kEffects = "eq, filter, compressor, distortion, bitcrush, delay, reverb";
+        if (!j.is_array() || j.size() > kMaxEffects) {
+            err(pointer, "effects must be a list of at most 8 effects, got " + describe_json_value(j),
+                "Write [{\"type\": \"eq\", \"bands\": [{\"type\": \"highPass\", \"freq\": 90}]}, {\"type\": \"compressor\"}]: they run in this order. Effect types: " + kEffects + ".");
+            return;
+        }
+        for (std::size_t i = 0; i < j.size(); ++i) {
+            const std::string at = pointer + "/" + std::to_string(i);
+            if (j[i].is_object()) {
+                auto type = j[i].find("type");
+                if (type != j[i].end() && type->is_string() && !audio_step_is_effect(type->get<std::string>())) {
+                    const std::string t = type->get<std::string>();
+                    err(at + "/type", "`" + t + "` is not an effect a mixer can run",
+                        did_you_mean(t, std::vector<std::string>{"eq", "filter", "compressor", "distortion", "bitcrush", "delay", "reverb"}) + " Effect types: " + kEffects + ".");
+                    continue;
+                }
+            }
+            std::vector<AudioDocIssue> found;
+            auto step = parse_audio_step(j[i], at, &found);
+            for (const AudioDocIssue& f : found) issues.push_back({f.pointer, f.message, f.hint, 0, 0});
+            if (step) out.push_back(std::move(*step));
+        }
+    }
+
     // ---- instrument --------------------------------------------------------------------------------------------------
+    static bool has_suffix(const std::string& s, const char* suffix) {
+        const std::string x = suffix;
+        return s.size() > x.size() && s.compare(s.size() - x.size(), x.size(), x) == 0;
+    }
+    static bool is_soundfont_text(const std::string& s) {
+        const std::size_t hash = s.find('#');
+        return has_suffix(hash == std::string::npos ? s : s.substr(0, hash), ".sf2");
+    }
+
+    // A project file path: relative, forward slashes, no `..` (the renderer reads it through the project's file system).
+    void check_project_path(const std::string& pointer, const std::string& path) {
+        const bool bad = path.empty() || path[0] == '/' || path.find('\\') != std::string::npos || path.find(':') != std::string::npos || path.find("..") != std::string::npos;
+        if (bad) err(pointer, "the file path `" + path + "` is not inside the project", "Use a project-relative path with forward slashes, e.g. assets/audio/piano.sf2.");
+    }
+
+    // The tracks' instrument text of a SoundFont: "<path>#<preset name>" or "<path>#<bank>:<program>".
+    static std::string soundfont_text(const SongSoundfont& sf) {
+        return sf.path + "#" + (sf.presetName.empty() ? std::to_string(sf.bank) + ":" + std::to_string(sf.program) : sf.presetName);
+    }
+
+    // "assets/audio/piano.sf2#Grand Piano" (or "#0:5", "#128:0" for a percussion preset, or no '#' for the first preset of bank 0).
+    void soundfont_shorthand(const std::string& pointer, const std::string& text, SongTrack& t) {
+        const std::size_t hash = text.find('#');
+        t.soundfont.path = hash == std::string::npos ? text : text.substr(0, hash);
+        check_project_path(pointer, t.soundfont.path);
+        const std::string preset = hash == std::string::npos ? std::string() : text.substr(hash + 1);
+        const std::size_t colon = preset.find(':');
+        bool numeric = colon != std::string::npos && colon > 0 && colon + 1 < preset.size() && preset.size() <= 7;
+        for (std::size_t i = 0; numeric && i < preset.size(); ++i)
+            if (i != colon && !(preset[i] >= '0' && preset[i] <= '9')) numeric = false;
+        if (numeric) {
+            t.soundfont.bank = std::stoi(preset.substr(0, colon));
+            t.soundfont.program = std::stoi(preset.substr(colon + 1));
+            if (t.soundfont.bank > 128 || t.soundfont.program > 127)
+                err(pointer, "the preset `" + preset + "` is outside bank 0 to 128 and program 0 to 127", "General MIDI banks are 0 to 127, and 128 holds the percussion kit.");
+        } else {
+            t.soundfont.presetName = preset;
+        }
+        t.soundfont.drums = t.soundfont.bank == 128;
+        t.drums = t.soundfont.drums;
+        t.instrument = soundfont_text(t.soundfont);
+    }
+
+    // {"soundfont": "assets/audio/piano.sf2", "preset": "Grand Piano"} or {"soundfont": ..., "preset": 0, "bank": 0} or {"soundfont": ..., "drums": true}
+    void soundfont_object(const Json& j, const std::string& pointer, SongTrack& t) {
+        unknown_keys(j, pointer, {"soundfont", "preset", "bank", "drums"}, "an instrument");
+        const std::string example = "{\"soundfont\": \"assets/audio/piano.sf2\", \"preset\": \"Grand Piano\"}";
+        auto sf = j.find("soundfont");
+        if (sf == j.end() || !sf->is_string() || !has_suffix(sf->get<std::string>(), ".sf2")) {
+            err(pointer + "/soundfont", sf == j.end() ? "an instrument object needs `soundfont`, the project path of an .sf2 file"
+                                                      : "soundfont must be the path of an .sf2 file, got " + describe_json_value(*sf),
+                "Write " + example + ". The file is an asset the project brings; the engine includes none.");
+        } else {
+            t.soundfont.path = sf->get<std::string>();
+            check_project_path(pointer + "/soundfont", t.soundfont.path);
+        }
+        bool drums = false;
+        boolean(j, pointer, "drums", drums, "true plays the SoundFont's percussion kit (bank 128) with the drum lanes of a grid pattern.");
+        int bank = drums ? 128 : 0;
+        if (auto b = j.find("bank"); b != j.end()) {
+            if (!b->is_number_integer() || b->get<int>() < 0 || b->get<int>() > 128) err(pointer + "/bank", "bank must be a whole number from 0 to 128, got " + describe_json_value(*b), "Melodic presets are in banks 0 to 127 (usually 0); 128 is the percussion kit.");
+            else bank = b->get<int>();
+        }
+        if (drums && bank != 128) err(pointer + "/bank", "a drum SoundFont track uses bank 128, not " + std::to_string(bank), "Remove `bank` (128 is the default with \"drums\": true).");
+        t.soundfont.bank = bank;
+        if (auto pr = j.find("preset"); pr != j.end()) {
+            if (pr->is_string()) {
+                t.soundfont.presetName = pr->get<std::string>();
+                if (j.find("bank") != j.end()) err(pointer + "/bank", "`bank` goes with a numeric `preset`; a preset name already picks the bank", "Remove `bank`, or write \"preset\": 0 for the program number.");
+            } else if (pr->is_number_integer() && pr->get<int>() >= 0 && pr->get<int>() <= 127) {
+                t.soundfont.program = pr->get<int>();
+            } else {
+                err(pointer + "/preset", "preset must be a preset name or a program number 0 to 127, got " + describe_json_value(*pr), "Write \"preset\": \"Grand Piano\" or \"preset\": 0 (music.instrument lists the presets of the file).");
+            }
+        }
+        t.soundfont.drums = bank == 128;
+        t.drums = t.soundfont.drums;
+        t.instrument = soundfont_text(t.soundfont);
+    }
+
     // Whether a name is acceptable at all; a path is only checked when the project is validated (the file may not exist here).
     bool instrument_name(const std::string& pointer, const std::string& name, bool& drums) {
         drums = false;
-        if (name == "kit") { drums = true; return true; }
+        if (song_kit_variant(name)) { drums = true; return true; }
+        if (name.rfind("kit:", 0) == 0) {
+            std::vector<std::string> kits;
+            for (const SongKitInfo& k : song_kits()) kits.push_back(k.instrument);
+            err(pointer, "unknown drum kit `" + name + "`", did_you_mean(name, kits) + " Kits: " + join(kits) + ".");
+            return false;
+        }
         if (name.find('/') != std::string::npos || (name.size() > 9 && name.compare(name.size() - 9, 9, ".sfx.json") == 0)) {
             if (name.size() <= 9 || name.compare(name.size() - 9, 9, ".sfx.json") != 0) {
-                err(pointer, "the instrument path `" + name + "` is not a sound patch", "An instrument file ends in .sfx.json: assets/audio/lead.sfx.json (sfx.preset writes one).");
+                err(pointer, "the instrument path `" + name + "` is not a sound patch", "An instrument file ends in .sfx.json: assets/audio/lead.sfx.json (sfx.preset writes one), or .sf2 for a SoundFont.");
                 return false;
             }
+            check_project_path(pointer, name);
             return true;
         }
-        std::vector<std::string> names = {"kit"};
+        std::vector<std::string> names;
+        for (const SongKitInfo& k : song_kits()) names.push_back(k.instrument);
         for (const SongInstrumentInfo& i : song_instruments()) names.push_back(i.name);
         if (std::find(names.begin(), names.end(), name) != names.end()) return true;
         for (const SfxPresetInfo& p : sfx_presets()) {
             if (p.name == name) return true;
             names.push_back(p.name);
         }
+        std::string builtin;
+        for (const SongInstrumentInfo& i : song_instruments()) builtin += (builtin.empty() ? "" : ", ") + i.name;
         err(pointer, "unknown instrument `" + name + "`",
-            did_you_mean(name, names) + " Built-in: kit (drums), " + [] { std::string s; for (const SongInstrumentInfo& i : song_instruments()) s += (s.empty() ? "" : ", ") + i.name; return s; }() +
-                "; or the path of a sound patch (assets/audio/lead.sfx.json), or an sfx preset name.");
+            did_you_mean(name, names) + " Built-in: kit / kit:electronic / kit:chiptune (drums), " + builtin +
+                "; or the path of a sound patch (assets/audio/lead.sfx.json), a SoundFont ({\"soundfont\": \"assets/audio/x.sf2\", \"preset\": \"...\"}), or an sfx preset name. music.instrument lists them.");
         return false;
+    }
+
+    void instrument(const Json& inst, const std::string& pointer, SongTrack& t) {
+        if (inst.is_object()) {
+            soundfont_object(inst, pointer, t);
+        } else if (inst.is_string()) {
+            t.instrument = inst.get<std::string>();
+            if (is_soundfont_text(t.instrument)) soundfont_shorthand(pointer, t.instrument, t);
+            else instrument_name(pointer, t.instrument, t.drums);
+        } else {
+            err(pointer, "instrument must be text or a SoundFont object, got " + describe_json_value(inst),
+                "Write \"instrument\": \"pluck\", or {\"soundfont\": \"assets/audio/piano.sf2\", \"preset\": \"Grand Piano\"}.");
+        }
     }
 
     // ---- tracks ------------------------------------------------------------------------------------------------------
@@ -196,16 +341,27 @@ struct Parser {
             err(pointer, "a track must be an object, got " + describe_json_value(j), "Write {\"instrument\": \"pluck\", \"patterns\": {\"a\": \"C4:4 E4 G4 r\"}}.");
             return;
         }
-        unknown_keys(j, pointer, {"instrument", "volume", "pan", "transpose", "swing", "range", "kit", "patterns", "automation"}, "a track");
+        unknown_keys(j, pointer, {"instrument", "volume", "pan", "mute", "solo", "voices", "effects", "sends", "transpose", "swing", "range", "kit", "patterns", "automation"}, "a track");
         auto inst = j.find("instrument");
-        if (inst == j.end()) err(pointer, "the track `" + name + "` has no `instrument`", "Name a built-in instrument (pluck, pad, bass, lead, bell, organ, strings, chiptune, flute, kit for drums) or an .sfx.json patch.");
-        else if (!inst->is_string()) err(pointer + "/instrument", "instrument must be text, got " + describe_json_value(*inst), "Write \"instrument\": \"pluck\".");
-        else {
-            t.instrument = inst->get<std::string>();
-            instrument_name(pointer + "/instrument", t.instrument, t.drums);
-        }
+        if (inst == j.end()) err(pointer, "the track `" + name + "` has no `instrument`", "Name a built-in instrument (pluck, pad, bass, lead, bell, strings, chiptune, ...; kit for drums; music.instrument lists them), an .sfx.json patch or a SoundFont.");
+        else instrument(*inst, pointer + "/instrument", t);
         number(j, pointer, "volume", t.volume, 0.0, 2.0, "Linear gain, 1 = the instrument as designed.");
         number(j, pointer, "pan", t.pan, -1.0, 1.0, "-1 is left, 0 centre, 1 right.");
+        boolean(j, pointer, "mute", t.mute, "true silences the track in the mix (the mixer's mute button).");
+        boolean(j, pointer, "solo", t.solo, "true plays only the soloed tracks (the mixer's solo button).");
+        if (auto v = j.find("voices"); v != j.end()) {
+            if (!v->is_number_integer() || v->get<int>() < 0 || v->get<int>() > 64) err(pointer + "/voices", "voices must be a whole number from 0 to 64, got " + describe_json_value(*v), "The most notes held at once; a new note cuts the oldest. 0 uses the instrument's own limit (music.instrument lists it).");
+            else t.voices = v->get<int>();
+        }
+        if (auto e = j.find("effects"); e != j.end()) effects(*e, pointer + "/effects", t.effects);
+        if (auto sn = j.find("sends"); sn != j.end()) {
+            if (!sn->is_object()) err(pointer + "/sends", "sends must be an object from bus name to level, got " + describe_json_value(*sn), "Write {\"reverb\": 0.3}: the share of the track's sound sent to the bus `reverb` (0 to 2).");
+            else for (auto it = sn->begin(); it != sn->end(); ++it) {
+                const std::string sp = pointer + "/sends/" + escape_pointer(it.key());
+                if (!it->is_number() || !(it->get<double>() >= 0.0 && it->get<double>() <= 2.0)) { err(sp, "a send level is a number from 0 to 2, got " + describe_json_value(*it), "0.3 sends a little, 1 sends as much as the track plays."); continue; }
+                t.sends[it.key()] = it->get<double>();
+            }
+        }
         if (auto tr = j.find("transpose"); tr != j.end()) {
             if (!tr->is_number_integer() || tr->get<int>() < -48 || tr->get<int>() > 48) err(pointer + "/transpose", "transpose must be a whole number of semitones from -48 to 48, got " + describe_json_value(*tr), "12 is an octave up.");
             else t.transpose = tr->get<int>();
@@ -289,6 +445,73 @@ struct Parser {
             return;
         }
         if (song_parse_note_text(notes->get<std::string>(), notesPointer, meter, declaredBars, p, issues)) t.patterns.push_back(std::move(p));
+    }
+
+    // ---- mixer ---------------------------------------------------------------------------------------------------------
+    void mixer(const Json& j, SongMixer& m) {
+        const std::string pointer = "/mixer";
+        if (!j.is_object()) {
+            err(pointer, "mixer must be an object, got " + describe_json_value(j), "Write {\"buses\": {\"reverb\": {\"effects\": [{\"type\": \"reverb\", \"decay\": 1.8}]}}, \"master\": {\"loudness\": \"style\"}}.");
+            return;
+        }
+        unknown_keys(j, pointer, {"buses", "master"}, "the mixer");
+        if (auto b = j.find("buses"); b != j.end()) {
+            if (!b->is_object() || b->size() > kSongMaxBuses) {
+                err(pointer + "/buses", "buses must be an object of at most 8 named buses, got " + describe_json_value(*b),
+                    "Write {\"reverb\": {\"effects\": [{\"type\": \"reverb\", \"decay\": 1.8}]}}; tracks send to a bus with \"sends\": {\"reverb\": 0.3}.");
+            } else {
+                for (auto it = b->begin(); it != b->end(); ++it) {
+                    const std::string bp = pointer + "/buses/" + escape_pointer(it.key());
+                    SongBus bus;
+                    bus.name = it.key();
+                    if (!valid_name(bus.name)) err(bp, "the bus name `" + bus.name + "` must be 1 to 32 letters, digits, - or _", "Rename it, e.g. \"reverb\" or \"delay_1\".");
+                    if (!it->is_object()) { err(bp, "a bus must be an object, got " + describe_json_value(*it), "Write {\"volume\": 1, \"effects\": [{\"type\": \"reverb\", \"decay\": 1.8}]}."); continue; }
+                    unknown_keys(*it, bp, {"volume", "pan", "mute", "effects"}, "a bus");
+                    number(*it, bp, "volume", bus.volume, 0.0, 2.0, "Linear gain of the bus's output, 1 = as the effects return it.");
+                    number(*it, bp, "pan", bus.pan, -1.0, 1.0, "-1 is left, 0 centre, 1 right: a balance of the bus's stereo output.");
+                    boolean(*it, bp, "mute", bus.mute, "true silences the bus (the sends still exist).");
+                    if (auto e = it->find("effects"); e != it->end()) effects(*e, bp + "/effects", bus.effects);
+                    m.buses.push_back(std::move(bus));
+                }
+            }
+        }
+        if (auto mj = j.find("master"); mj != j.end()) {
+            const std::string mp = pointer + "/master";
+            if (!mj->is_object()) { err(mp, "master must be an object, got " + describe_json_value(*mj), "Write {\"limiter\": true, \"loudness\": \"style\"}."); return; }
+            unknown_keys(*mj, mp, {"effects", "limiter", "loudness"}, "the master bus");
+            if (auto e = mj->find("effects"); e != mj->end()) effects(*e, mp + "/effects", m.master.effects);
+            if (auto l = mj->find("limiter"); l != mj->end()) {
+                const std::string lp = mp + "/limiter";
+                if (l->is_boolean()) m.master.limiter = l->get<bool>();
+                else if (l->is_object()) {
+                    unknown_keys(*l, lp, {"ceilingDb", "release"}, "the limiter");
+                    m.master.limiter = true;
+                    number(*l, lp, "ceilingDb", m.master.ceilingDb, -24.0, 0.0, "The loudest sample stays under this level in dBFS: -1 is the default, -0.3 is closer to full scale.");
+                    number(*l, lp, "release", m.master.limiterRelease, 0.005, 2.0, "Seconds the gain takes to come back after a peak: 0.1 is a clean default, 0.02 is tighter.");
+                } else err(lp, "limiter must be true, false or {\"ceilingDb\": -1, \"release\": 0.1}, got " + describe_json_value(*l), "false lets the mix peak above full scale (music.check reports it).");
+            }
+            if (auto l = mj->find("loudness"); l != mj->end()) {
+                const std::string lp = mp + "/loudness";
+                if (l->is_string() && l->get<std::string>() == "style") m.master.loudness = SongMaster::Loudness::Style;
+                else if (l->is_string() && l->get<std::string>() == "off") m.master.loudness = SongMaster::Loudness::Off;
+                else if (l->is_number() && l->get<double>() >= -40.0 && l->get<double>() <= -5.0) {
+                    m.master.loudness = SongMaster::Loudness::Target;
+                    m.master.loudnessLufs = l->get<double>();
+                } else err(lp, "loudness must be \"style\", \"off\" or a number of LUFS from -40 to -5, got " + describe_json_value(*l),
+                           "\"style\" brings the render to the style guide's music loudness (assets.json, style.audio.loudnessLufs.music), \"off\" leaves the level the mix adds up to, -16 targets -16 LUFS.");
+            }
+        }
+    }
+
+    // The buses sends point at.
+    void resolve_sends(const SongDoc& song) {
+        std::vector<std::string> names;
+        for (const SongBus& b : song.mixer.buses) names.push_back(b.name);
+        for (const SongTrack& t : song.tracks)
+            for (const auto& send : t.sends)
+                if (!song.mixer.find_bus(send.first))
+                    err("/tracks/" + escape_pointer(t.name) + "/sends/" + escape_pointer(send.first), "the track `" + t.name + "` sends to the unknown bus `" + send.first + "`",
+                        did_you_mean(send.first, names) + (names.empty() ? " The song has no buses: add one under \"mixer\": {\"buses\": {\"" + send.first + "\": {\"effects\": [...]}}}." : " Buses: " + join(names) + "."));
     }
 
     // ---- sections ----------------------------------------------------------------------------------------------------
@@ -466,6 +689,12 @@ const SongPattern* SongTrack::find_pattern(std::string_view name) const {
     return nullptr;
 }
 
+const SongBus* SongMixer::find_bus(std::string_view name) const {
+    for (const SongBus& b : buses)
+        if (b.name == name) return &b;
+    return nullptr;
+}
+
 const SongTrack* SongDoc::find_track(std::string_view name) const {
     for (const SongTrack& t : tracks)
         if (t.name == name) return &t;
@@ -507,7 +736,7 @@ Result<SongDoc> parse_song(const Json& json, std::string_view file, std::vector<
               "Start from {\"format\": \"factoria.song/1\", \"tempo\": 120, \"tracks\": {...}, \"sections\": [...]} (music.create writes one; schemas/song.schema.json).");
         return done();
     }
-    p.unknown_keys(json, "", {"$schema", "format", "doc", "tempo", "meter", "key", "mode", "swing", "swingGrid", "seed", "volume", "tracks", "sections", "automation"}, "a song document");
+    p.unknown_keys(json, "", {"$schema", "format", "doc", "tempo", "meter", "key", "mode", "swing", "swingGrid", "seed", "volume", "mixer", "tracks", "sections", "automation"}, "a song document");
     if (auto f = json.find("format"); f == json.end() || !f->is_string() || f->get<std::string>() != kSongFormat)
         p.err("/format", f == json.end() ? "missing `format`" : "format must be \"factoria.song/1\", got " + describe_json_value(*f), "Write \"format\": \"factoria.song/1\".");
     p.text(json, "", "doc", song.doc, "What the music is for and how it should feel.");
@@ -554,6 +783,7 @@ Result<SongDoc> parse_song(const Json& json, std::string_view file, std::vector<
         else p.err("/swingGrid", "swingGrid must be 8 or 16, got " + describe_json_value(*g), "8 swings the eighth-note off-beats, 16 the sixteenth-note ones.");
     }
     if (auto a = json.find("automation"); a != json.end()) p.automation(*a, "/automation", true, song.automation);
+    if (auto m = json.find("mixer"); m != json.end()) p.mixer(*m, song.mixer);
 
     if (auto t = json.find("tracks"); t == json.end() || !t->is_object() || t->empty() || t->size() > kSongMaxTracks) {
         p.err("/tracks", t == json.end() ? "the song has no `tracks`" : "tracks must be an object of 1 to 32 named tracks, got " + describe_json_value(*t),
@@ -572,6 +802,7 @@ Result<SongDoc> parse_song(const Json& json, std::string_view file, std::vector<
         std::vector<std::string> seen;
         for (std::size_t i = 0; i < s->size(); ++i) p.section(i, (*s)[i], song, seen);
     }
+    p.resolve_sends(song);
     if (p.issues.empty()) p.resolve(song);
     song.source = json;
     return done();
