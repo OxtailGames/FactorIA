@@ -988,7 +988,8 @@
     "vector.smooth": "unreleased",
     "vector.stroke_to_path": "unreleased",
     "vector.style": "unreleased",
-    "vector.text_to_path": "unreleased"
+    "vector.text_to_path": "unreleased",
+    "vector.to_rig": "unreleased"
   },
   "script": {
     "ActiveVoice": "0.3.0",

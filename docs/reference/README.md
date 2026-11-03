@@ -211,6 +211,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`vector.stroke_to_path`](commands/assets.md#vectorstroke_to_path-modifies-state): Turn the stroke of SVG shapes into a filled outline path. _Not released yet._
 - [`vector.style`](commands/assets.md#vectorstyle-modifies-state): Apply the project's style guide to an SVG: outline and palette. _Not released yet._
 - [`vector.text_to_path`](commands/assets.md#vectortext_to_path-modifies-state): Turn text into path outlines with the engine's fonts, so it needs no font. _Not released yet._
+- [`vector.to_rig`](commands/assets.md#vectorto_rig-modifies-state): Turn an SVG whose named groups are the parts of a character into part pictures, joints and a Bone2D prefab that animates in parts. _Not released yet._
 
 ### [audio](commands/audio.md)
 
