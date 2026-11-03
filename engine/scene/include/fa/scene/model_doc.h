@@ -1,6 +1,7 @@
 // Model documents (`*.model.json`, format "factoria.model/1", schemas/model.schema.json, docs/MODELING.md): a 3D model written as a tree of
 // operations instead of a mesh file. The tree is parametric primitives (box, rounded_box, cylinder, cone, sphere, capsule, torus,
-// grid, stairs, arch, pipe, text), groups, and a transform on any node; a node may name a PART (a labelled piece of the model that
+// grid, stairs, arch, pipe, text, and the generators lathe, sweep and loft), groups, MODIFIERS (a node that wraps the nodes below it and
+// changes their combined mesh: mirror, array, bevel, subdivide, boolean... model_modifiers.h), and a transform on any node; a node may name a PART (a labelled piece of the model that
 // ends up as its own submesh) and a MATERIAL (an entry of the document's `materials`) and give VERTEX COLOURS, all inherited by
 // the nodes below it. Evaluating the document gives a mesh in the form MeshStore and `mesh.save` take, so a model can be baked to
 // a .glb (tools/common: model.bake), used as a procedural mesh, or checked.
@@ -30,7 +31,7 @@ namespace fa {
 inline constexpr const char* kModelDocFormat = "factoria.model/1";
 inline constexpr const char* kModelDocSuffix = ".model.json";
 inline constexpr std::size_t kModelDocMaxNodes = 2048;  // nodes in one document, groups included
-inline constexpr int kModelDocMaxDepth = 16;            // levels of nested groups
+inline constexpr int kModelDocMaxDepth = 16;            // levels of nested groups and modifiers
 
 // One problem of a document: where (a JSON pointer such as "/nodes/2/radius"), what is wrong, and how to fix it.
 struct ModelIssue {
@@ -42,7 +43,10 @@ struct ModelIssue {
 // One field of an operation, as the catalog lists it and as the reader checks it. `type`:
 //   "number", "integer", "boolean", "string", "choice" (one of `choices`), "vec3" ([x, y, z]), "size3" (a number for all three, or
 //   [x, y, z]), "count3" (an integer for all three, or [x, y, z]), "count2" (an integer for both, or [x, z]), "color" ([r, g, b] or
-//   [r, g, b, a] in 0..1, or "#rrggbb" / "#rrggbbaa"), "nodes" (a list of nodes).
+//   [r, g, b, a] in 0..1, or "#rrggbb" / "#rrggbbaa"), "points2" (a list of [a, b] pairs), "points3" (a list of [x, y, z]), "rings" (a list
+//   of lists of [x, y, z]: the sections of a loft), "nodes" (a list of nodes).
+// `min` / `max` bound every number inside a vec / points field; `minItems` / `maxItems` bound the length of a points list or of the list of
+// sections of "rings", and `innerMinItems` / `innerMaxItems` the points of each section.
 struct ModelFieldInfo {
     std::string key;
     std::string type;
@@ -51,10 +55,12 @@ struct ModelFieldInfo {
     std::optional<double> min, max;  // numbers and integers; for size3 / count3 / count2 / vec3 each entry
     std::optional<Json> def;         // the default; absent when the field has none (left out = the kernel's own rule, said in `doc`)
     std::vector<std::string> choices;
+    std::optional<int> minItems, maxItems;            // points2, points3, rings: how many entries
+    std::optional<int> innerMinItems, innerMaxItems;  // rings: how many points in each section
 };
 struct ModelOpInfo {
     std::string op;
-    std::string kind;  // "primitive" or "group"
+    std::string kind;  // "primitive" (makes geometry; takes `align`), "modifier" (changes the mesh of its `children`) or "group"
     std::string doc;   // what it makes, with its orientation and size
     std::vector<ModelFieldInfo> fields;  // the fields of this operation (not the common ones)
 };
@@ -82,7 +88,7 @@ struct ModelNode {
     Vec3 scale{1, 1, 1};
     std::string align = "center";         // primitives: "center", "bottom" or "top"
     Json params = Json::object();
-    std::vector<ModelNode> children;      // groups
+    std::vector<ModelNode> children;      // groups and modifiers
     std::string pointer;                  // where it is in the document: "/nodes/0/children/1"
 };
 

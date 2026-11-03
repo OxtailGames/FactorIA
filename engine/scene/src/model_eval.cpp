@@ -7,6 +7,7 @@
 
 #include "fa/core/strings.h"
 #include "fa/scene/model_doc.h"
+#include "fa/scene/model_modifiers.h"
 
 namespace fa {
 
@@ -51,6 +52,11 @@ std::string codepoint_list(const std::vector<char32_t>& cps) {
     return s;
 }
 
+// Records why a node cannot be evaluated: its pointer, what is wrong and the fix.
+void fail(Eval& eval, const ModelNode& n, const std::string& message, const std::string& hint) {
+    eval.error = n.pointer + ": " + message + (hint.empty() ? "" : " (hint: " + hint + ")");
+}
+
 // The mesh of one primitive node, before align and transform. False with eval.error set when it cannot be made.
 bool build_primitive(Eval& eval, const ModelNode& n, ModelMesh& mesh) {
     const Json& p = n.params;
@@ -89,6 +95,54 @@ bool build_primitive(Eval& eval, const ModelNode& n, ModelMesh& mesh) {
         mesh = model_arch({f(p, "width"), f(p, "height"), f(p, "depth"), f(p, "openingWidth"), f(p, "openingHeight"), i(p, "segments")});
     } else if (n.op == "pipe") {
         mesh = model_pipe({f(p, "radius"), f(p, "innerRadius"), f(p, "height"), i(p, "segments")});
+    } else if (n.op == "lathe") {
+        ModelLatheParams q;
+        for (const Json& pt : p["profile"]) q.profile.push_back({pt[0].get<float>(), pt[1].get<float>()});
+        q.segments = i(p, "segments");
+        q.angle = f(p, "angle");
+        q.cap = p["cap"].get<bool>();
+        q.creaseAngle = f(p, "creaseAngle");
+        mesh = model_lathe(q);
+        if (mesh.empty()) {
+            fail(eval, n, "the lathe profile makes no surface", "Give the profile at least two different points, one of them off the axis.");
+            return false;
+        }
+    } else if (n.op == "sweep") {
+        ModelSweepParams q;
+        for (const Json& pt : p["profile"]) q.profile.push_back({pt[0].get<float>(), pt[1].get<float>()});
+        for (const Json& pt : p["path"]) q.path.push_back(v3(pt));
+        q.smooth = p["smooth"].get<bool>();
+        q.pathSegments = i(p, "pathSegments");
+        q.closed = p["closed"].get<bool>();
+        q.scaleStart = f(p, "scaleStart");
+        q.scaleEnd = f(p, "scaleEnd");
+        q.twist = f(p, "twist");
+        q.cap = p["cap"].get<bool>();
+        q.creaseAngle = f(p, "creaseAngle");
+        auto made = model_sweep(q);
+        if (!made) {
+            fail(eval, n, made.error().message, made.error().hint);
+            return false;
+        }
+        mesh = std::move(*made);
+    } else if (n.op == "loft") {
+        ModelLoftParams q;
+        for (const Json& section : p["sections"]) {
+            std::vector<Vec3> pts;
+            for (const Json& pt : section) pts.push_back(v3(pt));
+            q.sections.push_back(std::move(pts));
+        }
+        q.closed = p["closed"].get<bool>();
+        q.smooth = p["smooth"].get<bool>();
+        q.steps = i(p, "steps");
+        q.cap = p["cap"].get<bool>();
+        q.creaseAngle = f(p, "creaseAngle");
+        auto made = model_loft(q);
+        if (!made) {
+            fail(eval, n, made.error().message, made.error().hint);
+            return false;
+        }
+        mesh = std::move(*made);
     } else if (n.op == "text") {
         if (!eval.options.text) {
             eval.error = n.pointer + ": a text node needs a font, and this evaluation was given no font source";
@@ -118,6 +172,208 @@ bool build_primitive(Eval& eval, const ModelNode& n, ModelMesh& mesh) {
 }
 
 bool eval_nodes(Eval& eval, const std::vector<ModelNode>& nodes, const Inherited& in, ModelMesh& into);
+bool eval_node(Eval& eval, const ModelNode& n, const Inherited& parent, ModelMesh& into);
+
+bool is_modifier(const std::string& op) {
+    for (const ModelOpInfo& o : model_ops())
+        if (o.op == op) return o.kind == "modifier";
+    return false;
+}
+
+int axis_of(const Json& p, const char* key) {
+    const std::string a = p[key].get<std::string>();
+    return a == "x" ? 0 : a == "y" ? 1 : 2;
+}
+
+// False (with the error recorded) when `triangles` is more than a node may make.
+bool within_limit(Eval& eval, const ModelNode& n, const char* what, std::size_t triangles, const char* hint) {
+    if (triangles <= kModelMaxTriangles) return true;
+    fail(eval, n, std::format("{} would make {} triangles, more than the {} a node may make", what, triangles, kModelMaxTriangles), hint);
+    return false;
+}
+
+// The booleans: every enabled child that makes geometry is an operand.
+bool eval_boolean(Eval& eval, const ModelNode& n, const Inherited& in, ModelMesh& out) {
+    std::vector<ModelMesh> operands;
+    std::vector<std::string> names;
+    for (const ModelNode& child : n.children) {
+        ModelMesh operand;
+        if (!eval_node(eval, child, in, operand)) return false;
+        if (operand.empty()) continue;
+        operands.push_back(std::move(operand));
+        names.push_back(child.pointer);
+    }
+    const std::string mode = n.params["mode"].get<std::string>();
+    if (operands.empty()) {
+        eval.out.warnings.push_back(n.pointer + ": the boolean has no child that makes geometry, nothing was made");
+        return true;
+    }
+    if (operands.size() == 1)
+        eval.out.warnings.push_back(n.pointer + ": a boolean needs two or more children to combine; with one it only checks that the solid is closed and passes it on");
+    auto result = model_boolean(operands, mode == "union" ? ModelBooleanMode::Union : mode == "difference" ? ModelBooleanMode::Difference : ModelBooleanMode::Intersection, names);
+    if (!result) {
+        fail(eval, n, result.error().message, result.error().hint);
+        return false;
+    }
+    out = std::move(*result);
+    if (out.empty()) eval.out.warnings.push_back(n.pointer + ": the " + mode + " is empty (the solids " + (mode == "intersection" ? "do not overlap" : "cancel out") + ")");
+    return true;
+}
+
+// The modifiers: the children are merged like a group's, then the operation changes that mesh.
+bool eval_modifier(Eval& eval, const ModelNode& n, const Inherited& in, ModelMesh& out) {
+    if (n.op == "boolean") return eval_boolean(eval, n, in, out);
+    ModelMesh m;
+    if (!eval_nodes(eval, n.children, in, m)) return false;
+    if (m.empty()) {
+        eval.out.warnings.push_back(n.pointer + ": the " + n.op + " has no child that makes geometry, nothing was made");
+        return true;
+    }
+    const Json& p = n.params;
+    const std::size_t tris = m.triangle_count();
+    if (n.op == "mirror") {
+        if (!within_limit(eval, n, "the mirror", tris * 2, "Use fewer segments on the children.")) return false;
+        ModelMirrorParams q;
+        q.axis = axis_of(p, "axis");
+        q.offset = f(p, "offset");
+        q.merge = p["merge"].get<bool>();
+        q.mergeDistance = f(p, "mergeDistance");
+        out.append(model_mirror(m, q));
+        return true;
+    }
+    if (n.op == "array") {
+        const std::size_t count = std::size_t(i(p, "count"));
+        if (!within_limit(eval, n, std::format("an array of {} copies of {} triangles", count, tris).c_str(), tris * count, "Lower `count`, or use fewer segments on the children.")) return false;
+        ModelArrayParams q;
+        q.count = int(count);
+        q.offset = v3(p["offset"]);
+        q.relative = p["relative"].get<bool>();
+        q.stepRotation = v3(p["stepRotation"]);
+        q.stepScale = v3(p["stepScale"]);
+        q.merge = p["merge"].get<bool>();
+        q.mergeDistance = f(p, "mergeDistance");
+        out.append(model_array(m, q));
+        return true;
+    }
+    if (n.op == "radial_array") {
+        const std::size_t count = std::size_t(i(p, "count"));
+        if (!within_limit(eval, n, std::format("a radial array of {} copies of {} triangles", count, tris).c_str(), tris * count, "Lower `count`, or use fewer segments on the children.")) return false;
+        ModelRadialArrayParams q;
+        q.count = int(count);
+        q.axis = axis_of(p, "axis");
+        q.angle = f(p, "angle");
+        q.center = v3(p["center"]);
+        q.faceCenter = p["faceCenter"].get<bool>();
+        q.merge = p["merge"].get<bool>();
+        q.mergeDistance = f(p, "mergeDistance");
+        out.append(model_radial_array(m, q));
+        return true;
+    }
+    if (n.op == "bevel") {
+        ModelBevelParams q;
+        q.width = f(p, "width");
+        q.segments = i(p, "segments");
+        q.angle = f(p, "angle");
+        q.roundness = f(p, "roundness");
+        std::size_t edges = 0;
+        auto made = model_bevel(m, q, &edges);
+        if (!made) {
+            fail(eval, n, made.error().message, made.error().hint);
+            return false;
+        }
+        if (edges == 0)
+            eval.out.warnings.push_back(std::format("{}: no edge turns by more than {:g} degrees, so nothing was bevelled (lower `angle` to bevel gentler edges)", n.pointer, q.angle));
+        if (!within_limit(eval, n, "the bevel", made->triangle_count(), "Lower `segments`, raise `angle` so fewer edges are bevelled, or bevel a simpler mesh.")) return false;
+        out.append(*made);
+        return true;
+    }
+    if (n.op == "subdivide") {
+        const int levels = i(p, "levels");
+        const std::size_t bound = model_subdivide_triangle_bound(m, levels);
+        if (!within_limit(eval, n, std::format("subdividing {} triangles {} time(s)", tris, levels).c_str(), bound, "Lower `levels`, or subdivide a mesh with fewer triangles (each level multiplies them by 4).")) return false;
+        ModelSubdivideParams q;
+        q.levels = levels;
+        q.creaseAngle = f(p, "creaseAngle");
+        out.append(model_subdivide(m, q));
+        return true;
+    }
+    if (n.op == "solidify") {
+        if (!within_limit(eval, n, "the solidify", tris * 2, "Use fewer segments on the children.")) return false;
+        ModelSolidifyParams q;
+        q.thickness = f(p, "thickness");
+        q.offset = f(p, "offset");
+        q.even = p["even"].get<bool>();
+        ModelMesh made = model_solidify(m, q);
+        if (!within_limit(eval, n, "the solidify", made.triangle_count(), "Use fewer segments on the children.")) return false;
+        out.append(made);
+        return true;
+    }
+    if (n.op == "bend") {
+        ModelBendParams q;
+        q.axis = axis_of(p, "axis");
+        q.angle = f(p, "angle");
+        q.direction = f(p, "direction");
+        if ((q.hasFrom = p.contains("from"))) q.from = f(p, "from");
+        if ((q.hasTo = p.contains("to"))) q.to = f(p, "to");
+        out.append(model_bend(m, q));
+        return true;
+    }
+    if (n.op == "twist") {
+        ModelTwistParams q;
+        q.axis = axis_of(p, "axis");
+        q.angle = f(p, "angle");
+        if ((q.hasFrom = p.contains("from"))) q.from = f(p, "from");
+        if ((q.hasTo = p.contains("to"))) q.to = f(p, "to");
+        out.append(model_twist(m, q));
+        return true;
+    }
+    if (n.op == "taper") {
+        ModelTaperParams q;
+        q.axis = axis_of(p, "axis");
+        q.startScale = f(p, "startScale");
+        q.endScale = f(p, "endScale");
+        if ((q.hasFrom = p.contains("from"))) q.from = f(p, "from");
+        if ((q.hasTo = p.contains("to"))) q.to = f(p, "to");
+        out.append(model_taper(m, q));
+        return true;
+    }
+    if (n.op == "noise") {
+        ModelNoiseParams q;
+        q.amplitude = f(p, "amplitude");
+        q.frequency = f(p, "frequency");
+        q.octaves = i(p, "octaves");
+        q.seed = i(p, "seed");
+        q.alongNormal = p["alongNormal"].get<bool>();
+        out.append(model_noise(m, q));
+        return true;
+    }
+    if (n.op == "smooth") {
+        ModelSmoothParams q;
+        q.iterations = i(p, "iterations");
+        q.factor = f(p, "factor");
+        q.taubin = p["taubin"].get<bool>();
+        q.lockBoundary = p["lockBoundary"].get<bool>();
+        q.sharpAngle = f(p, "sharpAngle");
+        out.append(model_smooth(m, q));
+        return true;
+    }
+    if (n.op == "weld") {
+        ModelWeldParams q;
+        q.distance = f(p, "distance");
+        out.append(model_weld(m, q));
+        return true;
+    }
+    if (n.op == "shade") {
+        ModelShadeParams q;
+        const std::string mode = p["mode"].get<std::string>();
+        q.mode = mode == "flat" ? ModelShadeMode::Flat : mode == "smooth" ? ModelShadeMode::Smooth : ModelShadeMode::Auto;
+        q.angle = f(p, "angle");
+        out.append(model_shade(m, q));
+        return true;
+    }
+    fail(eval, n, "internal: modifier " + n.op + " has no implementation", "");
+    return false;
+}
 
 bool eval_node(Eval& eval, const ModelNode& n, const Inherited& parent, ModelMesh& into) {
     if (!n.enabled) return true;
@@ -128,6 +384,8 @@ bool eval_node(Eval& eval, const ModelNode& n, const Inherited& parent, ModelMes
     ModelMesh mesh;
     if (n.op == "group") {
         if (!eval_nodes(eval, n.children, in, mesh)) return false;
+    } else if (is_modifier(n.op)) {
+        if (!eval_modifier(eval, n, in, mesh)) return false;
     } else {
         if (!build_primitive(eval, n, mesh)) return false;
         if (mesh.empty()) return true;
