@@ -295,3 +295,30 @@ test("the gems are drawn with the pulsing gem material, not the magenta error ma
     expect(stats.materialFallbacks).toEqual(["materials/gem.material.json"]);
   }
 });
+
+// The gem is not a hand-made file: assets/models/gem.model.json is its recipe (docs/MODELING.md) and gem.glb is what it bakes to.
+// Edit a node of the document with `factoria call model.edit`, look at it with `model.preview` and re-bake (model.bake, or the Model panel's Save).
+test("the gem mesh is baked from its model recipe, is current, and passes model.check at the size the scene expects", () => {
+  load();
+  const doc = "assets/models/gem.model.json";
+  const info = fa.call("model.info", { path: doc });
+  expect(info.valid).toBe(true);
+  expect(info.output).toBe("assets/models/gem.glb");
+  // An out-of-date .glb would show an old gem: this fails when the document changed and was not baked again.
+  expect(info.bake.state).toBe("fresh");
+  // One part with one material: the whole gem is one draw call, like the hand-made octahedron it replaced.
+  expect(info.measurements.parts.length).toBe(1);
+  expect(info.measurements.triangles).toBeLessThan(100);
+  expect(info.measurements.closed).toBe(true);
+
+  // It is one metre high before the scene scales it by 0.8.
+  const check = fa.call("model.check", { path: doc, expectedHeight: 1, tolerance: 0.1 });
+  expect(check.errors).toBe(0);
+  expect(check.warnings).toBe(0);
+
+  // The scattered gems load that file.
+  const placed = fa.call("project.scatter_gems", { count: 3, seed: 5, clear: true });
+  game.step(1);
+  expect(placed.placed).toBe(3);
+  expect(game.find(placed.gems[0].id).get("MeshRenderer").mesh).toBe(info.output);
+});

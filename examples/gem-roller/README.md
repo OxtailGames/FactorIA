@@ -2,7 +2,7 @@
 
 A FactorIA 3D arcade game: roll a ball across floating platforms, ride two moving ones, and collect every gem
 before the 90 second timer runs out. A fall costs 5 seconds and puts you back at the last checkpoint. Meshes are
-built-in primitives plus one `.glb` gem; the sounds are placeholders in `assets/sfx/`. The two textures, `assets/textures/ball.png` and `tile.png`, are baked from layered image documents (`ball.image.json`, `tile.image.json`: fills in a few layers): change a layer and run `image.bake` to remake the PNG.
+built-in primitives plus one gem model, `assets/models/gem.glb`, baked from the recipe `assets/models/gem.model.json` (a cut-gem outline turned with `lathe`, flat shaded: edit it with `model.edit`, look at it with `model.preview` and `model.check`, or open it in the editor's Model panel, then bake with `model.bake`); the sounds are placeholders in `assets/sfx/`. The two textures, `assets/textures/ball.png` and `tile.png`, are baked from layered image documents (`ball.image.json`, `tile.image.json`: fills in a few layers): change a layer and run `image.bake` to remake the PNG.
 
 ```bash
 factoria validate
@@ -19,6 +19,8 @@ Controls: W/A/S/D or the arrows roll the ball relative to the camera, Space jump
   movers (`mover_1`, `mover_2`), three checkpoints, the ball, the chase camera, a sun, the game manager and the HUD.
 - `scripts/`: `ball.js` (camera-relative control, jump, respawn), `chase_camera.js` (orbiting chase camera),
   `mover.js` (kinematic platform), `checkpoint.js`, `gem.js` (pickup), `game.js` (timer, counter, HUD, win/lose).
+- `assets/models/gem.model.json`: the gem's model document (docs/MODELING.md). `gem.glb` next to it is what it bakes to;
+  the test fails when the .glb is older than the document.
 - `prefabs/gem_burst.prefab.json`: the one-shot sparkle a gem spawns when it is picked up.
 - `tools/scatter_gems.js`: project tool `project.scatter_gems`. Places N gems on the platforms (entities tagged
   `platform`), deterministically from a seed. The game manager calls it on start, so the layout is the same on

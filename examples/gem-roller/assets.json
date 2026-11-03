@@ -1,6 +1,31 @@
 {
   "format": "factoria.assets/1",
   "assets": {
+    "assets/models/gem.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/gem.model.json",
+        "notes": "Built from the model document 'assets/models/gem.model.json': 32 triangles, 1 submesh; parts: gem.",
+        "date": "2026-11-03",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/gem.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/gem.model.json",
+              "sha256": "3cd2784948cfc9e88d8d9d5f3663414217a23431f806b94ee2784e350ecee2dd"
+            }
+          ]
+        }
+      }
+    },
     "assets/textures/ball.png": {
       "provenance": {
         "origin": "original",
