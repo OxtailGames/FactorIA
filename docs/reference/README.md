@@ -197,6 +197,17 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`image.tag.remove`](commands/assets.md#imagetagremove-modifies-state): Remove a tag (and so its clip) from an image document. _Not released yet._
 - [`image.tag.set`](commands/assets.md#imagetagset-modifies-state): Name a run of frames (a tag); the bake makes a SpriteAnimator clip of it. _Not released yet._
 - [`image.to_pixel_art`](commands/assets.md#imageto_pixel_art-modifies-state): Turn a painted, generated or imported picture (a layer or a PNG) into palette-exact pixel art: area-aware downscale, quantize, clean up, into an indexed layer. _Not released yet._
+- [`music.arpeggio`](commands/assets.md#musicarpeggio-modifies-state): Make an arpeggio over a chord progression as note text, and optionally put it in a song. _Not released yet._
+- [`music.bassline`](commands/assets.md#musicbassline-modifies-state): Make a bassline over a chord progression as note text, and optionally put it in a song. _Not released yet._
+- [`music.check`](commands/assets.md#musiccheck): Find what is wrong in a song before listening: notes outside the key or the instrument's range, clashes, mud, silent tracks, loudness. _Not released yet._
+- [`music.chord`](commands/assets.md#musicchord): Spell a chord by name, or a chord progression in a key: notes, MIDI numbers and the note text to paste. _Not released yet._
+- [`music.create`](commands/assets.md#musiccreate-modifies-state): Write a new song document: pad, bass, drums and an arpeggio over a chord progression, with intro, loop and outro. _Not released yet._
+- [`music.drums`](commands/assets.md#musicdrums-modifies-state): Make a drum pattern in a style (rock, funk, waltz, ...), and optionally put it in a song. _Not released yet._
+- [`music.edit`](commands/assets.md#musicedit-modifies-state): Change a song document: tempo, tracks, patterns, sections, the arrangement, mutes and automation, checked before anything is written. _Not released yet._
+- [`music.info`](commands/assets.md#musicinfo): Check a song document and say what it holds: structure, bars, seconds, a summary per section, and a piano-roll picture. _Not released yet._
+- [`music.instrument`](commands/assets.md#musicinstrument-modifies-state): List the built-in song instruments, drum lanes and sfx presets, or show (and copy into the project) the patch behind one. _Not released yet._
+- [`music.preview`](commands/assets.md#musicpreview-modifies-state): Render a song to a stereo WAV or OGG next to it (offline, deterministic) and see its spectrogram. _Not released yet._
+- [`music.scale`](commands/assets.md#musicscale): Say which notes a scale or mode has and the chords built on its degrees (with Roman numerals). _Not released yet._
 - [`sfx.bake`](commands/assets.md#sfxbake-modifies-state): Render every sound patch of the project whose WAV is missing or out of date. _Not released yet._
 - [`sfx.family`](commands/assets.md#sfxfamily-modifies-state): Make a consistent set of interface sounds (click, hover, confirm, cancel, error, open, close, notify) from one base patch. _Not released yet._
 - [`sfx.info`](commands/assets.md#sfxinfo): Check a sound patch and say what it holds and how loud it renders, without writing anything. _Not released yet._
