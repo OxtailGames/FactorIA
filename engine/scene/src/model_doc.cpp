@@ -9,6 +9,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/scene/model_doc.h"
+#include "fa/scene/model_select.h"
 
 namespace fa {
 
@@ -262,6 +263,52 @@ std::vector<ModelOpInfo> build_ops() {
                            {choice("mode", "\"auto\" (smooth below `angle`), \"flat\" or \"smooth\".", {"auto", "flat", "smooth"}, "auto"),
                             number("angle", "Degrees for \"auto\": corners of faces that turn by less than this share a normal.", 30, 0, 180)},
                            "The nodes to shade; they are merged into one mesh first."));
+    // ---- edits on selections chosen by meaning (model_select.h; docs/MODELING.md, "Selections and edits") ------------------------------
+    {
+        auto sel_field = [](const char* key, const char* type, std::string doc) {
+            ModelFieldInfo f = field(key, type, std::move(doc));
+            f.required = true;
+            return f;
+        };
+        const std::string faceDoc = " A selection is a query by meaning, never an index: {\"by\": \"normal\", \"direction\": \"top\"}, {\"by\": \"part\", \"part\": \"lid\"}, {\"by\": \"top\", \"axis\": \"y\"}, a `box` / `sphere` / `halfspace` region, combined with `and` / `or` / `not` / `grow` / `shrink` (model.info lists them all). It is evaluated on the mesh below this node every time the document is evaluated, so it keeps choosing the same faces when a box gets more segments or a primitive changes size. model.select tries a query and says what it matched.";
+        auto part_fields = [](const char* what) {
+            ModelFieldInfo part = field("newPart", "string", std::string("Name of the part the ") + what + " become. Left out: they keep the part of the face they came from.");
+            ModelFieldInfo material = field("newMaterial", "string", std::string("A key of the document's `materials` for the ") + what + ". Left out: they keep the material of the face they came from.");
+            return std::vector<ModelFieldInfo>{part, material};
+        };
+        std::vector<ModelFieldInfo> extrude = {sel_field("faces", "faces", "The faces to push out." + faceDoc),
+                                               number("distance", "How far to push, in metres: positive outwards (along the normals, or along `direction`), negative into the model. 0 changes nothing.", 0.1, -kMaxSize, kMaxSize),
+                                               ModelFieldInfo{}};
+        extrude.back() = field("direction", "direction", "Push every selected vertex along this direction instead of along the faces' normals: top, bottom, front, back, left, right or [x, y, z]. In the space of this node's children.");
+        for (const ModelFieldInfo& f : part_fields("extruded faces (the moved faces and the walls)")) extrude.push_back(f);
+        ops.push_back(modifier("extrude_faces", "Pushes the faces a selection chooses out of the surface (or into it) and joins them to what is left with walls: a button on a panel, a window sill, a handle, a step, a socket sunk into a wall. Each vertex moves along the average of the selected faces' normals around it (or along `direction`). The faces keep their part; the walls and the moved faces take `newPart` / `newMaterial`, or the part they grew from. A selection that matches nothing leaves the model as it is, with a warning that says why.",
+                               std::move(extrude), "The nodes to edit; they are merged into one mesh first."));
+        std::vector<ModelFieldInfo> inset = {sel_field("faces", "faces", "The faces to shrink inside their border." + faceDoc),
+                                             number("thickness", "How far the border moves inwards, in metres, measured in the faces' plane. Wider than the faces can give fails with a message that says how wide it can be.", 0.05, 0.0001, kMaxSize),
+                                             number("depth", "How far the inner faces move along their normals, in metres: positive raises them, negative sinks them (a recess). 0 keeps them flat with the surface.", 0, -kMaxSize, kMaxSize)};
+        for (const ModelFieldInfo& f : part_fields("ring of new faces between the border and the inner faces")) inset.push_back(f);
+        ops.push_back(modifier("inset_faces", "Shrinks the faces a selection chooses inside their own border and fills the gap with a ring of new faces: the first step of a panel, a window, a button or a frame (follow it with extrude_faces on the same selection for a raised panel). The inner faces keep their part; the ring takes `newPart` / `newMaterial`, or the part it grew from.",
+                               std::move(inset), "The nodes to edit; they are merged into one mesh first."));
+        ops.push_back(modifier("loop_cut", "Cuts a ring of new edges round the mesh at a height: every face the plane crosses is split along it, with no change of shape. Use it to give a plain box a seam to bevel, bend or select (loop_cut, then bevel_edges on {\"by\": \"loop\"}). The plane is perpendicular to `axis`: at a coordinate (`at`), at a fraction of the mesh's extent along it (`ratio`), or `count` evenly spaced planes. Parts, uvs and colours are carried, the new faces take the part of the face they split.",
+                               {axis_field("axis", "The axis the ring goes round; the cutting plane is perpendicular to it.", "y"),
+                                number_opt("at", "Coordinate of the plane along `axis`, in the space of this node's children, in metres. Give this, `ratio`, or neither.", -kMaxSize, kMaxSize),
+                                number_opt("ratio", "Where the plane is, from 0 (the lowest vertex along `axis`) to 1 (the highest): 0.5 is the middle. Stays in the same place when the model below changes size.", 0, 1),
+                                integer_opt("count", "Number of evenly spaced cuts between the lowest and highest point (1: in the middle; 3: at 25%, 50% and 75%). Not with `at` or `ratio`.", 1, 64)},
+                               "The nodes to cut; they are merged into one mesh first."));
+        ops.push_back(modifier("bevel_edges", "Rounds or chamfers only the edges a selection chooses (bevel does every sharp edge): the rim of a lid, the border of a top face, the seam between two parts. Same result as `bevel` on those edges: a strip of `segments` rows replaces each edge, the big faces stay flat. An edge that is flat, open, or shared by more than two faces is left alone, with a warning.",
+                               {sel_field("edges", "edges", "The edges to bevel. A selection of edges is a query by meaning: {\"by\": \"border\", \"faces\": {\"by\": \"normal\", \"direction\": \"top\"}} (the rim of the top), {\"by\": \"sharp\", \"angle\": 60}, {\"by\": \"between_parts\", \"a\": \"lid\", \"b\": \"body\"}, {\"by\": \"loop\", \"axis\": \"y\", \"ratio\": 0.5}, combined with `and` / `or` / `not` (model.info lists them all). Evaluated on the mesh below this node every time the document is evaluated."),
+                                number("width", "How far the bevel reaches from the edge along each face, in metres. Too wide for the faces fails with a message that says how wide it can be.", 0.05, 0.0001, kMaxSize),
+                                integer("segments", "Rows of the strip: 1 is a flat chamfer, 2 or 3 a soft round.", 2, 1, 16),
+                                number("roundness", "0: straight chamfer rows with flat shading. 1: a round profile with the normals blending between the two faces.", 1, 0, 1)},
+                               "The nodes to bevel; they are merged into one mesh first."));
+        ops.push_back(modifier("delete_faces", "Removes the faces a selection chooses: open the top of a box, cut a doorway out of a wall, take the front off a shell. The hole is left open (the surface is no longer closed); a later `solidify` gives it thickness.",
+                               {sel_field("faces", "faces", "The faces to remove." + faceDoc)}, "The nodes to edit; they are merged into one mesh first."));
+        ops.push_back(modifier("assign_faces", "Moves the faces a selection chooses into another part and/or material without changing the shape: paint the top of a box as \"lid\", give the front of a wall a window material. The faces keep their geometry and uvs; the part appears as its own submesh.",
+                               {sel_field("faces", "faces", "The faces to move." + faceDoc),
+                                field("toPart", "string", "The part the faces join. Left out: they keep their part. Give this, `toMaterial` or both."),
+                                field("toMaterial", "string", "A key of the document's `materials` the faces get. Left out: they keep their material.")},
+                               "The nodes to edit; they are merged into one mesh first."));
+    }
     // ---- signed-distance shapes (docs/MODELING.md, "Organic shapes: sdf") --------------------------------------------------------------
     {
         auto blend_fields = [](std::vector<ModelFieldInfo> fields) {
@@ -508,6 +555,38 @@ bool read_field(Reader& r, const ModelFieldInfo& f, const Json& v, const std::st
         out = v;
         return true;
     }
+    if (t == "direction") {
+        std::vector<std::string> names;
+        for (const auto& [n, dir] : model_named_directions()) names.push_back(n);
+        if (v.is_string()) {
+            if (std::find(names.begin(), names.end(), v.get<std::string>()) == names.end()) {
+                r.err(pointer, "direction \"" + v.get<std::string>() + "\" is not a known direction (" + quoted_list(names) + ")", did_you_mean(v.get<std::string>(), names) + " Or give a vector [x, y, z].");
+                return false;
+            }
+            out = v;
+            return true;
+        }
+        bool ok = v.is_array() && v.size() == 3;
+        if (ok)
+            for (const Json& c : v) ok = ok && c.is_number() && std::isfinite(c.get<double>());
+        if (!ok) {
+            r.err(pointer, "direction must be a name (" + quoted_list(names) + ") or a list [x, y, z] of numbers, got " + describe_json_value(v), f.doc);
+            return false;
+        }
+        if (v[0].get<double>() == 0 && v[1].get<double>() == 0 && v[2].get<double>() == 0) {
+            r.err(pointer, "direction [0, 0, 0] has no direction", "Give a vector such as [0, 1, 0], or a name: " + quoted_list(names) + ".");
+            return false;
+        }
+        out = v;
+        return true;
+    }
+    if (t == "faces" || t == "edges") {
+        const std::size_t before = r.issues.size();
+        check_model_selection(v, t == "faces" ? ModelSelectKind::Faces : ModelSelectKind::Edges, pointer, r.issues);
+        if (r.issues.size() != before) return false;
+        out = v;
+        return true;
+    }
     if (t == "vec3" || t == "size3" || t == "count3" || t == "count2") {
         const bool counts = t == "count3" || t == "count2";
         const std::size_t n = t == "count2" ? 2 : 3;
@@ -584,6 +663,21 @@ std::vector<std::string> allowed_keys(const ModelOpInfo& op) {
 void check_op(Reader& r, const ModelNode& n, const std::string& at) {
     const Json& p = n.params;
     auto num = [&](const char* k) { return p[k].get<double>(); };
+    if (n.op == "loop_cut") {
+        if (p.contains("at") && p.contains("ratio"))
+            r.err(at + "/ratio", "loop_cut takes `at` (a coordinate) or `ratio` (a fraction of the extent), not both", "Remove one of them.");
+        if (p.contains("count") && (p.contains("at") || p.contains("ratio")))
+            r.err(at + "/count", "`count` makes several evenly spaced cuts, so it cannot be combined with `at` or `ratio` (one plane)", "Remove `count`, or remove `at` / `ratio`.");
+    }
+    if (n.op == "assign_faces" && !p.contains("toPart") && !p.contains("toMaterial"))
+        r.err(at, "assign_faces changes nothing without `toPart` or `toMaterial`", "Say where the faces go, e.g. \"toPart\": \"lid\" or \"toMaterial\": \"glass\".");
+    for (const char* key : {"newMaterial", "toMaterial"})
+        if (p.contains(key)) {
+            const std::string m = p[key].get<std::string>();
+            if (std::find(r.materialNames.begin(), r.materialNames.end(), m) == r.materialNames.end())
+                r.err(at + "/" + key, std::string(key) + " \"" + m + "\" is not in the document's `materials`",
+                      r.materialNames.empty() ? "The document has no materials yet: add {\"materials\": {\"" + m + "\": {\"color\": [0.6, 0.4, 0.2, 1]}}}." : did_you_mean(m, r.materialNames));
+        }
     if (n.op == "capsule" && num("height") < 2 * num("radius") - 1e-9)
         r.err(at + "/height", std::format("capsule height {} is less than twice its radius ({}): the two hemispheres do not fit", num("height"), 2 * num("radius")),
               "`height` is tip to tip. Raise it to at least " + num_text(2 * num("radius")) + ", or lower `radius`; for a ball use a sphere.");
@@ -986,6 +1080,14 @@ Json field_schema(const ModelFieldInfo& f) {
     else if (t == "boolean") s = Json::object({{"type", "boolean"}});
     else if (t == "string") s = Json::object({{"type", "string"}});
     else if (t == "choice") s = Json::object({{"type", "string"}, {"enum", f.choices}});
+    else if (t == "faces") s = Json::object({{"$ref", "#/$defs/face_selection"}});
+    else if (t == "edges") s = Json::object({{"$ref", "#/$defs/edge_selection"}});
+    else if (t == "direction") {
+        Json names = Json::array();
+        for (const auto& [n, d] : model_named_directions()) names.push_back(n);
+        s = Json::object({{"anyOf", Json::array({Json::object({{"type", "string"}, {"enum", names}}),
+                                                  Json::object({{"type", "array"}, {"items", Json::object({{"type", "number"}})}, {"minItems", 3}, {"maxItems", 3}})})}});
+    }
     else if (t == "vec3" || t == "size3" || t == "count3" || t == "count2") {
         const bool counts = t == "count3" || t == "count2";
         const std::size_t n = t == "count2" ? 2 : 3;
@@ -1037,6 +1139,8 @@ Json model_doc_schema() {
         defs[op.op] = Json::object({{"type", "object"}, {"description", op.doc}, {"required", required}, {"additionalProperties", false}, {"properties", props}});
         alternatives.push_back(Json::object({{"$ref", "#/$defs/" + op.op}}));
     }
+    defs["face_selection"] = model_selection_schema(ModelSelectKind::Faces);
+    defs["edge_selection"] = model_selection_schema(ModelSelectKind::Edges);
     defs["node"] = Json::object({{"description", "One operation of the tree: a primitive, a modifier (wraps its `children`) or a group. `op` says which."}, {"oneOf", alternatives}});
     Json material = Json::object(
         {{"type", "object"},

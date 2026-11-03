@@ -194,7 +194,7 @@ TEST_CASE("project.validate: a model document with mistakes is an error per issu
 TEST_CASE("model.info: with no arguments lists the operations; with a document checks and measures it, and reports every issue of a broken one") {
     AssetsProject p;
     const Json catalog = p.ok("model.info", {});
-    REQUIRE(catalog["operations"].size() == 39);
+    REQUIRE(catalog["operations"].size() == 45);
     CHECK(catalog["operations"][0]["op"] == "box");
     // the modifiers are in the catalogue with their children, ranges and defaults
     const Json* array = nullptr;
@@ -493,6 +493,84 @@ TEST_CASE("docs/MODELING.md: every sdf example is a valid document that builds a
         CHECK(build->stats.triangles > 100);
     }
     CHECK(found == 4);  // the creature, the rock, the tree and the mushroom
+}
+
+TEST_CASE("model.select: tries a query on the mesh a node receives; model.info lists the queries and what each edit node selected") {
+    AssetsProject p;
+    const Json catalog = p.ok("model.info", {});
+    REQUIRE(catalog.contains("selections"));
+    bool normal = false, loop = false;
+    for (const Json& q : catalog["selections"]["queries"]["faces"])
+        if (q["by"] == "normal") normal = !q["doc"].get<std::string>().empty();
+    for (const Json& q : catalog["selections"]["queries"]["edges"])
+        if (q["by"] == "loop") loop = !q["doc"].get<std::string>().empty();
+    CHECK(normal);
+    CHECK(loop);
+
+    const Json doc = Json::object(
+        {{"format", "factoria.model/1"},
+         {"nodes", Json::array({{{"op", "extrude_faces"}, {"id", "bump"}, {"distance", 0.2}, {"newPart", "bump"}, {"faces", {{"by", "normal"}, {"direction", "top"}}},
+                                 {"children", Json::array({{{"op", "box"}, {"id", "base"}, {"part", "body"}}})}}})}});
+    p.ok("model.create", {{"path", "assets/models/crate.model.json"}, {"nodes", doc["nodes"]}});
+
+    // on the primitive's mesh, with a query of the call, and with the edit node's own selection
+    const Json top = p.ok("model.select", {{"path", "assets/models/crate.model.json"}, {"node", "base"}, {"faces", {{"by", "normal"}, {"direction", "top"}}}});
+    CHECK(top["matched"] == 2);
+    CHECK(top["total"] == 12);
+    CHECK(top["area"].get<double>() == doctest::Approx(1.0));
+    CHECK(top["parts"][0]["part"] == "body");
+    CHECK(top["bounds"]["max"][1].get<double>() == doctest::Approx(0.5));
+    const Json own = p.ok("model.select", {{"path", "assets/models/crate.model.json"}, {"node", "bump"}});
+    CHECK(own["matched"] == 2);
+
+    // nothing matched: a warning that teaches, not an error
+    const Json none = p.ok("model.select", {{"path", "assets/models/crate.model.json"}, {"node", "base"}, {"faces", {{"by", "part"}, {"part", "bodi"}}}});
+    CHECK(none["matched"] == 0);
+    REQUIRE(none.contains("warnings"));
+    CHECK(contains(none["warnings"], "body"));
+
+    // errors teach
+    auto wrong = p.call("model.select", {{"path", "assets/models/crate.model.json"}, {"node", "base"}, {"faces", {{"by", "nromal"}}}});
+    REQUIRE_FALSE(wrong.ok);
+    CHECK(contains(wrong.error, "normal"));
+    auto missing = p.call("model.select", {{"path", "assets/models/crate.model.json"}, {"node", "bas"}, {"faces", {{"by", "all"}}}});
+    REQUIRE_FALSE(missing.ok);
+    CHECK(contains(missing.error, "base"));
+
+    // model.info of a document lists what each edit node selected
+    const Json info = p.ok("model.info", {{"path", "assets/models/crate.model.json"}});
+    REQUIRE(info["measurements"].contains("edits"));
+    CHECK(info["measurements"]["edits"][0]["matched"] == 2);
+    CHECK(info["measurements"]["edits"][0]["op"] == "extrude_faces");
+    CHECK(info["measurements"]["closed"] == true);
+}
+
+TEST_CASE("docs/MODELING.md: every example of Selections and edits is a valid document that builds a closed surface without warnings") {
+    namespace stdfs = std::filesystem;
+    const std::string text = read_all(stdfs::path(FA_REPO_ROOT) / "docs" / "MODELING.md");
+    const std::size_t from = text.find("## Selections and edits");
+    REQUIRE(from != std::string::npos);
+    const std::size_t to = text.find("\n## ", from + 5);
+    REQUIRE(to != std::string::npos);
+    const std::string section = text.substr(from, to - from);
+    int found = 0;
+    for (std::size_t at = section.find("```json\n"); at != std::string::npos; at = section.find("```json\n", at + 1)) {
+        const std::size_t begin = at + 8, end = section.find("```", begin);
+        REQUIRE(end != std::string::npos);
+        const std::string block = section.substr(begin, end - begin);
+        ++found;
+        auto json = parse_json(block, "MODELING.md");
+        REQUIRE_MESSAGE(json.ok(), (json.ok() ? std::string() : json.error().to_string()));
+        auto doc = parse_model_doc(*json, "MODELING.md");
+        REQUIRE_MESSAGE(doc.ok(), (doc.ok() ? block.substr(0, 80) : doc.error().to_string()));
+        auto build = evaluate_model(*doc);
+        REQUIRE_MESSAGE(build.ok(), (build.ok() ? std::string() : build.error().to_string()));
+        CHECK_MESSAGE(build->stats.closed(), block.substr(0, 120));
+        CHECK_MESSAGE(build->warnings.empty(), block.substr(0, 120));
+        CHECK(!build->edits.empty());
+        for (const ModelSelectionReport& r : build->edits) CHECK_MESSAGE(r.matched > 0, block.substr(0, 120));
+    }
+    CHECK(found == 4);  // the button, the rim, the belt and the recess
 }
 
 TEST_CASE("model schema: schemas/model.schema.json is the schema the catalog builds, and valid documents pass it") {

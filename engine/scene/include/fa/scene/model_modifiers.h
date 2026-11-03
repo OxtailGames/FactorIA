@@ -12,6 +12,7 @@
 // its output size BEFORE building it, so a typo (count 100000) fails at once instead of eating memory.
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -64,6 +65,9 @@ struct ModelBevelParams {
     int segments = 2;           // rows of the strip that replaces the edge (1 = a flat chamfer)
     float angle = 30;           // edges whose faces turn by more than this many degrees are bevelled
     float roundness = 1;        // 0 = straight chamfer rows with flat shading, 1 = a rounded profile with the normals blending between the faces
+    // When set, only edges for which it returns true (given the positions of the edge's two ends) are bevelled, still only if they turn by more
+    // than `angle`. bevel_edges (model_select.h) uses it to bevel the edges a selection chose.
+    std::function<bool(Vec3 a, Vec3 b)> edgeFilter;
 };
 // Rounds or chamfers the sharp edges of a mesh: each face next to a sharp edge is pulled back from it by `width` and a strip of `segments`
 // rows takes the edge's place. Where three or more bevelled edges meet, a corner patch fills the gap. The big faces keep their own normals
