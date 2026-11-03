@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -108,5 +109,63 @@ Json op_style(SvgDoc& doc, const std::vector<XNode*>& picked, bool wholeDocument
 
 // Colour of a CSS colour value as 0..255 RGB and alpha 0..1; false for none, url(), currentColor, inherit, unknown names.
 bool parse_css_colour(const std::string& text, std::array<std::uint8_t, 3>& rgb, double& alpha);
+
+// ---- shape builders (vector_build.cpp): new elements, mirror, shade ------------------------------------------------------
+
+// Where a new element goes and how it looks. Its coordinates are the parent's own (the same numbers you would type into the SVG).
+struct Placement {
+    XNode* parent = nullptr;  // null = the root <svg>
+    XNode* before = nullptr;  // insert in front of this element (its parent is the parent)
+    std::string id;           // the wanted id; empty = a name from the kind
+    std::string transform;    // the transform attribute of the new element
+    std::string fill, stroke, opacity;  // CSS colours; empty = the default for the kind
+    std::optional<double> strokeWidth;
+    std::map<std::string, std::string> attrs;  // any other attribute (class, stroke-linecap...)
+    bool lineArt = false;     // the default look is a stroke without fill (an open curve), else a fill without stroke
+    double defaultStrokeWidth = 2;
+};
+// A <path> with `path` as its data (parent coordinates) at the placement. Returns {element, nodes, bounds (drawing space)}.
+Json op_add_path(SvgDoc& doc, const Placement& at, const std::string& baseId, const Path& path, const Settings& s, std::vector<std::string>& warnings);
+struct RibbonPiece {
+    std::string suffix, d, fill;  // the id suffix, the path data, the fill (empty = the placement's fill)
+};
+// A <g> holding several paths, back to front.
+Json op_add_group(SvgDoc& doc, const Placement& at, const std::string& baseId, const std::vector<RibbonPiece>& pieces, const Settings& s, std::vector<std::string>& warnings);
+
+struct MirrorArgs {
+    Axis axis = Axis::Vertical;  // Vertical: the mirror line is vertical (x = at), left and right swap
+    std::string atMode = "canvas";  // canvas, start, end, or "value" with `at`
+    double at = 0;
+    bool weld = true;
+    std::optional<double> snap;  // points this close to the axis are put on it before welding (default: twice the tolerance)
+};
+// vector.mirror
+Json op_mirror(SvgDoc& doc, const std::vector<XNode*>& picked, const MirrorArgs& a, const Settings& s, std::vector<std::string>& warnings);
+
+struct ShadeArgs {
+    double lightDegrees = 135;  // the direction TOWARDS the light, counter-clockwise from +x, as in the style guide
+    std::string lightSource = "default";
+    std::optional<double> depth, highlightDepth;
+    bool shadow = true, highlight = true;
+    std::string shadowColour, highlightColour;  // CSS colours; empty = derived from the fill
+    double strength = 0.12;                     // OKLab lightness the derived colours differ by
+    double shadowOpacity = 1, highlightOpacity = 1;
+    std::optional<std::vector<std::array<std::uint8_t, 3>>> palette;  // the style palette: colours come from it when the fill is in it
+};
+// vector.shade
+Json op_shade(SvgDoc& doc, const std::vector<XNode*>& picked, const ShadeArgs& a, const Settings& s, std::vector<std::string>& warnings);
+
+struct TextArgs {
+    std::string text, font, anchor = "start";
+    double size = 24, letterSpacing = 0, lineSpacing = 1;
+    P at{};
+};
+// vector.text_to_path for new text (the placement's parent coordinates)
+Json op_add_text(SvgDoc& doc, const Placement& at, const TextArgs& a, const Settings& s, std::vector<std::string>& warnings);
+// ... and for <text> elements of the drawing: each becomes a <path> with its id, fill, class and transform.
+Json op_text_to_path(SvgDoc& doc, const std::vector<XNode*>& picked, const std::string& font, const Settings& s, std::vector<std::string>& warnings);
+
+// Colours: a shade of an RGB colour in OKLab (direction -1 darker, +1 lighter, `amount` lightness units), as "#rrggbb".
+std::string oklab_shift(const std::array<std::uint8_t, 3>& rgb, int direction, double amount);
 
 }  // namespace fa::vec
