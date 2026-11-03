@@ -531,10 +531,20 @@ TEST_CASE("sdf results: the uv section replaces the default box uvs, per part") 
     REQUIRE(built->uv.has_value());
     CHECK(built->uv->layout == "atlas");
     REQUIRE(built->uv->parts.size() == 2);
-    CHECK(built->uv->overlap == 0);
+    // a lat-long map folds the few triangles that contain the pole itself onto their neighbours; nothing else is mirrored or
+    // overlaps (the same model with the head unwrapped instead has no overlap at all)
+    CHECK(built->uv->overlap < 0.01);
     CHECK(built->uv->outsideTriangles == 0);
-    // a lat-long map folds the few triangles that contain the pole itself; nothing else is mirrored
     CHECK(built->uv->flippedTriangles <= built->uv->triangles / 100);
+    {
+        auto unwrapped = parse_model_doc(J((std::string(R"({"format":"factoria.model/1","uv":{"method":"unwrap"},)") + sdf).c_str()), "t.model.json");
+        REQUIRE(unwrapped.ok());
+        auto all = evaluate_model(*unwrapped);
+        REQUIRE(all.ok());
+        REQUIRE(all->uv.has_value());
+        CHECK(all->uv->overlap == 0);
+        CHECK(all->uv->flippedTriangles == 0);
+    }
     CHECK(built->data.triangle_count() == before->data.triangle_count());
     // the sdf's own uvs were 1 per metre box uvs, outside [0, 1]; now they are an atlas
     for (float v : built->data.uvs) {

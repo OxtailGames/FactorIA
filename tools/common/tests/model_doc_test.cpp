@@ -768,6 +768,8 @@ TEST_CASE("model.create and model.edit: the uv section can be given with the doc
     const Json edited = p.ok("model.edit", {{"path", "assets/models/box.model.json"}, {"op", "document"}, {"uv", {{"layout", "tile"}}}});
     CHECK(edited["measurements"]["uv"]["layout"] == "tile");
     CHECK(p.ok("model.edit", {{"path", "assets/models/box.model.json"}, {"op", "document"}, {"uv", nullptr}})["measurements"].contains("uv") == false);
+}
+
 TEST_CASE("model.game_ready: settings go into the document, the bake writes LODs, the collider and a prefab, and fewer LODs remove the old files") {
     AssetsProject p;
     write_all(p.file("assets/models/ball.model.json"),
