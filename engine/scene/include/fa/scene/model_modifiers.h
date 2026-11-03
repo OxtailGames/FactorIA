@@ -137,6 +137,8 @@ struct ModelNoiseParams {
 // Value noise on an integer lattice (hash of the cell and the seed). The same position always gets the same displacement, so seams stay
 // closed.
 ModelMesh model_noise(const ModelMesh& m, const ModelNoiseParams& p);
+// The lattice noise itself, in -1..1: the same function `noise` displaces with, for kernel code (the sdf's noise) that needs a field of it.
+float model_value_noise(Vec3 p, std::uint32_t seed);
 
 // ---- smoothing, welding and shading ------------------------------------------------------------------------------------------
 

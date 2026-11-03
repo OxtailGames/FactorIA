@@ -194,7 +194,7 @@ TEST_CASE("project.validate: a model document with mistakes is an error per issu
 TEST_CASE("model.info: with no arguments lists the operations; with a document checks and measures it, and reports every issue of a broken one") {
     AssetsProject p;
     const Json catalog = p.ok("model.info", {});
-    REQUIRE(catalog["operations"].size() == 30);
+    REQUIRE(catalog["operations"].size() == 39);
     CHECK(catalog["operations"][0]["op"] == "box");
     // the modifiers are in the catalogue with their children, ranges and defaults
     const Json* array = nullptr;
@@ -397,6 +397,104 @@ TEST_CASE("model.bake: a text node reads the engine's own font; the bake is dete
     CHECK(recipe_of_entry(p, "assets/models/sign.glb")["inputs"].size() == 1);
 }
 
+TEST_CASE("model.create, model.edit and model.bake: an sdf node melts shapes into a closed .glb, takes edits by id and teaches on a misplaced shape") {
+    AssetsProject p;
+    const std::string path = "assets/models/rock.model.json";
+    const Json created = p.ok("model.create", {{"path", path},
+                                               {"materials", {{"stone", {{"color", {0.5, 0.5, 0.5, 1}}}}}},
+                                               {"nodes", Json::array({{{"op", "sdf"}, {"id", "rock"}, {"quality", "draft"}, {"noiseAmplitude", 0.05}, {"noiseSeed", 3}, {"align", "bottom"},
+                                                                       {"children", Json::array({{{"op", "sdf_ellipsoid"}, {"id", "base"}, {"radii", {0.8, 0.5, 0.6}}, {"material", "stone"}},
+                                                                                                 {{"op", "sdf_sphere"}, {"id", "lump"}, {"radius", 0.4}, {"position", {0.5, 0.3, 0}}, {"smooth", 0.2}, {"material", "stone"}}})}}})}});
+    CHECK(created["nodeCount"] == 3);
+    CHECK(created["tree"][0]["op"] == "sdf");
+    CHECK(created["measurements"]["closed"] == true);
+    CHECK(created["measurements"]["bounds"]["min"][1].get<double>() == doctest::Approx(0.0).epsilon(0.001));
+    const double before = created["measurements"]["volume"].get<double>();
+
+    // an edit by id rebuilds the .glb: the lump grows and so does the volume
+    p.ok("model.edit", {{"path", path}, {"op", "set"}, {"target", "lump"}, {"values", {{"radius", 0.6}}}});
+    const Json bigger = p.ok("model.info", {{"path", path}});
+    CHECK(bigger["measurements"]["volume"].get<double>() > before);
+    CHECK(bigger["measurements"]["closed"] == true);
+
+    // add a shape into the sdf and a group of shapes into it; a cut is a shape with blend "subtract"
+    const Json add = p.ok("model.edit", {{"path", path}, {"op", "add"}, {"parent", "rock"},
+                                         {"node", {{"op", "sdf_group"}, {"id", "pits"}, {"blend", "subtract"}, {"smooth", 0.05}, {"mirror", "z"},
+                                                   {"children", Json::array({{{"op", "sdf_sphere"}, {"radius", 0.15}, {"position", {0.2, 0.4, 0.3}}}})}}}});
+    CHECK(add["edit"]["pointer"] == "/nodes/0/children/2");
+    const Json pitted = p.ok("model.info", {{"path", path}});
+    CHECK(pitted["valid"] == true);
+    CHECK(pitted["measurements"]["closed"] == true);
+    CHECK(pitted["measurements"]["volume"].get<double>() < bigger["measurements"]["volume"].get<double>());
+
+    // a shape outside an sdf, and a mesh inside one, are refused with the pointer and the way out; nothing is written
+    const std::string saved = read_all(p.file(path));
+    auto outside = p.call("model.edit", {{"path", path}, {"op", "add"}, {"node", {{"op", "sdf_sphere"}}}});
+    REQUIRE_FALSE(outside.ok);
+    CHECK(outside.error.dump().find("works only inside") != std::string::npos);
+    auto inside = p.call("model.edit", {{"path", path}, {"op", "add"}, {"parent", "rock"}, {"node", {{"op", "box"}}}});
+    REQUIRE_FALSE(inside.ok);
+    CHECK(inside.error.dump().find("cannot go inside") != std::string::npos);
+    CHECK(read_all(p.file(path)) == saved);
+
+    // a modifier wraps the sdf and a boolean takes it as an operand
+    p.ok("model.edit", {{"path", path}, {"op", "add"}, {"node", {{"op", "mirror"}, {"id", "twin"}, {"axis", "x"}, {"children", Json::array({{{"op", "sdf"}, {"quality", "draft"}, {"position", {2, 0, 0}},
+                                                                                                                                      {"children", Json::array({{{"op", "sdf_sphere"}, {"radius", 0.5}}})}}})}}}});
+    CHECK(p.ok("model.info", {{"path", path}})["measurements"]["closed"] == true);
+
+    // the bake is the same twice
+    p.ok("model.bake", {{"path", path}, {"force", true}});
+    const std::string glb = read_all(p.file("assets/models/rock.glb"));
+    REQUIRE(glb.size() > 100);
+    p.ok("model.bake", {{"path", path}, {"force", true}});
+    CHECK(read_all(p.file("assets/models/rock.glb")) == glb);
+}
+
+TEST_CASE("model.info: the catalogue lists the sdf shapes with their kind and the ranges the checker uses") {
+    AssetsProject p;
+    const Json catalog = p.ok("model.info", {});
+    const Json* sdf = nullptr;
+    const Json* sphere = nullptr;
+    for (const Json& op : catalog["operations"]) {
+        if (op["op"] == "sdf") sdf = &op;
+        if (op["op"] == "sdf_sphere") sphere = &op;
+    }
+    REQUIRE(sdf);
+    REQUIRE(sphere);
+    CHECK((*sdf)["kind"] == "sdf");
+    CHECK((*sphere)["kind"] == "sdf_shape");
+    bool qualityOk = false, blendOk = false;
+    for (const Json& f : (*sdf)["fields"])
+        if (f["key"] == "quality") qualityOk = f["default"] == "normal" && f["choices"].size() == 4;
+    for (const Json& f : (*sphere)["fields"])
+        if (f["key"] == "blend") blendOk = f["default"] == "union" && f["choices"].size() == 3;
+    CHECK(qualityOk);
+    CHECK(blendOk);
+}
+
+TEST_CASE("docs/MODELING.md: every sdf example is a valid document that builds a closed surface") {
+    namespace stdfs = std::filesystem;
+    const std::string text = read_all(stdfs::path(FA_REPO_ROOT) / "docs" / "MODELING.md");
+    int found = 0;
+    for (std::size_t at = text.find("```json\n"); at != std::string::npos; at = text.find("```json\n", at + 1)) {
+        const std::size_t begin = at + 8, end = text.find("```", begin);
+        REQUIRE(end != std::string::npos);
+        const std::string block = text.substr(begin, end - begin);
+        if (block.find("\"op\": \"sdf\"") == std::string::npos) continue;
+        ++found;
+        auto json = parse_json(block, "MODELING.md");
+        REQUIRE_MESSAGE(json.ok(), (json.ok() ? std::string() : json.error().to_string()));
+        auto doc = parse_model_doc(*json, "MODELING.md");
+        REQUIRE_MESSAGE(doc.ok(), (doc.ok() ? std::string() : doc.error().to_string()));
+        auto build = evaluate_model(*doc);
+        REQUIRE_MESSAGE(build.ok(), (build.ok() ? std::string() : build.error().to_string()));
+        CHECK_MESSAGE(build->stats.closed(), block.substr(0, 120));
+        CHECK(build->warnings.empty());
+        CHECK(build->stats.triangles > 100);
+    }
+    CHECK(found == 4);  // the creature, the rock, the tree and the mushroom
+}
+
 TEST_CASE("model schema: schemas/model.schema.json is the schema the catalog builds, and valid documents pass it") {
     namespace stdfs = std::filesystem;
     const stdfs::path file = stdfs::path(FA_REPO_ROOT) / "schemas" / "model.schema.json";
@@ -416,7 +514,8 @@ TEST_CASE("model schema: schemas/model.schema.json is the schema the catalog bui
     Json nested = *parse_json(R"({"format": "factoria.model/1", "nodes": [{"op": "group", "position": [1, 0, 0], "children": [
         {"op": "stairs", "steps": 5}, {"op": "arch"}, {"op": "pipe"}, {"op": "text", "text": "A"},
         {"op": "mirror", "axis": "x", "children": [{"op": "lathe", "profile": [[0.2, 0], [0.4, 1]]}]},
-        {"op": "boolean", "mode": "intersection", "children": [{"op": "box"}, {"op": "sphere"}]}]}]})", "nested");
+        {"op": "boolean", "mode": "intersection", "children": [{"op": "box"}, {"op": "sphere"}]},
+        {"op": "sdf", "quality": "fine", "align": "bottom", "children": [{"op": "sdf_group", "mirror": "x", "children": [{"op": "sdf_capsule"}, {"op": "sdf_torus", "blend": "subtract"}]}]}]}]})", "nested");
     CHECK(validate_json(*schema, nested).empty());
     Json broken = *sample;
     broken["nodes"][0]["op"] = "cube";
