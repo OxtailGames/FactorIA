@@ -570,7 +570,9 @@ void Editor::at_build_tools_script() {
             if (showAnimation_ || anim_.posed) anim_unpose();  // sections B2 and C2: the panels, the pose and the tools are not carried over
             anim_ = AnimUi{};
             bone_ = BoneUi{};
-            showAnimation_ = showBoneTools_ = false;
+            showAnimation_ = showBoneTools_ = showImage_ = false;
+            image_release_textures();   // section I2: the Image panel, its document and its tools are not carried over
+            image_ = ImageUi{};
             projBrowser_.query = BrowserQuery{};
             exportLast_.reset();
             exportChecked_ = -100;
@@ -5831,6 +5833,183 @@ void Editor::at_build_tools_script() {
                 atSavedConfig_.reset();
             }
             aiStatus_ = std::move(x->savedStatus);
+        });
+    }
+
+    section("I2");
+    // The Image panel (docs/EDITOR.md, "Image panel"): a document made with image.create opens in the panel; a pixels layer is added from
+    // the layer list, a red stroke is painted with the mouse, a rectangle is selected, its pixels are moved with the Transform tool, a
+    // brightness adjustment is added and changed, Ctrl+Z / Ctrl+Y walk the steps back and forth through the editor's own undo stack, and
+    // Save bakes the PNG whose pixels are checked. Every wait counts frames.
+    {
+        struct Is {
+            size_t undo = 0;
+            int mark = 0;
+        };
+        auto is = std::make_shared<Is>();
+        const std::string docPath = "assets/at-image.image.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        // A drag on the canvas between two image positions (the mouse goes through the middle on the way).
+        auto drag_image = [this, &step](float x0, float y0, float x1, float y1) {
+            step(2, [this, x0, y0] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, image_screen_pos(x0, y0)); });
+            step(2, [this, x0, y0] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, image_screen_pos(x0, y0)); });
+            step(2, [this, x0, y0, x1, y1] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, image_screen_pos((x0 + x1) / 2, (y0 + y1) / 2)); });
+            step(2, [this, x1, y1] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, image_screen_pos(x1, y1)); });
+            step(4, [this, x1, y1] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, image_screen_pos(x1, y1)); });
+        };
+        auto pixel = [this](int x, int y) -> Color {
+            ImageModel& m = *image_.model;
+            return m.picture().pixel(x, y);
+        };
+        auto is_rgb = [](const Color& c, float r, float g, float b) {
+            return std::fabs(c.r - r) < 0.02f && std::fabs(c.g - g) < 0.02f && std::fabs(c.b - b) < 0.02f && c.a > 0.98f;
+        };
+        step(2, [this, is, docPath] {
+            std::error_code ec;
+            stdfs::remove(projectDir_ + "/" + docPath, ec);   // a leftover of an earlier run
+            Json args = Json::object({{"path", docPath}, {"width", 32}, {"height", 32},
+                                      {"layers", Json::array({Json::object({{"kind", "fill"}, {"name", "background"}, {"color", "#ffffff"}})})}});
+            const CommandResult r = engine_->commands().call("image.create", args);
+            at_check(r.ok, "image.create made the document: " + (r.ok ? std::string() : command_error_text(r.error)));
+            after_command("image.create", args, r);
+            is->undo = undo_depth();
+            open_image_document(docPath);
+            image_.brush.color = Color{1, 0, 0, 1};
+            image_.brush.size = 4;
+            image_.tool = ImageTool::Brush;
+        });
+        wait_until([this] { return at_visible("img:canvas") && at_visible("img:layer:add"); });
+        step(3, [this] {
+            at_check(image_.model && image_.model->is_open() && image_.model->valid(), "the panel opened the document");
+            at_check(image_.model->layer_rows().size() == 1, "...which lists the background layer");
+            at_check(image_.canvasW > 40 && image_.canvasH > 40 && image_.zoom >= 1.0f, "...and the canvas shows it at a zoom of 100% or more");
+            at_check(at_visible("img:save") && at_visible("img:tool:brush") && at_visible("img:tool:magic-wand"), "...with its toolbar and tools");
+        });
+        snap("editor_image_panel.png");
+
+        // ---- add a pixels layer
+        click_widget("img:layer:add");
+        wait_until([this] { return at_visible("img:layer:add:pixels"); });
+        click_widget("img:layer:add:pixels");
+        step(4, [this, is] {
+            ImageModel& m = *image_.model;
+            at_check(m.layer_rows().size() == 2, "Add > pixels made a second layer");
+            const ImageLayer* L = m.layer(m.selected_layer());
+            at_check(L && L->kind == ImageLayerKind::Pixels, "...which is selected");
+            at_check(undo_depth() == is->undo + 1, "...as ONE undo step of the editor's stack");
+        });
+
+        // ---- paint a red stroke
+        drag_image(6.0f, 8.0f, 20.0f, 8.0f);
+        step(4, [this, is, pixel, is_rgb] {
+            at_check(is_rgb(pixel(14, 8), 1, 0, 0) && is_rgb(pixel(14, 7), 1, 0, 0), "a drag with the Brush paints red where the mouse went");
+            at_check(is_rgb(pixel(14, 20), 1, 1, 1), "...and nothing elsewhere (the white background shows)");
+            at_check(undo_depth() == is->undo + 2, "...the whole stroke is ONE undo step");
+            at_check(!image_.model->stroking(), "...and the stroke is finished");
+        });
+        snap("editor_image_paint.png");
+
+        // ---- select a rectangle
+        click_widget("img:tool:rectangle");
+        drag_image(4.0f, 4.0f, 12.0f, 12.0f);
+        step(4, [this, is] {
+            ImageModel& m = *image_.model;
+            int x = 0, y = 0, w = 0, h = 0;
+            at_check(m.has_selection() && m.selection_bounds(x, y, w, h) && x == 4 && y == 4 && w == 8 && h == 8, "the Rectangle tool selected 4,4 8x8");
+            at_check(undo_depth() == is->undo + 3, "...as one undo step");
+        });
+
+        // ---- move the selected pixels with the Transform tool
+        click_widget("img:tool:transform");
+        wait_until([this] { return image_.model->transforming() && at_visible("img:tf:apply"); });
+        drag_image(8.0f, 8.0f, 8.0f, 16.0f);
+        step(3, [this] {
+            const ImageModel::TransformState& t = image_.model->transform();
+            at_check(t.active && std::abs(t.dy - 8) <= 1 && std::abs(t.dx) <= 1, "dragging inside the transform box moved it 8 pixels down");
+        });
+        snap("editor_image_transform.png");
+        click_widget("img:tf:apply");
+        step(4, [this, is, pixel, is_rgb] {
+            at_check(!image_.model->transforming(), "Apply ended the transform");
+            at_check(is_rgb(pixel(8, 16), 1, 0, 0), "...the selected red pixels are now 8 rows lower");
+            at_check(is_rgb(pixel(8, 8), 1, 1, 1), "...and the old place shows the background again");
+            at_check(is_rgb(pixel(16, 8), 1, 0, 0), "...while the red outside the selection stayed");
+            at_check(undo_depth() == is->undo + 4, "...as one undo step");
+        });
+
+        // ---- an adjustment: add it, then change it the way a slider does (a live preview, then one kept step)
+        click_widget("img:op:add");
+        wait_until([this] { return at_visible("img:op:add:brightness"); });
+        click_widget("img:op:add:brightness");
+        step(4, [this, is] {
+            const ImageLayer* L = image_.model->layer(image_.model->selected_layer());
+            at_check(L && L->adjustments.size() == 1 && L->adjustments[0].value("type", "") == "brightness", "Add > brightness put an adjustment on the layer");
+            at_check(undo_depth() == is->undo + 5, "...as one undo step");
+        });
+        step(2, [this] {
+            ImageModel& m = *image_.model;
+            m.preview_operation(m.selected_layer(), false, 0, Json::object({{"amount", -1.0}}));
+        });
+        step(3, [this, is, pixel, is_rgb] {
+            at_check(is_rgb(pixel(16, 8), 0, 0, 0), "the live preview of amount -1 darkens the layer on the canvas at once");
+            at_check(undo_depth() == is->undo + 5, "...and a preview is not an undo step yet");
+        });
+        step(2, [this] { image_edited(image_.model->commit_operation_preview("Change brightness")); });
+        step(3, [this, is, pixel, is_rgb] {
+            at_check(undo_depth() == is->undo + 6, "letting go keeps it as ONE undo step");
+            at_check(is_rgb(pixel(16, 8), 0, 0, 0) && is_rgb(pixel(8, 16), 0, 0, 0), "...and the picture stays dark");
+        });
+        snap("editor_image_adjustment.png");
+
+        // ---- undo and redo go through the editor's stack
+        step(2, [this] { undo(); });
+        step(3, [this, pixel, is_rgb] { at_check(is_rgb(pixel(16, 8), 1, 0.2f, 0.2f), "Undo put the brightness back to its default (+0.2: a lighter red)"); });
+        step(2, [this] { redo(); });
+        step(3, [this, pixel, is_rgb] { at_check(is_rgb(pixel(16, 8), 0, 0, 0), "Redo darkened it again"); });
+        for (int i = 0; i < 6; ++i) step(2, [this] { undo(); });
+        step(4, [this, is, pixel, is_rgb] {
+            at_check(undo_depth() == is->undo, "six Undos took back every image edit and left the stack where it was");
+            at_check(image_.model->layer_rows().size() == 1 && !image_.model->has_selection(), "...the document is back to the background layer, with no selection");
+            at_check(is_rgb(pixel(14, 8), 1, 1, 1), "...and the canvas is plain white");
+        });
+        for (int i = 0; i < 6; ++i) step(2, [this] { redo(); });
+        step(4, [this, is, pixel, is_rgb] {
+            at_check(undo_depth() == is->undo + 6, "six Redos brought them all back");
+            at_check(is_rgb(pixel(16, 8), 0, 0, 0) && is_rgb(pixel(8, 16), 0, 0, 0) && is_rgb(pixel(8, 8), 1, 1, 1), "...with the same picture");
+        });
+
+        // ---- save bakes the PNG
+        step(2, [this] { at_check(image_.model->bake_status().state != ImageBakeState::Fresh, "before Save the PNG is not baked from this document"); });
+        click_widget("img:save");
+        step(6, [this] {
+            const ImageBakeStatus b = image_.model->bake_status();
+            at_check(b.state == ImageBakeState::Fresh, "Save baked the PNG (the badge says baked)");
+            auto img = load_image(projectDir_ + "/" + b.output);
+            at_check(img.ok(), "...the baked PNG loads: " + b.output);
+            if (img.ok()) {
+                const Color dark = img->pixel(16, 8), moved = img->pixel(8, 16), old = img->pixel(8, 8);
+                at_check(dark.r < 0.02f && dark.g < 0.02f && dark.b < 0.02f, "...with the stroke outside the selection darkened by the adjustment");
+                at_check(moved.r < 0.02f && moved.g < 0.02f && moved.b < 0.02f, "...and the moved pixels in their new place");
+                at_check(old.r > 0.98f && old.g > 0.98f && old.b > 0.98f, "...and white where they were");
+            }
+            const ImageDocument& d = image_.model->doc();
+            at_check(d.layers.size() == 2, "...and the saved document has the two layers");
+        });
+        step(2, [this] {
+            ImageModel& m = *image_.model;
+            at_check(m.last_composite_ms() >= 0.0 && m.composites() > 0, "the panel measured its composites");
+            FA_INFO("autotest", "image panel: {} composites, last {:.2f} ms", m.composites(), m.last_composite_ms());
+            showImage_ = false;
         });
     }
 
