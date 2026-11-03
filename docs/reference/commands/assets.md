@@ -1629,6 +1629,7 @@ Add, change, remove or move one node of a model document by its id (or JSON poin
 | `output` | object | no | document: the new output settings ({path}); null removes them. |
 | `materials` | object | no | document: the new materials table; null removes it. |
 | `uv` | any | no | document: the new uv section, whole; null removes it. model.uv changes single fields. |
+| `gameReady` | object | no | document: the whole game-ready settings object (model.game_ready changes single settings); null removes it. |
 | `bake` | boolean | no | Bake the .glb after writing. Default true. |
 | `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
 
@@ -1665,6 +1666,22 @@ A model document (`*.model.json`, docs/MODELING.md) is a 3D model written as a t
 | `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. |
 | `document` | object | no | The document itself, as JSON, to check before writing it to a file (format is filled in). |
 | `evaluate` | boolean | no | Build the mesh in memory for the measurements. Turn it off to only check the document. Default true. |
+
+## `model.select`
+
+Not released yet (on main after 0.14.1).
+
+Try a selection of faces or edges chosen by meaning (normal direction, part, region, top/bottom, border, sharp, seam) on the mesh a node receives, and report what it matched.
+
+The edit operations extrude_faces, inset_faces, bevel_edges, delete_faces and assign_faces take a selection written as a query, never as indices: {"by": "normal", "direction": "top"}, {"by": "part", "part": "lid"}, {"by": "box", "min": [...], "max": [...]}, combined with and / or / not / grow / shrink; edges: border (of a face selection), sharp (over an angle), between_parts, loop (round an axis at a height or ratio). This evaluates the document up to `node` and runs the query on the mesh that node receives (its merged children, or the mesh a primitive made; in the node's own space, before its transform), then answers: how many faces (or edges) matched out of how many, their total area (or length), their bounds and how many belong to each part. An empty selection returns a warning that says why (what the mesh spans, the parts that exist, how close the nearest face was). Without `faces` / `edges` the node's own selection is used, so model.select on an edit node tells what it will edit. Because a query is evaluated on every build, it keeps meaning the same faces when the model below changes. Example: {"path":"assets/models/crate.model.json","node":"body","faces":{"by":"normal","direction":"top"}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. |
+| `document` | object | no | The document itself, as JSON, instead of a file. |
+| `node` | string | yes | The node whose mesh is selected on, by id or JSON pointer. |
+| `faces` | object | no | A face query, e.g. {"by": "normal", "direction": "top"}. model.info {} lists them. |
+| `edges` | object | no | An edge query, e.g. {"by": "sharp", "angle": 60}. |
 
 ## `model.uv` (modifies state)
 
