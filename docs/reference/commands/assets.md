@@ -549,6 +549,20 @@ The offline makers (assets.rasterize_svg, assets.draw_icon, assets.draw_capsules
 | `stale` | boolean | no | Make again only the assets whose recipe inputs (the files they were made from) changed since. |
 | `dryRun` | boolean | no | List what would run (command, arguments, which inputs changed) and change nothing. |
 
+## `assets.review`
+
+Not released yet (on main after 0.14.1).
+
+A cheap one-shot vision review of the pictures you made: a verdict and concrete fixes, grounded on assets.check_art and the style references.
+
+The optional last look of the make, preview, check, fix loop (docs/AI_GUIDE.md 9.23, docs/ASSETS.md "Reviewing art"). It runs assets.check_art on the same pictures first, then sends a vision model the pictures, the annotated picture of the check, the check's numbers, the style rules of assets.json and the style `references` images, and asks what the numbers cannot tell: does it match the style, does it read, does it suit its use. Unlike the user-only art critics of ai.review, you can call it yourself while you work. It uses the model of the "fast" role of ai.json (the orchestrator when fast is off; the artist role is usually an image generator, not a viewer), so the model must accept pictures; with no provider, no key or a text-only model the error says what to set up (docs/AI_PROVIDERS.md) and you carry on with assets.check_art alone. One model call per review: call it once the check shows no `fail`, not after every edit. Result: {verdict: good | fix | redo (never `good` while the check has a fail), summary, fixes: [{what, where, command}], checkArt: {verdict, counts, assets, set}, role, provider, model, warnings, nextSteps}. A fix names a command or an assets.json setting; one that names something this engine does not have is listed in `warnings`. Nothing is written to the project. Example: {"paths":["assets/knight.png","assets/orc.png"],"focus":"do they look like the same game at 48 px?"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Project-relative path of the picture to review. Give this or `paths`. |
+| `paths` | array | no | Up to 4 pictures reviewed together, as a set. Give this or `path`. |
+| `focus` | string | no | What you want judged ("does the outline match the references?", "is the coin readable on the dark floor?"). Optional. |
+
 ## `assets.set_provenance` (modifies state)
 
 Since 0.1.6.

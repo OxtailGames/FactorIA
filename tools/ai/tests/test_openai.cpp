@@ -146,3 +146,22 @@ TEST_CASE("openai provider: URL, bearer header, missing key, local presets need 
     REQUIRE(local);
     for (auto& [k, v] : seen.headers) CHECK(k != "Authorization");
 }
+
+TEST_CASE("openai request: pictures attached to the user message are image_url data URLs (Gemini, Ollama and the other compatible endpoints too)") {
+    for (const char* preset : {"openai", "gemini", "ollama"}) {
+        ProviderConfig cfg = default_config().providers[preset];
+        ChatRequest r = req_with_tools();
+        r.messages.clear();
+        r.messages.push_back(Message::user("Review this.", {{"image/png", "QUJD"}}));
+        Json body = openai::build_request(r, cfg);
+        const Json& user = body["messages"][1];
+        INFO(preset);
+        CHECK(user["role"] == "user");
+        const Json& c = user["content"];
+        REQUIRE(c.is_array());
+        CHECK(c[0]["type"] == "text");
+        CHECK(c[0]["text"] == "Review this.");
+        CHECK(c[1]["type"] == "image_url");
+        CHECK(c[1]["image_url"]["url"] == "data:image/png;base64,QUJD");
+    }
+}

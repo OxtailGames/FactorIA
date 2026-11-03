@@ -1354,6 +1354,27 @@ speech: `assets.generate_voice {text, path, voice}`, models: `assets.generate_mo
   writes it as `AI_CONTENT_DISCLOSURE.md`. Fix the "Assets without provenance" list first.
 - **Tests.** A test project uses the `fake` provider, so the check is offline and deterministic.
 
+**The review loop: make, preview, check, fix.** Never accept a picture because it was generated: look at it the way the player
+will, measure it, fix it, and repeat until the check has no `fail`.
+
+1. **Make** it (`assets.generate_image`, `assets_generate_texture`, `assets_rasterize_svg`, `assets.import`, or an edit of the file).
+2. **See** it. `assets.contact_sheet {"paths":["assets/knight.png","assets/orc.png"]}` puts a set side by side at its on-screen
+   size over the game's backgrounds, light and dark, and in greyscale. `assets.preview_in_scene {"path":"assets/knight.png","scene":"scenes/level1.scene.json"}`
+   places it in a copy of a real scene and returns screenshots at phone and desktop resolutions. Look at the picture; do not skip this.
+3. **Check** it. `assets.check_art {"path":"assets/knight.png"}` gives numbers: palette fit, contrast over the real backgrounds,
+   readability at the size the camera shows it, halos on alpha edges, pixel density and outline against the `style` rules of
+   `assets.json`. Each rule has a verdict (`ok`, `warn`, `fail`) and a `hint` naming the command or setting that fixes it.
+4. **Fix** what the hints say (regenerate with `overwrite: true` and a prompt that changes that one thing, edit the SVG, change a
+   `style` value), then go back to 2. Stop when no rule is `fail` and the picture looks right in the scene. A `warn` is a
+   judgement: fix it when it is cheap, or note why it is fine.
+5. **Last look (optional).** With a vision model configured, `assets.review {"paths":[...],"focus":"..."}` compares the pictures
+   with the style references and returns a `verdict` and concrete `fixes` (each with a command to use). It runs the check itself
+   and costs one model call: use it once per asset or set, after the check is clean, not after every edit. If it fails with
+   `no_model`, the user has no vision model set up: carry on with steps 2 to 4 and judge the pictures yourself.
+
+Set the house style first (`assets.json` `style`: `prompt`, `references`, `palette`, `outline`, `lightDirection`,
+`texelsPerUnit`, `pixelArt`, `value`, `saturation`; docs/ASSETS.md "House style"): the check and the review only judge what it says.
+
 **Art without an image provider.** When `assets.generate_image` fails with `no_provider`, do not draw pixels by hand and do
 not stop: the error lists which providers can make images and which keys would enable one (tell the user which), and two
 commands make art offline, free, with a provenance record:
