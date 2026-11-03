@@ -3935,6 +3935,24 @@ Measures the maps that `texturing` wear and `ao` use, so you can choose threshol
 | `edgeWidth` | number | no | Metres wide the band along a sharp edge is; 0 = 3% of the diagonal. |
 | `picture` | boolean | no | Return the maps as one picture ($image). Default true. |
 
+### `model.check`
+
+Not released yet (on main after 0.14.1).
+
+Measure a model document's mesh for faults an artist finds by eye: scale, origin, flipped or inconsistent triangles, open and non-manifold edges, degenerate triangles, platform budgets. Each finding says where, what and how to fix.
+
+Builds the document in memory and checks the mesh the game gets (the evaluated mesh, with the `gameReady` origin and merge applied). Findings, errors first: `inside_out` (a closed piece whose triangles all face inward), `inconsistent_winding` (neighbouring triangles disagree on the side that is out), `non_manifold` (an edge of more than two triangles), then warnings: `flipped_normals`, `open_edges` (holes: the model is not a closed solid), `degenerate` (triangles with no area), `scale` (the height differs from `expectedHeight` by more than `tolerance`, or, with no expectation, the largest side is under 2 cm or over 100 m: probably authored in the wrong unit), `origin` (the model is far from its origin), `triangle_budget` and `draw_call_budget` (more triangles or submeshes than a platform's budget for one model; the same table model.game_ready reports, and a LOD of the document's gameReady that fits makes the triangle finding information). Every finding has `message` (what is wrong, with the parts and bounds), `hint` (how to fix it), and for mesh faults `count`, `parts`, `bounds` and up to `samples` positions in model space. `ok` is false when there is an error. `platforms` limits the budgets checked (default all); `ignore` lists codes not to report (an open surface that is meant to be open: ["open_edges"]). With no `path` or `document` it returns the catalog of checks and budgets. Nothing is written. Example: {"path":"assets/models/door.model.json","expectedHeight":2.1,"platforms":["mobile"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. |
+| `document` | object | no | The document itself, as JSON, instead of a file (format is filled in). |
+| `expectedHeight` | number | no | The height (Y) the model should have in metres, e.g. 1.8 for a person, 0.75 for a table. 0 = no expectation. Default 0.0. |
+| `tolerance` | number | no | A fraction of expectedHeight the height may differ by. Default 0.25. |
+| `platforms` | array | no | Platforms whose triangle and draw call budgets to check: desktop, mobile, web. Default all. |
+| `ignore` | array | no | Check codes not to report, e.g. ["open_edges"] for a surface that is meant to be open. |
+| `samples` | number | no | Sample positions listed per finding. Default 6.0. |
+
 ### `model.create` (modifies state)
 
 Not released yet (on main after 0.14.1).
@@ -4052,6 +4070,29 @@ The `vertexColors` section of a model document writes colours into the mesh whil
 | `bake` | boolean | no | Bake the .glb again after a change. Default true. |
 | `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
 | `picture` | boolean | no | Return the palette swatches ($image) when there is a palette. Default true. |
+
+### `model.preview`
+
+Not released yet (on main after 0.14.1).
+
+Draw a model document from 4 to 8 sides (a turntable sheet, shaded and/or wireframe) beside a 1.8 m reference figure, with its triangle count and size; returns the PNG.
+
+The way to SEE a model. It builds the document in memory and draws it with a software renderer (no graphics device, the same pixels on every machine): one picture with `views` sides evenly spaced around the model, starting at `yaw`, seen from `pitch` degrees above the horizon, each framed the same way so sizes compare across the sheet. A blue 1.8 m figure stands beside the model on the ground (turn it off with figure false) and a grid lies on y = 0 with the origin's axes brighter, so scale, how it stands and where its origin is can be read at once. The header gives the triangle count, the size in metres and the number of parts. A dark red surface is one seen from inside (a flipped triangle). `mode` is "shaded", "wireframe" (the triangle edges; hidden ones stay hidden) or "shaded_wireframe"; `part` draws one part in orange. It draws the mesh the game gets: with `gameReady` settings in the document, their origin and merge are applied. The picture is returned as $image in a temporary file; pass `out` (a project-relative .png) to keep it. Nothing in the project changes otherwise. Example: {"path":"assets/models/crate.model.json","views":4,"mode":"shaded_wireframe"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. |
+| `document` | object | no | The document itself, as JSON, instead of a file (format is filled in). |
+| `views` | number | no | How many sides to draw, 4 to 8, evenly spaced around the model (a whole number). Default 6.0. |
+| `yaw` | number | no | The angle of the first view in degrees: 0 looks at the model's +Z side, 90 at its +X side. Default 30.0. |
+| `pitch` | number | no | Degrees above the horizon. Default 20.0. |
+| `cell` | number | no | Pixels per side of each view. Default 320.0. |
+| `mode` | string ["shaded","wireframe","shaded_wireframe"] | no | shaded draws surfaces, wireframe the triangle edges, shaded_wireframe both. Default "shaded". |
+| `figure` | boolean | no | Draw the 1.8 m reference figure beside the model. Default true. |
+| `ground` | boolean | no | Draw the grid on y = 0. Default true. |
+| `part` | string | no | A part of the model to draw in orange. |
+| `out` | string | no | Keep the picture as a PNG at this project-relative path (ending in .png). Left out, it is a temporary file. |
+| `overwrite` | boolean | no | Replace the file at `out` if it exists. Default false. |
 
 ### `model.select`
 
