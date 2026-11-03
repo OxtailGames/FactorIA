@@ -90,6 +90,16 @@ struct SvgRaster {
 SvgRaster rasterize_svg_text(const std::string& text, int w, int h, const std::string& style, double styleStrength, std::uint32_t seed,
                              std::vector<std::string>& warnings);
 
+// ---- procedural textures (assets_texture.cpp) -----------------------------------------------------------
+
+// The picture of a texture whose `args` are the picture arguments of assets.generate_texture (preset, width, height, seed,
+// color, accent, scale, roughness, tileable, vignette, vignetteWidth, angle and the planks fields; no path, overwrite, author
+// or normalMap): straight-alpha RGBA. An image document's procedural layer calls this. Errors (CommandError, code
+// invalid_argument) read "<command> <pointer>/<key>: <what>"; the arguments the preset ignores are added to `warnings`.
+Image procedural_texture_image(const Json& args, const std::string& command, const std::string& pointer, std::vector<std::string>& warnings);
+// Only the checks of procedural_texture_image, without painting (used when a document is loaded).
+void check_procedural_texture_args(const Json& args, const std::string& command, const std::string& pointer);
+
 void register_slice_sheet_command(CommandRegistry& registry, const std::string& projectDir);
 void register_pack_atlas_command(CommandRegistry& registry, const std::string& projectDir);
 void register_draw_icon_command(CommandRegistry& registry, const std::string& projectDir);
@@ -105,6 +115,7 @@ void register_contact_sheet_command(CommandRegistry& registry, const std::string
 void register_preview_scene_command(CommandRegistry& registry, const std::string& projectDir);  // assets.preview_in_scene
 void register_audio_commands(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_loop, assets.convert_audio
 void register_subset_font_command(CommandRegistry& registry, const std::string& projectDir);
+void register_image_commands(CommandRegistry& registry, const std::string& projectDir);  // image.bake, image.save (image_doc_commands.cpp)
 
 // Title text as a tightly cropped transparent image (assets_draw_icon.cpp: the rasterizer of assets.draw_icon's text
 // layers), the largest that fits maxW x maxH; `outline` (or null) draws an outline around the letters. A project font is
@@ -157,6 +168,9 @@ Json recipe_of(const Json& entry);
 void register_regenerate_command(CommandRegistry& registry, const std::string& projectDir);
 // project.validate: the warnings for assets whose recipe inputs changed (stale) or went missing, with the regenerate command.
 void check_recipes(const std::string& projectDir, std::vector<ValidationIssue>& warnings);
+// project.validate: every *.image.json that does not load is an error (file, JSON pointer, fix); one never baked, or whose PNG
+// assets.json does not record as its bake, is a warning with the image.bake command. (A stale bake is check_recipes' warning.)
+void check_image_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
 
 // ---- command helpers -------------------------------------------------------------------------------------
 

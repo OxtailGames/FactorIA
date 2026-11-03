@@ -839,6 +839,8 @@
     "i18n.import": "0.2.0",
     "i18n.set_language": "0.2.0",
     "i18n.state": "0.2.0",
+    "image.bake": "unreleased",
+    "image.save": "unreleased",
     "input.record": "0.3.0",
     "material.info": "0.2.0",
     "mesh.create": "0.9.0",
