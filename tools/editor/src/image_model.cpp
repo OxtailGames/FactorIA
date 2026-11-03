@@ -10,6 +10,8 @@
 #include <sstream>
 
 #include "fa/core/strings.h"
+#include "fa/scene/autotile.h"
+#include "fa/tooling/image_tileset.h"
 #include "fa/tooling/image_tile.h"
 #include "fa/tooling/project_fs.h"
 #include "inspector_model.h"
@@ -435,6 +437,54 @@ int ImageModel::frame_duration(int frame) const {
     return frame >= 0 && std::size_t(frame) < doc_.frames.size() ? doc_.frames[std::size_t(frame)].duration : 100;
 }
 
+void ImageModel::set_onion_settings(const OnionSettings& s) {
+    OnionSettings n = s;
+    n.before = std::clamp(n.before, 0, 8);
+    n.after = std::clamp(n.after, 0, 8);
+    n.opacity = std::clamp(n.opacity, 0.0f, 1.0f);
+    if (n.before == onionSettings_.before && n.after == onionSettings_.after && n.opacity == onionSettings_.opacity && n.loop == onionSettings_.loop) return;
+    onionSettings_ = n;
+    if (onion_) mark_dirty();
+}
+
+ImageEditOutcome ImageModel::add_frame(bool duplicate) {
+    const int at = std::clamp(frame_ + 1, 0, std::max(1, frame_count()));
+    Json args = Json::object({{"count", 1}, {"at", at}});
+    if (duplicate) args["from"] = frame_;
+    else args["blank"] = true;
+    ImageEditOutcome out = run(duplicate ? "Duplicate frame" : "Add frame", {{"image.frame.add", args}});
+    if (out.ok) {
+        frame_ = std::clamp(at, 0, std::max(0, frame_count() - 1));
+        refresh_selection();
+        mark_dirty();
+    }
+    return out;
+}
+
+ImageEditOutcome ImageModel::remove_frame(int frame) {
+    ImageEditOutcome out = run("Delete frame", {{"image.frame.remove", Json::object({{"frame", frame}})}});
+    if (out.ok) {
+        frame_ = std::clamp(frame_ > frame || frame_ == frame_count() ? frame_ - 1 : frame_, 0, std::max(0, frame_count() - 1));
+        refresh_selection();
+        mark_dirty();
+    }
+    return out;
+}
+
+ImageEditOutcome ImageModel::move_frame(int frame, int to) {
+    ImageEditOutcome out = run("Move frame", {{"image.frame.move", Json::object({{"frame", frame}, {"to", to}})}});
+    if (out.ok) {
+        frame_ = std::clamp(to, 0, std::max(0, frame_count() - 1));
+        refresh_selection();
+        mark_dirty();
+    }
+    return out;
+}
+
+ImageEditOutcome ImageModel::set_frame_duration(int frame, int milliseconds) {
+    return run("Frame duration", {{"image.frame.set", Json::object({{"frame", frame}, {"duration", std::clamp(milliseconds, 1, 60000)}})}});
+}
+
 namespace {
 
 // Puts the picture `source` (pixels) or `rows` (indexed) on the layer's cel of `frame`, at x, y relative to the layer's parent.
@@ -585,7 +635,14 @@ void ImageModel::recomposite() {
     ImageRenderOptions options;
     options.projectDir = projectDir_;
     options.frame = std::min(frame_, std::max(0, image_frame_count(*src) - 1));
-    if (onion_ && image_frame_count(*src) > 1) options.onion = ImageOnionSkin{};
+    if (onion_ && image_frame_count(*src) > 1) {
+        ImageOnionSkin skin;
+        skin.before = onionSettings_.before;
+        skin.after = onionSettings_.after;
+        skin.opacity = onionSettings_.opacity;
+        skin.loop = onionSettings_.loop;
+        options.onion = skin;
+    }
     if (useBelow) {
         const std::string key = std::to_string(docRev_) + ":" + std::to_string(editedTop) + ":" + std::to_string(frame_);
         if (key != belowKey_) {
@@ -1264,6 +1321,102 @@ ImageEditOutcome ImageModel::set_palette_color(int index, const std::string& hex
         list.push_back(en.name.empty() ? Json(h) : Json::object({{"name", en.name}, {"color", h}}));
     }
     return run("Edit palette colour", {{"image.palette", Json::object({{"palette", list}})}});
+}
+
+ImageEditOutcome ImageModel::add_palette_color(const std::string& hex, const std::string& name) {
+    ImageEditOutcome e;
+    if (doc_.palette.size() >= kMaxIndexedColours) {
+        e.ok = false;
+        e.error = "A palette holds at most " + std::to_string(kMaxIndexedColours) + " colours.";
+        note_error(e.error);
+        return e;
+    }
+    Json list = Json::array();
+    for (int i = 0; i < doc_.palette.size(); ++i) {
+        const auto& en = doc_.palette.entries[std::size_t(i)];
+        list.push_back(en.name.empty() ? Json(doc_.palette.hex(i)) : Json::object({{"name", en.name}, {"color", doc_.palette.hex(i)}}));
+    }
+    list.push_back(name.empty() ? Json(hex) : Json::object({{"name", name}, {"color", hex}}));
+    return run("Add palette colour", {{"image.palette", Json::object({{"palette", list}})}});
+}
+
+ImageEditOutcome ImageModel::move_palette_color(int from, int to) {
+    return run("Move palette colour", {{"image.palette.move", Json::object({{"from", from}, {"to", to}})}});
+}
+
+ImageEditOutcome ImageModel::remove_palette_color(int index, int replaceWith) {
+    Json args = Json::object({{"index", index}});
+    if (replaceWith >= 0) args["replaceWith"] = replaceWith;
+    return run("Remove palette colour", {{"image.palette.remove", args}});
+}
+
+namespace {
+// The first tileset layer and where its parents put its origin on the canvas.
+const ImageLayer* find_tileset(const std::vector<ImageLayer>& layers, int& ox, int& oy) {
+    for (const ImageLayer& l : layers) {
+        if (l.kind == ImageLayerKind::Tileset) return &l;
+        int cx = ox + l.x, cy = oy + l.y;
+        if (const ImageLayer* c = find_tileset(l.children, cx, cy)) {
+            ox = cx;
+            oy = cy;
+            return c;
+        }
+    }
+    return nullptr;
+}
+}  // namespace
+
+const ImageLayer* ImageModel::tileset_layer() const {
+    int ox = 0, oy = 0;
+    return find_tileset(doc_.layers, ox, oy);
+}
+
+Image ImageModel::terrain_preview(const std::vector<std::string>& pattern) {
+    Image out;
+    const ImageLayer* l = tileset_layer();
+    if (!l || !valid_ || pattern.empty()) return out;
+    const TilesetSpec& spec = l->tileset;
+    AutotileMode mode = AutotileMode::Blob47;
+    autotile_mode_from_name(spec.mode, mode);
+    const TilesetLayout lay = tileset_layout(spec);
+    if (lay.tileWidth <= 0 || lay.tileHeight <= 0 || lay.columns <= 0) return out;
+    const Image& sheet = picture();
+    if (sheet.empty()) return out;
+    // where the sheet's top-left corner is on the canvas
+    int ox = 0, oy = 0;
+    find_tileset(doc_.layers, ox, oy);
+    ox += l->x;
+    oy += l->y;
+    int rows = int(pattern.size()), cols = 0;
+    for (const std::string& r : pattern) cols = std::max(cols, int(r.size()));
+    out.width = cols * lay.tileWidth;
+    out.height = rows * lay.tileHeight;
+    out.rgba.assign(std::size_t(out.width) * std::size_t(out.height) * 4, 0);
+    auto terrain = [&](int c, int r) { return r >= 0 && r < rows && c >= 0 && c < int(pattern[std::size_t(r)].size()) && pattern[std::size_t(r)][std::size_t(c)] == '#'; };
+    for (int r = 0; r < rows; ++r)
+        for (int c = 0; c < cols; ++c) {
+            if (!terrain(c, r)) continue;
+            int raw = 0;
+            if (terrain(c, r - 1)) raw |= kAutoN;
+            if (terrain(c + 1, r - 1)) raw |= kAutoNE;
+            if (terrain(c + 1, r)) raw |= kAutoE;
+            if (terrain(c + 1, r + 1)) raw |= kAutoSE;
+            if (terrain(c, r + 1)) raw |= kAutoS;
+            if (terrain(c - 1, r + 1)) raw |= kAutoSW;
+            if (terrain(c - 1, r)) raw |= kAutoW;
+            if (terrain(c - 1, r - 1)) raw |= kAutoNW;
+            const int slot = autotile_slot(mode, raw);
+            const int variation = lay.variations > 1 ? int(autotile_hash(spec.seed, c, r) % std::uint32_t(lay.variations)) : 0;
+            const int tile = lay.tile_index(slot, variation);
+            const int sx = ox + (tile % lay.columns) * lay.tileWidth, sy = oy + (tile / lay.columns) * lay.tileHeight;
+            for (int y = 0; y < lay.tileHeight; ++y)
+                for (int x = 0; x < lay.tileWidth; ++x) {
+                    if (sx + x < 0 || sy + y < 0 || sx + x >= sheet.width || sy + y >= sheet.height) continue;
+                    std::copy_n(&sheet.rgba[(std::size_t(sy + y) * std::size_t(sheet.width) + std::size_t(sx + x)) * 4], 4,
+                                &out.rgba[(std::size_t(r * lay.tileHeight + y) * std::size_t(out.width) + std::size_t(c * lay.tileWidth + x)) * 4]);
+                }
+        }
+    return out;
 }
 
 ImageEditOutcome ImageModel::save() {

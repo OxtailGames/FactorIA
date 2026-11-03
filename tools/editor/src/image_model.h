@@ -145,6 +145,20 @@ public:
     bool onion() const { return onion_; }
     void set_onion(bool on);
     int frame_duration(int frame) const;
+    // The onion skin's look (a preview that the bake never uses): how many frames before and after are ghosted, how strong the nearest
+    // ghost is (0 to 1) and whether the frames wrap around. The ghosts are tinted red (before) and blue (after) by the compositor.
+    struct OnionSettings {
+        int before = 1, after = 1;      // 0 to 8
+        float opacity = 0.4f;
+        bool loop = false;
+    };
+    const OnionSettings& onion_settings() const { return onionSettings_; }
+    void set_onion_settings(const OnionSettings& s);
+    // Frame edits (image.frame.*), each ONE undo step; they select the frame the edit leaves the user on.
+    ImageEditOutcome add_frame(bool duplicate);                     // after the current frame: a copy of it, or an empty one
+    ImageEditOutcome remove_frame(int frame);
+    ImageEditOutcome move_frame(int frame, int to);                 // `to` = the position the frame ends at
+    ImageEditOutcome set_frame_duration(int frame, int milliseconds);
 
     // ---- layers ----------------------------------------------------------------------------------------------------
     std::vector<ImageLayerRow> layer_rows() const;  // top first, depth first; a closed group hides its children
@@ -255,6 +269,20 @@ public:
     // ---- palette (indexed layers) ----------------------------------------------------------------------------------
     const PixelPalette& palette() const { return doc_.palette; }
     ImageEditOutcome set_palette_color(int index, const std::string& hex);
+    // Adds a colour at the end (image.palette with the list and the new colour), moves one (image.palette.move, the pixels follow it) or
+    // removes one (image.palette.remove; its pixels take `replaceWith`, -1 = transparent). Each is ONE undo step.
+    ImageEditOutcome add_palette_color(const std::string& hex, const std::string& name = {});
+    ImageEditOutcome move_palette_color(int from, int to);
+    ImageEditOutcome remove_palette_color(int index, int replaceWith);
+
+    // ---- tiles -----------------------------------------------------------------------------------------------------
+    bool tile_mode() const { return doc_.tile.enabled; }
+    // The first tileset layer of the document (null when it has none).
+    const ImageLayer* tileset_layer() const;
+    // A small map painted with the tileset's terrain: the shape `pattern` (rows of '#' for terrain, anything else empty) drawn with the
+    // tile of every cell chosen by its neighbours (the engine's autotile rules, fa/scene/autotile.h) from the sheet the document shows.
+    // Empty when the document has no tileset layer or its sheet is not drawn yet.
+    Image terrain_preview(const std::vector<std::string>& pattern);
 
     // ---- saving ----------------------------------------------------------------------------------------------------
     // Writes the document and bakes its PNG (image.save). Returns the command's result (its `output`, `sha256`, ...).
@@ -340,6 +368,7 @@ private:
     bool valid_ = false;
     int frame_ = 0;
     bool onion_ = false;
+    OnionSettings onionSettings_;
     std::string selected_;
     std::set<std::string> lockedNames_, closedNames_;
     ImageBakeStatus bake_;

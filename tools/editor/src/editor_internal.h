@@ -344,6 +344,7 @@ public:
     void draw_image_palette(ImageModel& m);
     void draw_image_frames(ImageModel& m);
     void draw_image_side(ImageModel& m);
+    void draw_image_terrain(ImageModel& m);                // terrain paint preview of a tileset document (image_canvas.cpp)
     void draw_image_layers(ImageModel& m);
     void draw_image_provider(ImageModel& m);               // Inpaint selection... / Generate layer... (image_provider_panel.cpp)
     void image_provider_refresh();

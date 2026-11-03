@@ -513,3 +513,117 @@ TEST_CASE("painting on a 1024x1024 document: the cost of a mouse move") {
     MESSAGE("1024x1024, 4 layers: first frame " << first << " ms, a mouse move " << each << " ms on average (worst " << worst
                                                 << " ms), end of the stroke (image.paint + write) " << endMs << " ms");
 }
+
+namespace {
+void make_indexed_doc(Project& p) {
+    p.ok("image.create", Json::object({{"path", kDoc}, {"width", 8}, {"height", 8},
+                                       {"palette", Json::array({"#000000", "#ff0000", "#00ff00"})},
+                                       {"layers", Json::array({Json::object({{"kind", "indexed"}, {"name", "sprite"}})})}}));
+    REQUIRE(p.model->open(kDoc));
+    p.model->select_layer("0");
+}
+void dot(Project& p, int index, double x, double y) {
+    ImageBrushSettings b;
+    b.size = 1;
+    b.paletteIndex = index;
+    REQUIRE(p.model->begin_stroke(false, b, x, y));
+    REQUIRE(p.model->end_stroke().ok);
+}
+}  // namespace
+
+TEST_CASE("frames: add blank, duplicate, duration, move and remove; each one undo step") {
+    Project p;
+    make_indexed_doc(p);
+    dot(p, 1, 2.5, 2.5);
+    REQUIRE(p.model->frame_count() == 1);
+    const ImageEditOutcome add = p.model->add_frame(false);
+    REQUIRE(add.ok);
+    CHECK(add.step > 0);
+    CHECK(p.model->frame_count() == 2);
+    CHECK(p.model->frame() == 1);
+    CHECK(at(p.model->picture(), 2, 2) == Rgba{0, 0, 0, 0});   // the new frame is empty
+    dot(p, 2, 5.5, 5.5);
+    const ImageEditOutcome dup = p.model->add_frame(true);
+    REQUIRE(dup.ok);
+    CHECK(p.model->frame_count() == 3);
+    CHECK(at(p.model->picture(), 5, 5) == Rgba{0, 255, 0, 255});   // a copy of frame 2
+    REQUIRE(p.model->set_frame_duration(2, 250).ok);
+    CHECK(p.model->frame_duration(2) == 250);
+    REQUIRE(p.model->move_frame(2, 0).ok);
+    p.model->set_frame(0);
+    CHECK(p.model->frame_duration(0) == 250);
+    const ImageEditOutcome rm = p.model->remove_frame(0);
+    REQUIRE(rm.ok);
+    CHECK(p.model->frame_count() == 2);
+    REQUIRE(p.model->apply_step(rm.step, false));   // undo the removal
+    CHECK(p.model->frame_count() == 3);
+}
+
+TEST_CASE("the onion skin settings reach the picture") {
+    Project p;
+    make_indexed_doc(p);
+    dot(p, 1, 2.5, 2.5);
+    REQUIRE(p.model->add_frame(false).ok);
+    p.model->set_onion(false);
+    CHECK(at(p.model->picture(), 2, 2).a == 0);
+    p.model->set_onion(true);
+    CHECK(at(p.model->picture(), 2, 2).a > 0);   // the ghost of frame 1
+    ImageModel::OnionSettings o = p.model->onion_settings();
+    o.before = 0;
+    p.model->set_onion_settings(o);
+    CHECK(at(p.model->picture(), 2, 2).a == 0);
+    o.before = 1;
+    o.opacity = 1.0f;
+    p.model->set_onion_settings(o);
+    const int strong = at(p.model->picture(), 2, 2).a;
+    o.opacity = 0.2f;
+    p.model->set_onion_settings(o);
+    CHECK(at(p.model->picture(), 2, 2).a < strong);
+}
+
+TEST_CASE("palette: add, move and remove colours; the pixels follow; undo restores") {
+    Project p;
+    make_indexed_doc(p);
+    dot(p, 1, 1.5, 1.5);
+    dot(p, 2, 3.5, 1.5);
+    REQUIRE(p.model->add_palette_color("#0000ff", "sea").ok);
+    REQUIRE(p.model->palette().size() == 4);
+    CHECK(p.model->palette().find_name("sea") == 3);
+    // move the red to the end: the pixel stays red
+    const ImageEditOutcome mv = p.model->move_palette_color(1, 3);
+    REQUIRE(mv.ok);
+    CHECK(mv.step > 0);
+    CHECK(at(p.model->picture(), 1, 1) == Rgba{255, 0, 0, 255});
+    CHECK(at(p.model->picture(), 3, 1) == Rgba{0, 255, 0, 255});
+    CHECK(p.model->pick_index(1, 1) == 3);
+    // undo puts the order back
+    REQUIRE(p.model->apply_step(mv.step, false));
+    CHECK(p.model->pick_index(1, 1) == 1);
+    // remove the green: its pixel takes the red (index 1)
+    const ImageEditOutcome rm = p.model->remove_palette_color(2, 1);
+    REQUIRE(rm.ok);
+    CHECK(p.model->palette().size() == 3);
+    CHECK(at(p.model->picture(), 3, 1) == Rgba{255, 0, 0, 255});
+    REQUIRE(p.model->apply_step(rm.step, false));
+    CHECK(p.model->palette().size() == 4);
+    CHECK(at(p.model->picture(), 3, 1) == Rgba{0, 255, 0, 255});
+    // removing with no replacement makes the pixels transparent
+    REQUIRE(p.model->remove_palette_color(2, -1).ok);
+    CHECK(at(p.model->picture(), 3, 1).a == 0);
+}
+
+TEST_CASE("the terrain preview paints a map with the tileset's autotile tiles") {
+    Project p;
+    Json parts = Json::object();
+    parts["inside"] = Json::object({{"color", "#4a8a2c"}});
+    parts["edge"] = Json::object({{"color", "#5fa23a"}});
+    parts["corner"] = Json::object({{"color", "#1e4a14"}});
+    parts["innerCorner"] = Json::object({{"color", "#2a6a1c"}});
+    p.ok("image.tileset.build", Json::object({{"path", kDoc}, {"mode", "blob47"}, {"tileWidth", 8}, {"tileHeight", 8}, {"parts", parts}}));
+    REQUIRE(p.model->open(kDoc));
+    REQUIRE(p.model->tileset_layer() != nullptr);
+    const Image img = p.model->terrain_preview({"###", "###", "###"});
+    CHECK(img.width > 0);
+    CHECK(img.height > 0);
+    CHECK(p.model->terrain_preview({}).width == 0);
+}
