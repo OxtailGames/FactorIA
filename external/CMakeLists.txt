@@ -122,6 +122,22 @@ else()
     target_compile_options(fa_ext_xatlas PRIVATE $<$<CONFIG:Debug>:-O2>)
 endif()
 
+# ---- meshoptimizer (mesh simplification for LODs and collider hulls) ---------------------------------------
+# meshoptimizer v1.3 (MIT): src/*.cpp as released (fa_scene, model_game_ready.cpp). No threads, no dependencies.
+file(GLOB FA_MESHOPT_SOURCES ${FA_EXT}/meshoptimizer/src/*.cpp)
+add_library(fa_ext_meshoptimizer STATIC ${FA_MESHOPT_SOURCES})
+target_include_directories(fa_ext_meshoptimizer SYSTEM PUBLIC ${FA_EXT}/meshoptimizer/src)
+set_target_properties(fa_ext_meshoptimizer PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+if(NOT MSVC)
+    target_compile_options(fa_ext_meshoptimizer PRIVATE $<$<CONFIG:Debug>:-O2>)
+endif()
+
+# ---- V-HACD (convex decomposition of colliders) -----------------------------------------------------------
+# V-HACD v4.1.0 (BSD-3-Clause) is one header; its implementation is compiled in fa_scene (vhacd_impl.cpp). The engine runs it
+# synchronously (m_asyncACD = false), where it starts no thread.
+add_library(fa_ext_vhacd INTERFACE)
+target_include_directories(fa_ext_vhacd SYSTEM INTERFACE ${FA_EXT}/vhacd/include)
+
 # ---- Dear ImGui (editor + debug UI) ----------------------------------------
 add_library(fa_ext_imgui STATIC
     ${FA_EXT}/imgui/imgui.cpp
@@ -200,7 +216,7 @@ target_include_directories(fa_ext_sheenbidi SYSTEM PUBLIC ${FA_EXT}/sheenbidi/He
 target_include_directories(fa_ext_sheenbidi PRIVATE ${FA_EXT}/sheenbidi/Source)
 target_compile_definitions(fa_ext_sheenbidi PRIVATE SB_CONFIG_UNITY)
 
-foreach(t fa_ext_quickjs fa_ext_box2d fa_ext_imgui fa_ext_basisu_transcoder fa_ext_basisu_encoder fa_ext_harfbuzz fa_ext_harfbuzz_subset fa_ext_sheenbidi fa_ext_manifold fa_ext_xatlas)
+foreach(t fa_ext_quickjs fa_ext_box2d fa_ext_imgui fa_ext_basisu_transcoder fa_ext_basisu_encoder fa_ext_harfbuzz fa_ext_harfbuzz_subset fa_ext_sheenbidi fa_ext_manifold fa_ext_xatlas fa_ext_meshoptimizer)
     if(NOT TARGET ${t})
         continue()
     endif()

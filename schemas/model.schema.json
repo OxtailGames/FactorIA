@@ -34,6 +34,112 @@
         }
       }
     },
+    "gameReady": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What `model.bake` derives besides the .glb: the origin, merged submeshes, LOD files (<name>.lodN.glb), a collider (<name>.collider.glb for hulls) and <name>.prefab.json that wires them. Works on `sdf` results too.",
+      "properties": {
+        "origin": {
+          "enum": [
+            "keep",
+            "center",
+            "bottom",
+            "bottom_center"
+          ],
+          "default": "keep",
+          "description": "Where the model's origin goes: keep, center (middle of the box), bottom (lowest point at y = 0) or bottom_center."
+        },
+        "merge": {
+          "type": "boolean",
+          "default": false,
+          "description": "Join the submeshes that share a material (fewer draw calls) and weld identical vertices. The parts of the .glb are then joined too."
+        },
+        "lods": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "One lower-detail copy of the mesh. Give ratio, triangles or error (or several: the first limit reached stops the reduction).",
+            "properties": {
+              "ratio": {
+                "type": "number",
+                "minimum": 0.001,
+                "maximum": 1.0,
+                "description": "Keep this fraction of the full mesh's triangles (0.5 = half)."
+              },
+              "triangles": {
+                "type": "integer",
+                "minimum": 1.0,
+                "maximum": 10000000.0,
+                "description": "Keep at most this many triangles."
+              },
+              "error": {
+                "type": "number",
+                "minimum": 1e-06,
+                "maximum": 1000.0,
+                "description": "The most any collapse may move the surface, in metres."
+              },
+              "distance": {
+                "type": "number",
+                "minimum": 0.01,
+                "maximum": 100000.0,
+                "description": "Camera distance in metres from which the game draws this LOD. Left out: the model's largest dimension times 4, 8, 16, 32 for LOD1..4."
+              }
+            }
+          },
+          "description": "LOD1, LOD2... in order, each simpler than the last. Every submesh keeps its borders, so parts do not come apart."
+        },
+        "collider": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The collider fitted to the mesh. box, sphere and capsule are primitives of Collider3D; convex is the hull of the mesh; decomposed is several convex pieces for a concave model (static colliders).",
+          "properties": {
+            "shape": {
+              "enum": [
+                "none",
+                "box",
+                "sphere",
+                "capsule",
+                "convex",
+                "decomposed"
+              ],
+              "default": "none",
+              "description": "none, box, sphere, capsule, convex or decomposed."
+            },
+            "maxHulls": {
+              "type": "integer",
+              "minimum": 1.0,
+              "maximum": 64.0,
+              "description": "decomposed: at most this many convex pieces. Default 8."
+            },
+            "maxVertices": {
+              "type": "integer",
+              "minimum": 4.0,
+              "maximum": 256.0,
+              "description": "convex, decomposed: at most this many points per hull. Default 32."
+            },
+            "resolution": {
+              "type": "integer",
+              "minimum": 10000.0,
+              "maximum": 4000000.0,
+              "description": "decomposed: voxels the volume is split into. Default 100000."
+            }
+          }
+        },
+        "platforms": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "desktop",
+              "mobile",
+              "web"
+            ]
+          },
+          "description": "The platforms whose triangle and draw-call budget the report checks. Default all."
+        }
+      }
+    },
     "materials": {
       "type": "object",
       "description": "Named materials the nodes refer to with `material`.",

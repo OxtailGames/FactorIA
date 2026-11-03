@@ -10,6 +10,7 @@
 #include "fa/core/strings.h"
 #include "fa/scene/model_doc.h"
 #include "fa/scene/model_select.h"
+#include "fa/scene/model_game_ready.h"
 
 namespace fa {
 
@@ -925,7 +926,7 @@ Result<ModelDoc> parse_model_doc(const Json& json, std::string_view file, std::v
         r.err("", "a model document must be a JSON object, got " + describe_json_value(json), "Start from `model.create`, or write {\"format\": \"factoria.model/1\", \"nodes\": [{\"op\": \"box\"}]}.");
         return finish();
     }
-    static const std::vector<std::string> topKeys = {"$schema", "format", "doc", "output", "materials", "uv", "nodes"};
+    static const std::vector<std::string> topKeys = {"$schema", "format", "doc", "output", "materials", "uv", "gameReady", "nodes"};
     for (auto it = json.begin(); it != json.end(); ++it)
         if (std::find(topKeys.begin(), topKeys.end(), it.key()) == topKeys.end())
             r.err("/" + it.key(), "\"" + it.key() + "\" is not a field of a model document", did_you_mean(it.key(), topKeys));
@@ -947,6 +948,10 @@ Result<ModelDoc> parse_model_doc(const Json& json, std::string_view file, std::v
                 else doc.outputPath = p->get<std::string>();
             }
         }
+    }
+    if (auto it = json.find("gameReady"); it != json.end()) {
+        auto g = parse_game_ready(*it, "/gameReady", &r.issues);
+        if (g.ok()) doc.gameReady = game_ready_to_json(*g);
     }
     if (auto it = json.find("materials"); it != json.end()) {
         if (!it->is_object()) r.err("/materials", "materials must be an object of named materials, got " + describe_json_value(*it), "Example: {\"wood\": {\"color\": [0.6, 0.4, 0.2, 1], \"roughness\": 0.8}}.");
@@ -1168,6 +1173,7 @@ Json model_doc_schema() {
                         {"doc", Json::object({{"type", "string"}, {"description", "What the model is and where the game uses it."}})},
                         {"output", Json::object({{"type", "object"}, {"additionalProperties", false}, {"description", "Where `model.bake` writes the .glb."},
                                                  {"properties", Json::object({{"path", Json::object({{"type", "string"}, {"pattern", "\\.[gG][lL][bB]$"}, {"description", "Project-relative file under assets/ ending in .glb. Left out: next to the document, with .glb instead of .model.json."}})}})}})},
+                        {"gameReady", game_ready_schema()},
                         {"materials", Json::object({{"type", "object"}, {"description", "Named materials the nodes refer to with `material`."}, {"additionalProperties", material}})},
                         {"uv", model_uv_schema()},
                         {"nodes", Json::object({{"type", "array"}, {"description", "The tree: operations evaluated in order and merged into one mesh."}, {"items", Json::object({{"$ref", "#/$defs/node"}})}})}})},

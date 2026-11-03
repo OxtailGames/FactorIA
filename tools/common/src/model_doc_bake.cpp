@@ -11,6 +11,7 @@
 #include "fa/core/hash.h"
 #include "fa/core/strings.h"
 #include "fa/render/fonts.h"
+#include "fa/scene/model_game_ready.h"
 #include "fa/tooling/model_bake.h"
 #include "fa/tooling/project_fs.h"
 #include "util.h"
@@ -108,6 +109,24 @@ ModelBakeStatus model_bake_status(const std::string& projectDir, const std::stri
         status.reason = "'" + status.output + "' has not been baked yet.";
         return status;
     }
+    {
+        // the files the game-ready settings add: the ones they are sure to make, and the ones the last bake recorded
+        std::set<std::string> extras;
+        for (const std::string& e : model_expected_extras(doc, status.output)) extras.insert(e);
+        const Json recorded = manifest_entry(projectDir, status.output);
+        const Json list = recorded.is_object() && recorded.value("provenance", Json()).is_object() ? recorded["provenance"].value("extras", Json()) : Json();
+        if (list.is_array())
+            for (const Json& e : list)
+                if (e.is_string()) extras.insert(e.get<std::string>());
+        for (const std::string& e : extras) {
+            auto path = resolve_project_path(projectDir, e);
+            if (!path.ok() || !stdfs::is_regular_file(*path, ec)) {
+                status.state = ModelBakeState::Missing;
+                status.reason = "'" + e + "' (made with '" + status.output + "' by the gameReady settings) has not been baked yet.";
+                return status;
+            }
+        }
+    }
     const Json recipe = assets_detail::recipe_of(manifest_entry(projectDir, status.output));
     if (recipe.is_null() || recipe.value("command", std::string()) != kBakeCommand || recipe["args"].value("path", std::string()) != rel) {
         status.state = ModelBakeState::Unrecorded;
@@ -153,7 +172,10 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
     ProjectRootGuard root(projectDir);
     auto build = evaluate_model(doc, model_project_eval_options(projectDir));
     if (!build.ok()) return make_error(rel + ": " + build.error().message, build.error().hint);
-    auto bytes = mesh_to_glb(build->data, result.output);
+    auto ready = model_game_ready_files(doc, *build, result.output);
+    if (!ready.ok()) return make_error(rel + ": " + ready.error().message, ready.error().hint);
+    result.gameReady = ready->report;
+    auto bytes = mesh_to_glb(ready->mesh, result.output);
     if (!bytes.ok()) return make_error(rel + ": cannot write '" + result.output + "': " + bytes.error().message, bytes.error().hint);
     result.sha256 = sha256_hex(bytes->data(), bytes->size());
     result.bytes = bytes->size();
@@ -186,6 +208,36 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
         if (!same && !tooling_detail::write_file(*outPath, view, &err)) return make_error("Cannot write '" + result.output + "': " + err, "Check that the folder is writable.");
         result.written = true;
 
+        // the extra files: written only when their bytes changed, recorded like the main one, and the ones the last bake made that this one
+        // does not (fewer LODs, another collider) are removed
+        std::vector<std::pair<std::string, std::string>> extraFiles;  // path, text
+        for (auto& g : ready->glbs) extraFiles.emplace_back(g.first, std::string(reinterpret_cast<const char*>(g.second.data()), g.second.size()));
+        if (!ready->prefabPath.empty()) extraFiles.emplace_back(ready->prefabPath, ready->prefabText);
+        std::set<std::string> now;
+        for (const auto& f : extraFiles) now.insert(f.first);
+        std::vector<std::string> oldExtras;
+        if (previousProv.is_object() && previousProv.value("extras", Json()).is_array())
+            for (const Json& e : previousProv["extras"])
+                if (e.is_string()) oldExtras.push_back(e.get<std::string>());
+        for (const auto& f : extraFiles) {
+            auto path = resolve_project_path(projectDir, f.first);
+            if (!path.ok()) return make_error(path.error().message, path.error().hint);
+            bool unchanged = false;
+            if (auto old = tooling_detail::read_file(*path)) unchanged = *old == f.second;
+            if (!unchanged && !tooling_detail::write_file(*path, f.second, &err)) return make_error("Cannot write '" + f.first + "': " + err, "Check that the folder is writable.");
+            result.extras.push_back(f.first);
+        }
+        for (const std::string& old : oldExtras) {
+            if (now.count(old)) continue;
+            auto path = resolve_project_path(projectDir, old);
+            if (path.ok() && starts_with(old, "assets/")) {
+                std::error_code rec;
+                stdfs::remove(*path, rec);
+            }
+            auto cleared = assets::update_entry(old, [](Json& e) { e = Json::object(); });
+            (void)cleared;
+        }
+
         const bool madeHere = previousProv.is_object() && previousProv.value("provider", std::string()) == "factoria model.bake";
         std::string license = licenses.empty() ? "CC0-1.0" : join(std::vector<std::string>(licenses.begin(), licenses.end()), "; ");
         if (madeHere && previousProv.contains("license") && previousProv["license"].is_string()) license = previousProv["license"].get<std::string>();
@@ -210,7 +262,20 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
         // a `uv` section that leaves the texel density to the style guide depends on it: the bake is stale when the style changes it
         if (doc.uv && !doc.uv->texelsPerUnit)
             assets_detail::add_style_texels_context(prov["recipe"], assets_detail::style_texels_per_unit(projectDir));
+        if (!result.extras.empty()) {
+            Json list = Json::array();
+            for (const std::string& e : result.extras) list.push_back(e);
+            prov["extras"] = list;
+        }
         result.provenance = prov;
+        for (const std::string& e : result.extras) {
+            Json extraProv = prov;
+            extraProv.erase("extras");
+            extraProv["notes"] = "Made with '" + result.output + "' from the model document '" + rel + "' (gameReady settings).";
+            if (!ends_with(e, ".glb")) extraProv["kind"] = "prefab";
+            auto done = assets::update_entry(e, [&](Json& en) { en.erase("analysis"); en["provenance"] = extraProv; });
+            if (!done.ok()) return make_error("'" + e + "' was written, but assets.json was not updated: " + done.error().message, done.error().hint);
+        }
         auto updated = assets::update_entry(result.output, [&](Json& e) {
             e.erase("analysis");
             e["provenance"] = prov;

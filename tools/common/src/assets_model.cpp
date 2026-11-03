@@ -9,6 +9,7 @@
 #include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
 #include "fa/scene/model_select.h"
+#include "fa/scene/model_game_ready.h"
 #include "fa/tooling/model_bake.h"
 #include "fa/tooling/project_fs.h"
 #include "util.h"
@@ -232,7 +233,7 @@ Json model_info_command(const std::string& projectDir, const Json& a) {
              {"selections", Json::object({{"doc", "The `faces` / `edges` fields of extrude_faces, inset_faces, bevel_edges, delete_faces and assign_faces are queries by meaning, never indices: {\"by\": <kind>, ...fields}. They are "
                                                     "evaluated on the mesh below the node each time the document is evaluated. model.select tries one and reports what it matched."},
                                           {"queries", query_catalog()}})},
-             {"document", Json::object({{"format", kModelDocFormat}, {"fields", Json::array({"format", "doc", "output", "materials", "uv", "nodes"})}, {"maxNodes", kModelDocMaxNodes}, {"maxDepth", kModelDocMaxDepth}})},
+             {"document", Json::object({{"format", kModelDocFormat}, {"fields", Json::array({"format", "doc", "output", "materials", "uv", "gameReady", "nodes"})}, {"maxNodes", kModelDocMaxNodes}, {"maxDepth", kModelDocMaxDepth}})},
              {"nextSteps", Json::array({"model.create {\"path\":\"assets/models/crate.model.json\",\"nodes\":[{\"op\":\"rounded_box\",\"size\":[1,1,1],\"radius\":0.08,\"part\":\"body\"}]} writes a document and bakes it to a .glb.",
                                         "model.info {\"path\":...} checks a document and measures what it builds."})}});
     }
@@ -256,6 +257,7 @@ Json model_info_command(const std::string& projectDir, const Json& a) {
     for (const auto& [name, m] : loaded.doc.materials) materials.push_back(name);
     result["materials"] = materials;
     if (!inlineDoc) result["bake"] = bake_json(model_bake_status(projectDir, loaded.rel));
+    if (!loaded.doc.gameReady.is_null()) result["gameReady"] = loaded.doc.gameReady;
     if (tooling_detail::arg_bool(a, "evaluate", true)) {
         const ModelBuild build = evaluate_or_fail(projectDir, loaded.doc, loaded.rel);
         result["measurements"] = build_json(build);
@@ -263,7 +265,8 @@ Json model_info_command(const std::string& projectDir, const Json& a) {
         for (const std::string& i : build.inputs) inputs.push_back(i);
         result["inputs"] = inputs;
     }
-    result["nextSteps"] = Json::array({"model.edit adds, changes, moves or removes a node by its id; model.bake writes the .glb (" + result["output"].get<std::string>() + ")."});
+    result["nextSteps"] = Json::array({"model.edit adds, changes, moves or removes a node by its id; model.bake writes the .glb (" + result["output"].get<std::string>() + ").",
+                                       "model.game_ready sets the origin, merge, LODs, collider and platform budgets that make it ready for a game."});
     return result;
 }
 
@@ -337,6 +340,8 @@ Json model_select_command(const std::string& projectDir, const Json& a) {
 Json baked_item(const ModelBakeResult& b, const std::string& reason) {
     Json item = Json::object({{"document", b.document}, {"out", b.output}, {"reason", reason}, {"bytes", b.bytes}});
     if (b.written) item["measurements"] = build_json(b.build);
+    if (!b.extras.empty()) item["extras"] = b.extras;
+    if (!b.gameReady.is_null()) item["gameReady"] = b.gameReady;
     return item;
 }
 
@@ -453,6 +458,8 @@ Json written_result(const std::string& projectDir, const std::string& rel, const
         result["bytes"] = b->bytes;
         result["measurements"] = build_json(b->build);
         result["provenance"] = b->provenance;
+        if (!b->extras.empty()) result["extras"] = b->extras;
+        if (!b->gameReady.is_null()) result["gameReady"] = b->gameReady;
     } else {
         result["bake"] = bake_json(model_bake_status(projectDir, rel));
     }
@@ -518,7 +525,7 @@ bool erase_tagged(Json& nodes, const char* tag) {
 }
 
 Json model_edit_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys("model.edit", a, "", {"path", "op", "target", "node", "parent", "index", "values", "bake", "overwrite", "doc", "output", "materials", "uv"});
+    check_arg_keys("model.edit", a, "", {"path", "op", "target", "node", "parent", "index", "values", "bake", "overwrite", "doc", "output", "materials", "uv", "gameReady"});
     const std::string rel = doc_path(tooling_detail::arg_string(a, "path", true));
     const std::string op = tooling_detail::arg_string(a, "op", false, "");
     const std::vector<std::string> ops = {"add", "set", "remove", "move", "document"};
@@ -602,19 +609,65 @@ Json model_edit_command(const std::string& projectDir, const Json& a) {
         what["parent"] = parent;
     } else {
         bool any = false;
-        for (const char* key : {"doc", "output", "materials", "uv"})
+        for (const char* key : {"doc", "output", "materials", "uv", "gameReady"})
             if (a.contains(key)) {
                 if (a[key].is_null()) json.erase(key);
                 else json[key] = a[key];
                 any = true;
             }
-        if (!any) fail("invalid_argument", "model.edit document: give `doc`, `output`, `materials` or `uv`.", "Example: {\"op\":\"document\",\"materials\":{\"wood\":{\"color\":[0.6,0.4,0.2,1]}}}. `materials` replaces the whole table; send the ones to keep too. `uv` replaces the whole uv section (null removes it); model.uv merges single fields.");
+        if (!any) fail("invalid_argument", "model.edit document: give `doc`, `output`, `materials`, `uv` or `gameReady`.", "Example: {\"op\":\"document\",\"materials\":{\"wood\":{\"color\":[0.6,0.4,0.2,1]}}}. `materials` replaces the whole table; send the ones to keep too. `uv` replaces the whole uv section (null removes it); model.uv merges single fields.");
     }
     checked(json, rel);
     require_usable_manifest(projectDir);
     write_document(projectDir, rel, json);
     Json result = written_result(projectDir, rel, json, tooling_detail::arg_bool(a, "bake", true), a);
     result["edit"] = what;
+    return result;
+}
+
+// ---- model.game_ready ----
+
+Json model_game_ready_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("model.game_ready", a, "", {"path", "origin", "merge", "lods", "collider", "platforms", "clear", "bake", "overwrite"});
+    const std::string rel = doc_path(tooling_detail::arg_string(a, "path", true));
+    Loaded loaded = load_document(projectDir, rel);
+    const bool clear = tooling_detail::arg_bool(a, "clear", false);
+    bool change = clear;
+    for (const char* key : {"origin", "merge", "lods", "collider", "platforms"})
+        if (a.contains(key)) change = true;
+    Json json = loaded.json;
+    if (change) {
+        Json settings = Json::object();
+        if (!clear && json.contains("gameReady") && json["gameReady"].is_object()) settings = json["gameReady"];
+        for (const char* key : {"origin", "merge", "lods", "collider", "platforms"})
+            if (a.contains(key)) {
+                if (a[key].is_null()) settings.erase(key);
+                else settings[key] = a[key];
+            }
+        if (settings.empty()) json.erase("gameReady");
+        else json["gameReady"] = settings;
+        checked(json, rel);
+        require_usable_manifest(projectDir);
+        write_document(projectDir, rel, json);
+        Json result = written_result(projectDir, rel, json, tooling_detail::arg_bool(a, "bake", true), a);
+        result["gameReadySettings"] = json.contains("gameReady") ? json["gameReady"] : Json();
+        return result;
+    }
+    // nothing to change: measure what the stored settings (or none: just the full mesh against the budgets) give
+    const ModelDoc doc = loaded.doc;
+    const ModelBuild build = evaluate_or_fail(projectDir, doc, rel);
+    ModelGameReady settings;
+    if (!doc.gameReady.is_null()) {
+        auto g = parse_game_ready(doc.gameReady, "/gameReady");
+        if (!g.ok()) fail("invalid_document", g.error().message, g.error().hint);
+        settings = *g;
+    }
+    auto made = make_game_ready(build.data, settings);
+    if (!made.ok()) fail("failed", made.error().message, made.error().hint);
+    Json result = Json::object({{"path", rel}, {"settings", game_ready_to_json(settings)}, {"report", game_ready_report_json(*made, settings)}});
+    result["bake"] = bake_json(model_bake_status(projectDir, rel));
+    result["nextSteps"] = Json::array({"Set lods, collider, origin, merge or platforms (e.g. {\"path\":\"" + rel + "\",\"lods\":[{\"ratio\":0.5},{\"ratio\":0.2}],\"collider\":{\"shape\":\"convex\"}}); that writes the "
+                                       "settings into the document and bakes the .glb, the LODs, the collider and a prefab. Nothing was changed by this call."});
     return result;
 }
 
@@ -711,7 +764,7 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
         info.summary = "Add, change, remove or move one node of a model document by its id (or JSON pointer), or change its materials, output or note; then bake it.";
         info.description =
             "`op` is one of: add (insert `node`, an object, into the group or modifier `parent` at `index`, default the end of the top level; a node without an id gets one), set (change the fields of `target` with `values`; a null value removes a field, "
-            "back to its default), remove (delete `target` and everything below it), move (take `target` to the group or modifier `parent`, or the top level, at `index`), document (change `materials`, `output` or `doc`; `materials` replaces the whole table). "
+            "back to its default), remove (delete `target` and everything below it), move (take `target` to the group or modifier `parent`, or the top level, at `index`), document (change `materials`, `output`, `gameReady` or `doc`; `materials` replaces the whole table). "
             "`target` and `parent` are a node id (stable when the tree changes) or a JSON pointer such as /nodes/1/children/0. The result document is checked as a whole before anything is written, so a bad value returns every issue with its "
             "JSON pointer and writes nothing; the file keeps the other nodes as written. Then the .glb is baked again (unless bake is false) and the measurements tell what the edit did. "
             "Example: {\"path\":\"assets/models/door.model.json\",\"op\":\"set\",\"target\":\"knob\",\"values\":{\"radius\":0.07}}";
@@ -727,11 +780,38 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                                              {"output", object_arg("document: the new output settings ({path}); null removes them.")},
                                                              {"materials", object_arg("document: the new materials table; null removes it.")},
                                                              {"uv", Json::object({{"type", Json::array({"object", "null"})}, {"description", "document: the new uv section, whole; null removes it. model.uv changes single fields."}})},
+                                                             {"gameReady", object_arg("document: the whole game-ready settings object (model.game_ready changes single settings); null removes it.")},
                                                              {"bake", boolean("Bake the .glb after writing.", true)},
                                                              {"overwrite", boolean("Replace a .glb that no model document baked.", false)}})}});
         registry.add(info, [projectDir](const Json& args) { return model_edit_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     register_model_uv_command(registry, projectDir);
+    {
+        CommandInfo info;
+        info.name = "model.game_ready";
+        info.category = "assets";
+        info.readOnly = false;
+        info.summary = "Make a model document game-ready: origin, merged submeshes, LODs, a collider and a triangle budget report per platform; the settings live in the document.";
+        info.description =
+            "Reads or changes the `gameReady` settings of a model document (docs/MODELING.md, \"Game-ready models\"), then bakes. `origin`: keep, center, bottom or bottom_center (where the model's origin sits). `merge`: true joins submeshes with the same material "
+            "(fewer draw calls) and welds identical vertices. `lods`: a list (at most 4) of {ratio (fraction of triangles to keep), triangles (at most that many), error (largest surface movement in metres), distance (metres from which the game draws it; "
+            "automatic: the model's largest dimension times 4, 8, 16, 32)}; made with meshoptimizer, each submesh simplified with its border locked, so parts stay apart. `collider`: {shape: none, box, sphere, capsule, convex or decomposed (V-HACD), "
+            "maxHulls, maxVertices, resolution}. `platforms`: which budgets to check (desktop 100000 triangles / 16 draw calls, mobile 20000 / 8, web 40000 / 10). Each value you give replaces that setting as a whole (null removes it back to its default; "
+            "`clear` removes them all). The result is checked before anything is written, then the bake writes <name>.glb, <name>.lod1.glb..., <name>.collider.glb (or collider1.glb... for a decomposition) and <name>.prefab.json (a MeshRenderer with `lods` "
+            "and a Collider3D; a decomposed collider is one static child collider per piece), all recorded in assets.json. With no setting given nothing is written and the result reports the triangles of every LOD against each platform, the collider's fit and the warnings. "
+            "Example: {\"path\":\"assets/models/tree.model.json\",\"origin\":\"bottom_center\",\"merge\":true,\"lods\":[{\"ratio\":0.5},{\"ratio\":0.15}],\"collider\":{\"shape\":\"convex\"}}";
+        info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"path"})}, {"additionalProperties", false},
+                                         {"properties", obj({{"path", pathArg()},
+                                                             {"origin", Json::object({{"type", "string"}, {"enum", Json::array({"keep", "center", "bottom", "bottom_center"})}, {"description", "Where the model's origin sits."}})},
+                                                             {"merge", Json::object({{"type", "boolean"}, {"description", "Join submeshes with the same material and weld identical vertices (left out: unchanged)."}})},
+                                                             {"lods", Json::object({{"type", "array"}, {"maxItems", 4}, {"items", Json::object({{"type", "object"}})}, {"description", "LOD1.. as {ratio, triangles, error, distance}; replaces the list."}})},
+                                                             {"collider", object_arg("{shape: none|box|sphere|capsule|convex|decomposed, maxHulls, maxVertices, resolution}.")},
+                                                             {"platforms", Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}})}, {"description", "Budgets to check: desktop, mobile, web."}})},
+                                                             {"clear", boolean("Remove every game-ready setting first.", false)},
+                                                             {"bake", boolean("Bake after writing.", true)},
+                                                             {"overwrite", boolean("Replace a .glb that no model document baked.", false)}})}});
+        registry.add(info, [projectDir](const Json& args) { return model_game_ready_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
 }
 
 }  // namespace fa::assets_detail
