@@ -709,8 +709,27 @@ Writes a new image document at `path` (project-relative, ends in .image.json) wi
 | `background` | any | no | A colour the canvas starts with: "#rrggbb", "#rrggbbaa", a CSS name or [r,g,b,a]. Without it the canvas starts transparent. |
 | `layers` | array | no | The first layers, bottom first, each an object with `kind` (see docs.read IMAGES). Default none. |
 | `description` | string | no | A sentence for people and AIs about the picture. |
+| `palette` | any | no | For indexed (pixel-art) layers: "style" (the style palette of assets.json, the default for an indexed layer) or a list of colours, each "#rrggbb" or {"name", "color"}; at most 81. See docs.read IMAGES, "Pixel art". |
+| `ramps` | array | no | Colour ramps for shading by index: lists of palette colours (index, name or "#rrggbb") from the darkest to the lightest, e.g. [["skin-dark","skin","skin-light"]]. |
 | `overwrite` | boolean | no | Replace the document when it already exists. Default false. |
 | `bake` | boolean | no | Also draw the PNG. Default true. |
+
+## `image.draw` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Draw pixel-exact shapes (lines, rectangles, ellipses, polygons, flood fills) onto an indexed pixel-art layer by palette colour.
+
+Each shape of `shapes` is drawn in order on the indexed layer `layer` (see image.pixel for `layer`, `create`, coordinates and colours); no anti-aliasing: a pixel is either set or not. Shapes: line {points [[x,y],...] (a polyline), color, perfect?, closed?} (Bresenham; `perfect: true` removes the L-corners of a bending line so it is one pixel thick everywhere); rect {x, y, width, height, color?, fill?}; ellipse {x, y, width, height, color?, fill?} (inscribed in the box, midpoint algorithm, any odd or even size); polygon {points (>= 3), color?, fill?}; fill {at [x,y], color, connectivity? 4|8} (flood fill of the layer's pixels connected to `at` that hold the same colour or transparency; 4 does not leak through diagonal gaps). For rect, ellipse and polygon `color` is the outline and `fill` the inside: a colour, or true for `color`; give either or both (the fill is drawn first, so the outline stays). Result as image.pixel (`region`, `pixelsSet`, `$image` magnified with hard pixels). Example: {"path":"assets/art/hero.image.json","layer":"sprite","create":true,"shapes":[{"type":"ellipse","x":2,"y":2,"width":12,"height":12,"fill":"skin","color":"outline"},{"type":"line","points":[[2,14],[8,10],[14,14]],"color":"outline","perfect":true},{"type":"fill","at":[8,8],"color":"skin-light"}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `layer` | any | yes | The indexed layer to draw on: its name or an index path like "1/0". |
+| `create` | boolean | no | When no layer has that name, create a blank indexed layer with it at the top. Default false. |
+| `shapes` | array | yes | The shapes, drawn in order. |
+| `scale` | integer | no | Magnification of the preview picture (default: automatic). |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
 
 ## `image.edit` (modifies state)
 
@@ -753,7 +772,7 @@ Not released yet (on main after 0.14.1).
 
 Describe a layered image document: its layers as a tree with index paths, sizes, bake status, the files it reads and its stored selections.
 
-Reads the document at `path` and returns {document, width, height, background, valid, problems?, layers: [{index, pointer, name, kind, visible, opacity, blend, x, y, size?, source?, masks?, adjustments?, effects?, children?}], inputs, bake: {state, path, reason}, selections, $image}. `index` is the index path other image.* commands take in `layer` ("1/0"); names work too. `bake.state` is fresh, missing, stale, unrecorded or broken. `$image` is the baked PNG when it exists. Read-only. Example: {"path":"assets/art/hero.image.json"}
+Reads the document at `path` and returns {document, width, height, background, valid, problems?, palette?: {source, colors, ramps} (when it has one: image.palette lists it), layers: [{index, pointer, name, kind, visible, opacity, blend, x, y, size?, source?, masks?, adjustments?, effects?, children?}], inputs, bake: {state, path, reason}, selections, $image}. `index` is the index path other image.* commands take in `layer` ("1/0"); names work too. `bake.state` is fresh, missing, stale, unrecorded or broken. `$image` is the baked PNG when it exists. Read-only. Example: {"path":"assets/art/hero.image.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -773,6 +792,27 @@ Adds the `layer` object (its `kind` and fields as docs.read IMAGES describes) to
 | `layer` | object | yes | The layer: {kind, name?, visible?, opacity?, blend?, x?, y?, clip?, masks?, ...fields of its kind}. |
 | `parent` | any | no | A group (name or index path) to add the layer into. Default: the top level. |
 | `index` | integer | no | Position in the list, 0 = the bottom. Default: the top. |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+
+## `image.layer.convert` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Turn a layer into an indexed pixel-art layer (quantized to the palette, optional dither) or an indexed layer back into a pixels layer.
+
+`to: "indexed"`: the layer, drawn alone with its masks, adjustments and effects, is cropped to what it shows and each visible pixel takes its nearest palette colour (OKLab by default, `space: "rgb"` for stored values) with an optional `dither` (none, bayer2, bayer4, bayer8, floydSteinberg, atkinson; ordered patterns line up with the canvas) at `strength` 0..1; pixels at least `alphaThreshold` (default 0.5) opaque are kept, the others become transparent; a pixel that already has a palette colour keeps it, so pixels -> indexed -> pixels loses nothing. The palette is the document's, else `palette` (written into the document), else the style palette. A layer made from an AI-made picture marks the new layer `ai: true`. Masks, adjustments and effects are drawn into the pixels. `to: "pixels"`: the indexed layer is written as a PNG (in <document>.layers/) and becomes a pixels layer, so blur, edit and paint work on it. Both directions keep the layer's name, visibility, opacity, blend and clip, and place it where it was. Result: the baked document, `layer`, `colorsUsed`, `region`, warnings and `$image` magnified with hard pixels. Example: {"path":"assets/art/hero.image.json","layer":"painted","to":"indexed","dither":"bayer4"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `layer` | any | yes | The layer to convert: its name or an index path like "1/0". |
+| `to` | string ["indexed","pixels"] | yes | indexed: palette-locked pixel art. pixels: a PNG layer. |
+| `palette` | any | no | to indexed: the palette to use when the document has none (a list of colours or "style"); it is written into the document. |
+| `dither` | string ["none","bayer2","bayer4","bayer8","floydSteinberg","atkinson"] | no | to indexed: how colours between palette colours are mixed. Default "none". |
+| `space` | string ["oklab","rgb"] | no | to indexed: how colour distance is measured. Default "oklab". |
+| `strength` | number | no | to indexed: how strong the dither is. Default 1. |
+| `alphaThreshold` | number | no | to indexed: pixels at least this opaque become palette colours, the rest transparent. Default 0.5. |
+| `scale` | integer | no | Magnification of the preview picture (default: automatic). |
 | `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
 
 ## `image.layer.move` (modifies state)
@@ -837,6 +877,40 @@ Each stroke {points [[x,y],...], size, color, hardness?, opacity?, erase?, spaci
 | `strokes` | array | yes | The strokes, painted in order. |
 | `bake` | boolean | no | Bake the document to its PNG after painting. Default true. |
 
+## `image.palette` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Show or change the palette and the colour ramps that indexed pixel-art layers of an image document are locked to.
+
+Without `palette` and `ramps` it only reads: every colour with its index, the character that stands for it in the layers' rows, name, #rrggbb, how many pixels use it, its ramp, and the colour one step darker (`shade`) and lighter (`light`); the palette is the document's `palette`, or the style palette of assets.json when the document has none. With `palette` (a list of colours, each "#rrggbb" or {name, color}, at most 81, all different; or "style") and/or `ramps` (lists of palette colours from the darkest to the lightest, each colour in one ramp; null removes) it rewrites them and bakes. Pixels keep their INDEX, so replacing the palette recolours the layers: append colours to keep the old ones. Without a declared ramp a colour's shade is the palette colour with lower lightness nearest to it in OKLab. Example: {"path":"assets/art/hero.image.json","palette":["#1a1c2c",{"name":"skin","color":"#e0a070"},{"name":"skin-dark","color":"#b06a40"}],"ramps":[["skin-dark","skin"]]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `palette` | any | no | New palette: "style" or a list of colours, each "#rrggbb" or {"name", "color"}; null removes the document's palette (the style palette applies). Omit to only read. |
+| `ramps` | any | no | New ramps: [[colour, colour, ...], ...] darkest first, colours by index, name or "#rrggbb"; null removes them. |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+
+## `image.pixel` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Write exact pixels (a list, runs or a text stamp) onto an indexed pixel-art layer by palette colour; no anti-aliasing.
+
+Draws on an INDEXED layer (kind "indexed": the pixels are palette indices; docs.read IMAGES, "Pixel art"). `layer` is its name or index path; an unknown name with `create: true` makes a new blank indexed layer (canvas-sized, on top). Coordinates are canvas pixels (the layer's own offset and its groups' are accounted for); pixels outside the layer are dropped and counted in a warning. Three forms, applied in this order: `pixels` [[x, y, colour], ...]; `runs` [[x, y, length, colour], ...] (horizontal, to the right); `stamp` {x, y, rows: ["..11..", ".1221."], clear?} (text rows in the document's own characters: '.' is transparent and leaves the pixel alone unless `clear` is true). A colour is a palette index, name or colour; a colour not in the palette is an error with the nearest one. {"step": -1} shades the pixel one step along its colour ramp (see image.palette). When the document has no `palette` yet, the style palette is copied into it. Result: the baked document, `region` {x,y,width,height} of the changed pixels, `pixelsSet`, `changed`, and `$image` = the picture magnified with hard pixels (`previewScale`, default as large as fits 512 pixels). Example: {"path":"assets/art/hero.image.json","layer":"sprite","create":true,"pixels":[[3,4,"skin"],[4,4,2]],"runs":[[2,6,5,"outline"]]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `layer` | any | yes | The indexed layer to draw on: its name or an index path like "1/0". |
+| `create` | boolean | no | When no layer has that name, create a blank indexed layer with it at the top. Default false. |
+| `pixels` | array | no | [[x, y, colour], ...]: single pixels. A palette colour: its index (3), its name ("skin"), its single index character ("3"), or a colour that IS in the palette ("#e0a070"). null, "." or "transparent" erases. {"step": -1} is one shade darker than what is in the pixel (+1 lighter); {"color": "skin", "step": 1} is the colour one step lighter than skin. A colour outside the palette is an error that names the nearest palette colour. |
+| `runs` | array | no | [[x, y, length, colour], ...]: horizontal runs of one colour starting at (x, y) going right. |
+| `stamp` | object | no | A little picture in text rows placed at (x, y). |
+| `scale` | integer | no | Magnification of the preview picture (default: automatic). |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+
 ## `image.save` (modifies state)
 
 Not released yet (on main after 0.14.1).
@@ -850,6 +924,35 @@ Validates `document` (the layered image document as JSON: canvas width and heigh
 | `path` | string | yes | Where to write the document, project-relative, ending in .image.json. |
 | `document` | object | yes | The image document: {"width", "height", "background"?, "output"?, "layers": [...]}. See docs.read IMAGES for the layer kinds. |
 | `bake` | boolean | no | Also draw the PNG. False only checks and writes the document. Default true. |
+
+## `image.select` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint.
+
+Builds a selection: a coverage (0..255) per canvas pixel. `by` picks how: color (pixels within `tolerance` 0..255 of `color`, or of the pixel at `at`; `contiguous: true` only the connected area around `at`), alpha (pixels whose alpha is at least `threshold`), rect or ellipse (x, y, width, height; anti-aliased), polygon (`points` [[x,y],...]), layer (the layer's shape: its alpha after its masks and effects, soft edges kept) or all. color and alpha read the flattened picture, or only `layer` when it is given. `then` reshapes the new selection with steps in order: [{"grow":2},{"shrink":1},{"feather":1.5},{"invert":true}] (pixels; grow and shrink use a round brush and make a hard edge; feather is a blur of sigma pixels/2). `mode` combines the result with the stored selection of the same `name`: replace (default), add, subtract or intersect. Without `by`, `then` reshapes the stored selection; `clear: true` deletes it. PERSISTENCE: the selection is saved as a grey PNG of the canvas at .factoria/selections/<document path>/<name>.png (white = selected) and stays until replaced or cleared; later calls use it by name (the name "all" is the whole canvas without a file). Changing the canvas size makes old selections unusable (they say so). The result has `selected` (pixels), `coverage`, the bounding box as `region` {x,y,width,height} and the picture with the selection marked as `$image`. Example: {"path":"assets/art/hero.image.json","name":"cape","by":"color","at":[20,30],"contiguous":true,"tolerance":20,"then":[{"grow":1}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `name` | string | no | The selection's name (1-40 letters, digits, - or _). Reusing a name replaces it, or combines with it when mode is not replace. Default "selection". |
+| `by` | string ["color","alpha","rect","ellipse","polygon","layer","all"] | no | How to select. Omit it to reshape the stored selection with `then`. |
+| `mode` | string ["replace","add","subtract","intersect"] | no | How the new shape combines with the stored selection of the same name. Default "replace". |
+| `then` | array | no | Steps applied to the new shape, in order: {"grow":px}, {"shrink":px}, {"feather":px}, {"invert":true}. |
+| `clear` | boolean | no | Delete the stored selection `name`. Default false. |
+| `color` | any | no | by color: the colour to select ("#rrggbb", a CSS name, [r,g,b,a]). |
+| `at` | array | no | by color: [x, y] canvas pixel whose colour is taken when `color` is not given, and where a contiguous selection starts. |
+| `tolerance` | number | no | by color: the largest difference of any channel (r, g, b, a; 0..255) that still matches. Default 16. |
+| `contiguous` | boolean | no | by color: select only the connected area (4-neighbours) around `at`. Default false. |
+| `threshold` | number | no | by alpha: the least alpha (0..255) that is selected. Default 1. |
+| `layer` | any | no | by layer: the layer (name or index path). For color and alpha: read only this layer instead of the flattened picture. |
+| `x` | number | no | rect / ellipse: left of the box, canvas pixels. |
+| `y` | number | no | rect / ellipse: top of the box. |
+| `width` | number | no | rect / ellipse: width of the box. |
+| `height` | number | no | rect / ellipse: height of the box. |
+| `points` | array | no | polygon: the corners [[x,y],...], at least three. |
+
 ## `sfx.bake` (modifies state)
 
 Not released yet (on main after 0.14.1).
@@ -914,32 +1017,4 @@ Reads the sound patch at `path` (assets/.../name.sfx.json, format factoria.sfx/1
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 | `height` | integer | no | Height of the picture in pixels (default 640). |
 | `overwrite` | boolean | no | Replace the sound when it exists and was not made by sfx.render (a sound made by it is always replaced). Default false. |
-
-## `image.select` (modifies state)
-
-Not released yet (on main after 0.14.1).
-
-Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint.
-
-Builds a selection: a coverage (0..255) per canvas pixel. `by` picks how: color (pixels within `tolerance` 0..255 of `color`, or of the pixel at `at`; `contiguous: true` only the connected area around `at`), alpha (pixels whose alpha is at least `threshold`), rect or ellipse (x, y, width, height; anti-aliased), polygon (`points` [[x,y],...]), layer (the layer's shape: its alpha after its masks and effects, soft edges kept) or all. color and alpha read the flattened picture, or only `layer` when it is given. `then` reshapes the new selection with steps in order: [{"grow":2},{"shrink":1},{"feather":1.5},{"invert":true}] (pixels; grow and shrink use a round brush and make a hard edge; feather is a blur of sigma pixels/2). `mode` combines the result with the stored selection of the same `name`: replace (default), add, subtract or intersect. Without `by`, `then` reshapes the stored selection; `clear: true` deletes it. PERSISTENCE: the selection is saved as a grey PNG of the canvas at .factoria/selections/<document path>/<name>.png (white = selected) and stays until replaced or cleared; later calls use it by name (the name "all" is the whole canvas without a file). Changing the canvas size makes old selections unusable (they say so). The result has `selected` (pixels), `coverage`, the bounding box as `region` {x,y,width,height} and the picture with the selection marked as `$image`. Example: {"path":"assets/art/hero.image.json","name":"cape","by":"color","at":[20,30],"contiguous":true,"tolerance":20,"then":[{"grow":1}]}
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
-| `name` | string | no | The selection's name (1-40 letters, digits, - or _). Reusing a name replaces it, or combines with it when mode is not replace. Default "selection". |
-| `by` | string ["color","alpha","rect","ellipse","polygon","layer","all"] | no | How to select. Omit it to reshape the stored selection with `then`. |
-| `mode` | string ["replace","add","subtract","intersect"] | no | How the new shape combines with the stored selection of the same name. Default "replace". |
-| `then` | array | no | Steps applied to the new shape, in order: {"grow":px}, {"shrink":px}, {"feather":px}, {"invert":true}. |
-| `clear` | boolean | no | Delete the stored selection `name`. Default false. |
-| `color` | any | no | by color: the colour to select ("#rrggbb", a CSS name, [r,g,b,a]). |
-| `at` | array | no | by color: [x, y] canvas pixel whose colour is taken when `color` is not given, and where a contiguous selection starts. |
-| `tolerance` | number | no | by color: the largest difference of any channel (r, g, b, a; 0..255) that still matches. Default 16. |
-| `contiguous` | boolean | no | by color: select only the connected area (4-neighbours) around `at`. Default false. |
-| `threshold` | number | no | by alpha: the least alpha (0..255) that is selected. Default 1. |
-| `layer` | any | no | by layer: the layer (name or index path). For color and alpha: read only this layer instead of the flattened picture. |
-| `x` | number | no | rect / ellipse: left of the box, canvas pixels. |
-| `y` | number | no | rect / ellipse: top of the box. |
-| `width` | number | no | rect / ellipse: width of the box. |
-| `height` | number | no | rect / ellipse: height of the box. |
-| `points` | array | no | polygon: the corners [[x,y],...], at least three. |
 

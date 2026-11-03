@@ -5,6 +5,7 @@
 //   image_edit_commands.cpp  image.create, image.info, image.export, image.layer.add/set/remove/move
 //   image_select.cpp         image.select and the mask operations (grow, shrink, feather, invert, combine)
 //   image_edit_pixels.cpp    image.edit and image.paint
+//   image_indexed.cpp        image.pixel, image.draw, image.palette, image.layer.convert (indexed pixel-art layers)
 //   image_psd.cpp            the layers of a Photoshop file, for assets.import
 #pragma once
 
@@ -83,8 +84,9 @@ Json commit_document(const std::string& projectDir, const std::string& rel, cons
 
 // Renders layer `layerJson` alone (opacity 1, normal blend, not clipped, visible), at the canvas offset (offX, offY) added to its
 // own x and y, onto a transparent canvas of width x height. Its masks, adjustments and effects are applied.
+// `docJson` (the document the layer belongs to) supplies the `palette` and `ramps` an indexed layer needs.
 Image render_layer_alone(const std::string& projectDir, const Json& layerJson, int width, int height, int offX, int offY,
-                         std::vector<std::string>* warnings = nullptr);
+                         std::vector<std::string>* warnings = nullptr, const Json* docJson = nullptr);
 
 // ---- masks and selections -----------------------------------------------------------------------------------------
 
@@ -151,6 +153,7 @@ std::string layer_png_path(const std::string& projectDir, const std::string& doc
 void register_edit_commands(CommandRegistry& registry, const std::string& projectDir);    // image_edit_commands.cpp
 void register_select_commands(CommandRegistry& registry, const std::string& projectDir);  // image_select.cpp
 void register_pixel_commands(CommandRegistry& registry, const std::string& projectDir);   // image_edit_pixels.cpp
+void register_indexed_commands(CommandRegistry& registry, const std::string& projectDir);  // image_indexed.cpp
 
 // ---- PSD (image_psd.cpp) ------------------------------------------------------------------------------------------
 
