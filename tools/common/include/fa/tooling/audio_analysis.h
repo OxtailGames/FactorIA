@@ -37,6 +37,9 @@ Result<AudioAnalysis> analyze_audio_file(const std::string& projectDir, const st
 // -35 LUFS, and sound effects more than 12 LU apart. Read-only: it never writes assets.json.
 std::vector<ValidationIssue> check_audio_loudness(const std::string& projectDir);
 
+// assets.spectrogram and assets.check_mix (audio_mix_commands.cpp); register_audio_commands registers them too.
+void register_audio_mix_commands(CommandRegistry& registry, const std::string& projectDir);
+
 // assets.analyze_audio
 void register_audio_commands(CommandRegistry& registry, const std::string& projectDir);
 

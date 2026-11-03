@@ -192,6 +192,51 @@ A `.ogg` path writes Ogg Vorbis (`quality` 0 to 1). Set `loop` on the `AudioSour
 is the engine's own (no ffmpeg or oggenc needed): Vorbis I, long blocks only, mono or stereo, deterministic. The Ogg is much smaller than
 the 16-bit WAV; the encoder is simple and not tuned for high-quality music.
 
+### Hear what you made: assets.spectrogram and assets.check_mix
+
+An AI cannot listen, so two read-only commands turn a sound into something it can look at and check. Both decode the sound
+themselves (no external program), are deterministic, and reuse the sound's fresh `analysis` record for its integrated
+loudness (they never write `assets.json`; run `assets.analyze_audio` once to keep the records).
+
+`assets.spectrogram {"path": "assets/sfx/jump.wav"}` returns a picture like `assets.preview_sheet` does (a temporary
+screenshot; `out` keeps the PNG at a project path; `width` 400 to 2400, `height` 280 to 1600). Top: the waveform (the mid
+channel, or one lane per channel with `channels: "each"`), where red columns are samples at full scale. Middle: the
+spectrogram, a short-time Fourier transform of the mid channel on a logarithmic axis from 20 Hz to 20 kHz, brighter =
+louder, with the dB scale on the right (the range is in the result). Bottom: the loudness curve, momentary (400 ms, blue)
+and short-term (3 s, orange), the integrated value dashed and the loudest momentary value marked. A sound the project plays
+looping (an `AudioSource` with `loop`, `SceneSettings.music`, `audio.music`, `audio.play(path, {loop: true})`, or `loop: true`
+in the call) gets the loop seam marked with magenta dashed lines and its numbers in the title. The result has
+`integratedLufs`, `truePeakDb`, `samplePeakDb`, `momentaryMaxLufs`, `shortTermMaxLufs`, `clippedSamples`, `dominantBand`
+(the loudest octave band) and `loopSeam`.
+
+`assets.check_mix {}` measures every sound of the project together (the set `assets.analyze_audio` uses without `path`),
+or `paths`, as the player hears them: with the gain import `normalize` applies. Every finding is
+`{sound, rule, value, threshold, unit, verdict (ok | warn | fail), message, hint, bus?, detail?}`; the findings that pass
+are left out unless `includeOk: true`. The result also has a `summary`, one row of numbers per sound and `nextSteps`.
+
+| Rule | What it measures | warn / fail |
+|---|---|---|
+| `loudness_target` | Loudness as played against the target of the sound's bus. | beyond the tolerance / twice it |
+| `loudness_spread` | With no target: distance from the median of the sounds of the same bus. | beyond 6 LU / 12 LU |
+| `music_masking` | The octave bands where an effect has its main energy (within 6 dB of its loudest band) against the loudest music in those bands. `value` is how far the effect is over the music in its loudest band. | music as loud or louder in that band, or in half the main bands / music 6 dB louder |
+| `click_start`, `click_end` | The first / last sample, or a jump of the first / last step far above the sound's usual step (dBFS). Not for looping sounds. | above -40 dBFS / above -26 dBFS |
+| `loop_seam_jump`, `loop_seam_slope` | For looping sounds: the step from the last sample to the first, and the change of slope across it, as multiples of the sound's usual step and curvature. | 5 / 10, and 8 / 16 |
+| `clipping` | Samples at full scale in runs of two or more (a flattened wave), counted. | any / 32 or 1 in 2000 |
+| `true_peak` | The peak between samples (4 times oversampled), as played. | above -1 dBTP / above 0 |
+
+Where the bus comes from: an `AudioSource` plays on `sfx`; `SceneSettings.music` and `audio.music("path")` in a script
+play on `music` (looping); `audio.play("path", {bus, loop})` with a literal path plays on its `bus` (default `sfx`); a bus of
+`factoria.json` `audio.buses` counts as the bus it is under. A sound that none of them names with a literal path is on the
+"unknown bus": play it in one of those ways, so the check can place it. It is not told apart from music by its name or length.
+Masking compares the long-term level of each octave band (31 Hz to 16 kHz) of the effect, over the part that is not
+silent, with that of the music, both as played; it does not know the volumes a script gives the voices.
+
+Loudness targets, in the order they are looked for: the `targets` argument (`{"music": -16, "sfx": {"lufs": -14,
+"toleranceLu": 2}, "default": -16}`; a number uses a tolerance of 3 LU), then `style.audio.loudnessLufs` (a number, or one
+per bus) and `style.audio.toleranceLu` in `assets.json`, then the spread rule. The hints are concrete: a `targetLufs` to
+set under the sound's `import`, a fade length in samples, `assets.generate_loop` for a seamless loop, ducking the music
+bus for a masked effect, a level to cut for a true peak.
+
 ### Sound effects without a provider or a kit: assets.synth_sound
 
 Free CC0 kits (for example Kenney's audio packs) have impacts, interface sounds and jingles, brought in with
