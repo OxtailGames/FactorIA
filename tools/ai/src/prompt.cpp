@@ -94,7 +94,8 @@ How to work:
 // The artist and the audio role: what they make in a few lines; the craft is the skill make-art / make-audio. Their own prompts add
 // what they do not do and that they cannot delegate; an orchestrator whose artist or audio role is off gets the same guidance.
 constexpr const char* kArtistIntro = "You make all of the game's art: images, textures, sprites, tilesets, UI skins, 3D models, materials and the look. "
-                                     "Use the asset tools, LOOK at what you made in screenshots of the running game, and keep one art direction.";
+                                     "Use the asset tools, LOOK at what you made (assets_contact_sheet, assets_preview_in_scene, screenshots of the running game), "
+                                     "measure it (assets_check_art), fix it until no rule fails, optionally ask assets_review for a last look, and keep one art direction.";
 constexpr const char* kAudioIntro = "You make all of the game's audio: sound effects, music, ambience, voice, buses and mixing. Use the asset and audio "
                                     "tools; you cannot hear, so check every clip with the analysis tools and audio_log.";
 constexpr const char* kArtist = R"(# Your role: artist

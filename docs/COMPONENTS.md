@@ -1654,6 +1654,22 @@ Plays a prefab (`prefab`) or an entity of a scene with its children (`scene` + `
 | `author` | string | no | Who gets the credit in the provenance record. |
 | `license` | string | no | License of the sheet for the provenance record. Default "CC0-1.0". |
 
+### `assets.check_art`
+
+Not released yet (on main after 0.14.1).
+
+Check pictures against the house style and how they read in the game: palette fit, contrast over the real backgrounds, readability at phone and desktop size, halos on alpha edges, and set consistency; returns an annotated picture.
+
+Measures one picture (`path`) or a set (`paths`, up to 12) and returns an annotated picture plus rules, each with `value`, `threshold`, `verdict` (ok, warn or fail) and, unless ok, a `hint` naming the command or setting that fixes it. Palette fit: the colour count, and when assets.json style.palette is set the distance of the colours to it and the share of pixels off the palette (strict with style.pixelArt). Contrast: the WCAG contrast ratio between the silhouette edge and each background the picture is drawn over: `backgrounds` (colours "#rrggbb" or project image paths) when given, else the clear colour and the large background sprites of the scenes that use the picture, else a light and a dark default; the result says which (`backgrounds.source`). Readability: the picture shrunk to the size it has on screen (`onScreenPx`, the longer side in screen pixels, when given; else derived from the scenes' Sprite size, scale and camera at a phone, 844x390, and a desktop, 1920x1080, screen): its size, how much of the silhouette survives and whether the outline is still a line. Halos and fringes: partly transparent edge pixels that are darker or lighter than the pixels they touch, and transparent pixels next to the shape that hold a foreign colour. Style rules set in assets.json style (outline, lightDirection, texelsPerUnit, pixelArt, value, saturation) are judged too, with the same numbers as the `project.validate` warnings; rules the style does not set are not judged, and `style: false` skips them. With several paths it also compares the set: pixel density, pixel size, outline colour and thickness, and how many colours the pictures share. The picture has one row per asset: the picture itself, its value (greyscale), over each background and at each on-screen size. It is a temporary screenshot in .factoria/screenshots; measuring is cached in .factoria/art-cache. Thresholds and the rules are listed in docs/ASSETS.md ("Checking art: assets.check_art"). Example: {"path":"assets/hero.png","backgrounds":["#203040"],"onScreenPx":48}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Project-relative path of the picture to check. Give this or `paths`. |
+| `paths` | array | no | Several pictures to check one by one and as a set (pixel density, outline, palette spread). Give this or `path`. |
+| `backgrounds` | array | no | What the picture is drawn over. Default: the camera clear colour and background sprites of the scenes that use it, else a light and a dark default. |
+| `onScreenPx` | any | no | The longer side of the sprite on screen, in screen pixels: a number, or a list of up to 4. Default: derived from the scenes (Sprite size, scale, camera) at a phone and a desktop screen. |
+| `style` | boolean | no | Judge the rules set in assets.json style (outline, lightDirection, texelsPerUnit, pixelArt, value, saturation, palette). False skips them. Default true. |
+
 ### `assets.contact_sheet`
 
 Not released yet (on main after 0.14.1).
@@ -1672,21 +1688,6 @@ Draws one picture (returned to you as an image) with a column for each picture o
 | `allFrames` | boolean | no | A sprite sheet shows all its frames (a column each) instead of the first. Default false. |
 | `path` | string | no | Also save the picture as a PNG at this project-relative path (ending in .png). Without it nothing is written. |
 | `overwrite` | boolean | no | With `path`: replace the file when it exists. Default false. |
-### `assets.check_art`
-
-Not released yet (on main after 0.14.1).
-
-Check pictures against the house style and how they read in the game: palette fit, contrast over the real backgrounds, readability at phone and desktop size, halos on alpha edges, and set consistency; returns an annotated picture.
-
-Measures one picture (`path`) or a set (`paths`, up to 12) and returns an annotated picture plus rules, each with `value`, `threshold`, `verdict` (ok, warn or fail) and, unless ok, a `hint` naming the command or setting that fixes it. Palette fit: the colour count, and when assets.json style.palette is set the distance of the colours to it and the share of pixels off the palette (strict with style.pixelArt). Contrast: the WCAG contrast ratio between the silhouette edge and each background the picture is drawn over: `backgrounds` (colours "#rrggbb" or project image paths) when given, else the clear colour and the large background sprites of the scenes that use the picture, else a light and a dark default; the result says which (`backgrounds.source`). Readability: the picture shrunk to the size it has on screen (`onScreenPx`, the longer side in screen pixels, when given; else derived from the scenes' Sprite size, scale and camera at a phone, 844x390, and a desktop, 1920x1080, screen): its size, how much of the silhouette survives and whether the outline is still a line. Halos and fringes: partly transparent edge pixels that are darker or lighter than the pixels they touch, and transparent pixels next to the shape that hold a foreign colour. Style rules set in assets.json style (outline, lightDirection, texelsPerUnit, pixelArt, value, saturation) are judged too, with the same numbers as the `project.validate` warnings; rules the style does not set are not judged, and `style: false` skips them. With several paths it also compares the set: pixel density, pixel size, outline colour and thickness, and how many colours the pictures share. The picture has one row per asset: the picture itself, its value (greyscale), over each background and at each on-screen size. It is a temporary screenshot in .factoria/screenshots; measuring is cached in .factoria/art-cache. Thresholds and the rules are listed in docs/ASSETS.md ("Checking art: assets.check_art"). Example: {"path":"assets/hero.png","backgrounds":["#203040"],"onScreenPx":48}.
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `path` | string | no | Project-relative path of the picture to check. Give this or `paths`. |
-| `paths` | array | no | Several pictures to check one by one and as a set (pixel density, outline, palette spread). Give this or `path`. |
-| `backgrounds` | array | no | What the picture is drawn over. Default: the camera clear colour and background sprites of the scenes that use it, else a light and a dark default. |
-| `onScreenPx` | any | no | The longer side of the sprite on screen, in screen pixels: a number, or a list of up to 4. Default: derived from the scenes (Sprite size, scale, camera) at a phone and a desktop screen. |
-| `style` | boolean | no | Judge the rules set in assets.json style (outline, lightDirection, texelsPerUnit, pixelArt, value, saturation, palette). False skips them. Default true. |
 
 ### `assets.convert_audio` (modifies state)
 
@@ -2108,6 +2109,20 @@ The offline makers (assets.rasterize_svg, assets.draw_icon, assets.draw_capsules
 | `all` | boolean | no | Make every asset with a recipe again. |
 | `stale` | boolean | no | Make again only the assets whose recipe inputs (the files they were made from) changed since. |
 | `dryRun` | boolean | no | List what would run (command, arguments, which inputs changed) and change nothing. |
+
+### `assets.review`
+
+Not released yet (on main after 0.14.1).
+
+A cheap one-shot vision review of the pictures you made: a verdict and concrete fixes, grounded on assets.check_art and the style references.
+
+The optional last look of the make, preview, check, fix loop (docs/AI_GUIDE.md 9.23, docs/ASSETS.md "Reviewing art"). It runs assets.check_art on the same pictures first, then sends a vision model the pictures, the annotated picture of the check, the check's numbers, the style rules of assets.json and the style `references` images, and asks what the numbers cannot tell: does it match the style, does it read, does it suit its use. Unlike the user-only art critics of ai.review, you can call it yourself while you work. It uses the model of the "fast" role of ai.json (the orchestrator when fast is off; the artist role is usually an image generator, not a viewer), so the model must accept pictures; with no provider, no key or a text-only model the error says what to set up (docs/AI_PROVIDERS.md) and you carry on with assets.check_art alone. One model call per review: call it once the check shows no `fail`, not after every edit. Result: {verdict: good | fix | redo (never `good` while the check has a fail), summary, fixes: [{what, where, command}], checkArt: {verdict, counts, assets, set}, role, provider, model, warnings, nextSteps}. A fix names a command or an assets.json setting; one that names something this engine does not have is listed in `warnings`. Nothing is written to the project. Example: {"paths":["assets/knight.png","assets/orc.png"],"focus":"do they look like the same game at 48 px?"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Project-relative path of the picture to review. Give this or `paths`. |
+| `paths` | array | no | Up to 4 pictures reviewed together, as a set. Give this or `path`. |
+| `focus` | string | no | What you want judged ("does the outline match the references?", "is the coin readable on the dark floor?"). Optional. |
 
 ### `assets.set_provenance` (modifies state)
 
