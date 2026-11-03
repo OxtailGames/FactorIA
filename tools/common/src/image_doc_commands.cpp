@@ -5,25 +5,14 @@
 #include "fa/tooling/image_doc.h"
 #include "fa/tooling/project_fs.h"
 #include "image_doc_internal.h"
+#include "image_edit.h"
 #include "util.h"
 
 namespace fa::assets_detail {
 
 namespace {
 
-Json result_json(const std::string& projectDir, const ImageBakeResult& r) {
-    Json out = Json::object({{"document", r.document}, {"path", r.output}, {"width", r.width}, {"height", r.height}, {"written", r.written}, {"ai", r.ai}});
-    if (!r.sha256.empty()) out["sha256"] = r.sha256;
-    if (!r.inputs.empty()) out["inputs"] = r.inputs;
-    if (!r.provenance.is_null()) out["provenance"] = r.provenance;
-    if (!r.warnings.empty()) out["warnings"] = r.warnings;
-    auto png = resolve_project_path(projectDir, r.output);
-    std::error_code ec;
-    if (png.ok() && std::filesystem::is_regular_file(*png, ec)) out["$image"] = Json::object({{"path", png->string()}, {"mimeType", "image/png"}});
-    out["nextSteps"] = Json::array({"Look at the picture in this result. To change it, edit the layers of '" + r.document + "' and call image.bake again.",
-                                    "Use it as a Sprite texture: Sprite.texture \"" + r.output + "\"."});
-    return out;
-}
+Json result_json(const std::string& projectDir, const ImageBakeResult& r) { return imgedit::bake_result_json(projectDir, r); }
 
 void unwrap_error(const Error& e) { fail("invalid_argument", e.message, e.hint); }
 
@@ -53,6 +42,9 @@ Json image_save(const std::string& projectDir, const Json& a) {
 }  // namespace
 
 void register_image_commands(CommandRegistry& registry, const std::string& projectDir) {
+    imgedit::register_edit_commands(registry, projectDir);
+    imgedit::register_select_commands(registry, projectDir);
+    imgedit::register_pixel_commands(registry, projectDir);
     {
         CommandInfo info;
         info.name = "image.bake";
