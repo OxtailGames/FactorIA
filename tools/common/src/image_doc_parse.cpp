@@ -27,6 +27,7 @@ struct Parser {
     int canvasW = 0, canvasH = 0;
     PixelPalette palette;             // the document's palette, parsed before the layers
     bool paletteDeferred = false;     // the style palette is wanted but there is no project to read it from: indices are not range-checked
+    int frameCount = 1;               // frames of the document, known before the layers are read
 
     void add(const std::string& pointer, std::string message, std::string hint) { issues.push_back({pointer, std::move(message), std::move(hint)}); }
 
@@ -419,6 +420,14 @@ struct Parser {
             return;
         }
         if (hasSize) add(pointer + (j.contains("width") ? "/width" : "/height"), "An indexed layer with `rows` gets its size from them.", "Remove width and height, or remove rows for a blank layer.");
+        parse_rows(*it, pointer + "/rows", layer.rows, layer.width, layer.height);
+    }
+
+    // The `rows` of an indexed layer or cel: text rows of one character per pixel, all the same width, indices inside the palette.
+    void parse_rows(const Json& list, const std::string& rowsPointer, std::vector<std::string>& out, int& outWidth, int& outHeight) {
+        const std::string rowsHint = "Rows are strings with one character per pixel: '.' is transparent, 0-9a-zA-Z... are palette indices. Example: \"rows\": [\"..11..\", \".1221.\", \"..11..\"].";
+        const Json* it = &list;
+        const std::string pointer = rowsPointer.substr(0, rowsPointer.rfind('/'));
         if (!it->is_array() || it->empty()) {
             add(pointer + "/rows", "`rows` must be a non-empty list of strings, got " + describe_json_value(*it) + ".", rowsHint);
             return;
@@ -463,10 +472,158 @@ struct Parser {
                     ++reported;
                 }
             }
-            layer.rows.push_back(text);
+            out.push_back(text);
         }
-        layer.width = int(width);
-        layer.height = int(it->size());
+        outWidth = int(width);
+        outHeight = int(it->size());
+    }
+
+    // The `cels` of a pixels or indexed layer: what it shows from each frame after the first on (docs/IMAGES.md, "Frames and tags").
+    void parse_cels(const Json& j, const std::string& pointer, ImageLayer& layer) {
+        auto it = j.find("cels");
+        if (it == j.end()) return;
+        layer.hasCels = true;
+        const bool indexed = layer.kind == ImageLayerKind::Indexed;
+        const std::string celHint = indexed ? "Example: \"cels\": [{\"frame\": 1, \"rows\": [\"..11..\", \".1221.\"]}, {\"frame\": 2, \"link\": 0}, {\"frame\": 3, \"empty\": true}]."
+                                            : "Example: \"cels\": [{\"frame\": 1, \"source\": \"assets/art/hero-1.png\"}, {\"frame\": 2, \"link\": 0}, {\"frame\": 3, \"empty\": true}].";
+        if (!it->is_array()) {
+            add(pointer + "/cels", "`cels` must be a list, got " + describe_json_value(*it) + ".", celHint);
+            return;
+        }
+        int previous = 0;
+        for (std::size_t i = 0; i < it->size(); ++i) {
+            const Json& c = (*it)[i];
+            ImageCel cel;
+            cel.pointer = pointer + "/cels/" + std::to_string(i);
+            if (!c.is_object()) {
+                add(cel.pointer, "A cel must be an object, got " + describe_json_value(c) + ".", celHint);
+                continue;
+            }
+            unknown_keys(c, cel.pointer, indexed ? std::vector<std::string>{"frame", "empty", "link", "rows", "x", "y", "opacity"}
+                                                 : std::vector<std::string>{"frame", "empty", "link", "source", "x", "y", "opacity"}, "a cel");
+            if (!c.contains("frame")) {
+                add(cel.pointer, "A cel needs `frame`: the frame it starts at.", celHint);
+                continue;
+            }
+            const bool frameOk = get_int(c, cel.pointer, "frame", cel.frame, 1, std::max(1, frameCount - 1),
+                                         frameCount > 1 ? std::format("The cels are of frames 1 to {} (frame 0 is the layer itself).", frameCount - 1)
+                                                        : "The document has one frame, so there are no cels: add `frames` to the document first (image.frame.add).");
+            if (frameOk && frameCount <= 1) add(cel.pointer + "/frame", "The document has one frame, so a layer has no cels.", "Add `frames` to the document first (image.frame.add), or remove `cels`.");
+            else if (frameOk && cel.frame <= previous)
+                add(cel.pointer + "/frame", std::format("Frame {} comes after frame {} in the list: cels are listed in increasing frame order, one per frame.", cel.frame, previous), "Sort the cels by `frame` and give each frame one cel.");
+            if (frameOk) previous = std::max(previous, cel.frame);
+            const int contents = int(c.contains("empty")) + int(c.contains("link")) + int(c.contains(indexed ? "rows" : "source"));
+            if (contents != 1) {
+                add(cel.pointer, contents == 0 ? "A cel needs what the layer shows from its frame on." : "A cel has only one of `empty`, `link` and " + std::string(indexed ? "`rows`." : "`source`."),
+                    celHint + " `empty` shows nothing, `link` shows the picture of an earlier frame.");
+                continue;
+            }
+            if ((c.contains("empty") || c.contains("link")) && (c.contains("x") || c.contains("y") || c.contains("opacity"))) {
+                add(cel.pointer, std::string("A cel with `") + (c.contains("empty") ? "empty" : "link") + "` has no placement of its own: it shows nothing, or the other cel exactly as it is.",
+                    "Remove x, y and opacity, or give the cel its own " + std::string(indexed ? "`rows`." : "`source`."));
+                continue;
+            }
+            if (c.contains("empty")) {
+                bool e = false;
+                if (get_bool(c, cel.pointer, "empty", e) && !e) add(cel.pointer + "/empty", "`empty` is true or left out.", "To show a picture, give `" + std::string(indexed ? "rows" : "source") + "` or `link`.");
+                cel.empty = e;
+            } else if (c.contains("link")) {
+                get_int(c, cel.pointer, "link", cel.link, 0, std::max(0, frameCount - 2), "`link` is the number of an EARLIER frame: this cel shows the picture that layer shows there.");
+                if (cel.link >= cel.frame && cel.frame > 0)
+                    add(cel.pointer + "/link", std::format("`link` {} is not before the cel's frame {}.", cel.link, cel.frame), "Link to an earlier frame; to show a later picture, link the later cel back instead.");
+            } else if (indexed) {
+                int w = 0, h = 0;
+                parse_rows(c["rows"], cel.pointer + "/rows", cel.rows, w, h);
+            } else if (get_string(c, cel.pointer, "source", cel.source)) {
+                project_file(cel.pointer, "source", cel.source, {".png"}, "a PNG");
+            }
+            int xv = 0, yv = 0;
+            if (c.contains("x") && get_int(c, cel.pointer, "x", xv, -100000, 100000, "x and y place the cel's top-left corner like the layer's x and y do.")) cel.x = xv;
+            if (c.contains("y") && get_int(c, cel.pointer, "y", yv, -100000, 100000, "x and y place the cel's top-left corner like the layer's x and y do.")) cel.y = yv;
+            get_number(c, cel.pointer, "opacity", cel.opacity, 0, 1, "A cel's opacity (0 to 1) multiplies the layer's.");
+            layer.cels.push_back(std::move(cel));
+        }
+    }
+
+    // `frames`, `tags` and `sheet`: the animation of the document.
+    void parse_animation(const Json& json, ImageDocument& doc) {
+        if (auto it = json.find("frames"); it != json.end()) {
+            const std::string hint = "Example: \"frames\": [{\"duration\": 100}, {\"duration\": 100}, {\"duration\": 250}]: one object per frame, `duration` in milliseconds.";
+            if (!it->is_array() || it->empty()) {
+                add("/frames", "`frames` must be a non-empty list, got " + describe_json_value(*it) + ".", hint);
+            } else if (it->size() > std::size_t(kImageMaxFrames)) {
+                add("/frames", std::format("{} frames is more than the {} a document may have.", it->size(), kImageMaxFrames), "Split the animation into several documents.");
+            } else {
+                for (std::size_t i = 0; i < it->size(); ++i) {
+                    const Json& f = (*it)[i];
+                    const std::string fp = "/frames/" + std::to_string(i);
+                    ImageFrame frame;
+                    if (!f.is_object()) {
+                        add(fp, "A frame must be an object, got " + describe_json_value(f) + ".", hint);
+                        doc.frames.push_back(frame);
+                        continue;
+                    }
+                    unknown_keys(f, fp, {"duration"}, "a frame");
+                    get_int(f, fp, "duration", frame.duration, 1, 60000, "`duration` is how long the frame shows, in milliseconds (1 to 60000); 100 is the default.");
+                    doc.frames.push_back(frame);
+                }
+                frameCount = int(doc.frames.size());
+            }
+            doc.animated = true;
+        }
+        if (auto it = json.find("tags"); it != json.end()) {
+            const std::string hint = "Example: \"tags\": [{\"name\": \"walk\", \"from\": 0, \"to\": 3, \"direction\": \"forward\"}]. Directions: forward, reverse, pingpong.";
+            if (!it->is_array()) {
+                add("/tags", "`tags` must be a list, got " + describe_json_value(*it) + ".", hint);
+            } else {
+                if (!it->empty()) doc.animated = true;
+                std::vector<std::string> names;
+                for (std::size_t i = 0; i < it->size(); ++i) {
+                    const Json& t = (*it)[i];
+                    ImageTag tag;
+                    tag.pointer = "/tags/" + std::to_string(i);
+                    if (!t.is_object()) {
+                        add(tag.pointer, "A tag must be an object, got " + describe_json_value(t) + ".", hint);
+                        continue;
+                    }
+                    unknown_keys(t, tag.pointer, {"name", "from", "to", "direction", "repeat"}, "a tag");
+                    bool ok = true;
+                    if (!t.contains("name")) { add(tag.pointer, "A tag needs a `name`: the clip name a SpriteAnimator plays.", hint); ok = false; }
+                    else ok = get_string(t, tag.pointer, "name", tag.name) && ok;
+                    if (ok && std::find(names.begin(), names.end(), tag.name) != names.end())
+                        add(tag.pointer + "/name", "Another tag is called '" + tag.name + "'.", "Give every tag its own name: it is the clip name.");
+                    names.push_back(tag.name);
+                    const std::string range = std::format("Frames run from 0 to {}.", frameCount - 1);
+                    if (!t.contains("from")) add(tag.pointer, "A tag needs `from`: its first frame.", hint);
+                    if (!t.contains("to")) add(tag.pointer, "A tag needs `to`: its last frame.", hint);
+                    const bool f1 = get_int(t, tag.pointer, "from", tag.from, 0, frameCount - 1, range);
+                    const bool f2 = get_int(t, tag.pointer, "to", tag.to, 0, frameCount - 1, range);
+                    if (f1 && f2 && t.contains("from") && t.contains("to") && tag.from > tag.to)
+                        add(tag.pointer + "/to", std::format("`to` {} is before `from` {}.", tag.to, tag.from), "A tag runs from the lower frame to the higher one; the direction field plays it backwards.");
+                    if (t.contains("direction")) {
+                        const auto dirs = image_tag_direction_names();
+                        if (!t["direction"].is_string()) add(tag.pointer + "/direction", "`direction` must be a string, got " + describe_json_value(t["direction"]) + ".", "Directions: " + join(dirs, ", ") + ".");
+                        else {
+                            const std::string d = t["direction"].get<std::string>();
+                            const auto f = std::find(dirs.begin(), dirs.end(), d);
+                            if (f == dirs.end()) add(tag.pointer + "/direction", "Unknown direction '" + d + "'.", did_you_mean(d, dirs) + " Directions: " + join(dirs, ", ") + ".");
+                            else tag.direction = ImageTagDirection(f - dirs.begin());
+                        }
+                    }
+                    get_int(t, tag.pointer, "repeat", tag.repeat, 0, 1000, "`repeat` is how many times the tag plays; 0 (the default) loops for ever, 1 plays once.");
+                    doc.tags.push_back(std::move(tag));
+                }
+            }
+        }
+        if (auto it = json.find("sheet"); it != json.end()) {
+            const std::string hint = "Example: \"sheet\": {\"columns\": 4}: frames per row of the baked sprite sheet.";
+            if (!it->is_object()) add("/sheet", "`sheet` must be an object, got " + describe_json_value(*it) + ".", hint);
+            else {
+                unknown_keys(*it, "/sheet", {"columns"}, "the sheet settings");
+                get_int(*it, "/sheet", "columns", doc.sheetColumns, 1, 1024, "`columns` is how many frames the sheet has per row (default ceil(sqrt(cells))).");
+                doc.animated = true;
+            }
+        }
     }
 
     ImageLayer parse_layer(const Json& j, const std::string& pointer, bool hasBelow, int depth) {
@@ -494,7 +651,7 @@ struct Parser {
         auto extend = [&](std::initializer_list<const char*> more) { allowed.insert(allowed.end(), more.begin(), more.end()); };
         if (layer.kind != ImageLayerKind::Adjustment) extend({"blend", "effects"});
         switch (layer.kind) {
-            case ImageLayerKind::Pixels: extend({"source"}); break;
+            case ImageLayerKind::Pixels: extend({"source", "cels"}); break;
             case ImageLayerKind::Provider: extend({"source", "provenance"}); break;
             case ImageLayerKind::Fill: extend({"color", "width", "height"}); break;
             case ImageLayerKind::Gradient: extend({"gradient", "width", "height"}); break;
@@ -503,7 +660,7 @@ struct Parser {
             case ImageLayerKind::Text: extend({"text", "font", "size", "color", "align", "lineHeight"}); break;
             case ImageLayerKind::Group: extend({"layers"}); break;
             case ImageLayerKind::Adjustment: break;
-            case ImageLayerKind::Indexed: extend({"rows", "width", "height", "ai"}); break;
+            case ImageLayerKind::Indexed: extend({"rows", "width", "height", "ai", "cels"}); break;
         }
         unknown_keys(j, pointer, allowed, "a " + kind + " layer");
 
@@ -528,8 +685,11 @@ struct Parser {
         switch (layer.kind) {
             case ImageLayerKind::Pixels:
             case ImageLayerKind::Provider:
-                if (!j.contains("source")) add(pointer, "A " + kind + " layer needs `source`, a PNG of the project.", "Example: {\"kind\": \"" + kind + "\", \"source\": \"assets/art/hero.png\"}.");
-                else if (get_string(j, pointer, "source", layer.source)) project_file(pointer, "source", layer.source, {".png"}, "a PNG");
+                if (!j.contains("source")) {
+                    if (layer.kind != ImageLayerKind::Pixels || !j.contains("cels"))
+                        add(pointer, "A " + kind + " layer needs `source`, a PNG of the project.", "Example: {\"kind\": \"" + kind + "\", \"source\": \"assets/art/hero.png\"}. (A pixels layer with `cels` may leave it out: it is empty in frame 0.)");
+                } else if (get_string(j, pointer, "source", layer.source)) project_file(pointer, "source", layer.source, {".png"}, "a PNG");
+                if (layer.kind == ImageLayerKind::Pixels) parse_cels(j, pointer, layer);
                 if (layer.kind == ImageLayerKind::Provider) {
                     if (auto it = j.find("provenance"); it != j.end()) {
                         const std::string pp = pointer + "/provenance";
@@ -619,7 +779,7 @@ struct Parser {
                 parse_layers(*it, pointer + "/layers", layer.children, depth + 1);
                 break;
             }
-            case ImageLayerKind::Indexed: parse_indexed(j, pointer, layer); break;
+            case ImageLayerKind::Indexed: parse_indexed(j, pointer, layer); parse_cels(j, pointer, layer); break;
             case ImageLayerKind::Adjustment:
                 if (layer.adjustments.empty() && !issues_at(pointer + "/adjustments"))
                     add(pointer + "/adjustments", "An adjustment layer needs `adjustments`: the colour operations it applies to everything below it.", "Example: {\"kind\": \"adjustment\", \"adjustments\": [{\"type\": \"invert\"}]}.");
@@ -658,7 +818,7 @@ Result<ImageDocument> parse_image_document(const Json& json, const std::string& 
     if (!json.is_object()) {
         p.add("", "An image document must be a JSON object, got " + describe_json_value(json) + ".", "Start from " + exampleDoc);
     } else {
-        p.unknown_keys(json, "", {"$schema", "format", "width", "height", "background", "output", "description", "palette", "ramps", "layers"}, "an image document");
+        p.unknown_keys(json, "", {"$schema", "format", "width", "height", "background", "output", "description", "palette", "ramps", "frames", "tags", "sheet", "layers"}, "an image document");
         if (auto it = json.find("format"); it != json.end() && (!it->is_string() || it->get<std::string>() != kImageDocFormat))
             p.add("/format", "Unknown format " + describe_json_value(*it) + ".", std::string("Write \"format\": \"") + kImageDocFormat + "\" (or leave it out).");
         for (const char* key : {"width", "height"}) {
@@ -684,6 +844,7 @@ Result<ImageDocument> parse_image_document(const Json& json, const std::string& 
         }
         p.parse_palette(json);
         doc.palette = p.palette;
+        p.parse_animation(json, doc);
         auto layers = json.find("layers");
         if (layers == json.end() || !layers->is_array())
             p.add(layers == json.end() ? "" : "/layers", "The document needs `layers`: a list of layers, bottom first.", "Start from " + exampleDoc);

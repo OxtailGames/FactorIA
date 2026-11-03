@@ -8,6 +8,7 @@
 #include "fa/tooling/project_fs.h"
 #include "fa/tooling/style_guide.h"
 #include "image_edit.h"
+#include "image_frames.h"
 #include "util.h"
 
 namespace fa::imgedit {
@@ -48,7 +49,10 @@ Image render_or_fail(const std::string& projectDir, const std::string& rel, cons
     std::vector<ImageIssue> issues;
     auto parsed = parse_image_document(doc, rel, projectDir, &issues);
     if (!parsed.ok()) fail("invalid_argument", parsed.error().message, parsed.error().hint);
-    auto render = composite_image_document(*parsed, {projectDir});
+    ImageRenderOptions options;
+    options.projectDir = projectDir;
+    if (const FrameScope* fs = FrameScope::current()) options.frame = fs->frame();
+    auto render = composite_image_document(*parsed, options);
     if (!render.ok()) fail("failed", render.error().message, render.error().hint);
     return std::move(render->image);
 }
@@ -94,6 +98,9 @@ void collect_inputs(const Json& list, std::vector<std::string>& out) {
             if (v.is_string() && !v.get<std::string>().empty()) out.push_back(fs::normalize(v.get<std::string>()));
         };
         if (l.contains("source")) add(l["source"]);
+        if (l.contains("cels") && l["cels"].is_array())
+            for (const Json& c : l["cels"])
+                if (c.is_object() && c.contains("source")) add(c["source"]);
         if (l.contains("font") && l["font"].is_string() && l["font"].get<std::string>().find("builtin:") != 0) add(l["font"]);
         if (l.contains("masks") && l["masks"].is_array())
             for (const Json& m : l["masks"])
@@ -134,6 +141,12 @@ Json info_tree(const std::string& projectDir, const Json& list, std::vector<int>
             n["size"] = Json::object({{"width", l.value("width", 0)}, {"height", l.value("height", 0)}});
         }
         if (l.value("kind", std::string()) == "text" && l.contains("text")) n["text"] = l["text"];
+        if (l.contains("cels") && l["cels"].is_array() && !l["cels"].empty()) {
+            Json frames = Json::array();
+            for (const Json& c : l["cels"])
+                if (c.is_object() && c.contains("frame")) frames.push_back(c["frame"]);
+            n["celFrames"] = frames;   // the frames after the first where the layer changes (the others keep the cel before)
+        }
         if (l.contains("layers")) n["children"] = info_tree(projectDir, l["layers"], path);
         path.pop_back();
         out.push_back(std::move(n));
@@ -160,6 +173,33 @@ Json image_info(const std::string& projectDir, const Json& a) {
         Json list = Json::array();
         for (const ImageIssue& i : issues) list.push_back(Json::object({{"pointer", i.pointer}, {"message", i.message}, {"hint", i.hint}}));
         out["problems"] = list;
+    }
+    if (json_animated(d.json)) {
+        const int count = json_frame_count(d.json);
+        Json frames = Json::array();
+        int total = 0;
+        for (int f = 0; f < count; ++f) {
+            const int ms = d.json.contains("frames") && d.json["frames"][std::size_t(f)].is_object() ? d.json["frames"][std::size_t(f)].value("duration", 100) : 100;
+            total += ms;
+            Json fr = Json::object({{"frame", f}, {"duration", ms}});
+            Json names = Json::array();
+            if (d.json.contains("tags") && d.json["tags"].is_array())
+                for (const Json& t : d.json["tags"])
+                    if (t.is_object() && t.value("from", 0) <= f && f <= t.value("to", 0)) names.push_back(t.value("name", std::string()));
+            if (!names.empty()) fr["tags"] = names;
+            frames.push_back(fr);
+        }
+        Json anim = Json::object({{"frameCount", count}, {"totalMs", total}, {"frames", frames}, {"tags", d.json.value("tags", Json::array())}});
+        if (parsed.ok()) {
+            auto plan = plan_image_sheet(*parsed);
+            if (plan.ok()) {
+                anim["sheet"] = plan->sheet;
+                if (!plan->warnings.empty()) anim["sheetWarnings"] = plan->warnings;
+            } else {
+                anim["sheetProblem"] = plan.error().message;
+            }
+        }
+        out["animation"] = anim;
     }
     std::vector<int> path;
     out["layers"] = info_tree(projectDir, d.json["layers"], path);
@@ -202,8 +242,9 @@ Image scale_nearest(const Image& src, int w, int h) {
 
 Json image_export(const std::string& projectDir, const Json& a) {
     const char* cmd = "image.export";
-    check_arg_keys(cmd, a, "", {"path", "out", "scale", "layer", "trim", "filter", "overwrite"});
+    check_arg_keys(cmd, a, "", {"path", "out", "scale", "layer", "trim", "filter", "overwrite", "frame"});
     DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd);
+    FrameScope frameScope(projectDir, d.rel, d.json, a, cmd);
     const std::string outArg = arg_string(a, "out", true);
     auto outNorm = fs::normalize_checked(outArg);
     if (!outNorm.ok() || outNorm->empty() || !ends_with(to_lower(*outNorm), ".png"))
@@ -445,6 +486,7 @@ void register_edit_commands(CommandRegistry& registry, const std::string& projec
         info.summary = summary;
         info.description = description;
         info.inputSchema = Json::parse(schema);
+        if (std::string(name) == "image.export") add_frame_support(info, "to export", false);
         registry.add(info, [projectDir, fn](const Json& args) { return fn(projectDir, args); });
     };
 
@@ -470,6 +512,8 @@ void register_edit_commands(CommandRegistry& registry, const std::string& projec
         "Reads the document at `path` and returns {document, width, height, background, valid, problems?, palette?: {source, colors, ramps} (when it has one: image.palette lists it), layers: [{index, pointer, name, kind, visible, opacity, blend, x, y, "
         "size?, source?, masks?, adjustments?, effects?, children?}], inputs, bake: {state, path, reason}, selections, $image}. `index` is the index path other image.* "
         "commands take in `layer` (\"1/0\"); names work too. `bake.state` is fresh, missing, stale, unrecorded or broken. `$image` is the baked PNG when it exists. "
+        "An animated document (docs.read IMAGES, \"Frames and tags\") also has `animation`: {frameCount, totalMs, frames: [{frame, duration, tags?}], tags, sheet (the cell grid and clips the bake will write), sheetWarnings?}; "
+        "a layer with cels lists `celFrames`, the frames where it changes. "
         "Read-only. Example: {\"path\":\"assets/art/hero.image.json\"}",
         R"({"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"The image document, project-relative."}}})", image_info, true);
 

@@ -7,6 +7,7 @@
 #include "fa/core/strings.h"
 #include "fa/tooling/style_guide.h"
 #include "image_edit.h"
+#include "image_frames.h"
 #include "util.h"
 
 namespace fa::imgedit {
@@ -244,8 +245,9 @@ Json layer_summary(const LayerRef& r) {
 
 Json image_edit(const std::string& projectDir, const Json& a) {
     const char* cmd = "image.edit";
-    check_arg_keys(cmd, a, "", {"path", "selection", "layer", "action", "name", "bake"});
+    check_arg_keys(cmd, a, "", {"path", "selection", "layer", "action", "name", "bake", "frame", "onion"});
     DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd);
+    FrameScope frameScope(projectDir, d.rel, d.json, a, cmd);
     const int W = d.json.value("width", 0), H = d.json.value("height", 0);
     if (!a.contains("selection") || !a["selection"].is_string())
         arg_error(cmd, "/selection", "`selection` is required: the name of a selection made with image.select (or \"all\").",
@@ -442,8 +444,9 @@ Json image_edit(const std::string& projectDir, const Json& a) {
 
 Json image_paint(const std::string& projectDir, const Json& a) {
     const char* cmd = "image.paint";
-    check_arg_keys(cmd, a, "", {"path", "layer", "strokes", "create", "selection", "bake"});
+    check_arg_keys(cmd, a, "", {"path", "layer", "strokes", "create", "selection", "bake", "frame", "onion"});
     DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd);
+    FrameScope frameScope(projectDir, d.rel, d.json, a, cmd);
     const int W = d.json.value("width", 0), H = d.json.value("height", 0);
     if (!a.contains("layer") || a["layer"].is_null())
         arg_error(cmd, "/layer", "`layer` is required: the layer to paint on (a name or index path).", "Example: \"layer\":\"paint\" with \"create\":true to make it. " + describe_layers(d.json, 12));
@@ -613,6 +616,7 @@ void register_pixel_commands(CommandRegistry& registry, const std::string& proje
             "pivot":{"type":"array","items":{"type":"number"},"description":"transform: [x, y] canvas point the transform turns around."}}},
           "name":{"type":"string","description":"copy / cut: the new layer's name (default: '<layer> copy' / '<layer> cut')."},
           "bake":{"type":"boolean","default":true,"description":"Bake the document to its PNG after the edit."}}})");
+        add_frame_support(info, "to edit");
         registry.add(info, [projectDir](const Json& args) { return image_edit(projectDir, args); });
     }
     {
@@ -644,6 +648,7 @@ void register_pixel_commands(CommandRegistry& registry, const std::string& proje
             "erase":{"type":"boolean","default":false,"description":"Lower the alpha instead of painting."},
             "spacing":{"type":"number","minimum":0.01,"maximum":512,"description":"Pixels of arc length between stamps (default size/5, at least 1)."}}}},
           "bake":{"type":"boolean","default":true,"description":"Bake the document to its PNG after painting."}}})");
+        add_frame_support(info, "to paint on");
         registry.add(info, [projectDir](const Json& args) { return image_paint(projectDir, args); });
     }
 }

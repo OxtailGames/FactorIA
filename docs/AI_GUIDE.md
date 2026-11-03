@@ -1442,7 +1442,7 @@ assets_import {"source":"C:/art/hero.aseprite","license":"CC-BY 4.0","author":"A
 - **Say where it came from.** Pass `license` and `author` for anything you did not make (the credits and the store
   disclosures read them), `ai: true` for what an AI made, and `sourceUrl` for the page you downloaded it from. A URL is
   not read: download the file first. `path` picks the destination (a path under `assets/`, or a folder ending in `/`).
-- **Formats.** Aseprite becomes a PNG sheet with its tags as clips, PSD a layered image document (`*.image.json`, one PNG per layer) baked to a PNG, OBJ (with its MTL and textures) a `.gltf`,
+- **Formats.** Aseprite becomes an image document with its layers, frames and tags (baked to a sprite sheet whose clips are the tags; `flat: true` makes only the PNG sheet), PSD a layered image document (`*.image.json`, one PNG per layer) baked to a PNG, OBJ (with its MTL and textures) a `.gltf`,
   FBX a `.glb` (through FBX2glTF or Blender; the error says where to get one), a video (`.mp4`, `.mov`, `.webm`...) an
   `.mpg` (MPEG-1 + MP2, through ffmpeg: `factoria setup ffmpeg`) for the `Video` component. Images, sounds, fonts, GLB and
   glTF are copied. Not read: `.blend`, WebP, GIF, SVG (`assets_rasterize_svg` makes the PNG). The full list is in `docs_read {"name":"assets"}`.

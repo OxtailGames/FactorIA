@@ -6,6 +6,7 @@
 #include "fa/tooling/project_fs.h"
 #include "image_doc_internal.h"
 #include "image_edit.h"
+#include "image_frames.h"
 #include "util.h"
 
 namespace fa::assets_detail {
@@ -46,6 +47,7 @@ void register_image_commands(CommandRegistry& registry, const std::string& proje
     imgedit::register_select_commands(registry, projectDir);
     imgedit::register_pixel_commands(registry, projectDir);
     imgedit::register_indexed_commands(registry, projectDir);
+    imgedit::register_frame_commands(registry, projectDir);
     {
         CommandInfo info;
         info.name = "image.bake";
@@ -57,6 +59,8 @@ void register_image_commands(CommandRegistry& registry, const std::string& proje
             "(hero.image.json -> hero.png, or the document's `output`). Bytes are deterministic: the same document and files give the same PNG. "
             "Records provenance and the recipe {command image.bake, args {path}, inputs: the document and every file it reads} in assets.json, so "
             "assets.regenerate remakes the PNG and `factoria validate` warns when the document or a source file changed since (stale). "
+            "A document with `frames` or `tags` bakes a SPRITE SHEET (the frames in a grid) and records its SpriteAnimator clips, one per tag, in the "
+            "`sheet` entry of the PNG, returned as `sheet`. "
             "A picture with a provider layer, or built from AI-made files, is recorded as AI-made. The result has the picture as `$image`, its size and any warnings. "
             "A problem in the document is an error with the file, the JSON pointer and a fix. Format and layers: docs.read IMAGES. "
             "Example: {\"path\":\"assets/art/hero.image.json\"}";
@@ -76,7 +80,8 @@ void register_image_commands(CommandRegistry& registry, const std::string& proje
         info.summary = "Check an image document, write it to a *.image.json file and bake its PNG; nothing is written when the document has a problem.";
         info.description =
             "Validates `document` (the layered image document as JSON: canvas width and height, background, layers bottom first; see docs.read IMAGES), "
-            "writes it to `path` (project-relative, ending in .image.json) as canonical JSON and bakes the PNG like image.bake. A problem in the "
+            "writes it to `path` (project-relative, ending in .image.json) as canonical JSON and bakes the PNG like image.bake (an animated document "
+            "-- `frames`, `tags`, `cels` -- bakes a sprite sheet and its clips). A problem in the "
             "document is an error naming the JSON pointer (/layers/2/blend), what is wrong and how to fix it, and writes nothing. "
             "Example: {\"path\":\"assets/art/sky.image.json\",\"document\":{\"width\":128,\"height\":128,\"layers\":[{\"kind\":\"gradient\","
             "\"gradient\":{\"angle\":0,\"stops\":[{\"at\":0,\"color\":\"#102040\"},{\"at\":1,\"color\":\"#e08040\"}]}},{\"kind\":\"text\",\"text\":\"Hi\",\"size\":32,\"x\":8,\"y\":8}]}}";

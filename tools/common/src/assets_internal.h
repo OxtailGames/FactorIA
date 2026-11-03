@@ -49,6 +49,7 @@ struct ImportRequest {
     stdfs::path source;  // absolute path of the file to import
     std::string dest;    // project-relative path of files[0] (the folder of the sidecars)
     int columns = 0;     // aseprite: columns of the sheet (0 = ceil(sqrt(frames)))
+    bool flat = false;   // aseprite: one PNG sprite sheet and its `sheet` entry, no image document
 };
 
 Result<ImportOutput> import_aseprite(const ImportRequest& request);

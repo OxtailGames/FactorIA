@@ -1985,7 +1985,7 @@ Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF, MP4...) in
 Copies or converts `source` (an absolute path on this machine, or relative to the project) into assets/ and writes its provenance (origin imported, source, license, author, ai, date) in assets.json, so credits and store disclosures can be made later. The importer is chosen by the extension:
 - .png .jpg .tga .bmp, .wav .ogg .mp3 .qoa, .ttf .otf: copied as they are (images are checked to decode).
 - .gltf and .glb: copied with the .bin buffers and images their uris point at, which must sit next to the model or below it (a missing buffer is an error, a missing image a warning). An identical file already there is shared; a DIFFERENT image with the same name is kept and the result warns (kits ship different Textures/colormap.png files: import each kit into its own folder with `path`, or pass overwrite), and a DIFFERENT buffer is an `exists` error. project.validate reports a model whose texture or buffer is missing.
-- .aseprite .ase: becomes ONE PNG sprite sheet (frames in a grid, `columns` per row, default ceil(sqrt(frames))) and the `sheet` entry of assets.json: columns, rows, frameWidth, frameHeight, frames and a clip per tag (firstFrame, lastFrame, fps from the frame durations). Hidden layers are left out, layer and cel opacity apply, RGBA, grayscale and indexed colors work. Blend modes other than normal are drawn as normal, and ping-pong or reverse tags become forward clips (set SpriteAnimator.mode to play them that way); the result says so. The result lists the Sprite and SpriteAnimator settings that play it.
+- .aseprite .ase: becomes an image document (<name>.image.json, one PNG per layer and changing cel in <name>.layers/) and the sprite sheet is baked from it: layers (hidden ones kept hidden; groups are flattened, their visibility and opacity kept), cels (a cel the file links to an earlier frame is a `link`), frame durations, tags (name, range, direction, repeat count) and blend modes. An indexed file stays an INDEXED document with its palette when the colors fit (opaque, at most 81); otherwise the layers are pixels layers and the result says why. Tags become the clips of the baked sheet's `sheet` entry (frames in a grid, `columns` per row, default ceil(sqrt(cells)); a reverse, ping-pong or repeated tag gets extra cells so it plays that way), so a SpriteAnimator plays a tag by clip name. A file with one frame and no tags bakes a plain PNG. Edit the result with image.* (image.pixel, image.draw, image.edit and image.paint take a `frame`; image.frame.* and image.tag.* change the animation). Not kept: tilemap layers, reference layers, cel z-indexes, the blend mode of a group and the 'divide' blend mode (the result warns). Pass flat: true for the old result: ONE PNG sprite sheet and the `sheet` entry of assets.json (columns, rows, frameWidth, frameHeight, frames and a clip per tag, fps from the frame durations), no document and no layers; hidden layers are left out, blend modes other than normal are drawn as normal and ping-pong or reverse tags become forward clips (the result says so). The result lists the Sprite and SpriteAnimator settings that play the sheet.
 - .psd: the layers become an image document (<name>.image.json, one PNG per layer in <name>.layers/; names, opacity, visibility, blend modes, clipping, groups and layer masks are kept) and the PNG is baked from it; a file whose layers cannot be read imports its merged image as a PNG with a warning.
 - .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are triangulated, objects/groups/materials become separate meshes, missing normals give flat shading, and the result has the bounds so you can scale it.
 - .fbx: converted to .glb by FBX2glTF ($FACTORIA_FBX2GLTF or PATH) or by Blender (PATH or its install folder). With neither installed the error says where to get them.
@@ -2000,7 +2000,8 @@ Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts 
 | `author` | string | no | Who made it. Recorded in assets.json for the credits. |
 | `sourceUrl` | string | no | Where the file came from (a page URL). Recorded as the provenance source instead of the local path. |
 | `ai` | boolean | no | Set true when AI made the content elsewhere (Steam's AI disclosure reads it). Leave out when unknown. |
-| `columns` | integer | no | Aseprite only: frames per row of the sheet (default ceil(sqrt(frames))). |
+| `columns` | integer | no | Aseprite only: frames per row of the baked sprite sheet (default ceil(sqrt(frames))); recorded as `sheet.columns` of the document. |
+| `flat` | boolean | no | Aseprite only: skip the image document and write ONE PNG sprite sheet with its `sheet` entry (the layers are flattened, a ping-pong or reverse tag becomes a forward clip). Default false. |
 | `overwrite` | boolean | no | Replace files that already exist. Default false. |
 
 ### `assets.list`
@@ -2817,7 +2818,7 @@ Not released yet (on main after 0.14.1).
 
 Draw a layered image document (*.image.json) into its PNG and return the picture.
 
-Composites the layers of the image document at `path` (project-relative, ending in .image.json) on the CPU and writes the PNG next to it (hero.image.json -> hero.png, or the document's `output`). Bytes are deterministic: the same document and files give the same PNG. Records provenance and the recipe {command image.bake, args {path}, inputs: the document and every file it reads} in assets.json, so assets.regenerate remakes the PNG and `factoria validate` warns when the document or a source file changed since (stale). A picture with a provider layer, or built from AI-made files, is recorded as AI-made. The result has the picture as `$image`, its size and any warnings. A problem in the document is an error with the file, the JSON pointer and a fix. Format and layers: docs.read IMAGES. Example: {"path":"assets/art/hero.image.json"}
+Composites the layers of the image document at `path` (project-relative, ending in .image.json) on the CPU and writes the PNG next to it (hero.image.json -> hero.png, or the document's `output`). Bytes are deterministic: the same document and files give the same PNG. Records provenance and the recipe {command image.bake, args {path}, inputs: the document and every file it reads} in assets.json, so assets.regenerate remakes the PNG and `factoria validate` warns when the document or a source file changed since (stale). A document with `frames` or `tags` bakes a SPRITE SHEET (the frames in a grid) and records its SpriteAnimator clips, one per tag, in the `sheet` entry of the PNG, returned as `sheet`. A picture with a provider layer, or built from AI-made files, is recorded as AI-made. The result has the picture as `$image`, its size and any warnings. A problem in the document is an error with the file, the JSON pointer and a fix. Format and layers: docs.read IMAGES. Example: {"path":"assets/art/hero.image.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2851,7 +2852,7 @@ Not released yet (on main after 0.14.1).
 
 Draw pixel-exact shapes (lines, rectangles, ellipses, polygons, flood fills) onto an indexed pixel-art layer by palette colour.
 
-Each shape of `shapes` is drawn in order on the indexed layer `layer` (see image.pixel for `layer`, `create`, coordinates and colours); no anti-aliasing: a pixel is either set or not. Shapes: line {points [[x,y],...] (a polyline), color, perfect?, closed?} (Bresenham; `perfect: true` removes the L-corners of a bending line so it is one pixel thick everywhere); rect {x, y, width, height, color?, fill?}; ellipse {x, y, width, height, color?, fill?} (inscribed in the box, midpoint algorithm, any odd or even size); polygon {points (>= 3), color?, fill?}; fill {at [x,y], color, connectivity? 4|8} (flood fill of the layer's pixels connected to `at` that hold the same colour or transparency; 4 does not leak through diagonal gaps). For rect, ellipse and polygon `color` is the outline and `fill` the inside: a colour, or true for `color`; give either or both (the fill is drawn first, so the outline stays). Result as image.pixel (`region`, `pixelsSet`, `$image` magnified with hard pixels). Example: {"path":"assets/art/hero.image.json","layer":"sprite","create":true,"shapes":[{"type":"ellipse","x":2,"y":2,"width":12,"height":12,"fill":"skin","color":"outline"},{"type":"line","points":[[2,14],[8,10],[14,14]],"color":"outline","perfect":true},{"type":"fill","at":[8,8],"color":"skin-light"}]}
+Each shape of `shapes` is drawn in order on the indexed layer `layer` (see image.pixel for `layer`, `create`, coordinates and colours); no anti-aliasing: a pixel is either set or not. Shapes: line {points [[x,y],...] (a polyline), color, perfect?, closed?} (Bresenham; `perfect: true` removes the L-corners of a bending line so it is one pixel thick everywhere); rect {x, y, width, height, color?, fill?}; ellipse {x, y, width, height, color?, fill?} (inscribed in the box, midpoint algorithm, any odd or even size); polygon {points (>= 3), color?, fill?}; fill {at [x,y], color, connectivity? 4|8} (flood fill of the layer's pixels connected to `at` that hold the same colour or transparency; 4 does not leak through diagonal gaps). For rect, ellipse and polygon `color` is the outline and `fill` the inside: a colour, or true for `color`; give either or both (the fill is drawn first, so the outline stays). Result as image.pixel (`region`, `pixelsSet`, `$image` magnified with hard pixels). Example: {"path":"assets/art/hero.image.json","layer":"sprite","create":true,"shapes":[{"type":"ellipse","x":2,"y":2,"width":12,"height":12,"fill":"skin","color":"outline"},{"type":"line","points":[[2,14],[8,10],[14,14]],"color":"outline","perfect":true},{"type":"fill","at":[8,8],"color":"skin-light"}]} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to draw on: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2861,6 +2862,8 @@ Each shape of `shapes` is drawn in order on the indexed layer `layer` (see image
 | `shapes` | array | yes | The shapes, drawn in order. |
 | `scale` | integer | no | Magnification of the preview picture (default: automatic). |
 | `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+| `frame` | integer | no | Which frame of an animated document to draw on (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
+| `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
 
 ### `image.edit` (modifies state)
 
@@ -2868,7 +2871,7 @@ Not released yet (on main after 0.14.1).
 
 Change the selected pixels of one layer of an image document: fill, recolor, move, transform (scale, rotate, flip), delete, copy or cut to a new layer.
 
-Applies `action` to the pixels of `layer` inside the stored `selection` (made with image.select; "all" is the whole canvas). Actions: fill {color, opacity?}; recolor {hueShift degrees, saturation -1..1, value -1..1} or {from, to, tolerance?, keepShading?}; move {dx, dy, copy?} (whole pixels; the selection moves along unless moveSelection is false); transform {scale number or [sx,sy], rotate degrees clockwise, flipH, flipV, filter nearest|bilinear, pivot [x,y]} (the selected pixels are lifted, transformed around the pivot - default their middle - and put back; the default filter is nearest when the project's style guide says pixelArt, else bilinear); delete (the selected pixels become transparent); copy and cut {name?} (the selected pixels become a new pixels layer above `layer`; cut also clears them). POLICY FOR OTHER LAYER KINDS: a pixels layer's PNG is edited in place (an AI-generated image keeps that mark, the edit is added to its provenance). A shape, gradient, text or other non-pixel layer is first rasterized: it becomes a pixels layer (its masks, adjustments and effects are baked into the pixels, its blend, opacity and visibility stay) with a new PNG in <document>.layers/ and a warning says so. Groups and adjustment layers cannot be edited this way. A layer with masks keeps its box (the masks are in its own pixels), so pixels moved outside it are dropped (a warning counts them); other layers grow to hold what you move into the canvas. Result: the baked document plus `region` {x,y,width,height} of the changed pixels, `changed` and the picture as `$image`. Example: {"path":"assets/art/hero.image.json","selection":"cape","layer":"hero","action":{"type":"recolor","hueShift":120}}
+Applies `action` to the pixels of `layer` inside the stored `selection` (made with image.select; "all" is the whole canvas). Actions: fill {color, opacity?}; recolor {hueShift degrees, saturation -1..1, value -1..1} or {from, to, tolerance?, keepShading?}; move {dx, dy, copy?} (whole pixels; the selection moves along unless moveSelection is false); transform {scale number or [sx,sy], rotate degrees clockwise, flipH, flipV, filter nearest|bilinear, pivot [x,y]} (the selected pixels are lifted, transformed around the pivot - default their middle - and put back; the default filter is nearest when the project's style guide says pixelArt, else bilinear); delete (the selected pixels become transparent); copy and cut {name?} (the selected pixels become a new pixels layer above `layer`; cut also clears them). POLICY FOR OTHER LAYER KINDS: a pixels layer's PNG is edited in place (an AI-generated image keeps that mark, the edit is added to its provenance). A shape, gradient, text or other non-pixel layer is first rasterized: it becomes a pixels layer (its masks, adjustments and effects are baked into the pixels, its blend, opacity and visibility stay) with a new PNG in <document>.layers/ and a warning says so. Groups and adjustment layers cannot be edited this way. A layer with masks keeps its box (the masks are in its own pixels), so pixels moved outside it are dropped (a warning counts them); other layers grow to hold what you move into the canvas. Result: the baked document plus `region` {x,y,width,height} of the changed pixels, `changed` and the picture as `$image`. Example: {"path":"assets/art/hero.image.json","selection":"cape","layer":"hero","action":{"type":"recolor","hueShift":120}} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to edit: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2878,6 +2881,8 @@ Applies `action` to the pixels of `layer` inside the stored `selection` (made wi
 | `action` | object | yes | What to do. type: fill, recolor, move, transform, delete, copy, cut. See the command description for each action's fields. |
 | `name` | string | no | copy / cut: the new layer's name (default: '<layer> copy' / '<layer> cut'). |
 | `bake` | boolean | no | Bake the document to its PNG after the edit. Default true. |
+| `frame` | integer | no | Which frame of an animated document to edit (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
+| `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
 
 ### `image.export` (modifies state)
 
@@ -2885,7 +2890,7 @@ Not released yet (on main after 0.14.1).
 
 Write the flattened picture of a document, or one layer or group of it, to a PNG, optionally scaled or trimmed.
 
-Draws the document at `path` (or only `layer`, by name or index path, with its masks, adjustments and effects but at full opacity and normal blend; the offsets of the groups around it count) and writes a PNG to `out`. `scale` resizes (0.01..16) with `filter` nearest (pixel art) or bilinear; the default filter is nearest when assets.json style.pixelArt is true, else bilinear. `trim` crops to the pixels that show. The PNG is a plain copy, not baked from the document. Refuses to replace an existing file unless overwrite is true. Example: {"path":"assets/art/hero.image.json","out":"assets/art/hero-x2.png","scale":2}
+Draws the document at `path` (or only `layer`, by name or index path, with its masks, adjustments and effects but at full opacity and normal blend; the offsets of the groups around it count) and writes a PNG to `out`. `scale` resizes (0.01..16) with `filter` nearest (pixel art) or bilinear; the default filter is nearest when assets.json style.pixelArt is true, else bilinear. `trim` crops to the pixels that show. The PNG is a plain copy, not baked from the document. Refuses to replace an existing file unless overwrite is true. Example: {"path":"assets/art/hero.image.json","out":"assets/art/hero-x2.png","scale":2} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to export: the picture of that frame is written.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2896,6 +2901,100 @@ Draws the document at `path` (or only `layer`, by name or index path, with its m
 | `trim` | boolean | no | Crop to the pixels that are not transparent. Default false. |
 | `filter` | string ["nearest","bilinear"] | no | How scale resamples. Default: nearest for pixel-art projects, else bilinear. |
 | `overwrite` | boolean | no | Replace `out` when it exists. Default false. |
+| `frame` | integer | no | Which frame of an animated document to export (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
+
+### `image.frame.add` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Add frames to an image document (making it an animation), copying a frame or blank, and keep the tags in place.
+
+Inserts `count` frames at `at` (0..number of frames; default: at the end). Each new frame shows what frame `from` shows (default the frame before `at`, or frame 0 when `at` is 0), or nothing with `blank: true`, on every pixels and indexed layer; layers of other kinds are the same in every frame. A document with no `frames` is one frame, so the first call makes it an animation (it then bakes to a sprite sheet next to the document). `duration` is the new frames' time in milliseconds (default: the copied frame's, 100 for a new animation). Tags after `at` move along; a tag the new frames land inside grows. Draw on a frame with image.pixel / image.draw / image.edit / image.paint and `frame`. Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","count":3} makes a 4-frame animation of the same picture.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `at` | integer | no | Where the new frames go (default: after the last frame). Existing frames from here on move up. |
+| `from` | integer | no | The frame the new frames copy (default: the frame before `at`). |
+| `blank` | boolean | no | The new frames show nothing on pixels and indexed layers. Not with `from`. Default false. |
+| `count` | integer | no | How many frames to add. Default 1. |
+| `duration` | integer | no | Milliseconds each new frame shows (default: the copied frame's). |
+| `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
+
+### `image.frame.cel` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Make a layer show in one frame what it shows in another, or show nothing there.
+
+A pixels or indexed layer has a picture (cel) per frame. This sets the cel of `layer` in `frame`: `from` copies what the layer shows in that frame (the two frames share one file or one set of rows), `clear: true` shows nothing. Use it to reuse a pose (a walk cycle's legs) or hide a layer in some frames. Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","layer":"legs","frame":4,"from":0}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `layer` | any | yes | A pixels or indexed layer: its name or an index path like "1/0". |
+| `frame` | integer | yes | The frame whose cel changes. |
+| `from` | integer | no | Show what the layer shows in this frame. |
+| `clear` | boolean | no | true: the layer shows nothing in `frame`. Not with `from`. |
+| `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
+
+### `image.frame.move` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Move a frame to another place in the animation; tags follow their frames.
+
+Takes frame `frame` out and puts it back so that it is frame `to` (the frames in between shift by one), on every layer, with its duration. A tag keeps its frames; when the move leaves them not in one run, the tag covers the run from the first to the last and a warning says so. Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","frame":3,"to":0}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `frame` | integer | yes | The frame to move. |
+| `to` | integer | yes | The place it ends up at. |
+| `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
+
+### `image.frame.remove` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Remove one frame of an animated image document; later frames and tags move down.
+
+Deletes frame `frame` from every layer and from `frames`. Tags after it move down; a tag that held the frame shrinks (a tag that was only that frame is removed, with a warning). The last frame cannot be removed; when one frame is left and there are no tags the document is a plain still image again. Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","frame":2}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `frame` | integer | yes | The frame to remove (0 = the first). |
+| `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
+
+### `image.frame.set` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Set how long frames show, in milliseconds.
+
+`frame` is one frame number, a range [first, last] (inclusive) or "all"; `duration` is the milliseconds each of them shows (1..60000). A clip of the baked sheet plays at one speed: tags whose frames have different durations get extra cells that spell the timing out (the bake warns when a duration cannot be kept exactly). Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","frame":"all","duration":80}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `frame` | any | yes | A frame number, a range [first, last] or "all". |
+| `duration` | integer | yes | Milliseconds each of those frames shows (100 = 10 frames per second). |
+| `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
+
+### `image.frame.sheet` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Choose how many frames the baked sprite sheet has per row.
+
+The bake of an animated document is a sprite sheet. `columns` sets the frames (cells) per row; null goes back to the automatic grid (about square). The cells are all the size of the canvas. Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","columns":8}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `columns` | any | yes | Cells per row (1..1024), or null for the automatic grid. |
+| `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
 
 ### `image.info`
 
@@ -2903,7 +3002,7 @@ Not released yet (on main after 0.14.1).
 
 Describe a layered image document: its layers as a tree with index paths, sizes, bake status, the files it reads and its stored selections.
 
-Reads the document at `path` and returns {document, width, height, background, valid, problems?, palette?: {source, colors, ramps} (when it has one: image.palette lists it), layers: [{index, pointer, name, kind, visible, opacity, blend, x, y, size?, source?, masks?, adjustments?, effects?, children?}], inputs, bake: {state, path, reason}, selections, $image}. `index` is the index path other image.* commands take in `layer` ("1/0"); names work too. `bake.state` is fresh, missing, stale, unrecorded or broken. `$image` is the baked PNG when it exists. Read-only. Example: {"path":"assets/art/hero.image.json"}
+Reads the document at `path` and returns {document, width, height, background, valid, problems?, palette?: {source, colors, ramps} (when it has one: image.palette lists it), layers: [{index, pointer, name, kind, visible, opacity, blend, x, y, size?, source?, masks?, adjustments?, effects?, children?}], inputs, bake: {state, path, reason}, selections, $image}. `index` is the index path other image.* commands take in `layer` ("1/0"); names work too. `bake.state` is fresh, missing, stale, unrecorded or broken. `$image` is the baked PNG when it exists. An animated document (docs.read IMAGES, "Frames and tags") also has `animation`: {frameCount, totalMs, frames: [{frame, duration, tags?}], tags, sheet (the cell grid and clips the bake will write), sheetWarnings?}; a layer with cels lists `celFrames`, the frames where it changes. Read-only. Example: {"path":"assets/art/hero.image.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2997,7 +3096,7 @@ Not released yet (on main after 0.14.1).
 
 Paint round-brush strokes onto a pixels layer of an image document (deterministic stamping), creating the layer's PNG when asked.
 
-Each stroke {points [[x,y],...], size, color, hardness?, opacity?, erase?, spacing?} stamps a round brush of diameter `size` along the polyline: one stamp at the first point, then one every `spacing` pixels (default a fifth of the size, at least 1) of arc length, and one at the last point. A pixel gets the largest coverage any stamp of the stroke gives it, so a stroke does not darken where it crosses itself; `opacity` then scales the whole stroke, `hardness` 1 is a hard edge (half a pixel anti-aliased) and lower values fade from hardness*radius to the edge. `erase: true` lowers the alpha instead of painting. Strokes apply in order and the same input always gives the same pixels (no randomness, no pressure). `layer` is a name or an index path; an unknown name with `create: true` makes a new empty pixels layer at the top of the document. A non-pixel layer is rasterized first, as in image.edit (a warning says so). `selection` limits the painting to a stored selection. Coordinates are canvas pixels; the layer grows to hold what is painted (a layer with masks keeps its box). Result: the baked document, `region`, `changed`, `stamps` and the picture as `$image`. Example: {"path":"assets/art/hero.image.json","layer":"paint","create":true,"strokes":[{"points":[[4,4],[40,20]],"size":3,"color":"#ff0000"}]}
+Each stroke {points [[x,y],...], size, color, hardness?, opacity?, erase?, spacing?} stamps a round brush of diameter `size` along the polyline: one stamp at the first point, then one every `spacing` pixels (default a fifth of the size, at least 1) of arc length, and one at the last point. A pixel gets the largest coverage any stamp of the stroke gives it, so a stroke does not darken where it crosses itself; `opacity` then scales the whole stroke, `hardness` 1 is a hard edge (half a pixel anti-aliased) and lower values fade from hardness*radius to the edge. `erase: true` lowers the alpha instead of painting. Strokes apply in order and the same input always gives the same pixels (no randomness, no pressure). `layer` is a name or an index path; an unknown name with `create: true` makes a new empty pixels layer at the top of the document. A non-pixel layer is rasterized first, as in image.edit (a warning says so). `selection` limits the painting to a stored selection. Coordinates are canvas pixels; the layer grows to hold what is painted (a layer with masks keeps its box). Result: the baked document, `region`, `changed`, `stamps` and the picture as `$image`. Example: {"path":"assets/art/hero.image.json","layer":"paint","create":true,"strokes":[{"points":[[4,4],[40,20]],"size":3,"color":"#ff0000"}]} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to paint on: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3007,6 +3106,8 @@ Each stroke {points [[x,y],...], size, color, hardness?, opacity?, erase?, spaci
 | `selection` | string | no | A stored selection (image.select) that limits where the strokes paint. |
 | `strokes` | array | yes | The strokes, painted in order. |
 | `bake` | boolean | no | Bake the document to its PNG after painting. Default true. |
+| `frame` | integer | no | Which frame of an animated document to paint on (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
+| `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
 
 ### `image.palette` (modifies state)
 
@@ -3029,7 +3130,7 @@ Not released yet (on main after 0.14.1).
 
 Write exact pixels (a list, runs or a text stamp) onto an indexed pixel-art layer by palette colour; no anti-aliasing.
 
-Draws on an INDEXED layer (kind "indexed": the pixels are palette indices; docs.read IMAGES, "Pixel art"). `layer` is its name or index path; an unknown name with `create: true` makes a new blank indexed layer (canvas-sized, on top). Coordinates are canvas pixels (the layer's own offset and its groups' are accounted for); pixels outside the layer are dropped and counted in a warning. Three forms, applied in this order: `pixels` [[x, y, colour], ...]; `runs` [[x, y, length, colour], ...] (horizontal, to the right); `stamp` {x, y, rows: ["..11..", ".1221."], clear?} (text rows in the document's own characters: '.' is transparent and leaves the pixel alone unless `clear` is true). A colour is a palette index, name or colour; a colour not in the palette is an error with the nearest one. {"step": -1} shades the pixel one step along its colour ramp (see image.palette). When the document has no `palette` yet, the style palette is copied into it. Result: the baked document, `region` {x,y,width,height} of the changed pixels, `pixelsSet`, `changed`, and `$image` = the picture magnified with hard pixels (`previewScale`, default as large as fits 512 pixels). Example: {"path":"assets/art/hero.image.json","layer":"sprite","create":true,"pixels":[[3,4,"skin"],[4,4,2]],"runs":[[2,6,5,"outline"]]}
+Draws on an INDEXED layer (kind "indexed": the pixels are palette indices; docs.read IMAGES, "Pixel art"). `layer` is its name or index path; an unknown name with `create: true` makes a new blank indexed layer (canvas-sized, on top). Coordinates are canvas pixels (the layer's own offset and its groups' are accounted for); pixels outside the layer are dropped and counted in a warning. Three forms, applied in this order: `pixels` [[x, y, colour], ...]; `runs` [[x, y, length, colour], ...] (horizontal, to the right); `stamp` {x, y, rows: ["..11..", ".1221."], clear?} (text rows in the document's own characters: '.' is transparent and leaves the pixel alone unless `clear` is true). A colour is a palette index, name or colour; a colour not in the palette is an error with the nearest one. {"step": -1} shades the pixel one step along its colour ramp (see image.palette). When the document has no `palette` yet, the style palette is copied into it. Result: the baked document, `region` {x,y,width,height} of the changed pixels, `pixelsSet`, `changed`, and `$image` = the picture magnified with hard pixels (`previewScale`, default as large as fits 512 pixels). Example: {"path":"assets/art/hero.image.json","layer":"sprite","create":true,"pixels":[[3,4,"skin"],[4,4,2]],"runs":[[2,6,5,"outline"]]} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to draw on: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3041,6 +3142,8 @@ Draws on an INDEXED layer (kind "indexed": the pixels are palette indices; docs.
 | `stamp` | object | no | A little picture in text rows placed at (x, y). |
 | `scale` | integer | no | Magnification of the preview picture (default: automatic). |
 | `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+| `frame` | integer | no | Which frame of an animated document to draw on (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
+| `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
 
 ### `image.save` (modifies state)
 
@@ -3048,7 +3151,7 @@ Not released yet (on main after 0.14.1).
 
 Check an image document, write it to a *.image.json file and bake its PNG; nothing is written when the document has a problem.
 
-Validates `document` (the layered image document as JSON: canvas width and height, background, layers bottom first; see docs.read IMAGES), writes it to `path` (project-relative, ending in .image.json) as canonical JSON and bakes the PNG like image.bake. A problem in the document is an error naming the JSON pointer (/layers/2/blend), what is wrong and how to fix it, and writes nothing. Example: {"path":"assets/art/sky.image.json","document":{"width":128,"height":128,"layers":[{"kind":"gradient","gradient":{"angle":0,"stops":[{"at":0,"color":"#102040"},{"at":1,"color":"#e08040"}]}},{"kind":"text","text":"Hi","size":32,"x":8,"y":8}]}}
+Validates `document` (the layered image document as JSON: canvas width and height, background, layers bottom first; see docs.read IMAGES), writes it to `path` (project-relative, ending in .image.json) as canonical JSON and bakes the PNG like image.bake (an animated document -- `frames`, `tags`, `cels` -- bakes a sprite sheet and its clips). A problem in the document is an error naming the JSON pointer (/layers/2/blend), what is wrong and how to fix it, and writes nothing. Example: {"path":"assets/art/sky.image.json","document":{"width":128,"height":128,"layers":[{"kind":"gradient","gradient":{"angle":0,"stops":[{"at":0,"color":"#102040"},{"at":1,"color":"#e08040"}]}},{"kind":"text","text":"Hi","size":32,"x":8,"y":8}]}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3083,6 +3186,38 @@ Builds a selection: a coverage (0..255) per canvas pixel. `by` picks how: color 
 | `width` | number | no | rect / ellipse: width of the box. |
 | `height` | number | no | rect / ellipse: height of the box. |
 | `points` | array | no | polygon: the corners [[x,y],...], at least three. |
+
+### `image.tag.remove` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Remove a tag (and so its clip) from an image document.
+
+Deletes the tag `name`; the frames stay. The next bake drops its clip from the sheet entry. Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","name":"walk"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `name` | string | yes | The tag to remove. |
+| `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
+
+### `image.tag.set` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Name a run of frames (a tag); the bake makes a SpriteAnimator clip of it.
+
+Creates the tag `name`, or changes it when it exists (omitted fields keep their value): frames `from` to `to` (inclusive), played in `direction` (forward, reverse, pingpong), `repeat` times (0 = the clip loops; N plays N times and stops). The bake writes the clip into the sheet entry of assets.json under that name, so a game plays it with SpriteAnimator `clip` or entity.spriteAnimator.play(name) with no other step. SpriteAnimator plays contiguous cells at one speed, so a tag that is reverse, ping-pong, repeated or has frames of different durations gets extra cells after the frames that spell its order out (image.info shows the sheet with its cells and clips). Tags may overlap. A still image becomes a one-frame animation. Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; docs.read IMAGES, \"Frames and tags\". Example: {"path":"assets/art/hero.image.json","name":"walk","from":0,"to":3}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `name` | string | yes | The tag's name; also the clip name. Unique in the document. |
+| `from` | integer | no | First frame (required for a new tag). |
+| `to` | integer | no | Last frame, inclusive (required for a new tag). |
+| `direction` | string ["forward","reverse","pingpong"] | no | Play order (default forward). pingpong goes to the end and back without repeating the end frames. |
+| `repeat` | integer | no | How many times it plays; 0 (default) loops for ever. |
+| `bake` | boolean | no | Also bake the document to its sprite sheet (default true). False only writes the document. Default true. |
 
 ## game
 

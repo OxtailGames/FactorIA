@@ -7,6 +7,8 @@
 //   image_edit_pixels.cpp    image.edit and image.paint
 //   image_indexed.cpp        image.pixel, image.draw, image.palette, image.layer.convert (indexed pixel-art layers)
 //   image_psd.cpp            the layers of a Photoshop file, for assets.import
+//   image_frames.cpp         the timeline of an animated document and FrameScope (a command working on one frame)
+//   image_frame_commands.cpp image.frame.* and image.tag.*
 #pragma once
 
 #include <cstdint>
@@ -74,7 +76,10 @@ Region changed_region(const Image& before, const Image& after);
 Json bake_result_json(const std::string& projectDir, const ImageBakeResult& r);
 
 // The picture of the document as it is now (None when it does not load: the region then covers the canvas).
+// In an animated document the frame the running command works on (FrameScope in image_frames.h): frame 0 outside one.
 std::optional<Image> render_document_json(const std::string& projectDir, const Json& doc);
+// The same, with the onion skin the command asked for: what the preview shows. Never used to compare pictures.
+std::optional<Image> render_preview_json(const std::string& projectDir, const Json& doc);
 
 // Saves `doc` as `rel` (validates, writes, bakes) after a command changed it, and builds the result: the bake result plus
 // `region` (the box that changed in the picture, compared with `before`), `changed`, and the picture as `$image`.
