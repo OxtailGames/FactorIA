@@ -60,6 +60,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"J2", "Vector panel: an svg opened, a path drawn with the Pen, an anchor moved and made smooth with the Node tool, a marquee and Union, Undo/Redo through the editor's stack, an image document's svg layer edited from the Image panel and baked by Save"},
     {"K3", "Sound panel: a patch opened, a knob turned, played, a selection zoomed, two variants A/B compared at the same loudness, an audio document's chain edited and its loop point dragged, Undo/Redo through the editor's stack, Save bakes the sounds"},
     {"M3", "Music panel: a song opened, a note drawn, moved and deleted on the piano roll, a drum hit, a section repeat and a mute in the mixer, Undo/Redo through the editor's stack, played with a moving playhead, the intensity buttons fading a layer, a looped section, Save bakes the mix and the stems"},
+    {"N3", "Model panel: a model document opened as its operation tree and a live view of the mesh, a node picked to highlight its part, a slider clicked (one model.edit), Undo/Redo through the editor's stack, a node added, switched off and removed, the view orbited, the 1.8 m figure and Check, Save bakes the .glb"},
 };
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).
