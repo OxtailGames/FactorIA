@@ -20,6 +20,10 @@ Pixel art that moves is one image document with frames and tags (docs_read {"nam
 image_pixel / image_draw (`frame`, and `onion: true` to see the neighbouring frames), time it with image_frame_set, name its runs with
 image_tag_set and the bake is a sprite sheet whose clips are the tag names, played with `SpriteAnimator {"clip": "<tag>"}`. An Aseprite
 file imported with assets_import becomes such a document.
+Finish pixel art with the palette-exact helpers (docs_read {"name":"images"}, "Pixel helpers"): image_pixel_outline (flat, darkest of the ramp,
+or selective sel-out), image_pixel_shade (bands from the style's light), image_pixel_dither, image_pixel_cleanup (orphans, doubles, jaggies),
+image_pixel_rotate (RotSprite) and image_pixel_scale; image_to_pixel_art turns a painted layer or a PNG into an indexed layer. All take
+`frames: "all"` and a stored `selection`.
 A character that moves is built in parts (child Sprites with pivots at the joints, bones where a limb bends, IK for feet) and
 animated with the anim.* commands, then judged with anim_filmstrip and anim_check: docs_read {"name":"ai-guide","heading":"9.25.2"}.
 

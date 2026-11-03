@@ -159,6 +159,7 @@ void register_edit_commands(CommandRegistry& registry, const std::string& projec
 void register_select_commands(CommandRegistry& registry, const std::string& projectDir);  // image_select.cpp
 void register_pixel_commands(CommandRegistry& registry, const std::string& projectDir);   // image_edit_pixels.cpp
 void register_indexed_commands(CommandRegistry& registry, const std::string& projectDir);  // image_indexed.cpp
+void register_pixel_helper_commands(CommandRegistry& registry, const std::string& projectDir);  // image_pixel_helpers.cpp
 
 // ---- PSD (image_psd.cpp) ------------------------------------------------------------------------------------------
 
