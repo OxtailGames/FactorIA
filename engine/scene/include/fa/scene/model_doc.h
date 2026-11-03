@@ -60,7 +60,7 @@ struct ModelFieldInfo {
 };
 struct ModelOpInfo {
     std::string op;
-    std::string kind;  // "primitive" (makes geometry; takes `align`), "modifier" (changes the mesh of its `children`) or "group"
+    std::string kind;  // "primitive" (makes geometry; takes `align`), "modifier" (changes the mesh of its `children`), "group", "sdf" (meshes its signed-distance children; takes `align`), "sdf_group" or "sdf_shape" (the nodes inside an sdf)
     std::string doc;   // what it makes, with its orientation and size
     std::vector<ModelFieldInfo> fields;  // the fields of this operation (not the common ones)
 };
