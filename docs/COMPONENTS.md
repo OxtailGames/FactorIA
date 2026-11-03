@@ -5262,6 +5262,39 @@ Outlines text with the engine's own font stack (HarfBuzz shaping: kerning, ligat
 | `letterSpacing` | number | no | Extra space after each letter, in ems. Default 0. |
 | `lineSpacing` | number | no | A multiplier of the font's line height for several lines. Default 1. |
 
+### `vector.to_rig` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Turn an SVG whose named groups are the parts of a character into part pictures, joints and a Bone2D prefab that animates in parts.
+
+Reads a project SVG and makes a character that animates in parts, with no other step. Every group with an id is a PART (a group nested in a group is a child part; ids an editor makes up, like g123, do not count; `parts` names the groups yourself). Each part is drawn alone (its own shapes only, with the transforms and styles of its groups), trimmed, padded and packed into ONE atlas picture (`layout: "atlas"`, default; "files" writes a picture per part). The prefab (default prefabs/<name>.prefab.json) has an entity per part, named by its id, in the hierarchy of the drawing, with a Sprite (region, size, pivot, layer from the SVG order, pixelArt from the style), a Transform at the joint and a Bone2D (length to the farthest child joint). Rotating a part (Transform.rotation.z, in a clip) turns it, and its children, about its joint. JOINTS: a shape with the id <part>-pivot (or <part>_pivot) anywhere in the SVG marks the joint by its centre (it is not drawn); else `pivots` {part: [x, y]} in the drawing; else the `data-pivot="x y"` attribute of the group; else the overlap with the nearest ancestor part that has a picture (its centre, moved to the nearer end of a long part such as an arm); else the top centre of the part. The result says which one was used (`pivotFrom`). HIERARCHY: nesting in the SVG, then the `data-parent` attribute and `parents` {part: parent, "" = root}, then names (`naming`): arm_lower_l hangs from arm_upper_l, and when one of root/body/torso/trunk/hips/pelvis/chest is left with no parent the other parentless parts hang from it. `data-min-angle` / `data-max-angle` on a group set Bone2D.minAngle / maxAngle. Running it again UPDATES the prefab in place: the entities keep their names and everything you added (an Animator, colliders, other children); only Transform.position, Sprite and Bone2D.length are rewritten, new parts are added, and parts that left the SVG are reported (with the clips that name them; `prune: true` removes them). Result: `parts` (parent, pivot, pivotFrom, bone length, region), the atlas, `restPose` {matches, maxDifference, differingPixels} from composing the prefab's sprites and comparing them with the SVG drawn whole, a side-by-side `$image` (SVG left, rig right with a cross at each joint) and `warnings`. The pictures get a provenance recipe in assets.json, so assets.regenerate and `factoria validate` find the rig stale when the SVG changes. SVG y points down, the engine's up: the prefab's y is flipped, and the rig's origin is the bottom centre of the drawing (`origin`). Example: {"source": "assets/art/hero.svg", "pixelsPerUnit": 4}. Docs: docs.read VECTOR (Characters in parts).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | yes | The project-relative .svg whose groups are the parts, e.g. "assets/art/hero.svg". |
+| `out` | string | no | The prefab to write or update, project-relative, ending in .prefab.json. Default prefabs/<name of the svg>.prefab.json. An existing prefab is updated in place (it needs overwrite: true only when none of its entities draws this rig's pictures). |
+| `atlas` | string | no | layout "atlas": the atlas picture, under assets/, ending in .png (default assets/art/<name>_parts.png). layout "files": the folder of the part pictures (default assets/art/<name>_parts). |
+| `layout` | string ["atlas","files"] | no | atlas: one picture and a Sprite.region per part (one texture, fewer draw calls). files: one picture per part. Default "atlas". |
+| `scale` | number | no | Pixels per drawing unit (viewBox unit) the parts are drawn at. Default: the size the SVG declares over its viewBox (usually 1). More pixels = sharper parts. |
+| `pixelsPerUnit` | number | no | Texture pixels per world unit: the sprite and bone sizes are pixels / pixelsPerUnit. Default: the style's texelsPerUnit (assets.json), else `scale`, so one drawing unit is one world unit. |
+| `parts` | any | no | The groups (or shapes) that are parts: an SVG id, a selector or a list of them. Default: every group with an id (and every shape with an id that is outside all of them). A part nested in another is its child. |
+| `pivots` | object | no | Joints by part id, [x, y] in the drawing (viewBox units): {"arm_upper_l": [120, 80]}. They win over markers and guesses. |
+| `parents` | object | no | Parent by part id, overriding the nesting and the names: {"hand_l": "arm_lower_l"}. "" makes the part a child of the rig's root. |
+| `naming` | boolean | no | Use the names to complete the hierarchy: X_lower_Y under X_upper_Y, and a lone root/body/torso/trunk/hips/pelvis/chest as the parent of the other parts that have none. Default true. |
+| `padding` | integer | no | Transparent pixels around each part so filtering does not bleed into the neighbour. Default 2 (1 for pixel art). |
+| `origin` | any | no | Where the rig's root sits in the drawing: "bottom-center" (default, the feet), "center", "top-left" or a point [x, y] in the drawing. |
+| `layer` | integer | no | Sprite.layer of the back-most part; the others follow the order of the SVG (+1 each). Default 0. |
+| `name` | string | no | The name of the prefab's root entity (a prefab that exists keeps its own). Default: the name of the svg. |
+| `prune` | boolean | no | Remove the entities of parts that are not in the SVG any more (they draw this rig's pictures). Default false: they stay and a warning lists them. Default false. |
+| `pixelArt` | boolean | no | Sprite.pixelArt of the parts (nearest-neighbour filtering). Default: the style's pixelArt, else false. Default false. |
+| `overwrite` | boolean | no | Replace pictures not made by this command, and merge into a prefab that does not use this rig's pictures. Default false. |
+| `dryRun` | boolean | no | Compute everything and return the picture and the report; write nothing. Default false. |
+| `previewSize` | integer | no | The longer side of each half of the side-by-side picture. Default 512. |
+| `ai` | boolean | no | Whether the SVG was written by an AI (the default); false for one a person drew, for the provenance. Default true. |
+| `author` | string | no | Who gets the credit in the provenance record. |
+| `license` | string | no | License of the pictures for the provenance record. Default CC0-1.0. |
+
 
 ## Scripting API (TypeScript declarations)
 
