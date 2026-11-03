@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "fa/core/json.h"
+#include "fa/tooling/vector_edit.h"
 
 namespace fa::vec {
 
@@ -175,3 +176,12 @@ struct StrokeStyle {
 std::vector<Poly> stroke_outline(const Path& p, const StrokeStyle& s, double flatTol, const ClipGrid& g);
 
 }  // namespace fa::vec
+
+// ---- nodes (vector_nodes.cpp) -------------------------------------------------------------------------------------
+
+namespace fa {
+// The path model of this file and the anchors-with-handles model of fa/tooling/vector_edit.h, both ways. A closed subpath whose last
+// segment ends on its start shares that node with the first.
+VecNodePath nodes_from_path(const vec::Path& path);
+vec::Path path_from_nodes(const VecNodePath& path);
+}  // namespace fa

@@ -829,6 +829,38 @@ std::string describe_element(const XNode& n) {
     return out;
 }
 
+std::string element_selector(const XNode& n) {
+    std::vector<std::string> parts;
+    for (const XNode* e = &n; e && e->parent; e = e->parent) {
+        const std::vector<XNode*> sib = e->parent->elements();
+        const std::size_t idx = std::size_t(std::find(sib.begin(), sib.end(), e) - sib.begin());
+        parts.push_back(std::format("{}:nth-child({})", e->local(), idx + 1));
+    }
+    std::string out = "svg";
+    for (auto it = parts.rbegin(); it != parts.rend(); ++it) out += " > " + *it;
+    return out;
+}
+
+std::string element_ref(const XNode& n) {
+    const std::string* id = n.attr("id");
+    return id && !id->empty() ? *id : element_selector(n);
+}
+
+std::vector<XNode*> drawable_elements(const SvgDoc& doc) {
+    std::vector<XNode*> out;
+    auto walk = [&](auto&& self, XNode& parent) -> void {
+        for (XNode* k : parent.elements()) {
+            const bool shape = is_shape_element(*k);
+            const bool group = !shape && is_group_element(*k) && k->local() != "svg";
+            if ((!shape && !group) || in_inert_subtree(*k)) continue;
+            out.push_back(k);
+            if (group) self(self, *k);
+        }
+    };
+    walk(walk, *doc.root());
+    return out;
+}
+
 // ---- selectors ---------------------------------------------------------------------------------------------------------
 
 namespace {
