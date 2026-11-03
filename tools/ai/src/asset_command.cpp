@@ -8,6 +8,7 @@
 #include "asset_providers.h"
 #include "fa/core/fs.h"
 #include "fa/core/hash.h"
+#include "fa/core/image.h"
 #include "fa/core/process.h"
 #include "fa/core/strings.h"
 
@@ -28,7 +29,32 @@ Result<AssetResult> command_asset(const ProviderConfig& cfg, const AssetRequest&
     const std::int64_t seed = req.seed ? *req.seed : static_cast<std::int64_t>(std::stoull(sha256_hex(req.prompt).substr(0, 8), nullptr, 16));
     std::string prompt = req.prompt;  // one line: a .cmd/.bat program cannot take line breaks
     std::replace_if(prompt.begin(), prompt.end(), [](char c) { return c == '\n' || c == '\r'; }, ' ');
-    const std::pair<const char*, std::string> subs[] = {{"{prompt}", prompt},
+    // {input} and {mask}: the picture to repaint and where (grey PNG, white = repaint). A plain generation on a program that takes them
+    // gets a transparent canvas and a fully white mask, so the same workflow draws a new picture.
+    const auto uses = [&](const char* token) {
+        return std::any_of(cfg.argv.begin(), cfg.argv.end(), [&](const std::string& a) { return a.find(token) != std::string::npos; });
+    };
+    const fsys::path inputFile = dir / "input.png", maskFile = dir / "mask.png";
+    if (uses("{input}") || uses("{mask}")) {
+        std::string inputBytes = req.editImage, maskBytes = req.editMask;
+        if (inputBytes.empty()) {
+            Image blank;
+            blank.width = std::max(1, req.width);
+            blank.height = std::max(1, req.height);
+            blank.rgba.assign(static_cast<std::size_t>(blank.width) * blank.height * 4, 0);
+            const auto png = encode_png(blank);
+            inputBytes.assign(png.begin(), png.end());
+            for (std::size_t i = 3; i < blank.rgba.size(); i += 4) blank.rgba[i] = 255;
+            for (std::size_t i = 0; i < blank.rgba.size(); i += 4) blank.rgba[i] = blank.rgba[i + 1] = blank.rgba[i + 2] = 255;
+            const auto white = encode_png(blank);
+            maskBytes.assign(white.begin(), white.end());
+        }
+        for (const auto& [file, bytes] : {std::pair<fsys::path, const std::string&>{inputFile, inputBytes}, {maskFile, maskBytes}}) {
+            if (auto w = fs::write_bytes(file.generic_string(), reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size()); !w) return w.error();
+        }
+    }
+    const std::pair<const char*, std::string> subs[] = {{"{input}", inputFile.string()},
+                                                         {"{mask}", maskFile.string()},{"{prompt}", prompt},
                                                          {"{output}", output.string()},
                                                          {"{width}", std::to_string(req.width)},
                                                          {"{height}", std::to_string(req.height)},

@@ -344,6 +344,10 @@ public:
     void draw_image_frames(ImageModel& m);
     void draw_image_side(ImageModel& m);
     void draw_image_layers(ImageModel& m);
+    void draw_image_provider(ImageModel& m);               // Inpaint selection... / Generate layer... (image_provider_panel.cpp)
+    void image_provider_refresh();
+    void image_provider_start(ImageModel& m);
+    void image_provider_poll(ImageModel& m);
     void draw_image_layer_inspector(ImageModel& m);
     void draw_image_operations(ImageModel& m, const ImageLayer& layer, bool effect);
     void image_canvas_input(ImageModel& m, bool hovered, bool editable);

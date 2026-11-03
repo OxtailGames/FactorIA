@@ -1026,6 +1026,17 @@ ImageEditOutcome ImageModel::add_layer(const std::string& kind) {
     return out;
 }
 
+ImageEditOutcome ImageModel::add_provider_layer(const std::string& label, Json addArgs) {
+    const std::string name = addArgs.value("name", std::string());
+    addArgs.erase("path");
+    ImageEditOutcome out = run(label, {{"image.layer.add_provider", addArgs}});
+    if (out.ok && !name.empty()) {
+        const std::string path = find_path_by_name(name);
+        if (!path.empty()) selected_ = path;
+    }
+    return out;
+}
+
 ImageEditOutcome ImageModel::duplicate_layer(const std::string& path) {
     const Json* src = layer_json(path);
     if (!src) {

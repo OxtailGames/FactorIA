@@ -1,0 +1,48 @@
+{
+  "format": "factoria.image/1",
+  "width": 64,
+  "height": 64,
+  "layers": [
+    {
+      "kind": "fill",
+      "name": "cell",
+      "color": "#c8c8d7"
+    },
+    {
+      "kind": "fill",
+      "name": "top line",
+      "color": "#9696a5",
+      "x": 0,
+      "y": 0,
+      "width": 64,
+      "height": 2
+    },
+    {
+      "kind": "fill",
+      "name": "middle line",
+      "color": "#9696a5",
+      "x": 0,
+      "y": 32,
+      "width": 64,
+      "height": 2
+    },
+    {
+      "kind": "fill",
+      "name": "left line",
+      "color": "#9696a5",
+      "x": 0,
+      "y": 0,
+      "width": 2,
+      "height": 64
+    },
+    {
+      "kind": "fill",
+      "name": "centre line",
+      "color": "#9696a5",
+      "x": 32,
+      "y": 0,
+      "width": 2,
+      "height": 64
+    }
+  ]
+}
