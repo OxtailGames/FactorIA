@@ -2,10 +2,11 @@
 // SDF mesher (model_decimate), by the LODs of a game-ready model (model_simplify, model_game_ready.h) and by the collider hulls.
 // Deterministic: serial, float arithmetic with + - * / and sqrt, ties broken by meshoptimizer's fixed order.
 //
-// What it preserves. Each triangle has a part (`triParts`); the triangles of a part are simplified on their own, and every vertex whose
-// position is used by two parts is locked, so a part boundary stays exactly where it was and no crack opens between parts. Open borders are
-// locked too (`lockBorder`, on by default for model_decimate). Attributes (normals, uvs, colours) are optional extra terms of the error:
-// a collapse that would smear a seam or a colour edge costs more, and the vertices that stay keep their own attributes.
+// What it preserves. Each triangle has a part (`triParts`); every part gets its own copy of each vertex, so the parts are simplified on their
+// own and a part boundary stays a seam (it may shorten along itself, never opens a crack). Where that would leave an edge shared by three
+// triangles the pass is repeated with the vertices on part boundaries locked, and if even that is not clean the input is returned as it was.
+// Open borders are locked too when `lockBorder` is set (on for model_decimate). Attributes (normals, uvs, colours) are optional extra terms of
+// the error: a collapse that would smear a seam or a colour edge costs more, and the vertices that stay keep their own attributes.
 #pragma once
 
 #include <cstddef>
