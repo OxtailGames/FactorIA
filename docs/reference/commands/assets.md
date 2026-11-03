@@ -97,6 +97,21 @@ Draws one picture (returned to you as an image) with a column for each picture o
 | `allFrames` | boolean | no | A sprite sheet shows all its frames (a column each) instead of the first. Default false. |
 | `path` | string | no | Also save the picture as a PNG at this project-relative path (ending in .png). Without it nothing is written. |
 | `overwrite` | boolean | no | With `path`: replace the file when it exists. Default false. |
+## `assets.check_art`
+
+Not released yet (on main after 0.14.1).
+
+Check pictures against the house style and how they read in the game: palette fit, contrast over the real backgrounds, readability at phone and desktop size, halos on alpha edges, and set consistency; returns an annotated picture.
+
+Measures one picture (`path`) or a set (`paths`, up to 12) and returns an annotated picture plus rules, each with `value`, `threshold`, `verdict` (ok, warn or fail) and, unless ok, a `hint` naming the command or setting that fixes it. Palette fit: the colour count, and when assets.json style.palette is set the distance of the colours to it and the share of pixels off the palette (strict with style.pixelArt). Contrast: the WCAG contrast ratio between the silhouette edge and each background the picture is drawn over: `backgrounds` (colours "#rrggbb" or project image paths) when given, else the clear colour and the large background sprites of the scenes that use the picture, else a light and a dark default; the result says which (`backgrounds.source`). Readability: the picture shrunk to the size it has on screen (`onScreenPx`, the longer side in screen pixels, when given; else derived from the scenes' Sprite size, scale and camera at a phone, 844x390, and a desktop, 1920x1080, screen): its size, how much of the silhouette survives and whether the outline is still a line. Halos and fringes: partly transparent edge pixels that are darker or lighter than the pixels they touch, and transparent pixels next to the shape that hold a foreign colour. Style rules set in assets.json style (outline, lightDirection, texelsPerUnit, pixelArt, value, saturation) are judged too, with the same numbers as the `project.validate` warnings; rules the style does not set are not judged, and `style: false` skips them. With several paths it also compares the set: pixel density, pixel size, outline colour and thickness, and how many colours the pictures share. The picture has one row per asset: the picture itself, its value (greyscale), over each background and at each on-screen size. It is a temporary screenshot in .factoria/screenshots; measuring is cached in .factoria/art-cache. Thresholds and the rules are listed in docs/ASSETS.md ("Checking art: assets.check_art"). Example: {"path":"assets/hero.png","backgrounds":["#203040"],"onScreenPx":48}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Project-relative path of the picture to check. Give this or `paths`. |
+| `paths` | array | no | Several pictures to check one by one and as a set (pixel density, outline, palette spread). Give this or `path`. |
+| `backgrounds` | array | no | What the picture is drawn over. Default: the camera clear colour and background sprites of the scenes that use it, else a light and a dark default. |
+| `onScreenPx` | any | no | The longer side of the sprite on screen, in screen pixels: a number, or a list of up to 4. Default: derived from the scenes (Sprite size, scale, camera) at a phone and a desktop screen. |
+| `style` | boolean | no | Judge the rules set in assets.json style (outline, lightDirection, texelsPerUnit, pixelArt, value, saturation, palette). False skips them. Default true. |
 
 ## `assets.convert_audio` (modifies state)
 

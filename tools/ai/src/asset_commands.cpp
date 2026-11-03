@@ -16,6 +16,7 @@
 #include "fa/core/strings.h"
 #include "fa/tooling/ai_disclosure.h"
 #include "fa/tooling/palette.h"
+#include "fa/tooling/style_guide.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -129,30 +130,19 @@ void require_free(const std::string& path, bool overwrite) {
 
 // ---- Style ------------------------------------------------------------------------------------------------------------
 
-// assets.json "style": the house style that keeps generated images consistent.
-struct Style {
-    std::string prompt;
-    std::vector<std::string> references;
-    std::optional<Palette> palette;
-};
+// assets.json "style": the house style that keeps generated images consistent. The parser is the shared one of the tools
+// (fa/tooling/style_guide.h), which also reads the measurable rules that assets.check_art and project.validate check.
+using Style = StyleGuide;
 
 Style load_style() {
-    Style s;
-    const Json manifest = assets::manifest();
-    const Json* style = child(manifest, "style");
-    if (!style || !style->is_object()) return s;
-    s.prompt = str(*style, "prompt");
-    s.references = string_list(*style, "references");
-    if (const Json* spec = child(*style, "palette")) {
-        auto palette = load_palette(*spec);
-        if (!palette) {
-            throw CommandError("invalid_style", "assets.json style.palette: " + palette.error().message,
-                               (palette.error().hint.empty() ? "" : palette.error().hint + " ") +
-                                   "Pass style:false to skip the house style for this call.");
-        }
-        s.palette = std::move(*palette);
+    StyleParse parsed = load_style_guide();
+    if (!parsed.problems.empty()) {
+        const StyleProblem& p = parsed.problems.front();
+        std::string more = parsed.problems.size() > 1 ? std::format(" ({} more problems in style; project.validate lists them.)", parsed.problems.size() - 1) : "";
+        throw CommandError("invalid_style", std::format("assets.json {}: {}{}", p.pointer.empty() ? "/style" : p.pointer, p.message, more),
+                           (p.hint.empty() ? "" : p.hint + " ") + "Pass style:false to skip the house style for this call.");
     }
-    return s;
+    return std::move(parsed.guide);
 }
 
 // The reference paths as project-relative normalized paths, each once.

@@ -557,6 +557,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
     register_svg_command(registry, projectDir);
     register_animate_svg_command(registry, projectDir);
     register_preview_sheet_command(registry, projectDir);
+    register_check_art_command(registry, projectDir);
     register_bake_sheet_command(registry, projectDir);
     register_contact_sheet_command(registry, projectDir);
     register_preview_scene_command(registry, projectDir);
