@@ -57,7 +57,7 @@ Image render_or_fail(const std::string& projectDir, const std::string& rel, cons
 
 Json image_create(const std::string& projectDir, const Json& a) {
     const char* cmd = "image.create";
-    check_arg_keys(cmd, a, "", {"path", "width", "height", "background", "layers", "description", "overwrite", "bake"});
+    check_arg_keys(cmd, a, "", {"path", "width", "height", "background", "layers", "description", "palette", "ramps", "overwrite", "bake"});
     const std::string rel = doc_path_arg(arg_string(a, "path", true), cmd);
     const int w = int_arg(a, cmd, "width", 1, kImageDocMaxSide, 0, true), h = int_arg(a, cmd, "height", 1, kImageDocMaxSide, 0, true);
     auto path = resolve_project_path(projectDir, rel);
@@ -69,6 +69,8 @@ Json image_create(const std::string& projectDir, const Json& a) {
     Json doc = Json::object({{"format", kImageDocFormat}, {"width", w}, {"height", h}});
     if (a.contains("background") && !a["background"].is_null()) doc["background"] = a["background"];
     if (a.contains("description") && a["description"].is_string()) doc["description"] = a["description"];
+    for (const char* k : {"palette", "ramps"})
+        if (a.contains(k) && !a[k].is_null()) doc[k] = a[k];
     if (a.contains("layers") && !a["layers"].is_null()) {
         if (!a["layers"].is_array()) arg_error(cmd, "/layers", "expected a list of layers, got " + describe_json_value(a["layers"]) + ".", "Example: [{\"kind\":\"fill\",\"color\":\"#203040\"}]. Layer kinds: docs.read IMAGES.");
         doc["layers"] = a["layers"];
@@ -126,6 +128,8 @@ Json info_tree(const std::string& projectDir, const Json& list, std::vector<int>
             assets_detail::ProjectRootGuard root(projectDir);
             auto size = texture_size(l["source"].get<std::string>());
             if (size.ok()) n["size"] = Json::object({{"width", size->width}, {"height", size->height}});
+        } else if (l.value("kind", std::string()) == "indexed" && l.contains("rows") && l["rows"].is_array() && !l["rows"].empty() && l["rows"][0].is_string()) {
+            n["size"] = Json::object({{"width", l["rows"][0].get<std::string>().size()}, {"height", l["rows"].size()}});
         } else if (l.contains("width") || l.contains("height")) {
             n["size"] = Json::object({{"width", l.value("width", 0)}, {"height", l.value("height", 0)}});
         }
@@ -147,6 +151,11 @@ Json image_info(const std::string& projectDir, const Json& a) {
     std::vector<ImageIssue> issues;
     auto parsed = parse_image_document(d.json, d.rel, projectDir, &issues);
     out["valid"] = parsed.ok();
+    if (parsed.ok() && !parsed->palette.empty())
+        out["palette"] = Json::object({{"source", d.json.contains("palette") ? "document" : "style"},
+                                       {"colors", parsed->palette.size()},
+                                       {"ramps", parsed->palette.ramps.size()},
+                                       {"hint", "image.palette lists the colours with their indices and shades."}});
     if (!issues.empty()) {
         Json list = Json::array();
         for (const ImageIssue& i : issues) list.push_back(Json::object({{"pointer", i.pointer}, {"message", i.message}, {"hint", i.hint}}));
@@ -219,7 +228,7 @@ Json image_export(const std::string& projectDir, const Json& a) {
         LayerRef ref = find_layer(d.json, a["layer"], cmd);
         // the document's own checks first, so a broken document is reported with its pointers
         (void)render_or_fail(projectDir, d.rel, d.json);
-        img = render_layer_alone(projectDir, *ref.layer, W, H, ref.parentX, ref.parentY, &warnings);
+        img = render_layer_alone(projectDir, *ref.layer, W, H, ref.parentX, ref.parentY, &warnings, &d.json);
         extra["layer"] = layer_summary(ref);
         if (ref.parentX || ref.parentY) warnings.push_back("The layer is drawn at its place on the canvas: the offsets of its groups count, their opacity, blend and masks do not.");
     } else {
@@ -451,12 +460,14 @@ void register_edit_commands(CommandRegistry& registry, const std::string& projec
           "background":{"description":"A colour the canvas starts with: \"#rrggbb\", \"#rrggbbaa\", a CSS name or [r,g,b,a]. Without it the canvas starts transparent."},
           "layers":{"type":"array","items":{"type":"object"},"description":"The first layers, bottom first, each an object with `kind` (see docs.read IMAGES). Default none."},
           "description":{"type":"string","description":"A sentence for people and AIs about the picture."},
+          "palette":{"description":"For indexed (pixel-art) layers: \"style\" (the style palette of assets.json, the default for an indexed layer) or a list of colours, each \"#rrggbb\" or {\"name\", \"color\"}; at most 81. See docs.read IMAGES, \"Pixel art\"."},
+          "ramps":{"type":"array","description":"Colour ramps for shading by index: lists of palette colours (index, name or \"#rrggbb\") from the darkest to the lightest, e.g. [[\"skin-dark\",\"skin\",\"skin-light\"]]."},
           "overwrite":{"type":"boolean","default":false,"description":"Replace the document when it already exists."},
           "bake":{"type":"boolean","default":true,"description":"Also draw the PNG."}}})",
         image_create);
 
     add("image.info", "Describe a layered image document: its layers as a tree with index paths, sizes, bake status, the files it reads and its stored selections.",
-        "Reads the document at `path` and returns {document, width, height, background, valid, problems?, layers: [{index, pointer, name, kind, visible, opacity, blend, x, y, "
+        "Reads the document at `path` and returns {document, width, height, background, valid, problems?, palette?: {source, colors, ramps} (when it has one: image.palette lists it), layers: [{index, pointer, name, kind, visible, opacity, blend, x, y, "
         "size?, source?, masks?, adjustments?, effects?, children?}], inputs, bake: {state, path, reason}, selections, $image}. `index` is the index path other image.* "
         "commands take in `layer` (\"1/0\"); names work too. `bake.state` is fresh, missing, stale, unrecorded or broken. `$image` is the baked PNG when it exists. "
         "Read-only. Example: {\"path\":\"assets/art/hero.image.json\"}",

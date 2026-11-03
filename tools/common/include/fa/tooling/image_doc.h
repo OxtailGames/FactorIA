@@ -1,7 +1,7 @@
 // Layered image documents (*.image.json) and the one CPU compositor that draws them (docs/IMAGES.md).
 //
 // A document is the SOURCE of a picture: a canvas, and a list of layers (a PNG, a fill, a gradient, a procedural texture, an SVG,
-// text, a provider-made picture, a group, an adjustment) with opacity, a blend mode, masks, clipping and an offset. The PNG a
+// text, a provider-made picture, a group, an adjustment, an indexed pixel-art picture) with opacity, a blend mode, masks, clipping and an offset. The PNG a
 // Sprite draws is BAKED from it next to the document ("hero.image.json" -> "hero.png") with the recipe in its provenance
 // (assets.json), so `assets.regenerate` remakes it and a changed source warns as stale, like every offline maker.
 //
@@ -27,6 +27,7 @@
 #include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/core/types.h"
+#include "fa/tooling/pixel_art.h"
 
 namespace fa {
 
@@ -34,7 +35,7 @@ inline constexpr const char* kImageDocFormat = "factoria.image/1";
 inline constexpr const char* kImageDocSuffix = ".image.json";
 inline constexpr int kImageDocMaxSide = 4096;
 
-enum class ImageLayerKind { Pixels, Fill, Gradient, Procedural, Svg, Text, Provider, Group, Adjustment };
+enum class ImageLayerKind { Pixels, Fill, Gradient, Procedural, Svg, Text, Provider, Group, Adjustment, Indexed };
 
 enum class ImageBlend {
     Normal, Multiply, Screen, Overlay, Darken, Lighten, ColorDodge, ColorBurn, HardLight, SoftLight,
@@ -115,6 +116,10 @@ struct ImageLayer {
     std::string align = "left";     // left, center or right of x
     float lineHeight = 1.2f;        // line spacing, in ems
     std::vector<ImageLayer> children;  // group: bottom first, like the document
+    // indexed: the pixels as text rows, one character per pixel ('.' transparent, else a palette index: fa/tooling/pixel_art.h). Empty =
+    // a blank layer of `width` x `height` (0 = the canvas size). The colours are the document's `palette`.
+    std::vector<std::string> rows;
+    bool ai = false;                // indexed: the pixels were made from an AI-made picture (image.layer.convert records it), so the bake is AI-made
 };
 
 struct ImageDocument {
@@ -123,6 +128,9 @@ struct ImageDocument {
     std::optional<Color> background;
     std::string output;             // the PNG it bakes to (project-relative); "" = next to the document
     std::string description;
+    // The palette indexed layers are locked to (the document's `palette`, or the style palette of assets.json) and its colour ramps.
+    // Empty when the document has no indexed layer and declares no palette.
+    PixelPalette palette;
     std::vector<ImageLayer> layers; // bottom first: later layers are drawn over earlier ones
     Json json;                      // the document as written
 };

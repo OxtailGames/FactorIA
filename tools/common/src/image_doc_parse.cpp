@@ -9,6 +9,7 @@
 #include "fa/core/strings.h"
 #include "fa/render/builtin_fonts.h"
 #include "fa/tooling/project_fs.h"
+#include "fa/tooling/style_guide.h"
 #include "image_doc_internal.h"
 #include "util.h"
 
@@ -24,6 +25,8 @@ struct Parser {
     const std::string& projectDir;
     std::vector<ImageIssue>& issues;
     int canvasW = 0, canvasH = 0;
+    PixelPalette palette;             // the document's palette, parsed before the layers
+    bool paletteDeferred = false;     // the style palette is wanted but there is no project to read it from: indices are not range-checked
 
     void add(const std::string& pointer, std::string message, std::string hint) { issues.push_back({pointer, std::move(message), std::move(hint)}); }
 
@@ -275,6 +278,197 @@ struct Parser {
         if (project_file(pointer, "font", value, {".ttf", ".otf", ".ttc"}, "a font file")) out.font = value;
     }
 
+
+    // ---- palette and indexed layers --------------------------------------------------------------------------------------------
+
+    static bool has_indexed_layer(const Json& layers) {
+        if (!layers.is_array()) return false;
+        for (const Json& l : layers) {
+            if (!l.is_object()) continue;
+            if (l.value("kind", std::string()) == "indexed") return true;
+            if (l.contains("layers") && has_indexed_layer(l["layers"])) return true;
+        }
+        return false;
+    }
+
+    void parse_palette(const Json& json) {
+        const bool wanted = has_indexed_layer(json.contains("layers") ? json["layers"] : Json());
+        const std::string paletteHint = "Example: \"palette\": [\"#1a1c2c\", {\"name\": \"skin\", \"color\": \"#e0a070\"}, \"#ffffff\"], or \"palette\": \"style\" for the style palette of assets.json.";
+        auto from_style = [&](const std::string& pointer) {
+            if (projectDir.empty()) {
+                paletteDeferred = true;
+                return;
+            }
+            auto style = load_style_guide(projectDir);
+            if (!style.guide.palette || style.guide.palette->empty()) {
+                add(pointer, "The document uses the style palette, but assets.json has no `style.palette`.",
+                    "Write the colours in the document (\"palette\": [\"#000000\", \"#ffffff\", ...]) or set style.palette in assets.json (docs/ASSETS.md, \"House style\").");
+                return;
+            }
+            if (int(style.guide.palette->size()) > kMaxIndexedColours) {
+                add(pointer, std::format("The style palette has {} colours; an indexed picture holds at most {}.", style.guide.palette->size(), kMaxIndexedColours),
+                    "List the colours the picture uses in the document's `palette` instead.");
+                return;
+            }
+            for (const auto& c : *style.guide.palette) palette.entries.push_back({"", c});
+        };
+        auto it = json.find("palette");
+        if (it == json.end()) {
+            if (wanted) from_style("/palette");
+        } else if (it->is_string()) {
+            if (it->get<std::string>() != "style") add("/palette", "Unknown palette '" + it->get<std::string>() + "'.", did_you_mean(it->get<std::string>(), std::vector<std::string>{"style"}) + " " + paletteHint);
+            else from_style("/palette");
+        } else if (!it->is_array() || it->empty()) {
+            add("/palette", "`palette` must be \"style\" or a non-empty list of colours, got " + describe_json_value(*it) + ".", paletteHint);
+        } else if (int(it->size()) > kMaxIndexedColours) {
+            add("/palette", std::format("A palette holds at most {} colours (one character each), got {}.", kMaxIndexedColours, it->size()), "Keep the colours the picture needs.");
+        } else {
+            for (std::size_t i = 0; i < it->size(); ++i) {
+                const Json& e = (*it)[i];
+                const std::string ep = "/palette/" + std::to_string(i);
+                PixelPalette::Entry entry;
+                const Json* colour = &e;
+                if (e.is_object()) {
+                    unknown_keys(e, ep, {"name", "color"}, "a palette entry");
+                    if (!e.contains("color")) {
+                        add(ep, "A palette entry needs a `color`.", paletteHint);
+                        continue;
+                    }
+                    colour = &e["color"];
+                    if (e.contains("name")) {
+                        if (!e["name"].is_string() || e["name"].get<std::string>().empty() || e["name"].get<std::string>() == "." || e["name"].get<std::string>() == "transparent" ||
+                            e["name"].get<std::string>() == "none") {
+                            add(ep + "/name", "A colour name is a non-empty string (not \".\", \"transparent\" or \"none\", which mean transparent), got " + describe_json_value(e["name"]) + ".", paletteHint);
+                            continue;
+                        }
+                        entry.name = e["name"].get<std::string>();
+                        if (palette.find_name(entry.name)) {
+                            add(ep + "/name", "The name '" + entry.name + "' is used by an earlier colour (names are compared ignoring case).", "Give every colour its own name.");
+                            continue;
+                        }
+                    }
+                }
+                Color c;
+                std::string err;
+                if (!json_to(*colour, c, &err)) {
+                    add(e.is_object() ? ep + "/color" : ep, "Palette colour: " + err, "Colours are \"#rrggbb\", a CSS name or [r, g, b] in 0..1.");
+                    continue;
+                }
+                if (c.a < 0.999f) {
+                    add(e.is_object() ? ep + "/color" : ep, "A palette colour must be opaque; transparency is the character '.' (null in commands).", "Remove the alpha of the colour.");
+                    continue;
+                }
+                auto b = [](float v) { return std::uint8_t(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f)); };
+                entry.rgb = {b(c.r), b(c.g), b(c.b)};
+                if (auto same = palette.find_rgb(entry.rgb[0], entry.rgb[1], entry.rgb[2])) {
+                    add(e.is_object() ? ep + "/color" : ep, std::format("This colour is already palette entry {}.", *same), "Remove the duplicate: every palette colour must be different, so a colour maps to one index.");
+                    continue;
+                }
+                palette.entries.push_back(std::move(entry));
+            }
+            if (issues_at("/palette")) palette.entries.clear(), paletteDeferred = true;  // the layers' indices cannot be judged against a broken palette
+        }
+        // ramps
+        if (auto rit = json.find("ramps"); rit != json.end()) {
+            const std::string rampHint = "Example: \"ramps\": [[\"#1a1c2c\", \"#5d275d\", \"#b13e53\"], [\"skin-dark\", \"skin\", \"skin-light\"]]: each ramp lists palette colours from the darkest to the lightest.";
+            if (!rit->is_array()) {
+                add("/ramps", "`ramps` must be a list of ramps, got " + describe_json_value(*rit) + ".", rampHint);
+            } else if (palette.empty()) {
+                if (!paletteDeferred) add("/ramps", "`ramps` need a palette to refer to.", "Add `palette` first (a list of colours, or \"style\").");
+            } else {
+                std::vector<char> used(std::size_t(palette.size()), 0);
+                for (std::size_t r = 0; r < rit->size(); ++r) {
+                    const Json& ramp = (*rit)[r];
+                    const std::string rp = "/ramps/" + std::to_string(r);
+                    if (!ramp.is_array() || ramp.size() < 2) {
+                        add(rp, "A ramp is a list of at least two palette colours, darkest first, got " + describe_json_value(ramp) + ".", rampHint);
+                        continue;
+                    }
+                    std::vector<int> indices;
+                    for (std::size_t k = 0; k < ramp.size(); ++k) {
+                        auto found = pixel_palette_find(palette, ramp[k], false);
+                        if (!found.ok()) {
+                            add(rp + "/" + std::to_string(k), found.error().message, found.error().hint);
+                            continue;
+                        }
+                        if (used[std::size_t(*found)]) {
+                            add(rp + "/" + std::to_string(k), "The colour " + palette.label(*found) + " is already in a ramp.", "A colour belongs to one ramp; list it once.");
+                            continue;
+                        }
+                        used[std::size_t(*found)] = 1;
+                        indices.push_back(*found);
+                    }
+                    if (indices.size() == ramp.size()) palette.ramps.push_back(std::move(indices));
+                }
+            }
+        }
+    }
+
+    void parse_indexed(const Json& j, const std::string& pointer, ImageLayer& layer) {
+        const std::string rowsHint = "Rows are strings with one character per pixel: '.' is transparent, 0-9a-zA-Z... are palette indices. Example: \"rows\": [\"..11..\", \".1221.\", \"..11..\"].";
+        for (const char* k : {"masks", "adjustments", "effects"})
+            if (j.contains(k))
+                add(pointer + "/" + k, std::string("An indexed layer cannot have `") + k + "`: they would blend colours that are not in the palette.",
+                    "Keep the layer palette-exact; use opacity and blend if you must (they leave the lock), or convert it to pixels with image.layer.convert first.");
+        get_bool(j, pointer, "ai", layer.ai);
+        const bool hasSize = j.contains("width") || j.contains("height");
+        auto it = j.find("rows");
+        if (it == j.end()) {
+            get_int(j, pointer, "width", layer.width, 1, kImageDocMaxSide, "width and height are the size of the blank layer in pixels; leave them out for the canvas size.");
+            get_int(j, pointer, "height", layer.height, 1, kImageDocMaxSide, "width and height are the size of the blank layer in pixels; leave them out for the canvas size.");
+            return;
+        }
+        if (hasSize) add(pointer + (j.contains("width") ? "/width" : "/height"), "An indexed layer with `rows` gets its size from them.", "Remove width and height, or remove rows for a blank layer.");
+        if (!it->is_array() || it->empty()) {
+            add(pointer + "/rows", "`rows` must be a non-empty list of strings, got " + describe_json_value(*it) + ".", rowsHint);
+            return;
+        }
+        if (it->size() > std::size_t(kImageDocMaxSide)) {
+            add(pointer + "/rows", std::format("{} rows is more than the {} pixels a canvas side may have.", it->size(), kImageDocMaxSide), "Split the picture.");
+            return;
+        }
+        std::size_t width = 0;
+        bool widthKnown = false;
+        int reported = 0;
+        for (std::size_t y = 0; y < it->size(); ++y) {
+            const Json& row = (*it)[y];
+            const std::string rp = pointer + "/rows/" + std::to_string(y);
+            if (!row.is_string()) {
+                add(rp, "A row is a string, got " + describe_json_value(row) + ".", rowsHint);
+                return;
+            }
+            const std::string& text = row.get<std::string>();
+            if (!widthKnown) {
+                width = text.size();
+                widthKnown = true;
+                if (width == 0 || width > std::size_t(kImageDocMaxSide)) {
+                    add(rp, std::format("Row 0 has {} characters; a layer is 1 to {} pixels wide.", width, kImageDocMaxSide), rowsHint);
+                    return;
+                }
+            } else if (text.size() != width) {
+                add(rp, std::format("Row {} has {} characters but row 0 has {}.", y, text.size(), width), "Every row has one character per pixel and the same width. " + rowsHint);
+                if (++reported >= 8) return;
+                continue;
+            }
+            for (std::size_t x = 0; x < text.size() && reported < 8; ++x) {
+                const int idx = pixel_char_index(text[x]);
+                if (idx == -2) {
+                    add(rp, std::format("Column {}: '{}' is not a palette character.", x, text[x]), "Use '.' for transparent and the palette characters " + std::string(kPixelIndexChars.substr(0, 12)) + "... " + rowsHint);
+                    ++reported;
+                } else if (idx >= 0 && !paletteDeferred && idx >= palette.size()) {
+                    add(rp, std::format("Column {}: '{}' is palette index {}, which is outside the palette of {} colours.", x, text[x], idx, palette.size()),
+                        palette.size() > 0 ? std::format("The palette characters are {} (index 0 to {}). Add the colour to `palette` or draw with a colour that exists.",
+                                                         std::string(kPixelIndexChars.substr(0, std::size_t(palette.size()))), palette.size() - 1)
+                                           : "The document has no palette.");
+                    ++reported;
+                }
+            }
+            layer.rows.push_back(text);
+        }
+        layer.width = int(width);
+        layer.height = int(it->size());
+    }
+
     ImageLayer parse_layer(const Json& j, const std::string& pointer, bool hasBelow, int depth) {
         ImageLayer layer;
         layer.pointer = pointer;
@@ -309,6 +503,7 @@ struct Parser {
             case ImageLayerKind::Text: extend({"text", "font", "size", "color", "align", "lineHeight"}); break;
             case ImageLayerKind::Group: extend({"layers"}); break;
             case ImageLayerKind::Adjustment: break;
+            case ImageLayerKind::Indexed: extend({"rows", "width", "height", "ai"}); break;
         }
         unknown_keys(j, pointer, allowed, "a " + kind + " layer");
 
@@ -424,6 +619,7 @@ struct Parser {
                 parse_layers(*it, pointer + "/layers", layer.children, depth + 1);
                 break;
             }
+            case ImageLayerKind::Indexed: parse_indexed(j, pointer, layer); break;
             case ImageLayerKind::Adjustment:
                 if (layer.adjustments.empty() && !issues_at(pointer + "/adjustments"))
                     add(pointer + "/adjustments", "An adjustment layer needs `adjustments`: the colour operations it applies to everything below it.", "Example: {\"kind\": \"adjustment\", \"adjustments\": [{\"type\": \"invert\"}]}.");
@@ -462,7 +658,7 @@ Result<ImageDocument> parse_image_document(const Json& json, const std::string& 
     if (!json.is_object()) {
         p.add("", "An image document must be a JSON object, got " + describe_json_value(json) + ".", "Start from " + exampleDoc);
     } else {
-        p.unknown_keys(json, "", {"$schema", "format", "width", "height", "background", "output", "description", "layers"}, "an image document");
+        p.unknown_keys(json, "", {"$schema", "format", "width", "height", "background", "output", "description", "palette", "ramps", "layers"}, "an image document");
         if (auto it = json.find("format"); it != json.end() && (!it->is_string() || it->get<std::string>() != kImageDocFormat))
             p.add("/format", "Unknown format " + describe_json_value(*it) + ".", std::string("Write \"format\": \"") + kImageDocFormat + "\" (or leave it out).");
         for (const char* key : {"width", "height"}) {
@@ -486,6 +682,8 @@ Result<ImageDocument> parse_image_document(const Json& json, const std::string& 
                 else doc.output = *norm;
             }
         }
+        p.parse_palette(json);
+        doc.palette = p.palette;
         auto layers = json.find("layers");
         if (layers == json.end() || !layers->is_array())
             p.add(layers == json.end() ? "" : "/layers", "The document needs `layers`: a list of layers, bottom first.", "Start from " + exampleDoc);
