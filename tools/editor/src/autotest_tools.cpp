@@ -6062,6 +6062,158 @@ void Editor::at_build_tools_script() {
         });
     }
 
+    section("L3");
+    // The Image panel's pixel-art tools (docs/EDITOR.md, "Pixel-art tools"): an indexed document opens with its palette bar; the pixel grid
+    // is drawn at a high zoom and goes away with its toggle; the Tiled toggle draws the neighbour copies; "+" adds a palette colour as one
+    // undo step; a right-click on a swatch picks the secondary colour and a right-button drag paints with it; Add makes a second frame, whose
+    // onion skin ghosts the first; Play moves to the other frame; Save bakes the PNG. Every wait counts frames.
+    {
+        struct Ls {
+            size_t undo = 0;
+        };
+        auto ls = std::make_shared<Ls>();
+        const std::string docPath = "assets/at-pixel.image.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        auto right_click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), 1); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), 1); });
+        };
+        // The document is still the one this section opened (a result is never applied to another scene's panel).
+        auto current = [this, docPath] { return image_.model && image_.model->is_open() && image_.model->path() == docPath; };
+        auto pixel = [this](int x, int y) -> Color { return image_.model->picture().pixel(x, y); };
+        auto is_rgb = [](const Color& c, float r, float g, float b) {
+            return std::fabs(c.r - r) < 0.02f && std::fabs(c.g - g) < 0.02f && std::fabs(c.b - b) < 0.02f && c.a > 0.98f;
+        };
+        step(2, [this, ls, docPath] {
+            std::error_code ec;
+            stdfs::remove(projectDir_ + "/" + docPath, ec);
+            Json args = Json::object({{"path", docPath}, {"width", 16}, {"height", 16},
+                                      {"palette", Json::array({"#101018", "#ff0000", "#00ff00"})},
+                                      {"layers", Json::array({Json::object({{"kind", "indexed"}, {"name", "sprite"}})})}});
+            const CommandResult r = engine_->commands().call("image.create", args);
+            at_check(r.ok, "image.create made the pixel-art document: " + (r.ok ? std::string() : command_error_text(r.error)));
+            after_command("image.create", args, r);
+            ls->undo = undo_depth();
+            open_image_document(docPath);
+            image_.tool = ImageTool::Brush;
+            image_.brush.size = 1;
+            image_.brush.paletteIndex = 1;
+            image_.brush.color = Color{1, 0, 0, 1};
+            image_.zoom = 16.0f;   // pixel-art zoom: the grid threshold is passed
+        });
+        wait_until([this] { return at_visible("img:canvas") && at_visible("img:palette:1") && at_visible("img:frame:add"); });
+        step(3, [this, current] {
+            at_check(current(), "the pixel-art document is open");
+            at_check(image_.gridDrawn, "at a high zoom the pixel grid is drawn");
+            at_check(at_visible("img:palette:2") && at_visible("img:palette:add") && at_visible("img:onion"), "...with the palette bar and the frame timeline");
+        });
+        snap("editor_image_pixelart.png");
+        click_widget("img:grid");
+        step(3, [this] { at_check(!image_.gridDrawn, "the Grid toggle turns the grid off"); });
+        click_widget("img:grid");
+        step(3, [this] { at_check(image_.gridDrawn, "...and on again"); });
+        click_widget("img:tiled");
+        step(3, [this] { at_check(image_.tiled && image_.tiledDrawn, "the Tiled toggle draws the neighbour copies"); });
+        click_widget("img:tiled");
+        step(3, [this] { at_check(!image_.tiled && !image_.tiledDrawn, "...and off again"); });
+
+        // ---- the palette bar: a new colour is one undo step
+        step(2, [this] { image_.paletteHex = "#0000ff"; image_.paletteName = "sea"; });
+        click_widget("img:palette:add");
+        wait_until([this] { return at_visible("img:palette:add:apply"); });
+        step(2, [this] { image_.paletteHex = "#0000ff"; image_.paletteName = "sea"; });
+        click_widget("img:palette:add:apply");
+        step(4, [this, ls, current] {
+            at_check(current() && image_.model->palette().size() == 4, "+ added a fourth colour to the palette");
+            at_check(image_.model->palette().find_name("sea") == 3, "...named sea");
+            at_check(undo_depth() == ls->undo + 1, "...as ONE undo step");
+        });
+        step(2, [this] { undo(); });
+        step(3, [this, current] { at_check(current() && image_.model->palette().size() == 3, "Undo took the colour away"); });
+        step(2, [this] { redo(); });
+        step(3, [this, current] { at_check(current() && image_.model->palette().size() == 4, "Redo brought it back"); });
+
+        // ---- primary and secondary colours
+        click_widget("img:palette:1");
+        right_click_widget("img:palette:2");
+        step(3, [this] {
+            at_check(image_.brush.paletteIndex == 1 && image_.secondaryIndex == 2, "a left click on a swatch is the primary colour and a right click the secondary");
+        });
+        // paint with the left button (red) and the right button (green)
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, image_screen_pos(3.5f, 3.5f)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, image_screen_pos(3.5f, 3.5f)); });
+        step(4, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, image_screen_pos(3.5f, 3.5f)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, image_screen_pos(8.5f, 3.5f)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, image_screen_pos(8.5f, 3.5f), 1); });
+        step(4, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, image_screen_pos(8.5f, 3.5f), 1); });
+        step(3, [this, current, pixel, is_rgb] {
+            at_check(current() && is_rgb(pixel(3, 3), 1, 0, 0), "the left button paints with the primary colour");
+            at_check(is_rgb(pixel(8, 3), 0, 1, 0), "...and the right button with the secondary one");
+        });
+
+        // ---- frames and the onion skin
+        click_widget("img:frame:add");
+        step(4, [this, current] {
+            at_check(current() && image_.model->frame_count() == 2 && image_.model->frame() == 1, "Add made a second frame and selected it");
+            at_check(image_.model->picture().pixel(3, 3).a < 0.01f, "...which is empty");
+        });
+        click_widget("img:onion");
+        step(4, [this, current, pixel] {
+            at_check(current() && image_.model->onion(), "the Onion skin box turns the ghosts on");
+            at_check(pixel(3, 3).a > 0.05f, "...and the first frame's pixel shows faintly in the second");
+        });
+        snap("editor_image_onion.png");
+        step(2, [this] {
+            ImageModel& m = *image_.model;
+            ImageModel::OnionSettings o = m.onion_settings();
+            o.before = 0;
+            m.set_onion_settings(o);
+        });
+        step(3, [this, pixel] { at_check(pixel(3, 3).a < 0.01f, "with 0 frames before there is no ghost"); });
+        step(2, [this] {
+            ImageModel& m = *image_.model;
+            ImageModel::OnionSettings o = m.onion_settings();
+            o.before = 1;
+            m.set_onion_settings(o);
+            m.set_onion(false);
+        });
+        // play: the frames follow their durations
+        step(2, [this, current] {
+            if (current()) image_.model->set_frame(0);
+        });
+        click_widget("img:frame:play");
+        wait_until([this] { return !image_.model || image_.model->frame() == 1 || !image_.playing; });
+        step(3, [this, current] {
+            at_check(current() && image_.model->frame() == 1, "Play moved on to the second frame");
+            image_.playing = false;
+        });
+
+        // ---- Save bakes
+        click_widget("img:save");
+        step(6, [this, current] {
+            at_check(current(), "the document is still the one open");
+            const ImageBakeStatus b = image_.model->bake_status();
+            at_check(b.state == ImageBakeState::Fresh, "Save baked the PNG (the badge says baked)");
+            auto img = load_image(projectDir_ + "/" + b.output);
+            at_check(img.ok(), "...the baked PNG loads: " + b.output);
+            if (img.ok()) {
+                at_check(img->width >= 16 && img->height >= 16, "...at least the document's size");
+            }
+        });
+        step(2, [this] { showImage_ = false; });
+    }
+
     section("J2");
     // The Vector panel (docs/EDITOR.md, "Vector panel"): an SVG with two rectangles opens in the panel; a triangle with one curved corner
     // is drawn with the Pen (clicks, a drag, a click on the first node to close), a corner is moved with the Node tool and made smooth,

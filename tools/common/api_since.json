@@ -871,6 +871,8 @@
     "image.layer.set": "unreleased",
     "image.paint": "unreleased",
     "image.palette": "unreleased",
+    "image.palette.move": "unreleased",
+    "image.palette.remove": "unreleased",
     "image.pixel": "unreleased",
     "image.pixel.cleanup": "unreleased",
     "image.pixel.dither": "unreleased",

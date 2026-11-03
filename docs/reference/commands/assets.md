@@ -1163,6 +1163,36 @@ Without `palette` and `ramps` it only reads: every colour with its index, the ch
 | `ramps` | any | no | New ramps: [[colour, colour, ...], ...] darkest first, colours by index, name or "#rrggbb"; null removes them. |
 | `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
 
+## `image.palette.move` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Move one colour of an image document's palette to another position; the pixels follow it, so the picture does not change.
+
+Reorders the palette of the document (the colours of its indexed layers, cels and tileset parts keep looking the same: the index characters of the rows are rewritten) and the ramps that name the colour. `from` and `to` are palette colours (index, name or #rrggbb); the colour ends at the position of `to` and the colours between shift by one. A document with no `palette` gets the style palette copied into it. Result: the baked document, the new `palette` report and `moved`. Example: {"path":"assets/art/hero.image.json","from":"skin","to":0}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `from` | any | yes | The colour to move: its index, name or #rrggbb. |
+| `to` | any | yes | The colour whose position it takes (index, name or #rrggbb); an index is where it ends up. |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+
+## `image.palette.remove` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Remove one colour from an image document's palette; its pixels become another colour or transparent.
+
+Takes the colour `index` (index, name or #rrggbb) out of the palette; the colours after it shift down and the rows of every indexed layer, cel and tileset part are rewritten to match, so the other pixels do not change. Pixels that used the removed colour take the colour `replaceWith`, or become transparent when it is left out (a warning counts them). Ramps lose the colour. The palette keeps at least one colour. Result: the baked document, the new `palette` report and `removed`. Example: {"path":"assets/art/hero.image.json","index":"skin-dark","replaceWith":"skin"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `index` | any | yes | The colour to remove: its index, name or #rrggbb. |
+| `replaceWith` | any | no | The palette colour its pixels take (index, name or #rrggbb). Left out: they become transparent. |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+
 ## `image.pixel` (modifies state)
 
 Not released yet (on main after 0.14.1).
