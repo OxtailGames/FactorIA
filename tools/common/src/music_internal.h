@@ -3,11 +3,14 @@
 // song and its schema helpers. Private to tools/common.
 #pragma once
 
+#include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "assets_internal.h"
 #include "fa/audio/song.h"
+#include "fa/audio/song_preview.h"
 
 namespace fa::assets_detail::music {
 
@@ -64,6 +67,17 @@ inline Json integer(const char* what, long lo, long hi) { return Json::object({{
 inline Json boolean(const char* what, bool def) { return Json::object({{"type", "boolean"}, {"default", def}, {"description", what}}); }
 inline Json object_arg(const char* what) { return Json::object({{"type", "object"}, {"description", what}}); }
 inline Json strings(const char* what) { return Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}})}, {"description", what}}); }
+
+// What a render of the song did (music.mix's `mix` block), and the loudness target a song asks of the style guide (nullopt unless its master
+// loudness is "style" and the style guide sets one).
+Json music_mix_json(const SongDoc& doc, const SongRender& render, const std::optional<double>& styleTarget);
+std::optional<double> music_style_target(const std::string& projectDir, const SongDoc& doc);
+
+// music.render (assets_music_render.cpp) and music.import_midi / music.export_midi (assets_music_midi.cpp).
+void register_music_render_commands(CommandRegistry& registry, const std::string& projectDir);
+void register_music_midi_commands(CommandRegistry& registry, const std::string& projectDir);
+// Imports the Standard MIDI File `source` (an absolute path) as the song `outRel` (see music.import_midi); the result of that command.
+Json import_midi_file(const std::string& projectDir, const std::filesystem::path& source, const std::string& sourceLabel, const Json& args, const std::string& outRel);
 
 void register_music_edit_commands(CommandRegistry& registry, const std::string& projectDir);
 

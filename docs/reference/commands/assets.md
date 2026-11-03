@@ -414,6 +414,7 @@ Copies or converts `source` (an absolute path on this machine, or relative to th
 - .psd: the layers become an image document (<name>.image.json, one PNG per layer in <name>.layers/; names, opacity, visibility, blend modes, clipping, groups and layer masks are kept) and the PNG is baked from it; a file whose layers cannot be read imports its merged image as a PNG with a warning.
 - .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are triangulated, objects/groups/materials become separate meshes, missing normals give flat shading, and the result has the bounds so you can scale it.
 - .fbx: converted to .glb by FBX2glTF ($FACTORIA_FBX2GLTF or PATH) or by Blender (PATH or its install folder). With neither installed the error says where to get them.
+- .mid .midi: becomes a song document (assets/music/<name>.song.json, or `path`): tracks, patterns, sections from markers, drums as grids (music.import_midi has the options `quantize` and `soundfont`; docs/MUSIC.md, "MIDI").
 - .mp4 .mov .webm .mkv .avi .m4v: converted to an MPEG-1 video with MP2 audio in an .mpg (the only video the engine plays, the same on every platform) by ffmpeg, at most 1280 px wide, quality 4, 30 fps when the frame rate is not one MPEG-1 has. ffmpeg is found through $FACTORIA_FFMPEG, PATH or the copy `factoria setup ffmpeg` installs; without it the error names that command. A source with no audio track gives a silent video (the result warns). The result has width, height, fps and duration and the Video component that plays it. An .mpg or .mpeg is checked to be MPEG-1 and copied.
 Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts in assets/fonts/, videos in assets/video/ by default) or at `path`, which must be under assets/. An existing file is an error unless overwrite is true. Example: {"source":"C:/art/hero.aseprite","license":"CC0","author":"Ana"}.
 
@@ -1698,7 +1699,7 @@ Not released yet (on main after 0.14.1).
 
 Change a song document: tempo, tracks, patterns, sections, the arrangement, mutes and automation, checked before anything is written.
 
-Applies `ops` in order to the song at `path` and writes it, but only if the result is a valid song (otherwise it fails with `invalid_song`, every problem in data.issues, and the file is untouched). Each op is an object with `op` and its fields: set_song {tempo, meter, key, mode, swing, swingGrid, seed, volume, doc} (null removes a field); add_track {track, instrument, volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, patterns, automation, play}; set_track {track, name (renames and updates the sections), instrument (a name, a .sfx.json, "x.sf2#Preset" or {soundfont, preset, bank}), volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, automation} (null removes); set_mixer {buses: {name: {volume, pan, mute, effects} | null}, master: {effects, limiter, loudness}} (docs/MUSIC.md "Mixer"; a bus merges field by field, null removes a bus or a field); remove_track {track} (and every mention in the sections); set_pattern {track, pattern, notes | grid+step+bars, play}; remove_pattern {track, pattern} (and its uses in the sections); add_section {section, kind (intro, loop, outro, section), repeat, bars, mute, play, index}; set_section {section, name, kind, repeat, bars, mute, play} (play changes only the tracks named, null stops one); remove_section {section}; move_section {section, index}; arrange {section, track, entries} ("a a b*2 rest", a list, or null to stop the track in that section); mute {section, tracks, muted}; set_automation {track (omit for the whole song), param (volume, pan, filter, macro.<name>), points [[beat, value], ...], curve (linear, step, smooth)} (no points removes the lane). `play` in add_track and set_pattern is {section: entries} to place the pattern at once. Note text is in docs/MUSIC.md. Returns the song's summary and what each op did. Example: {"path":"assets/music/theme.song.json","ops":[{"op":"set_pattern","track":"bass","pattern":"line","notes":"A2:8 A2 E3 A2 | G2:8 G2 D3 G2"},{"op":"mute","section":"intro","tracks":["drums"]}]}
+Applies `ops` in order to the song at `path` and writes it, but only if the result is a valid song (otherwise it fails with `invalid_song`, every problem in data.issues, and the file is untouched). Each op is an object with `op` and its fields: set_song {tempo, meter, key, mode, swing, swingGrid, seed, volume, doc} (null removes a field); add_track {track, instrument, volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, patterns, automation, play}; set_track {track, name (renames and updates the sections), instrument (a name, a .sfx.json, "x.sf2#Preset" or {soundfont, preset, bank}), volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, automation} (null removes); set_mixer {buses: {name: {volume, pan, mute, effects} | null}, master: {effects, limiter, loudness}} (docs/MUSIC.md "Mixer"; a bus merges field by field, null removes a bus or a field); set_layers {layers: {name: [tracks] | {tracks, intensity, doc} | null}} (the groups of tracks music.render writes as stems and a layered player brings in; docs/MUSIC.md "Layers"); remove_track {track} (and every mention in the sections); set_pattern {track, pattern, notes | grid+step+bars, play}; remove_pattern {track, pattern} (and its uses in the sections); add_section {section, kind (intro, loop, outro, section), repeat, bars, mute, play, index}; set_section {section, name, kind, repeat, bars, mute, play} (play changes only the tracks named, null stops one); remove_section {section}; move_section {section, index}; arrange {section, track, entries} ("a a b*2 rest", a list, or null to stop the track in that section); mute {section, tracks, muted}; set_automation {track (omit for the whole song), param (volume, pan, filter, macro.<name>), points [[beat, value], ...], curve (linear, step, smooth)} (no points removes the lane). `play` in add_track and set_pattern is {section: entries} to place the pattern at once. Note text is in docs/MUSIC.md. Returns the song's summary and what each op did. Example: {"path":"assets/music/theme.song.json","ops":[{"op":"set_pattern","track":"bass","pattern":"line","notes":"A2:8 A2 E3 A2 | G2:8 G2 D3 G2"},{"op":"mute","section":"intro","tracks":["drums"]}]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1709,6 +1710,40 @@ Applies `ops` in order to the song at `path` and writes it, but only if the resu
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 | `fromBar` | integer | no | First bar shown in the picture (default 1). |
 | `bars` | integer | no | Number of bars shown (default: to the end). |
+
+## `music.export_midi` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Write a song as a format-1 Standard MIDI File that a DAW or notation program opens.
+
+Writes the song at `path` as a Standard MIDI File (format 1, 960 ticks per quarter note) at `out` (default: the song's path with .mid). Track 1 holds the tempo, time signature, key signature (major or minor) and one marker per section ("kind:name"); then one track per song track with its name, instrument (Instrument Name and the General MIDI program), volume and pan controllers and its notes with the length they sound; drum tracks use channel 10 and the General MIDI percussion keys. The sounded timeline is written: swing is in the note times, `transpose` in the pitches, and muted tracks (or tracks not soloed) are left out. The mixer, effects, buses and automation are not part of a MIDI file. music.import_midi reads the file back as the same notes, timing and velocities. Example: {"path":"assets/music/theme.song.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json. |
+| `out` | string | no | The MIDI file to write: a project path ending in .mid. Default: the song's path with .mid. |
+| `overwrite` | boolean | no | Replace the file when it exists. Default false. |
+
+## `music.import_midi` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Turn a Standard MIDI File (.mid) into a song document: tracks, patterns, sections from markers, drums as grids.
+
+Reads the MIDI file `path` (absolute on this machine, or in the project) with the engine's own parser (format 0 and 1, running status, meta events, any number of tracks and channels; format 2 and SMPTE timing are errors) and writes a song document at `out` (default assets/music/<name>.song.json; assets.import does the same for a .mid). Every (track, channel, program) that plays notes becomes a song track: channel 10 is a drum track (General MIDI percussion keys become the lanes of the built-in kit, as a step grid with ghost / hit / accent velocities), the others take the built-in instrument nearest to the General MIDI program (an Instrument Name that names a built-in instrument wins; with `soundfont` the track plays that SoundFont's preset of the program). Velocities are kept, the sustain pedal lengthens notes, controllers 7 and 10 become the track's volume and pan. `quantize` ("off" keeps the written times to 1/48 of a quarter note; "16", "8t", "32"...) snaps starts and ends. Markers become sections (a name starting with intro, loop or outro, or written "loop:name"); without markers the song is one section `main`, a loop when `loop` is true. Repeated bars of a track become one pattern played several times. Tempo, meter and key come from the first such event; a later change cannot be held by a song and is listed in `warnings`. Errors name the byte offset in the file. The result is the song summary (as music.info) plus `import` (what was read) and `warnings`; `license`, `author` and `sourceUrl` go to the song's provenance in assets.json. An existing song is an `exists` error unless overwrite is true. Example: {"path":"C:/music/theme.mid","out":"assets/music/theme.song.json","quantize":"16"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The MIDI file: an absolute path on this machine, or relative to the project. Ends in .mid or .midi. |
+| `out` | string | no | The song to write: under assets/, ending in .song.json. Default: assets/music/<name>.song.json. |
+| `quantize` | string | no | "off" (default) or a note value to snap starts and ends to: "4", "8", "16", "32", "64", "8t", "16t"... |
+| `soundfont` | string | no | A SoundFont (.sf2) under assets/: pitched tracks play its preset with their General MIDI program and drums its drum kit. |
+| `loop` | boolean | no | A file with no markers: make its one section the song's loop (default: an ordinary section). Default false. |
+| `overwrite` | boolean | no | Replace the song when it exists. Default false. |
+| `license` | string | no | License of the MIDI file ("CC0", "CC-BY 4.0"), for the credits. |
+| `author` | string | no | Who made the MIDI file. |
+| `sourceUrl` | string | no | The page the file came from, for the credits. |
 
 ## `music.info`
 
@@ -1784,6 +1819,25 @@ Renders the song at `path` with the preview voices: every note of the arrangemen
 | `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 | `height` | integer | no | Height of the picture in pixels (default 640). |
+
+## `music.render` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Render a whole song (intro, loop, outro) to a game-ready WAV or OGG with sample-exact loop points, and optionally one stem per layer.
+
+Renders the song at `path` as music.preview does (same voices, mixer, loudness normalization and limiter) but as an ASSET: the whole song, with the loop points of its `loop` sections. The loop is seamless: the tail of the loop's last bar (reverb, release) is folded onto its first bar, so a looping AudioSource plays `loopStart`..`loopEnd` with no click. The points are the bar boundaries of the loop sections, exact frames, written as `import.loopStart` / `loopEnd` (seconds) in assets.json, which the engine honours, and, for a WAV, in the standard `smpl` chunk; an OGG keeps them in assets.json only. `out` (default: the song's path with .wav) or `format` "wav" / "ogg" choose the file. `stems`: "layers" renders one file per layer of the song's `layers` (the tracks left out form the layer `other`), "tracks" one per track, "buses" the dry tracks and each bus's return; true means "layers". A stem is named <out without extension>.stem.<name>.<ext>, has the same length, sample rate and loop points as the mix, and passes through the same buses and master: the stems carry the mix's loudness gain and limiter gain, so their SUM is the mix to within float rounding (below -80 dBFS) when the buses and the master hold only linear effects; a compressor, distortion or bitcrush there acts on the sum and the result's stemSum says by how much the sum differs. Add them with gain 1 and clip nothing: a stem can pass 0 dBFS when the others cancel it. Every written file gets provenance and the same recipe in assets.json (inputs: the song, every .sfx.json patch and SoundFont it reads; context: the style guide's music loudness when the song's master loudness is "style"), so project.validate warns when any of them changed and assets.regenerate makes the files again; running music.render again updates them in place (a stem of a layer you removed is deleted). `import.music` of each entry says what it is: {role: "mix", song, stemGrouping, stems: [{name, path, kind, intensity, tracks, buses}]} or {role: "stem", song, mix, name, kind, intensity, tracks, buses}; intensity (0..1) is when a layered player brings the stem in. `sampleRate` 22050, 32000, 44100 (default, exact loop frames in the engine) or 48000; `seed` another take of the instruments' noise; `loop` false renders the song once with no loop points. An existing file that music.render did not make is an `exists` error unless overwrite is true. Example: {"path":"assets/music/theme.song.json","stems":"layers"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json. |
+| `out` | string | no | Where to write the mix: .wav or .ogg under assets/. Default: the song's path with .wav (or .ogg when `format` says so). |
+| `format` | string ["wav","ogg"] | no | File format when `out` is not given. wav is lossless and holds the loop points in a smpl chunk; ogg is smaller. |
+| `sampleRate` | integer [22050,32000,44100,48000] | no | Sample rate of the files. Default 44100. |
+| `seed` | integer | no | Added to the song's seed: another take of the instruments' noise. Default 0. |
+| `loop` | boolean | no | Find the song's loop sections, fold their tail onto the start and write the loop points. False: render once, no points. Default true. |
+| `stems` | any | no | One file per stem: "layers" (the song's `layers`), "tracks" or "buses"; true = "layers"; false or absent: only the mix. |
+| `overwrite` | boolean | no | Replace files that exist and were not made by music.render (the ones it made are always replaced). Default false. |
 
 ## `music.scale`
 

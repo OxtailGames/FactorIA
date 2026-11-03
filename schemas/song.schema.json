@@ -90,6 +90,27 @@
       "default": 0.8,
       "description": "Master gain."
     },
+    "layers": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 16,
+      "description": "Groups of tracks that a layered player brings in by intensity, and that `music.render` with `stems: \"layers\"` writes as one file each (docs/MUSIC.md \"Layers and stems\"). A track is in at most one layer; the tracks no layer names form the layer `other`, which cannot be named here. `music.edit` op set_layers changes it.",
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "The tracks of the layer." },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tracks"],
+            "properties": {
+              "tracks": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "The tracks of the layer." },
+              "intensity": { "type": "number", "minimum": 0, "maximum": 1, "description": "The music intensity (0 to 1) from which the layer plays: 0 is always on, 1 only at full intensity. Left out, the layers are spread evenly in the order written (the first at 0, the last at 1)." },
+              "doc": { "type": "string", "description": "What the layer adds to the music." }
+            }
+          }
+        ]
+      }
+    },
     "mixer": {
       "type": "object",
       "additionalProperties": false,
