@@ -55,7 +55,7 @@ ModelTextOutline square_glyph() {
 }  // namespace
 
 TEST_CASE("model doc: the catalog lists every operation with documented fields") {
-    const char* expected[] = {"box", "rounded_box", "cylinder", "cone", "sphere", "capsule", "torus", "grid", "stairs", "arch", "pipe", "text", "group",
+    const char* expected[] = {"box", "rounded_box", "cylinder", "cone", "sphere", "capsule", "torus", "grid", "stairs", "arch", "pipe", "text", "group", "mesh",
                               "lathe", "sweep", "loft", "boolean", "mirror", "array", "radial_array", "bevel", "subdivide", "solidify",
                               "bend", "twist", "taper", "noise", "smooth", "weld", "shade",
                               "extrude_faces", "inset_faces", "loop_cut", "bevel_edges", "delete_faces", "assign_faces",

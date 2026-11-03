@@ -2667,6 +2667,124 @@
         }
       }
     },
+    "mesh": {
+      "type": "object",
+      "description": "A triangle mesh read from a project .glb/.gltf file: the way an imported or generated mesh joins a model document, so modifiers, selection edits, a `uv` section and `gameReady` apply to it like to any primitive. `model.import_clean` writes the cleaned mesh to a .glb and a document with this node. The file is an input of the bake: changing it makes the baked model stale. Centred where the file has it (use `align` to stand it on y = 0). A `part` or `material` on the node replaces the file's own for every triangle.",
+      "required": [
+        "op",
+        "source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "mesh",
+          "description": "Always \"mesh\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "align": {
+          "type": "string",
+          "enum": [
+            "center",
+            "bottom",
+            "top"
+          ],
+          "description": "Where the primitive sits against its origin, along Y, before `position` moves it: \"center\" (its bounding box is centred; text keeps its baseline at 0), \"bottom\" (it stands on y = 0) or \"top\" (it hangs from y = 0).",
+          "default": "center"
+        },
+        "source": {
+          "type": "string",
+          "description": "The project .glb or .gltf to take the mesh from, e.g. \"assets/models/robot_clean.mesh.glb\". All its meshes are merged in their own transforms; its materials are matched by name to the document's `materials`, and a primitive's `extras.part` becomes its part."
+        }
+      }
+    },
     "lathe": {
       "type": "object",
       "description": "A profile turned about the Y axis: a vase, a chess piece, a column, a bottle. `profile` is a list of [radius, height] points walked from one end to the other (either way round); the turn goes from +Z towards +X like the round primitives, and a point on the axis (radius 0) is a single vertex. It is a primitive: `align` places it, and it can be wrapped in a modifier.",
@@ -8046,6 +8164,9 @@
         },
         {
           "$ref": "#/$defs/text"
+        },
+        {
+          "$ref": "#/$defs/mesh"
         },
         {
           "$ref": "#/$defs/lathe"

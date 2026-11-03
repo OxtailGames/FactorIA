@@ -89,6 +89,7 @@ float shape_distance(const ModelSdfShapeParams& s, float capsuleLen, Vec3 p) {
             return sgn * std::sqrt(std::min(cax * cax + cay * cay, cbx * cbx + cby * cby));
         }
         case ModelSdfShape::Torus: return length2(length2(p.x, p.z) - s.radius, p.y) - s.tube;
+        case ModelSdfShape::Volume: return s.volume ? s.volume->sample(p) : 1.0e30f;
     }
     return 0;
 }
@@ -118,6 +119,12 @@ void shape_box(const ModelSdfShapeParams& s, float capsuleLen, Vec3& lo, Vec3& h
             hi = {r, s.tube, r};
             break;
         }
+        case ModelSdfShape::Volume:
+            if (s.volume) {
+                lo = s.volume->origin;
+                hi = lo + Vec3{float(s.volume->nx - 1), float(s.volume->ny - 1), float(s.volume->nz - 1)} * s.volume->cell;
+            }
+            break;
     }
 }
 
@@ -133,6 +140,21 @@ void box_through(const float* m, Vec3 lo, Vec3 hi, Vec3& outLo, Vec3& outHi) {
 Vec4 mix4(Vec4 a, Vec4 b, float tA) { return a * tA + b * (1.0f - tA); }
 
 }  // namespace
+
+float ModelSdfVolume::sample(Vec3 p) const {
+    if (nx < 2 || ny < 2 || nz < 2 || values.size() != std::size_t(nx) * std::size_t(ny) * std::size_t(nz)) return 1.0e30f;
+    const float inv = 1.0f / cell;
+    const Vec3 g = (p - origin) * inv;
+    const Vec3 c{clamp(g.x, 0.0f, float(nx - 1)), clamp(g.y, 0.0f, float(ny - 1)), clamp(g.z, 0.0f, float(nz - 1))};
+    const float outside = length(g - c) * cell;
+    const int x0 = std::min(int(c.x), nx - 2), y0 = std::min(int(c.y), ny - 2), z0 = std::min(int(c.z), nz - 2);
+    const float fx = c.x - float(x0), fy = c.y - float(y0), fz = c.z - float(z0);
+    auto at = [&](int x, int y, int z) { return values[std::size_t(x) + std::size_t(nx) * (std::size_t(y) + std::size_t(ny) * std::size_t(z))]; };
+    const float c00 = at(x0, y0, z0) * (1 - fx) + at(x0 + 1, y0, z0) * fx, c10 = at(x0, y0 + 1, z0) * (1 - fx) + at(x0 + 1, y0 + 1, z0) * fx;
+    const float c01 = at(x0, y0, z0 + 1) * (1 - fx) + at(x0 + 1, y0, z0 + 1) * fx, c11 = at(x0, y0 + 1, z0 + 1) * (1 - fx) + at(x0 + 1, y0 + 1, z0 + 1) * fx;
+    const float c0 = c00 * (1 - fy) + c10 * fy, c1 = c01 * (1 - fy) + c11 * fy;
+    return c0 * (1 - fz) + c1 * fz + outside;
+}
 
 int ModelSdf::add_node(Node n, const Mat4& local) {
     affine_of(local, n.fwd);
