@@ -94,6 +94,11 @@ std::vector<std::string> document_warnings(const SvgDoc& doc);
 // vector.info
 Json op_info(const SvgDoc& doc, const std::vector<XNode*>& only, std::vector<std::string>& warnings);
 
+// Applies `m` (a transform of the drawing space, written `mText`, e.g. "rotate(30 50 50)") to the element: its own transform becomes the
+// one that, inside its parents, moves it by `m`. The attribute keeps the readable form where the parents do not transform. Ids, groups and
+// everything else stay.
+void apply_canvas_transform(XNode& n, const Mat& m, const std::string& mText, const char* cmd);
+
 // The bounds of an element (a shape, or the shapes under a group) in the drawing space; `visual` adds half the stroke width.
 // False with `why` when it has nothing to measure.
 bool unit_bounds(XNode& unit, bool visual, Rect& out, std::string& why);
@@ -129,6 +134,10 @@ Json op_add_path(SvgDoc& doc, const Placement& at, const std::string& baseId, co
 struct RibbonPiece {
     std::string suffix, d, fill;  // the id suffix, the path data, the fill (empty = the placement's fill)
 };
+// A new element <tag> with the given attributes (written in this order after the id) at the placement, styled like the other builders do.
+// Returns {element, bounds (drawing space), parent}.
+Json op_add_node(SvgDoc& doc, const Placement& at, const std::string& baseId, const std::string& tag,
+                 const std::vector<std::pair<std::string, std::string>>& attrs, const char* command);
 // A <g> holding several paths, back to front.
 Json op_add_group(SvgDoc& doc, const Placement& at, const std::string& baseId, const std::vector<RibbonPiece>& pieces, const Settings& s, std::vector<std::string>& warnings);
 

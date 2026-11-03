@@ -23,7 +23,21 @@ vector.mirror        mirror a shape across an axis and weld the halves (or add t
 vector.text_to_path  text as path outlines, with the engine's own fonts
 vector.shade         shadow and highlight bands from the light direction
 vector.to_rig        a character drawn in named groups becomes part pictures, joints and a Bone2D prefab
+vector.add           add a path, rectangle, ellipse or line
+vector.nodes         move anchors and handles, insert, delete, convert, break, join, close, append
+vector.set_path      replace the path data of a shape
+vector.set           fill, stroke, opacity, hidden, locked, id, attributes
+vector.transform     move, scale, rotate, flip (writes the transform attribute)
+vector.delete        delete elements
+vector.duplicate     copy elements
+vector.group         wrap elements in a group
+vector.ungroup       dissolve a group, keeping the look
+vector.reorder       change the drawing order or move into another group
+vector.assign_ids    give every drawn element without an id one
 ```
+
+The last eleven are what the editor's Vector panel runs for every gesture ([EDITOR.md](EDITOR.md), "Vector panel"), so they are also
+the way to draw by hand: see "Editing by hand".
 
 ## Where the SVG comes from
 
@@ -172,6 +186,56 @@ With neither argument both are applied, whichever the guide defines. One asked f
 one switched off alone applies the other (`{"outline": false}`). Give values instead of `true` to override the guide:
 `{"outline": {"width": 2, "color": "#101018"}}`, `{"palette": ["#101018", "#e8e0d0"]}`. `elements` limits it to some shapes (default:
 the whole drawing). A guide with neither an outline nor a palette is an error that says how to add them.
+
+## Editing by hand
+
+`vector.add`, `vector.nodes`, `vector.set_path`, `vector.set`, `vector.transform`, `vector.delete`, `vector.duplicate`, `vector.group`,
+`vector.ungroup`, `vector.reorder` and `vector.assign_ids` edit one thing at a time, the way a drawing program does. They take the same
+`source` / `svg` / `document` + `layer`, `out`, `overwrite`, `dryRun` and `previewSize` as the rest, and keep the file as described in "What
+is edited, and what is kept": ids, groups, `transform` attributes and the text of everything they do not touch stay as they were. Points
+are in the drawing space (the `viewBox` units) and are mapped back into the element's own space through its transforms; `space: "local"`
+on `vector.add`, `vector.nodes` and `vector.set_path` means the element's own numbers.
+
+| Command | Does | Main arguments |
+| --- | --- | --- |
+| `vector.add` | one new element at the end of the drawing, of `parent`, or in front of `before` | `kind` path (`d`), rect (`x`, `y`, `width`, `height`, `cornerRadius`), ellipse (`center`, `rx`, `ry`: a `<circle>` when equal) or line (`from`, `to`); `fill`, `stroke`, `strokeWidth`, `id`... Open paths and lines get a stroke and no fill |
+| `vector.nodes` | a list of node operations on ONE shape (a rect or circle becomes a path with the same outline) | `element`, `ops` |
+| `vector.set_path` | the outline of one shape | `element`, `d`, `space` (default local) |
+| `vector.set` | presentation properties of shapes or groups | `elements`, `fill`, `stroke`, `strokeWidth`, `opacity`, `fillOpacity`, `strokeOpacity`, `fillRule`, `lineCap`, `lineJoin`, `miterLimit`, `dashes`, `hidden`, `locked`, `id`, `attributes`; `null` removes a property |
+| `vector.transform` | a drawing-space transform written as the `transform` attribute (the nodes are not rewritten) | `elements`, `translate`, `scale`, `rotate`, `flip`, `matrix`, `about` |
+| `vector.delete`, `vector.duplicate` | remove, or copy right after the original (`<id>-copy`) | `elements`, `offset` |
+| `vector.group`, `vector.ungroup` | wrap in a `<g>` (it takes the place of the topmost element), or dissolve one (its transform and inherited style go onto the children; a group with `clip-path`, `mask` or `filter` is refused) | `elements`, `id` |
+| `vector.reorder` | `to` front, back, forward or backward; or `parent` (a group id or `root`) and `before` to move; the look is kept by compensating the transforms of the old and new group | `elements`, `to`, `parent`, `before` |
+| `vector.assign_ids` | an id (the tag, `path`, `path-2`, `g`...) for every drawn element without one; `elements` limits it | `elements` |
+
+`vector.nodes` numbers the nodes from 0 in path-data order, per subpath (`subpath`, default 0). The operations run in order, all or
+nothing:
+
+| `op` | Arguments |
+| --- | --- |
+| `move` | `node`, `to` or `by`, `handles` (false leaves the handles where they are) |
+| `handle` | `node`, `which` in/out, `to`, `link` auto / none / angle / mirror (auto: a smooth node keeps its handles on one line, a symmetric one mirrors them) |
+| `insert` | `segment` and `t`, or `at` near the path (the curve keeps its shape) |
+| `delete` | `node`, `keepShape` |
+| `convert` | `node`, `to` corner / smooth / symmetric |
+| `break` | `node`: opens a closed subpath there, or splits an open one |
+| `join` | `node`, `otherNode`, `other` (the subpath), `connect` merge / line: two ends |
+| `close`, `reverse` | the subpath |
+| `append` | `at`, `out`, `end` end / start: continues an open path; a `subpath` equal to the number of subpaths starts a new one |
+
+`vector.set` with `hidden: true` writes `display="none"` (every renderer honours it); `locked: true` writes `data-locked="true"`, which only
+the Vector panel reads (it does not pick or move a locked element; the picture is unchanged). `id` renames ONE element and updates the
+`href`, `xlink:href` and `url(#...)` that point to it.
+
+**Parametric shapes.** `vector.shape` with `parametric: true` also writes `data-fa-shape` (the kind) and `data-fa-args` (its arguments as
+JSON) on the element, so an editor can show them as fields; calling `vector.shape` again with `replace: "<id>"` and new arguments redraws
+that element (its id, style and transform stay, and `replace` cannot be combined with `id`, `parent`, `before`, `transform` or the style
+arguments). Any command that changes the outline of such an element (`vector.nodes`, `vector.set_path`, a boolean...) removes both attributes: it is a plain path from
+then on. A `ribbon` is a group, so it cannot be parametric.
+
+**`preview: false`** skips the `$image` picture in the result. A caller that draws the result itself (the Vector panel does, many times a
+second while a handle is dragged, with `dryRun`) asks for no picture. **`bake: false`** (with `document`) writes the layer without baking the
+document's PNG; `image.save` bakes it later.
 
 ## Building shapes
 

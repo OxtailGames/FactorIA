@@ -570,7 +570,9 @@ void Editor::at_build_tools_script() {
             if (showAnimation_ || anim_.posed) anim_unpose();  // sections B2 and C2: the panels, the pose and the tools are not carried over
             anim_ = AnimUi{};
             bone_ = BoneUi{};
-            showAnimation_ = showBoneTools_ = showImage_ = false;
+            showAnimation_ = showBoneTools_ = showImage_ = showVector_ = false;
+            vector_release_textures();
+            vector_ = VectorUi{};   // section J2: the Vector panel, its drawing and its tools are not carried over
             image_release_textures();   // section I2: the Image panel, its document and its tools are not carried over
             image_ = ImageUi{};
             projBrowser_.query = BrowserQuery{};
@@ -6009,6 +6011,212 @@ void Editor::at_build_tools_script() {
             ImageModel& m = *image_.model;
             at_check(m.last_composite_ms() >= 0.0 && m.composites() > 0, "the panel measured its composites");
             FA_INFO("autotest", "image panel: {} composites, last {:.2f} ms", m.composites(), m.last_composite_ms());
+            showImage_ = false;
+        });
+    }
+
+    section("J2");
+    // The Vector panel (docs/EDITOR.md, "Vector panel"): an SVG with two rectangles opens in the panel; a triangle with one curved corner
+    // is drawn with the Pen (clicks, a drag, a click on the first node to close), a corner is moved with the Node tool and made smooth,
+    // the two rectangles are picked with a marquee and merged with Union, Ctrl+Z / Ctrl+Y walk the steps through the editor's own undo
+    // stack, and the file on disk is checked. Then an image document with an svg layer: the Image panel's "Edit in Vector panel" button
+    // opens the layer, an ellipse drawn there is written into the document, Undo takes it out and Save bakes the PNG. Every wait counts
+    // frames.
+    {
+        struct Js {
+            size_t undo = 0;
+            std::string original;
+            std::string drawn;
+            std::string docBefore;
+        };
+        auto js = std::make_shared<Js>();
+        const std::string svgPath = "assets/at-vector.svg";
+        const std::string docPath = "assets/at-vector.image.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        // A click and a drag on the canvas, in the drawing's own units (the mouse goes through the middle on the way).
+        auto click_vec = [this, &step](double x, double y) {
+            step(2, [this, x, y] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, vector_screen_pos(x, y)); });
+            step(2, [this, x, y] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, vector_screen_pos(x, y)); });
+            step(4, [this, x, y] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, vector_screen_pos(x, y)); });
+        };
+        auto drag_vec = [this, &step](double x0, double y0, double x1, double y1) {
+            step(2, [this, x0, y0] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, vector_screen_pos(x0, y0)); });
+            step(2, [this, x0, y0] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, vector_screen_pos(x0, y0)); });
+            step(2, [this, x0, y0, x1, y1] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, vector_screen_pos((x0 + x1) / 2, (y0 + y1) / 2)); });
+            step(2, [this, x1, y1] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, vector_screen_pos(x1, y1)); });
+            step(4, [this, x1, y1] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, vector_screen_pos(x1, y1)); });
+        };
+        auto item = [this](const std::string& ref) -> const VecItem* {
+            const int i = vector_.model ? vector_.model->scene().find(ref) : -1;
+            return i < 0 ? nullptr : &vector_.model->scene().items[std::size_t(i)];
+        };
+        auto read_text = [this](const std::string& rel) {
+            std::ifstream in(projectDir_ + "/" + rel, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+        step(2, [this, js, svgPath] {
+            std::error_code ec;
+            stdfs::remove(projectDir_ + "/" + svgPath, ec);   // a leftover of an earlier run
+            stdfs::create_directories(projectDir_ + "/assets", ec);
+            std::ofstream out(projectDir_ + "/" + svgPath, std::ios::binary);
+            out << "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" width=\"100\" height=\"100\">"
+                   "<rect id=\"a\" x=\"10\" y=\"10\" width=\"30\" height=\"30\" fill=\"#d04030\"/>"
+                   "<rect id=\"b\" x=\"25\" y=\"25\" width=\"35\" height=\"35\" fill=\"#3050d0\"/></svg>";
+            out.close();
+            js->undo = undo_depth();
+            open_vector_document(svgPath);
+            vector_.model->style.useStroke = false;
+        });
+        wait_until([this] { return at_visible("vec:canvas") && at_visible("vec:tool:Pen"); });
+        step(3, [this, js, svgPath, read_text] {
+            VectorModel& m = *vector_.model;
+            js->original = read_text(svgPath);
+            at_check(m.is_open() && m.valid() && m.scene().items.size() == 2, "the panel opened the svg with its two rectangles");
+            at_check(vector_.canvasW > 40 && vector_.canvasH > 40 && vector_.zoom > 0.5f, "...and the canvas shows the drawing");
+            at_check(at_visible("vec:save") && at_visible("vec:act:union") && at_visible("vec:tool:Node"), "...with its toolbar, actions and tools");
+        });
+        snap("editor_vector_panel.png");
+
+        // ---- the Pen: three clicks (the second one dragged into a curve) and a click on the first node to close
+        click_widget("vec:tool:Pen");
+        click_vec(70, 10);
+        drag_vec(90, 10, 96, 18);
+        click_vec(90, 40);
+        step(3, [this] { at_check(vector_.model->pen().active && vector_.model->pen().path[0].nodes.size() == 3, "three Pen clicks made three nodes of a path being drawn"); });
+        click_vec(70, 10);
+        step(4, [this, js, item] {
+            VectorModel& m = *vector_.model;
+            at_check(!m.pen().active && m.scene().items.size() == 3, "a click on the first node closed the path and wrote it");
+            at_check(m.selection().size() == 1, "...the new path is selected");
+            const VecItem* it = m.selection().empty() ? nullptr : item(m.selection()[0]);
+            at_check(it && it->closed && it->nodeCount == 3 && it->curves, "...closed, with three nodes and a curved corner");
+            at_check(it && it->nodes[0].nodes[1].hasOut, "...the dragged node has its handles");
+            at_check(undo_depth() == js->undo + 1, "...as ONE undo step of the editor's stack");
+            js->drawn = m.selection().empty() ? std::string() : m.selection()[0];
+        });
+        snap("editor_vector_pen.png");
+
+        // ---- the Node tool: move a corner, then make it smooth
+        click_widget("vec:tool:Node");
+        drag_vec(70, 10, 72, 22);
+        step(4, [this, js, item] {
+            const VecItem* it = item(js->drawn);
+            at_check(it && std::abs(it->nodes[0].nodes[0].p.x - 72) < 1.0 && std::abs(it->nodes[0].nodes[0].p.y - 22) < 1.0, "dragging an anchor with the Node tool moved it to 72,22");
+            at_check(undo_depth() == js->undo + 2, "...as one undo step");
+        });
+        click_widget("vec:node:smooth");
+        step(4, [this, js, item] {
+            const VecItem* it = item(js->drawn);
+            at_check(it && it->nodes[0].nodes[0].hasIn && it->nodes[0].nodes[0].hasOut, "Make smooth gave the moved anchor its two handles");
+            at_check(undo_depth() == js->undo + 3, "...as one undo step");
+        });
+        snap("editor_vector_nodes.png");
+
+        // ---- a marquee picks the two rectangles, Union merges them
+        click_widget("vec:tool:Select");
+        drag_vec(5, 5, 65, 65);
+        step(4, [this] { at_check(vector_.model->selection().size() == 2, "a marquee from left to right picked the two rectangles (not the triangle)"); });
+        click_widget("vec:act:union");
+        step(4, [this, js] {
+            VectorModel& m = *vector_.model;
+            at_check(m.scene().items.size() == 2 && m.selection().size() == 1, "Union made one shape of the two rectangles, and selected it");
+            at_check(undo_depth() == js->undo + 4, "...as one undo step");
+        });
+        snap("editor_vector_union.png");
+
+        // ---- undo and redo go through the editor's stack
+        step(2, [this] { undo(); });
+        step(4, [this] { at_check(vector_.model->scene().items.size() == 3 && vector_.model->scene().find("a") >= 0, "Undo brought the two rectangles back (a, b and the triangle)"); });
+        step(2, [this] { redo(); });
+        step(4, [this] { at_check(vector_.model->scene().items.size() == 2 && vector_.model->scene().find("b") < 0, "Redo merged them again (the union keeps the first shape's id)"); });
+        for (int i = 0; i < 4; ++i) step(2, [this] { undo(); });
+        step(4, [this, js, svgPath, read_text] {
+            at_check(undo_depth() == js->undo, "four Undos took back every vector edit and left the stack where it was");
+            at_check(read_text(svgPath) == js->original, "...and the file on disk is the SVG we started with, byte for byte");
+            at_check(vector_.model->scene().items.size() == 2, "...the canvas shows the two rectangles");
+        });
+        for (int i = 0; i < 4; ++i) step(2, [this] { redo(); });
+        step(4, [this, js, svgPath, read_text, item] {
+            at_check(undo_depth() == js->undo + 4, "four Redos brought them all back");
+            const std::string text = read_text(svgPath);
+            at_check(text.find("id=\"" + js->drawn + "\"") != std::string::npos && text.find("<rect") == std::string::npos, "...the file has the triangle and the merged shape, and no rectangle");
+            const VecItem* it = item(js->drawn);
+            at_check(it && it->nodes[0].nodes[0].hasIn, "...the triangle kept its smooth corner");
+        });
+        click_widget("vec:save");
+        step(3, [this] { at_check(vector_.model->status().find("already written") != std::string::npos, "Save on an svg file says every edit is already written"); });
+
+        // ---- an svg layer of an image document, from the Image panel
+        step(2, [this, js, docPath] {
+            std::error_code ec;
+            stdfs::remove(projectDir_ + "/" + docPath, ec);
+            stdfs::remove(projectDir_ + "/assets/at-vector.png", ec);
+            const std::string svg =
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\" width=\"64\" height=\"64\"><rect id=\"box\" x=\"6\" y=\"6\" width=\"28\" height=\"28\" fill=\"#d04030\"/></svg>";
+            Json args = Json::object({{"path", docPath}, {"width", 64}, {"height", 64},
+                                      {"layers", Json::array({Json::object({{"kind", "fill"}, {"name", "bg"}, {"color", "#ffffff"}}),
+                                                              Json::object({{"kind", "svg"}, {"name", "art"}, {"svg", svg}})})}});
+            const CommandResult r = engine_->commands().call("image.create", args);
+            at_check(r.ok, "image.create made a document with an svg layer: " + (r.ok ? std::string() : command_error_text(r.error)));
+            after_command("image.create", args, r);
+            js->undo = undo_depth();
+            open_image_document(docPath);
+            showVector_ = false;
+        });
+        wait_until([this] { return at_visible("img:canvas") && at_visible("img:layer:add"); });
+        step(2, [this] { image_.model->select_layer("1"); });
+        wait_until([this] { return at_visible("img:insp:edit_vector"); });
+        click_widget("img:insp:edit_vector");
+        wait_until([this] { return vector_.model && vector_.model->is_layer() && at_visible("vec:canvas") && at_visible("vec:tool:Ellipse"); });
+        step(3, [this, docPath] {
+            VectorModel& m = *vector_.model;
+            at_check(m.valid() && m.path() == docPath && m.layer_path() == "1", "Edit in Vector panel opened the svg layer of the document");
+            at_check(m.scene().items.size() == 1 && m.scene().find("box") >= 0, "...with its rectangle");
+        });
+        click_widget("vec:tool:Ellipse");
+        drag_vec(40, 36, 60, 56);
+        step(4, [this, js, docPath, read_text] {
+            VectorModel& m = *vector_.model;
+            js->docBefore = read_text(docPath);
+            at_check(m.scene().items.size() == 2, "dragging with the Ellipse tool added a shape to the layer");
+            at_check(js->docBefore.find("<circle") != std::string::npos && js->docBefore.find("id=\\\"box\\\"") != std::string::npos,
+                     "...and it is in the image document's JSON, next to the rectangle with its id");
+            at_check(undo_depth() == js->undo + 1, "...as one undo step");
+        });
+        // the Image panel reads the document again on its own (every 20 frames)
+        wait_until([this] { return image_.model && image_.model->json().dump().find("<circle") != std::string::npos; });
+        step(2, [this] { at_check(true, "the Image panel read the document again and has the new shape"); });
+        step(2, [this] { undo(); });
+        step(4, [this, js, docPath, read_text] {
+            at_check(vector_.model->scene().items.size() == 1, "Undo took the ellipse out of the layer");
+            at_check(read_text(docPath).find("<circle") == std::string::npos, "...and out of the document");
+        });
+        step(2, [this] { redo(); });
+        click_widget("vec:save");
+        step(8, [this] {
+            const ImageBakeStatus b = image_.model ? image_.model->bake_status() : ImageBakeStatus{};
+            auto img = load_image(projectDir_ + "/" + b.output);
+            at_check(!b.output.empty() && img.ok(), "Save baked the document's PNG: " + b.output);
+            if (img.ok()) {
+                const Color box = img->pixel(15, 15), circle = img->pixel(50, 46), blank = img->pixel(60, 8);
+                at_check(box.r > 0.7f && box.g < 0.4f, "...the rectangle of the svg layer is in it");
+                at_check(circle.b > 0.8f && circle.r < 0.6f, "...and so is the ellipse drawn in the Vector panel (the default blue)");
+                at_check(blank.r > 0.98f && blank.g > 0.98f && blank.b > 0.98f, "...on the white background");
+            }
+        });
+        step(2, [this] {
+            FA_INFO("autotest", "vector panel: scene read {:.2f} ms, last picture {:.2f} ms", vector_.model->last_scene_ms(), vector_.model->last_raster_ms());
+            showVector_ = false;
             showImage_ = false;
         });
     }

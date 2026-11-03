@@ -473,6 +473,10 @@ bool near_identity(const Mat& m) {
 }
 bool pure_translation(const Mat& m) { return std::fabs(m.a - 1) < 1e-12 && std::fabs(m.d - 1) < 1e-12 && std::fabs(m.b) < 1e-12 && std::fabs(m.c) < 1e-12; }
 
+std::string translate_text(double dx, double dy) { return std::format("translate({} {})", format_number(dx, 4), format_number(dy, 4)); }
+
+}  // namespace
+
 // Applies `m` (a transform of the drawing space, written `mText`) to the element: its own transform becomes the one that, inside
 // its parents, moves it by `m`. The attribute keeps the readable form where the parents do not transform.
 void apply_canvas_transform(XNode& n, const Mat& m, const std::string& mText, const char* cmd) {
@@ -494,10 +498,6 @@ void apply_canvas_transform(XNode& n, const Mat& m, const std::string& mText, co
     if (near_identity(nt)) n.remove_attr("transform");
     else n.set_attr("transform", transform_to_string(nt, 6));
 }
-
-std::string translate_text(double dx, double dy) { return std::format("translate({} {})", format_number(dx, 4), format_number(dy, 4)); }
-
-}  // namespace
 
 // ---- align and distribute ----------------------------------------------------------------------------------------------
 
