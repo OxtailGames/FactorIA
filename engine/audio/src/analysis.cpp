@@ -129,6 +129,64 @@ Result<Loudness> measure_loudness(std::span<const std::uint8_t> encoded, std::st
     return out;
 }
 
+Result<DecodedAudio> decode_audio(std::span<const std::uint8_t> encoded, std::string_view extension, double maxSeconds) {
+    std::string problem;
+    auto dec = audio_detail::open_decoder(encoded.data(), encoded.size(), extension, &problem);
+    if (!dec) return make_error("the audio file " + problem);
+    const std::size_t channels = std::size_t(dec->channels());
+    DecodedAudio out;
+    out.channels = channels > 1 ? 2 : 1;
+    out.rate = dec->rate();
+    const std::uint64_t limit = maxSeconds > 0.0 ? std::uint64_t(maxSeconds * out.rate) : ~std::uint64_t(0);
+    if (const std::uint64_t known = dec->frames(); known > 0 && known < (std::uint64_t(1) << 31))
+        out.samples.reserve(std::size_t(std::min(known, limit)) * std::size_t(out.channels));
+    std::vector<float> buffer(4096 * channels);
+    std::uint64_t frames = 0;
+    for (std::size_t n; frames < limit && (n = dec->read(buffer.data(), 4096)) > 0;) {
+        n = std::size_t(std::min<std::uint64_t>(n, limit - frames));
+        for (std::size_t i = 0; i < n; ++i)
+            for (int c = 0; c < out.channels; ++c) out.samples.push_back(buffer[i * channels + std::size_t(c)]);
+        frames += n;
+    }
+    if (frames == 0) return make_error("the audio file contains no audio samples");
+    return out;
+}
+
+LoudnessCurve loudness_curve(const DecodedAudio& audio) {
+    LoudnessCurve curve;
+    const std::size_t channels = std::size_t(audio.channels), frames = audio.frames();
+    if (frames == 0) return curve;
+    const double fs = double(audio.rate);
+    const std::size_t hop = std::max<std::size_t>(1, std::size_t(std::lround(0.1 * fs)));
+    curve.hopSeconds = double(hop) / fs;
+    KWeighting weighting[2] = {KWeighting(fs), KWeighting(fs)};
+    std::vector<double> energy;  // mean square (both sides summed) of each hop
+    double acc = 0.0;
+    std::size_t fill = 0;
+    for (std::size_t i = 0; i < frames; ++i) {
+        const double l = audio.samples[i * channels], r = channels > 1 ? audio.samples[i * channels + 1] : l;
+        const double yl = weighting[0].process(l), yr = weighting[1].process(r);
+        acc += yl * yl + yr * yr;
+        if (++fill == hop) {
+            energy.push_back(acc / double(hop));
+            acc = 0.0;
+            fill = 0;
+        }
+    }
+    if (fill > 0) energy.push_back(acc / double(hop));
+    std::vector<double> prefix(energy.size() + 1, 0.0);
+    for (std::size_t i = 0; i < energy.size(); ++i) prefix[i + 1] = prefix[i] + energy[i];
+    auto window = [&](std::size_t end, std::size_t length) {
+        const std::size_t first = end + 1 >= length ? end + 1 - length : 0;
+        return std::max(-80.0, lufs_of((prefix[end + 1] - prefix[first]) / double(end + 1 - first)));
+    };
+    for (std::size_t i = 0; i < energy.size(); ++i) {
+        curve.momentary.push_back(float(window(i, 4)));
+        curve.shortTerm.push_back(float(window(i, 30)));
+    }
+    return curve;
+}
+
 double normalization_gain_db(const Loudness& loudness, double targetLufs) {
     if (loudness.integratedLufs <= kSilentLufs) return 0.0;
     const double wanted = std::clamp(targetLufs - loudness.integratedLufs, -kMaxNormalizeGainDb, kMaxNormalizeGainDb);
