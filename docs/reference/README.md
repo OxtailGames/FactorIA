@@ -161,6 +161,10 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.spectrogram`](commands/assets.md#assetsspectrogram): See a sound: a picture of its waveform, spectrogram (log frequency) and loudness curve, with the clipped samples and the loop seam marked. _Not released yet._
 - [`assets.subset_font`](commands/assets.md#assetssubset_font-modifies-state): Cut a font down to the characters of the locale tables plus Latin and punctuation (a CJK font from 17 MB to a few hundred KB), pinning a variable font's axes. _Since 0.3.0._
 - [`assets.synth_sound`](commands/assets.md#assetssynth_sound-modifies-state): Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key. _Since 0.3.0._
+- [`sfx.bake`](commands/assets.md#sfxbake-modifies-state): Render every sound patch of the project whose WAV is missing or out of date. _Not released yet._
+- [`sfx.info`](commands/assets.md#sfxinfo): Check a sound patch and say what it holds and how loud it renders, without writing anything. _Not released yet._
+- [`sfx.preset`](commands/assets.md#sfxpreset-modifies-state): List the sound presets, return one as an editable patch, or write it to a *.sfx.json file. _Not released yet._
+- [`sfx.render`](commands/assets.md#sfxrender-modifies-state): Render a sound patch (*.sfx.json) to a WAV or OGG next to it and see its spectrogram: the engine's own synthesizer, offline and deterministic. _Not released yet._
 
 ### [audio](commands/audio.md)
 
