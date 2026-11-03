@@ -383,6 +383,53 @@ centre of its ink moves by more than 30% of the frame) and a looping clip whose 
 The result also has `frames` (for each shown frame: `empty` and the `bbox` of its ink in frame pixels) and `nextSteps`.
 The Project panel plays the same clips (see [EDITOR.md](EDITOR.md)).
 
+### Judging a set of assets: assets.contact_sheet
+
+`assets.contact_sheet {"paths":["assets/hero.png","assets/slime.png"],"sizes":[32,64]}` draws the pictures side by side at the
+size the player sees them, over a light background, a dark one and the clear colour of the first primary camera of the main
+scene, plus a last row in greyscale (`greyscale: false` leaves it out). Each column is labelled with the file name and its size
+in the font that comes with the engine. It is the way to see what disappears: an outline that vanishes when small, a shape that
+merges with one background, two sprites with the same value in greyscale. The result is a picture returned as `$image` (like
+`assets.preview_sheet`); nothing is written unless you pass `path`, and an existing file is then not replaced without
+`overwrite: true`. The same inputs give the same picture (CPU only, except models).
+
+- `sizes` are pixels of the longest side as the player sees it (Sprite.size on screen times the render scale); each picture is
+  drawn once per size, shrunk with averaging or grown with hard pixels. Without `sizes` a picture is drawn at its native size
+  (at most 512).
+- `backgrounds` (1 to 6 colours, such as `"#3a7d44"`) replaces the default rows; the camera colour is then not added.
+- `columns` (default 8) sets the cells per line; the picture grows downwards and is capped at 2048 pixels (a warning says so).
+  More than 160 cells is an error.
+- A PNG, JPG, BMP or TGA is drawn as it is. A sprite sheet (a `sheet` entry in assets.json) shows its first frame, or every
+  frame with `allFrames: true`.
+- A `.glb` is drawn as a thumbnail by the renderer (studio light, turned three quarters, transparent around it). That needs a
+  graphics device: without one the command fails with `no_gpu`, and you can leave the models out. A model in the real scene,
+  with its lighting, is `assets.preview_in_scene`.
+
+The result has `warnings`, `nextSteps` (they name `assets.preview_in_scene`, `game.screenshot` and `assets.preview_sheet`) and
+`backgrounds`, `rows`, `cells`, `picture` (width, height, scale) and `written` (with `path`).
+
+### A new asset in a real scene: assets.preview_in_scene
+
+`assets.preview_in_scene {"path":"assets/hero.png","scene":"scenes/level1.scene.json","at":[0,0]}` places a PNG as a `Sprite`
+(or a `.glb` as a `MeshRenderer`) in a copy of the scene running in a second, headless engine, and returns screenshots at phone
+(540x1170) and desktop (1280x720) resolutions, as one picture with the screens side by side and labelled (the MCP result
+carries a single image). `resolutions` takes `"phone"`, `"tablet"` (1024x768), `"desktop"` or `"WxH"`, up to four. The scene
+file is never changed and no temporary entity is left: the asset exists only in that second engine. It needs a renderer; headless
+without a graphics device it fails with `no_gpu` and says to use `assets.contact_sheet` or `game.screenshot`.
+
+- Position: `at` ([x, y] or [x, y, z]) or `entity` (an entity of the scene). With `entity`, `placement: "beside"` (default)
+  puts the asset to the right of it (the gap is a rough estimate from the entity's `Sprite` or `Shape2D` size, else 64 units)
+  and `"replace"` puts it at the entity's position with that entity hidden in the picture. `offset` ([x, y]) moves it from there.
+  With neither, it goes to the middle of the view.
+- `size`: for a sprite a number (longest side) or [width, height] in world units, default its size in pixels; for a model its
+  largest dimension in meters, default its own size.
+- `steps` (default 2) is how many frames the scene runs before the asset is placed, so scripts and spawners have started.
+- `center: true` (2D scenes) moves the camera onto the asset so it is in view at every resolution; a camera script can move it
+  back. Without it an asset outside the view is a warning that says where it would land.
+- The size of the screens comes from the resolution you ask for, not from the project's design resolution.
+
+The result has `asset`, `scene`, `screens`, `sceneFileChanged: false`, `warnings` and `nextSteps`.
+
 ### The game icon without a provider: assets.draw_icon
 
 A game made without an image provider still gets a real icon. `assets.draw_icon` draws one from a short description,
