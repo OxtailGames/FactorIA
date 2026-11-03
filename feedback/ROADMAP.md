@@ -1569,7 +1569,7 @@ Rules for every milestone below:
   up, is an optional input (a generated layer, an inpainted selection), never required.
 - **Shipped like every feature.** Docs (one new doc per area, embedded), typings, `factoria validate` checks, autotest
   sections for the panels, `api_since`, and an example game that adopts the tool and records gaps in its
-  `ENGINE_FEEDBACK.json`. Each milestone is one minor version (M51 = 0.16.0, and so on).
+  `ENGINE_FEEDBACK.json`. M51-M60 ship together, in one PR and as one version (0.16.0), when M60 is done (the user, 2026-11-03).
 
 Order: M51 first (it multiplies every later tool), then 2D images (M52-M54: most FactorIA games are 2D), then audio
 (M55-M56), then 3D (M57-M59), then a reference game that uses only these tools (M60). The audio and 3D blocks do not
