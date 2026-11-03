@@ -212,7 +212,7 @@ struct Parser {
             return;
         }
         for (std::size_t i = 0; i < it->size(); ++i) {
-            imgdoc::check_op(effect, (*it)[i], pointer + "/" + key + "/" + std::to_string(i), issues);
+            imgdoc::check_op(effect, (*it)[i], pointer + "/" + key + "/" + std::to_string(i), issues, projectDir);
             out.push_back((*it)[i]);
         }
     }

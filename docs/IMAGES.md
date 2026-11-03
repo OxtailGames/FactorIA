@@ -140,9 +140,77 @@ bigger). For one layer the order is: content -> adjustments -> masks -> effects 
 canvas at `x`, `y`. Each entry is `{"type": name, ...fields}`. An `adjustment` layer applies its adjustments to the canvas
 below it and mixes the result in by its masks, clipping and opacity.
 
-Implemented now: adjustments `invert` and `brightness` (`amount` -1..1, default 0.2), effect `colorOverlay` (`color`,
-`amount` 0..1). The lists exist so that more operations are one entry in `image_doc_ops.cpp` each; an unknown `type` is an
-error that lists the known ones. `fa::image_adjustment_types()` and `fa::image_effect_types()` return them with a description.
+An unknown `type` or key, or a value out of range, is an error with the pointer, a "did you mean" and the operation's
+description; `fa::image_adjustment_types()` and `fa::image_effect_types()` return every operation with that description.
+Everything is CPU, in float, deterministic (no random numbers: `noise` hashes its seed and the pixel) and works on the stored
+(sRGB-encoded) values. The blurs are separable; a 1024 x 1024 layer with three adjustments and four effects took about six seconds
+in a Debug build. Pixels with alpha 0 are left alone by the adjustments that quantize or dither.
+
+### Adjustments (colour only, alpha stays; also in `adjustment` layers)
+
+| `type` | Keys (defaults) | What it does |
+|---|---|---|
+| `invert` | | 1 - colour |
+| `brightness` | `amount` -1..1 (0.2) | added to red, green and blue |
+| `levels` | `inBlack` 0 / `inWhite` 1, `gamma` 0.1..10 (1), `outBlack` 0 / `outWhite` 1, `channel` rgb, red, green, blue | stretch input black..white to 0..1, `pow(v, 1/gamma)`, map to the output range; `inBlack` must be below `inWhite` |
+| `curves` | `points` [[x, y], ...] (2-32, x increasing, 0..1), `channel` | a monotone cubic through the points (Fritsch-Carlson: never overshoots between points; flat outside the first and last) |
+| `hsv` | `hue` degrees -180..180, `saturation` -1..1, `value` -1..1, `colorize` | turn the hue; saturation x (1 + `saturation`); value + `value`. With `colorize: true` the pixel gets hue `hue` (0..360) and saturation `saturation` (0..1, default 0.5) and keeps its Rec. 709 luma + `value` |
+| `posterize` | `levels` 2..256 (4) | each channel rounded to `levels` evenly spaced values |
+| `quantize` | `palette` "style" or [colours] ("style"), `space` oklab or rgb (oklab), `dither` (none), `strength` 0..1 (1) | every pixel takes the nearest palette colour |
+| `dither` | `method` none, bayer2, bayer4, bayer8, floydSteinberg, atkinson (bayer4), `levels` 2..256 (2), `palette`, `space`, `strength` | reduces the colours with a dither: to `palette` when given, else to `levels` values per channel |
+| `gradientMap` | `stops` [{`at`, `color`}] (2-64, `at` not decreasing) | the colour of the gradient at the pixel's Rec. 709 luma |
+| `colorBalance` | `shadows`, `midtones`, `highlights`: [r, g, b] each -1..1 | adds 0.5 x weight x shift; weights from the luma l: shadows (1-l)^2, highlights l^2, midtones 4l(1-l) |
+| `threshold` | `level` 0..1 (0.5), `above` (white), `below` (black) | luma at or above `level` becomes `above` |
+
+`palette: "style"` is `style.palette` of `assets.json` ([ASSETS.md](ASSETS.md)); with no style palette the render fails
+saying so. "Nearest colour" is the smallest Euclidean distance in **OKLab** (a perceptual space) by default, or in the stored RGB
+values with `space: "rgb"`; a tie takes the earlier palette entry. Ordered dithers add a Bayer threshold (tiled over the
+layer's own pixels, so it moves with the layer's content, not with the canvas) scaled by the palette's spacing before choosing
+the nearest colour; error diffusion goes left to right, top to bottom and only passes error to visible pixels (no serpentine, so
+the result does not depend on direction tricks). `quantize` with a `dither` equals `dither` with the same palette.
+
+```json
+"adjustments": [
+  {"type": "levels", "inBlack": 0.1, "inWhite": 0.9, "gamma": 1.2},
+  {"type": "hsv", "hue": 15, "saturation": -0.1},
+  {"type": "quantize", "palette": "style", "dither": "bayer4"}
+]
+```
+
+### Effects (after the masks; may grow the layer, which keeps its pixels in place)
+
+| `type` | Keys (defaults) | What it does |
+|---|---|---|
+| `colorOverlay` | `color`, `amount` 0..1 (1) | mixes the colour towards `color`, alpha stays |
+| `outline` | `color` (black), `width` 0.5..64 (1), `position` outside, inside, center (outside), `smooth` (false) | a line around the alpha shape (a pixel is "in" when alpha > 0.5) |
+| `stroke` | the same | like `outline` with `position` center by default |
+| `dropShadow` | `offsetX`, `offsetY` -512..512 (2, 2), `blur` 0..64 (2), `color` (black), `opacity` 0..1 (0.5) | the shape moved by the offset, blurred (Gaussian sigma `blur` / 2), behind the layer |
+| `outerGlow` | `color` (white), `size` 0..64 (4), `strength` 0..8 (1), `opacity` 0..1 (1) | the alpha blurred (sigma `size` / 2) x `strength`, behind the layer |
+| `innerGlow` | the same | the same from the transparency around the layer, mixed into the layer's colour inside the edge; alpha stays |
+| `blur` | `mode` gaussian, box (gaussian), `radius` 0..64 (2) | Gaussian: `radius` is sigma. Box: `radius` is the half-width (window 2r + 1, whole pixels). Colour is weighted by alpha, so an edge does not darken |
+| `sharpen` | `radius` 0.1..32 (1), `amount` 0..10 (1), `threshold` 0..1 (0) | unsharp mask: colour + `amount` x (colour - blurred), where the difference reaches `threshold` |
+| `noise` | `amount` 0..1 (0.1), `seed` (0), `mode` mono, color (mono) | adds uniform noise in -`amount`..`amount` to visible pixels; the value depends only on the seed and the pixel position |
+| `shade` | `normalMap`, `flipGreen`, `smooth` 0..16 (1), `strength` 0..32 (3), `lightDirection`, `elevation` 1..90 (45), `intensity` 0..4 (1), `amount` 0..1 (1) | lights the layer from a normal map, or from its alpha as a height map |
+
+- **Outline and stroke** use the exact Euclidean distance to the shape: a pixel gets the stroke when its centre is within `width`
+  of the shape (outside) or of the outside (inside). Width 1 is therefore the 4-connected outline of pixel art (no diagonal
+  corner pixels; width 2 adds them), with no anti-aliasing. `smooth: true` gives the stroke edge a one-pixel ramp instead. `center`
+  puts `ceil(width / 2)` outside and the rest inside. An outside stroke is drawn behind the layer, an inside one over its edge.
+- **shade** multiplies the colour by `1 + 2 intensity (n.L - L.z)`: a flat surface (n.L = L.z) keeps its colour, surfaces
+  tilted towards the light get brighter and away from it darker. `normalMap` is a tangent-space PNG of the project with green up
+  (OpenGL; `flipGreen` for DirectX), read at the layer's own pixels (flat outside it or where it is transparent). Without it the
+  height map is the layer's alpha blurred by `smooth`, with slopes scaled by `strength`, so the edges of a shape bulge. The light
+  comes from `lightDirection` (degrees counter-clockwise from +x; 90 is up), by default the project's `style.lightDirection`
+  ([ASSETS.md](ASSETS.md)), else 135 (upper left).
+- A blur, shadow or glow grows the layer by what it needs; effects run in order, each on the result of the one before.
+
+```json
+"effects": [
+  {"type": "outline", "color": "#1a1c2c", "width": 1},
+  {"type": "dropShadow", "offsetX": 2, "offsetY": 2, "blur": 3, "opacity": 0.4},
+  {"type": "shade", "strength": 4}
+]
+```
 
 ## Baking, provenance and staleness
 
