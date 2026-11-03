@@ -3915,6 +3915,26 @@ Without `path` this bakes every *.model.json of the project whose .glb is missin
 | `dryRun` | boolean | no | List what would be baked and why, and write nothing. Default false. |
 | `overwrite` | boolean | no | Replace a file at the output that no model document baked. Default false. |
 
+### `model.bake_maps`
+
+Not released yet (on main after 0.14.1).
+
+Bake a model's ambient occlusion, curvature and thickness maps in its UV atlas and measure them (nothing is written): the masks that texturing wear is built from. Returns the maps as pictures.
+
+Measures the maps that `texturing` wear and `ao` use, so you can choose thresholds before changing the document. ao: 1 (white) is open, lower is occluded by the rest of the model (rays up to `distance`, `samples` per texel); curvature: 0.5 grey is flat, lighter is a convex edge, darker a concave corner (sharp edges turn the surface by at least `edgeAngle` degrees and give a band `edgeWidth` metres wide); thickness: how far the inside of the shell is from the opposite surface up to `thicknessDistance`, darker is thin. All three are CPU and deterministic. The defaults are the document's texturing.maps (else samples 16, distance 15% and thicknessDistance 50% of the model's diagonal, edgeAngle 20, edgeWidth 3% of the diagonal). The atlas is the document's `uv` section (a model with none is unwrapped for the measurement; nothing is written). `size` defaults to texturing.size, else the uv texture size. The result has each map's mean, min, max and coverage over the covered texels, the texels covered and the share claimed by two pieces, and one picture with the maps side by side. To keep the maps as pictures next to the model add them to texturing.maps.write; to paint with them add wear entries (model.texture). Example: {"path":"assets/models/crate.model.json","maps":["ao","curvature"],"size":512}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
+| `maps` | array | no | The maps to bake; default all three. |
+| `size` | integer | no | Side of the atlas in texels (16..4096); default texturing.size, else the uv section's texture size. |
+| `samples` | integer | no | Rays per texel for ao and thickness (4..256); default texturing.maps.samples or 16. |
+| `distance` | number | no | Metres an occluder may be away; 0 = 15% of the model's diagonal. |
+| `thicknessDistance` | number | no | Metres the thickness is measured up to; 0 = 50% of the diagonal. |
+| `edgeAngle` | number | no | Degrees an edge must turn the surface to count as sharp (1..179). |
+| `edgeWidth` | number | no | Metres wide the band along a sharp edge is; 0 = 3% of the diagonal. |
+| `picture` | boolean | no | Return the maps as one picture ($image). Default true. |
+
 ### `model.create` (modifies state)
 
 Not released yet (on main after 0.14.1).
@@ -3929,10 +3949,30 @@ Writes `path` (*.model.json under assets/) with the format, the `nodes` (a list 
 | `nodes` | array | no | The tree, in order. Each node is {"op": ..., fields}; groups and modifiers hold `children`. |
 | `materials` | object | no | Named materials the nodes refer to with `material`: {name: {color, texture, metallic, roughness, emissive, doubleSided, blend}}. |
 | `uv` | object | no | The uv section: how the model gets its UVs ({method, layout, texelsPerUnit, ...}; docs/MODELING.md, "UVs"). model.uv changes it field by field. |
+| `texturing` | object | no | The texturing section: bake a texture for the model ({size, ao, maps, wear, decals, ...}; docs/MODELING.md, "Texturing"). Needs a uv section with the atlas layout. model.texture changes it field by field. |
+| `vertexColors` | object | no | The vertexColors section: low-poly colour without a texture ({palette, parts, flat, variation, ...}; docs/MODELING.md, "Texturing"). model.palette changes it. |
 | `output` | object | no | {path: where to bake, under assets/, ending in .glb}. |
 | `doc` | string | no | A note on what the model is for. |
 | `overwrite` | boolean | no | Replace the document when it exists (and the .glb when nothing baked it). Default false. |
 | `bake` | boolean | no | Bake the .glb after writing. Default true. |
+
+### `model.decal` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Add, replace, remove or clear the decals of a model document: pictures (logos, stains, markings) projected on its surface and baked into the texture.
+
+A decal is an image of the project (assets.generate_texture output, or the baked png of an image document) projected along the opposite of its `normal` from `position` (model space, metres), `size` [w, h] metres, `rotation` degrees around the normal, `opacity`, `tint`, `depth` (how far from the plane through `position` the projection reaches, each way; 0 = the smaller side), `maxAngle` (surfaces turned more than this away from `normal` are left alone, default 75). `parts` restricts it to named parts and `faces` to the faces of a selection query (model.select tries one). Decals are composited in order into the layer "model: decals" of the texture; transparent pixels of the image stay transparent. `add` takes one decal or a list (a decal whose name exists replaces it; a missing name becomes decal1, decal2...); `remove` takes a name or a list; `clear` removes all. With none of them it only lists. Adding decals to a model with no texturing section creates one (and a uv unwrap when it has no uv section). The decals must name existing images and the whole document is checked first; nothing is written on a mistake. The report says how many texels each decal painted: 0 means it missed the surface. Example: {"path":"assets/models/crate.model.json","add":{"name":"label","image":"assets/textures/label.png","position":[0,0.2,0.5],"normal":"front","size":[0.4,0.25]}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
+| `add` | any | no | A decal {name, image, position, size, normal, depth, rotation, opacity, tint, maxAngle, parts, faces} or a list of them. An existing name is replaced. |
+| `remove` | any | no | The name of a decal to remove, or a list of names. |
+| `clear` | boolean | no | Remove every decal. Default false. |
+| `bake` | boolean | no | Bake the model and its texture again after a change. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
+| `picture` | boolean | no | Return the baked texture ($image). Default true. |
 
 ### `model.edit` (modifies state)
 
@@ -3955,6 +3995,8 @@ Add, change, remove or move one node of a model document by its id (or JSON poin
 | `output` | object | no | document: the new output settings ({path}); null removes them. |
 | `materials` | object | no | document: the new materials table; null removes it. |
 | `uv` | any | no | document: the new uv section, whole; null removes it. model.uv changes single fields. |
+| `texturing` | any | no | document: the new texturing section, whole; null removes it. model.texture changes single fields. |
+| `vertexColors` | any | no | document: the new vertexColors section, whole; null removes it. model.palette changes it. |
 | `gameReady` | object | no | document: the whole game-ready settings object (model.game_ready changes single settings); null removes it. |
 | `bake` | boolean | no | Bake the .glb after writing. Default true. |
 | `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
@@ -3993,6 +4035,24 @@ A model document (`*.model.json`, docs/MODELING.md) is a 3D model written as a t
 | `document` | object | no | The document itself, as JSON, to check before writing it to a file (format is filled in). |
 | `evaluate` | boolean | no | Build the mesh in memory for the measurements. Turn it off to only check the document. Default true. |
 
+### `model.palette` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Colour a model with a palette without a texture: the `vertexColors` section (style palette or your own colours, one colour or a gradient per part, flat low-poly faces); returns the palette swatches.
+
+The `vertexColors` section of a model document writes colours into the mesh while it is evaluated, so a low-poly model needs no texture. `palette` is "style" (the project's assets.json style.palette) or a list of colours; with a palette every colour snaps to the nearest one (`snap: false` turns that off). `color` is the colour of the parts with no entry; `parts` gives each part (by name, "" for nodes with no part) `color` (a colour or the index of a palette colour), or a `gradient` {axis, from, to, via, range} along a model axis, and its own `variation`. `flat: true` gives every triangle one colour (vertices are split: the faceted look); `variation` (0..0.5) changes each triangle's or vertex's brightness a little, deterministically from `seed`. Colours are "#rrggbb", "#rrggbbaa" or [r, g, b, a] from 0 to 1. The colours multiply any the nodes already have, and go into the .glb as vertex colours (or into the texture when the document has a `texturing` section). A bake that used the style palette is stale when the style guide's palette changes. With `set` the fields are merged (a null removes one; `parts` merges part by part), `replace` puts `set` in place of the section, `clear` removes it; the document is checked as a whole first. The result has the section, the palette as hex, the report (triangles coloured, distinct colours, vertices before and after the split) and warnings (a part name the model does not have). Example: {"path":"assets/models/house.model.json","set":{"palette":"style","flat":true,"variation":0.05,"parts":{"roof":{"color":2},"wall":{"gradient":{"from":0,"to":1,"axis":"y"}}}}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
+| `set` | object | no | Fields of the vertexColors section to change: palette, snap, flat, variation, seed, color, parts. A null value removes a field; parts merges part by part (a null part is removed). |
+| `replace` | boolean | no | Put `set` in place of the whole section instead of merging it. Default false. |
+| `clear` | boolean | no | Remove the vertexColors section. Default false. |
+| `bake` | boolean | no | Bake the .glb again after a change. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
+| `picture` | boolean | no | Return the palette swatches ($image) when there is a palette. Default true. |
+
 ### `model.select`
 
 Not released yet (on main after 0.14.1).
@@ -4008,6 +4068,24 @@ The edit operations extrude_faces, inset_faces, bevel_edges, delete_faces and as
 | `node` | string | yes | The node whose mesh is selected on, by id or JSON pointer. |
 | `faces` | object | no | A face query, e.g. {"by": "normal", "direction": "top"}. model.info {} lists them. |
 | `edges` | object | no | An edge query, e.g. {"by": "sharp", "angle": 60}. |
+
+### `model.texture` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Texture a model document: materials with tiling textures projected triplanar into the UV atlas, vertex colours, baked ambient occlusion and wear (worn edges, dirt in cavities) built from baked curvature and thickness, and decals; the result is a layered image document you can paint on. Returns the texture picture.
+
+The `texturing` section of a model document (docs/MODELING.md, "Texturing") makes the CPU bake the model's colour into its UV atlas (it needs a `uv` section with layout "atlas"; with none, {"method":"unwrap"} is added). What goes into the picture: the colour of each material (a material with a `texture` is projected along the three axes and blended by the normal, `textureScale` metres per repeat, `textureOffset`, `sharpness`, `tint` on the material; the texture never goes through the model's uvs once the section exists), the vertex colours (`vertexColors` section: "bake" puts them in the picture, "keep" leaves them on the mesh), `ao` (ambient occlusion multiplied in: true or {strength, parts}), `wear` (a list of {mask: edges | cavity | ao | thickness, color, amount, width, threshold, noise, noiseScale, seed, upBias, parts}: worn paint on convex edges, dirt in concave corners, dust on top faces) and `decals` (see model.decal). `maps` sets how the occlusion, curvature and thickness are measured (samples, distance, thicknessDistance, edgeAngle, edgeWidth) and `write` lists the maps also kept as grey pictures next to the model. `size` 0 uses the uv section's texture size; `bleed` spreads the colours past each piece so mipmaps do not show the background. The bake writes the layers as pictures next to the .glb (<name>.base.png, .decals.png, .wear.png, .occlusion.png, .uv.png) and composes them in the image document <name>.texture.image.json (M52) whose baked picture is the .glb's base colour texture; the LOD .glbs of `gameReady` use the same picture. Open that document like any image (image.info, image.* commands) and paint on the layer "paint" or any layer of your own: a re-bake only rewrites the layers named "model: ..." and never touches yours. With `set` the fields are merged into the section (a null removes one; `maps` merges field by field, `wear` and `decals` are replaced as lists), `replace: true` puts `set` in place of the section, `clear: true` removes it. The document is checked as a whole and a mistake returns every issue with its JSON pointer and writes nothing. Then the model is baked (unless bake is false). With no `set` or `clear` it bakes only if something is out of date and reports. The result has the section with its defaults, `texture` (the image document, the picture, the layer pictures, the measurements: texels covered, overlap, each map's mean/min/max, each wear and decal's coverage, each part's mapping) and warnings, and a picture of the baked texture. Example: {"path":"assets/models/crate.model.json","set":{"size":1024,"ao":true,"wear":[{"mask":"edges","color":"#d9d2c0"},{"mask":"cavity","color":"#2a2018","amount":0.6}]}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
+| `set` | object | no | Fields of the texturing section to change: size, bleed, vertexColors, background, document, ao, maps, wear, decals. A null value removes a field; maps merges field by field; wear and decals are replaced whole (model.decal edits single decals). |
+| `replace` | boolean | no | Put `set` in place of the whole section instead of merging it. Default false. |
+| `clear` | boolean | no | Remove the texturing section. The layer pictures go with the next bake; the texture's image document and what you painted stay. Default false. |
+| `bake` | boolean | no | Bake the model and its texture again after a change. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
+| `picture` | boolean | no | Return the baked texture ($image). Default true. |
 
 ### `model.uv` (modifies state)
 
