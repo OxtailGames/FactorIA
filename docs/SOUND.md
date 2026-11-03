@@ -368,6 +368,9 @@ carries on when playback wraps. The loop points are written to the baked file's 
 `normalize` may follow a `loop` step, because anything else would change the samples around the seam. A sound with loop points
 is decoded whole, not streamed.
 
+A song gets its loop points the same way: `music.render` writes the `smpl` chunk and `import.loopStart`/`loopEnd` for the song's loop sections, and one stem file per layer with the same
+points (docs/MUSIC.md, "Rendering a song for a game").
+
 ### Commands
 
 | Command | What it does |

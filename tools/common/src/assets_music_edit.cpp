@@ -262,7 +262,33 @@ void drop_pattern_references(Json& song, const std::string& track, const std::st
     }
 }
 
+// A layer lists tracks, as ["a", "b"] or {tracks: [...]}; `edit` is called on that list.
+template <class F>
+void edit_layer_lists(Json& song, F edit) {
+    if (!song.contains("layers") || !song["layers"].is_object()) return;
+    for (auto it = song["layers"].begin(); it != song["layers"].end(); ++it) {
+        Json* list = it.value().is_array() ? &it.value() : (it.value().is_object() && it.value().contains("tracks") ? &it.value()["tracks"] : nullptr);
+        if (list && list->is_array()) edit(*list);
+    }
+}
+
 void drop_track_references(Json& song, const std::string& track) {
+    edit_layer_lists(song, [&](Json& list) {
+        Json kept = Json::array();
+        for (const Json& n : list)
+            if (!(n.is_string() && n.get<std::string>() == track)) kept.push_back(n);
+        list = kept;
+    });
+    if (song.contains("layers") && song["layers"].is_object()) {
+        // a layer left with no track goes
+        Json kept = Json::object();
+        for (auto it = song["layers"].begin(); it != song["layers"].end(); ++it) {
+            const Json& list = it.value().is_array() ? it.value() : (it.value().is_object() && it.value().contains("tracks") ? it.value()["tracks"] : Json::array());
+            if (list.is_array() && !list.empty()) kept[it.key()] = it.value();
+        }
+        if (kept.empty()) song.erase("layers");
+        else song["layers"] = kept;
+    }
     if (!song.contains("sections") || !song["sections"].is_array()) return;
     for (Json& s : song["sections"]) {
         if (!s.is_object()) continue;
@@ -278,6 +304,10 @@ void drop_track_references(Json& song, const std::string& track) {
 }
 
 void rename_track_references(Json& song, const std::string& from, const std::string& to) {
+    edit_layer_lists(song, [&](Json& list) {
+        for (Json& n : list)
+            if (n.is_string() && n.get<std::string>() == from) n = to;
+    });
     if (!song.contains("sections") || !song["sections"].is_array()) return;
     for (Json& s : song["sections"]) {
         if (!s.is_object()) continue;
@@ -417,6 +447,29 @@ std::string apply_op(Json& song, const OpCtx& c, const Json& op) {
         }
         if (changed.empty()) op_fail(c, "nothing to change.", "Give at least one of: name, instrument, volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, automation.");
         return "changed track " + track + ": " + join_names(changed);
+    }
+    if (name == "set_layers") {
+        op_keys(c, op, {"layers"});
+        if (!op.contains("layers") || !op["layers"].is_object())
+            op_fail(c, "`layers` must be an object of layer name -> tracks.", "Example: {\"layers\": {\"drums\": [\"drums\"], \"harmony\": {\"tracks\": [\"pad\", \"keys\"], \"intensity\": 0.4}}}. A layer set to null is removed; the tracks no layer names form the layer `other`.");
+        Json& layers = ensure_object(song, "layers");
+        std::vector<std::string> changed;
+        for (auto it = op["layers"].begin(); it != op["layers"].end(); ++it) {
+            if (it.value().is_null()) {
+                if (!layers.contains(it.key())) {
+                    std::vector<std::string> names;
+                    for (auto l = layers.begin(); l != layers.end(); ++l) names.push_back(l.key());
+                    op_fail(c, "there is no layer '" + it.key() + "' to remove.", names.empty() ? "The song has no layers." : did_you_mean(it.key(), names) + " Layers: " + join_names(names) + ".");
+                }
+                layers.erase(it.key());
+                changed.push_back("removed " + it.key());
+            } else {
+                layers[it.key()] = it.value();
+                changed.push_back(it.key());
+            }
+        }
+        if (layers.empty()) song.erase("layers");
+        return "set the layers: " + join_names(changed);
     }
     if (name == "set_mixer") {
         op_keys(c, op, {"buses", "master"});
@@ -616,7 +669,7 @@ std::string apply_op(Json& song, const OpCtx& c, const Json& op) {
         return std::string(removed ? "removed" : "set") + " the " + op_string(c, op, "param", true) + " lane" + (track.empty() ? " of the whole song" : " of " + track);
     }
     op_fail(c, "unknown operation '" + name + "'.",
-            did_you_mean(name, std::vector<std::string>{"set_song", "add_track", "set_track", "set_mixer", "remove_track", "set_pattern", "remove_pattern", "add_section", "set_section", "remove_section", "move_section", "arrange", "mute", "set_automation"}));
+            did_you_mean(name, std::vector<std::string>{"set_song", "add_track", "set_track", "set_mixer", "set_layers", "remove_track", "set_pattern", "remove_pattern", "add_section", "set_section", "remove_section", "move_section", "arrange", "mute", "set_automation"}));
 }
 
 // Validates the document, writes it and builds the answer of a command that changed a song.
@@ -648,7 +701,7 @@ Json music_edit_command(const std::string& projectDir, const Json& a) {
         OpCtx c;
         c.index = i;
         if (!op.is_object() || !op.contains("op") || !op["op"].is_string())
-            fail("invalid_argument", "music.edit: op " + std::to_string(i + 1) + " must be an object with an `op` name.", "Operations: set_song, add_track, set_track, set_mixer, remove_track, set_pattern, remove_pattern, add_section, set_section, remove_section, move_section, arrange, mute, set_automation.");
+            fail("invalid_argument", "music.edit: op " + std::to_string(i + 1) + " must be an object with an `op` name.", "Operations: set_song, add_track, set_track, set_mixer, set_layers, remove_track, set_pattern, remove_pattern, add_section, set_section, remove_section, move_section, arrange, mute, set_automation.");
         c.op = op["op"].get<std::string>();
         edits.push_back(apply_op(song, c, op));
     }
@@ -1131,7 +1184,7 @@ void register_music_edit_commands(CommandRegistry& registry, const std::string& 
     add("music.edit", false, "Change a song document: tempo, tracks, patterns, sections, the arrangement, mutes and automation, checked before anything is written.",
         "Applies `ops` in order to the song at `path` and writes it, but only if the result is a valid song (otherwise it fails with `invalid_song`, every problem in data.issues, and the file is untouched). Each op is an object with `op` and its fields: "
         "set_song {tempo, meter, key, mode, swing, swingGrid, seed, volume, doc} (null removes a field); add_track {track, instrument, volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, patterns, automation, play}; "
-        "set_track {track, name (renames and updates the sections), instrument (a name, a .sfx.json, \"x.sf2#Preset\" or {soundfont, preset, bank}), volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, automation} (null removes); set_mixer {buses: {name: {volume, pan, mute, effects} | null}, master: {effects, limiter, loudness}} (docs/MUSIC.md \"Mixer\"; a bus merges field by field, null removes a bus or a field); remove_track {track} (and every mention in the sections); "
+        "set_track {track, name (renames and updates the sections), instrument (a name, a .sfx.json, \"x.sf2#Preset\" or {soundfont, preset, bank}), volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, automation} (null removes); set_mixer {buses: {name: {volume, pan, mute, effects} | null}, master: {effects, limiter, loudness}} (docs/MUSIC.md \"Mixer\"; a bus merges field by field, null removes a bus or a field); set_layers {layers: {name: [tracks] | {tracks, intensity, doc} | null}} (the groups of tracks music.render writes as stems and a layered player brings in; docs/MUSIC.md \"Layers\"); remove_track {track} (and every mention in the sections); "
         "set_pattern {track, pattern, notes | grid+step+bars, play}; remove_pattern {track, pattern} (and its uses in the sections); add_section {section, kind (intro, loop, outro, section), repeat, bars, mute, play, index}; "
         "set_section {section, name, kind, repeat, bars, mute, play} (play changes only the tracks named, null stops one); remove_section {section}; move_section {section, index}; arrange {section, track, entries} "
         "(\"a a b*2 rest\", a list, or null to stop the track in that section); mute {section, tracks, muted}; set_automation {track (omit for the whole song), param (volume, pan, filter, macro.<name>), points [[beat, value], ...], curve (linear, step, smooth)} "
@@ -1139,7 +1192,7 @@ void register_music_edit_commands(CommandRegistry& registry, const std::string& 
         "Example: {\"path\":\"assets/music/theme.song.json\",\"ops\":[{\"op\":\"set_pattern\",\"track\":\"bass\",\"pattern\":\"line\",\"notes\":\"A2:8 A2 E3 A2 | G2:8 G2 D3 G2\"},{\"op\":\"mute\",\"section\":\"intro\",\"tracks\":[\"drums\"]}]}",
         schema(with_picture(obj({{"path", pathArg},
                                  {"ops", Json::object({{"type", "array"}, {"minItems", 1}, {"items", Json::object({{"type", "object"}, {"additionalProperties", true}, {"description", "One operation: `op` and its fields (see the command's description)."}, {"required", Json::array({"op"})},
-                                                                                                                      {"properties", obj({{"op", Json::object({{"type", "string"}, {"enum", Json::array({"set_song", "add_track", "set_track", "set_mixer", "remove_track", "set_pattern", "remove_pattern", "add_section", "set_section", "remove_section", "move_section", "arrange", "mute", "set_automation"})}, {"description", "What to do."}})}})}})},
+                                                                                                                      {"properties", obj({{"op", Json::object({{"type", "string"}, {"enum", Json::array({"set_song", "add_track", "set_track", "set_mixer", "set_layers", "remove_track", "set_pattern", "remove_pattern", "add_section", "set_section", "remove_section", "move_section", "arrange", "mute", "set_automation"})}, {"description", "What to do."}})}})}})},
                                                     {"description", "The operations, applied in order."}})}})),
                {"path", "ops"}),
         music_edit_command);

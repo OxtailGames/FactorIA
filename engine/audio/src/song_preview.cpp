@@ -150,9 +150,11 @@ double measure_peak_db(const std::vector<std::vector<double>>& ch) {
 // over its peak; the gain looks `lookahead` frames ahead (a sliding minimum), recovers with a one-pole release, and is averaged over the
 // lookahead so it glides down before the peak arrives instead of clicking. The average of values that are all at most the gain the
 // sample needs, over the window the sample sits in, is itself at most that gain, so the ceiling holds by construction; a final clamp
-// only absorbs rounding. Returns the deepest gain reduction in dB (0 = it never acted).
-double run_limiter(std::vector<double>& l, std::vector<double>& r, double ceiling, double releaseSeconds, int rate) {
+// only absorbs rounding. Returns the deepest gain reduction in dB (0 = it never acted). `gainOut` receives the gain applied to every
+// sample (1 where the limiter did nothing), so stems can carry the mix's limiting.
+double run_limiter(std::vector<double>& l, std::vector<double>& r, double ceiling, double releaseSeconds, int rate, std::vector<double>* gainOut = nullptr) {
     const std::size_t n = l.size();
+    if (gainOut) gainOut->assign(n, 1.0);
     if (n == 0) return 0.0;
     const std::size_t look = std::max<std::size_t>(1, std::size_t(kLimiterLookahead * double(rate)));
     std::vector<double> need(n);
@@ -182,6 +184,7 @@ double run_limiter(std::vector<double>& l, std::vector<double>& r, double ceilin
         slot = released;
         const double gain = std::min(1.0, sum / double(look + 1));
         deepest = std::min(deepest, gain);
+        if (gainOut) (*gainOut)[j] = gain;
         l[j] = std::clamp(l[j] * gain, -ceiling, ceiling);
         r[j] = std::clamp(r[j] * gain, -ceiling, ceiling);
     }
@@ -333,42 +336,55 @@ struct Renderer {
     }
 };
 
-}  // namespace
+struct BusInput {
+    std::vector<float> l, r;
+    bool used = false;
+};
 
-Result<SongRender> render_song(const SongDoc& song, const SongTimeline& timeline, const SongRenderOptions& options) {
-    if (options.sampleRate < 8000 || options.sampleRate > 96000) return make_error("sampleRate must be 8000 to 96000, got " + std::to_string(options.sampleRate), "44100 is the default.");
-    if (options.fromBar < 1) return make_error("fromBar must be 1 or more", "Bars are counted from 1.");
-    if (options.fromBar > timeline.bars && timeline.bars > 0)
-        return make_error(std::format("fromBar {} is past the end of the song, which has {} bars", options.fromBar, timeline.bars), "Use a bar from 1 to " + std::to_string(timeline.bars) + ".");
-    std::vector<std::string> trackNames;
-    for (const SongTrack& t : song.tracks) trackNames.push_back(t.name);
-    for (const std::string& n : options.solo)
-        if (!song.find_track(n)) return make_error("no track named `" + n + "` to solo", did_you_mean(n, trackNames));
-    for (const std::string& n : options.mute)
-        if (!song.find_track(n)) return make_error("no track named `" + n + "` to mute", did_you_mean(n, trackNames));
+// Which frames of the song one render covers, and how long the buffer is (the music plus the tail for releases and effects).
+struct Span {
+    std::int64_t fromTick = 0, toTick = 0;
+    double musicSeconds = 0.0;
+    std::size_t musicFrames = 0, frames = 0;
+};
 
-    Renderer r{song, timeline, options};
+Result<Span> make_span(const SongDoc& song, const SongTimeline& timeline, const SongRenderOptions& options) {
+    Span sp;
     const int sr = options.sampleRate;
     const std::int64_t barTicks = song.meter.barTicks();
-    const std::int64_t fromTick = std::int64_t(options.fromBar - 1) * barTicks;
-    std::int64_t toTick = timeline.totalTicks;
-    if (options.bars > 0) toTick = std::min(toTick, fromTick + std::int64_t(options.bars) * barTicks);
-    if (toTick <= fromTick) return make_error("the song has nothing to render", "Add notes to a section.");
-    const double musicSeconds = song.ticks_to_seconds(toTick - fromTick);
-    if (musicSeconds > options.maxSeconds)
-        return make_error(std::format("the song lasts {:.1f} seconds, more than the {:.0f} a preview renders", musicSeconds, options.maxSeconds),
+    sp.fromTick = std::int64_t(options.fromBar - 1) * barTicks;
+    sp.toTick = timeline.totalTicks;
+    if (options.bars > 0) sp.toTick = std::min(sp.toTick, sp.fromTick + std::int64_t(options.bars) * barTicks);
+    if (sp.toTick <= sp.fromTick) return make_error("the song has nothing to render", "Add notes to a section.");
+    sp.musicSeconds = song.ticks_to_seconds(sp.toTick - sp.fromTick);
+    if (sp.musicSeconds > options.maxSeconds)
+        return make_error(std::format("the song lasts {:.1f} seconds, more than the {:.0f} one render takes", sp.musicSeconds, options.maxSeconds),
                           "Render a part with fromBar and bars, or raise maxSeconds (memory grows with the length).");
-    const double secondsPerTick = 60.0 / (song.tempo * double(kSongPpq));
-    const std::size_t musicFrames = std::size_t(std::ceil(musicSeconds * double(sr)));
-
+    sp.musicFrames = std::size_t(std::ceil(sp.musicSeconds * double(sr)));
     // The tail: room for the releases and for the longest reverb or delay of any chain.
     const double masterTail = chain_tail(song.mixer.master.effects);
     double effectsTail = masterTail;
     for (const SongTrack& t : song.tracks) effectsTail = std::max(effectsTail, chain_tail(t.effects) + masterTail);
     for (const SongBus& b : song.mixer.buses) effectsTail = std::max(effectsTail, chain_tail(b.effects) + masterTail);
     const double tailSeconds = std::max(options.tailSeconds, std::min(effectsTail + 0.25, kMaxEffectTail + 1.0));
-    const std::size_t frames = musicFrames + std::size_t(tailSeconds * double(sr));
+    sp.frames = sp.musicFrames + std::size_t(tailSeconds * double(sr));
+    return sp;
+}
 
+// What the tracks add up to before the buses: per stem the dry sum (double) and the inputs of the buses (float; only used ones are allocated).
+struct Premix {
+    std::vector<std::vector<std::vector<double>>> dry;  // [stem][channel][frame]
+    std::vector<std::vector<BusInput>> bus;             // [stem][bus]
+};
+
+Result<Premix> premix(Renderer& r, const Span& sp, const SongStemPlan& plan, bool stats_wanted) {
+    const SongDoc& song = r.song;
+    const SongTimeline& timeline = r.timeline;
+    const SongRenderOptions& options = r.opt;
+    const int sr = options.sampleRate;
+    const std::size_t frames = sp.frames;
+    const std::int64_t fromTick = sp.fromTick, toTick = sp.toTick;
+    const double secondsPerTick = 60.0 / (song.tempo * double(kSongPpq));
     const double fromBeat = double(fromTick) / double(kSongPpq);
     const double beatsPerSecond = song.tempo / 60.0;
     auto beat_at = [&](std::size_t frame) { return fromBeat + double(frame) / double(sr) * beatsPerSecond; };
@@ -380,13 +396,10 @@ Result<SongRender> render_song(const SongDoc& song, const SongTimeline& timeline
     for (const SongTrack& t : song.tracks)
         if (t.solo && !contains(soloed, t.name)) soloed.push_back(t.name);
 
-    // Master sum (double), and the buses' inputs (float: only the used ones are allocated).
-    std::vector<std::vector<double>> master(2, std::vector<double>(frames, 0.0));
-    struct BusInput {
-        std::vector<float> l, r;
-        bool used = false;
-    };
-    std::vector<BusInput> busInputs(song.mixer.buses.size());
+    const std::size_t stems = plan.names.size();
+    Premix pm;
+    pm.dry.assign(stems, std::vector<std::vector<double>>(2, std::vector<double>(frames, 0.0)));
+    pm.bus.assign(stems, std::vector<BusInput>(song.mixer.buses.size()));
 
     for (std::size_t ti = 0; ti < song.tracks.size(); ++ti) {
         const SongTrack& track = song.tracks[ti];
@@ -409,6 +422,7 @@ Result<SongRender> render_song(const SongDoc& song, const SongTimeline& timeline
             evs.push_back(e);
         }
         if (evs.empty()) continue;
+        const std::size_t dryStem = std::size_t(plan.dryStem[ti]);
 
         // The voice limit. A note is a voice from its start until `ringEnd(i)` (its release included); a new note that finds the limit
         // reached cuts the oldest voice of an earlier moment, so a chord is never cut by its own notes. A key played again while it is still
@@ -568,18 +582,18 @@ Result<SongRender> render_song(const SongDoc& song, const SongTimeline& timeline
         stats.peakDb = measure_peak_db(bus);
         double peakLin = 0.0;
         sfx_measure_loudness(bus, sr, stats.lufs, peakLin);
-        r.result.tracks.push_back(stats);
+        if (stats_wanted) r.result.tracks.push_back(stats);
 
         for (std::size_t i = 0; i < frames; ++i) {
-            master[0][i] += bus[0][i];
-            master[1][i] += bus[1][i];
+            pm.dry[dryStem][0][i] += bus[0][i];
+            pm.dry[dryStem][1][i] += bus[1][i];
         }
         for (const auto& send : track.sends) {
             if (!(send.second > 0.0)) continue;
             std::size_t index = 0;
             while (index < song.mixer.buses.size() && song.mixer.buses[index].name != send.first) ++index;
-            if (index >= song.mixer.buses.size()) continue;
-            BusInput& in = busInputs[index];
+            if (index >= song.mixer.buses.size() || plan.sendStem[ti][index] < 0) continue;
+            BusInput& in = pm.bus[std::size_t(plan.sendStem[ti][index])][index];
             if (!in.used) {
                 in.l.assign(frames, 0.0f);
                 in.r.assign(frames, 0.0f);
@@ -592,7 +606,12 @@ Result<SongRender> render_song(const SongDoc& song, const SongTimeline& timeline
         }
     }
 
-    // The buses: effects (a reverb or delay returns only its wet sound), volume, balance, into the master.
+
+    return pm;
+}
+
+// The buses' effects (a reverb or delay returns only its wet sound), volume and balance, added to `master`.
+void bus_stage(const SongDoc& song, int sr, std::size_t frames, std::vector<BusInput>& busInputs, std::vector<std::vector<double>>& master) {
     for (std::size_t bi = 0; bi < song.mixer.buses.size(); ++bi) {
         BusInput& in = busInputs[bi];
         if (!in.used) continue;
@@ -612,8 +631,12 @@ Result<SongRender> render_song(const SongDoc& song, const SongTimeline& timeline
             master[1][i] += ch[1][i] * bus.volume * gr;
         }
     }
+}
 
-    // Master: the song's volume and lanes, the master effects, a 20 ms fade at the end so the file never ends on a click.
+// The song's volume and lanes, the master effects, and (`endFade`) a 20 ms fade at the end so the file never ends on a click.
+void master_stage(const SongDoc& song, int sr, double fromBeat, std::size_t frames, std::vector<std::vector<double>>& master, bool endFade) {
+    const double beatsPerSecond = song.tempo / 60.0;
+    auto beat_at = [&](std::size_t frame) { return fromBeat + double(frame) / double(sr) * beatsPerSecond; };
     const SongAutomation* mvol = find_lane(song.automation, "volume");
     const SongAutomation* mfilter = find_lane(song.automation, "filter");
     {
@@ -633,7 +656,7 @@ Result<SongRender> render_song(const SongDoc& song, const SongTimeline& timeline
         }
     }
     run_chain(master, sr, song.mixer.master.effects, false);
-    {
+    if (endFade) {
         const std::size_t fade = std::min<std::size_t>(frames, std::size_t(sr / 50));
         for (std::size_t i = 0; i < fade; ++i) {
             const double g = double(i) / double(fade);
@@ -641,11 +664,83 @@ Result<SongRender> render_song(const SongDoc& song, const SongTimeline& timeline
             master[1][frames - 1 - i] *= g;
         }
     }
+}
 
-    // Loudness and limiter. The limiter lowers the level when peaks are in the way, so the normalization measures the limited render
-    // and asks for what is missing (a few passes at most).
+// One stem's (or the whole mix's) inputs through the buses and the master, up to the point where the loudness gain and the limiter start.
+std::vector<std::vector<double>> through_master(const SongDoc& song, int sr, const Span& sp, std::vector<std::vector<double>>&& dry, std::vector<BusInput>& buses, bool endFade) {
+    std::vector<std::vector<double>> master = std::move(dry);
+    bus_stage(song, sr, sp.frames, buses, master);
+    master_stage(song, sr, double(sp.fromTick) / double(kSongPpq), sp.frames, master, endFade);
+    return master;
+}
+
+// The inputs of the whole mix: every stem's dry sum and bus inputs added up.
+void sum_premix(const Premix& pm, std::vector<std::vector<double>>& dry, std::vector<BusInput>& bus) {
+    dry = pm.dry[0];
+    bus = pm.bus[0];
+    for (std::size_t s = 1; s < pm.dry.size(); ++s) {
+        for (std::size_t c = 0; c < 2; ++c)
+            for (std::size_t i = 0; i < dry[c].size(); ++i) dry[c][i] += pm.dry[s][c][i];
+        for (std::size_t b = 0; b < bus.size(); ++b) {
+            const BusInput& in = pm.bus[s][b];
+            if (!in.used) continue;
+            if (!bus[b].used) {
+                bus[b] = in;
+                continue;
+            }
+            for (std::size_t i = 0; i < in.l.size(); ++i) {
+                bus[b].l[i] += in.l[i];
+                bus[b].r[i] += in.r[i];
+            }
+        }
+    }
+}
+
+bool nonlinear_effect(const AudioStep& st) {
+    if (st.params.value("enabled", true) == false) return false;
+    return st.type == "compressor" || st.type == "distortion" || st.type == "bitcrush";
+}
+
+bool has_nonlinear(const std::vector<AudioStep>& steps) {
+    return std::any_of(steps.begin(), steps.end(), nonlinear_effect);
+}
+
+SongStemPlan single_stem_plan(const SongDoc& song) {
+    SongStemPlan plan;
+    plan.grouping = "mix";
+    plan.names = {"mix"};
+    plan.intensity = {0.0};
+    plan.kinds = {"mix"};
+    plan.dryStem.assign(song.tracks.size(), 0);
+    plan.sendStem.assign(song.tracks.size(), std::vector<int>(song.mixer.buses.size(), 0));
+    return plan;
+}
+
+Result<void> check_options(const SongDoc& song, const SongTimeline& timeline, const SongRenderOptions& options) {
+    if (options.sampleRate < 8000 || options.sampleRate > 96000) return make_error("sampleRate must be 8000 to 96000, got " + std::to_string(options.sampleRate), "44100 is the default.");
+    if (options.fromBar < 1) return make_error("fromBar must be 1 or more", "Bars are counted from 1.");
+    if (options.fromBar > timeline.bars && timeline.bars > 0)
+        return make_error(std::format("fromBar {} is past the end of the song, which has {} bars", options.fromBar, timeline.bars), "Use a bar from 1 to " + std::to_string(timeline.bars) + ".");
+    std::vector<std::string> trackNames;
+    for (const SongTrack& t : song.tracks) trackNames.push_back(t.name);
+    for (const std::string& n : options.solo)
+        if (!song.find_track(n)) return make_error("no track named `" + n + "` to solo", did_you_mean(n, trackNames));
+    for (const std::string& n : options.mute)
+        if (!song.find_track(n)) return make_error("no track named `" + n + "` to mute", did_you_mean(n, trackNames));
+    return {};
+}
+
+// What the master did to the mix, and the gains to give the stems: the loudness gain (dB) and the limiter's gain per frame.
+struct MasterResult {
+    double gainDb = 0.0;
+    std::vector<double> limiterGain;   // empty when the limiter is off or never acted
+};
+
+// Loudness normalization and the limiter on the finished master (in place); fills the stats.
+MasterResult finish_master(const SongDoc& song, const SongRenderOptions& options, std::vector<std::vector<double>>& master, SongMasterStats& ms) {
+    const int sr = options.sampleRate;
+    MasterResult out;
     const SongMaster& mm = song.mixer.master;
-    SongMasterStats& ms = r.result.master;
     ms.limiter = mm.limiter;
     ms.ceilingDb = mm.ceilingDb;
     double peakBefore = 0.0;
@@ -679,15 +774,27 @@ Result<SongRender> render_song(const SongDoc& song, const SongTimeline& timeline
         }
         ms.normalizeGainDb = gainDb;
     }
+    out.gainDb = gainDb;
     const double gain = sfx_math::db_to_gain(gainDb);
     if (gain != 1.0)
         for (auto& c : master)
             for (double& v : c) v *= gain;
-    if (mm.limiter) ms.limiterReductionDb = run_limiter(master[0], master[1], ceiling, mm.limiterRelease, sr);
+    if (mm.limiter) {
+        ms.limiterReductionDb = run_limiter(master[0], master[1], ceiling, mm.limiterRelease, sr, &out.limiterGain);
+        if (ms.limiterReductionDb <= 0.0) out.limiterGain.clear();
+    }
+    return out;
+}
 
-    r.result.clip.sampleRate = sr;
-    r.result.clip.channels = 2;
-    r.result.clip.samples.resize(frames * 2);
+// The finished master as a stereo clip, measured.
+AudioClip master_clip(const SongDoc& song, int sr, std::vector<std::vector<double>>& master, bool measured) {
+    const SongMaster& mm = song.mixer.master;
+    const double ceiling = sfx_math::db_to_gain(mm.ceilingDb);
+    const std::size_t frames = master[0].size();
+    AudioClip clip;
+    clip.sampleRate = sr;
+    clip.channels = 2;
+    clip.samples.resize(frames * 2);
     const float cap = float(ceiling);
     for (std::size_t i = 0; i < frames; ++i) {
         float l = float(master[0][i]), rr = float(master[1][i]);
@@ -695,18 +802,266 @@ Result<SongRender> render_song(const SongDoc& song, const SongTimeline& timeline
             l = std::clamp(l, -cap, cap);
             rr = std::clamp(rr, -cap, cap);
         }
-        r.result.clip.samples[2 * i] = l;
-        r.result.clip.samples[2 * i + 1] = rr;
+        clip.samples[2 * i] = l;
+        clip.samples[2 * i + 1] = rr;
         master[0][i] = double(l);
         master[1][i] = double(rr);
     }
-    double lufs = -70.0, peak = 0.0;
-    sfx_measure_loudness(master, sr, lufs, peak);
-    r.result.clip.lufs = lufs;
-    r.result.clip.peakDb = peak > 0.0 ? sfx_math::gain_to_db(peak) : -200.0;
+    if (measured) {
+        double lufs = -70.0, peak = 0.0;
+        sfx_measure_loudness(master, sr, lufs, peak);
+        clip.lufs = lufs;
+        clip.peakDb = peak > 0.0 ? sfx_math::gain_to_db(peak) : -200.0;
+    }
+    return clip;
+}
+
+// The loop region of the song at `sr`: the `loop` sections, whole.
+Result<std::optional<SongLoopRegion>> find_loop(const SongDoc& song, const SongTimeline& timeline, int sr) {
+    std::vector<std::size_t> loopSections;
+    for (std::size_t i = 0; i < song.sections.size(); ++i)
+        if (song.sections[i].kind == "loop") loopSections.push_back(i);
+    if (loopSections.empty()) return std::optional<SongLoopRegion>{};
+    for (std::size_t k = 1; k < loopSections.size(); ++k)
+        if (loopSections[k] != loopSections[k - 1] + 1)
+            return make_error("the sections `" + song.sections[loopSections[k - 1]].name + "` and `" + song.sections[loopSections[k]].name + "` are both of kind \"loop\", with other sections between them",
+                              "The loop is one stretch of the song: make the sections between them kind \"section\", or put the loop sections next to each other.");
+    SongLoopRegion region;
+    for (const SongSpan& span : timeline.spans) {
+        if (span.section < int(loopSections.front()) || span.section > int(loopSections.back())) continue;
+        if (region.bars == 0) {
+            region.startTick = span.startTick;
+            region.startBar = span.startBar + 1;
+        }
+        region.endTick = span.endTick;
+        region.bars += span.bars;
+    }
+    for (std::size_t i : loopSections) region.sections.push_back(song.sections[i].name);
+    const double spt = 60.0 / (song.tempo * double(kSongPpq));
+    region.startFrame = std::size_t(double(region.startTick) * spt * double(sr) + 0.5);
+    region.endFrame = std::size_t(double(region.endTick) * spt * double(sr) + 0.5);
+    if (region.endFrame <= region.startFrame) return std::optional<SongLoopRegion>{};
+    return std::optional<SongLoopRegion>{region};
+}
+
+// Adds the loop's tail (what rings after its last bar) to the start of the loop, wrapped as many times as it is long, so the wrap is seamless.
+void fold_tail(std::vector<std::vector<double>>& g, const std::vector<std::vector<double>>& iso, std::size_t isoEnd, std::size_t loopStart, std::size_t loopLen) {
+    if (loopLen == 0) return;
+    for (std::size_t c = 0; c < 2; ++c)
+        for (std::size_t i = isoEnd; i < iso[c].size(); ++i) {
+            const std::size_t at = loopStart + (i - isoEnd) % loopLen;
+            if (at < g[c].size()) g[c][at] += iso[c][i];
+        }
+}
+
+
+}  // namespace
+
+Result<SongStemPlan> song_stem_plan(const SongDoc& song, std::string_view grouping) {
+    SongStemPlan plan;
+    plan.grouping = std::string(grouping);
+    const std::size_t nt = song.tracks.size(), nb = song.mixer.buses.size();
+    plan.dryStem.assign(nt, -1);
+    plan.sendStem.assign(nt, std::vector<int>(nb, -1));
+    auto add = [&](const std::string& name, const std::string& kind, double intensity) {
+        plan.names.push_back(name);
+        plan.kinds.push_back(kind);
+        plan.intensity.push_back(intensity);
+        plan.tracks.emplace_back();
+        plan.buses.emplace_back();
+        return int(plan.names.size() - 1);
+    };
+    if (grouping == "layers") {
+        if (song.layers.empty())
+            return make_error("the song declares no `layers`", "Add \"layers\": {\"drums\": [\"drums\"], \"harmony\": [\"pad\", \"keys\"]} to the song (music.edit set_layers), or ask for stems \"tracks\" (one per track) or \"buses\".");
+        for (const SongLayer& l : song_layers(song)) {
+            const int s = add(l.name, "layer", l.intensity);
+            for (const std::string& t : l.tracks) {
+                const int ti = song.track_index(t);
+                if (ti < 0) continue;
+                plan.dryStem[std::size_t(ti)] = s;
+                std::fill(plan.sendStem[std::size_t(ti)].begin(), plan.sendStem[std::size_t(ti)].end(), s);
+                plan.tracks.back().push_back(t);
+            }
+        }
+    } else if (grouping == "tracks") {
+        for (std::size_t ti = 0; ti < nt; ++ti) {
+            const int s = add(song.tracks[ti].name, "track", nt > 1 ? double(ti) / double(nt - 1) : 0.0);
+            plan.dryStem[ti] = s;
+            std::fill(plan.sendStem[ti].begin(), plan.sendStem[ti].end(), s);
+            plan.tracks.back().push_back(song.tracks[ti].name);
+        }
+    } else if (grouping == "buses") {
+        if (nb == 0) return make_error("the song has no buses", "Stems \"buses\" split the dry tracks from the shared effects (reverb, delay). Add buses under \"mixer\" (music.edit set_mixer) or ask for stems \"tracks\".");
+        const int dry = add("dry", "dry", 0.0);
+        for (std::size_t ti = 0; ti < nt; ++ti) {
+            plan.dryStem[ti] = dry;
+            plan.tracks[std::size_t(dry)].push_back(song.tracks[ti].name);
+        }
+        for (std::size_t bi = 0; bi < nb; ++bi) {
+            const int s = add("bus_" + song.mixer.buses[bi].name, "bus", 0.0);
+            plan.buses[std::size_t(s)].push_back(song.mixer.buses[bi].name);
+            for (std::size_t ti = 0; ti < nt; ++ti) plan.sendStem[ti][bi] = s;
+        }
+    } else {
+        return make_error("unknown stem grouping `" + std::string(grouping) + "`", "Use \"layers\" (the song's layers), \"tracks\" (one per track) or \"buses\" (the dry tracks and each bus's return).");
+    }
+    return plan;
+}
+
+Result<SongRender> render_song(const SongDoc& song, const SongTimeline& timeline, const SongRenderOptions& options) {
+    if (auto ok = check_options(song, timeline, options); !ok) return ok.error();
+    Renderer r{song, timeline, options};
+    const int sr = options.sampleRate;
+    auto span = make_span(song, timeline, options);
+    if (!span) return span.error();
+    const SongStemPlan plan = single_stem_plan(song);
+    auto pm = premix(r, *span, plan, true);
+    if (!pm) return pm.error();
+    std::vector<std::vector<double>> master = through_master(song, sr, *span, std::move(pm->dry[0]), pm->bus[0], true);
+    finish_master(song, options, master, r.result.master);
+    r.result.clip = master_clip(song, sr, master, true);
     r.result.clip.inputs = r.result.inputs;
-    r.result.seconds = musicSeconds;
+    r.result.seconds = span->musicSeconds;
     return std::move(r.result);
+}
+
+Result<SongAssetRender> render_song_asset(const SongDoc& song, const SongTimeline& timeline, const SongAssetOptions& assetOptions) {
+    SongRenderOptions options = assetOptions.render;
+    options.fromBar = 1;
+    options.bars = 0;
+    if (auto ok = check_options(song, timeline, options); !ok) return ok.error();
+    const int sr = options.sampleRate;
+    Renderer r{song, timeline, options};
+    auto span = make_span(song, timeline, options);
+    if (!span) return span.error();
+    const SongStemPlan plan = assetOptions.stems ? *assetOptions.stems : single_stem_plan(song);
+    const bool stemsWanted = assetOptions.stems.has_value();
+    const std::size_t S = plan.names.size();
+    if (stemsWanted) {
+        // About what the stems hold at once: the dry sums and the finished stems (double, stereo) and the bus inputs (float, stereo).
+        const double bytes = double(span->frames) * (double(S) * (16.0 + 16.0 + 8.0 * double(song.mixer.buses.size())) + 64.0);
+        if (bytes > 3.0e9)
+            return make_error(std::format("{} stems of a {:.0f} second song need about {:.1f} GB of memory", S, span->musicSeconds, bytes / 1e9),
+                              "Render fewer stems (group tracks into fewer layers), lower the sampleRate to 22050 or 32000, or split the song.");
+    }
+    std::optional<SongLoopRegion> loop;
+    if (assetOptions.loop) {
+        auto found = find_loop(song, timeline, sr);
+        if (!found) return found.error();
+        loop = *found;
+    }
+
+    // The whole song, per stem and as a mix.
+    auto pm = premix(r, *span, plan, true);
+    if (!pm) return pm.error();
+    std::vector<std::vector<std::vector<double>>> stemMaster(S);
+    std::vector<std::vector<double>> mix;
+    {
+        std::vector<std::vector<double>> sumDry;
+        std::vector<BusInput> sumBus;
+        if (S > 1) sum_premix(*pm, sumDry, sumBus);
+        if (stemsWanted)
+            for (std::size_t s = 0; s < S; ++s) {
+                stemMaster[s] = through_master(song, sr, *span, std::move(pm->dry[s]), pm->bus[s], true);
+                pm->bus[s].clear();
+            }
+        if (S > 1) {
+            mix = through_master(song, sr, *span, std::move(sumDry), sumBus, true);
+        } else if (stemsWanted) {
+            mix = stemMaster[0];
+        } else {
+            mix = through_master(song, sr, *span, std::move(pm->dry[0]), pm->bus[0], true);
+        }
+    }
+    pm.value() = Premix{};
+
+    // The loop's own render, for the tail that wraps.
+    if (loop) {
+        SongRenderOptions isoOptions = options;
+        isoOptions.fromBar = loop->startBar;
+        isoOptions.bars = loop->bars;
+        auto isoSpan = make_span(song, timeline, isoOptions);
+        if (!isoSpan) return isoSpan.error();
+        Renderer iso{song, timeline, isoOptions};
+        iso.voices = std::move(r.voices);
+        iso.cache = std::move(r.cache);
+        iso.cacheBytes = r.cacheBytes;
+        iso.fonts = std::move(r.fonts);
+        iso.fontCalibration = std::move(r.fontCalibration);
+        auto ipm = premix(iso, *isoSpan, plan, false);
+        if (!ipm) return ipm.error();
+        const std::size_t isoEnd = isoSpan->musicFrames;
+        std::vector<std::vector<double>> isoSumDry;
+        std::vector<BusInput> isoSumBus;
+        if (S > 1) sum_premix(*ipm, isoSumDry, isoSumBus);
+        const std::size_t len = loop->endFrame - loop->startFrame;
+        if (stemsWanted)
+            for (std::size_t s = 0; s < S; ++s) {
+                auto tail = through_master(song, sr, *isoSpan, std::move(ipm->dry[s]), ipm->bus[s], false);
+                fold_tail(stemMaster[s], tail, isoEnd, loop->startFrame, len);
+            }
+        std::vector<std::vector<double>> tail = S > 1 ? through_master(song, sr, *isoSpan, std::move(isoSumDry), isoSumBus, false)
+                                                      : through_master(song, sr, *isoSpan, std::move(ipm->dry[0]), ipm->bus[0], false);
+        if (!stemsWanted || S == 1) {
+            // fold below for the mix; with one stem the stem is the mix and was folded above (its tail is the same)
+        }
+        fold_tail(mix, tail, isoEnd, loop->startFrame, len);
+        // The isolated pass took the first pass's voices, so it only names files it loaded itself: add them to the first pass's list.
+        for (const std::string& in : iso.result.inputs) if (std::find(r.result.inputs.begin(), r.result.inputs.end(), in) == r.result.inputs.end()) r.result.inputs.push_back(in);
+    }
+
+    SongAssetRender out;
+    out.mix = std::move(r.result);
+    out.loop = loop;
+    out.stemsExact = !has_nonlinear(song.mixer.master.effects) &&
+                     std::none_of(song.mixer.buses.begin(), song.mixer.buses.end(), [](const SongBus& b) { return has_nonlinear(b.effects); });
+    const MasterResult mr = finish_master(song, options, mix, out.mix.master);
+    out.mix.clip = master_clip(song, sr, mix, true);
+    out.mix.clip.inputs = out.mix.inputs;
+    out.mix.seconds = span->musicSeconds;
+    if (loop) out.mix.clip.loop = AudioLoop{loop->startFrame, loop->endFrame};
+
+    // The stems: the mix's gain and limiting, so they add up to it.
+    if (stemsWanted) {
+        const double gain = sfx_math::db_to_gain(mr.gainDb);
+        const std::size_t frames = span->frames;
+        std::vector<double> sumErr(frames * 2, 0.0);
+        for (std::size_t s = 0; s < S; ++s) {
+            std::vector<std::vector<double>>& g = stemMaster[s];
+            SongStem stem;
+            stem.name = plan.names[s];
+            stem.kind = plan.kinds[s];
+            stem.intensity = plan.intensity[s];
+            stem.tracks = plan.tracks[s];
+            stem.buses = plan.buses[s];
+            stem.clip.sampleRate = sr;
+            stem.clip.channels = 2;
+            stem.clip.samples.resize(frames * 2);
+            for (std::size_t i = 0; i < frames; ++i) {
+                const double lg = mr.limiterGain.empty() ? 1.0 : mr.limiterGain[i];
+                const float l = float(g[0][i] * gain * lg), rr = float(g[1][i] * gain * lg);
+                stem.clip.samples[2 * i] = l;
+                stem.clip.samples[2 * i + 1] = rr;
+                sumErr[2 * i] += double(l);
+                sumErr[2 * i + 1] += double(rr);
+                g[0][i] = double(l);
+                g[1][i] = double(rr);
+            }
+            double lufs = -70.0, peak = 0.0;
+            sfx_measure_loudness(g, sr, lufs, peak);
+            stem.clip.lufs = lufs;
+            stem.clip.peakDb = peak > 0.0 ? sfx_math::gain_to_db(peak) : -200.0;
+            if (loop) stem.clip.loop = AudioLoop{loop->startFrame, loop->endFrame};
+            stem.clip.inputs = out.mix.inputs;
+            g = {};
+            out.stems.push_back(std::move(stem));
+        }
+        double worst = 0.0;
+        for (std::size_t i = 0; i < frames * 2; ++i) worst = std::max(worst, std::abs(sumErr[i] - double(out.mix.clip.samples[i])));
+        out.stemSumErrorDb = worst > 0.0 ? sfx_math::gain_to_db(worst) : -200.0;
+    }
+    return out;
 }
 
 }  // namespace fa

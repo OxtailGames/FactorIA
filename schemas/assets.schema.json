@@ -40,7 +40,7 @@
       "properties": {
         "import": {
           "type": "object",
-          "description": "Import settings of this asset: the texture keys for images, the audio keys for sounds. They override `defaults`."
+          "description": "Import settings of this asset: the texture keys for images, the audio keys for sounds. They override `defaults`. A song rendered by music.render also gets `music`: {role: \"mix\" | \"stem\", song, ...}, what the file is for a layered player (docs/MUSIC.md \"Layers and stems\"); the importer ignores it."
         },
         "provenance": { "$ref": "#/$defs/provenance" },
         "sheet": { "$ref": "#/$defs/sheet" },
@@ -325,6 +325,14 @@
           "properties": {
             "command": { "type": "string", "description": "The command that made the asset (\"assets.animate_svg\")." },
             "args": { "type": "object", "description": "The arguments that make the same bytes again: paths project-relative, `seed` explicit, nothing that names this machine." },
+            "context": {
+              "type": "object",
+              "description": "Values the command read from assets.json rather than from a file, as they were when the asset was made; assets.regenerate and `factoria validate` call the asset stale when one differs now. Today: `styleMusicLufs`, the loudness style.audio.loudnessLufs.music asked of a song whose master loudness is \"style\" (a number, or null when the style guide set none). Written by music.preview and music.render.",
+              "additionalProperties": false,
+              "properties": {
+                "styleMusicLufs": { "type": ["number", "null"], "description": "The music loudness of the style guide in LUFS when the song was rendered, null for none." }
+              }
+            },
             "inputs": {
               "type": "array",
               "description": "The project files the command read (an .anim.js module, an SVG, a prefab) with their hashes when the asset was made.",

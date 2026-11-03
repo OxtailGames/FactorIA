@@ -168,7 +168,14 @@ struct RecipeCheck {
     bool stale() const { return !changed.empty(); }
     bool ok() const { return changed.empty() && missing.empty(); }
 };
+// A recipe can also record `context`: values read from assets.json rather than from a file. Today `styleMusicLufs`, the loudness the style
+// guide asked of music when a song was rendered with `mixer.master.loudness: "style"` (null: it set none). check_recipe reports it in
+// `changed` as "assets.json (style.audio.loudnessLufs.music)" when the style guide says something else now.
 RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe);
+// style.audio.loudnessLufs.music of the project's assets.json, if the style guide sets it.
+std::optional<double> style_music_loudness(const std::string& projectDir);
+// Records `target` (null: none) as recipe.context.styleMusicLufs.
+void add_style_loudness_context(Json& recipe, const std::optional<double>& target);
 // The recipe of an assets.json entry (`provenance.recipe`), or null when it has none or it is malformed (no command).
 Json recipe_of(const Json& entry);
 
