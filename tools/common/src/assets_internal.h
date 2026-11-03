@@ -22,6 +22,7 @@
 #include "fa/core/image.h"
 #include "fa/core/json.h"
 #include "fa/core/types.h"
+#include "fa/scene/model_uv.h"
 #include "fa/tooling/validate.h"
 
 namespace fa::assets_detail {
@@ -120,6 +121,8 @@ void register_preview_scene_command(CommandRegistry& registry, const std::string
 void register_music_commands(CommandRegistry& registry, const std::string& projectDir);  // music.* (assets_music.cpp, assets_music_edit.cpp, docs/MUSIC.md)
 void register_audio_doc_commands(CommandRegistry& registry, const std::string& projectDir);  // audio.info, audio.render, audio.bake, audio.create, audio.edit (assets_audio_doc.cpp)
 void register_model_commands(CommandRegistry& registry, const std::string& projectDir);  // model.info, model.bake, model.create, model.edit (assets_model.cpp)
+void register_model_uv_command(CommandRegistry& registry, const std::string& projectDir);  // model.uv (assets_model_uv.cpp)
+Json model_uv_report_json(const ModelUvReport& report);  // the measurements of a uv section as JSON (model.uv, and `uv` in the model.* measurements)
 void register_audio_commands(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_loop, assets.convert_audio
 void register_subset_font_command(CommandRegistry& registry, const std::string& projectDir);
 void register_image_commands(CommandRegistry& registry, const std::string& projectDir);  // image.bake, image.save (image_doc_commands.cpp)
@@ -172,12 +175,18 @@ struct RecipeCheck {
 };
 // A recipe can also record `context`: values read from assets.json rather than from a file. Today `styleMusicLufs`, the loudness the style
 // guide asked of music when a song was rendered with `mixer.master.loudness: "style"` (null: it set none). check_recipe reports it in
-// `changed` as "assets.json (style.audio.loudnessLufs.music)" when the style guide says something else now.
+// `changed` as "assets.json (style.audio.loudnessLufs.music)" when the style guide says something else now. `styleTexelsPerUnit` is the same for the
+// texel density a model document's `uv` section took from the style guide ("assets.json (style.texelsPerUnit)").
 RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe);
 // style.audio.loudnessLufs.music of the project's assets.json, if the style guide sets it.
 std::optional<double> style_music_loudness(const std::string& projectDir);
 // Records `target` (null: none) as recipe.context.styleMusicLufs.
 void add_style_loudness_context(Json& recipe, const std::optional<double>& target);
+// style.texelsPerUnit of the project's assets.json, if the style guide sets it (a model document's `uv` section uses it as its density).
+std::optional<double> style_texels_per_unit(const std::string& projectDir);
+// Records `value` (null: none) as recipe.context.styleTexelsPerUnit; check_recipe reports "assets.json (style.texelsPerUnit)" in `changed` when the
+// style guide says something else now.
+void add_style_texels_context(Json& recipe, const std::optional<double>& value);
 // The recipe of an assets.json entry (`provenance.recipe`), or null when it has none or it is malformed (no command).
 Json recipe_of(const Json& entry);
 

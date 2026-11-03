@@ -35,6 +35,7 @@ returns the same catalog this page describes, with every field, range and defaul
 | `doc` | A sentence for people and AIs; unused by the evaluation. |
 | `output` | `{"path": "assets/..../name.glb"}`: where to bake. Default: the document's name with `.model.json` replaced by `.glb`. `model.bake` refuses a path outside `assets/`. |
 | `materials` | `{name: {color, texture, metallic, roughness, emissive, doubleSided, blend}}`, the materials nodes refer to by name. The fields are those of a `mesh.save` material (docs/SCRIPTING.md, "Procedural meshes"); `texture` is a project file. |
+| `uv` | How the model gets its UVs (below, "UVs"). Left out: every primitive keeps its own UVs (the list in "UV coordinates"). |
 | `nodes` | The tree, in order. Required, at least one node that makes a triangle. At most 2048 nodes (groups and modifiers included) and 16 levels of nested groups and modifiers. |
 
 ### Nodes
@@ -427,6 +428,66 @@ shapes on the +Z side are written.
 Edit by id like any model: `model.edit {"path": "assets/models/rock.model.json", "op": "set", "target": "pit", "values": {"radius": 0.3}}`; to add a
 shape to an `sdf`, `{"op": "add", "parent": "rock", "node": {"op": "sdf_sphere", ...}}`.
 
+## UVs
+
+The primitives' own UVs (see "UV coordinates") are fine for a texture that repeats on a box, but they overlap between parts and
+differ in scale from one primitive to the next. A `uv` section on the document gives the WHOLE model new UVs, made after every node
+(modifiers, booleans and `sdf` included; an `sdf` result gets them in place of its default box projection):
+
+```json
+{"format": "factoria.model/1",
+ "uv": {"method": "unwrap", "texelsPerUnit": 256, "parts": {"wheel": {"method": "cylinder", "axis": "x"}}},
+ "nodes": [...]}
+```
+
+`factoria call model.uv '{"path":"assets/models/cart.model.json","set":{"method":"unwrap"}}'` writes the section, bakes the `.glb`,
+measures the result and returns a picture of the layout (the texture square with every triangle at its UVs, a colour per part,
+mirrored triangles red). `model.uv {path}` alone only measures (a document with no `uv` section is measured on its primitives' own
+UVs). `set` merges into the section (a field set to null is removed, `parts` merges part by part), `replace: true` puts `set` in
+place of the section, `clear: true` removes it. The whole document is checked first; a mistake returns every issue with its JSON
+pointer and writes nothing.
+
+| Field | Meaning |
+|---|---|
+| `layout` | `"atlas"` (default): every piece is packed into one 0..1 square, a texture painted for this model. `"tile"`: world-scale UVs that continue across the whole model and repeat (a seamless texture); nothing is cut or packed, the default method is `box`, and `unwrap` is an error. |
+| `method` | `"unwrap"` (atlas default), `"box"` (tile default), `"cylinder"`, `"sphere"` or `"planar"`. See below. |
+| `axis` | `"x"`, `"y"` (default) or `"z"`: the axis of a cylinder or sphere, the direction a `planar` projection looks along. |
+| `texelsPerUnit` | Texels per metre of surface. Left out: the project's `assets.json` `style.texelsPerUnit`, else 128. 1 to 16384. |
+| `textureSize` | Side of the square texture in texels, 16 to 4096. 0 (default): the smallest power of two the pieces fit in. A fixed size they do not fit at the density lowers the density for the whole model, and the report says so. For `tile` it is the size of the texture that repeats (0: 1024); one repeat is `textureSize / texelsPerUnit` metres. |
+| `padding` | Empty texels kept around each piece of an atlas, 0 to 32 (default 2), so filtering and mipmaps do not bleed one piece into the next. |
+| `seams` | `unwrap` only: `"few"` cuts the surface into fewer, bigger pieces (fewer seams, more risk of stretch), `"many"` into more, smaller ones; `"balanced"` (default) is in between. It does not promise less stretch: read `stretch` in the report. |
+| `rotate` | Atlas: the packer may turn pieces by 90 degrees to fill the texture. Default: true when every part is unwrapped, false when a part is projected, so a texture drawn on a projected part stays upright. |
+| `parts` | `{part name: {method, axis, texelsPerUnit}}`: override those three for one part. The part `""` is the nodes that name no part. A name that is not a part of the model is a warning with "did you mean". |
+
+**Methods.** `unwrap` is xatlas (vendored, MIT): it cuts the surface into charts that flatten with little stretch and packs
+them. A part is unwrapped on its own, so a seam never crosses from one part to another. The projections give a texture that reads
+upright and not mirrored when the surface is seen from outside:
+
+- `box`: each face goes on the axis plane it looks at most. One piece per run of connected faces on the same plane. Faces that look up or down put -Z at the top of the image.
+- `cylinder`: around `axis`, `u` is the distance along the circle at the part's mean radius (the radius of the sides, not of the caps), `v` the height. The seam is on the -e1 side (-Z for `y`, -Y for `x`, -X for `z`). Faces that look along the axis (the caps) are projected flat.
+- `sphere`: longitude and latitude around `axis`, `v` from the +axis pole (0) to the opposite one. A triangle that contains a pole can come out mirrored (it is a pole: the whole top row of the texture is one point); the report counts them in `flippedTriangles`.
+- `planar`: everything along `axis`. On a closed shape the near and far side overlap, and the report warns about it. Use it for a flat panel or a decal.
+
+**Density.** Every piece is scaled so that a metre of surface is `texelsPerUnit` texels (per part when a part gives its own), so a
+texture has the same detail on the door and on the roof. The report measures it: `texelsPerMeter` (mean, min, max, also per part).
+An `unwrap` keeps the metric; a projection stretches only where the shape departs from its projection.
+
+**What the report says.** `model.uv` returns, and `model.info`/`model.create`/`model.edit` carry under `measurements.uv`:
+`layout`, `textureSize`, `texelsPerUnit` (asked) and `texelsPerUnitUsed` (reached), `triangles`, `charts`, `seams` (`edges` and
+`length` in metres), `surfaceArea`, `texelsPerMeter`, `stretch` (the ratio of the largest to the smallest scale of the map, 1 =
+none, 2 = twice as long one way: mean by area and worst triangle), `flippedTriangles` (mirrored against the rest of their chart:
+a texture reads backwards there), `utilization` (share of the texture covered), `overlap` (share of the covered texels that two
+triangles share; a texture painted there shows on both), `outsideTriangles`, `parts` and `warnings`. `project.validate` repeats the
+warnings of a document with a `uv` section, so a model that smears is found without asking.
+
+**Style and staleness.** When the section gives no `texelsPerUnit` the project's `style.texelsPerUnit` is used, and the recipe
+records it: change the style and the `.glb` is stale (`assets.regenerate` builds it again). The `uv` section is part of the
+document, so changing it makes the `.glb` stale like any other edit.
+
+**For code.** `fa/scene/model_uv.h` (`model_uv_apply`, `model_uv_measure`) works on any `ModelMesh` and the part of each triangle,
+not only on documents. The result is the same triangles in the same order with vertices split along the seams. It is single
+threaded and deterministic: the same mesh and settings give the same UVs on every platform.
+
 ## Parts, materials and vertex colours
 
 A **part** is a labelled piece of the model. A node with `part` gives that name to itself and to every node below it that
@@ -453,8 +514,9 @@ a `text` node: an engine font is data the binary ships; a project `.ttf` is a fi
 |---|---|
 | `model.info {}` | The catalog: operations with their fields (type, range, default, doc), and the fields every node takes. |
 | `model.info {path}` (or `{document}`) | Checks a document, returns the tree (pointer, op, id, part, material), where it bakes to, whether the `.glb` is fresh, and (unless `evaluate` is false) measurements: vertices, triangles, bounds and size, closed surface, volume, and the triangles and bounds of each part. A document with mistakes returns `valid: false` and ALL its issues. |
-| `model.create {path, nodes?, materials?, output?, doc?, overwrite?, bake?}` | Writes a document (default: one box), gives the nodes ids, bakes it. |
-| `model.edit {path, op, ...}` | `add` (`node`, `parent?`, `index?`), `set` (`target`, `values`; a null value removes a field), `remove` (`target`), `move` (`target`, `parent?`, `index?`), `document` (`doc`, `output`, `materials`). `target` and `parent` are a node id or a JSON pointer such as `/nodes/1/children/0`. The whole document is checked before anything is written. Then it bakes again. |
+| `model.create {path, nodes?, materials?, uv?, output?, doc?, overwrite?, bake?}` | Writes a document (default: one box), gives the nodes ids, bakes it. |
+| `model.edit {path, op, ...}` | `add` (`node`, `parent?`, `index?`), `set` (`target`, `values`; a null value removes a field), `remove` (`target`), `move` (`target`, `parent?`, `index?`), `document` (`doc`, `output`, `materials`, `uv`; each replaces the whole field, null removes it). `target` and `parent` are a node id or a JSON pointer such as `/nodes/1/children/0`. The whole document is checked before anything is written. Then it bakes again. |
+| `model.uv {path, set?, replace?, clear?, bake?, overwrite?, picture?}` | Gives the model UVs: merges `set` into the document's `uv` section (or replaces or clears it), checks the whole document, bakes the `.glb` again and returns the measurements and the layout picture. With neither `set` nor `clear` it only measures. See "UVs". |
 | `model.bake {path?, force?, dryRun?, overwrite?}` | Builds the documents whose `.glb` is missing or stale (one with `path`; `force` also the fresh ones). Writes the `.glb` the way `mesh.save` writes a mesh, with provenance and a recipe in `assets.json`. |
 
 `assets.regenerate` rebuilds a stale model, `project.validate` lists documents that do not load (an error per issue) or were

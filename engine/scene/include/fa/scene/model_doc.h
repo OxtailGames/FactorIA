@@ -25,6 +25,7 @@
 #include "fa/core/types.h"
 #include "fa/scene/mesh_store.h"
 #include "fa/scene/model_kernel.h"
+#include "fa/scene/model_uv.h"
 
 namespace fa {
 
@@ -97,7 +98,14 @@ struct ModelDoc {
     std::string outputPath;  // where bake writes the .glb (project-relative); "" = next to the document
     std::vector<std::pair<std::string, MeshMaterial>> materials;  // in document order; the key is the material's name
     std::vector<ModelNode> nodes;
+    std::optional<ModelUvSettings> uv;  // the `uv` section (model_uv.h): none = every primitive keeps its own uvs
 };
+
+// Reads the `uv` section of a document (the JSON under "uv"). Problems go to `issues` with pointers starting at "/uv"; none is returned
+// when there were any.
+std::optional<ModelUvSettings> parse_model_uv(const Json& json, std::vector<ModelIssue>& issues);
+// The JSON schema of the `uv` section, which model_doc_schema() embeds.
+Json model_uv_schema();
 
 // Reads a document. Every problem found is listed in `issues` (not only the first), each with its JSON pointer, what is wrong and the
 // fix, and "did you mean" for names. `file` only names the document in the message of the error that is returned for the first.
@@ -125,6 +133,7 @@ using ModelTextSource = std::function<Result<ModelTextOutline>(const ModelTextRe
 
 struct ModelEvalOptions {
     ModelTextSource text;  // none: a `text` node fails with an error saying the evaluator has no font source
+    float defaultTexelsPerMeter = 0;  // the texel density of a `uv` section that gives none (the project's style guide); 0 = 128
 };
 
 // One submesh of the result: a part with a material.
@@ -141,6 +150,7 @@ struct ModelBuild {
     ModelMeshStats stats;             // vertices, triangles, bounds, welded surface checks (closed, volume...)
     std::vector<std::string> warnings;
     std::vector<std::string> inputs;  // project files the evaluation read (fonts, material textures), sorted
+    std::optional<ModelUvReport> uv;  // the measurements of the document's `uv` section; none when it has none
 };
 
 // Evaluates the tree in document order. Fails (with the node's pointer in the message) when a text node cannot be made, or the mesh has

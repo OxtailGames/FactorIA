@@ -1,4 +1,4 @@
-fa_add_module(scene DEPS fa_core PRIVATE_DEPS fa_ext_cgltf fa_ext_manifold)
+fa_add_module(scene DEPS fa_core PRIVATE_DEPS fa_ext_cgltf fa_ext_manifold fa_ext_xatlas)
 
 # The cgltf implementation translation unit (glTF reading for skeleton.cpp, mesh_geometry.cpp and the renderer's loader): no warnings.
 if(MSVC)
