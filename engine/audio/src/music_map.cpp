@@ -236,12 +236,31 @@ MusicStem music_make_stem(std::string name, float threshold, const std::vector<f
     return s;
 }
 
+namespace {
+// The loudness the style guide asks of the music bus (style.audio.loudnessLufs.music in assets.json), if it says.
+std::optional<double> style_music_target() {
+    const Json manifest = assets::manifest();
+    auto style = manifest.find("style");
+    if (style == manifest.end() || !style->is_object()) return std::nullopt;
+    auto audio = style->find("audio");
+    if (audio == style->end() || !audio->is_object()) return std::nullopt;
+    auto bus = audio->find("loudnessLufs");
+    if (bus == audio->end() || !bus->is_object()) return std::nullopt;
+    auto music = bus->find("music");
+    if (music == bus->end() || !music->is_number()) return std::nullopt;
+    const double lufs = music->get<double>();
+    return lufs <= 0.0 && lufs >= -70.0 ? std::optional<double>(lufs) : std::nullopt;
+}
+}  // namespace
+
 Result<std::shared_ptr<MusicSource>> music_render_source(const SongDoc& song, const SongTimeline& timeline, std::string path) {
     auto src = std::make_shared<MusicSource>();
     src->path = std::move(path);
     src->mode = "live";
     SongAssetOptions options;
     options.loop = true;
+    // Like music.render and music.preview: a song whose master says `loudness: "style"` is brought to the style guide's music level.
+    if (song.mixer.master.loudness == SongMaster::Loudness::Style) options.render.targetLufs = style_music_target();
     if (!song.layers.empty()) {
         auto plan = song_stem_plan(song, "layers");
         if (!plan) return plan.error();

@@ -164,6 +164,21 @@ note value (`"4"`, `"8"`, `"16"` default, `"32"`, `"8t"`, `"16t"`): `x` a hit, `
 the track's `kit` defines.
 Every lane has the same number of steps (pad with `.`), and the grid is a whole number of bars, or `bars` pads it with silence.
 
+**Notes as a list.** `music.notes` reads a pattern as the list a piano roll draws, and `set_pattern` accepts the same list in `notes`:
+
+```
+music.notes {"path":"assets/music/forest.song.json","track":"lead","pattern":"theme"}
+music.edit {"path":"assets/music/forest.song.json","ops":[{"op":"set_pattern","track":"lead","pattern":"theme","bars":4,
+  "notes":[{"pitch":"A4","tick":0,"duration":960},{"pitch":62,"tick":960,"duration":480,"velocity":100,"accent":true}]}]}
+```
+
+A note has `pitch` (a MIDI number or a name), `tick` and `duration` (ticks of 960 per quarter note) and optionally `velocity` (1 to 127), `accent` and `staccato`. The list is written
+into the document **as note text**: the file stays what this chapter describes, nothing else is stored. Because of that, a pattern that goes through the list form is
+**normalized**: chord names (`(Am7)`) and repeat groups (`{ ... }x4`) become the plain notes they play, and every start and end is rounded to the nearest 40 ticks (a 64th-note
+triplet, the finest step the notation can say; `song_write_note_text` in `fa/audio/song.h`). Notes that start and end together are written as a chord `[C4 E4 G4]`, notes that overlap go in
+voices (`&`), and a note longer than a written duration or crossing a bar line is tied. A pattern you write by hand and never send through the list keeps its notation: the Music panel only
+rewrites a pattern when you edit its notes there. Drum patterns are not notes: they stay a `grid`.
+
 A mistake names the place. For example, a bar that is one beat too long:
 
 ```
@@ -457,13 +472,20 @@ player; `world.on("music.beat", fn)` to all.
 - **stems**: plays the stem files `music.render` wrote (`import.music` in `assets.json`, "Rendering a song for a game"). They start at once and cost no synthesis.
   Without them, or when a stem file is missing, the stems differ in length or are shorter than the song now is (it changed after `music.render`), the player renders live and logs a warning that says why.
 - **auto** (default): stems on a phone or tablet that is not high-tier, on any low-tier device and on the web (there is no worker thread to render on there); live elsewhere,
-  and always live when the song has no stem files. `device_info()` (docs/MOBILE.md) is what decides; the `game.setDevice` override of a script does not reach it,
-  so a test that wants one mode or the other writes `mode: "stems"` or `"live"`.
+  and always live when the song has no stem files. `device_info()` (docs/MOBILE.md) is what decides, and the `game.setDevice` override of a script (docs/SCRIPTING.md)
+  reaches it: a test that sets a `tier: "low"` phone gets the stems, one that sets a desktop gets live. A player that is already running takes the new mode at its next beat
+  (it crossfades to the other kind of render in the section that sounds); `mode: "stems"` or `"live"` is still the way to fix it in a scene.
 
-What differs between them: the loudness of the master. Stems carry the mix's gain, so the style guide's music loudness (`loudness: "style"`, "The mixer") is part of
-them. A live render is made without a target, so it does **not** apply the style loudness; give the song's master a `loudness` number, or use stems, if the two must sound equally
-loud. Everything else is the same bytes: the live render is the one `music.render` writes (the loop's tail folded onto its start, so the wrap is seamless; a song that ends with an
+Both are as loud as the song's master says. Stems carry the mix's gain, so the style guide's music loudness (`loudness: "style"`, "The mixer") is part of them; a live render
+reads the same target (`audio.loudnessLufs.music` of the project's style guide in `assets.json`) when the master says `"style"`, so the two sound equally loud. A project with no
+such target, `loudness: "off"` and a number behave the same in both. Everything else is the same bytes: the live render is the one `music.render` writes (the loop's tail folded onto its start, so the wrap is seamless; a song that ends with an
 outro plays its tail out, or a 20 ms fade when more music follows the outro).
+
+### Hot reload
+
+While a game runs from the editor (or with `factoria run`), saving a `*.song.json` or a stem file of a song that plays from stems drops the renders of that song. Every
+`MusicPlayer` that plays it fetches it again (in the background, as at the start) and crossfades to the new version at the next beat, in the section that is sounding; a section
+the new version no longer has starts it at the beginning. The music editor's own edits do this too: the Music panel writes the song as you edit, so a running game hears the change.
 
 ### Time, determinism and the mixer
 
@@ -487,7 +509,7 @@ allocates nothing for the player: the playheads, the queue of changes and the ev
 
 | Command | What it does |
 | --- | --- |
-| `audio.music_state` | Every player (or one `entity`): song, mode, ready, playing, section, bar, beat, intensity, the gain of each layer, pending changes. Read-only. |
+| `audio.music_state` | Every player (or one `entity`): song, mode, ready, playing, section, bar, beat, intensity (the one the layers follow: a change shows from its `layerQuantize` boundary on, while `entity.music.intensity` is the last one set), the gain of each layer, pending changes. Read-only. |
 | `audio.music` | `action` play, stop, setIntensity, goToSection, playStinger or crossfadeTo with their arguments: the same calls as `entity.music`, to try the music while the game runs. |
 
 ## MIDI
@@ -536,6 +558,7 @@ in the key (`i VI III VII`); `*2` holds a chord two bars.
 | `music.render` | The song for a game: the whole song as a WAV (or OGG) with its loop points (WAV `smpl` chunk and `import.loopStart`/`loopEnd`) and one stem file per layer, track or bus ("Rendering a song for a game"). Arguments `out`, `format`, `sampleRate`, `seed`, `loop`, `stems`, `overwrite`. Recipe and staleness like the preview; `assets.regenerate` rebuilds the group. |
 | `music.import_midi` | A `.mid` file to a song document (`out`, `quantize`, `soundfont`, `loop`, `overwrite`, `license`, `author`, `sourceUrl`; "MIDI"). |
 | `music.export_midi` | A song to a format-1 `.mid` (`out`, `overwrite`). |
+| `music.notes` | The notes of one pitched pattern as a piano roll sees them: `{track, pattern}` gives a list sorted by start of `{pitch, name, tick, duration, velocity, accent, staccato}` (960 ticks per quarter note, from the start of the pattern; a chord is one note per pitch) and the pattern's `text`. A drum pattern gives its `grid` and `hits`. Read-only. |
 | `music.mix` | The same render in memory, without a file: the level of every track, the buses and the master (peak, LUFS, limiter reduction, normalization gain). Same options as `music.preview` except the output. |
 
 `music.create` and `music.info` return the piano-roll picture; `music.edit` and the helpers that take `path` return it only with
@@ -620,6 +643,70 @@ Then `music.preview {"path":"assets/music/forest.song.json"}` writes `assets/mus
 `music.info` afterwards reports `"preview": {"path": "assets/music/forest.preview.wav", "exists": true, "madeByPreview": true,
 "stale": false}` and a summary per section, for example the loop: start bar 5, 10 s per pass, 158 notes per pass (pad 12,
 bass 16, drums 48, arp 64, lead 18). If you edit the song and do not render again, `stale` becomes true.
+
+## The Music panel
+
+The editor's Music panel (View > Music, or a double click on a `*.song.json` in the Project panel) edits a song with a piano roll, a drum grid, the arrangement and a mixer, and plays it
+with the same player a game uses. It has no format of its own: every edit that is kept is a command from this chapter (`music.edit`, `music.chord`, `music.arpeggio`, `music.bassline`,
+`music.drums`, `music.mix`, `music.render`), one editor Undo step each, so a person and an AI can take turns on one file. See [EDITOR.md](EDITOR.md), "Music panel", for the
+controls. What matters for the document:
+
+- **Notes are rewritten as text.** The roll edits notes, the document keeps note text. When you draw, move, resize or delete a note, the panel sends the pattern's notes as a list to
+  `music.edit set_pattern` and the pattern is written again as note text: chord names and repeat groups of that pattern become the plain notes they play, and starts and ends round
+  to 40 ticks (see "Notes as a list"). A pattern you never touch keeps its notation; so it is worth writing a progression with chord names, then editing the melody on the roll.
+- **Edits do not bake.** The song file changes as you edit, the baked WAV and the stems next to it stay as they were until **Save + bake** (`music.render`). A running game hears the edits
+  at once through hot reload ("Hot reload"); one that plays from stems keeps its stems until you bake.
+- **Playing is the game's player.** Play uses the song's layers at the panel's intensity and `MusicTransport`, the clock the `MusicPlayer` uses, so Play section, Loop and the intensity
+  slider are what `goToSection`, `loop` and `setIntensity` do in a game.
+- **Several helpers, one place.** Insert chord, Arpeggio, Bass line and Generate (drums) run `music.chord`, `music.arpeggio`, `music.bassline` and `music.drums` and write what they return into
+  the pattern that is open.
+
+## An adaptive score, step by step
+
+Neon Swarm (`examples/neon-swarm`) plays `assets/music/score.song.json`: a bassline and a pad that always play, a drum layer that comes in when a wave is on and an arpeggio when the
+field is crowded. The song, made with the commands above:
+
+```
+music.create {"path":"assets/music/score.song.json","key":"A","mode":"minor","tempo":132,"style":"four_on_floor","progression":"Am F C G"}
+music.edit {"path":"assets/music/score.song.json","ops":[
+  {"op":"set_pattern","track":"bass","pattern":"drive","notes":"<four bars of eighths>"},
+  {"op":"set_pattern","track":"drums","pattern":"drive","grid":{"kick":"<64 steps>","clap":"<64 steps>","hat":"<64 steps>","openhat":"<64 steps>"}},
+  {"op":"remove_section","section":"loop"},
+  {"op":"add_section","section":"calm","kind":"loop","repeat":2,"play":{"pad":"chords","bass":"line","drums":"groove","arp":"arp"}},
+  {"op":"add_section","section":"battle","kind":"loop","repeat":2,"play":{"pad":"chords","bass":"drive","drums":"drive","arp":"arp"}},
+  {"op":"set_layers","layers":{"base":["pad","bass"],"drive":{"tracks":["drums"],"intensity":0.3},"top":{"tracks":["arp"],"intensity":0.65}}}]}
+```
+
+`calm` and `battle` are two loop sections that differ in the bass (`line`: slow, `drive`: eighths) and the drums (`groove` and a busier `drive`), so a change of section is something you hear; the three layers
+are what `intensity` fades in. Open the song in the Music panel to hear it: Play section on `battle`, then drag the intensity slider through 0.3 and 0.65 and watch the layer bars.
+
+The scene has the player on an entity (`scenes/game.scene.json`), starting in `calm` with almost nothing playing:
+
+```json
+{ "id": "score", "components": { "MusicPlayer": {
+    "song": "assets/music/score.song.json", "volume": 0.5, "intensity": 0.05, "startSection": "calm",
+    "quantize": "bar", "layerQuantize": "beat", "layerFade": 1.0 } } }
+```
+
+and `scripts/game.js` drives it from the game's state:
+
+```js
+const music = world.find("score").music;
+// intensity follows the danger (what is on the field or still to spawn, the hit points lost); only a move of 0.05 or more is sent
+music.setIntensity(clamp01(0.3 + 0.5 * crowd + 0.2 * lost));
+// a wave is a section change on the bar line, and the horn is a stinger on the beat that ducks the music
+music.goToSection("battle", { quantize: "bar" });
+music.playStinger({ clip: "assets/sfx/wave.wav", quantize: "beat", volume: 0.6, duck: 0.35 });
+// the clear brings calm back; a hit is a stinger at once; dying fades the score out
+music.goToSection("calm", { quantize: "bar" });
+music.playStinger({ clip: "assets/sfx/hurt.wav", quantize: "none", volume: 0.7, duck: 0.5 });
+music.stop({ fade: 0.8 });
+```
+
+The example's tests (`tests/neon.test.js`, "adaptive score") check that the song is in `calm` with only the base layer at the start, that more enemies on the field raise `entity.music.intensity`
+and fade the drum layer and then the arpeggio in (`status.stemGains`), that clearing the wave drops them again, that a wave moves the section to `battle` on a bar line and back to `calm`, that the
+wave horn and a hit are stingers, and that dying stops the music. On the null device the mixer moves exactly the time the game clock gives it, so the tests step frames and read the answer; they
+never wait for the clock. Note that `status.intensity` is the value the layers are following (it changes on the `layerQuantize` boundary) while `entity.music.intensity` is the last one set.
 
 ## Errors
 

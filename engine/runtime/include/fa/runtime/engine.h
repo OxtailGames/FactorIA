@@ -81,8 +81,8 @@ struct EngineConfig {
     // (`xcrun simctl launch` with SIMCTL_CHILD_FA_INPUT_REPLAY; the `player.run_ios_sim` command does it). "" = none.
     std::string inputReplayPath;
     bool hotReload = true;         // watch scripts/scenes/assets (desktop, not headless)
-    // Watch only the files the renderer rebuilds in place (materials, shader snippets, textures, fonts, models) and
-    // leave scripts, scenes and locales alone. For hosts that manage those themselves (the editor). Ignored when
+    // Watch only the files that are replaced in place (materials, shader snippets, textures, fonts, models, audio clips and songs:
+    // a song reloads in the MusicPlayers that play it) and leave scripts, scenes and locales alone. For hosts that manage those themselves (the editor). Ignored when
     // hotReload is on, which already watches everything.
     bool hotReloadAssets = false;
     bool editorMode = false;       // editor drives the loop; game starts paused
@@ -236,6 +236,7 @@ public:
     float default_ui_scale() const override;    // the ui.scale of factoria.json
     double render_scale() const override;       // window.renderScale: the held render scale
     std::string set_render_scale(double scale) override;
+    void device_overridden(const Json& device) override;  // game.setDevice: a MusicPlayer in "auto" follows the pretended device
     Json device_info() const override;          // a game window reports the real device; headless runs the fixed values
     Json render_stats_now() override;
     std::string load_scene_now(std::string_view scenePath) override;

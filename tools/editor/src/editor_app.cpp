@@ -550,6 +550,8 @@ bool Editor::boot(const std::string& dirIn) {
         vector_release_textures();
         sound_release_textures();
         sound_.player.reset();   // before the engine: it owns a voice of the mixer
+        music_.preview.reset();  // ...and so does the Music panel's preview
+        music_.model.reset();    // (its render worker is joined here)
         engine_->shutdown();
         engine_.reset();
     } else if (gfxUp_) {
@@ -1168,6 +1170,13 @@ void Editor::undo() {
         sound_apply_undo(entry, false);
         return;
     }
+    if (undo_.back().is_object() && undo_.back().contains("$music")) {  // a step of a song (music_panel.cpp)
+        Json entry = std::move(undo_.back());
+        undo_.pop_back();
+        lastEditKey_.clear();
+        music_apply_undo(entry, false);
+        return;
+    }
     redo_.push_back(save_scene(world()));
     Json s = std::move(undo_.back());
     undo_.pop_back();
@@ -1204,6 +1213,13 @@ void Editor::redo() {
         redo_.pop_back();
         lastEditKey_.clear();
         sound_apply_undo(entry, true);
+        return;
+    }
+    if (redo_.back().is_object() && redo_.back().contains("$music")) {
+        Json entry = std::move(redo_.back());
+        redo_.pop_back();
+        lastEditKey_.clear();
+        music_apply_undo(entry, true);
         return;
     }
     undo_.push_back(save_scene(world()));
@@ -1249,7 +1265,7 @@ void Editor::open_screenshots_folder() {
 // The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
 int Editor::panels_mask() const {
     const bool flags[] = {showViewport_, showHierarchy_, showInspector_, showConsole_,  showProject_,  showAi_,
-                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_, showImage_, showVector_, showSound_};
+                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_, showImage_, showVector_, showSound_, showMusic_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1258,7 +1274,7 @@ int Editor::panels_mask() const {
 
 void Editor::set_panels_mask(int mask) {
     bool* flags[] = {&showViewport_, &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,  &showAi_,
-                     &showFeedback_, &showAudio_,     &showProfiler_,  &showAnimation_, &showBoneTools_, &showImage_, &showVector_, &showSound_};
+                     &showFeedback_, &showAudio_,     &showProfiler_,  &showAnimation_, &showBoneTools_, &showImage_, &showVector_, &showSound_, &showMusic_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1331,6 +1347,7 @@ void Editor::build_ui() {
             if (showImage_ && image_.focused) image_save();   // the Image panel has the keyboard: it saves its document, not the scene
             else if (showVector_ && vector_.focused) vector_save();
             else if (showSound_ && sound_.focused) sound_save();
+            else if (showMusic_ && music_.focused) music_save();
             else save_scene_now();
         }
         if (ctrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)) undo();
@@ -1401,6 +1418,8 @@ void Editor::build_ui() {
         if (showVector_) draw_vector_panel();
         if (showSound_) draw_sound_panel();
         else if (sound_.player && sound_.player->playing()) sound_.player->stop();
+        if (showMusic_) draw_music_panel();
+        else if (music_.preview && music_.preview->playing()) music_.preview->stop();
         if (showBoneTools_) draw_bone_tools_panel();
         else if (bone_.tool != BoneTool::Off) bone_cancel_chain(), bone_.tool = BoneTool::Off;
         if (pendingFocus_) {
