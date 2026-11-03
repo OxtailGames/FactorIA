@@ -1,5 +1,16 @@
 {
   "format": "factoria.assets/1",
+  "style": {
+    "texelsPerUnit": 1,
+    "saturation": {
+      "min": 0.3,
+      "max": 0.9
+    },
+    "ignore": [
+      "assets/crawler_sheet.png",
+      "assets/parts_atlas.png"
+    ]
+  },
   "assets": {
     "assets/crawler_sheet.png": {
       "sheet": {

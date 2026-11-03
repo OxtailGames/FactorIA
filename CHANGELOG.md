@@ -4,12 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
-M51 gives the AI eyes on the art it makes. `assets.contact_sheet` puts a set of pictures (and `.glb` thumbnails) side by side at their on-screen size over light, dark and camera-colour backgrounds and in greyscale, and `assets.preview_in_scene` shows one new PNG or model inside a running scene at phone and desktop resolutions without touching the scene file.
+M51 gives the AI eyes on the art it makes. The house style becomes a set of rules a tool can measure, and `assets.check_art` looks at a picture the way the game shows it, with a verdict and a fixing hint per rule. `assets.contact_sheet` puts a set of pictures (and `.glb` thumbnails) side by side at their on-screen size over light, dark and camera-colour backgrounds and in greyscale, and `assets.preview_in_scene` shows one new PNG or model inside a running scene at phone and desktop resolutions without touching the scene file.
 
 ### Changes
 
 - **For game authors:** `assets.contact_sheet {paths, backgrounds?, sizes?, greyscale?, columns?, allFrames?, path?, overwrite?}` returns a labelled picture (`$image`) and writes a PNG only when `path` is given. (docs/ASSETS.md)
 - **For game authors:** `assets.preview_in_scene {path, scene, at? | entity?, placement?, offset?, size?, resolutions?, steps?, center?}` places a Sprite or MeshRenderer in a copy of the scene and returns screenshots at the resolutions asked (default phone and desktop); the scene file is unchanged and no entity is left. (docs/ASSETS.md)
+- **For game authors:** `assets.json` `style` grows rules a picture is measured against: `outline` (`color`, `width`), `lightDirection` (a name such as `upper-left`, or degrees towards the light), `texelsPerUnit`, `pixelArt`, `value` and `saturation` (`min`/`max`), `audio` (`loudnessLufs` per mixer bus and `toleranceLu`, parsed here for the sound check of a later release) and `ignore` (files and folders the rules skip). Only the rules you write are checked. A mistake in `style` names its JSON pointer and the fix, and the schema knows the new keys. (docs/ASSETS.md, "House style")
+- **For game authors:** `assets.check_art {path | paths}` returns an annotated picture (the picture, its value, over each background and at each on-screen size) and a verdict (`ok`, `warn`, `fail`) with value, threshold and a fixing hint for each rule: palette fit, contrast over the backgrounds the scenes draw, readability on a phone and a desktop screen, halos and fringes on the alpha edge, the rules of `style`, and, for several pictures, set consistency (pixel density, pixel size, outline, shared palette). It is read-only and deterministic. (docs/ASSETS.md, "Checking art: assets.check_art")
+- **For game authors:** `factoria validate` warns when a Sprite texture clearly breaks a style rule you set (the `fail` verdicts of `assets.check_art`), naming the rule, the numbers and the fix. The measurements are cached by file hash in `.factoria/art-cache/`, so a project is measured once. The sky-hopper example adopts `texelsPerUnit`, `saturation` and `ignore`.
+- **For engine developers:** one shared parser, `load_style_guide` (fa/tooling/style_guide.h), serves the generation commands, `assets.check_art` and `project.validate`; the measurements and rules are in fa/tooling/art_check.h.
 
 ## 0.14.1
 
