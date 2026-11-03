@@ -8,6 +8,7 @@
 #include "fa/core/strings.h"
 #include "fa/scene/model_doc.h"
 #include "fa/scene/model_modifiers.h"
+#include "fa/scene/model_select.h"
 #include "fa/scene/model_sdf.h"
 
 namespace fa {
@@ -17,6 +18,7 @@ namespace {
 struct Inherited {
     std::optional<std::string> part, material;
     std::optional<Vec4> color;
+    Mat4 world = Mat4::identity();  // this node's space to the model's: the transforms of the nodes above, this node's included
 };
 
 struct Group {
@@ -193,6 +195,42 @@ bool within_limit(Eval& eval, const ModelNode& n, const char* what, std::size_t 
     return false;
 }
 
+// What the edit operations and model.select need to know about the place of a node in the tree.
+ModelEditContext make_context(Eval& eval, const Inherited& in) {
+    ModelEditContext ctx;
+    for (const Group& g : eval.groups) ctx.partNames.push_back(g.part);
+    for (const auto& m : eval.doc.materials) ctx.materialNames.push_back(m.first);
+    ctx.toModel = in.world;
+    ctx.group_with = [&eval](std::uint32_t source, const std::optional<std::string>& part, const std::optional<std::string>& material) {
+        Inherited tmp;
+        tmp.part = part ? *part : eval.groups[source].part;
+        tmp.material = material ? *material : eval.groups[source].material;
+        return eval.group_of(tmp);
+    };
+    return ctx;
+}
+
+void probe(Eval& eval, const ModelNode& n, const ModelMesh& mesh, const Inherited& in) {
+    if (eval.options.probe && !mesh.empty()) eval.options.probe(n, mesh, make_context(eval, in));
+}
+
+// An edit operation (model_select.h): the selection is evaluated on the merged children.
+bool eval_edit(Eval& eval, const ModelNode& n, const Inherited& in, const ModelMesh& m, ModelMesh& out) {
+    const ModelEditContext ctx = make_context(eval, in);
+    auto edited = model_apply_edit(n, m, ctx);
+    if (!edited) {
+        fail(eval, n, edited.error().message, edited.error().hint);
+        return false;
+    }
+    for (const std::string& w : edited->warnings) eval.out.warnings.push_back(n.pointer + ": " + w);
+    edited->report.pointer = n.pointer;
+    edited->report.op = n.op;
+    eval.out.edits.push_back(edited->report);
+    if (!within_limit(eval, n, ("the " + n.op).c_str(), edited->mesh.triangle_count(), "Select fewer faces, or use fewer segments on the model below.")) return false;
+    out.append(edited->mesh);
+    return true;
+}
+
 // The booleans: every enabled child that makes geometry is an operand.
 bool eval_boolean(Eval& eval, const ModelNode& n, const Inherited& in, ModelMesh& out) {
     std::vector<ModelMesh> operands;
@@ -230,6 +268,8 @@ bool eval_modifier(Eval& eval, const ModelNode& n, const Inherited& in, ModelMes
         eval.out.warnings.push_back(n.pointer + ": the " + n.op + " has no child that makes geometry, nothing was made");
         return true;
     }
+    probe(eval, n, m, in);
+    if (model_is_edit_op(n.op)) return eval_edit(eval, n, in, m, out);
     const Json& p = n.params;
     const std::size_t tris = m.triangle_count();
     if (n.op == "mirror") {
@@ -490,14 +530,17 @@ bool eval_node(Eval& eval, const ModelNode& n, const Inherited& parent, ModelMes
     if (n.part) in.part = n.part;
     if (n.material) in.material = n.material;
     if (n.color) in.color = n.color;
+    in.world = parent.world * Mat4::trs(n.position, n.rotation, n.scale);
     ModelMesh mesh;
     if (n.op == "group") {
         if (!eval_nodes(eval, n.children, in, mesh)) return false;
+        probe(eval, n, mesh, in);
     } else if (is_modifier(n.op)) {
         if (!eval_modifier(eval, n, in, mesh)) return false;
     } else if (n.op == "sdf") {
         if (!eval_sdf(eval, n, in, mesh)) return false;
         if (mesh.empty()) return true;
+        probe(eval, n, mesh, in);
         Vec3 bmin, bmax;
         mesh.bounds(bmin, bmax);
         if (n.align == "bottom") mesh.transform(Mat4::translate({0, -bmin.y, 0}));
@@ -511,6 +554,7 @@ bool eval_node(Eval& eval, const ModelNode& n, const Inherited& parent, ModelMes
         else if (n.align == "top") mesh.transform(Mat4::translate({0, -bmax.y, 0}));
         if (in.color) mesh.set_color(*in.color);
         mesh.set_part(eval.group_of(in));
+        probe(eval, n, mesh, in);
     }
     if (mesh.empty()) return true;
     mesh.transform(Mat4::trs(n.position, n.rotation, n.scale));

@@ -45,7 +45,8 @@ struct ModelIssue {
 //   "number", "integer", "boolean", "string", "choice" (one of `choices`), "vec3" ([x, y, z]), "size3" (a number for all three, or
 //   [x, y, z]), "count3" (an integer for all three, or [x, y, z]), "count2" (an integer for both, or [x, z]), "color" ([r, g, b] or
 //   [r, g, b, a] in 0..1, or "#rrggbb" / "#rrggbbaa"), "points2" (a list of [a, b] pairs), "points3" (a list of [x, y, z]), "rings" (a list
-//   of lists of [x, y, z]: the sections of a loft), "nodes" (a list of nodes).
+//   of lists of [x, y, z]: the sections of a loft), "nodes" (a list of nodes), "faces" / "edges" (a selection query, an object with a `by`:
+//   model_select.h, docs/MODELING.md "Selections").
 // `min` / `max` bound every number inside a vec / points field; `minItems` / `maxItems` bound the length of a points list or of the list of
 // sections of "rings", and `innerMinItems` / `innerMaxItems` the points of each section.
 struct ModelFieldInfo {
@@ -131,9 +132,36 @@ struct ModelTextRequest {
 };
 using ModelTextSource = std::function<Result<ModelTextOutline>(const ModelTextRequest&)>;
 
+// What the edit operations (model_select.h: extrude_faces, inset_faces, loop_cut, bevel_edges, delete_faces, assign_faces) need to know about the
+// place of the tree they run in. `partNames` is indexed by the part number each triangle carries (triParts); `toModel` takes a point of the
+// node's own space (where its children's meshes are) to the model's space through the transforms of the nodes above it (modifiers above do not
+// count); `group_with` gives the part number of "source part, with this part and/or material instead" (a new one when it does not exist yet).
+struct ModelEditContext {
+    std::vector<std::string> partNames;
+    std::vector<std::string> materialNames;  // the document's materials
+    Mat4 toModel = Mat4::identity();
+    std::function<std::uint32_t(std::uint32_t source, const std::optional<std::string>& part, const std::optional<std::string>& material)> group_with;
+};
+
+// What a selection matched, for the AI that wrote it to check (model.info lists one per edit node, model.select answers it for a query).
+struct ModelSelectionReport {
+    std::string pointer;       // the node ("" for model.select)
+    std::string op;
+    std::string select;        // "faces" or "edges"
+    std::size_t matched = 0;   // faces or edges selected
+    std::size_t total = 0;     // faces or edges the mesh had at that point
+    double measure = 0;        // their area (faces, m2) or length (edges, m)
+    Vec3 bmin{}, bmax{};       // bounds of what matched, in the node's space
+    std::vector<std::pair<std::string, std::size_t>> parts;  // faces per part name ("" = no part); for edges the faces beside them
+    std::vector<std::string> warnings;  // empty selection and the like, each with what to try
+};
+
 struct ModelEvalOptions {
     ModelTextSource text;  // none: a `text` node fails with an error saying the evaluator has no font source
     float defaultTexelsPerMeter = 0;  // the texel density of a `uv` section that gives none (the project's style guide); 0 = 128
+    // Called for every enabled node that reaches its operation, with the mesh the operation receives (the merged children of a group or
+    // modifier, or the mesh a primitive made) and its place in the tree. model.select uses it to try a query on the mesh at a node.
+    std::function<void(const ModelNode& node, const ModelMesh& input, const ModelEditContext& context)> probe;
 };
 
 // One submesh of the result: a part with a material.
@@ -149,6 +177,7 @@ struct ModelBuild {
     std::vector<ModelPartInfo> parts;
     ModelMeshStats stats;             // vertices, triangles, bounds, welded surface checks (closed, volume...)
     std::vector<std::string> warnings;
+    std::vector<ModelSelectionReport> edits;  // one per edit node (extrude_faces...), in evaluation order: what its selection matched
     std::vector<std::string> inputs;  // project files the evaluation read (fonts, material textures), sorted
     std::optional<ModelUvReport> uv;  // the measurements of the document's `uv` section; none when it has none
 };

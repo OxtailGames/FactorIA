@@ -927,6 +927,7 @@
     "model.create": "unreleased",
     "model.edit": "unreleased",
     "model.info": "unreleased",
+    "model.select": "unreleased",
     "model.uv": "unreleased",
     "music.arpeggio": "unreleased",
     "music.bassline": "unreleased",
