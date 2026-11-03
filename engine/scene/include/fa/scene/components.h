@@ -1009,6 +1009,40 @@ struct AudioSource {
     float range = 800.0f;             // spatial: distance where volume reaches 0 (world units)
 };
 
+// How a song is played (MusicPlayer.mode): "live" synthesizes the song from its document when the player starts (the same render as
+// music.preview), "stems" plays the stem files music.render wrote (cheap to start, for phones), "auto" picks one for the device.
+enum class MusicMode : std::int32_t { Auto, Live, Stems };
+
+// When a change of the music lands: right away, on the next beat, on the next bar line or when the section ends.
+enum class MusicQuantize : std::int32_t { None, Beat, Bar, Section };
+
+// Plays a song document (`*.song.json`, docs/MUSIC.md) as adaptive music: its layers fade in and out with `intensity`, section changes,
+// stingers and crossfades wait for a beat or a bar, and the beats reach scripts as events. State lives in the audio mixer; this component
+// is its handle: edit a field to change the music, or use `entity.music` in scripts (docs/SCRIPTING.md).
+struct MusicPlayer {
+    std::string song;                 // asset path of the *.song.json; changing it while playing crossfades to the new song
+    MusicMode mode = MusicMode::Auto;
+    float volume = 0.8f;              // 0..1 loudness of the player (the bus volume applies on top)
+    std::string bus = "music";        // mixer bus: "music", "sfx", "ui" or a bus of the project
+    float intensity = 0.0f;           // 0..1: which layers play (layer thresholds from the song, see layerRange)
+    bool playOnStart = true;          // start when the entity spawns / the scene loads
+    bool loop = true;                 // stay in the song's loop section (a song without one restarts at its end); false plays through to the end
+    std::string startSection;         // section to start at ("" = the beginning of the song)
+    MusicQuantize quantize = MusicQuantize::Bar;  // default for section changes, stingers and crossfades
+    MusicQuantize layerQuantize = MusicQuantize::None;  // when an intensity change lands (the fade starts there)
+    float layerFade = 1.0f;           // seconds a layer takes to fade in or out
+    float layerRange = 0.25f;         // intensity span of a layer's fade-in (0.25: it is full at its threshold and silent 0.25 below it)
+    float transitionFade = 0.05f;     // seconds of the equal-power crossfade at a section jump
+    float crossfadeBars = 2.0f;       // length of a crossfade to another song, in bars of the outgoing song
+    bool playing = false;             // runtime: the song is sounding (or waiting for its quantized start); set true to play, false to stop
+    bool ready = false;               // runtime: the song is rendered or loaded; false while it loads
+    std::string section;              // runtime: the section being played
+    std::int32_t bar = 0;             // runtime: bar of the song being played (1-based)
+    std::int32_t beat = 0;            // runtime: beat of the bar (1-based; in 6/8 a beat is a dotted quarter)
+    float tempo = 0.0f;               // runtime: quarter notes per minute of the song being played
+    std::string activeMode;           // runtime: "live" or "stems", what `mode` resolved to
+};
+
 // The listener for spatial audio (usually on the camera). If none exists,
 // the primary camera is used.
 struct AudioListener {

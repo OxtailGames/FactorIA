@@ -800,6 +800,28 @@ it with `game.step`.
 - A file that cannot be opened logs one error and the `Video` draws only its `color`; `duration` stays 0.
 A studio intro that any button skips: [MENUS.md](MENUS.md).
 
+### entity.music
+`entity.music` controls a `MusicPlayer` component: a song document played as layers, sections and stingers ([MUSIC.md](MUSIC.md), "Playing a song in a game").
+The entity throws if it has no `MusicPlayer` (`entity.get("MusicPlayer")` answers null). The component starts by itself (`playOnStart`); the calls below ask the mixer, and a
+change with a `quantize` (`"none"`, `"beat"`, `"bar"`, `"section"`; default: the component's `quantize`, `layerQuantize` for the intensity) lands on that boundary's exact audio frame.
+- `play(song?)` or `play({song, section, intensity})` starts at once (a hard start); `stop({quantize, fade})`; `setIntensity(0..1, {quantize})`;
+  `goToSection(name, {quantize, fade})`; `playStinger({clip | section, quantize, volume, tail, bus, duck, duckAttack, duckHold, duckRelease})` (a string is the clip);
+  `crossfadeTo(song, {section, quantize, bars})`. A section that does not exist, a song file that does not exist, a stinger with neither `clip` nor `section`
+  or a stinger with nothing playing throws an Error that says what to do; a misspelled option or event name gets a "did you mean".
+- Read: `ready`, `playing`, `song`, `section`, `sections` (the names), `bar`, `beat` (1-based), `tempo`, `intensity`, `status` (everything, including `stemGains`, `pending` and `error`).
+- `on(name, fn)` listens to one player and returns the function that unsubscribes: `ready`, `beat`, `bar`, `section`, `loop`, `ended`, `stinger`, `crossfade`. `fn(data)` gets
+  `id`, `song`, `frame` (the audio frame it sounded on) and `time` (seconds), plus `bar`, `beat`, `section`, `index` for a beat; `bar`, `section`, `count` for a bar; `section`, `pass`, `bar` for a
+  section; `count` for a loop; `stopped` for `ended`; `kind` and `section` for a stinger; `mode` for `ready`. They are the game events `music.beat`... too, so `world.on("music.bar", ...)`
+  hears every player. Events reach the script one frame after they sound.
+- Headless, the music is rendered at the first frame and the mixer advances with `game.step`, so a test can step to a bar line and assert the section. A handler that reacts
+  to a section change by loading a scene should check `scene.current` first.
+```js
+const theme = world.find("theme").music;
+theme.on("section", (d) => log("now in " + d.section));
+theme.setIntensity(0.8, { quantize: "bar" });
+```
+Tools: `audio.music_state` (what every player does) and `audio.music` (the same calls).
+
 ### particles / ui
 - `particles.burst(entity, count)` (same as `entity.emitBurst(count)`) spawns particles now from a `ParticleEmitter`,
   even with `emitting = false`. Without a renderer (headless) it is a no-op with a warning.

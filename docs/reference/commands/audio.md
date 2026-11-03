@@ -31,6 +31,45 @@ Every play request is logged: audio.play and audio.music from scripts, AudioSour
 | `path` | string | no | Only this clip: a project-relative path or a file name like "jump.wav". |
 | `max` | integer | no | Return at most this many (the newest). Default 200. |
 
+## `audio.music` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Drive a MusicPlayer: play, stop, setIntensity, goToSection, playStinger or crossfadeTo.
+
+The same calls as `entity.music` in a script, for trying the music while the game runs (game.step, then audio.music_state). `action` picks the call and the other fields are its arguments: play {song?, section?, intensity?} starts at once; stop {quantize?, fade?} fades out on the boundary; setIntensity {intensity, quantize?} moves the layers; goToSection {section, quantize?, fade?} jumps on the boundary with a crossfade; playStinger {clip | section, quantize?, volume?, tail?, bus?, duck?, duckAttack?, duckHold?, duckRelease?} plays a short piece over the music; crossfadeTo {song, section?, quantize?, bars?} changes song on the boundary. `quantize` is none, beat, bar or section; without it the player's own settings apply. A change that waits for a boundary is queued in the mixer (audio.music_state shows `pending`). Example: audio.music {"entity":"music","action":"goToSection","section":"battle","quantize":"bar"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | Entity with the MusicPlayer (id or name). |
+| `action` | string ["play","stop","setIntensity","goToSection","playStinger","crossfadeTo"] | yes | The call to make. |
+| `song` | string | no | play, crossfadeTo: the song (*.song.json). play without it uses the player's own. |
+| `section` | string | no | play, crossfadeTo: the section to start at. goToSection, playStinger: the section to go to or to play as a stinger. |
+| `intensity` | number | no | play, setIntensity: 0..1. |
+| `quantize` | string ["none","beat","bar","section"] | no | When the change lands. Default: the player's quantize (layerQuantize for setIntensity). |
+| `fade` | number | no | stop, goToSection: seconds of the fade. Default 0.3 for stop, the player's transitionFade for goToSection. |
+| `bars` | number | no | crossfadeTo: bars of the old song the crossfade lasts. Default: the player's crossfadeBars. |
+| `clip` | string | no | playStinger: an audio clip to play on the boundary. |
+| `volume` | number | no | playStinger: volume on top of the player's. Default 1. |
+| `tail` | number | no | playStinger with a section: seconds of what rings after it ends. Default 1.5. |
+| `bus` | string | no | playStinger with a clip: the bus (default the player's). |
+| `duck` | number | no | playStinger: how much the music dips while it plays (0 = not at all). Default 0. |
+| `duckAttack` | number | no | playStinger: seconds to dip. Default 0.05. |
+| `duckHold` | number | no | playStinger: seconds the dip lasts; omitted: the length of the clip or section. |
+| `duckRelease` | number | no | playStinger: seconds to come back. Default 0.5. |
+
+## `audio.music_state`
+
+Not released yet (on main after 0.14.1).
+
+What the MusicPlayer components are doing: song, section, bar, beat, layers and pending changes.
+
+Without `entity`: every player, including one still fading out after a scene change, as {mixedFrames, players: [{entity, song, mode, ready, playing, ended, section, bar, beat, positionSeconds, tempo, intensity, volume, bus, stems, stemGains, pending, heads, error}]}. With `entity`: that player only (`exists: false` when it has none). `stemGains` is the gain each layer has now (it follows `intensity` with the layer fade); `pending` counts the quantized changes waiting for their beat; `heads` is more than 1 while a section jump or crossfade is under way; `mixedFrames` is the musical clock (the frames the mixer has mixed). Example: audio.music_state {"entity":"music"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | Only this entity (id or name); it needs a MusicPlayer. |
+
 ## `audio.snapshot` (modifies state)
 
 Since 0.3.0.

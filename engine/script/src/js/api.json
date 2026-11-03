@@ -637,6 +637,10 @@
       {
        "sig": "readonly video: VideoAPI",
        "doc": "Playback of this entity's Video component (play, pause, stop, seek, time, duration, the \"ended\" event). Throws if the entity has no Video; entity.get(\"Video\") answers null instead."
+      },
+      {
+       "sig": "readonly music: MusicAPI",
+       "doc": "Playback of this entity's MusicPlayer component (play, stop, setIntensity, goToSection, playStinger, crossfadeTo, the beat/bar/section events, the current bar, beat and section). Throws if the entity has no MusicPlayer; entity.get(\"MusicPlayer\") answers null instead."
       }
      ]
     },
@@ -4255,6 +4259,85 @@
       {
        "sig": "readonly component: Components[\"Video\"]",
        "doc": "The Video component view (path, autoplay, fit, tint, bus...)."
+      }
+     ]
+    },
+    {
+     "kind": "class",
+     "name": "MusicAPI",
+     "doc": "Controls a MusicPlayer component (entity.music): a song played as layers that fade with `intensity`, sections that change on the beat or the bar, stingers, crossfades between songs and beat events. The mixer does the playing and counts the musical time in audio frames, so a headless run puts beats, bars and section changes on the same frames every time. A change with a `quantize` waits for that boundary and lands on its exact frame; without `quantize` the player's own settings apply (MusicPlayer.quantize, layerQuantize). Events reach scripts one frame after they sound; `data.frame` is the audio frame they happened on. Example: `const m = theme.music; m.on(\"bar\", () => ...); m.setIntensity(0.8); m.goToSection(\"battle\", {quantize: \"bar\"})`.",
+     "members": [
+      {
+       "sig": "play(options?: string | { song?: string; section?: string; intensity?: number }): void",
+       "doc": "Starts at once (a hard start: what played is cut after a short fade). A string is the song; `song` defaults to the component's, `section` to its startSection and `intensity` to its own. Sets playing to true. The song loads first when it is not loaded yet (the \"ready\" event says when it sounds)."
+      },
+      {
+       "sig": "stop(options?: { quantize?: \"none\" | \"beat\" | \"bar\" | \"section\"; fade?: number }): void",
+       "doc": "Fades the music out over `fade` seconds (default 0.3) once the `quantize` boundary comes (default none: now). The component's `playing` is false at once. Fires \"ended\" with stopped true."
+      },
+      {
+       "sig": "setIntensity(intensity: number, options?: { quantize?: \"none\" | \"beat\" | \"bar\" | \"section\" }): void",
+       "doc": "Sets MusicPlayer.intensity (0..1); the layers follow it from the `quantize` boundary on (default the component's layerQuantize), each fading over layerFade."
+      },
+      {
+       "sig": "goToSection(section: string, options?: { quantize?: \"none\" | \"beat\" | \"bar\" | \"section\"; fade?: number }): void",
+       "doc": "Jumps to the first pass of a section on the `quantize` boundary (default the component's quantize) with an equal-power crossfade of `fade` seconds (default transitionFade). Throws for a section the song does not have, listing the ones it has. Before the song is loaded it only sets where it will start."
+      },
+      {
+       "sig": "playStinger(options: string | { clip?: string; section?: string; quantize?: \"none\" | \"beat\" | \"bar\" | \"section\"; volume?: number; tail?: number; bus?: string; duck?: number; duckAttack?: number; duckHold?: number; duckRelease?: number }): void",
+       "doc": "Plays a short piece over the music from the next boundary: an audio `clip` (starts on that audio frame) or a `section` of the playing song (all its layers, then `tail` seconds of what rings after it). A string is the clip. `duck` (0..1) dips the music while it plays: down in duckAttack seconds, held for duckHold (default the length of the clip or section), back in duckRelease. Fires \"stinger\"."
+      },
+      {
+       "sig": "crossfadeTo(song: string, options?: { section?: string; quantize?: \"none\" | \"beat\" | \"bar\" | \"section\"; bars?: number }): void",
+       "doc": "Changes to another song on the `quantize` boundary of the one playing: the old fades out and the new fades in over `bars` bars of the old song (default crossfadeBars), the new one starting at `section` (default its beginning). Each song keeps its own tempo. Without music playing the song just starts. Fires \"crossfade\". Throws for a song that does not exist or is not a song."
+      },
+      {
+       "sig": "on(event: \"ready\" | \"beat\" | \"bar\" | \"section\" | \"loop\" | \"ended\" | \"stinger\" | \"crossfade\", fn: (data: { id: string; song: string; frame: number; time: number; [key: string]: any }, source: Entity | null) => void): () => void",
+       "doc": "Listens to an event of THIS entity's player; returns the unsubscribe function. world.on(\"music.beat\", fn) hears every player. Besides id, song, frame (the audio frame) and time (seconds): ready has mode; beat has bar, beat, section, index (beats since play); bar has bar, section, count; section has section, pass, bar; loop has count; ended has stopped; stinger has kind (\"clip\" or \"section\") and section."
+      },
+      {
+       "sig": "readonly status: { exists: boolean; ready: boolean; playing: boolean; ended: boolean; song: string; mode: string; section: string; sections: string[]; bar: number; beat: number; positionSeconds: number; tempo: number; intensity: number; volume: number; bus: string; stems: string[]; stemGains: number[]; pending: number; heads: number; error: string }",
+       "doc": "A snapshot of the player (what audio.music_state shows). `mode` is \"live\" or \"stems\" (how it was made); `stemGains` the gain each layer has now; `pending` the quantized changes waiting; `error` why it could not start."
+      },
+      {
+       "sig": "readonly ready: boolean",
+       "doc": "True once the song is loaded and can sound."
+      },
+      {
+       "sig": "readonly playing: boolean",
+       "doc": "True while music sounds or a start is waiting for the song to load."
+      },
+      {
+       "sig": "readonly song: string",
+       "doc": "The song that plays (or is loading)."
+      },
+      {
+       "sig": "readonly section: string",
+       "doc": "The section the playhead is in; empty before the song plays."
+      },
+      {
+       "sig": "readonly bar: number",
+       "doc": "1-based bar of the song at the playhead; 0 when nothing plays."
+      },
+      {
+       "sig": "readonly beat: number",
+       "doc": "1-based beat of the bar at the playhead; 0 when nothing plays."
+      },
+      {
+       "sig": "readonly tempo: number",
+       "doc": "Quarter notes per minute of the song that plays."
+      },
+      {
+       "sig": "readonly intensity: number",
+       "doc": "MusicPlayer.intensity: the value last set, not the layers' fades (status.stemGains)."
+      },
+      {
+       "sig": "readonly sections: string[]",
+       "doc": "The section names of the song, in order; empty until it is loaded."
+      },
+      {
+       "sig": "readonly component: Components[\"MusicPlayer\"]",
+       "doc": "The MusicPlayer component view (song, mode, volume, bus, quantize...)."
       }
      ]
     },

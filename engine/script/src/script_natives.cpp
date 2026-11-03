@@ -864,6 +864,57 @@ NATIVE(animCall) {
     return JS_UNDEFINED;
 }
 
+// MusicPlayer calls of entity.music: (entity, method, options). `options` is a plain object the JS side has checked (known keys,
+// numbers, strings). Methods: play, stop, setIntensity, goToSection, playStinger, crossfadeTo, status. Only "status" returns
+// something (the MusicStatus); the rest throw a teaching Error when the call cannot be made (unknown section, missing clip).
+NATIVE(musicCall) {
+    SETUP;
+    ENTITY(e, 0);
+    const std::string m = arg_str(ctx, argc, argv, 1);
+    const Json o = argc > 2 && JS_IsObject(argv[2]) ? I->to_json(argv[2]) : Json::object();
+    Audio& audio = I->host->audio();
+    auto str = [&](const char* k) { return o.contains(k) && o[k].is_string() ? o[k].get<std::string>() : std::string(); };
+    auto num = [&](const char* k, float fallback) { return o.contains(k) && o[k].is_number() ? o[k].get<float>() : fallback; };
+    std::optional<MusicQuantize> q;
+    if (o.contains("quantize") && o["quantize"].is_string()) {
+        q = music_quantize_from_name(o["quantize"].get<std::string>());
+        if (!q)
+            return throw_err(ctx, "unknown quantize '" + o["quantize"].get<std::string>() +
+                                      "'; use \"none\" (now), \"beat\", \"bar\" or \"section\" (when the section pass ends)");
+    }
+    Result<void> r;
+    if (m == "play") {
+        r = audio.music_play(W, e, str("song"), str("section"), num("intensity", -1.0f));
+    } else if (m == "stop") {
+        audio.music_stop(W, e, q.value_or(MusicQuantize::None), num("fade", -1.0f));
+    } else if (m == "setIntensity") {
+        audio.music_set_intensity(W, e, num("intensity", 0.0f), q);
+    } else if (m == "goToSection") {
+        r = audio.music_go_to_section(W, e, str("section"), q, num("fade", -1.0f));
+    } else if (m == "playStinger") {
+        MusicStingerSpec s;
+        s.clip = str("clip");
+        s.section = str("section");
+        s.quantize = q;
+        s.volume = num("volume", 1.0f);
+        s.tail = num("tail", 1.5f);
+        s.bus = str("bus");
+        s.duck = num("duck", 0.0f);
+        s.duckAttack = num("duckAttack", 0.05f);
+        s.duckHold = num("duckHold", -1.0f);
+        s.duckRelease = num("duckRelease", 0.5f);
+        r = audio.music_play_stinger(W, e, s);
+    } else if (m == "crossfadeTo") {
+        r = audio.music_crossfade_to(W, e, str("song"), str("section"), q, num("bars", -1.0f));
+    } else if (m == "status") {
+        return I->from_json(audio.music_status(W, e).to_json());
+    } else {
+        return throw_err(ctx, "internal error: unknown music call '" + m + "'");
+    }
+    if (!r) return throw_err(ctx, r.error().to_string());
+    return JS_UNDEFINED;
+}
+
 // SpriteAnimator calls of entity.spriteAnimator: (entity, method, a, b). Methods: play(name, restart), clips. Failures throw a
 // teaching Error (the clip names, "did you mean").
 NATIVE(spriteAnimCall) {
@@ -4019,7 +4070,7 @@ const Reg kRegs[] = {
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
     R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
     R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
-    R(raycast3d, 10), R(raycast2dAll, 8), R(raycast3dAll, 11), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(spriteAnimCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(tileCellAt, 3), R(tileCellToWorld, 3), R(tilePaintTerrain, 4), R(tileRetile, 1), R(tileTerrainAt, 3), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(uiMirrorRtl, 0), R(setUiMirrorRtl, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderCaptureWorld, 6), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(uiAim, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4), R(meshCreate, 2), R(meshUpdate, 3), R(meshDestroy, 1), R(meshInfo, 1), R(meshList, 0), R(meshSave, 2),
+    R(raycast3d, 10), R(raycast2dAll, 8), R(raycast3dAll, 11), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(musicCall, 3), R(spriteAnimCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(tileCellAt, 3), R(tileCellToWorld, 3), R(tilePaintTerrain, 4), R(tileRetile, 1), R(tileTerrainAt, 3), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(uiMirrorRtl, 0), R(setUiMirrorRtl, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderCaptureWorld, 6), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(uiAim, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4), R(meshCreate, 2), R(meshUpdate, 3), R(meshDestroy, 1), R(meshInfo, 1), R(meshList, 0), R(meshSave, 2),
     R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 3), R(storageSetAsync, 3), R(storageSize, 1), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nGender, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),

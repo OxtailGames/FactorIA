@@ -45,3 +45,8 @@ then listen to the preview.
    per layer (`theme.stem.base.wav`) that add up to the mix; the loop points are in `assets.json`, so `audio.music` loops the song and the stems line up.
    `music_import_midi {path}` (or `assets_import` of a `.mid`) turns a MIDI file into a song to edit; `music_export_midi {path}` writes one. A stale render is
    made again with `assets_regenerate {stale: true}`.
+8. To play the song in the game, add a `MusicPlayer` component (`scene_set_component {id, component: "MusicPlayer", fields: {song: "assets/music/theme.song.json"}}`):
+   it plays the layers by `intensity` (0..1), changes sections and songs on the beat or the bar (`quantize`) and sends `music.beat` / `music.bar` /
+   `music.section` events; a script drives it with `entity.music` (`setIntensity`, `goToSection`, `playStinger`, `crossfadeTo`). Without stem files it renders
+   the song live; with them (`music_render`) phones play the stems. `audio_music_state` shows what a player is doing after a `game_step`, `audio_music` drives it
+   (docs/MUSIC.md, "Playing a song in a game").
