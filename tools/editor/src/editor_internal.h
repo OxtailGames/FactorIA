@@ -63,6 +63,7 @@
 #include "image_ui.h"
 #include "vector_ui.h"
 #include "sound_ui.h"
+#include "music_ui.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
 #include "inspector_model.h"
@@ -432,6 +433,30 @@ public:
     Vec2 sound_screen_pos(double seconds, double yFraction) const;   // the autotest drives the waveform
     SoundUi sound_;
     bool showSound_ = false;
+    // Music panel (music_panel.cpp, music_mixer_panel.cpp; View > Music, or a double click on a *.song.json in the Project panel): a song as a
+    // piano roll, a drum grid, an arrangement and a mixer, played by the same transport a game's entity.music uses (an intensity slider fades
+    // the layers, a section can be looped). The rules are in music_model.h: every edit it keeps is a command call (music.edit, music.arpeggio,
+    // music.bassline, music.drums), so the Console and an AI make the same edit; Save bakes (music.render).
+    MusicModel& music_ensure_model();                      // makes the panel's model and preview on first use
+    void draw_music_panel();
+    void draw_music_toolbar(MusicModel& m);
+    void draw_music_transport(MusicModel& m);
+    void draw_music_roll(MusicModel& m);
+    void draw_music_drums(MusicModel& m);
+    void draw_music_arrangement(MusicModel& m);
+    void draw_music_mixer(MusicModel& m);
+    void music_play(int section, bool loop);               // -1: from the start of the song
+    void music_toggle_play();
+    bool open_music_document(const std::string& rel);      // *.song.json; false and a toast on failure
+    void music_edited(const MusicEditOutcome& out);        // after an edit: the undo entry, a toast for an error
+    void music_apply_undo(const Json& entry, bool forward);
+    void music_collect_steps();                            // drops the undo steps no stack entry points to
+    void music_close_document();
+    void music_save();
+    Vec2 music_screen_pos(std::int64_t tick, int pitch) const;                  // the autotest drives the piano roll
+    Vec2 music_drum_cell_pos(const std::string& lane, int step) const;          // ...and the drum grid
+    MusicUi music_;
+    bool showMusic_ = false;
     // Bone tools (bone_tools.cpp; View > Bone tools): draw a bone chain by clicking, bind a sprite to bones, the weight colours of
     // the selected bone and a brush to paint them, IK targets as handles. They call bones.create, skin.bind, skin.auto_weights,
     // skin.set_weights and scene.set_component through edit_command.

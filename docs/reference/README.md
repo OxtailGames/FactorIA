@@ -225,6 +225,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`music.info`](commands/assets.md#musicinfo): Check a song document and say what it holds: structure, bars, seconds, a summary per section, and a piano-roll picture. _Not released yet._
 - [`music.instrument`](commands/assets.md#musicinstrument-modifies-state): List the built-in song instruments (by family), the drum kits and lanes, sfx presets and project SoundFonts, show the patch behind an instrument, or list a SoundFont's presets. _Not released yet._
 - [`music.mix`](commands/assets.md#musicmix): Render a song in memory and report the mix: each track's level, the buses and what the master's loudness normalization and limiter did. _Not released yet._
+- [`music.notes`](commands/assets.md#musicnotes): List the notes of one pitched pattern of a song (pitch, tick, duration, velocity), or the hits of a drum pattern, as a piano roll sees them. _Not released yet._
 - [`music.preview`](commands/assets.md#musicpreview-modifies-state): Render a song to a stereo WAV or OGG next to it (offline, deterministic) and see its spectrogram. _Not released yet._
 - [`music.render`](commands/assets.md#musicrender-modifies-state): Render a whole song (intro, loop, outro) to a game-ready WAV or OGG with sample-exact loop points, and optionally one stem per layer. _Not released yet._
 - [`music.scale`](commands/assets.md#musicscale): Say which notes a scale or mode has and the chords built on its degrees (with Roman numerals). _Not released yet._

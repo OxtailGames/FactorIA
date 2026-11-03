@@ -256,7 +256,10 @@ public:
     // master included) and snapshot (the last one applied, "" = none).
     Json stats() const;
 
-    void reload_clip(std::string_view path);  // hot reload
+    void reload_clip(std::string_view path);  // hot reload (a stem file of a song that plays from stems reloads that song too)
+    // Hot reload of a `*.song.json`: the cached renders of the song are dropped and every MusicPlayer that plays it fetches it again
+    // and crossfades to the new version at the next beat, in the section that sounds. Call it from the game thread.
+    void reload_song(std::string_view songPath);
 
     struct Impl;
 

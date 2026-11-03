@@ -826,3 +826,113 @@ TEST_CASE("song preview: a filter lane darkens the track and a macro lane reache
     REQUIRE(c);
     CHECK(c->clip.samples != a->clip.samples);
 }
+
+// ---- notes <-> text (song_write.cpp) ----------------------------------------------------------------------------------------------------
+
+namespace {
+SongPattern parse_pattern(const std::string& text, const SongMeter& meter = SongMeter{}, int bars = 0) {
+    SongPattern p;
+    std::vector<SongIssue> issues;
+    const bool ok = song_parse_note_text(text, "/p", meter, bars, p, issues);
+    INFO(text);
+    INFO((issues.empty() ? std::string() : issues[0].message + " " + issues[0].hint));
+    REQUIRE(ok);
+    return p;
+}
+// Writes the notes of `text` back as text, parses that, and says whether the same notes come out.
+void round_trip(const std::string& text, const SongMeter& meter = SongMeter{}) {
+    const SongPattern a = parse_pattern(text, meter);
+    const std::vector<SongRollNote> notes = song_roll_notes(a);
+    auto written = song_write_note_text(notes, meter, a.bars);
+    INFO(text);
+    REQUIRE_MESSAGE(bool(written), (written ? std::string() : written.error().message));
+    INFO(*written);
+    const SongPattern b = parse_pattern(*written, meter, a.bars);
+    CHECK(b.bars == a.bars);
+    CHECK(song_roll_notes(b) == notes);
+}
+}  // namespace
+
+TEST_CASE("song write: note text parses back to the same notes") {
+    round_trip("C4:4 E4 G4 C5");
+    round_trip("C4:8 E4 G4 E4 r:2 | C4:2 r:2");
+    round_trip("v100 A4:4 D5 F5:8 E5 D5:4 | v60 B4:4 D5 E5 A4:4");
+    round_trip("C4:8! D4' E4:4v70 F4:8t G4 A4 B4:4.. r:16 r:2.");                    // marks, a velocity, triplets, double dots
+    round_trip("C4:1~ | C4:1");                                                   // a tie across the bar line
+    round_trip("C4:2~ C4:8~ C4:4.~ C4:16 r:2 r:4 r:8 r:16");                                   // a note no single duration can say
+    round_trip("[C4 E4 G4]:2 [D4 F4 A4] | (Am7@3):1");                            // chords, by notes and by name
+    round_trip("C4:2 E4 G4 E4 & C3:1 C3 & G2:2. r:4 G2:2. r:4");                                  // voices
+    round_trip("{ C4:8 E4 }x4 r:1");                                             // a group is notes after all
+    round_trip("C4:2.", SongMeter{3, 4});
+    round_trip("C4:4. D4:8 E4:4 | G4:2.", SongMeter{6, 8});
+    round_trip("r:1");                                                            // nothing played
+}
+
+TEST_CASE("song write: overlapping notes become voices, equal notes a chord, a long note one tied note") {
+    std::vector<SongRollNote> notes;
+    SongRollNote a;
+    a.pitch = 60;
+    a.tick = 0;
+    a.duration = 3840;
+    SongRollNote b;
+    b.pitch = 64;
+    b.tick = 960;
+    b.duration = 960;
+    SongRollNote c;
+    c.pitch = 67;
+    c.tick = 960;
+    c.duration = 960;
+    notes = {a, b, c};
+    auto text = song_write_note_text(notes, SongMeter{}, 1);
+    REQUIRE(bool(text));
+    CHECK(*text == "C4:1 & r [E4 G4] r:2");
+    // A note across two bars: tied, with a bar line between.
+    SongRollNote d;
+    d.pitch = 62;
+    d.tick = 3840 - 960;
+    d.duration = 2 * 960;
+    auto tied = song_write_note_text({d}, SongMeter{}, 2);
+    REQUIRE(bool(tied));
+    CHECK(*tied == "r:2. D4:4~ | D4 r:2.");
+}
+
+TEST_CASE("song write: starts and ends round to the 64th-note triplet; a note that cannot be written says which") {
+    SongRollNote n;
+    n.pitch = 60;
+    n.tick = 483;
+    n.duration = 477;
+    auto text = song_write_note_text({n}, SongMeter{}, 1);
+    REQUIRE(bool(text));
+    const SongPattern p = parse_pattern(*text);
+    REQUIRE(p.events.size() == 1);
+    CHECK(p.events[0].tick == 480);
+    CHECK(p.events[0].duration == 480);
+
+    SongRollNote bad = n;
+    bad.pitch = 130;
+    auto r = song_write_note_text({n, bad}, SongMeter{}, 1);
+    REQUIRE_FALSE(bool(r));
+    CHECK(r.error().message.find("note 2") != std::string::npos);
+    bad.pitch = 60;
+    bad.tick = 3840;
+    r = song_write_note_text({bad}, SongMeter{}, 1);
+    REQUIRE_FALSE(bool(r));
+    CHECK(r.error().hint.find("bars") != std::string::npos);
+    bad.tick = 0;
+    bad.velocity = 0;
+    CHECK_FALSE(bool(song_write_note_text({bad}, SongMeter{}, 1)));
+    CHECK_FALSE(bool(song_write_note_text({}, SongMeter{}, 0)));
+}
+
+TEST_CASE("song write: a velocity with an accent is written as the base velocity and `!`") {
+    SongRollNote n;
+    n.pitch = 60;
+    n.velocity = 112;
+    n.accent = true;
+    auto text = song_write_note_text({n}, SongMeter{}, 1);
+    REQUIRE(bool(text));
+    CHECK(*text == "C4! r:2.");
+    const SongPattern p = parse_pattern(*text);
+    CHECK(p.events[0].velocity == 112);
+    CHECK(p.events[0].accent);
+}

@@ -1,0 +1,112 @@
+{
+  "format": "factoria.song/1",
+  "doc": "Neon Swarm adaptive score: calm between waves, battle during them; layers follow the danger.",
+  "tempo": 132.0,
+  "meter": "4/4",
+  "key": "A",
+  "mode": "minor",
+  "tracks": {
+    "pad": {
+      "instrument": "pad",
+      "volume": 0.7,
+      "patterns": {
+        "chords": "v80 (Am@3):1 | (F@3) | (C@3) | (G@3)"
+      }
+    },
+    "bass": {
+      "instrument": "bass",
+      "volume": 0.9,
+      "patterns": {
+        "line": "v100 A1:4! E2 A1 E2 | F2! C3 F2 C3 | C2! G2 C2 G2 | G1! D2 G1 D2",
+        "drive": "v105 A1:8! A1 E2 A1 A1! E2 A1 A2 | F1:8! F1 C2 F1 F1! C2 F1 F2 | C2:8! C2 G2 C2 C2! G2 C2 C3 | G1:8! G1 D2 G1 G1! D2 G1 G2"
+      }
+    },
+    "drums": {
+      "instrument": "kit",
+      "volume": 0.8,
+      "patterns": {
+        "groove": {
+          "grid": {
+            "kick": "x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...",
+            "clap": "....x.......x.......x.......x.......x.......x.......x.......x...",
+            "hat": "xoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxoxo",
+            "openhat": "..x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x."
+          }
+        },
+        "drive": {
+          "grid": {
+            "kick": "x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x.x.",
+            "clap": "....x.......x.......x.......x.......x.......x.......x...x.xxx.xx",
+            "hat": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "openhat": "..x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x."
+          }
+        }
+      }
+    },
+    "arp": {
+      "instrument": "pluck",
+      "volume": 0.6,
+      "patterns": {
+        "arp": "v80 A4:16! C5 E5 A4 C5! E5 A4 C5 E5! A4 C5 E5 A4! C5 E5 A4 | F4! A4 C5 F4 A4! C5 F4 A4 C5! F4 A4 C5 F4! A4 C5 F4 | C4! E4 G4 C4 E4! G4 C4 E4 G4! C4 E4 G4 C4! E4 G4 C4 | G4! B4 D5 G4 B4! D5 G4 B4 D5! G4 B4 D5 G4! B4 D5 G4"
+      }
+    }
+  },
+  "sections": [
+    {
+      "name": "intro",
+      "kind": "intro",
+      "play": {
+        "pad": "chords",
+        "arp": "arp"
+      }
+    },
+    {
+      "name": "calm",
+      "kind": "loop",
+      "repeat": 2,
+      "play": {
+        "pad": "chords",
+        "bass": "line",
+        "drums": "groove",
+        "arp": "arp"
+      }
+    },
+    {
+      "name": "battle",
+      "kind": "loop",
+      "repeat": 2,
+      "play": {
+        "pad": "chords",
+        "bass": "drive",
+        "drums": "drive",
+        "arp": "arp"
+      }
+    },
+    {
+      "name": "outro",
+      "kind": "outro",
+      "play": {
+        "pad": "chords",
+        "bass": "line"
+      }
+    }
+  ],
+  "layers": {
+    "base": [
+      "pad",
+      "bass"
+    ],
+    "drive": {
+      "tracks": [
+        "drums"
+      ],
+      "intensity": 0.3
+    },
+    "top": {
+      "tracks": [
+        "arp"
+      ],
+      "intensity": 0.65
+    }
+  }
+}

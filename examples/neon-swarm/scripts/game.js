@@ -1,8 +1,15 @@
 // @ts-check
-// Game manager: waves, score, combo, HUD, explosions, screen shake, game over.
+// Game manager: waves, score, combo, HUD, explosions, screen shake, game over, and the adaptive score.
+//
+// The score is the song assets/music/score.song.json played by the "score" entity's MusicPlayer (docs/MUSIC.md "Playing a song in a game"):
+//   - intensity follows the danger (enemies on the field and left to spawn, hit points lost): the drums layer comes in at 0.3 and the
+//     arpeggio at 0.65, so a quiet wave is bass and pads and a crowded one the whole song;
+//   - the wave changes the SECTION: "battle" while a wave is on, back to "calm" in the pause between waves, both on the bar line;
+//   - the wave horn and the hit sound are STINGERS: they land on the beat and dip the music for their length.
 import { Behaviour, world, rng, vec2, vec3, audio, storage, scene, time, math } from "factoria";
 
 const COSTS = { chaser: 1, shooter: 2, splitter: 3 };
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
 export default class Game extends Behaviour {
   baseBudget = 4;        // enemy budget of wave 1
@@ -38,14 +45,37 @@ export default class Game extends Behaviour {
     };
     this.pips = [];
     for (let i = 0; i < 8; i++) this.pips.push(world.find("pip_" + i));
+    const score = world.find("score");
+    this.music = score ? score.music : null;
+    this.musicLevel = -1;   // the intensity last sent to the score
     this.world.on("enemy_killed", (d) => this.onKilled(d));
     this.world.on("enemy_hit", () => audio.play("assets/sfx/hit.wav", { volume: 0.3 }));
     this.world.on("player_hit", () => {
       this.shake = Math.max(this.shake, 14);
       this.combo = 0; this.multiplier = 1;
-      audio.play("assets/sfx/hurt.wav", { volume: 0.7 });
+      if (this.music) this.music.playStinger({ clip: "assets/sfx/hurt.wav", quantize: "none", volume: 0.7, duck: 0.5 });
+      else audio.play("assets/sfx/hurt.wav", { volume: 0.7 });
     });
     this.updateHud();
+  }
+
+  // How dangerous the moment is, 0..1: what is on the field or still to spawn, and the hit points the player has lost.
+  danger() {
+    if (this.state === "over") return 0;
+    if (this.state === "intermission") return 0.05;
+    const p = world.find("player");
+    const lost = p ? 1 - Math.max(0, p.behaviour.hp) / p.behaviour.maxHp : 1;
+    const crowd = (this.pending.length + this.aliveEnemies()) / this.maxAlive;
+    return clamp01(0.3 + 0.5 * clamp01(crowd) + 0.2 * lost);
+  }
+
+  // Sends the danger to the score when it moved enough to matter (the layers fade on the next beat, so small steps would only chatter).
+  followDanger() {
+    if (!this.music) return;
+    const d = this.danger();
+    if (Math.abs(d - this.musicLevel) < 0.05 && !(d === 0 && this.musicLevel !== 0)) return;
+    this.musicLevel = d;
+    this.music.setIntensity(d);
   }
 
   difficulty() { return Math.min(1 + 0.05 * (this.wave - 1), 1.8); }
@@ -67,7 +97,12 @@ export default class Game extends Behaviour {
     this.spawnTimer = 0.3;
     this.hud.banner.text = "WAVE " + this.wave;
     this.bannerTime = 1.5;
-    audio.play("assets/sfx/wave.wav", { volume: 0.6 });
+    if (this.music) {
+      this.music.goToSection("battle", { quantize: "bar" });
+      this.music.playStinger({ clip: "assets/sfx/wave.wav", quantize: "beat", volume: 0.6, duck: 0.35 });
+    } else {
+      audio.play("assets/sfx/wave.wav", { volume: 0.6 });
+    }
   }
 
   spawnEnemy(kind) {
@@ -104,6 +139,7 @@ export default class Game extends Behaviour {
         this.state = "intermission";
         this.timer = this.intermission;
         this.score += 50 * this.wave; // wave clear bonus
+        if (this.music) this.music.goToSection("calm", { quantize: "bar" });
       }
     } else if (this.state === "over") {
       this.gameOverTimer -= dt;
@@ -115,6 +151,7 @@ export default class Game extends Behaviour {
       if (this.comboTimer <= 0) { this.combo = 0; this.multiplier = 1; }
     }
     if (this.bannerTime > 0) { this.bannerTime -= dt; if (this.bannerTime <= 0) this.hud.banner.text = ""; }
+    this.followDanger();
     this.updateHud();
   }
 
@@ -176,7 +213,7 @@ export default class Game extends Behaviour {
     if (this.score > storage.get("highScore", 0)) storage.set("highScore", this.score);
     storage.set("lastScore", this.score);
     storage.set("lastWave", this.wave);
-    audio.stopMusic(0.5);
+    if (this.music) this.music.stop({ fade: 0.8 });
     audio.play("assets/sfx/gameover.wav", { volume: 0.7 });
   }
 
