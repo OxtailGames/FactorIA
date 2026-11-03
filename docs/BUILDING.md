@@ -477,8 +477,9 @@ compilers other than yours, other platforms):
 3. **Stress.** The editor autotests (`editor_autotest_*`, in the Debug dir) and the example tests (`example_<name>_*`, in the
    Release dir) the diff touches run with `ctest --repeat until-fail:N` while one CPU burner per core keeps the machine busy.
    `tools/editor/**` selects the editor autotests, `examples/<name>/**` that example's tests, `engine/**`, `tools/cli/**`,
-   `tools/common/**`, `external/**` and the CMake files all of both; docs and scripts select nothing. The burners are killed when the
-   script ends, fails or is interrupted. `--plan` prints the selection only.
+   `tools/common/**`, `external/**` and the CMake files all of both; docs and scripts select nothing. The example tests get twice their
+   ctest limit (`FA_EXAMPLE_TEST_TIMEOUT`) in this pass, since the burners halve their CPU; it is put back afterwards. The
+   burners are killed when the script ends, fails or is interrupted. `--plan` prints the selection only.
 4. **Other platforms.** The `scripts/ci-local.sh` jobs this host supports (Mac: `macos ios web android`; Linux: `linux windows
    android web`; a job without its tooling skips itself), then on a Mac `scripts/ci-docker.sh linux` (the Linux job in
    Docker; its MinGW + Wine Windows job is not a reference on a Mac, see below) and `scripts/ci-remote-windows.sh`, the
