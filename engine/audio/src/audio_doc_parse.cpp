@@ -93,12 +93,27 @@ std::vector<AudioStepInfo> make_catalog() {
         F bands = text("bands", "1 to 8 bands, applied in order. Each is {\"type\": lowShelf|highShelf|peak|lowPass|highPass, \"freq\": Hz, \"gainDb\": dB (shelf, peak), \"q\": 0.1-18}.", "bands", true);
         c.push_back({"eq", "An equalizer: low and high shelves, peaking bands and 12 dB/octave low-pass and high-pass filters (RBJ biquads).", {bands}});
     }
+    c.push_back({"filter",
+                 "A resonant filter (the synth's state-variable filter, 12 dB/octave): lowpass removes highs (muffles), highpass removes lows (thins), bandpass keeps a band. `to` slides the cutoff there over the whole sound "
+                 "(an exponential sweep, e.g. a riser or a filter-open on a song's master). `mix` blends the filtered sound with the dry one.",
+                 {choice("mode", "lowpass, highpass or bandpass.", {"lowpass", "highpass", "bandpass"}, "lowpass"), num("cutoff", "Frequency in Hz where the filter acts.", 20, 20000, std::nullopt, true),
+                  num("resonance", "Q: 0.707 is flat, 2 to 8 adds a whistle at the cutoff.", 0.5, 30, 0.707), num("to", "Slide the cutoff to this frequency (Hz) by the end of the sound.", 20, 20000),
+                  num("mix", "Share of the filtered sound (1: only the filtered sound).", 0, 1, 1.0)}});
     c.push_back({"compressor",
                  "Reduces the dynamic range: above `thresholdDb` the level rises only 1 dB for every `ratio` dB. `attack` and `release` (seconds) say how fast the gain follows, `kneeDb` softens the corner, `makeupDb` "
                  "brings the level back up. The detector looks at the loudest channel, so a stereo image does not shift.",
                  {num("thresholdDb", "Level above which the compressor acts, dBFS.", -80, 0, -18.0), num("ratio", "dB in for 1 dB out above the threshold (1 = off, 100 = limiter).", 1, 100, 4.0),
                   num("attack", "Seconds to clamp down.", 0.0001, 1, 0.005), num("release", "Seconds to let go.", 0.005, 5, 0.1),
                   num("kneeDb", "Width of the soft knee in dB (0 = hard).", 0, 24, 0.0), num("makeupDb", "Gain added after compressing.", -24, 48, 0.0)}});
+    c.push_back({"distortion",
+                 "Waveshaping distortion: `drive` multiplies the level into a curve (`mode` soft rounds the peaks like a tube, hard clips them flat, fold bends them back and sounds metallic) and `level` brings the "
+                 "loudness back down.",
+                 {choice("mode", "soft, hard or fold.", {"soft", "hard", "fold"}, "soft"), num("drive", "Gain into the distortion: 2 is warm, 10 is crunchy, 50 is fuzz.", 1, 100, 4.0),
+                  num("level", "Gain after the distortion.", 0, 4, 1.0), num("mix", "Share of the distorted sound (1: only the distorted sound).", 0, 1, 1.0)}});
+    c.push_back({"bitcrush",
+                 "Lo-fi: reduces each sample to `bits` bits and holds it at a lower sample `rate` (the sound of old consoles and samplers).",
+                 {num("bits", "Resolution: 8 is gritty, 4 harsh, 12 mild.", 1, 16, 8.0), num("rate", "Hold samples at this rate in Hz (default: the sound's own rate).", 100, 96000),
+                  num("mix", "Share of the crushed sound (1: only the crushed sound).", 0, 1, 1.0)}});
     c.push_back({"reverb",
                  "Adds a room: the synth's reverb (eight damped combs and four all-passes). The sound is extended by `tail` seconds so the reverb can die away.",
                  {num("mix", "Level of the wet signal added to the dry one.", 0, 1, 0.3), num("decay", "Seconds the room rings (RT60).", 0.1, 10, 1.5),
@@ -275,8 +290,9 @@ struct Parser {
 
     // ---- steps ----
 
-    void step(const Json& s, std::size_t index, std::vector<AudioStep>& out) {
-        const std::string pointer = "/steps/" + std::to_string(index);
+    void step(const Json& s, std::size_t index, std::vector<AudioStep>& out) { step_at(s, "/steps/" + std::to_string(index), out); }
+
+    void step_at(const Json& s, const std::string& pointer, std::vector<AudioStep>& out) {
         if (!s.is_object()) {
             err(pointer, "a step must be an object, got " + describe_json_value(s), "Write {\"type\": \"fade\", \"out\": 0.05}.");
             return;
@@ -345,6 +361,27 @@ struct Parser {
 const std::vector<AudioStepInfo>& audio_step_types() {
     static const std::vector<AudioStepInfo> catalog = make_catalog();
     return catalog;
+}
+
+bool audio_step_is_effect(std::string_view type) {
+    static const char* names[] = {"eq", "filter", "compressor", "distortion", "bitcrush", "delay", "reverb"};
+    for (const char* n : names)
+        if (type == n) return true;
+    return false;
+}
+
+Result<AudioStep> parse_audio_step(const Json& json, std::string_view pointer, std::vector<AudioDocIssue>* issuesOut) {
+    Parser p;
+    std::vector<AudioStep> out;
+    p.step_at(json, std::string(pointer), out);
+    if (issuesOut) *issuesOut = p.issues;
+    if (!p.issues.empty()) {
+        const AudioDocIssue& first = p.issues.front();
+        std::string message = first.pointer + ": " + first.message;
+        if (p.issues.size() > 1) message += std::format(" (and {} more problem{})", p.issues.size() - 1, p.issues.size() == 2 ? "" : "s");
+        return make_error(message, first.hint);
+    }
+    return std::move(out.front());
 }
 
 Result<AudioDoc> parse_audio_doc(const Json& json, std::string_view file, std::vector<AudioDocIssue>* issuesOut) {

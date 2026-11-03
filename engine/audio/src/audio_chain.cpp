@@ -290,7 +290,45 @@ void extend(Buf& b, std::size_t frames) {
     for (auto& c : b.ch) c.resize(c.size() + frames, 0.0);
 }
 
-void step_reverb(Buf& b, const Json& p) {
+void step_filter(Buf& b, const Json& p) {
+    SfxEffect e;
+    e.type = SfxEffectType::Filter;
+    e.mix = num(p, "mix", 1.0);
+    e.filter.enabled = true;
+    const std::string mode = p.value("mode", std::string("lowpass"));
+    e.filter.mode = mode == "highpass" ? SfxFilterMode::HighPass : mode == "bandpass" ? SfxFilterMode::BandPass : SfxFilterMode::LowPass;
+    e.filter.cutoff = num(p, "cutoff", 1000.0);
+    e.filter.resonance = num(p, "resonance", 0.707);
+    e.filter.cutoffTo = num(p, "to");
+    for (auto& c : b.ch) {
+        if (e.mix >= 1.0) { sfx_run_effects(c, {e}, b.rate); continue; }
+        std::vector<double> wet = c;
+        sfx_run_effects(wet, {e}, b.rate);
+        for (std::size_t i = 0; i < c.size(); ++i) c[i] += (wet[i] - c[i]) * e.mix;
+    }
+}
+
+void step_distortion(Buf& b, const Json& p) {
+    SfxEffect e;
+    e.type = SfxEffectType::Distortion;
+    const std::string mode = p.value("mode", std::string("soft"));
+    e.shape = mode == "hard" ? SfxDistortion::Hard : mode == "fold" ? SfxDistortion::Fold : SfxDistortion::Soft;
+    e.drive = num(p, "drive", 4.0);
+    e.level = num(p, "level", 1.0);
+    e.mix = num(p, "mix", 1.0);
+    for (auto& c : b.ch) sfx_run_effects(c, {e}, b.rate);
+}
+
+void step_bitcrush(Buf& b, const Json& p) {
+    SfxEffect e;
+    e.type = SfxEffectType::Bitcrush;
+    e.bits = num(p, "bits", 8.0);
+    e.rate = num(p, "rate");
+    e.mix = num(p, "mix", 1.0);
+    for (auto& c : b.ch) sfx_run_effects(c, {e}, b.rate);
+}
+
+void step_reverb(Buf& b, const Json& p, bool grow = true) {
     SfxEffect e;
     e.type = SfxEffectType::Reverb;
     e.mix = num(p, "mix", 0.3);
@@ -298,11 +336,11 @@ void step_reverb(Buf& b, const Json& p) {
     e.damping = num(p, "damping", 0.5);
     e.size = num(p, "size", 1.0);
     e.preDelay = num(p, "preDelay");
-    extend(b, secs_to_frames(p.contains("tail") ? num(p, "tail") : std::min(5.0, e.decay), b.rate));
+    if (grow) extend(b, secs_to_frames(p.contains("tail") ? num(p, "tail") : std::min(5.0, e.decay), b.rate));
     for (auto& c : b.ch) sfx_run_effects(c, {e}, b.rate);
 }
 
-void step_delay(Buf& b, const Json& p) {
+void step_delay(Buf& b, const Json& p, bool grow = true) {
     SfxEffect e;
     e.type = SfxEffectType::Delay;
     e.time = num(p, "time", 0.25);
@@ -315,7 +353,7 @@ void step_delay(Buf& b, const Json& p) {
         const double repeats = e.feedback > 0.0 ? std::min(8.0, std::ceil(-3.0 / (log2(e.feedback) * kLog10Of2))) : 1.0;
         tail = e.time * (repeats + 1.0);
     }
-    extend(b, secs_to_frames(tail, b.rate));
+    if (grow) extend(b, secs_to_frames(tail, b.rate));
     for (auto& c : b.ch) sfx_run_effects(c, {e}, b.rate);
 }
 
@@ -462,7 +500,10 @@ Result<AudioClip> render_chain(const AudioDoc& doc, const std::string& file, Con
                 else if (t == "stretch") step_stretch(b, p);
                 else if (t == "speed") step_speed(b, p);
                 else if (t == "eq") step_eq(b, p);
+                else if (t == "filter") step_filter(b, p);
                 else if (t == "compressor") step_compressor(b, p);
+                else if (t == "distortion") step_distortion(b, p);
+                else if (t == "bitcrush") step_bitcrush(b, p);
                 else if (t == "reverb") step_reverb(b, p);
                 else if (t == "delay") step_delay(b, p);
                 else if (t == "reverse") { for (auto& c : b.ch) std::reverse(c.begin(), c.end()); }
@@ -510,6 +551,27 @@ void put_u16(std::vector<std::uint8_t>& out, std::uint16_t v) { for (int i = 0; 
 void put_tag(std::vector<std::uint8_t>& out, const char* s) { for (int i = 0; i < 4; ++i) out.push_back(std::uint8_t(s[i])); }
 
 }  // namespace
+
+void audio_apply_effect(std::vector<std::vector<double>>& channels, int rate, const AudioStep& st) {
+    if (st.params.value("enabled", true) == false || channels.empty()) return;
+    Buf b;
+    b.rate = rate;
+    b.ch = std::move(channels);
+    const Json& p = st.params;
+    const std::string& t = st.type;
+    try {
+        if (t == "eq") step_eq(b, p);
+        else if (t == "filter") step_filter(b, p);
+        else if (t == "compressor") step_compressor(b, p);
+        else if (t == "distortion") step_distortion(b, p);
+        else if (t == "bitcrush") step_bitcrush(b, p);
+        else if (t == "reverb") step_reverb(b, p, false);
+        else if (t == "delay") step_delay(b, p, false);
+    } catch (const Failure&) {
+        // Effects without growth cannot fail; a step that is not an effect is ignored.
+    }
+    channels = std::move(b.ch);
+}
 
 std::vector<float> AudioClip::mono() const {
     std::vector<float> out(frames());

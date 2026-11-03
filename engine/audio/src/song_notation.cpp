@@ -437,9 +437,10 @@ bool song_parse_note_text(std::string_view text, const std::string& pointer, con
 
 const std::vector<SongDrumLane>& song_drum_lanes() {
     static const std::vector<SongDrumLane> lanes = {
-        {"kick", "bass drum"},       {"snare", "snare drum"},    {"clap", "hand clap"},         {"rim", "rim shot / side stick"},
-        {"hat", "closed hi-hat"},    {"openhat", "open hi-hat"}, {"shaker", "shaker / tambourine"}, {"tom_low", "low tom"},
-        {"tom_mid", "mid tom"},      {"tom_high", "high tom"},   {"ride", "ride cymbal"},       {"crash", "crash cymbal"},
+        {"kick", "bass drum"},       {"snare", "snare drum"},        {"clap", "hand clap"},       {"rim", "rim shot / side stick"},
+        {"hat", "closed hi-hat"},    {"openhat", "open hi-hat"},     {"hat_pedal", "pedal hi-hat"}, {"shaker", "shaker"},
+        {"tambourine", "tambourine"}, {"tom_low", "low tom"},        {"tom_mid", "mid tom"},      {"tom_high", "high tom"},
+        {"ride", "ride cymbal"},     {"crash", "crash cymbal"},      {"cowbell", "cowbell"},
     };
     return lanes;
 }

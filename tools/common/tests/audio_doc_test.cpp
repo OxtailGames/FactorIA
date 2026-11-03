@@ -169,7 +169,7 @@ TEST_CASE("audio.render and audio.info: measurements, per-step results, a pictur
     CHECK(info["steps"].size() == 3);
     CHECK(info["steps"][1]["params"]["curve"] == "linear");  // defaults are filled in
     const Json catalog = p.ok("audio.info", {});
-    CHECK(catalog["steps"].size() == 15);
+    CHECK(catalog["steps"].size() == 18);
     CHECK(catalog["steps"][0]["fields"].size() > 3);
 }
 

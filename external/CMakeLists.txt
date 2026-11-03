@@ -32,6 +32,9 @@ set_target_properties(fa_ext_clipper2 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_RE
 add_library(fa_ext_qoa INTERFACE)
 target_include_directories(fa_ext_qoa SYSTEM INTERFACE ${FA_EXT}/qoa)
 
+add_library(fa_ext_tinysoundfont INTERFACE)
+target_include_directories(fa_ext_tinysoundfont SYSTEM INTERFACE ${FA_EXT}/tinysoundfont)
+
 add_library(fa_ext_plmpeg INTERFACE)
 target_include_directories(fa_ext_plmpeg SYSTEM INTERFACE ${FA_EXT}/pl_mpeg)
 

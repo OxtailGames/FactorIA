@@ -12,6 +12,7 @@
 #include "fa/audio/song_helpers.h"
 #include "fa/audio/song_instruments.h"
 #include "fa/audio/song_theory.h"
+#include "fa/audio/soundfont.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/style_guide.h"
 #include "music_internal.h"
@@ -370,13 +371,13 @@ std::string apply_op(Json& song, const OpCtx& c, const Json& op) {
         return "set " + join_names(changed);
     }
     if (name == "add_track") {
-        op_keys(c, op, {"track", "instrument", "volume", "pan", "transpose", "swing", "range", "kit", "patterns", "automation", "play"});
+        op_keys(c, op, {"track", "instrument", "volume", "pan", "mute", "solo", "voices", "effects", "sends", "transpose", "swing", "range", "kit", "patterns", "automation", "play"});
         const std::string track = op_string(c, op, "track", true);
         Json& tracks = ensure_object(song, "tracks");
         if (tracks.contains(track)) op_fail(c, "the track '" + track + "' exists.", "set_track changes it, set_pattern changes its patterns; remove_track first to start over.");
         if (!op.contains("instrument")) op_fail(c, "`instrument` is missing.", "Name a built-in (pluck, pad, bass, lead, bell, organ, strings, chiptune, flute, kit for drums), a preset or a .sfx.json (music.instrument lists them).");
         Json t = Json::object();
-        for (const char* key : {"instrument", "volume", "pan", "transpose", "swing", "range", "kit"})
+        for (const char* key : {"instrument", "volume", "pan", "mute", "solo", "voices", "effects", "sends", "transpose", "swing", "range", "kit"})
             if (op.contains(key)) t[key] = op[key];
         t["patterns"] = op.contains("patterns") ? op["patterns"] : Json::object();
         if (op.contains("automation")) t["automation"] = op["automation"];
@@ -388,7 +389,7 @@ std::string apply_op(Json& song, const OpCtx& c, const Json& op) {
         return "added track " + track + " (" + op["instrument"].dump() + ")";
     }
     if (name == "set_track") {
-        op_keys(c, op, {"track", "name", "instrument", "volume", "pan", "transpose", "swing", "range", "kit", "automation"});
+        op_keys(c, op, {"track", "name", "instrument", "volume", "pan", "mute", "solo", "voices", "effects", "sends", "transpose", "swing", "range", "kit", "automation"});
         const std::string track = op_string(c, op, "track", true);
         find_track_json(song, c, track);
         std::vector<std::string> changed;
@@ -414,8 +415,59 @@ std::string apply_op(Json& song, const OpCtx& c, const Json& op) {
             rename_track_references(song, track, to);
             changed.push_back("name -> " + to);
         }
-        if (changed.empty()) op_fail(c, "nothing to change.", "Give at least one of: name, instrument, volume, pan, transpose, swing, range, kit, automation.");
+        if (changed.empty()) op_fail(c, "nothing to change.", "Give at least one of: name, instrument, volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, automation.");
         return "changed track " + track + ": " + join_names(changed);
+    }
+    if (name == "set_mixer") {
+        op_keys(c, op, {"buses", "master"});
+        if (!op.contains("buses") && !op.contains("master"))
+            op_fail(c, "nothing to set.", "Give `buses` ({\"reverb\": {\"effects\": [{\"type\":\"reverb\",\"room\":0.7,\"mix\":1}], \"volume\": 0.8}}) or `master` ({\"limiter\": true, \"loudness\": \"style\"}).");
+        Json& mixer = ensure_object(song, "mixer");
+        std::vector<std::string> changed;
+        if (op.contains("buses")) {
+            if (!op["buses"].is_object()) op_fail(c, "`buses` must be an object of bus name -> bus.", "Example: {\"buses\": {\"hall\": {\"effects\": [{\"type\":\"reverb\",\"room\":0.8}]}}}. A bus set to null is removed.");
+            Json& buses = ensure_object(mixer, "buses");
+            for (auto it = op["buses"].begin(); it != op["buses"].end(); ++it) {
+                const std::string bus = it.key();
+                if (it.value().is_null()) {
+                    if (!buses.contains(bus)) {
+                        std::vector<std::string> names;
+                        for (auto b = buses.begin(); b != buses.end(); ++b) names.push_back(b.key());
+                        op_fail(c, "there is no bus '" + bus + "' to remove.", names.empty() ? "The song has no buses." : did_you_mean(bus, names) + " Buses: " + join_names(names) + ".");
+                    }
+                    buses.erase(bus);
+                    if (song.contains("tracks") && song["tracks"].is_object())
+                        for (auto t = song["tracks"].begin(); t != song["tracks"].end(); ++t)
+                            if (t.value().is_object() && t.value().contains("sends") && t.value()["sends"].is_object()) {
+                                t.value()["sends"].erase(bus);
+                                if (t.value()["sends"].empty()) t.value().erase("sends");
+                            }
+                    changed.push_back("removed bus " + bus);
+                } else if (!it.value().is_object()) {
+                    op_fail(c, "the bus '" + bus + "' must be an object (volume, pan, mute, effects) or null to remove it.", "Example: {\"volume\": 0.8, \"effects\": [{\"type\":\"reverb\",\"room\":0.8}]}.");
+                } else {
+                    Json& target = ensure_object(buses, bus.c_str());
+                    for (auto f = it.value().begin(); f != it.value().end(); ++f) {
+                        if (f.value().is_null()) target.erase(f.key());
+                        else target[f.key()] = f.value();
+                    }
+                    changed.push_back("bus " + bus);
+                }
+            }
+            if (buses.empty()) mixer.erase("buses");
+        }
+        if (op.contains("master")) {
+            if (!op["master"].is_object()) op_fail(c, "`master` must be an object (effects, limiter, loudness).", "Example: {\"limiter\": {\"ceilingDb\": -1}, \"loudness\": -16}. A field set to null goes back to its default.");
+            Json& master = ensure_object(mixer, "master");
+            for (auto f = op["master"].begin(); f != op["master"].end(); ++f) {
+                if (f.value().is_null()) master.erase(f.key());
+                else master[f.key()] = f.value();
+                changed.push_back("master " + f.key());
+            }
+            if (master.empty()) mixer.erase("master");
+        }
+        if (mixer.empty()) song.erase("mixer");
+        return "set the mixer: " + join_names(changed);
     }
     if (name == "remove_track") {
         op_keys(c, op, {"track"});
@@ -564,7 +616,7 @@ std::string apply_op(Json& song, const OpCtx& c, const Json& op) {
         return std::string(removed ? "removed" : "set") + " the " + op_string(c, op, "param", true) + " lane" + (track.empty() ? " of the whole song" : " of " + track);
     }
     op_fail(c, "unknown operation '" + name + "'.",
-            did_you_mean(name, std::vector<std::string>{"set_song", "add_track", "set_track", "remove_track", "set_pattern", "remove_pattern", "add_section", "set_section", "remove_section", "move_section", "arrange", "mute", "set_automation"}));
+            did_you_mean(name, std::vector<std::string>{"set_song", "add_track", "set_track", "set_mixer", "remove_track", "set_pattern", "remove_pattern", "add_section", "set_section", "remove_section", "move_section", "arrange", "mute", "set_automation"}));
 }
 
 // Validates the document, writes it and builds the answer of a command that changed a song.
@@ -596,7 +648,7 @@ Json music_edit_command(const std::string& projectDir, const Json& a) {
         OpCtx c;
         c.index = i;
         if (!op.is_object() || !op.contains("op") || !op["op"].is_string())
-            fail("invalid_argument", "music.edit: op " + std::to_string(i + 1) + " must be an object with an `op` name.", "Operations: set_song, add_track, set_track, remove_track, set_pattern, remove_pattern, add_section, set_section, remove_section, move_section, arrange, mute, set_automation.");
+            fail("invalid_argument", "music.edit: op " + std::to_string(i + 1) + " must be an object with an `op` name.", "Operations: set_song, add_track, set_track, set_mixer, remove_track, set_pattern, remove_pattern, add_section, set_section, remove_section, move_section, arrange, mute, set_automation.");
         c.op = op["op"].get<std::string>();
         edits.push_back(apply_op(song, c, op));
     }
@@ -919,31 +971,76 @@ Json music_drums_command(const std::string& projectDir, const Json& a) {
 Json music_instrument_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("music.instrument", a, "", {"name", "path", "overwrite"});
     if (!a.contains("name")) {
-        Json built;
-        built = Json::array();
+        Json built = Json::array();
         for (const SongInstrumentInfo& i : song_instruments())
-            built.push_back(Json::object({{"name", i.name}, {"what", i.what}, {"range", song_pitch_name(i.low) + " to " + song_pitch_name(i.high)}}));
+            built.push_back(Json::object({{"name", i.name}, {"family", i.family}, {"what", i.what}, {"range", song_pitch_name(i.low) + " to " + song_pitch_name(i.high)}, {"voices", i.voices}}));
+        Json families = Json::array();
+        for (const SongInstrumentFamily& f : song_instrument_families()) {
+            Json names = Json::array();
+            for (const SongInstrumentInfo& i : song_instruments())
+                if (i.family == f.name) names.push_back(i.name);
+            families.push_back(Json::object({{"family", f.name}, {"what", f.what}, {"instruments", names}}));
+        }
+        Json kits = Json::array();
+        for (const SongKitInfo& k : song_kits()) kits.push_back(Json::object({{"kit", k.name}, {"instrument", k.instrument}, {"what", k.what}}));
         Json lanes = Json::array();
         for (const SongDrumLane& l : song_drum_lanes()) lanes.push_back(Json::object({{"name", "kit:" + l.name}, {"lane", l.name}, {"what", l.what}}));
         Json presets = Json::array();
         for (const SfxPresetInfo& p : sfx_presets()) presets.push_back(p.name);
         Json patches = Json::array();
+        Json fonts = Json::array();
         std::error_code ec;
         const stdfs::path root = stdfs::path(projectDir) / "assets";
         if (stdfs::is_directory(root, ec)) {
-            std::vector<std::string> found;
+            std::vector<std::string> found, foundFonts;
             for (stdfs::recursive_directory_iterator it(root, stdfs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec))
                 if (it->is_regular_file(ec)) {
                     const std::string rel = stdfs::relative(it->path(), projectDir, ec).generic_string();
                     if (ends_with(to_lower(rel), ".sfx.json")) found.push_back(rel);
+                    else if (ends_with(to_lower(rel), ".sf2")) foundFonts.push_back(rel);
                 }
             std::sort(found.begin(), found.end());
+            std::sort(foundFonts.begin(), foundFonts.end());
             for (const std::string& f : found) patches.push_back(f);
+            for (const std::string& f : foundFonts) fonts.push_back(f);
         }
-        return Json::object({{"instruments", built}, {"kitLanes", lanes}, {"sfxPresets", presets}, {"projectPatches", patches},
-                             {"nextSteps", Json::array({"A track's `instrument` is one of these names (\"kit\" for drums), an sfx preset name, or the path of a .sfx.json. To change one, copy its patch: {\"name\":\"pluck\",\"path\":\"assets/audio/my_pluck.sfx.json\"}, edit the numbers (sfx.tweak) and point the track at the file."})}});
+        return Json::object({{"instruments", built}, {"families", families}, {"kits", kits}, {"kitLanes", lanes}, {"sfxPresets", presets}, {"projectPatches", patches}, {"soundfonts", fonts},
+                             {"nextSteps", Json::array({"A track's `instrument` is one of these names (\"kit\" for drums, \"kit:electronic\" or \"kit:chiptune\" for the other kits), an sfx preset name, or the path of a .sfx.json. To change one, copy its patch: {\"name\":\"pluck\",\"path\":\"assets/audio/my_pluck.sfx.json\"}, edit the numbers (sfx.tweak) and point the track at the file.",
+                                                        "A SoundFont (.sf2) in the project plays as {\"soundfont\": \"assets/audio/piano.sf2\", \"preset\": \"Grand Piano\"}; music.instrument with its path as `name` lists its presets."})}});
     }
     std::string name = arg_string(a, "name", true);
+    if (ends_with(to_lower(name), ".sf2")) {
+        if (a.contains("path")) fail("invalid_argument", "music.instrument: `path` writes a patch, and a SoundFont is not one.", "Drop `path`: a track plays the .sf2 as it is ({\"soundfont\": \"" + name + "\", \"preset\": ...}).");
+        auto norm = fs::normalize_checked(name);
+        if (!norm.ok() || norm->empty() || !starts_with(*norm, "assets/"))
+            fail("invalid_argument", "music.instrument: the SoundFont '" + name + "' must be a project path under assets/.", "Example: \"assets/audio/piano.sf2\".");
+        Result<Soundfont> font = [&] {
+            ProjectRootGuard root(projectDir);
+            return Soundfont::load(*norm);
+        }();
+        if (!font.ok()) fail("not_found", "music.instrument: " + font.error().message, font.error().hint);
+        Json list = Json::array();
+        for (const SoundfontPreset& p : font->presets())
+            list.push_back(Json::object({{"name", p.name}, {"bank", p.bank}, {"program", p.program}, {"drums", p.bank == 128}}));
+        Json result = Json::object({{"soundfont", *norm}, {"presets", list}});
+        if (!font->presets().empty()) {
+            const SoundfontPreset& first = font->presets().front();
+            result["nextSteps"] = Json::array({"Point a track at one: music.edit set_track {\"track\":\"keys\",\"instrument\":{\"soundfont\":\"" + *norm + "\",\"preset\":\"" + first.name + "\"}} (or the shorthand \"" + *norm + "#" + first.name +
+                                               "\"). A preset in bank 128 is a drum kit: use it on a track with a drum pattern, and each lane plays its General MIDI key."});
+        }
+        return result;
+    }
+    if (auto variant = song_kit_variant(name); variant && !a.contains("path")) {
+        // A whole kit: its lanes and the name of each lane's patch (music.instrument <that name> shows the patch).
+        const std::string prefix = *variant == "acoustic" ? "kit:" : "kit:" + *variant + ":";
+        Json laneList = Json::array();
+        for (const SongDrumLane& l : song_drum_lanes()) laneList.push_back(Json::object({{"lane", l.name}, {"what", l.what}, {"patch", prefix + l.name}}));
+        std::string what;
+        for (const SongKitInfo& k : song_kits())
+            if (k.name == *variant) what = k.what;
+        return Json::object({{"kit", *variant}, {"instrument", name}, {"what", what}, {"lanes", laneList},
+                             {"nextSteps", Json::array({"A drum track writes \"instrument\": \"" + name + "\" and grids by lane name. `music.instrument` with a lane's `patch` shows the sound and, with `path`, copies it to a .sfx.json that a track's `kit` can replace the lane with."})}});
+    }
     std::string lookup = name;
     std::vector<std::string> all;
     for (const SongInstrumentInfo& i : song_instruments()) all.push_back(i.name);
@@ -1033,8 +1130,8 @@ void register_music_edit_commands(CommandRegistry& registry, const std::string& 
 
     add("music.edit", false, "Change a song document: tempo, tracks, patterns, sections, the arrangement, mutes and automation, checked before anything is written.",
         "Applies `ops` in order to the song at `path` and writes it, but only if the result is a valid song (otherwise it fails with `invalid_song`, every problem in data.issues, and the file is untouched). Each op is an object with `op` and its fields: "
-        "set_song {tempo, meter, key, mode, swing, swingGrid, seed, volume, doc} (null removes a field); add_track {track, instrument, volume, pan, transpose, swing, range, kit, patterns, automation, play}; "
-        "set_track {track, name (renames and updates the sections), instrument, volume, pan, transpose, swing, range, kit, automation} (null removes); remove_track {track} (and every mention in the sections); "
+        "set_song {tempo, meter, key, mode, swing, swingGrid, seed, volume, doc} (null removes a field); add_track {track, instrument, volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, patterns, automation, play}; "
+        "set_track {track, name (renames and updates the sections), instrument (a name, a .sfx.json, \"x.sf2#Preset\" or {soundfont, preset, bank}), volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, automation} (null removes); set_mixer {buses: {name: {volume, pan, mute, effects} | null}, master: {effects, limiter, loudness}} (docs/MUSIC.md \"Mixer\"; a bus merges field by field, null removes a bus or a field); remove_track {track} (and every mention in the sections); "
         "set_pattern {track, pattern, notes | grid+step+bars, play}; remove_pattern {track, pattern} (and its uses in the sections); add_section {section, kind (intro, loop, outro, section), repeat, bars, mute, play, index}; "
         "set_section {section, name, kind, repeat, bars, mute, play} (play changes only the tracks named, null stops one); remove_section {section}; move_section {section, index}; arrange {section, track, entries} "
         "(\"a a b*2 rest\", a list, or null to stop the track in that section); mute {section, tracks, muted}; set_automation {track (omit for the whole song), param (volume, pan, filter, macro.<name>), points [[beat, value], ...], curve (linear, step, smooth)} "
@@ -1042,16 +1139,17 @@ void register_music_edit_commands(CommandRegistry& registry, const std::string& 
         "Example: {\"path\":\"assets/music/theme.song.json\",\"ops\":[{\"op\":\"set_pattern\",\"track\":\"bass\",\"pattern\":\"line\",\"notes\":\"A2:8 A2 E3 A2 | G2:8 G2 D3 G2\"},{\"op\":\"mute\",\"section\":\"intro\",\"tracks\":[\"drums\"]}]}",
         schema(with_picture(obj({{"path", pathArg},
                                  {"ops", Json::object({{"type", "array"}, {"minItems", 1}, {"items", Json::object({{"type", "object"}, {"additionalProperties", true}, {"description", "One operation: `op` and its fields (see the command's description)."}, {"required", Json::array({"op"})},
-                                                                                                                      {"properties", obj({{"op", Json::object({{"type", "string"}, {"enum", Json::array({"set_song", "add_track", "set_track", "remove_track", "set_pattern", "remove_pattern", "add_section", "set_section", "remove_section", "move_section", "arrange", "mute", "set_automation"})}, {"description", "What to do."}})}})}})},
+                                                                                                                      {"properties", obj({{"op", Json::object({{"type", "string"}, {"enum", Json::array({"set_song", "add_track", "set_track", "set_mixer", "remove_track", "set_pattern", "remove_pattern", "add_section", "set_section", "remove_section", "move_section", "arrange", "mute", "set_automation"})}, {"description", "What to do."}})}})}})},
                                                     {"description", "The operations, applied in order."}})}})),
                {"path", "ops"}),
         music_edit_command);
 
-    add("music.instrument", false, "List the built-in song instruments, drum lanes and sfx presets, or show (and copy into the project) the patch behind one.",
-        "Without `name` it lists what a track's `instrument` can be: the built-in pitched instruments (with their note range), the drum kit's lanes (\"kit:kick\"), the sfx presets and the .sfx.json patches in the project. With `name` it returns that instrument's "
+    add("music.instrument", false, "List the built-in song instruments (by family), the drum kits and lanes, sfx presets and project SoundFonts, show the patch behind an instrument, or list a SoundFont's presets.",
+        "Without `name` it lists what a track's `instrument` can be: the built-in pitched instruments (with family, note range and polyphony), the drum kits (acoustic \"kit\", \"kit:electronic\", \"kit:chiptune\") and their lanes (\"kit:kick\"), the sfx presets, the .sfx.json patches and the .sf2 SoundFonts in the project. "
+        "With `name` set to a .sf2 path under assets/ it lists that SoundFont's presets (name, bank, program) so a track can name one. With `name` set to a built-in it returns that instrument's "
         "patch (the JSON of a .sfx.json, docs/SOUND.md; a bare lane name like \"kick\" works) and, with `path`, writes it to a .sfx.json under assets/ so you can change the numbers and point a track at the copy. A pitched patch is played once per note, "
         "re-pitched to the note. Example: {\"name\":\"pluck\",\"path\":\"assets/audio/my_pluck.sfx.json\"}",
-        schema(obj({{"name", str("A built-in instrument (\"pluck\") or drum lane (\"kit:kick\" or \"kick\"). Omit to list them all.")},
+        schema(obj({{"name", str("A built-in instrument (\"pluck\"), a drum lane (\"kit:kick\", \"kit:electronic:kick\" or \"kick\") or a project .sf2 (\"assets/audio/piano.sf2\": lists its presets). Omit to list them all.")},
                     {"path", str("Write the patch here (a .sfx.json under assets/).")},
                     {"overwrite", boolean("Replace the file at `path` when it exists.", false)}})),
         music_instrument_command);

@@ -6,9 +6,9 @@
 //   parse_song   JSON -> SongDoc          every problem listed with its JSON pointer, line and column inside the note text, fix, "did you mean"
 //   expand_song  SongDoc -> SongTimeline  the arrangement unrolled into one sorted list of timed note events (swing applied)
 //
-// The preview renderer (song_preview.h), the checks (song_check.h) and the commands read the timeline; the instruments and mixer of
-// M56.2, the stems, loop points and MIDI of M56.3 and the runtime player of M56.4 are meant to read the same model, so keep this the
-// single description of "what notes play when".
+// The preview renderer (song_preview.h), the checks (song_check.h) and the commands read the timeline; the instruments and mixer
+// (song_instruments.h, song_preview.h, M56.2), the stems, loop points and MIDI of M56.3 and the runtime player of M56.4 read the same
+// model, so keep this the single description of "what notes play when" and "how it is mixed".
 //
 // Time. Positions are integer ticks, kSongPpq per quarter note (960 divides every note value down to a 64th triplet), so nothing
 // drifts and a note's bar and beat are exact. The tempo is one number for the whole song (no tempo map yet).
@@ -25,6 +25,7 @@
 #include <utility>
 #include <vector>
 
+#include "fa/audio/audio_doc.h"
 #include "fa/core/json.h"
 #include "fa/core/types.h"
 
@@ -102,12 +103,29 @@ struct SongAutomation {
     double value_at(double beat, double fallback) const;
 };
 
+// A SoundFont (.sf2) instrument: `path` is a project file, the preset is picked by name or by bank and program number.
+struct SongSoundfont {
+    std::string path;                 // empty: the track does not use a SoundFont
+    std::string presetName;           // "Acoustic Grand Piano" (matched exactly, then without case); empty = use bank/program
+    int bank = 0;                     // 128 for a drum kit
+    int program = 0;                  // the preset number inside the bank
+    bool drums = false;               // the track is a drum track played by the SoundFont's kit
+    bool present() const { return !path.empty(); }
+};
+
 struct SongTrack {
     std::string name;
-    std::string instrument;           // "kit" (the drum kit), a built-in instrument, a preset name or a project `.sfx.json` path
+    std::string instrument;           // "kit" / "kit:<variant>" (a drum kit), a built-in instrument, a preset name, a project `.sfx.json`
+                                      // path, or "<file>.sf2#<preset>" for a SoundFont track (see `soundfont`)
     bool drums = false;
+    SongSoundfont soundfont;
     double volume = 1.0;              // linear
     double pan = 0.0;                 // -1 left .. 1 right
+    bool mute = false;                // the mixer's mute button: the track plays no notes
+    bool solo = false;                // the mixer's solo button: when any track is soloed only soloed tracks play
+    int voices = 0;                   // most notes held at once (a new note steals the oldest); 0 = the instrument's own limit
+    std::vector<AudioStep> effects;   // the track's insert chain (audio_step_is_effect steps), before the fader and the pan
+    std::map<std::string, double> sends;  // bus name -> level (0..2) of the post-fader send
     int transpose = 0;                // semitones added to every pitched note
     std::optional<double> swing;      // overrides the song's swing
     int rangeLow = -1, rangeHigh = -1;  // MIDI range of the instrument; -1 = use the instrument's own
@@ -136,6 +154,33 @@ struct SongSection {
     std::vector<SongSectionTrack> play;
 };
 
+// A bus the tracks send to (a shared reverb or delay). Its input is the sum of the sends; its output goes to the master.
+// On a bus, `reverb` and `delay` steps return only the effect (the dry sound is the track itself).
+struct SongBus {
+    std::string name;
+    double volume = 1.0;
+    double pan = 0.0;
+    bool mute = false;
+    std::vector<AudioStep> effects;
+};
+
+// The master bus: effects, then the limiter, then the level that reaches the loudness target.
+struct SongMaster {
+    std::vector<AudioStep> effects;   // after the song's `volume`, before the limiter
+    bool limiter = true;              // a lookahead peak limiter that keeps every sample under `ceilingDb`
+    double ceilingDb = -1.0;          // dBFS
+    double limiterRelease = 0.1;      // seconds
+    enum class Loudness { Style, Off, Target };
+    Loudness loudness = Loudness::Style;  // Style: the style guide's music loudness when the renderer is given one; Target: `loudnessLufs`
+    double loudnessLufs = -16.0;      // Target: the integrated loudness (LUFS) the render is brought to
+};
+
+struct SongMixer {
+    std::vector<SongBus> buses;
+    SongMaster master;
+    const SongBus* find_bus(std::string_view name) const;
+};
+
 struct SongDoc {
     std::string doc;
     double tempo = 120.0;             // quarter notes per minute
@@ -147,6 +192,7 @@ struct SongDoc {
     int swingGrid = 8;                // 8: eighth-note off-beats, 16: sixteenth-note
     std::uint64_t seed = 0;
     double volume = 0.8;              // master gain
+    SongMixer mixer;
     std::vector<SongTrack> tracks;
     std::vector<SongSection> sections;
     std::vector<SongAutomation> automation;  // master lanes: volume, filter

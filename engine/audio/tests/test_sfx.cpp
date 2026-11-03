@@ -190,6 +190,38 @@ TEST_CASE("sfx: a transposed render plays the patch at another pitch") {
     CHECK(patch->root_hz() == doctest::Approx(440.0));
 }
 
+TEST_CASE("sfx: a filter's keytrack makes its cutoff follow the pitch of a transposed render") {
+    auto brightness = [&](double keytrack, double playHz) {
+        const std::string text = R"({"format": "factoria.sfx/1", "length": 1, "fadeOut": 0, "layers": [{"oscillators": [{"wave": "saw"}], "pitch": {"freq": 220},
+            "amp": {"attack": 0, "sustain": 1, "release": 0}, "filter": {"mode": "lowpass", "cutoff": 800, "keytrack": )" + std::to_string(keytrack) + R"(}}],
+            "master": {"normalize": {"mode": "none"}}})";
+        auto json = parse_json(text);
+        REQUIRE_MESSAGE(json.ok(), (json.ok() ? "" : json.error().to_string()));
+        auto patch = parse_sfx(*json, "keytrack");
+        REQUIRE_MESSAGE(patch.ok(), (patch.ok() ? "" : patch.error().to_string()));
+        SfxRenderOptions o;
+        o.freqHz = playHz;
+        auto a = render_sfx(*patch, o);
+        REQUIRE(a.ok());
+        // the amplitude of the 8th harmonic relative to the fundamental
+        return component(*a, 8.0 * playHz, 0.1, 0.9) / component(*a, playHz, 0.1, 0.9);
+    };
+    // Two octaves up: without keytrack the cutoff stays at 800 Hz and the harmonics of the high note are gone; with keytrack 1 the
+    // cutoff moves to 3200 Hz and the sound keeps its colour.
+    const double fixed = brightness(0.0, 880.0), followed = brightness(1.0, 880.0), half = brightness(0.5, 880.0);
+    CHECK(followed > 4.0 * fixed);
+    CHECK(half > fixed);
+    CHECK(half < followed);
+    // At the patch's own pitch the cutoff is the written one whatever the keytrack.
+    CHECK(brightness(1.0, 220.0) == doctest::Approx(brightness(0.0, 220.0)).epsilon(0.001));
+    // Mistakes name the fix.
+    auto bad = parse_json(R"({"format": "factoria.sfx/1", "length": 1, "layers": [{"oscillators": [{"wave": "saw"}], "filter": {"mode": "lowpass", "cutoff": 800, "keytrack": 3}}]})");
+    REQUIRE(bad.ok());
+    auto r = parse_sfx(*bad, "bad");
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("keytrack") != std::string::npos);
+}
+
 TEST_CASE("sfx: layer filters attenuate on the side they should") {
     auto level_at = [&](const char* filter, double hz) {
         return component(render_osc(R"({"wave": "sine"})", hz, std::string(R"(, "filter": )") + filter), hz, 0.1, 0.9);
