@@ -49,6 +49,10 @@ Json model_selection_schema(ModelSelectKind kind);
 // unknown part name is not an error, it is a warning that matches nothing.
 ModelSelectionReport model_select_report(const ModelMesh& mesh, const Json& query, ModelSelectKind kind, const ModelEditContext& context);
 
+// One flag per triangle of `mesh` (1: the face query chose it), for the code that works on a finished mesh (decals). Triangles the weld of
+// the selector drops because they have no area are 0.
+std::vector<char> model_select_triangles(const ModelMesh& mesh, const Json& query, const ModelEditContext& context);
+
 // ---- the edit operations ------------------------------------------------------------------------------------------------------
 
 // True for extrude_faces, inset_faces, loop_cut, bevel_edges, delete_faces and assign_faces.

@@ -13,7 +13,10 @@
 #include "fa/render/fonts.h"
 #include "fa/scene/model_game_ready.h"
 #include "fa/tooling/model_bake.h"
+#include "fa/tooling/image_doc.h"
 #include "fa/tooling/project_fs.h"
+#include "fa/tooling/style_guide.h"
+#include "model_texture_bake.h"
 #include "util.h"
 
 namespace fa {
@@ -53,7 +56,12 @@ bool load_for_bake(const std::string& projectDir, const std::string& rel, ModelD
 
 ModelEvalOptions model_project_eval_options(const std::string& projectDir) {
     ModelEvalOptions options;
-    if (const auto density = assets_detail::style_texels_per_unit(projectDir)) options.defaultTexelsPerMeter = float(*density);
+    {
+        const StyleParse style = load_style_guide(projectDir);
+        if (style.guide.texelsPerUnit) options.defaultTexelsPerMeter = float(*style.guide.texelsPerUnit);
+        if (style.guide.palette)
+            for (const auto& c : *style.guide.palette) options.stylePalette.push_back(Vec4{c[0] / 255.0f, c[1] / 255.0f, c[2] / 255.0f, 1.0f});  // the "style" palette of `vertexColors`
+    }
     options.text = [](const ModelTextRequest& r) -> Result<ModelTextOutline> {
         const TextAnchor anchor = r.anchor == "start" ? TextAnchor::Start : r.anchor == "end" ? TextAnchor::End : TextAnchor::Middle;
         auto outline = outline_text(r.text, r.font, 1.0f, anchor, r.letterSpacing, r.lineSpacing);
@@ -113,6 +121,7 @@ ModelBakeStatus model_bake_status(const std::string& projectDir, const std::stri
         // the files the game-ready settings add: the ones they are sure to make, and the ones the last bake recorded
         std::set<std::string> extras;
         for (const std::string& e : model_expected_extras(doc, status.output)) extras.insert(e);
+        for (const std::string& e : model_texture_detail::layer_files(doc, status.output)) extras.insert(e);
         const Json recorded = manifest_entry(projectDir, status.output);
         const Json list = recorded.is_object() && recorded.value("provenance", Json()).is_object() ? recorded["provenance"].value("extras", Json()) : Json();
         if (list.is_array())
@@ -122,7 +131,7 @@ ModelBakeStatus model_bake_status(const std::string& projectDir, const std::stri
             auto path = resolve_project_path(projectDir, e);
             if (!path.ok() || !stdfs::is_regular_file(*path, ec)) {
                 status.state = ModelBakeState::Missing;
-                status.reason = "'" + e + "' (made with '" + status.output + "' by the gameReady settings) has not been baked yet.";
+                status.reason = "'" + e + "' (made with '" + status.output + "' by the gameReady or texturing settings) has not been baked yet.";
                 return status;
             }
         }
@@ -138,6 +147,17 @@ ModelBakeStatus model_bake_status(const std::string& projectDir, const std::stri
         status.state = ModelBakeState::Stale;
         status.reason = !check.changed.empty() ? "changed since the bake: " + join(check.changed, ", ") : "no longer readable: " + join(check.missing, ", ");
         return status;
+    }
+    if (doc.texturing) {
+        // the picture the .glb draws is composed from the layers in the texture's image document: painted layers change it without changing the model
+        const std::string texDoc = model_texture_detail::document_path(doc, status.output);
+        const ImageBakeStatus tex = image_bake_status(projectDir, texDoc);
+        if (tex.state != ImageBakeState::Fresh) {
+            status.state = tex.state == ImageBakeState::Missing ? ModelBakeState::Missing : tex.state == ImageBakeState::Broken ? ModelBakeState::Broken : ModelBakeState::Stale;
+            status.reason = "the texture '" + texDoc + "' is " + image_bake_state_name(tex.state) + ": " + tex.reason + " model.bake draws it again.";
+            if (status.state == ModelBakeState::Broken) status.hint = "Fix the texture document (image.* commands report its problems), or delete it: the next model bake writes a new one.";
+            return status;
+        }
     }
     status.state = ModelBakeState::Fresh;
     status.reason = "'" + status.output + "' matches the document and the files it reads.";
@@ -172,6 +192,24 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
     ProjectRootGuard root(projectDir);
     auto build = evaluate_model(doc, model_project_eval_options(projectDir));
     if (!build.ok()) return make_error(rel + ": " + build.error().message, build.error().hint);
+    // texturing: the layer pictures, the image document they are composed in, and the material every submesh (and LOD) shares
+    std::optional<model_texture_detail::TextureBake> texture;
+    if (doc.texturing) {
+        try {
+            assets_detail::require_usable_manifest(projectDir);
+            const Json before = manifest_entry(projectDir, result.output);
+            const Json beforeProv = before.is_object() ? before.value("provenance", Json()) : Json();
+            std::string layout;
+            if (beforeProv.is_object() && beforeProv.value("texture", Json()).is_object()) layout = beforeProv["texture"].value("layout", std::string());
+            auto tb = model_texture_detail::bake_model_texture(projectDir, doc, *build, result.output, layout);
+            if (!tb.ok()) return make_error(rel + ": " + tb.error().message, tb.error().hint);
+            texture = std::move(*tb);
+        } catch (const CommandError& e) {
+            return make_error(rel + ": " + e.what(), e.hint);
+        }
+        model_texture_detail::apply_texture(build->data, doc, texture->png);
+        for (const std::string& w : texture->warnings) result.warnings.push_back(w);
+    }
     auto ready = model_game_ready_files(doc, *build, result.output);
     if (!ready.ok()) return make_error(rel + ": " + ready.error().message, ready.error().hint);
     result.gameReady = ready->report;
@@ -183,6 +221,9 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
     std::vector<std::string> inputs = {rel};
     for (const std::string& s : build->inputs)  // sorted, unique
         if (s != rel) inputs.push_back(s);
+    if (texture)
+        for (const std::string& s : texture->inputs)
+            if (s != rel && std::find(inputs.begin(), inputs.end(), s) == inputs.end()) inputs.push_back(s);
     result.inputs = inputs;
 
     // who made the pieces: AI-made textures or fonts make the model AI-made, and their licenses travel
@@ -215,6 +256,8 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
         if (!ready->prefabPath.empty()) extraFiles.emplace_back(ready->prefabPath, ready->prefabText);
         std::set<std::string> now;
         for (const auto& f : extraFiles) now.insert(f.first);
+        if (texture)
+            for (const std::string& f : texture->files) now.insert(f);
         std::vector<std::string> oldExtras;
         if (previousProv.is_object() && previousProv.value("extras", Json()).is_array())
             for (const Json& e : previousProv["extras"])
@@ -227,6 +270,8 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
             if (!unchanged && !tooling_detail::write_file(*path, f.second, &err)) return make_error("Cannot write '" + f.first + "': " + err, "Check that the folder is writable.");
             result.extras.push_back(f.first);
         }
+        if (texture)
+            for (const std::string& f : texture->files) result.extras.push_back(f);  // written by the texture bake
         for (const std::string& old : oldExtras) {
             if (now.count(old)) continue;
             auto path = resolve_project_path(projectDir, old);
@@ -262,6 +307,11 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
         // a `uv` section that leaves the texel density to the style guide depends on it: the bake is stale when the style changes it
         if (doc.uv && !doc.uv->texelsPerUnit)
             assets_detail::add_style_texels_context(prov["recipe"], assets_detail::style_texels_per_unit(projectDir));
+        if (doc.vertexColors && doc.vertexColors->style) assets_detail::add_style_palette_context(prov["recipe"], assets_detail::style_palette_colors(projectDir));
+        if (texture) {
+            prov["texture"] = Json::object({{"document", texture->document}, {"image", texture->png}, {"size", texture->size}, {"layout", texture->layout}});
+            result.texture = Json::object({{"document", texture->document}, {"image", texture->png}, {"layers", texture->files}, {"created", texture->documentCreated}, {"report", model_texture_detail::report_json(texture->report)}});
+        }
         if (!result.extras.empty()) {
             Json list = Json::array();
             for (const std::string& e : result.extras) list.push_back(e);
@@ -271,8 +321,12 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
         for (const std::string& e : result.extras) {
             Json extraProv = prov;
             extraProv.erase("extras");
-            extraProv["notes"] = "Made with '" + result.output + "' from the model document '" + rel + "' (gameReady settings).";
-            if (!ends_with(e, ".glb")) extraProv["kind"] = "prefab";
+            const bool picture = ends_with(e, ".png");
+            extraProv["notes"] = picture ? "A layer or map of the texture of '" + result.output + "', made from the model document '" + rel + "' (texturing settings). The texture's image document composes the layers."
+                                         : "Made with '" + result.output + "' from the model document '" + rel + "' (gameReady settings).";
+            extraProv.erase("texture");
+            if (picture) extraProv["kind"] = "image";
+            else if (!ends_with(e, ".glb")) extraProv["kind"] = "prefab";
             auto done = assets::update_entry(e, [&](Json& en) { en.erase("analysis"); en["provenance"] = extraProv; });
             if (!done.ok()) return make_error("'" + e + "' was written, but assets.json was not updated: " + done.error().message, done.error().hint);
         }

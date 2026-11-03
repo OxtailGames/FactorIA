@@ -122,6 +122,7 @@ void register_music_commands(CommandRegistry& registry, const std::string& proje
 void register_audio_doc_commands(CommandRegistry& registry, const std::string& projectDir);  // audio.info, audio.render, audio.bake, audio.create, audio.edit (assets_audio_doc.cpp)
 void register_model_commands(CommandRegistry& registry, const std::string& projectDir);  // model.info, model.bake, model.create, model.edit (assets_model.cpp)
 void register_model_uv_command(CommandRegistry& registry, const std::string& projectDir);  // model.uv (assets_model_uv.cpp)
+void register_model_texture_commands(CommandRegistry& registry, const std::string& projectDir);  // model.texture, model.decal, model.palette, model.bake_maps (assets_model_texture.cpp)
 Json model_uv_report_json(const ModelUvReport& report);  // the measurements of a uv section as JSON (model.uv, and `uv` in the model.* measurements)
 void register_audio_commands(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_loop, assets.convert_audio
 void register_subset_font_command(CommandRegistry& registry, const std::string& projectDir);
@@ -187,6 +188,12 @@ std::optional<double> style_texels_per_unit(const std::string& projectDir);
 // Records `value` (null: none) as recipe.context.styleTexelsPerUnit; check_recipe reports "assets.json (style.texelsPerUnit)" in `changed` when the
 // style guide says something else now.
 void add_style_texels_context(Json& recipe, const std::optional<double>& value);
+// style.palette of the project's assets.json as colours (empty when the style guide has none): the "style" palette of a model document's
+// `vertexColors` section.
+std::vector<Vec4> style_palette_colors(const std::string& projectDir);
+// Records the palette (as "#rrggbb" strings; an empty one as null) as recipe.context.stylePalette; check_recipe reports "assets.json (style.palette)" in
+// `changed` when the style guide has another palette now.
+void add_style_palette_context(Json& recipe, const std::vector<Vec4>& palette);
 // The recipe of an assets.json entry (`provenance.recipe`), or null when it has none or it is malformed (no command).
 Json recipe_of(const Json& entry);
 

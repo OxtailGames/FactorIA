@@ -53,6 +53,8 @@ struct ModelBakeResult {
     std::vector<std::string> inputs;
     Json provenance;       // the record written to assets.json
     std::vector<std::string> extras;  // the files the document's gameReady settings added (LOD .glbs, collider .glbs, the prefab), project-relative, in the order written
+    Json texture;          // the texturing report (the image document, the picture the .glb uses, the layer pictures written, the measurements); null without a `texturing` section
+    std::vector<std::string> warnings;  // problems the bake worked around (a texture whose uv layout changed under painted layers)
     Json gameReady;        // the game-ready report (model_game_ready.h: LODs and collider against the platform budgets); null when the document has no gameReady settings
 };
 
