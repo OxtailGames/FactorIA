@@ -820,6 +820,10 @@ triangle counts and hashes).
 Limits: the capsule is always along Y (the report warns when the model is wider than tall); a decomposition that finds no
 pieces falls back to the convex hull and says so; a LOD never removes a submesh entirely.
 
+### Giving a model a skeleton
+
+A model made of named parts can be fitted with a skeleton (humanoid, quadruped, bird, tail, chain or generic) and baked as a skinned `.glb`: see docs/RIGGING.md (`rig.create`, `rig.fit`, `rig.bake`). Name the nodes of the model with `part` ("head", "arm_l", "leg_r"...): the fit finds each bone from the part names.
+
 ## Looking at a model: `model.preview` and `model.check`
 
 Two read-only commands let you (or an AI) look at a model without a graphics device, a window or Blender. Both build the
