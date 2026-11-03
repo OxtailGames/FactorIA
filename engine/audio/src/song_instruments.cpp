@@ -1,9 +1,10 @@
 // The built-in instruments and drum kit of the song preview (fa/audio/song_instruments.h), as the JSON of sound patches.
 //
 // Conventions: every pitched patch is tuned to C4 (the song renderer transposes it to the note), has `normalize` none so levels are the
-// ones written here, and a `tail` long enough for its release. Layer gains are calibrated (the "calibrate" case of test_song.cpp prints
-// the peak of each instrument across its range) so a note at velocity 127 peaks around -10 dBFS. Filters do not follow pitch, so cutoffs
-// are generous. Drum patches are one-shots: the renderer plays them as written.
+// ones written here, and a `tail` long enough for its release. Each pitched patch carries a master "gain" measured so its C4 note,
+// played at velocity 100, peaks about -12 dBFS (a patch of the user's is levelled the same way when the preview renders it); the kit lanes
+// carry gains of their own. Filters do not follow pitch, so cutoffs are generous. Drum patches are
+// one-shots: the renderer plays them as written.
 #include <string>
 #include <string_view>
 

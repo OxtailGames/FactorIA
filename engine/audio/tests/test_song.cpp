@@ -74,11 +74,6 @@ SongCheckReport check_of(const Json& j, const SongCheckOptions& o = {}) {
     return *r;
 }
 
-int count_rule(const SongCheckReport& r, const std::string& rule) {
-    int n = 0;
-    for (const SongCheckIssue& i : r.issues) n += i.rule == rule ? 1 : 0;
-    return n;
-}
 
 SongPattern notes_of(const std::string& text, std::vector<SongIssue>* issues = nullptr, int declaredBars = 0, SongMeter meter = {}) {
     SongPattern p;
@@ -406,6 +401,35 @@ TEST_CASE("song helpers: chord progressions") {
     CHECK(bad.error().message.find("Fx9") != std::string::npos);
     CHECK_FALSE(song_parse_progression("Am*0", m));
     CHECK_FALSE(song_parse_progression("  ", m));
+}
+
+TEST_CASE("song helpers: Roman numerals become chord names in the key, and a pad of chords parses back") {
+    CHECK(*song_roman_progression("i VI III VII", 9, "minor") == "Am F C G");
+    CHECK(*song_roman_progression("I V vi IV", 0, "major") == "C G Am F");
+    CHECK(*song_roman_progression("I bVII IV", 7, "major") == "G F C");
+    CHECK(*song_roman_progression("ii V7 I*2", 0, "major") == "Dm G7 C*2");
+    CHECK(*song_roman_progression("vii\xC2\xB0 viidim", 0, "major") == "Bdim Bdim");
+    CHECK(*song_roman_progression("i iv v", 2, "minor") == "Dm Gm Am");
+    auto bad = song_roman_progression("I IX", 0, "major");
+    REQUIRE_FALSE(bad);
+    CHECK(bad.error().message.find("IX") != std::string::npos);
+    CHECK_FALSE(song_roman_progression("I V", 0, "nope"));
+    CHECK_FALSE(song_roman_progression("   ", 0, "major"));
+
+    SongMeter m;
+    auto prog = song_parse_progression("Am F*2 G", m);
+    REQUIRE(prog);
+    auto pad = song_chord_pad(*prog, m, {});
+    REQUIRE(pad);
+    std::vector<SongIssue> issues;
+    SongPattern p = notes_of(*pad, &issues, 4);
+    CHECK(issues.empty());
+    CHECK(p.bars == 4);
+    CHECK(p.events.front().chord == "Am");
+    CHECK(p.events.front().pitches.size() == 3);
+    SongPadOptions bad2;
+    bad2.octave = 9;
+    CHECK_FALSE(song_chord_pad(*prog, m, bad2));
 }
 
 TEST_CASE("song helpers: arpeggios parse back as notes of the right length") {
