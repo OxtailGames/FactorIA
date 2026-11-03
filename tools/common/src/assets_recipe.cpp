@@ -1,6 +1,11 @@
 // provenance.recipe: what the offline makers record so assets.regenerate can make an asset again.
+#include <cmath>
+#include <optional>
+
 #include "assets_internal.h"
+#include "fa/core/asset_manifest.h"
 #include "fa/core/hash.h"
+#include "fa/tooling/style_guide.h"
 
 namespace fa::assets_detail {
 
@@ -31,9 +36,32 @@ std::string recipe_path(const std::string& rel) {
     return norm.ok() && !norm->empty() ? *norm : rel;
 }
 
+std::optional<double> style_music_loudness(const std::string& projectDir) {
+    StyleParse style = load_style_guide(projectDir);
+    if (!style.guide.audio) return std::nullopt;
+    auto it = style.guide.audio->loudnessLufs.find("music");
+    if (it == style.guide.audio->loudnessLufs.end()) return std::nullopt;
+    return it->second;
+}
+
+void add_style_loudness_context(Json& recipe, const std::optional<double>& target) {
+    if (!recipe.contains("context") || !recipe["context"].is_object()) recipe["context"] = Json::object();
+    recipe["context"]["styleMusicLufs"] = target ? Json(*target) : Json();
+}
+
 RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe) {
     RecipeCheck check;
-    if (!recipe.is_object() || !recipe.contains("inputs") || !recipe["inputs"].is_array()) return check;
+    if (!recipe.is_object()) return check;
+    // A value read from assets.json and not from a file: the loudness the style guide asks of music. The recipe records it as a number, or
+    // null when the style guide set none; a different value now makes the asset stale.
+    if (recipe.contains("context") && recipe["context"].is_object() && recipe["context"].contains("styleMusicLufs")) {
+        const Json& recorded = recipe["context"]["styleMusicLufs"];
+        const std::optional<double> before = recorded.is_number() ? std::optional<double>(recorded.get<double>()) : std::nullopt;
+        const std::optional<double> now = style_music_loudness(projectDir);
+        if (before.has_value() != now.has_value() || (before && std::abs(*before - *now) > 1e-9))
+            check.changed.push_back(std::string(assets::kManifestFile) + " (style.audio.loudnessLufs.music)");
+    }
+    if (!recipe.contains("inputs") || !recipe["inputs"].is_array()) return check;
     for (const Json& input : recipe["inputs"]) {
         if (!input.is_object() || !input.contains("path") || !input["path"].is_string()) continue;
         const std::string rel = input["path"].get<std::string>();

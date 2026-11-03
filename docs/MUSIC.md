@@ -10,12 +10,13 @@ platform.
 - Format identifier: `factoria.song/1`. Schema: `schemas/song.schema.json` (`factoria docs read schemas/song.schema.json`).
 - Files: `assets/**/name.song.json`. The preview is `name.preview.wav` next to it (or any `out` path).
 - Commands: `music.create`, `music.edit`, `music.info`, `music.check`, `music.preview`, `music.mix`, and the helpers
-  `music.instrument`, `music.chord`, `music.scale`, `music.arpeggio`, `music.bassline`, `music.drums` (all below).
+  `music.instrument`, `music.chord`, `music.scale`, `music.arpeggio`, `music.bassline`, `music.drums` (all below), and for a game
+  `music.render` (the whole song, its loop points and its stems), `music.import_midi` and `music.export_midi`.
 - `project.validate` (and `assets validate`) reads every `*.song.json`: mistakes are errors with the file, the JSON pointer and,
   inside note text, the line and column; check findings (off-key notes, clashes) are warnings.
 - What this is not: the in-game player. The *document*, its instruments ("Instruments"), its mixer ("The mixer"), its checks and the
-  offline preview exist; the runtime that plays a song in a game (stems, loop points, transitions) is a later milestone that reads the
-  same document. The tempo is one number for the whole song (no tempo changes yet).
+  offline preview exist; the runtime that plays a song in a game (transitions between stems) is a later milestone that reads the
+  same document. `music.render` already writes what that runtime needs: the loop points and one file per layer. The tempo is one number for the whole song (no tempo changes yet).
 
 The loop for a song: **`music.create` a starting point, `music.info` to see it (the result has a piano-roll picture), `music.edit`
 the patterns and sections, `music.check` before listening, `music.preview` to render it**, edit, check again.
@@ -88,6 +89,7 @@ the first bars of each part; the full run is under "A worked example".
 | `swingGrid` | 8 or 16 | 8 | Which off-beats swing: eighth notes or sixteenth notes. |
 | `seed` | integer, 0 or more | 0 | Picks the take of random arpeggios and of the drum kit's round-robin hits. |
 | `volume` | 0 to 1.5 | 0.8 | Master gain (before the master effects and the loudness normalization). |
+| `layers` | object | none | Groups of tracks for the stems of `music.render` ("Layers and stems"). |
 | `mixer` | object | none | The buses and the master: shared effects, the limiter and the loudness target ("The mixer"). |
 | `tracks` | object | required | Track name (1 to 32 letters, digits, `-`, `_`) to track. 1 to 32 tracks. |
 | `sections` | list | required | The arrangement, in play order. 1 to 64 sections, at most 4096 bars in all. |
@@ -342,6 +344,77 @@ built into the engine. Nothing else is required, and a game that uses no SoundFo
 - The file is an input of the preview's recipe: change it and the preview is stale.
 - The result is deterministic: TinySoundFont's math calls use the engine's own math, so the same file and notes give the same samples everywhere.
 
+## Layers and stems
+
+A game that plays music in layers (calm, tension, combat) needs the song as separate files that start together and add up to the
+whole. A **layer** names a group of tracks and how intense the game should be when it is on:
+
+```json
+"layers": {
+  "base":   { "tracks": ["pad", "bass"], "intensity": 0, "doc": "always on" },
+  "rhythm": ["drums"],
+  "action": { "tracks": ["arp", "lead"], "intensity": 2 }
+}
+```
+
+- A layer is a list of track names, or an object with `tracks`, `intensity` (0 to 10, default: its position in the list) and `doc`.
+- A track in two layers is an error. Tracks that no layer lists go to a layer named `other`, which `music.render` makes only when it is not empty.
+- `music.edit` `set_layers {"layers": {"base": ["pad","bass"], "old": null}}` sets or removes layers; renaming or removing a track follows the layers.
+- `music.info` lists the layers.
+
+## Rendering a song for a game
+
+`music.render {"path":"assets/music/theme.song.json"}` renders the **whole song** to `theme.wav` (or `out`; `format` wav or ogg, `sampleRate`,
+`seed`) and tells the game where it loops:
+
+- **Loop.** The loop region is the song's `loop` sections, repeats included (the default song: its 8 bars from bar 5 are the loop, the intro plays
+  once before it and the outro tail is folded onto the loop start, so the wrap has no seam). The points are written to the WAV's `smpl`
+  chunk and to `assets.json` as `import.loopStart` and `import.loopEnd` in seconds, which the audio mixer honours; the exact frames (at 44100 Hz) are in the
+  result (`loop.startFrame`, `loop.endFrame`, `loop.seamless`). A song with no `loop` section has no loop (`loop: null`), and `"loop": false` writes none.
+- **Stems.** `stems` is `"layers"` (one file per layer; the default when the song has layers), `"tracks"` (one per track), `"buses"` (one per bus), `true` (layers, or tracks
+  when there are none) or `false`. Each stem is rendered through the same buses and master as the mix, with the mix's gain, and has the same length and loop
+  points, so the game starts them together and fades them by volume. A stem file is `<out without extension>.stem.<name>.<ext>`:
+  `theme.stem.base.wav`, `theme.stem.rhythm.wav`...
+- **Sum.** Stems carry the mix's gain and limiter gain and are not clamped, so the sum of all the stems equals the mix to within the 16-bit rounding (a few least
+  significant bits; the result's `stemSum.errorDb` is below -80 dBFS) when the buses and the master are linear. A compressor, distortion or bitcrush on a bus or the
+  master is not linear, so the sum is only approximate and `stemSum.exact` is false; the number says by how much.
+- **Recipes.** The mix and every stem share one recipe whose inputs are the song, every `.sfx.json` and `.sf2` it reads and, when the master loudness is the style's, the
+  style guide's music loudness (`recipe.context.styleMusicLufs`). Change any of them and `project.validate` warns and
+  `assets.regenerate {"stale": true}` renders the whole group once. Running `music.render` again updates the entries in place, and deletes the stems of layers that no longer exist
+  (reported as `removedStems`). A file that `music.render` did not make is never overwritten without `overwrite: true`.
+
+The data the in-game player reads (it is in `assets.json`, under the asset's `import.music`):
+
+```json
+"assets/music/theme.wav": { "import": { "loopStart": 6.0, "loopEnd": 18.0, "music": {
+  "role": "mix", "song": "assets/music/theme.song.json", "stemGrouping": "layers",
+  "stems": [ { "name": "base", "path": "assets/music/theme.stem.base.wav", "kind": "layer", "intensity": 0, "tracks": ["pad","bass"], "buses": [] } ] } } },
+"assets/music/theme.stem.base.wav": { "import": { "loopStart": 6.0, "loopEnd": 18.0, "music": {
+  "role": "stem", "song": "assets/music/theme.song.json", "mix": "assets/music/theme.wav",
+  "name": "base", "kind": "layer", "intensity": 0, "tracks": ["pad","bass"], "buses": [] } } }
+```
+
+`music.render` returns the same lists (`loop`, `stems`, `stemSum`) plus the measurements of the mix.
+
+## MIDI
+
+`music.import_midi {"path":"assets/music/tune.mid"}` (also `assets.import` of a `.mid` or `.midi`) reads a Standard MIDI File (format 0, 1 or 2, with its own parser; no
+other program) and writes a `*.song.json` next to it (or `out`). The rules:
+
+- Tempo, time signature and key signature come from the first such event; a later change is a warning and not applied (a song has one tempo and one meter).
+- Every (MIDI track, channel, program) that plays notes becomes a song track. Channel 10 is a drum track whose General MIDI keys become the lanes of the built-in kit.
+  Other tracks get the built-in instrument nearest to the program, or the SoundFont preset with that program when `soundfont` is given.
+- Velocities are kept; the sustain pedal lengthens notes; controllers 7 and 10 set the track's volume and pan.
+- `quantize` (`"off"` by default, or `"16"`, `"8t"`, `"32"`...) moves note starts and ends to a grid. Off keeps them to 1/48 of a quarter note, the finest step note text says.
+- Markers and cue points become sections at the nearest bar line (`intro`, `loop` and `outro` prefixes set the kind); with none, the song is one `main` section.
+- Repeated bars of a track become the same pattern. The result has `import` (tracks, notes, bars, sections, patterns) and `warnings`. The song's provenance records `origin: imported`
+  with `license`, `author` and `sourceUrl`; a file that is not MIDI is the error `invalid_midi` with the byte offset.
+
+`music.export_midi {"path":"assets/music/theme.song.json"}` writes `theme.mid` (format 1): a conductor track (tempo, meter, key, a marker per section) and one track per song
+track, with its instrument name, General MIDI program, volume and pan. The sounded timeline is written: swing is in the times, `transpose` in the pitches, a section's
+mutes are silent, muted tracks are left out. Mixer, effects and automation have no MIDI equivalent. A song without swing and with notes on the 1/48 grid imports back to the
+same notes, times and velocities (a repeat becomes notes: the structure is the notes' bars, not the arrangement).
+
 ## Helpers
 
 Each one returns **text you can paste**; with `path` it also writes it into a song as a pattern (the track is created when
@@ -362,10 +435,13 @@ in the key (`i VI III VII`); `*2` holds a chord two bars.
 | Command | What it does |
 |---|---|
 | `music.create` | Writes a complete, valid starting song: a pad, a bassline, drums and (unless `arpeggio` is false) an arpeggio over the progression, with intro, loop (twice) and outro. Fails with `exists` unless `overwrite`. Returns the summary and the piano roll. |
-| `music.edit` | Applies `ops` in order and writes the song only if the result is valid. Ops: `set_song`, `set_mixer`, `add_track`, `set_track` (`name` renames the track and updates the sections; also `volume`, `pan`, `mute`, `solo`, `voices`, `effects`, `sends`), `remove_track`, `set_pattern`, `remove_pattern`, `add_section`, `set_section`, `remove_section`, `move_section`, `arrange`, `mute`, `set_automation`. Their fields are in `factoria commands music.edit`. |
+| `music.edit` | Applies `ops` in order and writes the song only if the result is valid. Ops: `set_song`, `set_mixer`, `add_track`, `set_track` (`name` renames the track and updates the sections; also `volume`, `pan`, `mute`, `solo`, `voices`, `effects`, `sends`), `remove_track`, `set_pattern`, `remove_pattern`, `add_section`, `set_section`, `remove_section`, `move_section`, `arrange`, `mute`, `set_layers`, `set_automation`. Their fields are in `factoria commands music.edit`. |
 | `music.info` | Checks the document and says what it holds: structure, bars, seconds, notes, a summary per section (start bar and second, notes per bar and per track), the preview's state, and a **piano-roll picture** (`$image`: one colour per track, brighter is louder, drum lanes below, the sections on top). `fromBar`, `bars` and `width` choose the part drawn. |
 | `music.check` | Runs the rules below. `render: true` adds the loudness. Returns `ok`, the findings and what to do. |
 | `music.preview` | Renders the song to a stereo WAV (or `.ogg`) with the instruments and the mixer, and returns the measurements, `mix` (what each track, bus and the master did) and the spectrogram. `fromBar`/`bars`, `solo`/`mute`, `seed` and `sampleRate` (22050, 32000, 44100, 48000) are options. A song over 180 s needs a range. |
+| `music.render` | The song for a game: the whole song as a WAV (or OGG) with its loop points (WAV `smpl` chunk and `import.loopStart`/`loopEnd`) and one stem file per layer, track or bus ("Rendering a song for a game"). Arguments `out`, `format`, `sampleRate`, `seed`, `loop`, `stems`, `overwrite`. Recipe and staleness like the preview; `assets.regenerate` rebuilds the group. |
+| `music.import_midi` | A `.mid` file to a song document (`out`, `quantize`, `soundfont`, `loop`, `overwrite`, `license`, `author`, `sourceUrl`; "MIDI"). |
+| `music.export_midi` | A song to a format-1 `.mid` (`out`, `overwrite`). |
 | `music.mix` | The same render in memory, without a file: the level of every track, the buses and the master (peak, LUFS, limiter reduction, normalization gain). Same options as `music.preview` except the output. |
 
 `music.create` and `music.info` return the piano-roll picture; `music.edit` and the helpers that take `path` return it only with
@@ -465,4 +541,5 @@ so you fix them all in one go. Nothing is ever written when the result would not
 sorted `SongTimeline` of timed note events, in ticks of 960 per quarter note, with swing applied), and the model. `song_check.h`,
 `song_preview.h`, `song_theory.h`, `song_helpers.h`, `song_instruments.h` and `soundfont.h` hold the checks, the offline renderer (the
 instruments and the mixer: `render_song` returns the clip, per-track and master statistics), chords and scales, the generators, the built-in
-instruments and the SoundFont wrapper. Later music work (stems and loop points, the runtime player) reads the same timeline.
+instruments and the SoundFont wrapper. `song_preview.h` also has `render_song_asset` (the whole song, its loop region and the stems, with the sum error) and `song_stem_plan`; `midi.h` (`parse_midi`, `write_midi`)
+and `song_midi.h` (`midi_to_song`, `song_to_midi`) are the MIDI side. The runtime player reads the same timeline and the `import.music` data of "Rendering a song for a game".

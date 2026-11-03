@@ -235,6 +235,15 @@ Json summary_json(const SongDoc& doc, const SongTimeline& tl) {
                              {"tracks", tracks},
                              {"sections", sections}});
     if (!doc.doc.empty()) out["doc"] = doc.doc;
+    if (!doc.layers.empty()) {
+        Json layers = Json::array();
+        for (const SongLayer& l : song_layers(doc)) {
+            Json lj = Json::object({{"name", l.name}, {"tracks", l.tracks}, {"intensity", round_to(l.intensity, 4)}});
+            if (!l.doc.empty()) lj["doc"] = l.doc;
+            layers.push_back(lj);
+        }
+        out["layers"] = layers;
+    }
     return out;
 }
 
@@ -480,13 +489,7 @@ Json check_issue_json(const SongCheckIssue& i) {
 }
 
 // The loudness the style guide asks of the music bus (style.audio.loudnessLufs.music in assets.json), if it says.
-std::optional<double> style_music_lufs(const std::string& projectDir) {
-    StyleParse style = load_style_guide(projectDir);
-    if (!style.guide.audio) return std::nullopt;
-    auto it = style.guide.audio->loudnessLufs.find("music");
-    if (it == style.guide.audio->loudnessLufs.end()) return std::nullopt;
-    return it->second;
-}
+std::optional<double> style_music_lufs(const std::string& projectDir) { return style_music_loudness(projectDir); }
 
 // What the mixer did in a render: per-track levels, the buses and the master (loudness normalization and limiter).
 Json mix_json(const SongDoc& doc, const SongRender& render, const std::optional<double>& styleTarget) {
@@ -670,6 +673,7 @@ Json music_preview_command(const std::string& projectDir, const Json& a) {
         if (std::find(inputs.begin(), inputs.end(), in) == inputs.end()) inputs.push_back(in);
     Json recipe = make_recipe(projectDir, "music.preview",
                               recipe_args(a, {{"path", rel}, {"out", outArg.empty() ? Json() : Json(*norm)}, {"picture", Json()}, {"pictureOut", Json()}, {"width", Json()}, {"height", Json()}}), inputs);
+    if (loaded.doc.mixer.master.loudness == SongMaster::Loudness::Style) add_style_loudness_context(recipe, styleTarget);
     const std::string notes = std::format("song {}, {:.1f} s, {} notes, seed {}", rel, render->seconds, render->notes, options.seed);
     Json provenance = Json::object({{"origin", "original"}, {"ai", false}, {"kind", "music"}, {"provider", "factoria music.preview"}, {"seed", options.seed},
                                     {"license", "CC0-1.0"}, {"author", "factoria"}, {"notes", notes}, {"date", assets::today()}, {"recipe", recipe}});
@@ -763,6 +767,9 @@ Json music_mix_command(const std::string& projectDir, const Json& a) {
 }
 
 }  // namespace
+
+Json music_mix_json(const SongDoc& doc, const SongRender& render, const std::optional<double>& styleTarget) { return mix_json(doc, render, styleTarget); }
+std::optional<double> music_style_target(const std::string& projectDir, const SongDoc& doc) { return style_target_for(projectDir, doc); }
 
 void register_music_commands_core(CommandRegistry& registry, const std::string& projectDir) {
     auto songArgs = [] {
@@ -883,6 +890,8 @@ namespace fa::assets_detail {
 void register_music_commands(CommandRegistry& registry, const std::string& projectDir) {
     music::register_music_commands_core(registry, projectDir);
     music::register_music_edit_commands(registry, projectDir);
+    music::register_music_render_commands(registry, projectDir);
+    music::register_music_midi_commands(registry, projectDir);
 }
 
 }  // namespace fa::assets_detail

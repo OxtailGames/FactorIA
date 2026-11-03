@@ -210,10 +210,13 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`music.create`](commands/assets.md#musiccreate-modifies-state): Write a new song document: pad, bass, drums and an arpeggio over a chord progression, with intro, loop and outro. _Not released yet._
 - [`music.drums`](commands/assets.md#musicdrums-modifies-state): Make a drum pattern in a style (rock, funk, waltz, ...), and optionally put it in a song. _Not released yet._
 - [`music.edit`](commands/assets.md#musicedit-modifies-state): Change a song document: tempo, tracks, patterns, sections, the arrangement, mutes and automation, checked before anything is written. _Not released yet._
+- [`music.export_midi`](commands/assets.md#musicexport_midi-modifies-state): Write a song as a format-1 Standard MIDI File that a DAW or notation program opens. _Not released yet._
+- [`music.import_midi`](commands/assets.md#musicimport_midi-modifies-state): Turn a Standard MIDI File (.mid) into a song document: tracks, patterns, sections from markers, drums as grids. _Not released yet._
 - [`music.info`](commands/assets.md#musicinfo): Check a song document and say what it holds: structure, bars, seconds, a summary per section, and a piano-roll picture. _Not released yet._
 - [`music.instrument`](commands/assets.md#musicinstrument-modifies-state): List the built-in song instruments (by family), the drum kits and lanes, sfx presets and project SoundFonts, show the patch behind an instrument, or list a SoundFont's presets. _Not released yet._
 - [`music.mix`](commands/assets.md#musicmix): Render a song in memory and report the mix: each track's level, the buses and what the master's loudness normalization and limiter did. _Not released yet._
 - [`music.preview`](commands/assets.md#musicpreview-modifies-state): Render a song to a stereo WAV or OGG next to it (offline, deterministic) and see its spectrogram. _Not released yet._
+- [`music.render`](commands/assets.md#musicrender-modifies-state): Render a whole song (intro, loop, outro) to a game-ready WAV or OGG with sample-exact loop points, and optionally one stem per layer. _Not released yet._
 - [`music.scale`](commands/assets.md#musicscale): Say which notes a scale or mode has and the chords built on its degrees (with Roman numerals). _Not released yet._
 - [`sfx.bake`](commands/assets.md#sfxbake-modifies-state): Render every sound patch of the project whose WAV is missing or out of date. _Not released yet._
 - [`sfx.family`](commands/assets.md#sfxfamily-modifies-state): Make a consistent set of interface sounds (click, hover, confirm, cancel, error, open, close, notify) from one base patch. _Not released yet._

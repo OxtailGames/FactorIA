@@ -514,6 +514,64 @@ struct Parser {
                         did_you_mean(send.first, names) + (names.empty() ? " The song has no buses: add one under \"mixer\": {\"buses\": {\"" + send.first + "\": {\"effects\": [...]}}}." : " Buses: " + join(names) + "."));
     }
 
+    // ---- layers ------------------------------------------------------------------------------------------------------
+    void layers(const Json& j, SongDoc& song) {
+        const std::string base = "/layers";
+        if (!j.is_object() || j.empty() || j.size() > 16) {
+            err(base, "layers must be an object of 1 to 16 named layers, got " + describe_json_value(j),
+                "Write {\"drums\": [\"drums\"], \"harmony\": {\"tracks\": [\"pad\", \"keys\"], \"intensity\": 0.4}}: the layer's name and the tracks it holds.");
+            return;
+        }
+        std::vector<std::string> trackNames;
+        for (const SongTrack& t : song.tracks) trackNames.push_back(t.name);
+        std::map<std::string, std::string> owner;  // track -> layer
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            const std::string name = it.key();
+            const std::string at = base + "/" + escape_pointer(name);
+            SongLayer layer;
+            layer.name = name;
+            if (!valid_name(name)) err(at, "the layer name `" + name + "` is not valid", "Use 1 to 32 letters, digits, '-' or '_'.");
+            if (name == kSongRestLayer) err(at, "`" + name + "` is the name of the layer that collects the tracks no layer names", "Name your layer something else; the tracks you leave out go to `other` by themselves.");
+            const Json* list = &it.value();
+            if (it.value().is_object()) {
+                unknown_keys(it.value(), at, {"tracks", "intensity", "doc"}, "a layer");
+                text(it.value(), at, "doc", layer.doc, "What the layer adds to the music.");
+                double intensity = 0.0;
+                if (number(it.value(), at, "intensity", intensity, 0.0, 1.0, "The music intensity (0 to 1) from which the layer plays: 0 is always on, 1 only at full intensity.")) {
+                    layer.intensity = intensity;
+                    layer.intensityWritten = true;
+                }
+                auto t = it.value().find("tracks");
+                if (t == it.value().end()) {
+                    err(at, "the layer `" + name + "` has no `tracks`", "Write \"tracks\": [\"pad\", \"keys\"].");
+                    list = nullptr;
+                } else list = &*t;
+            }
+            if (list && (!list->is_array() || list->empty())) {
+                err(it.value().is_object() ? at + "/tracks" : at, "a layer holds a list of track names, got " + describe_json_value(*list), "Write [\"pad\", \"keys\"]. Tracks: " + join(trackNames) + ".");
+                list = nullptr;
+            }
+            if (list) {
+                for (std::size_t i = 0; i < list->size(); ++i) {
+                    const Json& n = (*list)[i];
+                    const std::string tp = (it.value().is_object() ? at + "/tracks/" : at + "/") + std::to_string(i);
+                    const std::string tn = n.is_string() ? n.get<std::string>() : std::string();
+                    if (std::find(trackNames.begin(), trackNames.end(), tn) == trackNames.end()) {
+                        err(tp, "the layer `" + name + "` holds " + (n.is_string() ? "the unknown track `" + tn + "`" : "something that is not a track name: " + describe_json_value(n)), did_you_mean(tn, trackNames) + " Tracks: " + join(trackNames) + ".");
+                        continue;
+                    }
+                    if (auto o = owner.find(tn); o != owner.end()) {
+                        err(tp, "the track `" + tn + "` is in the layers `" + o->second + "` and `" + name + "`", "A track belongs to one layer, so the stems add up to the mix without counting it twice.");
+                        continue;
+                    }
+                    owner[tn] = name;
+                    layer.tracks.push_back(tn);
+                }
+            }
+            song.layers.push_back(std::move(layer));
+        }
+    }
+
     // ---- sections ----------------------------------------------------------------------------------------------------
     bool entry_text(const std::string& s, const std::string& pointer, std::vector<SongPlayEntry>& out) {
         std::size_t i = 0;
@@ -707,6 +765,21 @@ int SongDoc::track_index(std::string_view name) const {
     return -1;
 }
 
+std::vector<SongLayer> song_layers(const SongDoc& song) {
+    std::vector<SongLayer> out = song.layers;
+    std::vector<std::string> placed;
+    for (const SongLayer& l : out) placed.insert(placed.end(), l.tracks.begin(), l.tracks.end());
+    SongLayer rest;
+    rest.name = kSongRestLayer;
+    rest.doc = "The tracks no layer names.";
+    for (const SongTrack& t : song.tracks)
+        if (std::find(placed.begin(), placed.end(), t.name) == placed.end()) rest.tracks.push_back(t.name);
+    if (!rest.tracks.empty()) out.push_back(std::move(rest));
+    for (std::size_t i = 0; i < out.size(); ++i)
+        if (!out[i].intensityWritten) out[i].intensity = out.size() > 1 ? double(i) / double(out.size() - 1) : 0.0;
+    return out;
+}
+
 std::vector<int> SongDoc::scale_pitch_classes() const { return song_scale_pitch_classes(keyRoot, mode).value_or(std::vector<int>{}); }
 
 std::string SongTimeline::position_text(const SongDoc& song, std::int64_t tick) const {
@@ -736,7 +809,7 @@ Result<SongDoc> parse_song(const Json& json, std::string_view file, std::vector<
               "Start from {\"format\": \"factoria.song/1\", \"tempo\": 120, \"tracks\": {...}, \"sections\": [...]} (music.create writes one; schemas/song.schema.json).");
         return done();
     }
-    p.unknown_keys(json, "", {"$schema", "format", "doc", "tempo", "meter", "key", "mode", "swing", "swingGrid", "seed", "volume", "mixer", "tracks", "sections", "automation"}, "a song document");
+    p.unknown_keys(json, "", {"$schema", "format", "doc", "tempo", "meter", "key", "mode", "swing", "swingGrid", "seed", "volume", "mixer", "tracks", "sections", "automation", "layers"}, "a song document");
     if (auto f = json.find("format"); f == json.end() || !f->is_string() || f->get<std::string>() != kSongFormat)
         p.err("/format", f == json.end() ? "missing `format`" : "format must be \"factoria.song/1\", got " + describe_json_value(*f), "Write \"format\": \"factoria.song/1\".");
     p.text(json, "", "doc", song.doc, "What the music is for and how it should feel.");
@@ -802,6 +875,7 @@ Result<SongDoc> parse_song(const Json& json, std::string_view file, std::vector<
         std::vector<std::string> seen;
         for (std::size_t i = 0; i < s->size(); ++i) p.section(i, (*s)[i], song, seen);
     }
+    if (auto l = json.find("layers"); l != json.end()) p.layers(*l, song);
     p.resolve_sends(song);
     if (p.issues.empty()) p.resolve(song);
     song.source = json;

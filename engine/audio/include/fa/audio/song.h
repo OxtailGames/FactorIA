@@ -181,6 +181,16 @@ struct SongMixer {
     const SongBus* find_bus(std::string_view name) const;
 };
 
+// A layer (M56.3): a named group of tracks that the stems of `music.render` render as one file and the adaptive player (M56.4) fades in
+// and out. `intensity` is the music intensity (0..1) from which the layer plays: the base layer is 0, the busiest layer 1.
+struct SongLayer {
+    std::string name;
+    std::vector<std::string> tracks;
+    double intensity = 0.0;
+    bool intensityWritten = false;    // `intensity` was written in the document (otherwise it is spread evenly over the layers)
+    std::string doc;
+};
+
 struct SongDoc {
     std::string doc;
     double tempo = 120.0;             // quarter notes per minute
@@ -196,6 +206,7 @@ struct SongDoc {
     std::vector<SongTrack> tracks;
     std::vector<SongSection> sections;
     std::vector<SongAutomation> automation;  // master lanes: volume, filter
+    std::vector<SongLayer> layers;    // as written (empty: the song declares none); see song_layers()
     Json source;                      // the document as written
 
     const SongTrack* find_track(std::string_view name) const;
@@ -204,6 +215,12 @@ struct SongDoc {
     // The key's scale as pitch classes (empty for an unknown mode, which parse_song rejects).
     std::vector<int> scale_pitch_classes() const;
 };
+
+// The layers of the song with everything filled in: the intensities spread evenly when not written (the first layer 0, the last 1), and
+// the tracks no layer names collected in a last layer called "other" (so the layers always add up to the whole song). A song without
+// `layers` has none (a caller that wants stems then picks a grouping, see song_render.h).
+std::vector<SongLayer> song_layers(const SongDoc& song);
+inline constexpr const char* kSongRestLayer = "other";
 
 // One note of the unrolled song.
 struct SongNote {

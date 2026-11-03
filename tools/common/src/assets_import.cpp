@@ -9,6 +9,7 @@
 
 #include "assets_internal.h"
 #include "image_edit.h"
+#include "music_internal.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/asset_import.h"
@@ -458,6 +459,8 @@ const std::map<std::string, Route>& routes() {
 std::string supported_extensions() {
     std::vector<std::string> list;
     for (const auto& [ext, route] : routes()) list.push_back(ext);
+    list.push_back(".mid");
+    list.push_back(".midi");
     return join(list, ", ");
 }
 
@@ -479,6 +482,16 @@ Json import_asset(const std::string& projectDir, const Json& a) {
     const std::string sourceArg = arg_string(a, "source", true);
     const stdfs::path source = resolve_source(projectDir, sourceArg);
     const std::string ext = to_lower(source.extension().string());
+    // A MIDI file becomes a song document (the same as music.import_midi, which has the options).
+    if (ext == ".mid" || ext == ".midi") {
+        Json args = Json::object();
+        for (const char* key : {"overwrite", "license", "author", "sourceUrl", "quantize", "soundfont", "loop"})
+            if (a.contains(key)) args[key] = a[key];
+        const std::string dest = arg_string(a, "path", false);
+        Json result = music::import_midi_file(projectDir, source, replace_all(sourceArg, "\\", "/"), args, dest);
+        result["importer"] = "midi";
+        return result;
+    }
     const auto route = routes().find(ext);
     if (route == routes().end()) {
         std::string hint = "Supported: " + supported_extensions() + ".";
@@ -627,6 +640,8 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "bounds so you can scale it.\n"
         "- .fbx: converted to .glb by FBX2glTF ($FACTORIA_FBX2GLTF or PATH) or by Blender (PATH or its install folder). With neither "
         "installed the error says where to get them.\n"
+        "- .mid .midi: becomes a song document (assets/music/<name>.song.json, or `path`): tracks, patterns, sections from markers, drums as grids "
+        "(music.import_midi has the options `quantize` and `soundfont`; docs/MUSIC.md, \"MIDI\").\n"
         "- .mp4 .mov .webm .mkv .avi .m4v: converted to an MPEG-1 video with MP2 audio in an .mpg (the only video the engine plays, "
         "the same on every platform) by ffmpeg, at most 1280 px wide, quality 4, 30 fps when the frame rate is not one MPEG-1 has. "
         "ffmpeg is found through $FACTORIA_FFMPEG, PATH or the copy `factoria setup ffmpeg` installs; without it the error names that "
