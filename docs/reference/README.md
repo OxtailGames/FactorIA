@@ -166,6 +166,12 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`image.draw`](commands/assets.md#imagedraw-modifies-state): Draw pixel-exact shapes (lines, rectangles, ellipses, polygons, flood fills) onto an indexed pixel-art layer by palette colour. _Not released yet._
 - [`image.edit`](commands/assets.md#imageedit-modifies-state): Change the selected pixels of one layer of an image document: fill, recolor, move, transform (scale, rotate, flip), delete, copy or cut to a new layer. _Not released yet._
 - [`image.export`](commands/assets.md#imageexport-modifies-state): Write the flattened picture of a document, or one layer or group of it, to a PNG, optionally scaled or trimmed. _Not released yet._
+- [`image.frame.add`](commands/assets.md#imageframeadd-modifies-state): Add frames to an image document (making it an animation), copying a frame or blank, and keep the tags in place. _Not released yet._
+- [`image.frame.cel`](commands/assets.md#imageframecel-modifies-state): Make a layer show in one frame what it shows in another, or show nothing there. _Not released yet._
+- [`image.frame.move`](commands/assets.md#imageframemove-modifies-state): Move a frame to another place in the animation; tags follow their frames. _Not released yet._
+- [`image.frame.remove`](commands/assets.md#imageframeremove-modifies-state): Remove one frame of an animated image document; later frames and tags move down. _Not released yet._
+- [`image.frame.set`](commands/assets.md#imageframeset-modifies-state): Set how long frames show, in milliseconds. _Not released yet._
+- [`image.frame.sheet`](commands/assets.md#imageframesheet-modifies-state): Choose how many frames the baked sprite sheet has per row. _Not released yet._
 - [`image.info`](commands/assets.md#imageinfo): Describe a layered image document: its layers as a tree with index paths, sizes, bake status, the files it reads and its stored selections. _Not released yet._
 - [`image.layer.add`](commands/assets.md#imagelayeradd-modifies-state): Add a layer to an image document (at the top, or at an index, or inside a group) and bake the picture. _Not released yet._
 - [`image.layer.convert`](commands/assets.md#imagelayerconvert-modifies-state): Turn a layer into an indexed pixel-art layer (quantized to the palette, optional dither) or an indexed layer back into a pixels layer. _Not released yet._
@@ -177,6 +183,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`image.pixel`](commands/assets.md#imagepixel-modifies-state): Write exact pixels (a list, runs or a text stamp) onto an indexed pixel-art layer by palette colour; no anti-aliasing. _Not released yet._
 - [`image.save`](commands/assets.md#imagesave-modifies-state): Check an image document, write it to a *.image.json file and bake its PNG; nothing is written when the document has a problem. _Not released yet._
 - [`image.select`](commands/assets.md#imageselect-modifies-state): Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint. _Not released yet._
+- [`image.tag.remove`](commands/assets.md#imagetagremove-modifies-state): Remove a tag (and so its clip) from an image document. _Not released yet._
+- [`image.tag.set`](commands/assets.md#imagetagset-modifies-state): Name a run of frames (a tag); the bake makes a SpriteAnimator clip of it. _Not released yet._
 - [`sfx.bake`](commands/assets.md#sfxbake-modifies-state): Render every sound patch of the project whose WAV is missing or out of date. _Not released yet._
 - [`sfx.info`](commands/assets.md#sfxinfo): Check a sound patch and say what it holds and how loud it renders, without writing anything. _Not released yet._
 - [`sfx.preset`](commands/assets.md#sfxpreset-modifies-state): List the sound presets, return one as an editable patch, or write it to a *.sfx.json file. _Not released yet._

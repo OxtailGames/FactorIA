@@ -336,7 +336,7 @@ tracks that resolve to no part of that Animator's entity or to a part without th
 ## Sprite sheets: SpriteAnimator
 
 `SpriteAnimator` plays the frames of a sprite sheet on the `Sprite` of the same entity (it sets the sprite's `region` every
-frame). A sheet that `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` or an Aseprite import made has a `sheet`
+frame). A sheet that `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet`, an Aseprite import or the bake of an image document with frames and tags ([IMAGES.md](IMAGES.md), "Frames and tags") made has a `sheet`
 entry in `assets.json` with its grid, `padding`, `pivot` and named clips (`firstFrame`, `lastFrame`, `fps`, `loop`); the
 game plays a clip by its name:
 

@@ -41,6 +41,7 @@ struct Ctx {
     std::set<std::string> inputs;
     std::vector<std::string> warnings;
     std::optional<StyleGuide> styleGuide;  // read from assets.json the first time an operation asks
+    int frame = 0;                         // the frame being drawn: pixels and indexed layers show their cel of it
 
     const StyleGuide& style() {
         if (!styleGuide) styleGuide = projectDir.empty() ? StyleGuide{} : load_style_guide(projectDir).guide;
@@ -179,14 +180,16 @@ Raster text_raster(Ctx& ctx, const ImageLayer& layer) {
     return r;
 }
 
-Raster render_content(Ctx& ctx, const ImageLayer& layer);
+Raster render_content(Ctx& ctx, const ImageLayer& layer, const ImageCelView& cel);
 
 void composite_layers(Ctx& ctx, const std::vector<ImageLayer>& layers, Raster& canvas);
 
-Raster render_content(Ctx& ctx, const ImageLayer& layer) {
+Raster render_content(Ctx& ctx, const ImageLayer& layer, const ImageCelView& cel) {
     const int cw = ctx.doc.width, ch = ctx.doc.height;
     switch (layer.kind) {
         case ImageLayerKind::Pixels:
+            if (cel.empty) return Raster();
+            return from_image(ctx.image(cel.origin == 0 ? layer.pointer + "/source" : layer.pointer + "/cels", *cel.source));
         case ImageLayerKind::Provider: return from_image(ctx.image(layer.pointer + "/source", layer.source));
         case ImageLayerKind::Fill: return solid_box(layer.width > 0 ? layer.width : cw, layer.height > 0 ? layer.height : ch, layer.color);
         case ImageLayerKind::Gradient: return gradient_box(layer.gradient, layer.width > 0 ? layer.width : cw, layer.height > 0 ? layer.height : ch);
@@ -224,15 +227,18 @@ Raster render_content(Ctx& ctx, const ImageLayer& layer) {
             return inner;
         }
         case ImageLayerKind::Indexed: {
-            const int w = layer.width > 0 ? layer.width : cw, h = layer.height > 0 ? layer.height : ch;
+            const std::vector<std::string>& rows = *cel.rows;
+            if (cel.empty) return Raster();
+            const int w = !rows.empty() ? int(rows[0].size()) : layer.width > 0 ? layer.width : cw;
+            const int h = !rows.empty() ? int(rows.size()) : layer.height > 0 ? layer.height : ch;
             Raster r(w, h);
-            if (layer.rows.empty()) return r;  // a blank layer
+            if (rows.empty()) return r;  // a blank layer
             if (ctx.doc.palette.empty())
                 ctx.fail(layer.pointer, "The layer is indexed but the document has no palette to look its colours up in.",
                          "Add `palette` to the document (a list of colours), or set style.palette in assets.json and parse the document with its project folder.");
-            for (int y = 0; y < h && y < int(layer.rows.size()); ++y)
+            for (int y = 0; y < h && y < int(rows.size()); ++y)
                 for (int x = 0; x < w; ++x) {
-                    const int idx = pixel_char_index(layer.rows[std::size_t(y)][std::size_t(x)]);
+                    const int idx = pixel_char_index(rows[std::size_t(y)][std::size_t(x)]);
                     if (idx < 0 || idx >= ctx.doc.palette.size()) continue;
                     float* d = r.at(x, y);
                     const auto& c = ctx.doc.palette.entries[std::size_t(idx)].rgb;
@@ -346,7 +352,10 @@ void composite_layers(Ctx& ctx, const std::vector<ImageLayer>& layers, Raster& c
             continue;
         }
 
-        Raster r = render_content(ctx, layer);
+        const ImageCelView cel = image_layer_cel(layer, ctx.frame);
+        const int layerX = cel.x, layerY = cel.y;
+        const float layerOpacity = layer.opacity * cel.opacity;
+        Raster r = render_content(ctx, layer, cel);
         if (!r.empty()) {
             apply_adjustments(layer.adjustments, r, ctx.op_env(layer.pointer, "adjustments"));
             if (!layer.masks.empty()) {
@@ -356,7 +365,7 @@ void composite_layers(Ctx& ctx, const std::vector<ImageLayer>& layers, Raster& c
             apply_effects(layer.effects, r, ctx.op_env(layer.pointer, "effects"));
         }
         // r's pixel (i, j) lies at canvas (layer.x + r.ox + i, layer.y + r.oy + j)
-        const int cx0 = layer.x + r.ox, cy0 = layer.y + r.oy;
+        const int cx0 = layerX + r.ox, cy0 = layerY + r.oy;
         if (!layer.clip && nextClips) {
             base.alpha = Plane(canvas.w, canvas.h, 0, 0, 0.0f);
             for (int j = 0; j < r.h; ++j)
@@ -378,7 +387,7 @@ void composite_layers(Ctx& ctx, const std::vector<ImageLayer>& layers, Raster& c
                 float s[4];
                 const float* src = r.at(i, j);
                 s[0] = src[0]; s[1] = src[1]; s[2] = src[2];
-                s[3] = src[3] * layer.opacity;
+                s[3] = src[3] * layerOpacity;
                 if (layer.clip) s[3] *= base.alpha.at(x, y);
                 if (s[3] <= 0.0f) continue;
                 float* d = canvas.at(x, y);
@@ -390,26 +399,125 @@ void composite_layers(Ctx& ctx, const std::vector<ImageLayer>& layers, Raster& c
 
 }  // namespace
 
-Result<ImageRender> composite_image_document(const ImageDocument& doc, const ImageRenderOptions& options) {
+namespace {
+
+Raster blank_canvas(const ImageDocument& doc, bool withBackground) {
+    Raster canvas(doc.width, doc.height);
+    if (withBackground && doc.background) {
+        for (std::size_t i = 0; i < canvas.px.size(); i += 4) {
+            canvas.px[i] = doc.background->r;
+            canvas.px[i + 1] = doc.background->g;
+            canvas.px[i + 2] = doc.background->b;
+            canvas.px[i + 3] = doc.background->a;
+        }
+    }
+    return canvas;
+}
+
+Raster draw_frame(Ctx& ctx, int frame, bool withBackground) {
+    ctx.frame = frame;
+    Raster canvas = blank_canvas(ctx.doc, withBackground);
+    composite_layers(ctx, ctx.doc.layers, canvas);
+    return canvas;
+}
+
+// `r` over `canvas`, pixel for pixel (both are the size of the document).
+void draw_over(Raster& canvas, const Raster& r) {
+    for (std::size_t i = 0; i < canvas.px.size(); i += 4) {
+        if (r.px[i + 3] <= 0.0f) continue;
+        composite_pixel(ImageBlend::Normal, &canvas.px[i], &r.px[i], &canvas.px[i]);
+    }
+}
+
+// The ghosts of the frames around `frame` under the frame itself.
+Raster draw_with_onion(Ctx& ctx, int frame, const ImageOnionSkin& onion) {
+    const int n = image_frame_count(ctx.doc);
+    Raster canvas = blank_canvas(ctx.doc, true);
+    auto ghost = [&](int distance, int sign) {
+        int f = frame + sign * distance;
+        if (onion.loop && n > 1) f = ((f % n) + n) % n;
+        if (f < 0 || f >= n || f == frame) return;
+        Raster g = draw_frame(ctx, f, false);
+        const Color tint = sign < 0 ? onion.beforeColor : onion.afterColor;
+        const float alpha = onion.opacity / float(distance);
+        for (std::size_t i = 0; i < g.px.size(); i += 4) {
+            if (g.px[i + 3] <= 0.0f) continue;
+            g.px[i] = g.px[i] * 0.4f + tint.r * 0.6f;
+            g.px[i + 1] = g.px[i + 1] * 0.4f + tint.g * 0.6f;
+            g.px[i + 2] = g.px[i + 2] * 0.4f + tint.b * 0.6f;
+            g.px[i + 3] *= alpha;
+        }
+        draw_over(canvas, g);
+    };
+    for (int d = onion.before; d >= 1; --d) ghost(d, -1);   // the farthest first
+    for (int d = onion.after; d >= 1; --d) ghost(d, +1);
+    draw_over(canvas, draw_frame(ctx, frame, false));
+    return canvas;
+}
+
+Result<void> check_canvas(const ImageDocument& doc) {
     if (doc.width < 1 || doc.height < 1 || doc.width > kImageDocMaxSide || doc.height > kImageDocMaxSide)
         return make_error(std::format("The canvas is {}x{}, which is not from 1 to {} on each side.", doc.width, doc.height, kImageDocMaxSide), "Set width and height of the document.");
+    return {};
+}
+
+// A warning a layer makes while it is drawn is made again for every frame: say it once.
+std::vector<std::string> unique_warnings(std::vector<std::string> list) {
+    std::vector<std::string> out;
+    for (std::string& w : list)
+        if (std::find(out.begin(), out.end(), w) == out.end()) out.push_back(std::move(w));
+    return out;
+}
+
+ImageRender finish(Ctx& ctx, const Raster& canvas) {
+    ImageRender out;
+    out.image = to_image(canvas);
+    out.inputs.assign(ctx.inputs.begin(), ctx.inputs.end());
+    out.warnings = unique_warnings(std::move(ctx.warnings));
+    return out;
+}
+
+}  // namespace
+
+Result<ImageRender> composite_image_document(const ImageDocument& doc, const ImageRenderOptions& options) {
+    if (auto ok = check_canvas(doc); !ok.ok()) return ok.error();
+    const int frames = image_frame_count(doc);
+    if (options.frame < 0 || options.frame >= frames)
+        return make_error(std::format("Frame {} does not exist: the document has {} frame{} (0 to {}).", options.frame, frames, frames == 1 ? "" : "s", frames - 1),
+                          frames == 1 ? "Add frames with image.frame.add, or draw frame 0." : "Use a frame from 0 to " + std::to_string(frames - 1) + ".");
     Ctx ctx{doc, options.projectDir, {}, {}, {}};
     assets_detail::ProjectRootGuard root(options.projectDir);  // fonts are read through the VFS
     try {
-        Raster canvas(doc.width, doc.height);
-        if (doc.background) {
-            for (std::size_t i = 0; i < canvas.px.size(); i += 4) {
-                canvas.px[i] = doc.background->r;
-                canvas.px[i + 1] = doc.background->g;
-                canvas.px[i + 2] = doc.background->b;
-                canvas.px[i + 3] = doc.background->a;
-            }
+        if (options.onion && frames > 1) return finish(ctx, draw_with_onion(ctx, options.frame, *options.onion));
+        return finish(ctx, draw_frame(ctx, options.frame, true));
+    } catch (const RenderFailure& f) {
+        return make_error(f.message, f.hint);
+    }
+}
+
+Result<ImageRender> composite_image_sheet(const ImageDocument& doc, const ImageSheetPlan& plan, const ImageRenderOptions& options) {
+    if (auto ok = check_canvas(doc); !ok.ok()) return ok.error();
+    Ctx ctx{doc, options.projectDir, {}, {}, {}};
+    assets_detail::ProjectRootGuard root(options.projectDir);
+    try {
+        Image sheet;
+        sheet.width = plan.columns * doc.width;
+        sheet.height = plan.rows * doc.height;
+        sheet.rgba.assign(std::size_t(sheet.width) * sheet.height * 4, 0);
+        std::map<int, Image> drawn;  // a frame appears in several cells (the extra cells of a tag): draw it once
+        for (int cell = 0; cell < plan.cells; ++cell) {
+            const int f = plan.cellFrame[std::size_t(cell)];
+            auto it = drawn.find(f);
+            if (it == drawn.end()) it = drawn.emplace(f, to_image(draw_frame(ctx, f, true))).first;
+            const Image& frame = it->second;
+            const int ox = (cell % plan.columns) * doc.width, oy = (cell / plan.columns) * doc.height;
+            for (int y = 0; y < doc.height; ++y)
+                std::copy_n(&frame.rgba[std::size_t(y) * doc.width * 4], std::size_t(doc.width) * 4, &sheet.rgba[(std::size_t(oy + y) * sheet.width + ox) * 4]);
         }
-        composite_layers(ctx, doc.layers, canvas);
         ImageRender out;
-        out.image = to_image(canvas);
+        out.image = std::move(sheet);
         out.inputs.assign(ctx.inputs.begin(), ctx.inputs.end());
-        out.warnings = std::move(ctx.warnings);
+        out.warnings = unique_warnings(std::move(ctx.warnings));
         return out;
     } catch (const RenderFailure& f) {
         return make_error(f.message, f.hint);

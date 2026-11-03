@@ -926,7 +926,7 @@ assets.import {"source":"C:/art/crate.obj","path":"assets/models/crate/","licens
 | `license`, `author` | Recorded in the provenance. Pass them for anything you did not make: the credits and the store disclosures read `assets.json`. |
 | `sourceUrl` | The page the file came from. It replaces the local path in `provenance.source`. |
 | `ai` | `true` when an AI made it. Left out when you do not know. |
-| `columns` | Aseprite only: frames per row of the sheet. |
+| `columns` | Aseprite only: cells per row of the sheet. |
 | `overwrite` | Replace files that already exist. Without it an existing file is an error that says so. |
 
 The result lists the files written, the provenance recorded, importer details, warnings (what could not be carried over)
@@ -939,7 +939,7 @@ and next steps with the component settings to use. Each written file gets an `as
 | `.wav` `.ogg` `.mp3` | Copied into `assets/audio/`. |
 | `.ttf` `.otf` | Copied into `assets/fonts/`. A game that shows Chinese, Japanese, Korean or Arabic ships such a font (see [TEXT.md](TEXT.md)). |
 | `.glb` `.gltf` | Copied into `assets/models/`, with the `.bin` buffers and images its `uri`s point at (the `.glb` carries its own data; only external files count), keeping their relative paths next to the model (`Textures/colormap.png` lands in `assets/models/Textures/`). Each copied file gets a provenance record. A missing buffer is an error, a missing image a warning. A file with the same name that is already there and identical is shared; a DIFFERENT image is kept, and the result warns (kits often ship different `colormap.png` files under one name), while a DIFFERENT buffer is an `exists` error (a model cannot load another one's geometry): import each kit into its own folder with `path` (`"assets/models/town/"`) or pass `overwrite`. `factoria validate` reports a model whose texture or buffer is missing. |
-| `.aseprite` `.ase` | A PNG sprite sheet plus its `sheet` entry (see below). |
+| `.aseprite` `.ase` | An image document (`<name>.image.json`) with the file's layers, cels, frames and tags, a cel PNG per layer and frame in `<name>.layers/`, and the sprite sheet baked from it with its `sheet` clips; `flat: true` makes only the PNG sheet (see Aseprite below). |
 | `.psd` | A layered image document (`<name>.image.json`) with one PNG per layer in `<name>.layers/`, and the PNG baked from it (see PSD below). A file whose layers cannot be read imports its merged image as a PNG. |
 | `.obj` (+ `.mtl`, textures) | A `.gltf` with its data embedded, plus the textures next to it. |
 | `.fbx` | A `.glb`, converted by FBX2glTF or Blender (see below). |
@@ -955,11 +955,25 @@ Models do not have to be files: a script can build a mesh at run time with `mesh
 
 ### Aseprite
 
-Every frame is drawn with its visible layers (layer and cel opacity, linked cels, RGBA, grayscale and indexed color with
-the palette and the transparent index) and laid out in a grid, left to right and top to bottom. By default the grid is
-`ceil(sqrt(frames))` columns wide; `columns` changes it. The `sheet` entry in `assets.json` records
-`columns, rows, frameWidth, frameHeight, frames` and one clip per Aseprite tag (`name, firstFrame, lastFrame, fps, loop`).
-A clip's `fps` is the average of its frames' durations (`1000 * frames / milliseconds`, two decimals).
+The file becomes an **image document** ([IMAGES.md](IMAGES.md), "Frames and tags"): `<name>.image.json` with the layers
+(visibility, opacity, blend mode: normal, multiply, screen, overlay, darken, lighten, color dodge, color burn, hard light,
+soft light, difference, exclusion, hue, saturation, color, luminosity, add and subtract), the cels of every frame (a linked cel is
+a `link`, a layer that does not change needs no cel), the frame durations and the tags with their direction and repeat count.
+Each cel's picture is `<name>.layers/<layer>-<frame>.png`; groups are flattened into their layers. An indexed file keeps its
+palette (an indexed document) when it has at most 81 distinct opaque colours; otherwise its layers are pixels layers and the
+result says why. The sprite sheet is then BAKED from the document like any other image document: the frames in a grid, left to
+right and top to bottom, `ceil(sqrt(cells))` columns wide by default (`columns` changes it), and the `sheet` entry in `assets.json`
+records `columns, rows, frameWidth, frameHeight, frames` and one clip per tag (`name, firstFrame, lastFrame, fps, loop`).
+A clip's `fps` is `1000 * frames / milliseconds` (the same for every frame when their durations match). A tag that plays in
+reverse or ping-pong, repeats, or has frames of different durations gets extra cells at the end of the sheet that spell its
+order out, so the clip plays as the file says with no `SpriteAnimator.mode`; `repeat: N` makes the clip non-looping. A file with
+one frame and no tags is a document that bakes a plain PNG.
+
+You then edit the animation with `image.pixel`, `image.draw`, `image.edit` and `image.paint` (`frame`) and `image.frame.*` /
+`image.tag.*`; the PNG and its clips follow (and a change of the document makes the PNG stale, like any baked picture).
+`flat: true` keeps the earlier import: one PNG sheet with the frames in order (no extra cells, no document); there a reverse or
+ping-pong tag is a forward clip (set `SpriteAnimator.mode` to play it that way), a repeat count is ignored, and blend modes are
+drawn as normal.
 
 To play a clip, use the next steps of the result:
 
@@ -970,9 +984,12 @@ To play a clip, use the next steps of the result:
 
 Leave the Sprite's `region` and `size` empty: SpriteAnimator sets the region, and the frame size is the sprite size.
 
-What is not carried over, with a warning each time: tags that play in reverse or ping-pong (the clip plays forward,
-because the sheet keeps no direction; set `SpriteAnimator.mode` to `reverse` or `pingpong`), layers with a blend mode other than normal (drawn as normal) and tilemap
-layers. Slices and user data are ignored. A damaged file is an error that names what is wrong ("frame 3 is cut short").
+What is not carried over, with a warning each time: layers with the divide blend mode (drawn as normal), blend modes of a group, tilemap
+layers, reference layers and layers with no pixels in any frame (left out), a tag that plays ping-pong in reverse (a document tag
+plays ping-pong forward), and the z-index of cels. Slices and user data are ignored. A damaged file is an error that names
+what is wrong ("frame 3 is cut short").
+With `flat: true` the sheet has no extra cells: tags that play in reverse or ping-pong are forward clips, a repeat count is
+ignored and blend modes other than normal are drawn as normal; each says so.
 
 ### PSD
 

@@ -14,6 +14,7 @@
 #include "fa/tooling/style_guide.h"
 #include "image_doc_internal.h"
 #include "image_edit.h"
+#include "image_frames.h"
 #include "util.h"
 
 namespace fa::imgedit {
@@ -95,7 +96,7 @@ Image upscale_nearest(const Image& src, int scale) {
 // .factoria/previews/<document>.png. `scale` 0 = automatic: as large as fits 512 pixels, at most 32x.
 void attach_preview(const std::string& projectDir, const std::string& rel, const Json& docJson, Json& out, int scale) {
     if (!out.contains("$image")) return;
-    auto picture = render_document_json(projectDir, docJson);
+    auto picture = render_preview_json(projectDir, docJson);   // the frame the command works on, with its onion skin
     if (!picture) return;
     if (scale <= 0) scale = std::clamp(512 / std::max(1, std::max(picture->width, picture->height)), 1, 32);
     if (std::size_t(picture->width) * scale > 4096 || std::size_t(picture->height) * scale > 4096) scale = std::max(1, 4096 / std::max(picture->width, picture->height));
@@ -300,8 +301,9 @@ Json finish(const std::string& projectDir, DocFile& d, Target& t, const std::opt
 
 Json image_pixel(const std::string& projectDir, const Json& a) {
     const char* cmd = "image.pixel";
-    check_arg_keys(cmd, a, "", {"path", "layer", "pixels", "runs", "stamp", "create", "scale", "bake"});
+    check_arg_keys(cmd, a, "", {"path", "layer", "pixels", "runs", "stamp", "create", "scale", "bake", "frame", "onion"});
     DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd);
+    FrameScope frameScope(projectDir, d.rel, d.json, a, cmd);
     if (!a.contains("pixels") && !a.contains("runs") && !a.contains("stamp"))
         arg_error(cmd, "", "give at least one of `pixels` [[x, y, colour], ...], `runs` [[x, y, length, colour], ...] or `stamp` {x, y, rows}.",
                   "Example: {\"layer\":\"sprite\",\"create\":true,\"pixels\":[[3,4,\"skin\"],[4,4,2]],\"runs\":[[2,6,5,\"outline\"]]}.");
@@ -371,8 +373,9 @@ const std::vector<std::string> kShapeTypes = {"line", "rect", "ellipse", "polygo
 
 Json image_draw(const std::string& projectDir, const Json& a) {
     const char* cmd = "image.draw";
-    check_arg_keys(cmd, a, "", {"path", "layer", "shapes", "create", "scale", "bake"});
+    check_arg_keys(cmd, a, "", {"path", "layer", "shapes", "create", "scale", "bake", "frame", "onion"});
     DocFile d = open_doc(projectDir, arg_string(a, "path", true), cmd);
+    FrameScope frameScope(projectDir, d.rel, d.json, a, cmd);
     if (!a.contains("shapes") || !a["shapes"].is_array() || a["shapes"].empty() || a["shapes"].size() > 1000)
         arg_error(cmd, "/shapes", "`shapes` is required: a list of 1 to 1000 shapes, drawn in order.",
                   "Example: [{\"type\":\"ellipse\",\"x\":2,\"y\":2,\"width\":12,\"height\":12,\"fill\":\"skin\",\"color\":\"outline\"},{\"type\":\"line\",\"points\":[[2,14],[8,10],[14,14]],\"color\":\"outline\",\"perfect\":true}]. Types: " +
@@ -554,6 +557,9 @@ Json image_layer_convert(const std::string& projectDir, const Json& a) {
         arg_error(cmd, "/to", layer_label(ref) + " is already a" + (to == "indexed" ? "n indexed" : " pixels") + " layer.", "Nothing to convert.");
     if (kind == "group" || kind == "adjustment")
         arg_error(cmd, "/layer", layer_label(ref) + " is a " + kind + " layer: it has no pixels of its own to convert.", "Convert a layer inside the group, or add an indexed layer with image.layer.add.");
+    if (ref.layer->contains("cels") && ref.layer->at("cels").is_array() && !ref.layer->at("cels").empty())
+        arg_error(cmd, "/layer", layer_label(ref) + " shows different pictures in different frames (it has cels), and a conversion makes one picture.",
+                  "Convert the layer before animating it, or draw the frames on a layer of the kind you want (image.pixel / image.draw with `frame`).");
     const int W = d.json.value("width", 0), H = d.json.value("height", 0);
     const std::optional<Image> before = render_document_json(projectDir, d.json);
     assets_detail::require_usable_manifest(projectDir);
@@ -690,6 +696,7 @@ void register_indexed_commands(CommandRegistry& registry, const std::string& pro
         info.summary = summary;
         info.description = description;
         info.inputSchema = Json::parse(schema);
+        if (std::string(name) == "image.pixel" || std::string(name) == "image.draw") add_frame_support(info, "to draw on");
         registry.add(info, [projectDir, fn](const Json& args) { return fn(projectDir, args); });
     };
 
