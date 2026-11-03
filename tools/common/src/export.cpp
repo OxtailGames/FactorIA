@@ -20,6 +20,7 @@
 #include "fa/tooling/ai_disclosure.h"
 #include "fa/tooling/audio_doc.h"
 #include "fa/tooling/model_bake.h"
+#include "fa/tooling/rig_bake.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/feedback.h"
@@ -879,6 +880,8 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     if (auto baked = bake_audio_documents_if_needed(p.dir); !baked.ok()) return baked.error();
     // And model documents: the shipped model is what their tree builds.
     if (auto baked = bake_model_documents_if_needed(p.dir); !baked.ok()) return baked.error();
+    // And rig documents: the shipped skinned model is the model fitted with its skeleton.
+    if (auto baked = bake_rig_documents_if_needed(p.dir); !baked.ok()) return baked.error();
 
     std::error_code ec;
     stdfs::create_directories(os_path(plan.outParent), ec);

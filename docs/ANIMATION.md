@@ -1,10 +1,11 @@
 # Animation: skeletal and 2D clips, state machines and tweens
 
-Four tools, from "a character walks" to "a menu panel slides in":
+Tools, from "a character walks" to "a menu panel slides in":
 
 | Tool | For | Where it lives |
 |---|---|---|
 | `Animator` component | Play the animation clips of a skinned glTF model, blend between them, react to clip events, switch with a small state machine | scene JSON + `entity.animator` |
+| `*.rig.json` | A skeleton (humanoid, quadruped, bird, tail, chain, generic) fitted to a model document and saved as a glTF skin: the joints a model is animated with | [RIGGING.md](RIGGING.md) |
 | `Animator` + `*.anim.json` | Keyframed 2D clips that animate any field of an entity and its children (a character built in parts), with layers and masks | [2D clips](#2d-clips-animjson) |
 | `tween()` / `ease` | Move any number, vector or color over time (UI, cameras, pickups, 2D and 3D) | `import { tween, ease } from "factoria"` |
 | `SpriteAnimator` | Frame-by-frame 2D sprite sheets, played by clip name | [Sprite sheets](#sprite-sheets-spriteanimator) |

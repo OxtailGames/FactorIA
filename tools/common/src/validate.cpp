@@ -970,6 +970,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     assets_detail::check_image_documents(c.dir, c.report.errors, c.report.warnings);
     assets_detail::check_audio_documents(c.dir, c.report.errors, c.report.warnings);
     assets_detail::check_model_documents(c.dir, c.report.errors, c.report.warnings);
+    assets_detail::check_rig_documents(c.dir, c.report.errors, c.report.warnings);
     assets_detail::check_song_documents(c.dir, c.report.errors, c.report.warnings);
 
     std::set<std::string> scripts;
