@@ -323,7 +323,7 @@ bool parse_path_data(const std::string& d, Path& out, std::string& err) {
                 break;
             }
             case 'A': {
-                if (!read(3) || !sc.flag(v[3]) || !sc.flag(v[4]) || !read(2)) return bad("expected rx ry rotation large-arc sweep x y after A");
+                if (!read(3) || !sc.flag(v[3]) || !sc.flag(v[4]) || !sc.number(v[5]) || !sc.number(v[6])) return bad("expected rx ry rotation large-arc sweep x y after A");
                 const P to{base.x + v[5], base.y + v[6]};
                 if (!sub) begin_sub(cur);
                 arc_to_cubics(cur, v[0], v[1], v[2], v[3] != 0, v[4] != 0, to, sub->segs);

@@ -14,6 +14,7 @@
 #include "image_edit.h"
 #include "util.h"
 #include "fa/tooling/image_doc.h"
+#include "vector_cmd.h"
 #include "vector_ops.h"
 #include "vector_shapes.h"
 
@@ -25,22 +26,13 @@ using assets_detail::fail;
 using tooling_detail::arg_bool;
 namespace tooling_detail_ = fa::tooling_detail;
 
-namespace {
+namespace cmd {
 
 namespace stdfs = std::filesystem;
 
-struct Ctx {
-    const char* cmd;
-    std::string projectDir;
-    const Json& a;
-    SvgDoc& doc;
-    std::vector<std::string>& warnings;
-};
-using Body = std::function<Json(Ctx&)>;
-
 // ---- arguments ---------------------------------------------------------------------------------------------------------
 
-double num_arg(const Json& a, const char* cmd, const char* key, double lo, double hi, double def, const char* hint = "") {
+double num_arg(const Json& a, const char* cmd, const char* key, double lo, double hi, double def, const char* hint) {
     auto it = a.find(key);
     if (it == a.end() || it->is_null()) return def;
     if (!it->is_number() || !std::isfinite(it->get<double>()) || it->get<double>() < lo || it->get<double>() > hi)
@@ -56,7 +48,7 @@ int int_arg(const Json& a, const char* cmd, const char* key, int lo, int hi, int
     return int(it->get<long long>());
 }
 
-std::string enum_arg(const Json& a, const char* cmd, const char* key, const std::vector<std::string>& names, const std::string& def, bool required = false) {
+std::string enum_arg(const Json& a, const char* cmd, const char* key, const std::vector<std::string>& names, const std::string& def, bool required) {
     auto it = a.find(key);
     if (it == a.end() || it->is_null()) {
         if (required) {
@@ -144,6 +136,7 @@ Json common_props() {
          {"overwrite", bool_prop("Replace `out` when it already exists.", false)},
          {"dryRun", bool_prop("Compute and preview the result without writing anything.", false)},
          {"previewSize", Json::object({{"type", "integer"}, {"minimum", 32}, {"maximum", 2048}, {"default", 512}, {"description", "The longer side of the preview picture returned as `$image`, in pixels."}})},
+         {"preview", bool_prop("false skips the preview picture (`$image`): a live drag asks for the result many times a second and draws it itself.", true)},
          {"bake", bool_prop("With `document`: also bake the document's PNG (like image.layer.set).", true)}});
 }
 
@@ -152,6 +145,19 @@ Json geometry_props() {
         {{"tolerance", num_prop("The largest distance, in drawing units (viewBox units), between the result and the exact outline. Default: 1/4000 of the drawing's longer side (1/500 for vector.simplify).")},
          {"curves", bool_prop("Return curves as cubic Beziers fitted to the result (the default). false keeps the polygon the operation computed.", true)},
          {"cornerAngle", num_prop("Degrees of direction change (1 to 89) above which a vertex stays a sharp corner instead of being smoothed into a curve. Default 28.")}});
+}
+
+Json placement_props() {
+    return Json::object(
+        {{"id", str_prop("The id of the new element (default: the kind, \"star\", \"blob\"..., or the next free \"star-2\"). An id the SVG already uses is an error.")},
+         {"parent", str_prop("An id or selector of ONE group (<g>) to put the element in, at its end. Default: the top level. Coordinates are the parent's own, so a translated or scaled group moves and scales the shape.")},
+         {"before", str_prop("An id or selector of ONE element: the new one goes in front of it in the drawing order (behind it on the picture), in the same group.")},
+         {"transform", str_prop("A transform attribute for the new element, e.g. \"rotate(15 50 50)\".")},
+         {"fill", str_prop("A CSS fill colour or \"none\". Default: a blue for closed shapes, none for open curves.")},
+         {"stroke", str_prop("A CSS stroke colour. Default: none for closed shapes, a dark slate for open curves.")},
+         {"strokeWidth", num_prop("Stroke width in the parent's units (default 1% of the drawing's longer side for open curves).")},
+         {"opacity", num_prop("0 to 1.")},
+         {"attributes", Json::object({{"type", "object"}, {"description", "Any other attributes of the new element: {\"class\": \"body\", \"stroke-linejoin\": \"round\"}."}})}});
 }
 
 Json merge_props(Json a, const Json& b) {
@@ -203,6 +209,7 @@ Json run(const std::string& projectDir, const Json& a, const char* cmd, const Js
         if (a.contains(k) && !a[k].is_string()) arg_error(cmd, std::string("/") + k, "expected a string, got " + describe_json_value(a[k]) + ".", "");
     const bool dryRun = arg_bool(a, "dryRun", false);
     const int previewSize = int_arg(a, cmd, "previewSize", 32, 2048, 512);
+    const bool wantPreview = arg_bool(a, "preview", true);
     const bool isDoc = a.contains("document");
     if (isDoc && a.contains("out")) arg_error(cmd, "/out", "`out` cannot be used with `document`: the layer is edited inside the document.", "Leave `out` out, or use `source` to edit a .svg file.");
     if (!isDoc && a.contains("layer")) arg_error(cmd, "/layer", "`layer` only goes with `document`.", "Leave `layer` out, or pass `document`.");
@@ -256,14 +263,24 @@ Json run(const std::string& projectDir, const Json& a, const char* cmd, const Js
             text = *t;
         }
         what = layerInline ? std::format("{} layer {}", rel, layerRef.indexPath) : layerSourceRel;
-        before = imgedit::render_document_json(projectDir, docFile.json);
+        if (wantPreview) before = imgedit::render_document_json(projectDir, docFile.json);
     }
 
     SvgDoc doc = SvgDoc::parse(text, what);
     std::vector<std::string> warnings = document_warnings(doc);
+    // a shape the panel drew from parameters (data-fa-shape) stops being one when any command changes its outline
+    // (a command that rewrites the shape together with its data-fa-args, like vector.shape with replace, keeps it)
+    std::map<std::string, std::pair<std::string, std::string>> parametric;
+    for (XNode* n : doc.all_elements())
+        if (n->attr("data-fa-shape") && n->attr("id")) parametric[*n->attr("id")] = {n->attr_or("d"), n->attr_or("data-fa-args")};
     Ctx ctx{cmd, projectDir, a, doc, warnings};
     Json result = body(ctx);
     if (!result.is_object()) result = Json::object();
+    for (const auto& [id, was] : parametric)
+        if (XNode* n = doc.by_id(id); n && n->attr("data-fa-shape") && n->attr_or("d") != was.first && n->attr_or("data-fa-args") == was.second) {
+            n->remove_attr("data-fa-shape");
+            n->remove_attr("data-fa-args");
+        }
 
     const std::string newText = doc.write();
     const bool changed = newText != text;
@@ -303,6 +320,7 @@ Json run(const std::string& projectDir, const Json& a, const char* cmd, const Js
 
     // the picture
     auto preview = [&]() -> std::optional<Json> {
+        if (!wantPreview) return std::nullopt;
         try {
             const Rect c = doc.canvas();
             const bool wide = c.width() >= c.height();
@@ -322,7 +340,7 @@ Json run(const std::string& projectDir, const Json& a, const char* cmd, const Js
         Json out = imgedit::commit_document(projectDir, rel, docFile.json, before, arg_bool(a, "bake", true), extra, warnings, cmd);
         return out;
     }
-    if (isDoc && dryRun && changed) {
+    if (isDoc && dryRun && changed && wantPreview) {
         Json tmp = docFile.json;
         // the layer lives in `tmp` by pointer into docFile.json; render the changed copy
         if (layerInline) (*layerRef.layer)["svg"] = newText;
@@ -340,6 +358,11 @@ Json info_with_next(Json r, std::initializer_list<std::string> next) {
     r["nextSteps"] = std::vector<std::string>(next);
     return r;
 }
+
+}  // namespace cmd
+
+namespace {
+using namespace cmd;
 
 // ---- the commands ----------------------------------------------------------------------------------------------------------
 
@@ -548,6 +571,10 @@ Json cmd_style(Ctx& c) {
     return r;
 }
 
+}  // namespace
+
+namespace cmd {
+
 // ---- shape builders: placement and the new elements -------------------------------------------------------------------------
 
 bool valid_id(const std::string& id) {
@@ -555,7 +582,7 @@ bool valid_id(const std::string& id) {
     return std::all_of(id.begin(), id.end(), [](char ch) { return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-' || ch == '.' || ch == ':'; });
 }
 
-std::string str_arg(const Json& a, const char* cmd, const char* key, const std::string& def, const char* hint = "") {
+std::string str_arg(const Json& a, const char* cmd, const char* key, const std::string& def, const char* hint) {
     auto it = a.find(key);
     if (it == a.end() || it->is_null()) return def;
     if (!it->is_string() || it->get<std::string>().empty())
@@ -624,10 +651,6 @@ Placement placement_of(Ctx& c, bool lineArt, const Settings& s) {
 }
 
 // The parent's coordinates: the drawing's centre and a size to draw at when the call gives none.
-struct Frame {
-    P centre;
-    double unit;  // 40% of the drawing's shorter side, in the parent's units
-};
 Frame frame_of(Ctx& c, const Placement& at) {
     XNode* parent = at.before ? (at.before->parent ? at.before->parent : c.doc.root()) : at.parent ? at.parent : c.doc.root();
     const Mat m = element_ctm(*parent);
@@ -638,6 +661,11 @@ Frame frame_of(Ctx& c, const Placement& at) {
     if (!(f.unit > 0)) f.unit = 40;
     return f;
 }
+
+}  // namespace cmd
+
+namespace {
+using namespace cmd;
 
 using KeyList = std::vector<std::string>;
 // The arguments each kind of vector.shape takes (besides the placement and the file arguments).
@@ -672,12 +700,28 @@ Json cmd_shape(Ctx& c) {
         }
     }
     const Settings s = settings_of(c, 4000);
-    const Placement at = placement_of(c, false, s);
+    // replace: the shape is redrawn in an existing element, in that element's own coordinates; its id, style and transform stay
+    XNode* replaced = nullptr;
+    if (c.a.contains("replace")) {
+        for (const char* k : {"id", "parent", "before", "transform", "fill", "stroke", "strokeWidth", "opacity", "attributes"})
+            if (c.a.contains(k))
+                arg_error(c.cmd, std::string("/") + k, "cannot be combined with `replace`: the element keeps its id, place and style.", "Change them with vector.set, vector.reorder and vector.transform.");
+        if (kind == "ribbon") arg_error(c.cmd, "/replace", "a ribbon is a group of five paths, so it cannot replace one shape.", "Delete the ribbon (vector.delete) and add a new one.");
+        replaced = single_element(c, "replace");
+        if (!is_shape_element(*replaced))
+            arg_error(c.cmd, "/replace", std::format("{} is not a shape, so it has no outline to replace.", describe_element(*replaced)), "Name a path, rect, circle, ellipse, line, polyline or polygon.");
+    }
+    Placement at;
+    if (replaced) {
+        at.parent = replaced;  // frame_of reads the coordinates of the parent: here the element's own
+    } else {
+        at = placement_of(c, false, s);
+    }
     const Frame fr = frame_of(c, at);
     P centre = fr.centre;
     point_arg(c.a, c.cmd, "center", centre, "The middle of the shape, in the parent's coordinates (default: the middle of the drawing).");
     const double u = fr.unit;
-    auto num = [&](const char* key, double lo, double hi, double def, const char* hint = "") { return num_arg(c.a, c.cmd, key, lo, hi, def, hint); };
+    auto num = [&](const char* key, double lo, double hi, double def, const char* hint) { return num_arg(c.a, c.cmd, key, lo, hi, def, hint); };
     Path path;
     std::vector<RibbonPiece> pieces;
     Json extra = Json::object();
@@ -770,11 +814,31 @@ Json cmd_shape(Ctx& c) {
     }
     Placement placed = at;
     Json r;
-    if (kind == "ribbon") {
+    const bool parametric = arg_bool(c.a, "parametric", false);
+    if (parametric && kind == "ribbon") arg_error(c.cmd, "/parametric", "a ribbon is a group of five paths, so it cannot be kept parametric.", "Use parametric with star, gear, polygon, arrow or bubble.");
+    if (replaced) {
+        set_path_geometry(*replaced, path_to_data(path, s.outDecimals));
+        replaced->remove_attr("data-fa-shape");
+        replaced->remove_attr("data-fa-args");
+        const Rect b = path_bounds(transform_path(path, element_ctm(*replaced)));
+        r = Json::object({{"element", element_ref(*replaced)}, {"nodes", node_count(path)}, {"bounds", Json::array({b.x0, b.y0, b.width(), b.height()})}});
+    } else if (kind == "ribbon") {
         placed.fill.clear();
         r = op_add_group(c.doc, placed, "ribbon", pieces, s, c.warnings);
     } else {
         r = op_add_path(c.doc, placed, kind, path, s, c.warnings);
+    }
+    if (parametric) {
+        // the arguments of the kind that were given, plus the centre, so the panel can show them and call again with `replace`
+        Json args = Json::object();
+        for (const std::string& key : *mine)
+            if (c.a.contains(key)) args[key] = c.a[key];
+        if (!args.contains("center") && kind != "arrow") args["center"] = Json::array({centre.x, centre.y});
+        XNode* el = replaced ? replaced : c.doc.by_id(r.value("element", std::string()));
+        if (el) {
+            el->set_attr("data-fa-shape", kind);
+            el->set_attr("data-fa-args", args.dump());
+        }
     }
     r["kind"] = kind;
     for (auto it = extra.begin(); it != extra.end(); ++it) r[it.key()] = it.value();
@@ -937,6 +1001,7 @@ namespace fa::assets_detail {
 
 void register_vector_commands(CommandRegistry& registry, const std::string& projectDir) {
     using namespace fa::vec;
+    using namespace fa::vec::cmd;
     struct Def {
         const char* name;
         const char* summary;
@@ -1045,16 +1110,7 @@ void register_vector_commands(CommandRegistry& registry, const std::string& proj
                                   {"palette", Json::object({{"description", "true: snap to the guide's palette. A list of colours: snap to those. false: leave colours."}})}}))),
         {}, false, cmd_style});
     // ---- shape builders --------------------------------------------------------------------------------------------------
-    const Json placementProps = Json::object(
-        {{"id", str_prop("The id of the new element (default: the kind, \"star\", \"blob\"..., or the next free \"star-2\"). An id the SVG already uses is an error.")},
-         {"parent", str_prop("An id or selector of ONE group (<g>) to put the element in, at its end. Default: the top level. Coordinates are the parent's own, so a translated or scaled group moves and scales the shape.")},
-         {"before", str_prop("An id or selector of ONE element: the new one goes in front of it in the drawing order (behind it on the picture), in the same group.")},
-         {"transform", str_prop("A transform attribute for the new element, e.g. \"rotate(15 50 50)\".")},
-         {"fill", str_prop("A CSS fill colour or \"none\". Default: a blue for closed shapes, none for open curves.")},
-         {"stroke", str_prop("A CSS stroke colour. Default: none for closed shapes, a dark slate for open curves.")},
-         {"strokeWidth", num_prop("Stroke width in the parent's units (default 1% of the drawing's longer side for open curves).")},
-         {"opacity", num_prop("0 to 1.")},
-         {"attributes", Json::object({{"type", "object"}, {"description", "Any other attributes of the new element: {\"class\": \"body\", \"stroke-linejoin\": \"round\"}."}})}});
+    const Json placementProps = placement_props();
     auto point_prop = [](const char* desc) { return Json::object({{"type", "array"}, {"items", Json::object({{"type", "number"}})}, {"minItems", 2}, {"maxItems", 2}, {"description", desc}}); };
     auto int_prop = [](const char* desc, int lo, int hi) { return Json::object({{"type", "integer"}, {"minimum", lo}, {"maximum", hi}, {"description", desc}}); };
     const Json shapeProps = Json::object(
@@ -1087,13 +1143,16 @@ void register_vector_commands(CommandRegistry& registry, const std::string& proj
          {"drop", num_prop("ribbon: how much lower the tails sit than the band, also the size of the folds. Default 35% of the height.")},
          {"notch", num_prop("ribbon: the depth of the V cut in the tail ends; 0 for straight ends.")},
          {"foldFill", str_prop("ribbon: the colour of the folds (the tails are a step lighter). Default: darker shades of `fill`.")}});
+    const Json shapeEditProps = Json::object({
+        {"replace", str_prop("Redraw an existing shape (an id or selector of ONE path, rect, circle...) instead of adding one: its outline becomes the new shape, written in the element's own coordinates; its id, style and transform stay. Not with id, parent, before, transform, fill, stroke, strokeWidth, opacity or attributes. Not for a ribbon.")},
+        {"parametric", bool_prop("true writes data-fa-shape (the kind) and data-fa-args (its arguments as JSON) on the element, so an editor can show them as parameters and call vector.shape again with `replace`. Any command that changes the outline of such an element removes both. Not for a ribbon.", false)}});
     defs.push_back({"vector.shape", "Add a star, gear, rounded polygon, arrow, speech bubble or ribbon to an SVG.",
         "Inserts a new element with exact geometry (the shapes AIs draw badly by hand) into an SVG file, SVG text or an svg layer of an image document, at the end of the drawing or of `parent`, with the `id`, `fill`, `stroke` and `transform` you give. "
         "kind \"star\" (points, innerRatio, roundness), \"gear\" (teeth, depth, toothWidth, hole), \"polygon\" (sides, cornerRadius: a rounded regular polygon), \"arrow\" (from, to, shaftWidth, headLength, headWidth, curve: straight or bent), "
         "\"bubble\" (width, height, cornerRadius, tailTo: a speech bubble whose tail points at the speaker) and \"ribbon\" (a banner with folded ends, a group of five paths). Curves are cubic Beziers. "
         "Sizes and positions are in the parent's coordinates (the viewBox for the top level); anything left out defaults to a good size in the middle of the drawing, so {\"kind\": \"star\"} works. "
-        "Returns the new element, its bounds in the drawing and a preview as `$image`. Example: {\"source\": \"assets/art/badge.svg\", \"kind\": \"gear\", \"teeth\": 12, \"center\": [50, 50], \"radius\": 30, \"fill\": \"#c0c4cc\"}. Docs: docs.read VECTOR.",
-        merge_props(merge_props(common, merge_props(placementProps, shapeProps)), geometry_props()), {"kind"}, false, cmd_shape});
+        "Returns the new element, its bounds in the drawing and a preview as `$image`. With `replace` the shape is redrawn in an existing element, and with parametric: true the arguments are kept on it (data-fa-shape, data-fa-args). Example: {\"source\": \"assets/art/badge.svg\", \"kind\": \"gear\", \"teeth\": 12, \"center\": [50, 50], \"radius\": 30, \"fill\": \"#c0c4cc\"}. Docs: docs.read VECTOR.",
+        merge_props(merge_props(common, merge_props(merge_props(placementProps, shapeProps), shapeEditProps)), geometry_props()), {"kind"}, false, cmd_shape});
     defs.push_back({"vector.blob", "Add a smooth organic shape or curve through or around a few points.",
         "Inserts a smooth closed blob (or, with closed: false, an open curve) built from a few [x, y] points. fit \"through\" (default): the curve passes through every point as a cardinal spline, `tension` 0 (straight lines) to 1.5, 0.5 is the usual smooth curve. "
         "fit \"around\": the points are a control polygon, a uniform B-spline that stays inside it and never touches it, always smooth. A closed blob needs 3 points, an open curve 2 and gets a stroke and no fill by default. "
@@ -1173,6 +1232,7 @@ void register_vector_commands(CommandRegistry& registry, const std::string& proj
         });
     }
     register_vector_rig_command(registry, projectDir);
+    register_vector_edit_commands(registry, projectDir);
 }
 
 }  // namespace fa::assets_detail

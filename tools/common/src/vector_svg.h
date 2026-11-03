@@ -114,6 +114,14 @@ void shapes_under(XNode& n, std::vector<XNode*>& out);
 // Returns the matches in document order. Throws CommandError (with "did you mean" over the ids) when nothing matches.
 std::vector<XNode*> select_elements(const SvgDoc& doc, const std::string& ref, const char* command, const std::string& pointer);
 
+// A selector that picks exactly this element: "svg > g:nth-child(2) > path:nth-child(3)". For elements that have no id.
+std::string element_selector(const XNode& n);
+// The id when the element has one, else its selector: what the commands take to name the element.
+std::string element_ref(const XNode& n);
+// Every drawable element of the drawing (shapes and groups, not the root <svg>, nothing inside defs, clipPath and the like), document
+// order, a group before what it holds.
+std::vector<XNode*> drawable_elements(const SvgDoc& doc);
+
 // "g#badge", "path (index 3)": for messages.
 std::string describe_element(const XNode& n);
 

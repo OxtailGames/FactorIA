@@ -130,6 +130,21 @@ Json op_add_path(SvgDoc& doc, const Placement& at, const std::string& baseId, co
     return Json::object({{"element", id}, {"nodes", node_count(path)}, {"curves", has_curves(path)}, {"bounds", rect_json(b)}, {"parent", id_or_label(*raw->parent)}});
 }
 
+Json op_add_node(SvgDoc& doc, const Placement& at, const std::string& baseId, const std::string& tag,
+                 const std::vector<std::pair<std::string, std::string>>& attrs, const char* command) {
+    const std::string id = claim_id(doc, at, baseId, command);
+    auto node = make_element(tag);
+    node->set_attr("id", id);
+    for (const auto& [k, v] : attrs) node->set_attr(k, v);
+    apply_placement_style(*node, at, "");
+    XNode* raw = insert_node(doc, at, std::move(node));
+    Rect b;
+    Path p;
+    std::string why;
+    if (shape_path(*raw, p, why)) b = path_bounds(transform_path(p, element_ctm(*raw)));
+    return Json::object({{"element", id}, {"bounds", rect_json(b)}, {"parent", id_or_label(*raw->parent)}});
+}
+
 Json op_add_group(SvgDoc& doc, const Placement& at, const std::string& baseId, const std::vector<RibbonPiece>& pieces, const Settings& s, std::vector<std::string>&) {
     const char* cmd = "vector.shape";
     const std::string gid = claim_id(doc, at, baseId, cmd);
