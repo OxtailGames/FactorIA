@@ -189,6 +189,48 @@
           "blend": {
             "type": "boolean",
             "description": "Alpha-blended (glass); the alpha of `color` and of vertex colours shows. Default false."
+          },
+          "mapping": {
+            "type": "string",
+            "enum": [
+              "uv",
+              "triplanar"
+            ],
+            "description": "How `texture` is put on the model. \"uv\": through the model's uvs (the baked .glb references the image). \"triplanar\": projected along the three axes at `textureScale` and BAKED into the model's atlas by the `texturing` section (default for a material with a texture when the document has `texturing`)."
+          },
+          "textureScale": {
+            "type": "number",
+            "minimum": 0.001,
+            "maximum": 1000,
+            "default": 1,
+            "description": "triplanar: metres one repeat of the texture covers."
+          },
+          "textureOffset": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "number"
+            },
+            "description": "triplanar: metres the texture is shifted by, [x, y, z]."
+          },
+          "sharpness": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16,
+            "default": 4,
+            "description": "triplanar: how hard the three projections hand over to each other (1 soft .. 16 almost hard)."
+          },
+          "tint": {
+            "description": "A colour that multiplies the texture (and the material colour) in the bake.",
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array"
+              }
+            ]
           }
         }
       }
@@ -296,6 +338,520 @@
             }
           },
           "description": "By part name (\"\" for the nodes that name no part): the method, axis and density of that part."
+        }
+      }
+    },
+    "texturing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Bakes the model's texture into its uv atlas (needs a `uv` section with layout \"atlas\"): materials with a `texture` projected triplanar, vertex colours, ambient occlusion, wear from baked maps, decals. The layers are written as an image document (`*.image.json`) you can paint on; a re-bake renews its own layers and keeps yours. docs/MODELING.md, \"Texturing\"; `model.texture` edits and bakes it.",
+      "properties": {
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096,
+          "default": 0,
+          "description": "Side of the texture in texels. 0: the size the uvs were made for."
+        },
+        "bleed": {
+          "type": "integer",
+          "minimum": 0.0,
+          "maximum": 32.0,
+          "description": "Texels the colours are spread beyond each piece, against seams in mipmaps. Default: the uv padding."
+        },
+        "vertexColors": {
+          "type": "string",
+          "enum": [
+            "bake",
+            "keep"
+          ],
+          "default": "bake",
+          "description": "\"bake\": vertex colours are painted into the texture and left out of the .glb. \"keep\": they stay on the mesh and multiply the texture."
+        },
+        "background": {
+          "description": "The colour of the texels no triangle covers. Default mid grey.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array"
+            }
+          ]
+        },
+        "document": {
+          "type": "string",
+          "description": "The layered image document the layers are written to (project path ending .image.json). Default <model>.texture.image.json next to the model. Its baked png is the model's texture."
+        },
+        "ao": {
+          "description": "true, or {strength, parts}: bake ambient occlusion and multiply it into the texture.",
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "strength": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 1.0,
+                  "description": "0 none .. 1 black in the deepest corner. Default 0.7."
+                },
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Only these parts are darkened; default all."
+                }
+              }
+            }
+          ]
+        },
+        "maps": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How the occlusion, curvature and thickness maps are measured.",
+          "properties": {
+            "samples": {
+              "type": "integer",
+              "minimum": 4.0,
+              "maximum": 256.0,
+              "description": "Rays per texel for occlusion and thickness. Default 16."
+            },
+            "distance": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 10000.0,
+              "description": "Metres an occluder may be away. Default (0): 15% of the model's diagonal."
+            },
+            "thicknessDistance": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 10000.0,
+              "description": "Metres the thickness is measured up to. Default (0): 50% of the diagonal."
+            },
+            "edgeAngle": {
+              "type": "number",
+              "minimum": 1.0,
+              "maximum": 179.0,
+              "description": "Degrees an edge must turn the surface to count as sharp. Default 20."
+            },
+            "edgeWidth": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 10000.0,
+              "description": "Metres wide the band along a sharp edge is. Default (0): 3% of the diagonal."
+            },
+            "write": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "ao",
+                  "curvature",
+                  "thickness"
+                ]
+              },
+              "description": "Maps also written as grey pictures next to the model (<name>.ao.png ...)."
+            }
+          }
+        },
+        "wear": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "One kind of wear painted over the base colour from a baked map: worn edges, dirt in cavities, dust on top. All entries are composited into one transparent layer.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "A label for the report."
+              },
+              "mask": {
+                "type": "string",
+                "enum": [
+                  "edges",
+                  "cavity",
+                  "ao",
+                  "thickness"
+                ],
+                "default": "edges",
+                "description": "Where the wear goes. edges: along convex edges (paint chipped); cavity: concave corners and occluded places (dirt); ao: wherever occlusion is; thickness: where the shell is thin."
+              },
+              "color": {
+                "description": "The wear colour. Default: light for edges and thickness, dark for cavity and ao.",
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array"
+                  }
+                ]
+              },
+              "amount": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "description": "Opacity at the strongest. Default 0.8."
+              },
+              "width": {
+                "type": "number",
+                "minimum": 0.0001,
+                "maximum": 10000.0,
+                "description": "edges, cavity: metres of the band. Default maps.edgeWidth."
+              },
+              "threshold": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 0.99,
+                "description": "The mask below this value is nothing. Default 0.1."
+              },
+              "noise": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "description": "How much noise breaks the wear up. Default 0.4."
+              },
+              "noiseScale": {
+                "type": "number",
+                "minimum": 0.001,
+                "maximum": 1000.0,
+                "description": "Metres per noise feature. Default 0.15."
+              },
+              "seed": {
+                "type": "integer",
+                "minimum": 0.0,
+                "maximum": 2147483647.0,
+                "description": "Changes the noise pattern."
+              },
+              "upBias": {
+                "type": "number",
+                "minimum": -1.0,
+                "maximum": 1.0,
+                "description": "Positive: more on surfaces that face up. Negative: more on surfaces that face down."
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Only these parts get this wear; leave it out for all."
+              }
+            }
+          },
+          "description": "Wear painted from the baked maps."
+        },
+        "decals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "image",
+              "position",
+              "size"
+            ],
+            "description": "A picture projected on the model along the opposite of `normal`, painted into the texture where it lands. Transparent pixels of the image stay transparent. All decals are composited into one layer.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "A label for the report."
+              },
+              "image": {
+                "type": "string",
+                "description": "A project png/jpg: assets.generate_texture output, or the baked png of an image document."
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Only these parts get the decal; leave it out for any."
+              },
+              "faces": {
+                "$ref": "#/$defs/face_selection",
+                "description": "Only the faces this selection query chooses (the model as built)."
+              },
+              "position": {
+                "type": "array",
+                "description": "[x, y, z] in model space: the centre of the decal."
+              },
+              "normal": {
+                "description": "The way the surface it sits on faces: [x, y, z] or top, bottom, front, back, left, right. Default front (+Z).",
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array"
+                  }
+                ]
+              },
+              "size": {
+                "description": "Metres: [width, height], or one number for a square.",
+                "oneOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "array"
+                  }
+                ]
+              },
+              "depth": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1000.0,
+                "description": "Metres the projection reaches from the plane through `position`, each way along the normal. 0 (default): the smaller side of the decal."
+              },
+              "rotation": {
+                "type": "number",
+                "minimum": -360.0,
+                "maximum": 360.0,
+                "description": "Degrees around the normal."
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "description": "Default 1."
+              },
+              "tint": {
+                "description": "Multiplies the image.",
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array"
+                  }
+                ]
+              },
+              "maxAngle": {
+                "type": "number",
+                "minimum": 1.0,
+                "maximum": 179.0,
+                "description": "Degrees: surfaces turned more than this away from `normal` are left alone. Default 75."
+              }
+            }
+          },
+          "description": "Projected pictures."
+        }
+      }
+    },
+    "vertexColors": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Colours written into the mesh's vertices: a low-poly look with no texture at all. The colours multiply the node colours and the material colour. docs/MODELING.md, \"Texturing\"; `model.palette` edits and measures it.",
+      "properties": {
+        "palette": {
+          "description": "\"style\": the palette of the project's style guide. Or a list of colours. With a palette, colours snap to it.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "style"
+              ]
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "description": "A colour (\"#rrggbb\", \"#rrggbbaa\", or [r, g, b] from 0 to 1) or an integer: the position of a colour in the palette.",
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 4,
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "snap": {
+          "type": "boolean",
+          "default": true,
+          "description": "Move every colour to the nearest colour of the palette. Ignored without a palette."
+        },
+        "flat": {
+          "type": "boolean",
+          "default": false,
+          "description": "One colour per triangle (vertices are split so the colours do not blend): the faceted low-poly look."
+        },
+        "variation": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.5,
+          "default": 0,
+          "description": "Brightness change per triangle (flat) or vertex, up to this much either way, chosen by a hash (deterministic)."
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Changes which triangles the variation makes lighter or darker."
+        },
+        "color": {
+          "description": "A colour (\"#rrggbb\", \"#rrggbbaa\", or [r, g, b] from 0 to 1) or an integer: the position of a colour in the palette.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 4,
+              "items": {
+                "type": "number"
+              }
+            },
+            {
+              "type": "integer",
+              "minimum": 0
+            }
+          ]
+        },
+        "parts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "The colours of one part: a flat colour or a gradient, and its own variation.",
+            "properties": {
+              "color": {
+                "description": "A colour (\"#rrggbb\", \"#rrggbbaa\", or [r, g, b] from 0 to 1) or an integer: the position of a colour in the palette.",
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 4,
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ]
+              },
+              "gradient": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "description": "A colour that changes along a model axis, from the low end to the high end (through `via` if given).",
+                "properties": {
+                  "axis": {
+                    "type": "string",
+                    "enum": [
+                      "x",
+                      "y",
+                      "z"
+                    ],
+                    "default": "y",
+                    "description": "The model axis the colour changes along."
+                  },
+                  "from": {
+                    "description": "A colour (\"#rrggbb\", \"#rrggbbaa\", or [r, g, b] from 0 to 1) or an integer: the position of a colour in the palette.",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 3,
+                        "maxItems": 4,
+                        "items": {
+                          "type": "number"
+                        }
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    ]
+                  },
+                  "to": {
+                    "description": "A colour (\"#rrggbb\", \"#rrggbbaa\", or [r, g, b] from 0 to 1) or an integer: the position of a colour in the palette.",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 3,
+                        "maxItems": 4,
+                        "items": {
+                          "type": "number"
+                        }
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    ]
+                  },
+                  "via": {
+                    "description": "A colour (\"#rrggbb\", \"#rrggbbaa\", or [r, g, b] from 0 to 1) or an integer: the position of a colour in the palette.",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 3,
+                        "maxItems": 4,
+                        "items": {
+                          "type": "number"
+                        }
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    ]
+                  },
+                  "range": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "number"
+                    },
+                    "description": "[low, high] in metres along the axis. Default: the extent of the part itself."
+                  }
+                }
+              },
+              "variation": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 0.5,
+                "description": "Overrides the section's variation for this part."
+              }
+            }
+          },
+          "description": "By part name (\"\" for the nodes that name no part): the colours of that part. A part with no entry gets `color`."
         }
       }
     },

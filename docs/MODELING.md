@@ -666,7 +666,110 @@ to the part named `""`.
 reference to a name that is not in `materials` is an error that lists the names that are.
 
 `color` writes vertex colours (`COLOR_0`), which a viewer multiplies with the material's colour. When only some nodes have a
-colour, the vertices of the others are white.
+colour, the vertices of the others are white. A `vertexColors` section colours whole parts from a palette instead, and a `texturing` section bakes the colours, textures and wear into a texture: see "Texturing".
+
+## Texturing
+
+A model can carry its colour in three ways, and a document may use them together:
+
+- **Vertex colours from a palette** (`vertexColors`): no texture at all, a low-poly look. Colours are written into the mesh while the document is evaluated.
+- **A baked texture** (`texturing`): the CPU paints the model's colour into the UV atlas of the `uv` section: material colours and tiling textures (projected triplanar), the vertex colours, baked ambient occlusion, wear that comes from baked curvature, thickness and occlusion, and decals. The result is a layered image document (`*.image.json`, see docs/IMAGES.md) next to the model that you can open and paint on, and its PNG is the model's texture in the `.glb` and in every LOD.
+- **A texture through the primitives' uvs** (`material.texture` with the default `mapping: "uv"`, no `texturing` section): the `.glb` references the image and the game draws it. Nothing is baked.
+
+Everything in this section is CPU, deterministic (a fixed low-discrepancy sequence for the rays, a hash of the position for the noise; no clock, no `rand()`) and needs no program besides FactorIA. `model.texture`, `model.decal`, `model.palette` and `model.bake_maps` are the commands.
+
+### Materials with a tiling texture
+
+A material takes the usual `color`, `texture` (a project image, for instance an `assets.generate_texture` output) and these fields for a baked texture:
+
+| Field | Meaning |
+|---|---|
+| `mapping` | `"triplanar"`: the texture is projected along the three axes and blended by the surface normal, and baked into the atlas. `"uv"`: it goes through the model's uvs and the `.glb` references the image. Default: `"triplanar"` when the document has a `texturing` section, else `"uv"`. A document with `texturing` refuses `"uv"` on a material with a texture (the atlas would have two textures); remove `texturing` or use triplanar. |
+| `textureScale` | Metres one repeat of the texture covers (0.001 to 1000, default 1). A texture of bricks that should be 20 cm wide gets `0.2`. Scale is in metres, so the same texture has the same size on a small part and a large one. |
+| `textureOffset` | `[x, y, z]` metres the texture is shifted by. |
+| `sharpness` | 1 (soft) to 16 (almost a hard edge), default 4: how fast the three projections hand over to each other where the surface turns. |
+| `tint` | A colour multiplying the texture and the material colour in the bake. |
+
+A material with no texture bakes its `color`. A triplanar texture has no seams on the model (the projection is in model space) and does not need the surface to be unwrapped well; the atlas only decides where it is stored.
+
+### Vertex colours: `vertexColors`
+
+```json
+{"format": "factoria.model/1",
+ "vertexColors": {"palette": ["#8c5a3c", "#d9c7a0", "#3f6b3a"], "flat": true, "variation": 0.06, "seed": 7,
+                  "color": 1,
+                  "parts": {"roof": {"color": 0}, "bush": {"gradient": {"from": 2, "to": "#a8d070", "axis": "y"}}}},
+ "nodes": [ ... ]}
+```
+
+| Field | Meaning |
+|---|---|
+| `palette` | `"style"` (the `style.palette` of the project's `assets.json`) or a list of colours (`"#rrggbb"`, `"#rrggbbaa"` or `[r, g, b, a]` from 0 to 1). |
+| `snap` | With a palette every colour moves to the nearest colour of the palette (default true). |
+| `color` | The colour of the parts that have no entry: a colour, or the position (an integer) of a palette colour. |
+| `parts` | By part name (`""` for nodes with no part): `color` or a `gradient` `{axis, from, to, via?, range?}` along a model axis (`range` in metres; default the part's own extent), and its own `variation`. A name that is not a part of the model is a warning. |
+| `flat` | One colour per triangle: vertices are split so colours do not blend (the faceted low-poly look). The triangles keep their order and parts. |
+| `variation`, `seed` | Brightness changes by up to this much (0 to 0.5) either way per triangle (flat) or vertex, chosen by a hash of the triangle and the seed. |
+
+The colours multiply the colours the nodes already have and the material colour. They go into the `.glb` as `COLOR_0` unless the document also has a `texturing` section with `vertexColors: "bake"` (the default), when they are painted into the texture and left out of the mesh; `"keep"` leaves them on the mesh too. With `palette: "style"` the recipe records the palette, so a bake is stale when the style's palette changes. `model.palette` edits the section and returns the report (triangles coloured, distinct colours, vertices before and after) and a picture of the palette.
+
+### The `texturing` section
+
+```json
+{"format": "factoria.model/1",
+ "materials": {"wood": {"color": "#ffffff", "texture": "assets/textures/wood.png", "textureScale": 0.5}},
+ "uv": {"method": "unwrap", "textureSize": 1024},
+ "texturing": {"ao": true,
+               "maps": {"write": ["curvature"]},
+               "wear": [{"mask": "edges", "color": "#d9d2c0"}, {"mask": "cavity", "color": "#2a2018", "amount": 0.6}],
+               "decals": [{"name": "label", "image": "assets/textures/label.png", "position": [0, 0.2, 0.5], "normal": "front", "size": [0.4, 0.25]}]},
+ "nodes": [ ... ]}
+```
+
+The section needs a `uv` section with layout `atlas` (`model.texture` adds `{"method": "unwrap"}` when there is none and reports `uvAdded`). The whole model is stored in one atlas.
+
+| Field | Meaning |
+|---|---|
+| `size` | Side of the texture, 16 to 4096. 0 (default): the size the `uv` section made the atlas for. |
+| `bleed` | Texels the colours are spread beyond each piece, against seams in mipmaps (0 to 32; default the uv `padding`). |
+| `vertexColors` | `"bake"` (default) or `"keep"`, see above. |
+| `background` | The colour of the texels no triangle covers (default mid grey). |
+| `document` | The image document the layers are written to (default `<model>.texture.image.json` next to the model). |
+| `ao` | `true` or `{strength, parts}`: bake ambient occlusion and multiply it in (`strength` 0 to 1, default 0.7; `parts` darkens only those). |
+| `maps` | How the maps are measured: `samples` (rays per texel, 4 to 256, default 16), `distance` (metres an occluder may be away; 0 = 15% of the model's diagonal), `thicknessDistance` (0 = 50%), `edgeAngle` (degrees, default 20), `edgeWidth` (metres of the band along an edge; 0 = 3% of the diagonal) and `write`: the maps also kept as grey PNGs next to the model (`<name>.ao.png`, `.curvature.png`, `.thickness.png`). |
+| `wear` | A list of wear entries (below). |
+| `decals` | A list of decals (below). |
+
+**The maps** are grey pictures the size of the atlas. `ao`: 1 (white) is open, lower is occluded by the rest of the model. `curvature`: 0.5 is flat, lighter is a convex edge, darker a concave corner (an edge counts when the surface turns by at least `edgeAngle`). `thickness`: the distance from the surface to the inside of the opposite surface, up to `thicknessDistance`; darker is thinner, an open surface is white. `model.bake_maps` measures them without writing anything, so you can choose thresholds first.
+
+**Wear** paints a colour over the base colour where a mask is high. Each entry: `mask` (`edges`: along convex sharp edges, for chipped paint; `cavity`: concave corners and occluded places, for dirt; `ao`: wherever there is occlusion; `thickness`: where the shell is thin), `color` (default light for edges and thickness, dark for cavity and ao), `amount` (opacity at the strongest, 0.8), `width` (metres of the band for `edges` and `cavity`; default `maps.edgeWidth`), `threshold` (the mask below this is nothing, 0.1), `noise` and `noiseScale` (how much noise, 0 to 1, breaks the mask up and how big its features are in metres), `seed`, `upBias` (-1 to 1: dust and snow on surfaces that look up, or the opposite), `parts` and a `name` for the report. All entries are composited in order into one transparent layer.
+
+**Decals** are pictures projected on the model: `image` (a project PNG or JPG, for instance the PNG of an image document), `position` (the centre, in model space), `normal` (the way the surface it sits on faces: `[x, y, z]`, or `top`, `bottom`, `front`, `back`, `left`, `right`; the picture is projected along the opposite), `size` (metres, `[w, h]` or one number), `rotation` (degrees around the normal), `opacity`, `tint`, `depth` (how far from the plane through `position` the projection reaches, each way; 0: the smaller side of the decal), `maxAngle` (surfaces turned more than this away from `normal` are left alone, 75), `parts` and `faces` (a selection query, see "Selections and edits") to limit where it lands. Transparent pixels of the image stay transparent. `model.decal` adds, replaces and removes them one at a time. The report counts the texels each decal painted: 0 means it missed the surface.
+
+### The texture is an image document
+
+A bake writes the pictures next to the model and composes them in the image document (default `assets/models/crate.texture.image.json` for `crate.model.json`), bottom first:
+
+| Layer | Content |
+|---|---|
+| `model: base` | The material colours, textures and (with `vertexColors: "bake"`) the vertex colours. |
+| `model: decals` | The decals (only when there are some). |
+| `model: wear` | The wear (only when there is some). |
+| `model: occlusion` | The baked occlusion, blend mode `multiply` (only with `ao`). |
+| `model: uv` | The edges of the triangles, a colour per part. Hidden. Turn it on to see where to paint. |
+| `paint` | A blank layer made by the first bake, yours. |
+
+The PNG of the document (`crate.texture.png`) is what the `.glb` uses as the base colour texture (the material colour becomes white, so the texture is not tinted twice), and so do `crate.lod1.glb` and the other LODs: the uvs of an LOD are the model's, so one picture serves all of them. The document opens in the Image panel and every `image.*` command works on it: `image.info`, `image.layer.add`, `image.paint`, `image.bake`.
+
+**What a re-bake keeps and what it rewrites.** Every model bake rewrites the pictures of the layers named `model: ...` (their files, listed in the recipe as extras of the model) and nothing else. It keeps: every other layer, in its place, with its pixels; the `paint` layer and its `crate.paint.png`; and the settings you gave any layer, including the `model: ...` ones (opacity, blend mode, visibility, masks, position among the layers), because only the `source` of those is renewed. A layer named `model: ...` that this bake does not make (the wear removed from the document) is removed from the document. Anything you want to keep, paint on `paint` or on a layer of your own; do not paint on a `model: ...` layer, the next bake replaces its picture.
+
+The pixels you painted are stored at the atlas positions of the moment you painted them. If a later bake changes the layout (another `uv` method, a changed density or size) they keep their pixels and no longer line up with the model; the bake warns ("The uv layout changed since the last bake..." or "The texture is NxN now...") when a layer with content is there. Settle the unwrap before you paint. Changing colours, textures, wear, decals or `ao` leaves the layout alone, so what you painted stays aligned.
+
+`model.texture {clear: true}` removes the section. The next bake deletes the layer pictures it made (`.base.png`, `.decals.png`, ... they are extras of the model, removed with it) and the `.glb` goes back to the material colours, but the image document, its PNG and `paint.png` stay in the project: they may hold your work. Delete them by hand if you do not want them.
+
+**Staleness.** The recipe of the model records the image document (its hash and the layers it reads), the decal images and the textures of the materials, and the style palette for `vertexColors.palette: "style"`. A change to any of them, or an image document whose picture is not current, makes the model stale for `model.info`, `project.validate` and `assets.regenerate`; the bake then renews the texture and the `.glb`.
+
+**Cost and limits.** The occlusion and thickness maps trace `samples` rays per texel of the atlas, so the time grows with `size` squared times `samples`. Use `model.bake_maps` with a small `size` to try values, and bake at the final size once (a model is baked again whenever anything it depends on changes). The atlas holds the whole model in one picture: a model with several textures per part, or a texture per instance, is not possible. Texels that two triangles share (the `overlap` of the report, from projected parts such as `planar`) show what is painted on both. Rays see the model as built: nothing else of the scene occludes it.
 
 ## Game-ready models
 
@@ -729,9 +832,13 @@ a `text` node: an engine font is data the binary ships; a project `.ttf` is a fi
 | `model.info {}` | The catalog: operations with their fields (type, range, default, doc), and the fields every node takes. |
 | `model.info {path}` (or `{document}`) | Checks a document, returns the tree (pointer, op, id, part, material), where it bakes to, whether the `.glb` is fresh, and (unless `evaluate` is false) measurements: vertices, triangles, bounds and size, closed surface, volume, and the triangles and bounds of each part. A document with mistakes returns `valid: false` and ALL its issues. |
 | `model.select {path, node, faces? | edges?}` | Tries a face or edge selection chosen by meaning on the mesh a node receives and reports how many matched, their area or length, bounds and parts, with a teaching warning when nothing matched. |
-| `model.create {path, nodes?, materials?, uv?, output?, doc?, overwrite?, bake?}` | Writes a document (default: one box), gives the nodes ids, bakes it. |
-| `model.edit {path, op, ...}` | `add` (`node`, `parent?`, `index?`), `set` (`target`, `values`; a null value removes a field), `remove` (`target`), `move` (`target`, `parent?`, `index?`), `document` (`doc`, `output`, `materials`, `uv`, `gameReady`; each replaces the whole field, null removes it). `target` and `parent` are a node id or a JSON pointer such as `/nodes/1/children/0`. The whole document is checked before anything is written. Then it bakes again. |
+| `model.create {path, nodes?, materials?, uv?, texturing?, vertexColors?, output?, doc?, overwrite?, bake?}` | Writes a document (default: one box), gives the nodes ids, bakes it. |
+| `model.edit {path, op, ...}` | `add` (`node`, `parent?`, `index?`), `set` (`target`, `values`; a null value removes a field), `remove` (`target`), `move` (`target`, `parent?`, `index?`), `document` (`doc`, `output`, `materials`, `uv`, `texturing`, `vertexColors`, `gameReady`; each replaces the whole field, null removes it). `target` and `parent` are a node id or a JSON pointer such as `/nodes/1/children/0`. The whole document is checked before anything is written. Then it bakes again. |
 | `model.uv {path, set?, replace?, clear?, bake?, overwrite?, picture?}` | Gives the model UVs: merges `set` into the document's `uv` section (or replaces or clears it), checks the whole document, bakes the `.glb` again and returns the measurements and the layout picture. With neither `set` nor `clear` it only measures. See "UVs". |
+| `model.texture {path, set?, replace?, clear?, bake?, overwrite?, picture?}` | Edits the `texturing` section (triplanar material textures, ambient occlusion, wear, decals, maps) the way `model.uv` edits `uv`, checks the whole document, bakes the model and its texture (an image document you can paint on) and returns the measurements and the texture picture. See "Texturing". |
+| `model.decal {path, add?, remove?, clear?, bake?, overwrite?, picture?}` | Adds, replaces, removes or lists the decals of the `texturing` section; reports the texels each one painted. |
+| `model.palette {path, set?, replace?, clear?, bake?, overwrite?, picture?}` | Edits the `vertexColors` section (style palette or your colours, a colour or gradient per part, flat low-poly faces, variation) and returns the report and the palette swatches. |
+| `model.bake_maps {path, maps?, size?, samples?, distance?, thicknessDistance?, edgeAngle?, edgeWidth?, picture?}` | Measures the occlusion, curvature and thickness maps that wear is built from and returns them as a picture. Writes nothing; keep a map with `texturing.maps.write`. |
 | `model.game_ready {path, origin?, merge?, lods?, collider?, platforms?, clear?, bake?}` | Sets the game-ready settings of a document (each value given replaces that setting; null removes it; `clear` removes all), then bakes the `.glb`, LODs, collider and prefab. With no setting it only reports the budget check. See Game-ready models. |
 | `model.bake {path?, force?, dryRun?, overwrite?}` | Builds the documents whose `.glb` is missing or stale (one with `path`; `force` also the fresh ones). Writes the `.glb` the way `mesh.save` writes a mesh, with provenance and a recipe in `assets.json`. |
 
@@ -766,4 +873,5 @@ A bad `model.edit` writes nothing.
 - `bevel` leaves an edge sharp where it ends inside a smooth surface or meets other bevelled edges in a way it cannot join cleanly, and `subdivide` merges triangle pairs into quads only when they are coplanar. `smooth` with `taubin` can move the extremes of a shape a little outside its original bounds. A `bend` keeps the model straight beyond `from` and `to`.
 - `text`: overlapping contours of a glyph are not merged (holes are found by nesting), and the ear-clipping triangulation may drop a sliver of almost no area; a glyph the font does not have is left out with a warning.
 - `model.preview` and `model.check` (pictures and the mesh-quality checks) are not there yet: `model.info` measures what the model builds, and the numbers it returns are the checks that exist today.
+- Texturing: the whole model shares one atlas (one texture per model, not per part), the maps see only the model itself, the pixels you paint on the texture do not follow a changed UV layout, and a large `size` with many `samples` is slow (CPU only). See "Texturing", "Cost and limits".
 - A baked `.glb` is a static mesh: no skeleton or animation.

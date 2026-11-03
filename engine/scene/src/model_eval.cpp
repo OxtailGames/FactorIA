@@ -605,6 +605,16 @@ Result<ModelBuild> evaluate_model(const ModelDoc& doc, const ModelEvalOptions& o
         if (mesh.vertex_count() > (1u << 20))
             return make_error(std::format("uv: cutting the model into uv pieces made {} vertices, more than a mesh can hold ({})", mesh.vertex_count(), 1u << 20), "Use fewer cuts (`seams`: \"few\") or lower `segments`.");
     }
+    // The `vertexColors` section colours the finished mesh (it may split vertices; triangles keep their order and parts).
+    if (doc.vertexColors) {
+        std::vector<std::string> partNames;
+        for (const auto& g : eval.groups) partNames.push_back(g.part);
+        ModelVertexColorReport made = model_apply_vertex_colors(mesh, partNames, *doc.vertexColors, options.stylePalette);
+        for (const std::string& w : made.warnings) build.warnings.push_back("vertexColors: " + w);
+        build.vertexColors = std::move(made);
+        if (mesh.vertex_count() > (1u << 20))
+            return make_error(std::format("vertexColors: giving each triangle its own colour made {} vertices, more than a mesh can hold ({})", mesh.vertex_count(), 1u << 20), "Turn `flat` off, or lower `segments`.");
+    }
     build.stats = model_mesh_stats(mesh);
 
     // The triangles of each (part, material) next to each other, in the order the groups were first used; the order inside a group is the

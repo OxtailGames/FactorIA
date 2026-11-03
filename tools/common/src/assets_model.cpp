@@ -136,6 +136,12 @@ Json build_json(const ModelBuild& b) {
                              {"area", round_to(s.area, 4)},
                              {"parts", parts}});
     if (b.uv) out["uv"] = model_uv_report_json(*b.uv);
+    if (b.vertexColors) {
+        const ModelVertexColorReport& v = *b.vertexColors;
+        out["vertexColors"] = Json::object({{"paletteSize", v.paletteSize}, {"coloredTriangles", v.coloredTriangles}, {"distinctColors", v.distinctColors},
+                                            {"verticesBefore", v.verticesBefore}, {"verticesAfter", v.verticesAfter}});
+        if (!v.warnings.empty()) out["vertexColors"]["warnings"] = v.warnings;
+    }
     if (!b.warnings.empty()) out["warnings"] = b.warnings;
     if (!b.edits.empty()) {
         Json edits = Json::array();
@@ -233,7 +239,7 @@ Json model_info_command(const std::string& projectDir, const Json& a) {
              {"selections", Json::object({{"doc", "The `faces` / `edges` fields of extrude_faces, inset_faces, bevel_edges, delete_faces and assign_faces are queries by meaning, never indices: {\"by\": <kind>, ...fields}. They are "
                                                     "evaluated on the mesh below the node each time the document is evaluated. model.select tries one and reports what it matched."},
                                           {"queries", query_catalog()}})},
-             {"document", Json::object({{"format", kModelDocFormat}, {"fields", Json::array({"format", "doc", "output", "materials", "uv", "gameReady", "nodes"})}, {"maxNodes", kModelDocMaxNodes}, {"maxDepth", kModelDocMaxDepth}})},
+             {"document", Json::object({{"format", kModelDocFormat}, {"fields", Json::array({"format", "doc", "output", "materials", "uv", "texturing", "vertexColors", "gameReady", "nodes"})}, {"maxNodes", kModelDocMaxNodes}, {"maxDepth", kModelDocMaxDepth}})},
              {"nextSteps", Json::array({"model.create {\"path\":\"assets/models/crate.model.json\",\"nodes\":[{\"op\":\"rounded_box\",\"size\":[1,1,1],\"radius\":0.08,\"part\":\"body\"}]} writes a document and bakes it to a .glb.",
                                         "model.info {\"path\":...} checks a document and measures what it builds."})}});
     }
@@ -258,6 +264,8 @@ Json model_info_command(const std::string& projectDir, const Json& a) {
     result["materials"] = materials;
     if (!inlineDoc) result["bake"] = bake_json(model_bake_status(projectDir, loaded.rel));
     if (!loaded.doc.gameReady.is_null()) result["gameReady"] = loaded.doc.gameReady;
+    if (loaded.doc.texturing) result["texturing"] = model_texturing_json(*loaded.doc.texturing);  // with the defaults filled in
+    if (loaded.doc.vertexColors) result["vertexColors"] = model_vertex_colors_json(*loaded.doc.vertexColors);
     if (tooling_detail::arg_bool(a, "evaluate", true)) {
         const ModelBuild build = evaluate_or_fail(projectDir, loaded.doc, loaded.rel);
         result["measurements"] = build_json(build);
@@ -342,6 +350,8 @@ Json baked_item(const ModelBakeResult& b, const std::string& reason) {
     if (b.written) item["measurements"] = build_json(b.build);
     if (!b.extras.empty()) item["extras"] = b.extras;
     if (!b.gameReady.is_null()) item["gameReady"] = b.gameReady;
+    if (!b.texture.is_null()) item["texture"] = b.texture;
+    if (!b.warnings.empty()) item["warnings"] = b.warnings;
     return item;
 }
 
@@ -460,6 +470,8 @@ Json written_result(const std::string& projectDir, const std::string& rel, const
         result["provenance"] = b->provenance;
         if (!b->extras.empty()) result["extras"] = b->extras;
         if (!b->gameReady.is_null()) result["gameReady"] = b->gameReady;
+        if (!b->texture.is_null()) result["texture"] = b->texture;
+        if (!b->warnings.empty()) result["warnings"] = b->warnings;
     } else {
         result["bake"] = bake_json(model_bake_status(projectDir, rel));
     }
@@ -468,7 +480,7 @@ Json written_result(const std::string& projectDir, const std::string& rel, const
 }
 
 Json model_create_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys("model.create", a, "", {"path", "nodes", "materials", "uv", "output", "doc", "overwrite", "bake"});
+    check_arg_keys("model.create", a, "", {"path", "nodes", "materials", "uv", "texturing", "vertexColors", "output", "doc", "overwrite", "bake"});
     const std::string rel = doc_path(tooling_detail::arg_string(a, "path", true));
     std::error_code ec;
     if (!tooling_detail::arg_bool(a, "overwrite", false) && stdfs::exists(project_file(projectDir, rel), ec))
@@ -478,6 +490,8 @@ Json model_create_command(const std::string& projectDir, const Json& a) {
     if (a.contains("output")) json["output"] = a["output"];
     if (a.contains("materials")) json["materials"] = a["materials"];
     if (a.contains("uv")) json["uv"] = a["uv"];
+    if (a.contains("texturing")) json["texturing"] = a["texturing"];
+    if (a.contains("vertexColors")) json["vertexColors"] = a["vertexColors"];
     json["nodes"] = a.contains("nodes") ? a["nodes"] : Json::array({Json::object({{"op", "box"}, {"size", Json::array({1, 1, 1})}})});
     std::set<std::string> used;
     collect_used_ids(json["nodes"], used);
@@ -525,7 +539,7 @@ bool erase_tagged(Json& nodes, const char* tag) {
 }
 
 Json model_edit_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys("model.edit", a, "", {"path", "op", "target", "node", "parent", "index", "values", "bake", "overwrite", "doc", "output", "materials", "uv", "gameReady"});
+    check_arg_keys("model.edit", a, "", {"path", "op", "target", "node", "parent", "index", "values", "bake", "overwrite", "doc", "output", "materials", "uv", "texturing", "vertexColors", "gameReady"});
     const std::string rel = doc_path(tooling_detail::arg_string(a, "path", true));
     const std::string op = tooling_detail::arg_string(a, "op", false, "");
     const std::vector<std::string> ops = {"add", "set", "remove", "move", "document"};
@@ -609,13 +623,13 @@ Json model_edit_command(const std::string& projectDir, const Json& a) {
         what["parent"] = parent;
     } else {
         bool any = false;
-        for (const char* key : {"doc", "output", "materials", "uv", "gameReady"})
+        for (const char* key : {"doc", "output", "materials", "uv", "texturing", "vertexColors", "gameReady"})
             if (a.contains(key)) {
                 if (a[key].is_null()) json.erase(key);
                 else json[key] = a[key];
                 any = true;
             }
-        if (!any) fail("invalid_argument", "model.edit document: give `doc`, `output`, `materials`, `uv` or `gameReady`.", "Example: {\"op\":\"document\",\"materials\":{\"wood\":{\"color\":[0.6,0.4,0.2,1]}}}. `materials` replaces the whole table; send the ones to keep too. `uv` replaces the whole uv section (null removes it); model.uv merges single fields.");
+        if (!any) fail("invalid_argument", "model.edit document: give `doc`, `output`, `materials`, `uv`, `texturing`, `vertexColors` or `gameReady`.", "Example: {\"op\":\"document\",\"materials\":{\"wood\":{\"color\":[0.6,0.4,0.2,1]}}}. `materials` replaces the whole table; send the ones to keep too. `uv` replaces the whole uv section (null removes it); model.uv merges single fields.");
     }
     checked(json, rel);
     require_usable_manifest(projectDir);
@@ -750,6 +764,8 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                                              {"nodes", Json::object({{"type", "array"}, {"items", Json::object({{"type", "object"}})}, {"description", "The tree, in order. Each node is {\"op\": ..., fields}; groups and modifiers hold `children`."}})},
                                                              {"materials", object_arg("Named materials the nodes refer to with `material`: {name: {color, texture, metallic, roughness, emissive, doubleSided, blend}}.")},
                                                              {"uv", object_arg("The uv section: how the model gets its UVs ({method, layout, texelsPerUnit, ...}; docs/MODELING.md, \"UVs\"). model.uv changes it field by field.")},
+                                                             {"texturing", object_arg("The texturing section: bake a texture for the model ({size, ao, maps, wear, decals, ...}; docs/MODELING.md, \"Texturing\"). Needs a uv section with the atlas layout. model.texture changes it field by field.")},
+                                                             {"vertexColors", object_arg("The vertexColors section: low-poly colour without a texture ({palette, parts, flat, variation, ...}; docs/MODELING.md, \"Texturing\"). model.palette changes it.")},
                                                              {"output", object_arg("{path: where to bake, under assets/, ending in .glb}.")},
                                                              {"doc", str("A note on what the model is for.")},
                                                              {"overwrite", boolean("Replace the document when it exists (and the .glb when nothing baked it).", false)},
@@ -780,12 +796,15 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                                              {"output", object_arg("document: the new output settings ({path}); null removes them.")},
                                                              {"materials", object_arg("document: the new materials table; null removes it.")},
                                                              {"uv", Json::object({{"type", Json::array({"object", "null"})}, {"description", "document: the new uv section, whole; null removes it. model.uv changes single fields."}})},
+                                                             {"texturing", Json::object({{"type", Json::array({"object", "null"})}, {"description", "document: the new texturing section, whole; null removes it. model.texture changes single fields."}})},
+                                                             {"vertexColors", Json::object({{"type", Json::array({"object", "null"})}, {"description", "document: the new vertexColors section, whole; null removes it. model.palette changes it."}})},
                                                              {"gameReady", object_arg("document: the whole game-ready settings object (model.game_ready changes single settings); null removes it.")},
                                                              {"bake", boolean("Bake the .glb after writing.", true)},
                                                              {"overwrite", boolean("Replace a .glb that no model document baked.", false)}})}});
         registry.add(info, [projectDir](const Json& args) { return model_edit_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     register_model_uv_command(registry, projectDir);
+    register_model_texture_commands(registry, projectDir);
     {
         CommandInfo info;
         info.name = "model.game_ready";

@@ -767,4 +767,15 @@ ModelSelectionReport model_select_report(const ModelMesh& mesh, const Json& quer
     return r;
 }
 
+std::vector<char> model_select_triangles(const ModelMesh& mesh, const Json& query, const ModelEditContext& context) {
+    const mm::Soup soup = mm::to_soup(mesh);
+    const mm::Edges edges = mm::build_edges(soup);
+    sel::Selector selector(soup, edges, context);
+    const std::vector<char> mask = selector.faces(query);
+    std::vector<char> out(mesh.triangle_count(), 0);
+    for (std::size_t t = 0; t < mask.size() && t < soup.src.size(); ++t)
+        if (mask[t] && soup.src[t] < out.size()) out[soup.src[t]] = 1;
+    return out;
+}
+
 }  // namespace fa
