@@ -306,6 +306,8 @@ float fractal(Vec3 p, const ModelNoiseParams& q, std::uint32_t seedOffset) {
 
 }  // namespace
 
+float model_value_noise(Vec3 p, std::uint32_t seed) { return value_noise(p, seed); }
+
 ModelMesh model_noise(const ModelMesh& m, const ModelNoiseParams& p) {
     std::vector<std::uint32_t> id = cluster_points(m.positions, kWeldTolerance);
     // one direction per welded vertex, so a seam where normals differ (a hard edge, a uv cut) is displaced the same way on both sides

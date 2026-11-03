@@ -381,7 +381,7 @@ Json model_create_command(const std::string& projectDir, const Json& a) {
 // True for the operations that hold `children`: groups and modifiers.
 bool holds_children(const std::string& op) {
     for (const ModelOpInfo& o : model_ops())
-        if (o.op == op) return o.kind == "group" || o.kind == "modifier";
+        if (o.op == op) return o.kind == "group" || o.kind == "modifier" || o.kind == "sdf" || o.kind == "sdf_group";
     return false;
 }
 

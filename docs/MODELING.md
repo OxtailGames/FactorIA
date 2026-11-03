@@ -264,6 +264,169 @@ they grow from, each half of the strip a `bevel` adds takes the part of the face
 - Everything is deterministic: no `rand()`, no wall clock, noise from integer hashes, trigonometry from `fa::det`, booleans single-threaded. The
   same document gives the same mesh bytes.
 
+## Organic shapes: `sdf`
+
+Booleans and modifiers work on triangles; a creature, a rock or a tree is easier to say as a SOLID: "a body, a head melted into it, an
+ear cut out". An `sdf` node says exactly that. Its `children` are signed-distance shapes, joined in order, and the engine turns
+the solid into a triangle mesh. The result is an ordinary mesh node: `align` and the transform place it, a modifier can wrap it
+(`mirror`, `subdivide`, `bend`...) and a `boolean` can take it as an operand.
+
+| Node | What it is |
+|---|---|
+| `sdf` | The mesh of its children. `quality` or `voxelSize`, `targetTriangles` or `maxError`, and the noise fields. |
+| `sdf_sphere` | `radius`. |
+| `sdf_capsule` | `radius`, `radiusTop` (left out: the same, a capsule; otherwise a round cone), `height` tip to tip, along Y. |
+| `sdf_ellipsoid` | `radii` [x, y, z]. |
+| `sdf_box` | `size`, `round` (radius of the rounded edges). |
+| `sdf_cylinder` | `radius`, `height`, `round`. |
+| `sdf_cone` | `radius` (base), `radiusTop` (0: a point), `height`; point up. |
+| `sdf_torus` | `radius` of the ring, `tube`; the hole is along Y. |
+| `sdf_group` | Several of the above treated as one (they can hold more groups), with `mirror`. |
+
+Every shape and group has the common fields (`position`, `rotation`, `scale`, `part`, `material`, `color`, `enabled`, `id`) and two
+that say how it joins the shapes BEFORE it in the same list: `blend` (`union`, the default; `subtract`, cut it out of what is there;
+`intersect`, keep what both have) and `smooth` (metres, 0 is a hard edge). The first shape of a list starts the solid and its `blend`
+is ignored. A group is placed by its own transform, evaluates its children in order as a solid of their own and then joins the
+shapes before it as one more shape: put a cut inside a group to cut only that group (the mushroom's cap below), or in the `sdf` to cut
+everything before it. `mirror` (`x`, `y` or `z`) repeats the group on the other side of the plane through its origin: model the left
+side, write the right for free (the shapes should sit on the positive side: what is on the negative side of the plane is left out and
+replaced by the mirror image of the positive side). A shape or group is only valid inside an `sdf`, and an `sdf` holds nothing else: to mix a triangle primitive with an sdf,
+put both under a `boolean` or a `group` outside it.
+
+`smooth` is the quadratic smooth minimum: two surfaces closer than `smooth` melt into each other, a union fills the crease between a body and a leg, a
+subtraction rounds the rim of the cut. It lowers the distance by at most a quarter of `smooth`, which is how far a smooth union can bulge past the hard one.
+
+### What decides a triangle's part and colour
+
+The meshed surface keeps what the shapes said. A triangle belongs to the `part` and `material` of the shape that OWNS its centre: far from any
+join that is the nearest shape; inside a smooth blend it is the one with the larger share of the blend (the nearer one, by the same
+numbers the blend uses); on the walls of a subtraction it is the CUTTER (the same rule as `boolean`'s `difference`: the cut faces take
+the part of the cutter). A vertex takes the `color` at its position and melts it across a blend by the same shares, so a head
+blended into a body fades from the head's colour to the body's. Shapes without a `color` give white to a model that has
+coloured shapes elsewhere in the same `sdf`. The decimation keeps the borders between parts where they are, so a part never loses its edge
+(`model.info` lists the triangles of every part).
+
+### Meshing, resolution and cost
+
+The field is sampled on a regular grid; `voxelSize` is the size of a cell in metres, and when it is left out `quality` picks the
+number of cells along the longest side of the shape: `draft` 40, `normal` 96 (default), `fine` 160, `ultra` 200. A feature thinner
+than a cell can vanish, and a shape with nothing left (everything subtracted away) gives a warning and no triangles.
+
+The grid is cut into tetrahedra (marching tetrahedra) and every vertex is placed on the zero of the field along a cell edge. This is the
+choice of method: surface nets and dual contouring put one vertex per cell and need rules for the cells where two opposite corners
+are inside; a thin part or a tight blend through such a cell leaves a pinched vertex or an edge with four triangles, and a later
+`boolean` or `bevel` refuses the mesh. Marching tetrahedra has no ambiguous case, so the surface is a closed manifold whatever the shapes do, and
+nothing downstream has to repair it. Sharp edges of a box are rounded to about a cell, which suits organic shapes (a box wanted sharp is
+a `box` primitive). It makes many thin triangles; the decimation below removes them.
+
+Decimation (`targetTriangles`, `maxError`) is a quadric error metric: it collapses the edge whose collapse changes the surface least, and
+keeps the surface closed and manifold (it refuses a collapse that would open it, flip a triangle or merge two parts' borders).
+`targetTriangles` stops at about that many triangles; `maxError` (metres, the root mean square distance of the new vertex from the planes
+it replaced) stops when the cheapest collapse costs more. With neither, the limit is a quarter of a cell; with only `targetTriangles` there is no error limit,
+so ask for what the shape needs. `maxError` 0 with no `targetTriangles` turns decimation off (the creature below then has about 98,000 triangles instead of 3,000).
+
+A request that would sample more than 12 million points, or evaluate more than 300 million (points x shapes), is refused before it runs, with the
+voxel size that fits. The cost grows with the cube of the resolution: halving `voxelSize` is 8 times the samples.
+
+`noiseAmplitude` (metres), `noiseFrequency` (features per metre), `noiseOctaves` and `noiseSeed` add seeded value noise to the field: the
+surface moves along its normal by up to about the amplitude. It is for rock, bark and hide; the same seed gives the same rock on every
+platform. Normals are the gradient of the whole field, noise included, so the result is smooth without a `shade` node. UV coordinates are a box
+projection, one unit per metre, with vertices split where the projection changes axis.
+
+### Examples
+
+Each was checked with `model.info` (all `valid`, `closed` with no boundary or non-manifold edge, no warnings). The numbers are what the
+current engine returns; the times are CPU seconds of `factoria call model.info` in a Release build on an Apple M-series laptop,
+process start (0.07 s) included.
+
+**A small creature** (7 shapes in 6 parts, 2212 vertices, 3000 triangles, 0.3 s). The ears, legs and eyes are groups with `mirror: "z"`: only the
+shapes on the +Z side are written.
+
+```json
+{
+  "format": "factoria.model/1",
+  "doc": "A small round creature: body, head, mirrored ears, legs and eyes, and a tail.",
+  "materials": {
+    "fur": {"color": [0.78, 0.55, 0.35, 1], "roughness": 0.9},
+    "eye": {"color": [0.04, 0.04, 0.06, 1], "roughness": 0.2}
+  },
+  "nodes": [
+    {"op": "sdf", "id": "creature", "align": "bottom", "targetTriangles": 3000, "children": [
+      {"op": "sdf_ellipsoid", "id": "body", "radii": [0.45, 0.38, 0.38], "position": [0, 0.5, 0], "part": "body", "material": "fur"},
+      {"op": "sdf_sphere", "id": "head", "radius": 0.26, "position": [0.42, 0.78, 0], "smooth": 0.15, "part": "head", "material": "fur"},
+      {"op": "sdf_group", "id": "ears", "mirror": "z", "smooth": 0.06, "part": "ears", "material": "fur", "children": [
+        {"op": "sdf_capsule", "radius": 0.06, "height": 0.34, "position": [0.4, 1.06, 0.14], "rotation": [-12, 0, 0]}]},
+      {"op": "sdf_group", "id": "legs", "mirror": "z", "smooth": 0.1, "part": "legs", "material": "fur", "children": [
+        {"op": "sdf_capsule", "radius": 0.09, "radiusTop": 0.07, "height": 0.42, "position": [0.25, 0.21, 0.2]},
+        {"op": "sdf_capsule", "radius": 0.09, "radiusTop": 0.07, "height": 0.42, "position": [-0.25, 0.21, 0.2]}]},
+      {"op": "sdf_capsule", "id": "tail", "radius": 0.08, "radiusTop": 0.04, "height": 0.5, "position": [-0.58, 0.68, 0], "rotation": [0, 0, 55],
+       "smooth": 0.12, "part": "tail", "material": "fur"},
+      {"op": "sdf_group", "id": "eyes", "mirror": "z", "part": "eyes", "material": "eye", "children": [
+        {"op": "sdf_sphere", "radius": 0.045, "position": [0.62, 0.84, 0.1]}]}]}
+  ]
+}
+```
+
+**A rock** (997 vertices, 1500 triangles, 0.3 s). Two ellipsoids melted together, a pit cut out of one side, rough from seeded noise. Change `noiseSeed` for another rock.
+
+```json
+{
+  "format": "factoria.model/1",
+  "doc": "A boulder: two lumps melted together, a pit cut into one side, rough by seeded noise.",
+  "materials": {"stone": {"color": [0.5, 0.49, 0.46, 1], "roughness": 1}},
+  "nodes": [
+    {"op": "sdf", "id": "rock", "align": "bottom", "material": "stone", "part": "rock", "noiseAmplitude": 0.05, "noiseFrequency": 3,
+     "noiseOctaves": 3, "noiseSeed": 7, "targetTriangles": 1500, "children": [
+      {"op": "sdf_ellipsoid", "id": "base", "radii": [0.8, 0.5, 0.6]},
+      {"op": "sdf_ellipsoid", "id": "lump", "radii": [0.5, 0.4, 0.45], "position": [0.3, 0.2, 0.1], "rotation": [0, 30, 0], "smooth": 0.1},
+      {"op": "sdf_sphere", "id": "pit", "radius": 0.22, "position": [0.55, 0.15, 0.4], "blend": "subtract", "smooth": 0.08}]}
+  ]
+}
+```
+
+**A tree** (479 vertices, 560 triangles, 0.23 s, `trunk` and `leaves` parts). No `targetTriangles`: the default error limit does the decimation.
+
+```json
+{
+  "format": "factoria.model/1",
+  "doc": "A tree: a trunk that flares into roots and a canopy of three blobs, bark and leaves as separate parts.",
+  "materials": {"bark": {"color": [0.4, 0.28, 0.18, 1], "roughness": 1}, "leaves": {"color": [0.25, 0.55, 0.22, 1], "roughness": 0.8}},
+  "nodes": [
+    {"op": "sdf", "id": "tree", "align": "bottom", "noiseAmplitude": 0.03, "noiseFrequency": 4, "noiseSeed": 2, "children": [
+      {"op": "sdf_cone", "id": "trunk", "radius": 0.22, "radiusTop": 0.1, "height": 1.8, "position": [0, 0.9, 0], "part": "trunk", "material": "bark"},
+      {"op": "sdf_group", "id": "roots", "mirror": "x", "smooth": 0.15, "part": "trunk", "material": "bark", "children": [
+        {"op": "sdf_capsule", "radius": 0.07, "height": 0.7, "position": [0.2, 0.06, 0], "rotation": [0, 0, 70]}]},
+      {"op": "sdf_sphere", "id": "crown", "radius": 0.75, "position": [0, 2.2, 0], "smooth": 0.3, "part": "leaves", "material": "leaves"},
+      {"op": "sdf_sphere", "id": "left", "radius": 0.5, "position": [-0.55, 1.95, 0.15], "smooth": 0.3, "part": "leaves", "material": "leaves"},
+      {"op": "sdf_sphere", "id": "right", "radius": 0.55, "position": [0.5, 2.0, -0.1], "smooth": 0.3, "part": "leaves", "material": "leaves"}]}
+  ]
+}
+```
+
+**A mushroom** (2028 vertices, 2500 triangles, 0.46 s). The cap is a group that cuts its own underside flat; the spots are another part with another material.
+
+```json
+{
+  "format": "factoria.model/1",
+  "doc": "A mushroom: a stem, a cap cut flat underneath and white spots, each its own part.",
+  "materials": {"stem": {"color": [0.92, 0.88, 0.78, 1]}, "cap": {"color": [0.75, 0.15, 0.12, 1], "roughness": 0.5}, "spots": {"color": [0.96, 0.95, 0.9, 1]}},
+  "nodes": [
+    {"op": "sdf", "id": "mushroom", "align": "bottom", "targetTriangles": 2500, "children": [
+      {"op": "sdf_cylinder", "id": "stem", "radius": 0.12, "height": 0.5, "round": 0.04, "position": [0, 0.25, 0], "part": "stem", "material": "stem"},
+      {"op": "sdf_group", "id": "cap", "smooth": 0.05, "part": "cap", "material": "cap", "position": [0, 0.5, 0], "children": [
+        {"op": "sdf_ellipsoid", "radii": [0.4, 0.28, 0.4]},
+        {"op": "sdf_box", "size": [1.2, 0.6, 1.2], "position": [0, -0.3, 0], "blend": "subtract", "smooth": 0.02}]},
+      {"op": "sdf_group", "id": "spots", "part": "spots", "material": "spots", "children": [
+        {"op": "sdf_sphere", "radius": 0.06, "position": [0.12, 0.77, 0.08]},
+        {"op": "sdf_sphere", "radius": 0.05, "position": [-0.14, 0.74, 0.14]},
+        {"op": "sdf_sphere", "radius": 0.045, "position": [0.0, 0.79, -0.15]}]}]}
+  ]
+}
+```
+
+Edit by id like any model: `model.edit {"path": "assets/models/rock.model.json", "op": "set", "target": "pit", "values": {"radius": 0.3}}`; to add a
+shape to an `sdf`, `{"op": "add", "parent": "rock", "node": {"op": "sdf_sphere", ...}}`.
+
 ## Parts, materials and vertex colours
 
 A **part** is a labelled piece of the model. A node with `part` gives that name to itself and to every node below it that
@@ -320,7 +483,8 @@ A bad `model.edit` writes nothing.
 
 ## Limits and known gaps
 
-- A model has no region tags yet and no signed-distance shapes; those come with later milestones. A group with negative `scale` mirrors its children.
+- A model has no region tags yet; that comes with a later milestone. A group with negative `scale` mirrors its children.
+- `sdf`: no sharp features (a box is rounded to about a cell; use the `box` primitive for a crisp one), a feature thinner than a cell can vanish, and The distance of an ellipsoid and of a shape with a non-uniform `scale` is an approximation, exact on the surface, so a `smooth` next to one is a little wider or narrower than its number. An `sdf` node is meshed on its own: two `sdf` nodes do not blend into each other (put both in one).
 - `bevel` leaves an edge sharp where it ends inside a smooth surface or meets other bevelled edges in a way it cannot join cleanly, and `subdivide` merges triangle pairs into quads only when they are coplanar. `smooth` with `taubin` can move the extremes of a shape a little outside its original bounds. A `bend` keeps the model straight beyond `from` and `to`.
 - `text`: overlapping contours of a glyph are not merged (holes are found by nesting), and the ear-clipping triangulation may drop a sliver of almost no area; a glyph the font does not have is left out with a warning.
 - `model.preview` and `model.check` (pictures and the mesh-quality checks) are not there yet: `model.info` measures what the model builds, and the numbers it returns are the checks that exist today.
