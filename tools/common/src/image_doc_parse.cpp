@@ -1,0 +1,512 @@
+// *.image.json -> ImageDocument, with the checks and the teaching errors (docs/IMAGES.md, schemas/image.schema.json).
+// Every problem found is collected with its JSON pointer; the first one becomes the error.
+#include <algorithm>
+#include <cmath>
+#include <filesystem>
+#include <format>
+
+#include "assets_internal.h"
+#include "fa/core/strings.h"
+#include "fa/render/builtin_fonts.h"
+#include "fa/tooling/project_fs.h"
+#include "image_doc_internal.h"
+#include "util.h"
+
+namespace fa {
+
+namespace {
+
+namespace stdfs = std::filesystem;
+using imgdoc::Polyline;
+
+struct Parser {
+    const std::string& file;
+    const std::string& projectDir;
+    std::vector<ImageIssue>& issues;
+    int canvasW = 0, canvasH = 0;
+
+    void add(const std::string& pointer, std::string message, std::string hint) { issues.push_back({pointer, std::move(message), std::move(hint)}); }
+
+    static std::string tok(const std::string& key) { return tooling_detail::escape_token(key); }
+
+    void unknown_keys(const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed, const std::string& what) {
+        for (auto it = obj.begin(); it != obj.end(); ++it) {
+            if (std::find(allowed.begin(), allowed.end(), it.key()) != allowed.end()) continue;
+            add(pointer + "/" + tok(it.key()), "Unknown key '" + it.key() + "' in " + what + ".", did_you_mean(it.key(), allowed) + " Keys: " + join(allowed, ", ") + ".");
+        }
+    }
+
+    // Typed members. Each returns false (and records the problem) when present but wrong; `out` is left alone when absent.
+    bool get_int(const Json& obj, const std::string& pointer, const char* key, int& out, int lo, int hi, const std::string& hint) {
+        auto it = obj.find(key);
+        if (it == obj.end()) return true;
+        const bool ok = it->is_number_integer() && it->get<long long>() >= lo && it->get<long long>() <= hi;
+        if (!ok) {
+            add(pointer + "/" + key, std::format("`{}` must be a whole number from {} to {}, got {}.", key, lo, hi, describe_json_value(*it)), hint);
+            return false;
+        }
+        out = int(it->get<long long>());
+        return true;
+    }
+    bool get_number(const Json& obj, const std::string& pointer, const char* key, float& out, double lo, double hi, const std::string& hint) {
+        auto it = obj.find(key);
+        if (it == obj.end()) return true;
+        const bool ok = it->is_number() && it->get<double>() >= lo && it->get<double>() <= hi;
+        if (!ok) {
+            add(pointer + "/" + key, std::format("`{}` must be a number from {} to {}, got {}.", key, lo, hi, describe_json_value(*it)), hint);
+            return false;
+        }
+        out = it->get<float>();
+        return true;
+    }
+    bool get_bool(const Json& obj, const std::string& pointer, const char* key, bool& out) {
+        auto it = obj.find(key);
+        if (it == obj.end()) return true;
+        if (!it->is_boolean()) {
+            add(pointer + "/" + key, std::format("`{}` must be true or false, got {}.", key, describe_json_value(*it)), "Write " + std::string(key) + ": true.");
+            return false;
+        }
+        out = it->get<bool>();
+        return true;
+    }
+    bool get_string(const Json& obj, const std::string& pointer, const char* key, std::string& out, bool allowEmpty = false) {
+        auto it = obj.find(key);
+        if (it == obj.end()) return true;
+        if (!it->is_string() || (!allowEmpty && it->get<std::string>().empty())) {
+            add(pointer + "/" + key, std::format("`{}` must be {}string, got {}.", key, allowEmpty ? "a " : "a non-empty ", describe_json_value(*it)), "Write it as text, for example \"assets/art/hero.png\".");
+            return false;
+        }
+        out = it->get<std::string>();
+        return true;
+    }
+    bool get_color(const Json& obj, const std::string& pointer, const char* key, Color& out) {
+        auto it = obj.find(key);
+        if (it == obj.end()) return true;
+        std::string err;
+        if (!json_to(*it, out, &err)) {
+            add(pointer + "/" + key, std::format("`{}`: {}", key, err), "Colours are \"#rrggbb\", \"#rrggbbaa\", a name like \"white\" or [r, g, b(, a)] in 0..1.");
+            return false;
+        }
+        return true;
+    }
+
+    // A project file named by a layer: normalized, must exist when the project is known.
+    bool project_file(const std::string& pointer, const std::string& key, std::string& value, const std::vector<std::string>& extensions, const char* what) {
+        auto norm = fs::normalize_checked(value);
+        if (!norm.ok() || norm->empty()) {
+            add(pointer + "/" + key, std::format("'{}' is not a project path: {}", value, norm.ok() ? "it is empty" : norm.error().message), "Use a project-relative path with forward slashes, such as \"assets/art/hero.png\".");
+            return false;
+        }
+        const std::string ext = to_lower(fs::extension(*norm));
+        if (std::find(extensions.begin(), extensions.end(), ext) == extensions.end()) {
+            add(pointer + "/" + key, std::format("'{}' is not {} (it must end in {}).", *norm, what, join(extensions, " or ")), "Name " + std::string(what) + " of the project.");
+            return false;
+        }
+        value = *norm;
+        if (projectDir.empty()) return true;
+        std::error_code ec;
+        auto path = resolve_project_path(projectDir, value);
+        if (!path.ok() || !stdfs::is_regular_file(*path, ec)) {
+            add(pointer + "/" + key, std::format("The file '{}' does not exist in the project.", value),
+                "Check the path (it is relative to the project folder), or make the file first: draw it with assets.rasterize_svg or assets.generate_texture, or bring it in with assets.import.");
+            return false;
+        }
+        return true;
+    }
+
+    void parse_masks(const Json& layer, const std::string& pointer, ImageLayer& out) {
+        auto it = layer.find("masks");
+        if (it == layer.end()) return;
+        if (!it->is_array()) {
+            add(pointer + "/masks", "`masks` must be a list, got " + describe_json_value(*it) + ".", "Write masks: [{\"type\": \"ellipse\", \"x\": 0, \"y\": 0, \"width\": 64, \"height\": 64}].");
+            return;
+        }
+        static const std::vector<std::string> types = {"pixels", "rect", "ellipse", "polygon", "path"};
+        for (std::size_t i = 0; i < it->size(); ++i) {
+            const Json& m = (*it)[i];
+            ImageMask mask;
+            mask.pointer = pointer + "/masks/" + std::to_string(i);
+            if (!m.is_object()) {
+                add(mask.pointer, "A mask must be an object, got " + describe_json_value(m) + ".", "Write {\"type\": \"rect\", \"x\": 0, \"y\": 0, \"width\": 32, \"height\": 32}. Types: " + join(types, ", ") + ".");
+                continue;
+            }
+            std::string type;
+            if (!m.contains("type") || !m["type"].is_string()) {
+                add(mask.pointer + "/type", "A mask needs a string `type`.", "Types: " + join(types, ", ") + ".");
+                continue;
+            }
+            type = m["type"].get<std::string>();
+            const auto found = std::find(types.begin(), types.end(), type);
+            if (found == types.end()) {
+                add(mask.pointer + "/type", "Unknown mask type '" + type + "'.", did_you_mean(type, types) + " Types: " + join(types, ", ") + ".");
+                continue;
+            }
+            mask.type = ImageMask::Type(found - types.begin());
+            std::vector<std::string> allowed = {"type", "invert", "feather"};
+            auto extend = [&](std::initializer_list<const char*> more) { allowed.insert(allowed.end(), more.begin(), more.end()); };
+            switch (mask.type) {
+                case ImageMask::Type::Pixels: extend({"source", "x", "y"}); break;
+                case ImageMask::Type::Rect:
+                case ImageMask::Type::Ellipse: extend({"x", "y", "width", "height"}); break;
+                case ImageMask::Type::Polygon: extend({"points"}); break;
+                case ImageMask::Type::Path: extend({"path"}); break;
+            }
+            unknown_keys(m, mask.pointer, allowed, type + " mask");
+            get_bool(m, mask.pointer, "invert", mask.invert);
+            get_number(m, mask.pointer, "feather", mask.feather, 0, 512, "Feather is the width of the soft edge in pixels; 0 is a hard edge.");
+            const std::string intHint = "Positions and sizes are whole pixels, in the layer's own coordinates.";
+            switch (mask.type) {
+                case ImageMask::Type::Pixels:
+                    if (!m.contains("source")) add(mask.pointer, "A pixels mask needs `source`, a PNG: white shows the layer, black hides it.", "Example: {\"type\": \"pixels\", \"source\": \"assets/art/hero_mask.png\"}.");
+                    else if (get_string(m, mask.pointer, "source", mask.source)) project_file(mask.pointer, "source", mask.source, {".png"}, "a PNG");
+                    get_int(m, mask.pointer, "x", mask.x, -100000, 100000, intHint);
+                    get_int(m, mask.pointer, "y", mask.y, -100000, 100000, intHint);
+                    break;
+                case ImageMask::Type::Rect:
+                case ImageMask::Type::Ellipse:
+                    get_int(m, mask.pointer, "x", mask.x, -100000, 100000, intHint);
+                    get_int(m, mask.pointer, "y", mask.y, -100000, 100000, intHint);
+                    for (const char* key : {"width", "height"}) {
+                        if (!m.contains(key)) add(mask.pointer, std::string("A ") + type + " mask needs `" + key + "` (pixels).", "Example: {\"type\": \"" + type + "\", \"x\": 8, \"y\": 8, \"width\": 48, \"height\": 48}.");
+                    }
+                    get_int(m, mask.pointer, "width", mask.width, 1, kImageDocMaxSide * 4, "Width and height are whole pixels, at least 1.");
+                    get_int(m, mask.pointer, "height", mask.height, 1, kImageDocMaxSide * 4, "Width and height are whole pixels, at least 1.");
+                    break;
+                case ImageMask::Type::Polygon: {
+                    auto pts = m.find("points");
+                    if (pts == m.end() || !pts->is_array() || pts->size() < 3) {
+                        add(mask.pointer + "/points", "A polygon mask needs `points`: a list of at least three [x, y] corners.", "Example: \"points\": [[0, 0], [64, 0], [32, 48]].");
+                        break;
+                    }
+                    for (std::size_t k = 0; k < pts->size(); ++k) {
+                        Vec2 v;
+                        std::string err;
+                        if (!(*pts)[k].is_array() || !json_to((*pts)[k], v, &err))
+                            add(mask.pointer + "/points/" + std::to_string(k), "A corner must be [x, y], got " + describe_json_value((*pts)[k]) + ".", "Example: [32, 48].");
+                        else mask.points.push_back(v);
+                    }
+                    break;
+                }
+                case ImageMask::Type::Path: {
+                    if (!m.contains("path")) {
+                        add(mask.pointer, "A path mask needs `path`: SVG path data.", "Example: {\"type\": \"path\", \"path\": \"M10 10 L90 10 L50 80 Z\"}.");
+                        break;
+                    }
+                    if (!get_string(m, mask.pointer, "path", mask.path)) break;
+                    std::vector<Polyline> shapes;
+                    std::string err;
+                    if (!imgdoc::parse_svg_path(mask.path, shapes, err))
+                        add(mask.pointer + "/path", "The path data is not valid: " + err + ".", "Write SVG path data such as \"M10 10 L90 10 L50 80 Z\" (M, L, H, V, C, S, Q, T, A, Z, absolute or relative).");
+                    break;
+                }
+            }
+            out.masks.push_back(std::move(mask));
+        }
+    }
+
+    void parse_ops(const Json& layer, const std::string& pointer, const char* key, bool effect, std::vector<Json>& out) {
+        auto it = layer.find(key);
+        if (it == layer.end()) return;
+        if (!it->is_array()) {
+            add(pointer + "/" + key, std::string("`") + key + "` must be a list, got " + describe_json_value(*it) + ".", std::string("Write ") + key + ": [{\"type\": \"" + (effect ? "colorOverlay" : "invert") + "\"}].");
+            return;
+        }
+        for (std::size_t i = 0; i < it->size(); ++i) {
+            imgdoc::check_op(effect, (*it)[i], pointer + "/" + key + "/" + std::to_string(i), issues);
+            out.push_back((*it)[i]);
+        }
+    }
+
+    void parse_gradient(const Json& layer, const std::string& pointer, ImageLayer& out) {
+        auto it = layer.find("gradient");
+        const std::string gp = pointer + "/gradient";
+        if (it == layer.end() || !it->is_object()) {
+            add(it == layer.end() ? pointer : gp, "A gradient layer needs a `gradient` object.",
+                "Example: \"gradient\": {\"type\": \"linear\", \"angle\": 90, \"stops\": [{\"at\": 0, \"color\": \"#000000\"}, {\"at\": 1, \"color\": \"#ffffff\"}]}.");
+            return;
+        }
+        const Json& g = *it;
+        unknown_keys(g, gp, {"type", "angle", "center", "radius", "stops"}, "a gradient");
+        std::string type = "linear";
+        get_string(g, gp, "type", type);
+        if (type != "linear" && type != "radial") add(gp + "/type", "Unknown gradient type '" + type + "'.", did_you_mean(type, std::vector<std::string>{"linear", "radial"}) + " Types: linear, radial.");
+        out.gradient.radial = type == "radial";
+        get_number(g, gp, "angle", out.gradient.angle, -3600, 3600, "Degrees: 0 runs from the top to the bottom, 90 from the left to the right.");
+        get_number(g, gp, "radius", out.gradient.radius, 0.001, 100, "1 reaches the corners of the layer's box; 0.5 reaches the middle of its sides.");
+        if (g.contains("center")) {
+            std::string err;
+            if (!g["center"].is_array() || !json_to(g["center"], out.gradient.center, &err))
+                add(gp + "/center", "`center` must be [x, y] as fractions of the layer's box, got " + describe_json_value(g["center"]) + ".", "Example: \"center\": [0.5, 0.5].");
+        }
+        auto stops = g.find("stops");
+        if (stops == g.end() || !stops->is_array() || stops->size() < 2) {
+            add(gp + "/stops", "A gradient needs `stops`: a list of at least two {\"at\", \"color\"} entries.", "Example: \"stops\": [{\"at\": 0, \"color\": \"#ff8800\"}, {\"at\": 1, \"color\": \"#220044\"}].");
+            return;
+        }
+        float prev = 0;
+        for (std::size_t i = 0; i < stops->size(); ++i) {
+            const Json& s = (*stops)[i];
+            const std::string sp = gp + "/stops/" + std::to_string(i);
+            if (!s.is_object()) {
+                add(sp, "A stop must be an object {\"at\", \"color\"}, got " + describe_json_value(s) + ".", "Example: {\"at\": 0.5, \"color\": \"#ffffff\"}.");
+                continue;
+            }
+            unknown_keys(s, sp, {"at", "color"}, "a gradient stop");
+            ImageGradientStop stop;
+            if (!s.contains("at") || !s.contains("color")) {
+                add(sp, "A stop needs both `at` (0..1) and `color`.", "Example: {\"at\": 0.5, \"color\": \"#ffffff\"}.");
+                continue;
+            }
+            if (!get_number(s, sp, "at", stop.at, 0, 1, "`at` is the place along the gradient, from 0 (start) to 1 (end).") || !get_color(s, sp, "color", stop.color)) continue;
+            if (stop.at < prev) add(sp + "/at", std::format("The stops must go from small to large `at`, and {} comes after {}.", stop.at, prev), "Put the stops in order of `at`.");
+            prev = std::max(prev, stop.at);
+            out.gradient.stops.push_back(stop);
+        }
+    }
+
+    void parse_font(const Json& layer, const std::string& pointer, ImageLayer& out) {
+        if (!get_string(layer, pointer, "font", out.font, true) || out.font.empty()) return;
+        if (starts_with(out.font, "builtin")) {
+            if (!find_builtin_font(out.font))
+                add(pointer + "/font", "Unknown built-in font '" + out.font + "'.", "Fonts: " + builtin_font_list() + ".");
+            return;
+        }
+        std::string value = out.font;
+        if (project_file(pointer, "font", value, {".ttf", ".otf", ".ttc"}, "a font file")) out.font = value;
+    }
+
+    ImageLayer parse_layer(const Json& j, const std::string& pointer, bool hasBelow, int depth) {
+        ImageLayer layer;
+        layer.pointer = pointer;
+        const auto kinds = image_layer_kind_names();
+        if (!j.is_object()) {
+            add(pointer, "A layer must be an object, got " + describe_json_value(j) + ".", "Write {\"kind\": \"fill\", \"color\": \"#ffffff\"}. Kinds: " + join(kinds, ", ") + ".");
+            return layer;
+        }
+        auto kindIt = j.find("kind");
+        if (kindIt == j.end() || !kindIt->is_string()) {
+            add(pointer + "/kind", "Every layer needs a string `kind`.", "Kinds: " + join(kinds, ", ") + ".");
+            return layer;
+        }
+        const std::string kind = kindIt->get<std::string>();
+        const auto kindFound = std::find(kinds.begin(), kinds.end(), kind);
+        if (kindFound == kinds.end()) {
+            add(pointer + "/kind", "Unknown layer kind '" + kind + "'.", did_you_mean(kind, kinds) + " Kinds: " + join(kinds, ", ") + ".");
+            return layer;
+        }
+        layer.kind = ImageLayerKind(kindFound - kinds.begin());
+
+        std::vector<std::string> allowed = {"kind", "name", "visible", "opacity", "x", "y", "clip", "masks", "adjustments"};
+        auto extend = [&](std::initializer_list<const char*> more) { allowed.insert(allowed.end(), more.begin(), more.end()); };
+        if (layer.kind != ImageLayerKind::Adjustment) extend({"blend", "effects"});
+        switch (layer.kind) {
+            case ImageLayerKind::Pixels: extend({"source"}); break;
+            case ImageLayerKind::Provider: extend({"source", "provenance"}); break;
+            case ImageLayerKind::Fill: extend({"color", "width", "height"}); break;
+            case ImageLayerKind::Gradient: extend({"gradient", "width", "height"}); break;
+            case ImageLayerKind::Procedural: extend({"texture"}); break;
+            case ImageLayerKind::Svg: extend({"source", "svg", "width", "height"}); break;
+            case ImageLayerKind::Text: extend({"text", "font", "size", "color", "align", "lineHeight"}); break;
+            case ImageLayerKind::Group: extend({"layers"}); break;
+            case ImageLayerKind::Adjustment: break;
+        }
+        unknown_keys(j, pointer, allowed, "a " + kind + " layer");
+
+        get_string(j, pointer, "name", layer.name, true);
+        get_bool(j, pointer, "visible", layer.visible);
+        get_number(j, pointer, "opacity", layer.opacity, 0, 1, "Opacity runs from 0 (invisible) to 1 (opaque); the default is 1.");
+        get_int(j, pointer, "x", layer.x, -100000, 100000, "x and y move the layer by whole pixels from the top-left of the canvas (or of its group).");
+        get_int(j, pointer, "y", layer.y, -100000, 100000, "x and y move the layer by whole pixels from the top-left of the canvas (or of its group).");
+        if (get_bool(j, pointer, "clip", layer.clip) && layer.clip && !hasBelow)
+            add(pointer + "/clip", "`clip` clips a layer to the layer below it, and there is no layer below.", "Remove `clip`, or put the layer that gives the shape before this one in the list (the list runs bottom first).");
+        if (auto it = j.find("blend"); it != j.end()) {
+            const auto names = image_blend_names();
+            if (!it->is_string()) add(pointer + "/blend", "`blend` must be a string, got " + describe_json_value(*it) + ".", "Blend modes: " + join(names, ", ") + ".");
+            else if (auto mode = parse_image_blend(it->get<std::string>())) layer.blend = *mode;
+            else add(pointer + "/blend", "Unknown blend mode '" + it->get<std::string>() + "'.", did_you_mean(it->get<std::string>(), names) + " Blend modes: " + join(names, ", ") + ".");
+        }
+        parse_masks(j, pointer, layer);
+        parse_ops(j, pointer, "adjustments", false, layer.adjustments);
+        if (layer.kind != ImageLayerKind::Adjustment) parse_ops(j, pointer, "effects", true, layer.effects);
+
+        const std::string boxHint = "width and height are the size of the layer's own box in pixels; leave them out for the size of the canvas.";
+        switch (layer.kind) {
+            case ImageLayerKind::Pixels:
+            case ImageLayerKind::Provider:
+                if (!j.contains("source")) add(pointer, "A " + kind + " layer needs `source`, a PNG of the project.", "Example: {\"kind\": \"" + kind + "\", \"source\": \"assets/art/hero.png\"}.");
+                else if (get_string(j, pointer, "source", layer.source)) project_file(pointer, "source", layer.source, {".png"}, "a PNG");
+                if (layer.kind == ImageLayerKind::Provider) {
+                    if (auto it = j.find("provenance"); it != j.end()) {
+                        const std::string pp = pointer + "/provenance";
+                        if (!it->is_object()) add(pp, "`provenance` must be an object, got " + describe_json_value(*it) + ".", "Example: {\"provider\": \"openai\", \"model\": \"gpt-image-1\", \"prompt\": \"a brass key\"}.");
+                        else {
+                            unknown_keys(*it, pp, {"provider", "model", "prompt", "seed", "references", "license", "author", "notes"}, "a provider record");
+                            layer.provenance = *it;
+                        }
+                    }
+                }
+                break;
+            case ImageLayerKind::Fill:
+                get_color(j, pointer, "color", layer.color);
+                if (!j.contains("color")) add(pointer, "A fill layer needs a `color`.", "Example: {\"kind\": \"fill\", \"color\": \"#203040\"}.");
+                get_int(j, pointer, "width", layer.width, 1, kImageDocMaxSide, boxHint);
+                get_int(j, pointer, "height", layer.height, 1, kImageDocMaxSide, boxHint);
+                break;
+            case ImageLayerKind::Gradient:
+                parse_gradient(j, pointer, layer);
+                get_int(j, pointer, "width", layer.width, 1, kImageDocMaxSide, boxHint);
+                get_int(j, pointer, "height", layer.height, 1, kImageDocMaxSide, boxHint);
+                break;
+            case ImageLayerKind::Procedural: {
+                auto it = j.find("texture");
+                if (it == j.end() || !it->is_object()) {
+                    add(it == j.end() ? pointer : pointer + "/texture", "A procedural layer needs `texture`: the picture arguments of assets.generate_texture.",
+                        "Example: {\"kind\": \"procedural\", \"texture\": {\"preset\": \"parchment\", \"seed\": 3}}. Run docs.commands on assets.generate_texture for the presets.");
+                    break;
+                }
+                layer.texture = *it;
+                Json args = *it;
+                if (!args.contains("width")) args["width"] = std::max(1, canvasW);
+                if (!args.contains("height")) args["height"] = std::max(1, canvasH);
+                try {
+                    assets_detail::check_procedural_texture_args(args, "image.bake", pointer + "/texture");
+                } catch (const CommandError& e) {
+                    // "image.bake /layers/0/texture/preset: unknown preset ..." -> pointer and message
+                    const std::string text = e.what();
+                    std::string ptr = pointer + "/texture", msg = text;
+                    const std::string prefix = "image.bake ";
+                    if (starts_with(text, prefix)) {
+                        const auto colon = text.find(": ");
+                        if (colon != std::string::npos) {
+                            ptr = text.substr(prefix.size(), colon - prefix.size());
+                            msg = text.substr(colon + 2);
+                        }
+                    }
+                    add(ptr, msg, e.hint);
+                }
+                break;
+            }
+            case ImageLayerKind::Svg: {
+                const bool hasSvg = j.contains("svg"), hasSource = j.contains("source");
+                if (hasSvg == hasSource) {
+                    add(pointer, hasSvg ? "Give either `svg` (the SVG text) or `source` (a file), not both." : "An svg layer needs `svg` (the SVG text) or `source` (an .svg file of the project).",
+                        "Example: {\"kind\": \"svg\", \"source\": \"assets/art/crest.svg\", \"width\": 128, \"height\": 128}.");
+                } else if (hasSvg) {
+                    if (get_string(j, pointer, "svg", layer.svg) && layer.svg.find("<svg") == std::string::npos)
+                        add(pointer + "/svg", "The text has no <svg> element.", "Start with <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\"> and put the shapes inside.");
+                } else if (get_string(j, pointer, "source", layer.source)) {
+                    project_file(pointer, "source", layer.source, {".svg"}, "an SVG file");
+                }
+                get_int(j, pointer, "width", layer.width, 1, kImageDocMaxSide, "The SVG is fitted inside width x height, aspect kept and centred; leave them out to fit it in the canvas.");
+                get_int(j, pointer, "height", layer.height, 1, kImageDocMaxSide, "The SVG is fitted inside width x height, aspect kept and centred; leave them out to fit it in the canvas.");
+                break;
+            }
+            case ImageLayerKind::Text:
+                if (!j.contains("text")) add(pointer, "A text layer needs `text`.", "Example: {\"kind\": \"text\", \"text\": \"Hello\", \"size\": 24, \"color\": \"#ffffff\"}.");
+                else get_string(j, pointer, "text", layer.text);  // a non-empty string
+                parse_font(j, pointer, layer);
+                get_number(j, pointer, "size", layer.size, 1, 1024, "`size` is the height of the em in pixels, 1 to 1024.");
+                get_color(j, pointer, "color", layer.color);
+                if (get_string(j, pointer, "align", layer.align) && layer.align != "left" && layer.align != "center" && layer.align != "right")
+                    add(pointer + "/align", "Unknown alignment '" + layer.align + "'.", did_you_mean(layer.align, std::vector<std::string>{"left", "center", "right"}) + " Alignments: left, center, right (of the layer's x).");
+                get_number(j, pointer, "lineHeight", layer.lineHeight, 0.1, 10, "`lineHeight` is the distance between baselines in ems; 1.2 is the default.");
+                break;
+            case ImageLayerKind::Group: {
+                auto it = j.find("layers");
+                if (it == j.end() || !it->is_array()) {
+                    add(it == j.end() ? pointer : pointer + "/layers", "A group needs `layers`: a list of layers, bottom first.", "Example: {\"kind\": \"group\", \"layers\": [{\"kind\": \"fill\", \"color\": \"#ffffff\"}]}.");
+                    break;
+                }
+                if (depth >= 16) {
+                    add(pointer + "/layers", "Groups are nested more than 16 deep.", "Flatten the groups: nest at most a few levels.");
+                    break;
+                }
+                parse_layers(*it, pointer + "/layers", layer.children, depth + 1);
+                break;
+            }
+            case ImageLayerKind::Adjustment:
+                if (layer.adjustments.empty() && !issues_at(pointer + "/adjustments"))
+                    add(pointer + "/adjustments", "An adjustment layer needs `adjustments`: the colour operations it applies to everything below it.", "Example: {\"kind\": \"adjustment\", \"adjustments\": [{\"type\": \"invert\"}]}.");
+                break;
+        }
+        return layer;
+    }
+
+    bool issues_at(const std::string& pointerPrefix) const {
+        for (const ImageIssue& i : issues)
+            if (starts_with(i.pointer, pointerPrefix)) return true;
+        return false;
+    }
+
+    void parse_layers(const Json& list, const std::string& pointer, std::vector<ImageLayer>& out, int depth) {
+        for (std::size_t i = 0; i < list.size(); ++i) out.push_back(parse_layer(list[i], pointer + "/" + std::to_string(i), i > 0, depth));
+    }
+};
+
+std::string describe_first(const std::string& file, const ImageIssue& issue, std::size_t total) {
+    std::string where = file.empty() ? std::string("image document") : file;
+    std::string message = where + " " + (issue.pointer.empty() ? std::string("/") : issue.pointer) + ": " + issue.message;
+    if (total > 1) message += std::format(" (and {} more problem{})", total - 1, total == 2 ? "" : "s");
+    return message;
+}
+
+}  // namespace
+
+Result<ImageDocument> parse_image_document(const Json& json, const std::string& file, const std::string& projectDir, std::vector<ImageIssue>* outIssues) {
+    std::vector<ImageIssue> issues;
+    ImageDocument doc;
+    doc.file = file;
+    doc.json = json;
+    Parser p{file, projectDir, issues};
+    const std::string exampleDoc = "{\"format\": \"factoria.image/1\", \"width\": 256, \"height\": 256, \"layers\": [{\"kind\": \"fill\", \"color\": \"#203040\"}]}";
+    if (!json.is_object()) {
+        p.add("", "An image document must be a JSON object, got " + describe_json_value(json) + ".", "Start from " + exampleDoc);
+    } else {
+        p.unknown_keys(json, "", {"$schema", "format", "width", "height", "background", "output", "description", "layers"}, "an image document");
+        if (auto it = json.find("format"); it != json.end() && (!it->is_string() || it->get<std::string>() != kImageDocFormat))
+            p.add("/format", "Unknown format " + describe_json_value(*it) + ".", std::string("Write \"format\": \"") + kImageDocFormat + "\" (or leave it out).");
+        for (const char* key : {"width", "height"}) {
+            if (!json.contains(key)) p.add("", std::string("The canvas needs a `") + key + "` (whole pixels).", "Start from " + exampleDoc);
+        }
+        const std::string sizeHint = std::format("The canvas is width x height whole pixels, 1 to {} on each side.", kImageDocMaxSide);
+        p.get_int(json, "", "width", doc.width, 1, kImageDocMaxSide, sizeHint);
+        p.get_int(json, "", "height", doc.height, 1, kImageDocMaxSide, sizeHint);
+        p.canvasW = doc.width;
+        p.canvasH = doc.height;
+        if (json.contains("background")) {
+            Color c;
+            if (p.get_color(json, "", "background", c)) doc.background = c;
+        }
+        p.get_string(json, "", "description", doc.description, true);
+        if (p.get_string(json, "", "output", doc.output)) {
+            if (!doc.output.empty()) {
+                auto norm = fs::normalize_checked(doc.output);
+                if (!norm.ok() || norm->empty() || to_lower(fs::extension(*norm)) != ".png")
+                    p.add("/output", "`output` must be a project path ending in .png, got '" + doc.output + "'.", "Example: \"output\": \"assets/art/hero.png\". Leave it out to bake next to the document.");
+                else doc.output = *norm;
+            }
+        }
+        auto layers = json.find("layers");
+        if (layers == json.end() || !layers->is_array())
+            p.add(layers == json.end() ? "" : "/layers", "The document needs `layers`: a list of layers, bottom first.", "Start from " + exampleDoc);
+        else p.parse_layers(*layers, "/layers", doc.layers, 0);
+    }
+    if (outIssues) *outIssues = issues;
+    if (!issues.empty()) return make_error(describe_first(file, issues.front(), issues.size()), issues.front().hint);
+    return doc;
+}
+
+Result<ImageDocument> load_image_document(const std::string& projectDir, const std::string& rel, std::vector<ImageIssue>* issues) {
+    auto path = resolve_project_path(projectDir, rel);
+    if (!path.ok()) return make_error(path.error().message, path.error().hint);
+    auto text = tooling_detail::read_file(*path);
+    if (!text) return make_error("Cannot read the image document '" + rel + "'.", "Check the path; it is relative to the project folder. A document is a small JSON file: {\"width\": 64, \"height\": 64, \"layers\": []}.");
+    auto json = parse_json(*text, rel);
+    if (!json.ok()) {
+        if (issues) *issues = {{"", json.error().message, json.error().hint}};
+        return make_error(json.error().message, json.error().hint.empty() ? "Fix the JSON syntax (a missing comma or quote is the usual cause)." : json.error().hint);
+    }
+    return parse_image_document(*json, rel, projectDir, issues);
+}
+
+}  // namespace fa

@@ -42,6 +42,13 @@ Result<std::vector<std::uint32_t>> missing_glyphs(std::string_view utf8, const s
 struct TextBitmap {
     int width = 0, height = 0;
     std::vector<std::uint8_t> coverage;  // width * height, row 0 = top
+    // Where the pen starts, in pixels of this bitmap: the baseline origin is at (originX, originY) of the cropped bitmap
+    // (originY counts down from its top row, so the ink above the baseline is originY rows tall). Lets a caller place the text
+    // by its baseline instead of by its ink. Zero for a text with no ink.
+    int originX = 0, originY = 0;
+    // Metrics of the first font at the requested size, also set when there is no ink: the pen advance of the whole text, and
+    // the distances from the baseline up to the top of the line (ascent, positive) and down to its bottom (descent, positive).
+    float advance = 0, ascent = 0, descent = 0;
 };
 
 // Draws `utf8` on one line at `pixelSize` px per em with `font` ("" = DejaVu Sans, "builtin:pixel", or a project .ttf),
