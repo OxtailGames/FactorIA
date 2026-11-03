@@ -125,7 +125,16 @@
             "$ref": "#/$defs/eq"
           },
           {
+            "$ref": "#/$defs/filter"
+          },
+          {
             "$ref": "#/$defs/compressor"
+          },
+          {
+            "$ref": "#/$defs/distortion"
+          },
+          {
+            "$ref": "#/$defs/bitcrush"
           },
           {
             "$ref": "#/$defs/reverb"
@@ -496,6 +505,65 @@
         }
       }
     },
+    "filter": {
+      "type": "object",
+      "description": "A resonant filter (the synth's state-variable filter, 12 dB/octave): lowpass removes highs (muffles), highpass removes lows (thins), bandpass keeps a band. `to` slides the cutoff there over the whole sound (an exponential sweep, e.g. a riser or a filter-open on a song's master). `mix` blends the filtered sound with the dry one.",
+      "required": [
+        "type",
+        "cutoff"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "filter",
+          "description": "Step type."
+        },
+        "mode": {
+          "enum": [
+            "lowpass",
+            "highpass",
+            "bandpass"
+          ],
+          "default": "lowpass",
+          "description": "lowpass, highpass or bandpass."
+        },
+        "cutoff": {
+          "type": "number",
+          "minimum": 20.0,
+          "maximum": 20000.0,
+          "description": "Frequency in Hz where the filter acts."
+        },
+        "resonance": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 30.0,
+          "default": 0.707,
+          "description": "Q: 0.707 is flat, 2 to 8 adds a whistle at the cutoff."
+        },
+        "to": {
+          "type": "number",
+          "minimum": 20.0,
+          "maximum": 20000.0,
+          "description": "Slide the cutoff to this frequency (Hz) by the end of the sound."
+        },
+        "mix": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 1.0,
+          "description": "Share of the filtered sound (1: only the filtered sound)."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
     "compressor": {
       "type": "object",
       "description": "Reduces the dynamic range: above `thresholdDb` the level rises only 1 dB for every `ratio` dB. `attack` and `release` (seconds) say how fast the gain follows, `kneeDb` softens the corner, `makeupDb` brings the level back up. The detector looks at the loudest channel, so a stereo image does not shift.",
@@ -549,6 +617,102 @@
           "maximum": 48.0,
           "default": 0.0,
           "description": "Gain added after compressing."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "distortion": {
+      "type": "object",
+      "description": "Waveshaping distortion: `drive` multiplies the level into a curve (`mode` soft rounds the peaks like a tube, hard clips them flat, fold bends them back and sounds metallic) and `level` brings the loudness back down.",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "distortion",
+          "description": "Step type."
+        },
+        "mode": {
+          "enum": [
+            "soft",
+            "hard",
+            "fold"
+          ],
+          "default": "soft",
+          "description": "soft, hard or fold."
+        },
+        "drive": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 100.0,
+          "default": 4.0,
+          "description": "Gain into the distortion: 2 is warm, 10 is crunchy, 50 is fuzz."
+        },
+        "level": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 4.0,
+          "default": 1.0,
+          "description": "Gain after the distortion."
+        },
+        "mix": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 1.0,
+          "description": "Share of the distorted sound (1: only the distorted sound)."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false skips the step without removing it."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Why the step is there."
+        }
+      }
+    },
+    "bitcrush": {
+      "type": "object",
+      "description": "Lo-fi: reduces each sample to `bits` bits and holds it at a lower sample `rate` (the sound of old consoles and samplers).",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "bitcrush",
+          "description": "Step type."
+        },
+        "bits": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 16.0,
+          "default": 8.0,
+          "description": "Resolution: 8 is gritty, 4 harsh, 12 mild."
+        },
+        "rate": {
+          "type": "number",
+          "minimum": 100.0,
+          "maximum": 96000.0,
+          "description": "Hold samples at this rate in Hz (default: the sound's own rate)."
+        },
+        "mix": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 1.0,
+          "description": "Share of the crushed sound (1: only the crushed sound)."
         },
         "enabled": {
           "type": "boolean",

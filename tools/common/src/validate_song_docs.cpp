@@ -3,6 +3,7 @@
 // music checks that need no render (notes out of key or range, clashes, mud, an unused pattern) are warnings. A stale preview is
 // reported with the other recipes (check_recipes).
 #include <algorithm>
+#include <fstream>
 
 #include "assets_internal.h"
 #include "fa/audio/sfx.h"
@@ -46,6 +47,20 @@ void check_instrument_file(const std::string& projectDir, const std::string& rel
     }
 }
 
+// The SoundFont a track plays: the file must be there and be a RIFF "sfbk" file. The presets are not read here (a large font is slow to
+// load); music.preview and music.check name a missing preset and the close ones.
+void check_soundfont_file(const std::string& projectDir, const std::string& rel, const std::string& pointer, const std::string& path, std::vector<ValidationIssue>& errors) {
+    std::ifstream in(project_file(projectDir, path), std::ios::binary);
+    if (!in) {
+        errors.push_back({rel, pointer, "The SoundFont '" + path + "' does not exist.", "Put the .sf2 file at " + path + " (an asset the project brings; the engine includes none), or name a built-in instrument."});
+        return;
+    }
+    char head[12] = {};
+    in.read(head, sizeof head);
+    if (in.gcount() < 12 || std::string(head, 4) != "RIFF" || std::string(head + 8, 4) != "sfbk")
+        errors.push_back({rel, pointer, "The SoundFont '" + path + "' is not a SoundFont 2 file.", "A .sf2 file starts with RIFF....sfbk; export it again from the SoundFont editor, or use another file."});
+}
+
 }  // namespace
 
 void check_song_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings) {
@@ -72,7 +87,8 @@ void check_song_documents(const std::string& projectDir, std::vector<ValidationI
         }
         for (const SongTrack& t : doc->tracks) {
             const std::string base = "/tracks/" + escape_pointer(t.name);
-            check_instrument_file(projectDir, rel, base + "/instrument", t.instrument, errors);
+            if (t.soundfont.present()) check_soundfont_file(projectDir, rel, base + "/instrument", t.soundfont.path, errors);
+            else check_instrument_file(projectDir, rel, base + "/instrument", t.instrument, errors);
             for (const auto& [lane, instrument] : t.kit) check_instrument_file(projectDir, rel, base + "/kit/" + escape_pointer(lane), instrument, errors);
         }
         auto timeline = expand_song(*doc);

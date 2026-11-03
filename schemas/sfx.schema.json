@@ -998,6 +998,13 @@
               "maximum": 30,
               "default": 0.707
             },
+            "keytrack": {
+              "type": "number",
+              "description": "How much of a transposed note's pitch ratio the cutoff follows: 0 keeps it fixed, 1 moves it with the pitch.",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0
+            },
             "env": {
               "type": "object",
               "additionalProperties": false,

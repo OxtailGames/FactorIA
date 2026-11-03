@@ -25,7 +25,8 @@ const std::vector<SongCheckRule>& song_check_rules();
 struct SongCheckOptions {
     std::vector<std::string> rules;   // empty = every rule that does not need a render
     bool render = false;              // also run the loudness rule (renders the whole song)
-    std::optional<double> targetLufs; // loudness rule: the integrated loudness the music bus should have (the style guide's); +-3 LU is accepted
+    std::optional<double> targetLufs; // loudness rule: the integrated loudness the music bus should have (the style guide's); +-3 LU is accepted.
+                                      // The render passes it to the master, whose loudness "style" normalizes to it
     int sampleRate = 22050;           // the loudness render's rate (lower than the preview's: it only measures)
 };
 
@@ -49,6 +50,7 @@ struct SongCheckReport {
     int notes = 0;                    // notes of the timeline
     bool rendered = false;
     double lufs = 0.0, peakDb = 0.0;  // when rendered
+    double limiterReductionDb = 0.0;  // when rendered: the most the master limiter pulled the level down
     // Whether there is no error and no warning (info findings do not count).
     bool ok() const;
 };

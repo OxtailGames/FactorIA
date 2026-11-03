@@ -301,7 +301,9 @@ void render_layer(const SfxPatch& patch, const SfxLayer& layer, std::size_t inde
 
     Svf filter;
     const bool filterMoves = layer.filter.enabled && layer.filter.env.enabled;
-    if (layer.filter.enabled) filter.set(layer.filter.mode, layer.filter.cutoff, layer.filter.resonance, rate);
+    // The cutoff of a transposed note follows the pitch by `keytrack` (1: the whole ratio).
+    const double keyCutoff = layer.filter.cutoff * (layer.filter.keytrack > 0.0 && transpose > 0.0 ? exp2(layer.filter.keytrack * log2(transpose)) : 1.0);
+    if (layer.filter.enabled) filter.set(layer.filter.mode, keyCutoff, layer.filter.resonance, rate);
 
     for (std::size_t n = 0; n < active; ++n) {
         const double t = double(n) * dtBase;
@@ -350,7 +352,7 @@ void render_layer(const SfxPatch& patch, const SfxLayer& layer, std::size_t inde
         }
         if (layer.filter.enabled) {
             if (filterMoves) {
-                const double cutoff = layer.filter.cutoff * exp2(layer.filter.env.amount * layer.filter.env.env.level(t, gate));
+                const double cutoff = keyCutoff * exp2(layer.filter.env.amount * layer.filter.env.env.level(t, gate));
                 filter.set(layer.filter.mode, cutoff, layer.filter.resonance, rate);
             }
             x = filter.process(x);

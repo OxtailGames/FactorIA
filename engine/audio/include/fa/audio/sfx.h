@@ -94,6 +94,7 @@ struct SfxFilter {
     double resonance = 0.707;         // Q
     double cutoffTo = 0.0;            // effects only: > 0 slides the cutoff to this over the whole sound (exponentially)
     SfxModulation env;                // layer filters only: amount in octaves
+    double keytrack = 0.0;            // layer filters only, 0..1: how much of a transposed note's pitch ratio the cutoff follows (1: fully)
 };
 
 struct SfxEffect {
