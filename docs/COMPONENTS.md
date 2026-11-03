@@ -1654,6 +1654,36 @@ Plays a prefab (`prefab`) or an entity of a scene with its children (`scene` + `
 | `author` | string | no | Who gets the credit in the provenance record. |
 | `license` | string | no | License of the sheet for the provenance record. Default "CC0-1.0". |
 
+### `assets.check_art`
+
+Not released yet (on main after 0.14.1).
+
+Check pictures against the house style and how they read in the game: palette fit, contrast over the real backgrounds, readability at phone and desktop size, halos on alpha edges, and set consistency; returns an annotated picture.
+
+Measures one picture (`path`) or a set (`paths`, up to 12) and returns an annotated picture plus rules, each with `value`, `threshold`, `verdict` (ok, warn or fail) and, unless ok, a `hint` naming the command or setting that fixes it. Palette fit: the colour count, and when assets.json style.palette is set the distance of the colours to it and the share of pixels off the palette (strict with style.pixelArt). Contrast: the WCAG contrast ratio between the silhouette edge and each background the picture is drawn over: `backgrounds` (colours "#rrggbb" or project image paths) when given, else the clear colour and the large background sprites of the scenes that use the picture, else a light and a dark default; the result says which (`backgrounds.source`). Readability: the picture shrunk to the size it has on screen (`onScreenPx`, the longer side in screen pixels, when given; else derived from the scenes' Sprite size, scale and camera at a phone, 844x390, and a desktop, 1920x1080, screen): its size, how much of the silhouette survives and whether the outline is still a line. Halos and fringes: partly transparent edge pixels that are darker or lighter than the pixels they touch, and transparent pixels next to the shape that hold a foreign colour. Style rules set in assets.json style (outline, lightDirection, texelsPerUnit, pixelArt, value, saturation) are judged too, with the same numbers as the `project.validate` warnings; rules the style does not set are not judged, and `style: false` skips them. With several paths it also compares the set: pixel density, pixel size, outline colour and thickness, and how many colours the pictures share. The picture has one row per asset: the picture itself, its value (greyscale), over each background and at each on-screen size. It is a temporary screenshot in .factoria/screenshots; measuring is cached in .factoria/art-cache. Thresholds and the rules are listed in docs/ASSETS.md ("Checking art: assets.check_art"). Example: {"path":"assets/hero.png","backgrounds":["#203040"],"onScreenPx":48}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Project-relative path of the picture to check. Give this or `paths`. |
+| `paths` | array | no | Several pictures to check one by one and as a set (pixel density, outline, palette spread). Give this or `path`. |
+| `backgrounds` | array | no | What the picture is drawn over. Default: the camera clear colour and background sprites of the scenes that use it, else a light and a dark default. |
+| `onScreenPx` | any | no | The longer side of the sprite on screen, in screen pixels: a number, or a list of up to 4. Default: derived from the scenes (Sprite size, scale, camera) at a phone and a desktop screen. |
+| `style` | boolean | no | Judge the rules set in assets.json style (outline, lightDirection, texelsPerUnit, pixelArt, value, saturation, palette). False skips them. Default true. |
+
+### `assets.check_mix`
+
+Not released yet (on main after 0.14.1).
+
+Measure every sound of the project together: loudness per bus, music masking effects, clicks, loop seams, clipping, true peak; each finding has a fix.
+
+Listens for what a game's mix gets wrong. Measures the sounds of the project (the set assets.analyze_audio uses without `path`: everything under assets/ and every sound a scene or prefab names), or `paths`, as they play (with the gain import "normalize" applies). Each finding has `sound`, `rule`, `value`, `threshold`, `unit`, `verdict` (ok, warn, fail), a `message` and a `hint` that names the fix; ok findings are left out unless `includeOk` is true. Rules: loudness_target / loudness_spread (loudness of each sound against the target of its bus, or, with no target, against the median of the sounds of its bus: warn beyond 6 LU, fail beyond 12; the bus comes from AudioSource (sfx), SceneSettings.music and audio.music (music) and audio.play("path", {bus}) in scripts, with the parents of factoria.json audio.buses; a sound no scene or script plays with a literal path is on the "unknown bus"); music_masking (the octave bands where an effect has its main energy, against the loudest music there: warn when the music is as loud or louder, fail 6 dB louder); click_start and click_end (the first/last sample or a jump of the first/last step: warn above -40 dBFS, fail above -26); loop_seam_jump and loop_seam_slope (for sounds played looping: the step and the change of slope from the last sample to the first, as multiples of the sound's usual step and curvature); clipping (samples flattened at full scale, counted); true_peak (4x oversampled, as played: warn above -1 dBTP, fail above 0). Loudness targets: the `targets` argument ({"music": -16, "sfx": {"lufs": -14, "toleranceLu": 2}, "default": -16}), else style.audio.loudnessLufs and toleranceLu in assets.json, else the spread rule. Returns {verdict, summary, findings, sounds (one row of numbers per sound), targets, nextSteps}. Deterministic and read-only: it writes nothing (run assets.analyze_audio first to keep the loudness records, so later runs do not measure again). Example: {"targets":{"music":-16,"sfx":-14}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `paths` | array | no | Project-relative sound files to check. Omit for every sound of the project. |
+| `targets` | object | no | Loudness targets in LUFS per bus: {"music": -16, "sfx": {"lufs": -14, "toleranceLu": 2}, "default": -16}. A number uses a tolerance of 3 LU. Omit to use style.audio in assets.json. |
+| `includeOk` | boolean | no | Also list the checks that passed. Default false. |
+
 ### `assets.contact_sheet`
 
 Not released yet (on main after 0.14.1).
@@ -1672,34 +1702,6 @@ Draws one picture (returned to you as an image) with a column for each picture o
 | `allFrames` | boolean | no | A sprite sheet shows all its frames (a column each) instead of the first. Default false. |
 | `path` | string | no | Also save the picture as a PNG at this project-relative path (ending in .png). Without it nothing is written. |
 | `overwrite` | boolean | no | With `path`: replace the file when it exists. Default false. |
-### `assets.check_art`
-
-Not released yet (on main after 0.14.1).
-
-Check pictures against the house style and how they read in the game: palette fit, contrast over the real backgrounds, readability at phone and desktop size, halos on alpha edges, and set consistency; returns an annotated picture.
-
-Measures one picture (`path`) or a set (`paths`, up to 12) and returns an annotated picture plus rules, each with `value`, `threshold`, `verdict` (ok, warn or fail) and, unless ok, a `hint` naming the command or setting that fixes it. Palette fit: the colour count, and when assets.json style.palette is set the distance of the colours to it and the share of pixels off the palette (strict with style.pixelArt). Contrast: the WCAG contrast ratio between the silhouette edge and each background the picture is drawn over: `backgrounds` (colours "#rrggbb" or project image paths) when given, else the clear colour and the large background sprites of the scenes that use the picture, else a light and a dark default; the result says which (`backgrounds.source`). Readability: the picture shrunk to the size it has on screen (`onScreenPx`, the longer side in screen pixels, when given; else derived from the scenes' Sprite size, scale and camera at a phone, 844x390, and a desktop, 1920x1080, screen): its size, how much of the silhouette survives and whether the outline is still a line. Halos and fringes: partly transparent edge pixels that are darker or lighter than the pixels they touch, and transparent pixels next to the shape that hold a foreign colour. Style rules set in assets.json style (outline, lightDirection, texelsPerUnit, pixelArt, value, saturation) are judged too, with the same numbers as the `project.validate` warnings; rules the style does not set are not judged, and `style: false` skips them. With several paths it also compares the set: pixel density, pixel size, outline colour and thickness, and how many colours the pictures share. The picture has one row per asset: the picture itself, its value (greyscale), over each background and at each on-screen size. It is a temporary screenshot in .factoria/screenshots; measuring is cached in .factoria/art-cache. Thresholds and the rules are listed in docs/ASSETS.md ("Checking art: assets.check_art"). Example: {"path":"assets/hero.png","backgrounds":["#203040"],"onScreenPx":48}.
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `path` | string | no | Project-relative path of the picture to check. Give this or `paths`. |
-| `paths` | array | no | Several pictures to check one by one and as a set (pixel density, outline, palette spread). Give this or `path`. |
-| `backgrounds` | array | no | What the picture is drawn over. Default: the camera clear colour and background sprites of the scenes that use it, else a light and a dark default. |
-| `onScreenPx` | any | no | The longer side of the sprite on screen, in screen pixels: a number, or a list of up to 4. Default: derived from the scenes (Sprite size, scale, camera) at a phone and a desktop screen. |
-| `style` | boolean | no | Judge the rules set in assets.json style (outline, lightDirection, texelsPerUnit, pixelArt, value, saturation, palette). False skips them. Default true. |
-### `assets.check_mix`
-
-Not released yet (on main after 0.14.1).
-
-Measure every sound of the project together: loudness per bus, music masking effects, clicks, loop seams, clipping, true peak; each finding has a fix.
-
-Listens for what a game's mix gets wrong. Measures the sounds of the project (the set assets.analyze_audio uses without `path`: everything under assets/ and every sound a scene or prefab names), or `paths`, as they play (with the gain import "normalize" applies). Each finding has `sound`, `rule`, `value`, `threshold`, `unit`, `verdict` (ok, warn, fail), a `message` and a `hint` that names the fix; ok findings are left out unless `includeOk` is true. Rules: loudness_target / loudness_spread (loudness of each sound against the target of its bus, or, with no target, against the median of the sounds of its bus: warn beyond 6 LU, fail beyond 12; the bus comes from AudioSource (sfx), SceneSettings.music and audio.music (music) and audio.play("path", {bus}) in scripts, with the parents of factoria.json audio.buses; a sound no scene or script plays with a literal path is on the "unknown bus"); music_masking (the octave bands where an effect has its main energy, against the loudest music there: warn when the music is as loud or louder, fail 6 dB louder); click_start and click_end (the first/last sample or a jump of the first/last step: warn above -40 dBFS, fail above -26); loop_seam_jump and loop_seam_slope (for sounds played looping: the step and the change of slope from the last sample to the first, as multiples of the sound's usual step and curvature); clipping (samples flattened at full scale, counted); true_peak (4x oversampled, as played: warn above -1 dBTP, fail above 0). Loudness targets: the `targets` argument ({"music": -16, "sfx": {"lufs": -14, "toleranceLu": 2}, "default": -16}), else style.audio.loudnessLufs and toleranceLu in assets.json, else the spread rule. Returns {verdict, summary, findings, sounds (one row of numbers per sound), targets, nextSteps}. Deterministic and read-only: it writes nothing (run assets.analyze_audio first to keep the loudness records, so later runs do not measure again). Example: {"targets":{"music":-16,"sfx":-14}}
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `paths` | array | no | Project-relative sound files to check. Omit for every sound of the project. |
-| `targets` | object | no | Loudness targets in LUFS per bus: {"music": -16, "sfx": {"lufs": -14, "toleranceLu": 2}, "default": -16}. A number uses a tolerance of 3 LU. Omit to use style.audio in assets.json. |
-| `includeOk` | boolean | no | Also list the checks that passed. Default false. |
 
 ### `assets.convert_audio` (modifies state)
 

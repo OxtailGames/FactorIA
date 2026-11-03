@@ -20,6 +20,7 @@
 #include "fa/render/fonts.h"
 #include "fa/scene/serialize.h"
 #include "fa/tooling/audio_analysis.h"
+#include "fa/tooling/style_guide.h"
 #include "util.h"
 
 namespace fa {
@@ -176,29 +177,17 @@ void read_targets(const Json& j, double toleranceDefault, const std::string& sou
     }
 }
 
+// style.audio of assets.json, through the shared style parser (a rule with a mistake is left out; validate reports it).
 std::map<std::string, Target> style_targets(const std::string& projectDir) {
-    // TODO(M51 integration): switch to the shared style loader of M51.1 (style.audio in assets.json); these are its keys.
-    tooling_detail::ProjectRootScope root(projectDir);
     std::map<std::string, Target> out;
-    auto text = fs::read_text("assets.json");
-    auto parsed = text ? parse_json(*text, "assets.json") : Result<Json>(text.error());
-    if (!parsed || !parsed->is_object()) return out;
-    auto style = parsed->find("style");
-    if (style == parsed->end() || !style->is_object()) return out;
-    auto audio = style->find("audio");
-    if (audio == style->end() || !audio->is_object()) return out;
-    double tolerance = 3.0;
-    if (audio->contains("toleranceLu") && (*audio)["toleranceLu"].is_number()) tolerance = (*audio)["toleranceLu"].get<double>();
-    if (!audio->contains("loudnessLufs")) return out;
-    const Json& l = (*audio)["loudnessLufs"];
-    if (l.is_number()) {
+    StyleParse style = load_style_guide(projectDir);
+    if (!style.guide.audio) return out;
+    for (const auto& [bus, lufs] : style.guide.audio->loudnessLufs) {
         Target t;
-        t.lufs = l.get<double>();
-        t.toleranceLu = tolerance;
+        t.lufs = lufs;
+        t.toleranceLu = style.guide.audio->toleranceLu;
         t.source = "style.audio in assets.json";
-        out["default"] = t;
-    } else {
-        read_targets(l, tolerance, "style.audio in assets.json", out);
+        out[bus] = t;
     }
     return out;
 }
