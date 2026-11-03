@@ -590,6 +590,69 @@ TEST_CASE("image.tileset.check: seamless parts pass, a part that does not meet i
     CHECK(error_of(none).find("image.tileset.build") != std::string::npos);
 }
 
+TEST_CASE("image.tileset.check: the joins inside a tile, where two quadrants of different parts meet, are compared too") {
+    AssetsProject p;
+    const Json palette = Json::array({"#336633", "#99cc99", "#ff00ff"});
+    Json good = {{"path", kSet}, {"mode", "basic16"}, {"tileWidth", 8}, {"tileHeight", 8}, {"palette", palette}};
+    Json insideRows = Json::array(), edgeRows = Json::array(), cornerRows = Json::array();
+    for (int y = 0; y < 8; ++y) {
+        insideRows.push_back("11111111");
+        edgeRows.push_back(y < 2 ? "........" : (y == 2 ? "00000000" : "11111111"));
+        cornerRows.push_back(y < 2 ? "........" : (y == 2 ? "..000000" : "..011111"));
+    }
+    good["parts"] = {{"inside", {{"rows", insideRows}}}, {"edge", {{"rows", edgeRows}}}, {"corner", {{"rows", cornerRows}}}};
+    p.ok("image.tileset.build", good);
+    const Json fine = p.ok("image.tileset.check", {{"path", kSet}});
+    INFO(fine["problems"].dump());
+    CHECK(fine["seamless"] == true);
+    // the matching set compares more than the seams between tiles: the joins inside each tile are counted
+    const auto& masks = autotile_masks(AutotileMode::Basic16);
+    int plain = 0;
+    {
+        const Image sheet = read_png(p.file("assets/art/ground.png"));
+        const TileSeamReport without = check_tile_set(sheet, 8, 8, 4, std::vector<int>(masks.begin(), masks.end()), false, 0, true);
+        plain = without.seamsChecked;
+    }
+    CHECK(fine["seamsChecked"].get<int>() > plain);
+    // The corner part has a pixel next to its middle line that the edge part does not show there: row 3, column 4. The tile with the corner at
+    // its top left (neighbours east and south) joins that corner to the top edge down the middle, so the join is reported in that tile, in the
+    // top half, at row 3. The sides of the tiles are untouched, so no seam between two tiles is reported.
+    Json broken = good;
+    broken["parts"]["corner"]["rows"][3] = "..012111";
+    p.ok("image.tileset.build", broken);
+    const Json r = p.ok("image.tileset.check", {{"path", kSet}});
+    CHECK(r["seamless"] == false);
+    int tileES = -1;
+    for (int i = 0; i < 16; ++i)
+        if (masks[i] == (kAutoE | kAutoS)) tileES = i;
+    REQUIRE(tileES >= 0);
+    bool found = false;
+    for (const Json& problem : r["problems"]) {
+        const std::string axis = problem["axis"].get<std::string>();
+        CHECK((axis == "centreColumn" || axis == "centreRow"));   // no seam between two tiles breaks
+        if (axis == "centreColumn" && problem["a"]["tile"] == tileES && problem["half"] == "top") {
+            found = true;
+            CHECK(problem["parts"] == "corner | edge");
+            CHECK(problem["runs"] == Json::array({Json::array({3, 3})}));
+            CHECK(problem["mismatched"] == 1);
+            const std::string msg = problem["message"].get<std::string>();
+            CHECK(msg.find("Inside tile " + std::to_string(tileES)) != std::string::npos);
+            CHECK(msg.find("corner | edge") != std::string::npos);
+        }
+    }
+    CHECK(found);
+    // the preview marks the middle line of that tile in red, at row 3
+    const Image preview = read_png(p.file(r["preview"].get<std::string>()));
+    const int scale = preview.width / 32;
+    const int ox = (tileES % 4) * 8, oy = (tileES / 4) * 8;
+    const Rgba on = get(preview, (ox + 4) * scale, (oy + 3) * scale + scale / 2);
+    CHECK(on.r > on.g + 100);
+    const Rgba off = get(preview, (ox + 4) * scale, (oy + 1) * scale + scale / 2);   // a row that joins fine
+    CHECK(off.r < off.g + 100);
+    // the tolerance rules are those of the seams between tiles
+    CHECK(p.ok("image.tileset.check", {{"path", kSet}, {"tolerance", 255}})["seamless"] == true);
+}
+
 TEST_CASE("image.tile.check: reports the seams with canvas coordinates, writes the preview, and uses the document's tile size") {
     AssetsProject p;
     make_tiled(p, 8, 4, {{"width", 4}, {"height", 4}});

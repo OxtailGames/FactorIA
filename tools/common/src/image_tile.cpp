@@ -144,7 +144,35 @@ int pair_halves(int a, int b, bool horizontal, bool diagonals) {
 
 }  // namespace
 
-TileSeamReport check_tile_set(const Image& img, int tw, int th, int columns, const std::vector<int>& masks, bool diagonals, int tolerance, bool exact) {
+namespace {
+
+// One interior join of tile `tile`: quadrants A and B, side by side (`centreColumn`: A left, B right, the line runs down) or one above the other.
+// For every position along the join the two quadrants' pictures must show the same pixel on both sides of the line; the larger distance counts.
+TileSeam compare_join(int tile, bool centreColumn, const char* half, const TileJoinSource& A, const TileJoinSource& B, int tw, int th, int tolerance) {
+    TileSeam seam;
+    seam.axis = centreColumn ? "centreColumn" : "centreRow";
+    seam.a = seam.b = tile;
+    seam.half = half;
+    seam.parts = A.part + " | " + B.part;
+    const int along = centreColumn ? th / 2 : tw / 2;
+    const int offset = centreColumn ? (std::string(half) == "top" ? 0 : th / 2) : (std::string(half) == "left" ? 0 : tw / 2);
+    const std::vector<std::uint8_t>& a = centreColumn ? A.columns : A.rows;
+    const std::vector<std::uint8_t>& b = centreColumn ? B.columns : B.rows;
+    double total = 0;
+    for (int i = 0; i < along; ++i) {
+        // pixels of the picture next to the line: the one on A's side and the one on B's side, for each of the two pictures
+        const int d0 = tile_pixel_distance(&a[std::size_t(i) * 8], &b[std::size_t(i) * 8]);
+        const int d1 = tile_pixel_distance(&a[std::size_t(i) * 8 + 4], &b[std::size_t(i) * 8 + 4]);
+        note_pair(seam, offset + i, std::max(d0, d1), tolerance, total);
+    }
+    seam.mean = seam.length ? total / seam.length : 0;
+    return seam;
+}
+
+}  // namespace
+
+TileSeamReport check_tile_set(const Image& img, int tw, int th, int columns, const std::vector<int>& masks, bool diagonals, int tolerance, bool exact,
+                              const std::vector<TileJoinSources>* joins) {
     TileSeamReport report;
     report.tileWidth = tw;
     report.tileHeight = th;
@@ -183,6 +211,23 @@ TileSeamReport check_tile_set(const Image& img, int tw, int th, int columns, con
                 if (seam.mismatched) report.bad.push_back(std::move(seam));
             }
         }
+    if (joins) {
+        // quadrant order: 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right
+        struct Join { int a, b; bool centreColumn; const char* half; };
+        static const Join kJoins[4] = {{0, 1, true, "top"}, {2, 3, true, "bottom"}, {0, 2, false, "left"}, {1, 3, false, "right"}};
+        for (std::size_t t = 0; t < masks.size() && t < joins->size(); ++t) {
+            if (masks[t] < 0) continue;
+            for (const Join& j : kJoins) {
+                const TileJoinSource& A = (*joins)[t][std::size_t(j.a)];
+                const TileJoinSource& B = (*joins)[t][std::size_t(j.b)];
+                if (A.key == B.key || A.columns.empty() || B.columns.empty()) continue;   // the same picture agrees with itself
+                TileSeam seam = compare_join(int(t), j.centreColumn, j.half, A, B, tw, th, report.tolerance);
+                ++report.seamsChecked;
+                report.pixelPairs += seam.length;
+                if (seam.mismatched) report.bad.push_back(std::move(seam));
+            }
+        }
+    }
     return report;
 }
 
@@ -249,6 +294,12 @@ Image tile_set_preview(const Image& img, int tw, int th, const TileSeamReport& r
     const int band = std::max(1, scale / 2);
     for (const TileSeam& seam : report.bad) {
         for (const auto& run : seam.runs) {
+            if (seam.axis == "centreColumn" || seam.axis == "centreRow") {
+                const int ox = (seam.a % columns) * tw, oy = (seam.a / columns) * th;
+                if (seam.axis == "centreColumn") fill_rect(out, (ox + tw / 2) * scale - band, (oy + run.first) * scale, (ox + tw / 2) * scale + band, (oy + run.second + 1) * scale);
+                else fill_rect(out, (ox + run.first) * scale, (oy + th / 2) * scale - band, (ox + run.second + 1) * scale, (oy + th / 2) * scale + band);
+                continue;
+            }
             const int ax = (seam.a % columns) * tw, ay = (seam.a / columns) * th, bx = (seam.b % columns) * tw, by = (seam.b / columns) * th;
             if (seam.axis == "horizontal") {
                 fill_rect(out, (ax + tw) * scale - band, (ay + run.first) * scale, (ax + tw) * scale, (ay + run.second + 1) * scale);

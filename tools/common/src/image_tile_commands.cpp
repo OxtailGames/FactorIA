@@ -662,7 +662,7 @@ Json tileset_check(const std::string& projectDir, const Json& a) {
     const bool exact = exact_colours(projectDir, *parsed);
     const int tolerance = int_arg(a, cmd, "tolerance", 0, 255, -1);
     const std::vector<int> masks = tileset_tile_masks(spec);
-    const TileSeamReport r = check_tile_set(built->sheet, lay.tileWidth, lay.tileHeight, lay.columns, masks, blob, tolerance, exact);
+    const TileSeamReport r = check_tile_set(built->sheet, lay.tileWidth, lay.tileHeight, lay.columns, masks, blob, tolerance, exact, &built->joins);
     int scale = int_arg(a, cmd, "scale", 1, 16, 0);
     if (!scale) scale = std::clamp(768 / std::max(lay.width(), lay.height()), 1, 8);
     const Image preview = tile_set_preview(built->sheet, lay.tileWidth, lay.tileHeight, r, scale);
@@ -677,12 +677,26 @@ Json tileset_check(const std::string& projectDir, const Json& a) {
     constexpr std::size_t kMax = 40;
     for (std::size_t i = 0; i < r.bad.size() && i < kMax; ++i) {
         const TileSeam& s = r.bad[i];
+        const bool interior = s.axis == "centreColumn" || s.axis == "centreRow";
         const bool horizontal = s.axis == "horizontal";
         Json item = Json::object({{"axis", s.axis}, {"a", describe_tile(s.a)}, {"b", describe_tile(s.b)}, {"length", s.length}, {"mismatched", s.mismatched}, {"worst", s.worst},
                                   {"mean", std::round(s.mean * 100.0) / 100.0}});
-        item["message"] = std::format("The {} of tile {} ({}) does not match the {} of tile {} ({}) where they touch: {} of {} pixel pairs differ by more than {}, the worst by {}.",
-                                      horizontal ? "right column" : "bottom row", s.a, mask_name(masks[std::size_t(s.a)]), horizontal ? "left column" : "top row", s.b,
-                                      mask_name(masks[std::size_t(s.b)]), s.mismatched, s.length, r.tolerance, s.worst);
+        if (interior) {
+            item["half"] = s.half;
+            item["parts"] = s.parts;
+            std::string runs;
+            for (std::size_t k = 0; k < s.runs.size() && k < 4; ++k)
+                runs += (k ? ", " : "") + (s.runs[k].first == s.runs[k].second ? std::to_string(s.runs[k].first) : std::to_string(s.runs[k].first) + "-" + std::to_string(s.runs[k].second));
+            item["runs"] = Json::array();
+            for (const auto& run : s.runs) item["runs"].push_back(Json::array({run.first, run.second}));
+            const bool column = s.axis == "centreColumn";
+            item["message"] = std::format("Inside tile {} ({}): in the {} half the parts {} do not join along the {} line through the middle of the tile: {} of {} {} ({}) show different pixels on the two sides, the worst by {} (tolerance {}).",
+                                          s.a, mask_name(masks[std::size_t(s.a)]), s.half, s.parts, column ? "vertical" : "horizontal", s.mismatched, s.length, column ? "rows" : "columns", runs, s.worst, r.tolerance);
+        } else {
+            item["message"] = std::format("The {} of tile {} ({}) does not match the {} of tile {} ({}) where they touch: {} of {} pixel pairs differ by more than {}, the worst by {}.",
+                                          horizontal ? "right column" : "bottom row", s.a, mask_name(masks[std::size_t(s.a)]), horizontal ? "left column" : "top row", s.b,
+                                          mask_name(masks[std::size_t(s.b)]), s.mismatched, s.length, r.tolerance, s.worst);
+        }
         seams.push_back(item);
     }
     Json out = Json::object({{"path", d.rel}, {"layer", layer.name}, {"ok", true}, {"seamless", r.seamless()}, {"mode", spec.mode}, {"layout", layout_json(lay)},
@@ -699,10 +713,10 @@ Json tileset_check(const std::string& projectDir, const Json& a) {
     if (!warnings.empty()) out["warnings"] = warnings;
     Json steps = Json::array();
     if (r.seamless()) {
-        steps.push_back("Every pair of tiles that can stand side by side in a map fits (" + std::to_string(r.seamsChecked) + " seams compared).");
+        steps.push_back("Every pair of tiles that can stand side by side in a map fits, and so do the quadrants inside each tile (" + std::to_string(r.seamsChecked) + " seams compared).");
         steps.push_back("Write the rules and use the set: image.tileset.rules {\"path\":\"" + d.rel + "\"}, then tilemap.set_terrains.");
     } else {
-        steps.push_back("The red marks in the preview sit on the sides of tiles that do not fit the tile next to them. Most often a part's edge does not meet the `inside` tile: the pixels of the `inside` border and of the `edge` / `corner` rows must continue into each other.");
+        steps.push_back("The red marks in the preview sit on the sides of tiles that do not fit the tile next to them. A seam between two tiles usually means a part's edge does not meet the `inside` tile; a seam inside a tile (axis centreColumn or centreRow) means two parts do not continue into each other across the middle of the tile: the pixels of `edge`, `corner` and `innerCorner` next to the centre column and row must be the same as the ones of the part they are joined to.");
         steps.push_back("Fix the part (the pointer of a part is /layers/<n>/parts/<name>) and run image.tileset.build again; or raise `tolerance` when a small difference is fine.");
     }
     out["nextSteps"] = steps;
@@ -795,8 +809,9 @@ void register_tile_commands(CommandRegistry& registry, const std::string& projec
     add("image.tileset.check", "Check an autotile tileset: every part is one tile big, and every pair of tiles that can touch in a map fits.",
         "Reads the tileset layer of the document at `path`, reports every part that is missing, unreadable or the wrong size (with its JSON pointer), then builds the sheet and compares the sides of the tiles "
         "that stand side by side in a map: tile A east of tile B needs A to have an east neighbour and B a west one (and for blob47 the cells around the pair to agree), and likewise north-south. "
-        "`tolerance` as in image.tile.check (automatic by default: 0 for pixel art). Returns {seamless, problems: [{axis, a, b (tile, slot, neighbours, sheet position), mismatched, worst, message}]} and the sheet "
-        "magnified with red marks on the failing sides as `$image` (.factoria/previews/<document>.tilesetcheck.png). Example: {\"path\":\"assets/art/ground.image.json\"}",
+        "It also checks the joins INSIDE each tile, where two quadrants cut from different parts meet (corner next to edge, edge next to inside, inner corner next to edge): the two parts must show the same pixels on both sides of the middle line, within the tolerance; "
+        "`tolerance` as in image.tile.check (automatic by default: 0 for pixel art). Returns {seamless, problems: [{axis, a, b (tile, slot, neighbours, sheet position), mismatched, worst, message}]} (axis \"horizontal\" / \"vertical\" for a seam between tiles, \"centreColumn\" / \"centreRow\" for a join inside tile a, with `half`, `parts` and `runs`) and the sheet "
+        "magnified with red marks on the failing sides and on the middle line of a tile that does not join as `$image` (.factoria/previews/<document>.tilesetcheck.png). Example: {\"path\":\"assets/art/ground.image.json\"}",
         "{\"type\":\"object\",\"required\":[\"path\"],\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"" + pathDoc + "\"},"
         "\"layer\":{\"type\":\"string\",\"description\":\"The tileset layer. Default: the only one.\"},"
         "\"tolerance\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":255,\"description\":\"The largest difference between two touching pixels that still counts as matching. Default: automatic (0 for pixel art).\"},"

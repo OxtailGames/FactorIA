@@ -183,6 +183,7 @@ Result<TilesetBuild> build_tileset(const TilesetSpec& spec, const PixelPalette& 
         for (int v = 0; v < lay.variations; ++v) {
             const int tileIndex = lay.tile_index(slot, v);
             std::vector<int> picks;
+            TileJoinSources sources;
             Image tile;
             bool choice = false;   // some quadrant could pick between variants
             for (int attempt = 0; attempt < 32; ++attempt) {
@@ -201,16 +202,42 @@ Result<TilesetBuild> build_tileset(const TilesetSpec& spec, const PixelPalette& 
                     if (v > 0 && count > 1) pick = int(autotile_hash(spec.seed + std::int64_t(attempt) * 7919, tileIndex, q) % count);
                     picks.push_back(pick);
                     Image src;
-                    if (!a && !b) src = oriented("corner", right, bottom, pick);
-                    else if (a && b) src = d ? base_pick("inside", pick) : oriented("innerCorner", right, bottom, pick);
-                    else if (!a) src = edge_image(Q.vSide, pick);          // nothing across the top/bottom: a horizontal edge
-                    else src = edge_image(Q.hSide, pick);                  // nothing across the left/right: a vertical edge
+                    std::string key = base + "#" + std::to_string(pick);   // the picture this quadrant is cut from: part, orientation, variant
+                    if (!a && !b) {
+                        src = oriented("corner", right, bottom, pick);
+                        key += std::string("/") + (right ? "r" : "l") + (bottom ? "b" : "t");
+                    } else if (a && b) {
+                        src = d ? base_pick("inside", pick) : oriented("innerCorner", right, bottom, pick);
+                        if (!d) key += std::string("/") + (right ? "r" : "l") + (bottom ? "b" : "t");
+                    } else if (!a) {
+                        src = edge_image(Q.vSide, pick);          // nothing across the top/bottom: a horizontal edge
+                        key += "/" + std::to_string(int(Q.vSide));
+                    } else {
+                        src = edge_image(Q.hSide, pick);          // nothing across the left/right: a vertical edge
+                        key += "/" + std::to_string(int(Q.hSide));
+                    }
+                    TileJoinSource& js = sources[std::size_t(q)];
+                    js = TileJoinSource();
+                    js.part = base;
+                    js.key = key;
+                    for (int y = 0; y < qh; ++y)
+                        for (int x : {qw - 1, qw}) {
+                            const std::uint8_t* p = &src.rgba[(std::size_t(Q.y + y) * tw + x) * 4];
+                            js.columns.insert(js.columns.end(), p, p + 4);
+                        }
+                    for (int x = 0; x < qw; ++x)
+                        for (int y : {qh - 1, qh}) {
+                            const std::uint8_t* p = &src.rgba[(std::size_t(y) * tw + Q.x + x) * 4];
+                            js.rows.insert(js.rows.end(), p, p + 4);
+                        }
                     for (int y = 0; y < qh; ++y)
                         std::copy_n(&src.rgba[(std::size_t(Q.y + y) * tw + Q.x) * 4], std::size_t(qw) * 4, &tile.rgba[(std::size_t(Q.y + y) * tw + Q.x) * 4]);
                     if (count > 1) choice = true;
                 }
                 if (v == 0 || !used.count(picks)) break;
             }
+            build.joins.resize(std::size_t(lay.tiles));
+            build.joins[std::size_t(tileIndex)] = sources;
             if (choice) anyVariantAnywhere = true;
             if (v > 0 && used.count(picks)) repeated.push_back(tileIndex);
             used.insert(picks);

@@ -7,11 +7,13 @@
 //   * wrap math: tile_wrap(), used by the drawing commands in tile mode;
 //   * the distance between two pixels (alpha counts), the same one the seam check and its tolerance use;
 //   * check_tile_opposites(): the right column of every tile against its own left column, its bottom row against its top row;
-//   * check_tile_set(): the sides that touch when the tiles of an autotile set are placed next to each other by their masks.
+//   * check_tile_set(): the sides that touch when the tiles of an autotile set are placed next to each other by their masks, and the joins
+//     inside a generated tile where two quadrants cut from different parts meet.
 //
 // Pure functions of pixels: no files, no clock, no random numbers.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -64,12 +66,28 @@ struct TileRect {
 struct TileSeam {
     std::string axis;                   // "horizontal" or "vertical"
     int a = 0, b = 0;                   // tile numbers (row-major in the picture, 0-based)
+    // Interior joins of a generated tile (check_tile_set with `joins`): axis "centreColumn" (the line down the middle, between a left and a
+    // right quadrant) or "centreRow" (the line across the middle); `a` == `b` is the tile, runs are positions along the line, `half` says
+    // which half of the line ("top" / "bottom" of a centreColumn, "left" / "right" of a centreRow) and `parts` names the two parts the
+    // quadrants are cut from ("corner | edge").
+    std::string half, parts;
     int length = 0;                     // pixel pairs compared
     int mismatched = 0;                 // pairs further apart than the tolerance
     int worst = 0;                      // the largest distance
     double mean = 0;                    // the mean distance
     std::vector<std::pair<int, int>> runs;   // positions along the seam (inclusive) of the mismatching pairs, in runs
 };
+
+// What one quadrant of a generated tile (fa/tooling/image_tileset.h) is cut from: the picture of a part in an orientation. Only the pixels next
+// to the middle lines are kept, since an interior join compares what two quadrants' pictures say about the pixels next to the line.
+struct TileJoinSource {
+    std::string part;                   // "corner", "edge", "inside", "innerCorner"
+    std::string key;                    // identifies the picture (part, orientation, variant): quadrants with the same key always agree
+    std::vector<std::uint8_t> columns;  // RGBA of the picture's columns qw-1 and qw (qw = tileWidth / 2) over the quadrant's rows: 2 * qh pixels, row by row
+    std::vector<std::uint8_t> rows;     // RGBA of its rows qh-1 and qh over the quadrant's columns: 2 * qw pixels, column by column
+};
+// The four quadrants of one tile: top-left, top-right, bottom-left, bottom-right.
+using TileJoinSources = std::array<TileJoinSource, 4>;
 
 struct TileSeamReport {
     int tolerance = 0;                  // the tolerance used (0 = pixels must be equal)
@@ -98,13 +116,18 @@ TileSeamReport check_tile_opposites(const Image& image, int tileWidth, int tileH
 // `diagonals` (blob47): the cells around the pair must give both tiles the diagonal bits they have, and the whole seam is compared.
 // Without diagonals (16 tiles) only the half of the seam where A and B have, or both lack, the neighbour on that side is compared: the
 // set holds no tile for the corner cell between them. `tolerance` < 0 = automatic.
+// `joins` (one entry per tile, in tile order; optional): the interior joins of every tile, where two quadrants cut from different pictures
+// meet (corner next to edge, edge next to inside, inner corner next to edge...). The two quadrants must agree on the pixels either side of
+// the line: where the picture of one quadrant shows another pixel than the picture of the other at the same place, the join is a seam
+// with the same tolerance. Bad joins join `bad` (axis "centreColumn" / "centreRow") and count in seamsChecked and pixelPairs.
 TileSeamReport check_tile_set(const Image& image, int tileWidth, int tileHeight, int columns, const std::vector<int>& masks, bool diagonals,
-                              int tolerance, bool exact);
+                              int tolerance, bool exact, const std::vector<TileJoinSources>* joins = nullptr);
 
 // The picture of a check for people: the tile (cell `tile` of the picture, or the whole picture when the tiles are the picture) repeated
 // 3 x 3 with a red line over every mismatching seam pair of the central copy, magnified by `scale`. `report` comes from check_tile_opposites.
 Image tile_check_preview(const Image& image, int tileWidth, int tileHeight, int tile, const TileSeamReport& report, int scale);
-// The sheet of an autotile set magnified by `scale`, with a red mark on every side of a tile that has a mismatching seam.
+// The sheet of an autotile set magnified by `scale`, with a red mark on every side of a tile that has a mismatching seam, and on the middle
+// line of a tile where two quadrants do not join.
 Image tile_set_preview(const Image& image, int tileWidth, int tileHeight, const TileSeamReport& report, int scale);
 
 }  // namespace fa

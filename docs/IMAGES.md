@@ -797,7 +797,7 @@ the next. Three things in the document help, all offline and deterministic:
 
 - **tile mode** (`tile`): editing wraps around the edges of a tile, so the edges keep matching while you draw;
 - the **seam check** (`image.tile.check`): compares the pixels that touch when the tile repeats, and shows 3 x 3 copies with the
-  bad pixels marked;
+  bad pixels marked (`image.tileset.check` does the same for a tile set, inside the tiles too);
 - the **`tileset` layer** (`image.tileset.build`): builds the 16 or 47 tiles of an autotile set from a few parts (inside, edge,
   corner), bakes the sheet and writes the `Tilemap` rules, with variations picked by a seed.
 
@@ -834,9 +834,8 @@ central copy.
 neighbouring pixels inside the tiles, rounded up, so a soft texture is not failed for its own gradient. The result says which
 one was used.
 
-What the check does not see: it compares the edges of tiles only. Inside a tile of an autotile set, the line down the middle where
-two quadrants from different parts meet (the corner part next to the edge part) is not compared, so a corner whose half does not
-continue into the edge shows only in the preview of the tile, not in the check.
+An autotile set is checked with `image.tileset.check` (see "The `tileset` layer"), which also compares the joins INSIDE each
+tile.
 
 ### The `tileset` layer
 
@@ -890,6 +889,14 @@ autotile rules (docs/AI_GUIDE.md, section 9.8).
   east neighbour and B a west one. For blob47 the whole seam is compared. For basic16 the set has no tile for the cell on the
   diagonal, so only the half of the seam where both tiles have the neighbour (or both lack it) is compared. The result and the
   preview (`.factoria/previews/<document>.tilesetcheck.png`, red marks on the failing sides) work as in `image.tile.check`.
+  It also compares the joins INSIDE each tile. A generated tile is four quadrants, and where two of them are cut from different
+  parts (corner next to edge, edge next to inside, inner corner next to edge...) the two parts must continue into each other
+  across the middle line: they have to show the same pixels (within the tolerance, 0 for pixel art) in the two columns or rows
+  next to it, so a detail that sits ON the middle line of one part must be in the other part too. Two quadrants cut from the
+  same picture agree with themselves and are not compared. A join that fails is a problem with the axis `centreColumn` (the
+  quadrants are side by side) or `centreRow` (one above the other), the tile in `a` and `b`, the `half` (`top`, `bottom`,
+  `left`, `right`), the two `parts` and the `runs` of rows or columns of the tile that differ; the preview marks those runs red
+  on the middle line of the tile.
 - `image.tileset.rules {path}`: writes the rules file alone. `image.tileset.build` already does; this is the command the recipe of
   the rules file records.
 
@@ -912,7 +919,7 @@ A 47-tile ground from four 8 x 8 parts and three palette colours.
    {"path": "assets/art/ground.image.json", "mode": "blob47", "tileWidth": 8, "tileHeight": 8, "terrain": "ground",
     "palette": ["#1e4a14", "#4a8a2c", "#5fa23a"],
     "parts": {
-      "inside": {"rows": ["11111111", "11211111", "11111111", "11111111", "11111121", "11111111", "11111111", "11111111"]},
+      "inside": {"rows": ["11111111", "11211111", "11111111", "11111111", "11111111", "11111121", "11111111", "11111111"]},
       "edge": {"rows": ["........", "........", "00000000", "11111111", "11111111", "11111111", "11111111", "11111111"]},
       "corner": {"rows": ["........", "........", "..000000", "..011111", "..011111", "..011111", "..011111", "..011111"]},
       "innerCorner": {"rows": ["..011111", "..011111", "00011111", "11111111", "11111111", "11111111", "11111111", "11111111"]}}}
@@ -921,8 +928,8 @@ A 47-tile ground from four 8 x 8 parts and three palette colours.
    `factoria call image.tileset.build @ground.json` writes `assets/art/ground.image.json`, bakes the 64 x 48 sheet
    `assets/art/ground.png` (47 tiles, 8 per row) and writes `assets/art/ground.terrains.json`.
 2. Check that the tiles fit: `factoria call image.tileset.check '{"path":"assets/art/ground.image.json"}'` says
-   `seamless: true` with `badSeams: 0` (338 seams compared). A part that does not match its neighbour lists the pair, and the
-   preview marks the sides in red.
+   `seamless: true` with `badSeams: 0` (486 seams compared, the joins inside the tiles among them). A part that does not match its
+   neighbour lists the pair or the join, and the preview marks the sides in red.
 3. Make a level with a Tilemap and give it the rules. In one engine (the batch), build an empty map, load the rules and paint:
 
    ```json

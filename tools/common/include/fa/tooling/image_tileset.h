@@ -28,6 +28,7 @@
 #include "fa/core/json.h"
 #include "fa/core/types.h"
 #include "fa/tooling/image_doc.h"
+#include "fa/tooling/image_tile.h"
 #include "fa/tooling/pixel_art.h"
 
 namespace fa {
@@ -60,6 +61,7 @@ struct TilesetBuild {
     Image sheet;                        // layout.width() x layout.height(), straight-alpha RGBA8
     TilesetLayout layout;
     std::vector<std::string> warnings;  // variations that came out identical, ...
+    std::vector<TileJoinSources> joins; // per tile (sheet order): what each quadrant is cut from, for the interior joins check_tile_set compares
 };
 // Draws the sheet. Fails (message starts with the JSON pointer of the part) when a part is missing or is not tileWidth x tileHeight.
 Result<TilesetBuild> build_tileset(const TilesetSpec& spec, const PixelPalette& palette, const TilesetLoader& load);
