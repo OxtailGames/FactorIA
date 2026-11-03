@@ -5,11 +5,28 @@
 
 #include "fa/ai/cli_agent.h"
 #include "fa/core/fs.h"
+#include "fa/core/strings.h"
 
 namespace fa::ai {
 
 namespace {
 namespace stdfs = std::filesystem;
+
+// "may be refused because of the pictures": a provider error that talks about images, vision or multimodal input.
+bool mentions_images(const std::string& message) {
+    const std::string m = fa::to_lower(message);
+    return m.find("image") != std::string::npos || m.find("vision") != std::string::npos || m.find("multimodal") != std::string::npos ||
+           m.find("multi-modal") != std::string::npos;
+}
+
+Error with_vision_hint(Error e, const std::string& model, const std::string& roleName) {
+    if (mentions_images(e.message) || mentions_images(e.hint))
+        e.hint = (e.hint.empty() ? std::string() : e.hint + " ") + "The model '" + model + "' of the \"" + roleName +
+                 "\" role may not accept pictures: point that role at a vision model (Claude, GPT-4o and later, Gemini, a llava model in Ollama; docs/AI_PROVIDERS.md).";
+    return e;
+}
+
+Message user_message(const std::string& user, const std::vector<ImageData>& images) { return Message::user(user, images); }
 
 std::string default_work_dir() {
     std::error_code ec;
@@ -18,7 +35,7 @@ std::string default_work_dir() {
 }
 }  // namespace
 
-Result<TextModel> make_text_model(const AiConfig& cfg, const TextModelOptions& options, TextModelInfo* info) {
+Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOptions& options, TextModelInfo* info) {
     std::string roleName = options.role.empty() ? std::string(kRoleFast) : options.role;
     if (!cfg.role_enabled(roleName)) roleName = kRoleOrchestrator;
     const RoleConfig rc = cfg.role(roleName);
@@ -38,15 +55,16 @@ Result<TextModel> make_text_model(const AiConfig& cfg, const TextModelOptions& o
         if (!made.ok()) return made.error();
         const std::shared_ptr<ChatProvider> chat = *made;
         const std::string model = rc.model, effort = rc.effort;
-        return TextModel([chat, model, effort](const std::string& system, const std::string& user) -> Result<std::string> {
+        return VisionModel([chat, model, effort, roleName](const std::string& system, const std::string& user,
+                                                 const std::vector<ImageData>& images) -> Result<std::string> {
             ChatRequest req;
             req.model = model;
             req.effort = effort;
             req.maxTokens = 4096;
             req.system = system;
-            req.messages.push_back(Message::user(user));
+            req.messages.push_back(user_message(user, images));
             auto res = chat->chat(req, {}, nullptr);
-            if (!res.ok()) return res.error();
+            if (!res.ok()) return with_vision_hint(res.error(), model, roleName);
             return res->message.text;
         });
     }
@@ -58,16 +76,34 @@ Result<TextModel> make_text_model(const AiConfig& cfg, const TextModelOptions& o
         const ProviderConfig provider = *pc;
         const std::string model = rc.model;
         const std::string workDir = options.cliWorkDir.empty() ? default_work_dir() : options.cliWorkDir;
-        return TextModel([provider, model, workDir](const std::string& system, const std::string& user) -> Result<std::string> {
+        return VisionModel([provider, model, workDir](const std::string& system, const std::string& user,
+                                                      const std::vector<ImageData>& images) -> Result<std::string> {
             std::error_code ec;
             stdfs::create_directories(workDir, ec);
             CliRunRequest req;
             req.prompt = system + "\n\n" + user;
+            // The CLI reads the pictures inline (stream-json) or from files named in the prompt: write them in its folder.
+            std::vector<stdfs::path> written;
+            for (std::size_t i = 0; i < images.size(); ++i) {
+                const std::string ext = images[i].mediaType == "image/jpeg" ? ".jpg" : images[i].mediaType == "image/webp" ? ".webp"
+                                        : images[i].mediaType == "image/gif" ? ".gif" : ".png";
+                const stdfs::path file = stdfs::path(workDir) / ("image-" + std::to_string(i + 1) + ext);
+                const std::vector<unsigned char> bytes = fa::base64_decode(images[i].base64);
+                if (auto wrote = fa::fs::write_bytes(file.string(), bytes.data(), bytes.size()); !wrote.ok()) {
+                    for (const auto& w : written) stdfs::remove(w, ec);
+                    return make_error("Cannot write the picture for the CLI agent to " + file.string() + ": " + wrote.error().message,
+                                      "Check the disk space and the folder's permissions.");
+                }
+                written.push_back(file);
+                req.images.push_back(images[i]);
+                req.imagePaths.push_back(file.string());
+            }
             req.model = model;
             req.projectDir = workDir;
             req.readOnly = true;
             req.disallowedTools = {"Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", "Task"};
             auto run = CliAgent(provider).run(req, [](const AgentEvent&) {}, nullptr);
+            for (const auto& w : written) stdfs::remove(w, ec);
             if (!run.ok()) return run.error();
             if (!run->ok) return make_error(run->error.empty() ? "The CLI agent failed." : run->error, run->hint);
             return run->finalText;
@@ -87,17 +123,25 @@ Result<TextModel> make_text_model(const AiConfig& cfg, const TextModelOptions& o
     if (!provider.ok()) return provider.error();
     const std::shared_ptr<ChatProvider> chat = *provider;
     const std::string model = rc.model, effort = rc.effort;
-    return TextModel([chat, model, effort](const std::string& system, const std::string& user) -> Result<std::string> {
+    return VisionModel([chat, model, effort, roleName](const std::string& system, const std::string& user,
+                                                 const std::vector<ImageData>& images) -> Result<std::string> {
         ChatRequest req;
         req.model = model;
         req.effort = effort;
         req.maxTokens = 4096;
         req.system = system;
-        req.messages.push_back(Message::user(user));
+        req.messages.push_back(user_message(user, images));
         auto res = chat->chat(req, {}, nullptr);
-        if (!res.ok()) return res.error();
+        if (!res.ok()) return with_vision_hint(res.error(), model, roleName);
         return res->message.text;
     });
+}
+
+Result<TextModel> make_text_model(const AiConfig& cfg, const TextModelOptions& options, TextModelInfo* info) {
+    auto vision = make_vision_model(cfg, options, info);
+    if (!vision.ok()) return vision.error();
+    const VisionModel model = *vision;
+    return TextModel([model](const std::string& system, const std::string& user) { return model(system, user, {}); });
 }
 
 }  // namespace fa::ai
