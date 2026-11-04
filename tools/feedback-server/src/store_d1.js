@@ -3,7 +3,7 @@
 
 const REPORT_COLUMNS =
     "seq, share_id, install_key, reporter_key, received_at, occurrences, engine_version, platform, category, severity, " +
-    "effort, title, title_norm, missing, suggestion, workaround, reporter_kind, reviewed";
+    "effort, title, title_norm, missing, suggestion, workaround, reporter_kind, reviewed, verdict, verdict_reason, verdict_at";
 
 function toReport(row) {
     return {
@@ -25,6 +25,9 @@ function toReport(row) {
         workaround: row.workaround,
         reporterKind: row.reporter_kind,
         reviewed: row.reviewed === 1,
+        verdict: row.verdict || null,
+        verdictReason: row.verdict_reason || null,
+        verdictAt: row.verdict_at || null,
     };
 }
 
@@ -149,6 +152,24 @@ export class D1Store {
     async deleteReport(shareId) {
         const res = await this.db.prepare("DELETE FROM reports WHERE share_id = ?").bind(shareId).run();
         return (res.meta?.changes ?? 0) > 0;
+    }
+
+    async setVerdict(shareId, { verdict, reason, at }) {
+        const res = await this.db
+            .prepare("UPDATE reports SET verdict = ?, verdict_reason = ?, verdict_at = ? WHERE share_id = ?")
+            .bind(verdict || null, verdict ? reason : null, verdict ? at : null, shareId)
+            .run();
+        return (res.meta?.changes ?? 0) > 0;
+    }
+
+    async getVerdicts(installKey, shareIds) {
+        if (shareIds.length === 0) return [];
+        const marks = shareIds.map(() => "?").join(",");
+        const { results } = await this.db
+            .prepare(`SELECT share_id, verdict, verdict_reason, verdict_at FROM reports WHERE install_key = ? AND share_id IN (${marks})`)
+            .bind(installKey, ...shareIds)
+            .all();
+        return results.map((r) => ({ shareId: r.share_id, verdict: r.verdict || null, reason: r.verdict_reason || null, at: r.verdict_at || null }));
     }
 
     async totals() {

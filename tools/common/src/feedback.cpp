@@ -12,6 +12,7 @@
 
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
+#include "fa/tooling/feedback_check.h"
 #include "fa/tooling/feedback_share.h"
 #include "util.h"
 
@@ -33,8 +34,37 @@ const std::vector<std::string>& feedback_severities() {
     return v;
 }
 const std::vector<std::string>& feedback_statuses() {
-    static const std::vector<std::string> v = {"open", "fixed-in-engine", "wont-fix", "duplicate"};
+    static const std::vector<std::string> v = {"open", "fixed-in-engine", "wont-fix", "duplicate", "rejected"};
     return v;
+}
+const std::vector<std::string>& feedback_status_authors() {
+    static const std::vector<std::string> v = {"engine", "user", "developer"};
+    return v;
+}
+std::string sanitize_status_reason(std::string_view reason) {
+    std::string out;
+    bool space = false;
+    std::size_t chars = 0;
+    for (std::size_t i = 0; i < reason.size() && chars < std::size_t(kFeedbackReasonMax); ++i) {
+        const unsigned char c = static_cast<unsigned char>(reason[i]);
+        if (c < 0x20 || c == 0x7F || c == ' ') {
+            space = !out.empty();
+            continue;
+        }
+        if (space) {
+            out += ' ';
+            ++chars;
+            space = false;
+            if (chars >= std::size_t(kFeedbackReasonMax)) break;
+        }
+        // a UTF-8 sequence is copied whole
+        std::size_t len = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : (c >> 3) == 0x1E ? 4 : 1;
+        len = std::min(len, reason.size() - i);
+        out.append(reason.substr(i, len));
+        i += len - 1;
+        ++chars;
+    }
+    return out;
 }
 int feedback_severity_weight(std::string_view s) {
     if (s == "blocker") return 8;
@@ -219,6 +249,12 @@ int max_entry_number(const Json& entries) {
 
 std::string status_of(const Json& e) { return e.value("status", std::string("open")); }
 
+// The number the next new id gets at least (`nextId` of the document; 1 when it has none).
+int next_id_of(const Json& doc) {
+    if (!doc.is_object() || !doc.contains("nextId") || !doc["nextId"].is_number_integer()) return 1;
+    return std::max(1, doc["nextId"].get<int>());
+}
+
 std::string check_enum(const char* field, const std::string& value, const std::vector<std::string>& valid) {
     if (contains(valid, value)) return {};
     return std::string("Invalid ") + field + " '" + value + "'. " + did_you_mean(value, valid);
@@ -360,6 +396,8 @@ Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& in,
     int top = max_entry_number(entries);
     if (archive && archive->is_object() && archive->contains("entries") && (*archive)["entries"].is_array())
         top = std::max(top, max_entry_number((*archive)["entries"]));
+    // Ids of deleted entries are not given again: each document keeps the number of the next one.
+    top = std::max({top, next_id_of(doc) - 1, archive ? next_id_of(*archive) - 1 : 0});
     std::snprintf(idbuf, sizeof idbuf, "FB-%04d", top + 1);
     Json e = Json::object();
     e["id"] = idbuf;
@@ -515,7 +553,8 @@ Result<Json> set_feedback_share_file(const std::string& path, std::string_view i
 }
 
 Result<Json> update_feedback_file(const std::string& path, std::string_view id, std::string_view status,
-                                  std::string_view engineIssue, std::string_view note) {
+                                  std::string_view engineIssue, std::string_view note, std::string_view reason,
+                                  std::string_view by) {
     auto loaded = load_feedback(path);
     if (!loaded.ok()) return loaded.error();
     Json doc = std::move(loaded.value());
@@ -535,7 +574,7 @@ Result<Json> update_feedback_file(const std::string& path, std::string_view id, 
         }
     };
     if (has_id(doc) || !stdfs::exists(feedback_archive_path(path))) {
-        auto r = update_feedback_entry(doc, id, status, engineIssue);
+        auto r = update_feedback_entry(doc, id, status, engineIssue, reason, by);
         if (!r.ok()) return r;
         Json result = *r;
         add_note(doc, result);
@@ -546,8 +585,8 @@ Result<Json> update_feedback_file(const std::string& path, std::string_view id, 
     auto a = load_feedback(archivePath);
     if (!a.ok()) return a.error();
     Json archive = std::move(a.value());
-    if (!has_id(archive)) return update_feedback_entry(doc, id, status, engineIssue);  // the error lists the ids of the file
-    auto r = update_feedback_entry(archive, id, status, engineIssue);
+    if (!has_id(archive)) return update_feedback_entry(doc, id, status, engineIssue, reason, by);  // the error lists the ids of the file
+    auto r = update_feedback_entry(archive, id, status, engineIssue, reason, by);
     if (!r.ok()) return r;
     Json result = *r;
     add_note(archive, result);
@@ -559,10 +598,73 @@ Result<Json> update_feedback_file(const std::string& path, std::string_view id, 
         }
         archive["entries"] = std::move(keep);
         doc["entries"].push_back(moved);
+        result = moved;
         if (auto s = save_feedback(path, doc); !s.ok()) return s.error();
     }
     if (auto s = save_feedback(archivePath, archive); !s.ok()) return s.error();
     return result;
+}
+
+bool feedback_entry_deletable(const Json& e, std::string* whyNot) {
+    const std::string status = e.is_object() ? status_of(e) : "open";
+    if (status != "open") return true;
+    if (e.is_object() && e.contains("shared") && e["shared"].is_object()) {
+        const std::string shared = e["shared"].value("status", std::string());
+        if (shared == "rejected" || shared == "declined") return true;
+    }
+    if (whyNot)
+        *whyNot = "Entry " + (e.is_object() ? e.value("id", std::string()) : std::string()) +
+                  " is still open, so it is not deleted: an open entry is a question for the engine developers. Close it first "
+                  "(feedback.update with status wont-fix, duplicate or rejected and a reason), then delete it.";
+    return false;
+}
+
+Result<Json> delete_feedback_file(const std::string& path, std::string_view id) {
+    auto loaded = load_feedback(path);
+    if (!loaded.ok()) return loaded.error();
+    Json doc = std::move(loaded.value());
+    const std::string archivePath = feedback_archive_path(path);
+    Json archive;
+    bool haveArchive = false;
+    if (stdfs::exists(archivePath)) {
+        auto a = load_feedback(archivePath);
+        if (!a.ok()) return a.error();
+        archive = std::move(a.value());
+        haveArchive = true;
+    }
+    std::vector<std::string> ids;
+    auto find_in = [&](Json& d) -> std::ptrdiff_t {
+        if (!d.is_object() || !d.contains("entries") || !d["entries"].is_array()) return -1;
+        for (std::size_t i = 0; i < d["entries"].size(); ++i) {
+            const std::string eid = d["entries"][i].value("id", std::string());
+            ids.push_back(eid);
+            if (eid == id) return std::ptrdiff_t(i);
+        }
+        return -1;
+    };
+    Json* where = &doc;
+    std::ptrdiff_t at = find_in(doc);
+    if (at < 0 && haveArchive) {
+        where = &archive;
+        at = find_in(archive);
+    }
+    if (at < 0)
+        return make_error("No feedback entry '" + std::string(id) + "' in " + path + " or its archive. " + did_you_mean(std::string(id), ids),
+                          "List the ids with feedback.list (includeArchive: true).");
+    Json entry = (*where)["entries"][std::size_t(at)];
+    std::string why;
+    if (!feedback_entry_deletable(entry, &why))
+        return make_error(why, "feedback.update { \"id\": \"" + std::string(id) + "\", \"status\": \"rejected\", \"statusReason\": \"...\" } closes it.");
+    int number = 0;
+    const std::string eid = entry.value("id", std::string());
+    if (eid.rfind("FB-", 0) == 0) {
+        try { number = std::stoi(eid.substr(3)); } catch (...) {}
+    }
+    (*where)["entries"].erase((*where)["entries"].begin() + at);
+    // The number is not given again, whichever file holds the highest ones.
+    (*where)["nextId"] = std::max(next_id_of(*where), number + 1);
+    if (auto s = save_feedback(where == &doc ? path : archivePath, *where); !s.ok()) return s.error();
+    return entry;
 }
 
 Json list_feedback(const Json& doc, const FeedbackFilter& f) {
@@ -577,17 +679,43 @@ Json list_feedback(const Json& doc, const FeedbackFilter& f) {
     return out;
 }
 
-Result<Json> update_feedback_entry(Json& doc, std::string_view id, std::string_view status, std::string_view engineIssue) {
+Result<Json> update_feedback_entry(Json& doc, std::string_view id, std::string_view status, std::string_view engineIssue,
+                                   std::string_view reason, std::string_view by) {
     if (!doc.is_object() || !doc.contains("entries") || !doc["entries"].is_array())
         return make_error("ENGINE_FEEDBACK.json has no \"entries\" array.");
     if (!status.empty() && !contains(feedback_statuses(), status))
         return make_error("Invalid status '" + std::string(status) + "'. " + did_you_mean(status, feedback_statuses()));
+    if (!by.empty() && !contains(feedback_status_authors(), by))
+        return make_error("Invalid statusBy '" + std::string(by) + "'. " + did_you_mean(by, feedback_status_authors()));
+    const std::string cleanReason = sanitize_status_reason(reason);
     std::vector<std::string> ids;
     for (auto& e : doc["entries"]) {
         std::string eid = e.value("id", "");
         ids.push_back(eid);
         if (eid != id) continue;
+        const std::string before = status_of(e);
+        const std::string after = status.empty() ? before : std::string(status);
+        if (after == "rejected" && cleanReason.empty() && !(before == "rejected" && !e.value("statusReason", std::string()).empty()))
+            return make_error("Rejecting " + std::string(id) + " needs a reason: the person who filed it reads it in the editor.",
+                              "Say why it is not a gap, for example \"Collider2D.oneWay exists (docs/reference/components/physics.md): use it, "
+                              "and file a bug if it does not work\". Pass it as statusReason.");
+        if (!cleanReason.empty() && after == "open")
+            return make_error("A reason belongs to a closed entry, and " + std::string(id) + " is open.",
+                              "Set a closed status (wont-fix, duplicate, rejected) together with the reason.");
         if (!status.empty()) e["status"] = std::string(status);
+        if (!status.empty() && after != before) e.erase("suggestedRejection");  // decided: the suggestion is answered
+        if (after == "open") {
+            // The engine's own rejection is not repeated on an entry a person reopened.
+            if (before == "rejected" && e.value("statusBy", std::string()) == "engine") e["claimCheck"] = "dismissed";
+            e.erase("statusReason");
+            e.erase("statusBy");
+        } else if (!cleanReason.empty()) {
+            e["statusReason"] = cleanReason;
+            e["statusBy"] = by.empty() ? std::string("user") : std::string(by);
+        } else if (after != before) {  // another status: the old reason explained the old one
+            e.erase("statusReason");
+            e.erase("statusBy");
+        }
         if (!engineIssue.empty()) e["engineIssue"] = std::string(engineIssue);
         return e;
     }
@@ -908,6 +1036,7 @@ Json enum_schema(const std::vector<std::string>& v, const char* desc) {
 
 void register_feedback_commands(CommandRegistry& registry, const std::string& projectDir) {
     register_feedback_share_commands(registry, projectDir);
+    register_feedback_check_commands(registry, projectDir);
     {
         CommandInfo info;
         info.name = "feedback.report";
@@ -921,27 +1050,34 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             "differently; you had to emulate a feature in JavaScript; a command you wanted is missing.\n"
             "The entry is appended to the project's ENGINE_FEEDBACK.json, which engine developers aggregate to decide "
             "what to build next. Reporting a gap similar to an open one merges into it (occurrences + 1), so duplicates "
-            "are harmless. A gap the engine already fixed (archived, see feedback.archive) and that you report again reopens the archived entry as a possible regression. Write 'title' as a short noun phrase (\"No one-way platforms\"), 'missing' as what you needed "
+            "are harmless. A gap the engine already fixed (archived, see feedback.archive) and that you report again reopens the archived entry as a possible regression.\n"
+            "CHECK BEFORE YOU FILE: models often report as missing something the engine has (a component field, a command, a scripting "
+            "member). Search first: docs.search for the thing, docs.components for the fields of the component you mean, or call "
+            "feedback.check with your title/missing/suggestion. This command runs the same check and REFUSES a report whose missing "
+            "thing exists, naming what exists and the page that documents it. If it exists but does not work as documented, file a BUG "
+            "instead: say what you set, what you expected and what happened. A request for an extra option on an existing component "
+            "is fine. The examples below are INVENTED to show the shape: do not copy or adapt them.\n"
+            "Write 'title' as a short noun phrase (\"No fluid simulation\"), 'missing' as what you needed "
             "and why, 'workaround' as what you did instead and where (list files in workaroundFiles), 'suggestion' as the "
             "concrete engine change that would remove the workaround.\n"
             "SHARE (optional, strongly recommended): `share` is the same gap written for the ENGINE DEVELOPER, who must never "
             "learn what the game is about. Write it in engine terms only: components, fields, commands and API names that "
             "exist (or that you propose), and NOTHING about the game: no game, character, level, scene, entity, asset or script "
             "names, no file names or paths, no quotes from the game, no story. {title (8-120 characters), missing (20-1500, at "
-            "least 4 words), suggestion?, workaround? (the kind of workaround, without project details)}. Good: {\"title\":\"No "
-            "one-way platforms\",\"missing\":\"Collider2D has no one-way option, so a body cannot pass up through a platform "
-            "and land on it.\",\"suggestion\":\"Add Collider2D.oneWay (bool).\",\"workaround\":\"A script disables the "
-            "collider while the body moves up.\"}. Bad: \"The knight in Dungeon of Ash cannot jump through scripts/ledge.js "
+            "least 4 words), suggestion?, workaround? (the kind of workaround, without project details)}. Good (invented): {\"title\":\"No "
+            "fluid simulation\",\"missing\":\"There is no liquid solver, so water cannot flow around bodies and fill a "
+            "container.\",\"suggestion\":\"Add a particle-based Fluid2D component.\",\"workaround\":\"A script moves "
+            "sprites to fake a water surface.\"}. Bad: \"The knight in Dungeon of Ash cannot jump through scripts/ledge.js "
             "platforms\" (names the game, a character and a file). Check the docs first (docs.search) so the gap is real and "
             "about the engine, then pass reviewed: true. An entry without `share` is never sent. Whether anything is sent is the "
             "USER's choice (mode always, ask or never): the result's `share` says what happened, and no command changes the "
             "mode, so do not try; if it says sharing is not set up, tell the user how to turn it on, once.\n"
-            "Example: {\"category\":\"physics\",\"severity\":\"major\",\"title\":\"No one-way platforms\","
-            "\"missing\":\"Collider2D has no one-way option so the player cannot jump up through platforms.\","
-            "\"workaround\":\"scripts/one_way.js disables the platform collider while the player moves upward.\","
-            "\"workaroundFiles\":[\"scripts/one_way.js\"],\"suggestion\":\"Add Collider2D.oneWay (bool).\","
-            "\"share\":{\"title\":\"No one-way platforms\",\"missing\":\"Collider2D has no one-way option, so a body cannot "
-            "pass up through a platform and land on it.\",\"suggestion\":\"Add Collider2D.oneWay (bool).\"},\"reviewed\":true}";
+            "Example (an invented gap, only to show the fields): {\"category\":\"physics\",\"severity\":\"major\",\"title\":\"No fluid simulation\","
+            "\"missing\":\"There is no liquid solver, so water cannot flow around bodies and fill a container.\","
+            "\"workaround\":\"scripts/water.js moves sprites to fake a water surface.\","
+            "\"workaroundFiles\":[\"scripts/water.js\"],\"suggestion\":\"Add a particle-based Fluid2D component.\","
+            "\"share\":{\"title\":\"No fluid simulation\",\"missing\":\"There is no liquid solver, so water cannot flow around "
+            "bodies and fill a container.\",\"suggestion\":\"Add a particle-based Fluid2D component.\"},\"reviewed\":true}";
         Json props = Json::object();
         props["category"] = enum_schema(feedback_categories(), "Engine area of the gap.");
         props["severity"] = enum_schema(feedback_severities(),
@@ -958,7 +1094,7 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
                             "story, characters, assets, file names, paths or quotes). {title, missing, suggestion?, workaround?}. "
                             "Without it the entry is never sent."},
             {"properties", Json::object({
-                {"title", Json::object({{"type", "string"}, {"description", "8-120 characters: the gap as a noun phrase, e.g. \"No one-way platforms\"."}})},
+                {"title", Json::object({{"type", "string"}, {"description", "8-120 characters: the gap as a noun phrase, e.g. \"No fluid simulation\" (an invented example)."}})},
                 {"missing", Json::object({{"type", "string"}, {"description", "20-1500 characters, at least 4 words: what the engine lacks, naming components, fields or commands."}})},
                 {"suggestion", Json::object({{"type", "string"}, {"description", "Up to 1500 characters: the engine change that would fix it."}})},
                 {"workaround", Json::object({{"type", "string"}, {"description", "Up to 1500 characters: the kind of workaround, without project details."}})}})},
@@ -988,6 +1124,14 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             if (args.contains("share") && !args["share"].is_null()) in.share = args["share"];
             if (args.contains("reviewed") && args["reviewed"].is_boolean()) in.reviewed = args["reviewed"].get<bool>();
             std::string path = feedback_path_for(projectDir);
+            // The engine already has what the report calls missing: refuse, and say what exists and where it is documented.
+            ClaimInput claimIn{in.title, in.missing, in.suggestion};
+            if (in.share.is_object()) {
+                claimIn.missing += ". " + in.share.value("missing", std::string());
+                claimIn.suggestion += ". " + in.share.value("suggestion", std::string());
+            }
+            const ClaimResult claim = check_feedback_claim(claimIn, &registry, 3);
+            if (claim.refused()) throw CommandError("already_exists", claim.message(), claim.hint());
             auto r = add_feedback_entry_to_file(path, in, project_name_for(projectDir));
             if (!r.ok()) throw CommandError("invalid_argument", r.error().message, r.error().hint);
             Json out = Json::object();
@@ -996,6 +1140,7 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             out["occurrences"] = r->occurrences;
             out["file"] = stdfs::path(path).filename().string();
             out["reopened"] = r->reopened;
+            if (!claim.related.empty()) out["relatedDocs"] = claim.related;
             // Sharing never fails the report: whatever goes wrong is told in `share`.
             if (!r->shareProblem.empty()) {
                 out["share"] = Json::object({{"status", "invalid"},
@@ -1009,6 +1154,9 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
                              : r->merged ? "Merged into existing entry " + r->id + " (now " + std::to_string(r->occurrences) +
                                                " occurrences). Thank you."
                                          : "Recorded as " + r->id + ". Thank you.";
+            if (!claim.related.empty())
+                out["message"] = out["message"].get<std::string>() + " Related documentation (relatedDocs): if it already covers the gap, "
+                                 "set the entry aside with feedback.update status rejected and a reason.";
             return out;
         });
     }
@@ -1051,23 +1199,57 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
         info.name = "feedback.update";
         info.category = "feedback";
         info.readOnly = false;
-        info.summary = "Change the status of a feedback entry or link it to an engine issue.";
-        info.description = "Engine developers use this when a gap is fixed (status fixed-in-engine), rejected (wont-fix) or "
+        info.summary = "Change the status of a feedback entry (with a reason when it is rejected) or link it to an engine issue.";
+        info.description = "Engine developers use this when a gap is fixed (status fixed-in-engine), will not be done (wont-fix) or "
                            "duplicated; the entry moves to the archive on the next feedback.archive (the editor runs it when it opens "
-                           "the project). An archived entry is found too, and set to open it moves back to the file. Example: {\"id\":\"FB-0001\",\"status\":\"fixed-in-engine\",\"engineIssue\":\"#42\"}";
+                           "the project). Status `rejected` means the entry claims a gap the engine does not have (the thing exists, or "
+                           "it is not about the engine): it REQUIRES `statusReason`, a sentence the person reads in the editor (what "
+                           "exists and where it is documented). A reason may also be given with wont-fix and duplicate. An archived "
+                           "entry is found too, and set to open it moves back to the file (its reason is removed). Example: "
+                           "{\"id\":\"FB-0001\",\"status\":\"fixed-in-engine\",\"engineIssue\":\"#42\"} or "
+                           "{\"id\":\"FB-0002\",\"status\":\"rejected\",\"statusReason\":\"The field exists: see the Collider2D page of the reference.\"}";
         info.inputSchema = Json::object({{"type", "object"},
             {"properties", Json::object({{"id", Json::object({{"type", "string"}, {"description", "Entry id, e.g. FB-0001."}})},
                                          {"status", enum_schema(feedback_statuses(), "New status.")},
+                                         {"statusReason", Json::object({{"type", "string"}, {"description",
+                                              "Why (at most 500 characters, plain text). Required with status rejected; shown to the person in the editor."}})},
                                          {"engineIssue", Json::object({{"type", "string"}, {"description", "Issue/PR link or id."}})}})},
             {"required", Json::array({"id"})}});
         registry.add(info, [projectDir](const Json& args) {
             std::string path = feedback_path_for(projectDir);
             std::string status = arg_string(args, "status", false), issue = arg_string(args, "engineIssue", false);
-            if (status.empty() && issue.empty())
-                throw CommandError("invalid_argument", "Nothing to update.", "Pass status and/or engineIssue.");
-            auto r = update_feedback_file(path, arg_string(args, "id", true), status, issue);
-            if (!r.ok()) throw CommandError("not_found", r.error().message, r.error().hint);
+            const std::string reason = arg_string(args, "statusReason", false);
+            if (status.empty() && issue.empty() && reason.empty())
+                throw CommandError("invalid_argument", "Nothing to update.", "Pass status, statusReason and/or engineIssue.");
+            auto r = update_feedback_file(path, arg_string(args, "id", true), status, issue, {}, reason, "user");
+            if (!r.ok()) throw CommandError("invalid_argument", r.error().message, r.error().hint);
             return r.value();
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "feedback.delete";
+        info.category = "feedback";
+        info.readOnly = false;
+        info.summary = "Delete a closed feedback entry (rejected, wont-fix, duplicate, fixed) from the file and its archive.";
+        info.description =
+            "Removes entry `id` from ENGINE_FEEDBACK.json or ENGINE_FEEDBACK.archive.json for good, and takes it out of the sharing "
+            "outbox. Only a closed entry can go (any status but open), or an open one the engine developer refused (its `shared` says "
+            "rejected or declined): an open entry is a question for the engine developers, so close it first with feedback.update. Its "
+            "id is not given again. What was already sent to the engine developer stays with them. The editor's Feedback panel offers "
+            "this with a confirmation. Example: {\"id\":\"FB-0004\"}";
+        info.inputSchema = Json::object({{"type", "object"},
+            {"properties", Json::object({{"id", Json::object({{"type", "string"}, {"description", "Entry id, e.g. FB-0004."}})}})},
+            {"required", Json::array({"id"})}});
+        registry.add(info, [projectDir](const Json& args) {
+            const std::string path = feedback_path_for(projectDir);
+            const std::string id = arg_string(args, "id", true);
+            if (!stdfs::exists(path)) throw CommandError("not_found", "No ENGINE_FEEDBACK.json yet.", "Nothing to delete.");
+            auto r = delete_feedback_file(path, id);
+            if (!r.ok()) throw CommandError("invalid_argument", r.error().message, r.error().hint);
+            share_discard(share_env(), path, {id});
+            return Json::object({{"deleted", id}, {"title", r->value("title", std::string())},
+                                 {"status", r->value("status", std::string("open"))}});
         });
     }
     {
@@ -1075,7 +1257,7 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
         info.name = "feedback.archive";
         info.category = "feedback";
         info.readOnly = false;
-        info.summary = "Move the closed feedback entries (fixed-in-engine, wont-fix, duplicate) to the archive file.";
+        info.summary = "Move the closed feedback entries (fixed-in-engine, wont-fix, duplicate, rejected) to the archive file.";
         info.description =
             "ENGINE_FEEDBACK.json should only hold what is still open: this moves every entry whose status is not open to "
             "ENGINE_FEEDBACK.archive.json next to it (same format). Ids stay unique across both files and keep counting up; "

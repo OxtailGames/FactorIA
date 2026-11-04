@@ -60,7 +60,7 @@ test("a valid report is accepted and stored with derived keys only", async () =>
     assert.equal(r.effort, "small");
     assert.equal(r.reporterKind, "ai");
     assert.equal(r.reviewed, true);
-    assert.match(r.missing, /one-way option/);
+    assert.match(r.missing, /no fluid solver/);
     assert.equal(r.titleNorm, undefined);
     assert.equal(r.seq, undefined);
 

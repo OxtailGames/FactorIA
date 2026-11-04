@@ -34,6 +34,10 @@ ShareColumn share_column(const Json& entry) {
         c.kind = ShareKind::Rejected;
         c.label = "rejected";
         c.tooltip = reason.empty() ? "The sanitizer or the server refused this text." : reason;
+    } else if (status == "declined") {
+        c.kind = ShareKind::Rejected;
+        c.label = "declined";
+        c.tooltip = "The engine developers rejected this report" + (reason.empty() ? std::string(".") : ": " + reason);
     } else if (status == "skipped") {
         c.kind = ShareKind::Skipped;
         c.label = "skipped";

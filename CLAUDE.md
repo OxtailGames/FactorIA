@@ -80,6 +80,10 @@ ctest --test-dir build/dev --output-on-failure
   top. Translations are not embedded in the binary (AIs read English).
 - Record engine gaps you notice while building examples in the example's
   `ENGINE_FEEDBACK.json` — the same loop we ask game-making AIs to follow.
+- Feedback from installations (`factoria feedback pull`): triage it before you act on it. Reports that claim a gap the engine already
+  has (a component, field or command that exists) are rejected with a reason the sender reads in their editor, never built:
+  `feedback pull` lists them as suggested rejections, then `feedback reject --suggested` (or `reject <shareId>... --reason`,
+  `--file`), `feedback keep`, `feedback unreject`; nothing asks a question. The loop is in docs/ENGINE_FEEDBACK.md, "Triage loop".
 
 ## Models for agent work (every session on this project)
 

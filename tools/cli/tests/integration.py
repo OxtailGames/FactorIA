@@ -499,10 +499,10 @@ def test_misc(tmp):
     proj = os.path.join(tmp, "fb")
     run(["new", proj])
     code, out, err = run(["feedback", "add", "--project", proj, "--category", "physics", "--severity", "major", "--title",
-                          "No one-way platforms", "--missing", "Collider2D has no oneWay option", "--workaround", "script toggles the collider", "--files", "scripts/a.js,scripts/b.js"])
+                          "No cloth simulation", "--missing", "Nothing simulates cloth that drapes over bodies", "--workaround", "script bends sprites by hand", "--files", "scripts/a.js,scripts/b.js"])
     check(code == 0 and "FB-" in out, "feedback add")
     code, out, err = run(["feedback", "add", "--project", proj, "--json", json.dumps(
-        {"category": "physics", "severity": "minor", "title": "No one way platforms", "missing": "Collider2D has no one way flag", "workaround": "a script disables the collider"})])
+        {"category": "physics", "severity": "minor", "title": "No cloth simulations", "missing": "Nothing simulates cloth that drapes over bodies", "workaround": "a script bends sprites by hand"})])
     check(code == 0 and "Merged" in out, "feedback add merges a similar entry")
     code, out, err = run(["feedback", "add", "--project", proj, "--category", "physics"])
     check(code == 2, "feedback add without required flags -> exit 2")
@@ -524,7 +524,7 @@ def test_misc(tmp):
     check(code == 0, "feedback validate")
     report = os.path.join(tmp, "roadmap.md")
     code, out, err = run(["feedback", "collect", proj, "--out", report])
-    check(code == 0 and os.path.exists(report) and "one-way" in open(report).read().lower().replace(" ", "-"), "feedback collect -> markdown")
+    check(code == 0 and os.path.exists(report) and "cloth" in open(report).read().lower(), "feedback collect -> markdown")
     code, rep, err = jrun(["feedback", "collect", proj, "--format", "json"])
     check(code == 0 and rep is not None and rep.get("clusters"), "feedback collect --format json")
 

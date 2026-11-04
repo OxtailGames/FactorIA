@@ -398,11 +398,11 @@ the engine lacked something and they had to work around it:
       "reporter": { "kind": "ai", "agent": "claude-code", "model": "claude-sonnet-5-5" },
       "category": "physics",
       "severity": "major",
-      "title": "No one-way platforms",
-      "missing": "Collider2D has no one-way option, so the player cannot jump up through platforms.",
-      "workaround": "scripts/one_way.js disables the platform collider while the player moves upward.",
-      "workaroundFiles": ["scripts/one_way.js"],
-      "suggestion": "Add Collider2D.oneWay (bool) with a configurable direction.",
+      "title": "No fluid simulation",
+      "missing": "There is no liquid solver, so water cannot flow around bodies and fill a container.",
+      "workaround": "scripts/water.js moves sprites to fake a water surface.",
+      "workaroundFiles": ["scripts/water.js"],
+      "suggestion": "Add a particle-based Fluid2D component.",
       "occurrences": 1,
       "status": "open"
     }
@@ -414,7 +414,7 @@ the engine lacked something and they had to work around it:
   scene, assets, animation, tooling, ai-integration, docs, platform,
   performance, networking, other.
 - `severity`: blocker, major, minor, nice-to-have.
-- `status`: open, fixed-in-engine, wont-fix, duplicate.
+- `status`: open, fixed-in-engine, wont-fix, duplicate, rejected (with `statusReason` and `statusBy`).
 
 Ways to write it: MCP/AI/CLI command `feedback.report`, `factoria feedback add`,
 the editor's Feedback panel, or editing the JSON directly (schema:

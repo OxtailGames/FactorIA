@@ -37,6 +37,7 @@
 #include "fa/tooling/audio_analysis.h"
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/feedback.h"
+#include "fa/tooling/feedback_check.h"
 #include "fa/tooling/icons.h"
 #include "fa/tooling/publish.h"
 #include "fa/tooling/skills.h"
@@ -846,6 +847,19 @@ void check_feedback_file(Ctx& c, const std::string& file) {
         return;
     }
     for (const auto& e : validate_feedback(doc.value())) c.error(file, e.pointer, e.message, e.hint);
+    // An open entry that calls missing something the engine already has (filed before the check existed, or by a tool that skips it).
+    if (doc->is_object() && doc->contains("entries") && (*doc)["entries"].is_array()) {
+        const Json& entries = (*doc)["entries"];
+        for (std::size_t i = 0; i < entries.size(); ++i) {
+            const Json& e = entries[i];
+            if (!e.is_object() || e.value("status", std::string("open")) != "open" || e.value("claimCheck", std::string()) == "dismissed") continue;
+            const ClaimResult claim = check_feedback_entry_claim(e);
+            if (!claim.refused()) continue;
+            c.warn(file, "/entries/" + std::to_string(i),
+                   "Entry " + e.value("id", std::string("?")) + " (\"" + e.value("title", std::string()) + "\") says the engine lacks something it already has. " + claim.reason(),
+                   "Close it: `factoria feedback update " + e.value("id", std::string("ID")) + " --status rejected --reason \"...\"` (or `factoria feedback check --entries --reject` for all of them). If the feature really fails, rewrite the entry as a bug that says what you tried.");
+        }
+    }
 }
 
 // assets.json (optional): the schema, and entries whose file no longer exists (renamed or deleted asset).

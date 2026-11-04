@@ -91,6 +91,10 @@ struct PullSummary {
     int known = 0;        // known and unchanged (also those in the archive and the quarantine)
     int invalid = 0;      // reports this version could not read (the reasons are in `warnings`)
     int valid = 0, doubtful = 0, junk = 0, unclassified = 0;
+    // New reports whose claim of a missing feature fails the check (the engine has it): each is marked `suggestedRejection` in the
+    // inbox. [{shareId, id, installKey, title, reason}]. Confirm with `feedback reject --suggested`, drop with `feedback keep`.
+    Json suggestions = Json::array();
+    int alreadyRejected = 0;  // reports the server already carries a rejection for (imported as rejected entries)
     std::string classification;  // what happened: "5 valid, 1 doubtful, 2 junk" or why it was skipped
     std::vector<std::string> installations;  // installKeys that got a file written
     std::vector<std::string> warnings;
@@ -114,11 +118,41 @@ Result<std::pair<KeyKind, std::string>> resolve_ban_key(const std::string& key, 
 // Removes the entry with this shareId from the inbox (files and quarantine); the number removed.
 int remove_local_report(const std::string& inbox, const std::string& shareId);
 
+// ---- verdicts: reject / unreject / keep ------------------------------------------------------------------------------
+// The engine developer (usually an AI) answers a pulled report: reject it with a reason the installation shows to its person, take
+// that back, or keep it. Everything is non-interactive.
+struct RejectItem {
+    std::string shareId, reason;
+};
+// A reason as the server takes it: plain text, whitespace collapsed (sanitize_status_reason), 1 to kFeedbackReasonMax characters.
+Result<std::string> checked_reject_reason(const std::string& text);
+// A batch file: [{shareId, reason}, ...] or {"rejections": [...]}. `what` names the file in the errors.
+Result<std::vector<RejectItem>> parse_reject_batch(const std::string& jsonText, const std::string& what);
+// The inbox entries that carry a suggestedRejection and are still open: [{shareId, id, installKey, title, reason}].
+Json inbox_suggestions(const std::string& inbox);
+struct VerdictOutcome {
+    std::vector<std::string> done;      // shareIds the server rejected / restored
+    std::vector<std::string> notFound;  // shareIds the server does not have
+    int localMarked = 0;                // entries of the inbox (and quarantined items) updated
+    Json to_json(const std::string& doneName) const;
+};
+// Rejects on the server (batches of 50) and marks the entries in the inbox (status rejected, statusBy developer, the reason; a
+// quarantined item gets its `rejection`). Entries the server could not find are left alone.
+Result<VerdictOutcome> feedback_reject_reports(const FeedbackAdminConfig& cfg, const ai::HttpTransport& transport, const std::string& inbox,
+                                               const std::vector<RejectItem>& items);
+// Takes the rejection back on the server; the inbox entries are open again.
+Result<VerdictOutcome> feedback_unreject_reports(const FeedbackAdminConfig& cfg, const ai::HttpTransport& transport, const std::string& inbox,
+                                                 const std::vector<std::string>& shareIds);
+// Drops the suggestedRejection of the inbox entries (keep them); the number of entries changed.
+Result<int> feedback_keep_reports(const std::string& inbox, const std::vector<std::string>& shareIds);
+
 // "the Entry id" text offered after `feedback update --status fixed-in-engine` on an inbox entry: the `fixed add` command
 // that records the fix. "" for an entry that is not from the inbox.
 std::string fixed_add_offer(const Json& entry);
+// The `reject` command that tells the installation about an inbox entry closed as rejected. "" for an entry that is not from the inbox.
+std::string reject_offer(const Json& entry);
 
-// The `feedback` subcommands of this file: pull, quarantine, ban, unban, bans, delete, stats, fixed.
+// The `feedback` subcommands of this file: pull, quarantine, reject, unreject, keep, ban, unban, bans, delete, stats, fixed.
 std::vector<Command> make_feedback_admin_commands();
 
 }  // namespace fa::cli
