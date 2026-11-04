@@ -682,7 +682,8 @@ TEST_CASE("script_instrument: speed on a ~1000 line file") {
     for (int i = 0; i < kRuns; i++) (void)instr("big.js", big);
     double ms = (fa::process_cpu_seconds() - t0) * 1000.0 / kRuns;
     std::cout << "[script_instrument] " << count_lines(big) << " lines: " << ms << " ms of CPU per run after warm-up\n";
-    CHECK(ms < 1000);  // generous: debug builds on slow CI machines; the number is printed above
+    // generous for slow CI machines; MSVC Debug gets 4x (it measured 2.1x the 1000 ms on a PC); the number is printed above
+    CHECK(ms < 1000 * fa::test_speed_budget_scale());
 }
 
 // ---------------------------------------------------------------------------------------------------- import cycle

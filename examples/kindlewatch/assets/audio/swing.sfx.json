@@ -1,0 +1,41 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "The warden swings the brand: a short bright whoosh. Four takes.",
+  "length": 0.22,
+  "layers": [
+    {
+      "oscillators": [
+        {
+          "wave": "noise",
+          "color": "pink"
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 600,
+        "resonance": 1.5,
+        "env": {
+          "amount": 2,
+          "attack": 0.2,
+          "decay": 0.4,
+          "sustain": 0
+        }
+      },
+      "amp": {
+        "attack": 0.2,
+        "decay": 0.4,
+        "sustain": 0,
+        "curve": 1.5
+      }
+    }
+  ],
+  "macros": {
+    "brightness": 0.3,
+    "tail": -0.4,
+    "attack": -0.3
+  },
+  "variations": {
+    "count": 4,
+    "seed": 1
+  }
+}

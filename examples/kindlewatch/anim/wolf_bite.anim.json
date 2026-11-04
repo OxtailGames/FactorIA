@@ -1,0 +1,215 @@
+{
+  "format": "factoria.anim3d/1",
+  "doc": "A lunge: the wolf rears back, then snaps its head forward and down.",
+  "rig": "assets/models/wolf.rig.glb",
+  "template": "quadruped",
+  "duration": 0.6,
+  "loop": false,
+  "tracks": [
+    {
+      "bone": "head",
+      "channel": "rotation",
+      "keys": [
+        {
+          "t": 0.0,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "t": 0.2,
+          "value": [
+            -25.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.32,
+          "value": [
+            40.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadIn"
+        },
+        {
+          "t": 0.6,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadOut"
+        }
+      ]
+    },
+    {
+      "bone": "neck_2",
+      "channel": "rotation",
+      "keys": [
+        {
+          "t": 0.0,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "t": 0.2,
+          "value": [
+            -15.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.32,
+          "value": [
+            25.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadIn"
+        },
+        {
+          "t": 0.6,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadOut"
+        }
+      ]
+    },
+    {
+      "bone": "neck_1",
+      "channel": "rotation",
+      "keys": [
+        {
+          "t": 0.0,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "t": 0.2,
+          "value": [
+            -10.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.32,
+          "value": [
+            18.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadIn"
+        },
+        {
+          "t": 0.6,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadOut"
+        }
+      ]
+    },
+    {
+      "bone": "spine_3",
+      "channel": "rotation",
+      "keys": [
+        {
+          "t": 0.0,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "t": 0.2,
+          "value": [
+            -12.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.32,
+          "value": [
+            10.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadIn"
+        },
+        {
+          "t": 0.6,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadOut"
+        }
+      ]
+    },
+    {
+      "bone": "spine_2",
+      "channel": "rotation",
+      "keys": [
+        {
+          "t": 0.0,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "t": 0.2,
+          "value": [
+            -8.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.32,
+          "value": [
+            6.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadIn"
+        },
+        {
+          "t": 0.6,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "interp": "quadOut"
+        }
+      ]
+    }
+  ]
+}

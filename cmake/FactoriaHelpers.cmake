@@ -8,7 +8,7 @@
 
 add_library(fa_warnings INTERFACE)
 if(MSVC)
-    target_compile_options(fa_warnings INTERFACE /W4 /permissive- /utf-8 /wd4100 /wd4201)
+    target_compile_options(fa_warnings INTERFACE /W4 /permissive- /utf-8 /bigobj /wd4100 /wd4201)
     # windows.h defines min/max macros that break std::min/std::max;  silence the CRT "unsafe" (getenv, fopen) warnings.
     target_compile_definitions(fa_warnings INTERFACE NOMINMAX _CRT_SECURE_NO_WARNINGS)
     if(FA_WARNINGS_AS_ERRORS)
@@ -122,4 +122,17 @@ function(fa_embed_files target ns header_name)
         VERBATIM)
     target_sources(${target} PRIVATE ${out_cpp} ${out_h})
     target_include_directories(${target} PRIVATE ${out_dir})
+endfunction()
+
+# add_test() that also gives every test the Windows file rules emulation of fa::fs (FA_TEST_WINDOWS_FILE_RULES, top-level
+# CMakeLists.txt; engine/core/include/fa/core/fs.h). FA_FS_WINDOWS_RULES_DEFAULT is only a default: the variable
+# FA_FS_WINDOWS_RULES in the environment of the ctest run wins, so `FA_FS_WINDOWS_RULES=0 ctest` turns it off for one run.
+# It is the "NAME <name> COMMAND ..." form only (all this repo uses). A test that sets its own ENVIRONMENT must APPEND to
+# the property (set_property(TEST <name> APPEND PROPERTY ENVIRONMENT ...)): set_tests_properties(... ENVIRONMENT ...)
+# replaces this one.
+function(add_test)
+    _add_test(${ARGV})
+    if(NOT WIN32 AND FA_TEST_WINDOWS_FILE_RULES AND "${ARGV0}" STREQUAL "NAME")
+        set_property(TEST ${ARGV1} APPEND PROPERTY ENVIRONMENT "FA_FS_WINDOWS_RULES_DEFAULT=1")
+    endif()
 endfunction()

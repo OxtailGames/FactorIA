@@ -1538,6 +1538,209 @@ hand in four boxes and pressed three buttons. Entries an AI wrote already say wh
 
 FB-0038 is in `feedback/fixed.json`, so Roguestory's entry closes when the editor opens the project.
 
+## M50. A push that passes CI the first time (M) — DONE (0.15.0)
+
+Pushes kept failing CI on what this Mac does not exercise (Windows file sharing and file times, budgets on 4-vCPU runners,
+MSVC-only errors), and every fix-and-push round cost a day.
+
+- M50.1 (M) `scripts/ci-preflight.sh`: risk scan of the diff, `test-all.sh`, a stress pass of the touched editor
+  autotests and examples under load, every `ci-local.sh` job the host has, Docker and the Windows PC, one summary.
+- M50.2 (L) Windows file rules in `fa::fs` (`FA_FS_WINDOWS_RULES`, on for every ctest run on macOS and Linux):
+  `fs::ReadStream` holds a file against replace/delete, file times step 15.625 ms; the readers and change detectors of
+  tools moved to `fs::`. Found on the way: file times were negative with libstdc++ (`fs::file_time_ns`).
+- M50.3 (M) `scripts/setup-docker-macos.sh` + `scripts/ci-docker.sh`: the Linux and MinGW jobs in an Ubuntu 24.04
+  amd64 container on the Mac.
+- M50.4 (M) `scripts/ci-remote-windows.sh`: the native MSVC build, ctest and examples on a Windows PC over SSH, the
+  windowed tests in the logged-in desktop session; a PC that is off is a SKIP, never woken.
+- CI saves each job's ccache right after the build. Left open: the Mac's Wine job is not a reference (no HLSL `atan2`
+  under Rosetta), so Windows tests need the PC.
+
+## Art, 3D and audio tools inside the engine (M51-M60): shared rules (planned 2026-11-03)
+
+M50 is the CI work of another session (0.15.0); these tools start at M51.
+
+Asked by the user (2026-11-03): would games made by AI be better with art tools inside the engine (a raster and a vector
+editor, 3D modeling, sound and music tools)? Yes, if the tools are made for the AI first: an AI does not drive a brush
+or drag vertices, it writes and edits data it can read, rerun and check. Building a Photoshop or a Blender clone is not
+the goal; giving the AI editable sources, operations as commands and a way to see and hear the result is.
+
+What exists to build on: provider generation (M15: `assets.generate_image`, `_sprite_sheet`, `_sound`, `_music`,
+`_voice`, `_model`), the house `style` in `assets.json`, `assets.rasterize_svg`, `assets.animate_svg` and recipes with
+`assets.regenerate` (M41), `assets.generate_texture`, `assets.synth_sound` (fixed presets), `assets.generate_loop`,
+`assets.analyze_audio`, the engine's Vorbis encoder, `mesh.create`/`mesh.save` (M44.2), keyframed 2D clips, `Bone2D` and
+`SpriteSkin` (M42), the glTF `Animator` (skinned playback, no 3D bones made in the engine). PSD imports flattened.
+
+Rules for every milestone below:
+- **No external program.** Nothing may need Blender, Photoshop, a DAW, ffmpeg or anything else the user may lack:
+  everything is factoria's own code or a vendored library with a permissive license (candidates are named per package;
+  each package checks the license and records it in `external/VERSIONS.md` and LEGAL.md). External programs stay what
+  they are today: optional MCP servers the user adds (M43).
+- **AI first.** Every capability is a command with doc strings and teaching errors. The editor panel of each area is a
+  view over the same commands, with the same undo.
+- **Readable sources, baked outputs.** The source of an asset is a document an AI can read and diff (`*.image.json`, SVG,
+  `*.model.json`, `*.sfx.json`, `*.audio.json`, `*.song.json`); the PNG, GLB or OGG the game loads is baked from it with
+  the recipe in its provenance (M41.2), so `assets.regenerate` remakes it and a changed source warns as stale.
+- **See and hear every edit.** Each editing command returns a preview (the picture, a turntable, a waveform and
+  spectrogram) and the checks of M51, so the loop is make, look, check, fix.
+- **Offline and deterministic.** Same document and seed, same output; no key needed. An asset provider, when one is set
+  up, is an optional input (a generated layer, an inpainted selection), never required.
+- **Shipped like every feature.** Docs (one new doc per area, embedded), typings, `factoria validate` checks, autotest
+  sections for the panels, `api_since`, and an example game that adopts the tool and records gaps in its
+  `ENGINE_FEEDBACK.json`. M51-M60 ship together, in one PR and as one version (0.16.0), when M60 is done (the user, 2026-11-03).
+
+Order: M51 first (it multiplies every later tool), then 2D images (M52-M54: most FactorIA games are 2D), then audio
+(M55-M56), then 3D (M57-M59), then a reference game that uses only these tools (M60). The audio and 3D blocks do not
+depend on the 2D block and can move earlier if a game asks for them.
+
+## M51. Eyes and ears: the AI sees and hears what it made (L; 5 packages) — DONE (0.16.0)
+
+- M51.1 (M) A measurable style guide: `style` in `assets.json` gains rules a check can measure, next to `prompt`,
+  `references` and `palette`: `outline` (colour, width in pixels), `lightDirection`, `texelsPerUnit` (pixel density),
+  `pixelArt`, value and saturation ranges, and loudness targets per audio bus. Every tool of M52-M59 takes them as its
+  defaults; `factoria validate` warns about an asset that breaks them, with the rule and the fix.
+- M51.2 (L) `assets.check_art {path | paths}`: palette fit (colour count, distance to the style palette), contrast against
+  the backgrounds the asset is drawn over, readability at the size the camera shows it (downscaled silhouette and edge
+  clarity, phone and desktop), halos and fringes on alpha edges, mixed pixel density inside a set, outline consistency,
+  value structure (a greyscale thumbnail). Each rule gives a number, a verdict and a fix hint; the result carries an
+  annotated picture.
+- M51.3 (M) `assets.contact_sheet {paths, backgrounds, sizes}`: a set side by side at its on-screen size, over the game's
+  backgrounds, light and dark, plus greyscale; `assets.preview_in_scene {path, scene, at}` places the asset in a running
+  scene and returns the screenshot at phone and desktop resolutions.
+- M51.4 (M) Ears: `assets.spectrogram` (waveform, spectrogram and loudness curve as a picture) and `assets.check_mix`
+  (every sound measured together: loudness spread per bus, music masking the bands of the effects, clicks at the start
+  or end, loop seams, clipping, true peak), each finding with its fix.
+- M51.5 (S) The review loop (make, preview, check, fix) in AI_GUIDE.md and in the asset part of the prompt; with a vision
+  model set up, `assets.review {path}` compares an asset with the style references and returns concrete fixes (optional,
+  like `ai.review_feedback`).
+
+## M52. Layered images: the engine's raster editor (L; 5 packages) — DONE (0.16.0)
+
+- M52.1 (L) `*.image.json` and its compositor: canvas size; layers of pixels (a PNG next to the document), fill, gradient,
+  `assets.generate_texture` arguments, SVG (rasterized), text (engine fonts) and a provider image (with its recipe);
+  groups, opacity, blend modes (normal, multiply, screen, overlay, add, colour and the usual rest), pixel and vector
+  masks, clipping. One CPU compositor, shared by commands and editor, bakes the PNG on save.
+- M52.2 (M) Non-destructive adjustments and effects: levels and curves, hue/saturation/value, palette remap and quantize
+  (the style palette), posterize, dither (ordered, error diffusion), outline and stroke, drop shadow, inner and outer
+  glow, blur, sharpen, noise, colour overlay, gradient map, shading from a normal map.
+- M52.3 (M) Commands: `image.create`, `image.layer.add/set/remove/move`, `image.select` (by colour and tolerance, by
+  alpha, by rectangle, ellipse or polygon, by a layer's mask; grow, shrink, feather), `image.edit` on a selection (fill,
+  recolour, move, transform, delete, copy to a new layer), `image.paint` (strokes as point lists with size and hardness),
+  `image.info`, `image.export`. Each result returns the preview and the changed region. A PSD imports as an image
+  document with its layers (the flatten warning goes away).
+- M52.4 (L) Editor: an Image panel with the canvas (zoom, pan), the layer list, brushes (paint, erase, fill, picker),
+  selections, a transform gizmo and the adjustment inspector; autotest section.
+- M52.5 (M) With an image provider (optional): `image.inpaint {selection, prompt}` and `image.generate_layer` (a
+  generated picture as a layer with a mask); without one the commands say so and point at the offline route. IMAGES.md,
+  and an example game that keeps its art as image documents.
+
+## M53. Pixel art and tiles (L; 5 packages) — DONE (0.16.0)
+
+- M53.1 (M) Indexed image documents: a canvas locked to the style palette, colour ramps (shade and light per colour),
+  pixel-exact lines, ellipses and fills with no anti-aliasing, `image.pixel` to draw exact pixel lists.
+- M53.2 (L) Frames and tags in the document (cels per layer per frame, durations, tags), baked into a sheet with its
+  SpriteAnimator clips (M41.4); onion skin; `image.frame.*`; an Aseprite file imports as such a document.
+- M53.3 (M) Pixel helpers: inner and outer outlines (selective outline too), shading from the light direction, dither
+  ramps, clean-up (orphan pixels, jagged lines), RotSprite-style rotation and scaling, and `image.to_pixel_art` (a
+  painted or generated picture downscaled, quantized to the palette and cleaned).
+- M53.4 (L) Tiles: tile mode (editing wraps around, seam check), an autotile generator that builds the 16 and 47-tile
+  sets from a few parts (inside, edge, corner) with the Tilemap rules, and variations by seed (`image.tileset.*`).
+- M53.5 (M) Editor pixel tools (pixel grid, palette bar, frame timeline with onion skin, tiled preview), docs, and an
+  example game whose pixel art is redrawn with them.
+
+## M54. Vector illustration (L; 4 packages) — DONE (0.16.0)
+
+- M54.1 (L) SVG stays the document (AIs already write it) and the engine adds operations: path booleans (union,
+  subtract, intersect, exclude), offset and inset, stroke to path, simplify, smooth (Clipper2, Boost license, is the
+  candidate), align, distribute, repeat (grid, radial) and `vector.style` (apply the style's outline and palette), all
+  as `vector.*` commands with a rasterized preview.
+- M54.2 (M) Shape builders AIs get wrong by hand: smooth organic shapes from a few points, mirror symmetry, parametric
+  shapes (star, gear, rounded polygon, arrow, speech bubble, ribbon), text to paths, and an automatic shadow and
+  highlight pass from the light direction (offset and intersect).
+- M54.3 (M) Characters in parts: an SVG with named groups becomes part PNGs, pivots and a `Bone2D` skeleton for M42
+  (`vector.to_rig`), so an illustrated character animates in parts with no other step.
+- M54.4 (L) Editor: a Vector panel (pen, node editing, shape tools, boolean buttons, layers), also used for the SVG
+  layers of image documents; docs; an example.
+
+## M55. Sound design: the engine's synthesizer (L; 4 packages) — DONE (0.16.0)
+
+- M55.1 (L) `*.sfx.json` patches: oscillators (sine, square with duty, saw, triangle, noise colours, a drawn wavetable),
+  FM and ring modulation, pitch and amplitude envelopes, sweeps, arpeggios, filters with envelopes, distortion,
+  bitcrush, delay, reverb, and layers with offsets, rendered offline. The presets of `assets.synth_sound` become patches
+  an AI can open and change; the command keeps working.
+- M55.2 (M) Variations and families: N variants of one patch by seed for sounds that must not repeat (an `AudioSource`
+  picks one), macros an AI can turn by meaning (attack, brightness, weight, tail), and `sfx.family` for a consistent set
+  of interface sounds from one patch.
+- M55.3 (M) `*.audio.json`: a non-destructive chain over a WAV or OGG (trim, fade, normalize, pitch and time stretch, EQ,
+  compressor, reverb, layering, crossfaded loops, granular textures from a sample), so imported CC0 sounds become
+  editable sources.
+- M55.4 (M) Editor: a Sound panel (waveform, spectrogram, macros as knobs, play and loop, A/B of variants); docs; an
+  example game whose sounds become patches.
+
+## M56. Music: composed as data, adaptive at runtime (L; 5 packages) — DONE (0.16.0)
+
+- M56.1 (L) `*.song.json`: tempo, meter, key, sections (intro, loop, outro), tracks with an instrument and patterns written
+  as note text, drums by name, velocity, swing and automation, and an arrangement of patterns per section. Helpers:
+  chords by name (`Am7`), scales, arpeggiators, basslines from chords, drum patterns by style; `music.check` finds
+  off-key notes, clashes between tracks, notes out of an instrument's range and loudness problems.
+- M56.2 (L) Instruments: synthesized from M55 patches (leads, pads, basses, plucks, bells, ensembles, chiptune) and a
+  synthesized drum kit; a mixer per track (volume, pan, effects) with a master limiter and the style's loudness target.
+  Decision for the package: optional SoundFont (SF2) instruments from a file the project brings (an asset, never a
+  dependency) through a vendored player (TinySoundFont, MIT, is the candidate).
+- M56.3 (M) `music.render` to OGG or WAV with loop points the `AudioSource` honours, and stems per layer; MIDI import and
+  export (own parser) so a composer's MIDI becomes a song document.
+- M56.4 (L) Adaptive music: a `MusicPlayer` component plays a song (live, or its pre-rendered stems on low-end phones)
+  with layers by `intensity`, section changes on the beat or bar, stingers, beat events for scripts and crossfades
+  between songs.
+- M56.5 (L) Editor: a Music panel (piano roll, arrangement, mixer); MUSIC.md; an example game with an adaptive score.
+
+## M57. 3D modeling by recipe (L; 5 packages) — DONE (0.16.0)
+
+- M57.1 (L) `*.model.json`: a tree of operations evaluated to a mesh by an engine mesh kernel (module chosen per
+  ARCHITECTURE.md). Primitives (box, rounded box, cylinder, cone, sphere, capsule, torus, grid, stairs, arch, pipe,
+  text), transforms, groups, named parts with materials or vertex colours; baked to `.glb` through `mesh.save` with the
+  recipe.
+- M57.2 (L) Modifiers: mirror, array and radial array, bevel, Catmull-Clark subdivision, solidify, booleans (Manifold,
+  Apache-2.0, is the candidate), lathe, sweep along a curve, loft between profiles, bend, twist, taper, noise
+  displacement, smooth, weld, flat or smooth shading.
+- M57.3 (L) Organic shapes without sculpting: SDF modeling (spheres, capsules, ellipsoids, rounded boxes with smooth
+  union and subtraction) meshed by surface nets or dual contouring and decimated: creatures, rocks, trees, props.
+- M57.4 (M) Edits on selections chosen by meaning, not by index (faces by normal direction, by part, by region, top or
+  bottom): extrude, inset, loop cut, bevel edges, delete; stable when the tree is evaluated again.
+- M57.5 (L) Eyes and editor: `model.preview` (a turntable sheet of 4-8 views, wireframe, a 1.8 m reference figure,
+  triangle count) and `model.check` (scale, flipped normals, non-manifold edges, triangles over the platform budget); a
+  Model panel (operation tree, parameter sliders, live viewport, part selection); MODELING.md; an example.
+
+## M58. 3D materials, UVs and game-ready models (L; 4 packages) — DONE (0.16.0)
+
+- M58.1 (L) UVs: automatic unwrap (xatlas, MIT, is the candidate), box, cylinder and sphere projections per part,
+  packing and the style's texel density (`model.uv`).
+- M58.2 (L) Texturing: materials per part from `assets.generate_texture`, triplanar baking, low-poly vertex-colour
+  palettes, baked AO, curvature and thickness as masks for wear (edges, dirt), decals; a model's texture opens as an
+  image document (M52) to paint on.
+- M58.3 (M) Game-ready: LODs (meshoptimizer, MIT), colliders (box or capsule fit, convex hull, convex decomposition with
+  V-HACD, BSD), origin and ground, merging, a triangle budget per platform.
+- M58.4 (M) `model.import_clean`: a generated (`assets.generate_model`) or imported mesh is welded, stripped of floating
+  bits, recentred, scaled to a reference, decimated to the budget, remeshed and unwrapped, and wrapped in a model
+  document so later operations apply to it.
+
+## M59. 3D rigging and animation (L; 4 packages) — DONE (0.16.0)
+
+- M59.1 (L) Skeletons from templates (humanoid, quadruped, bird, tail or chain, generic) fitted to a model by its parts
+  and landmarks (`rig.create`, `rig.fit`), saved as a glTF skin.
+- M59.2 (L) Skin weights: automatic (heat diffusion or voxel binding), rigid per part for robot-style models,
+  `skin3d.*` edits and a weight preview.
+- M59.3 (L) Clips: the `.anim.json` clips of M42 for 3D bones, 3D IK (two-bone, look-at, foot placement), generators
+  (walk and run cycles from stride parameters, idle breathing, swings, hit reactions) and retargeting between template
+  skeletons.
+- M59.4 (L) Editor: M42's Animation panel and bone tools in 3D (gizmos, IK handles), a filmstrip from several angles;
+  docs; an example whose 3D character is made, rigged and animated entirely in the engine.
+
+## M60. A sixth reference game made only with the engine's tools (L) — DONE (0.16.0)
+
+A complete game whose every picture, model, sound and song is made with the commands of M51-M59: no asset provider and
+no imported asset. It measures what the AI reaches with these tools against the reference games that used providers,
+records every gap in its `ENGINE_FEEDBACK.json`, and a triage milestone turns them into packages, as after M21-M32.
+
 ## Out of scope: Roblox
 
 Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,

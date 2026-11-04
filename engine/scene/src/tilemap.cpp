@@ -1,5 +1,7 @@
 #include "fa/scene/tilemap.h"
 
+#include "fa/scene/autotile.h"
+
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -193,6 +195,13 @@ std::vector<TilemapIssue> check_tilemap(const Tilemap& tm) {
                     "List plain tile numbers of the tileset, e.g. [0, 1, 2]; flip and rotate flags are not part of them (a flipped solid tile is still solid).");
         }
         if (bad > kMaxReported) err("/solidTiles", "... and " + std::to_string(bad - kMaxReported) + " more invalid solidTiles entries");
+    }
+
+    // ---- terrains (autotile rules)
+    if (!tm.terrains.is_array() || !tm.terrains.empty()) {
+        std::size_t shown = 0;
+        for (TilemapIssue& issue : check_terrains(tm.terrains))
+            if (++shown <= kMaxReported) out.push_back(std::move(issue));
     }
 
     // ---- tiles

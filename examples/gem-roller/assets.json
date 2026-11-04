@@ -1,0 +1,158 @@
+{
+  "format": "factoria.assets/1",
+  "assets": {
+    "assets/anim/scout_idle.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-04",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/scout.rig.glb",
+        "notes": "An idle clip made from the proportions of the scout rig with anim3d.generate {rig: assets/models/scout.rig.glb, kind: idle}; edit it in the Animation panel's 3D mode."
+      }
+    },
+    "assets/anim/scout_walk.anim.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-11-04",
+        "provider": "factoria anim3d.generate",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/scout.rig.glb",
+        "notes": "A walk clip made from the proportions of the scout rig with anim3d.generate {rig: assets/models/scout.rig.glb, kind: walk}; edit it in the Animation panel's 3D mode."
+      }
+    },
+    "assets/models/gem.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/gem.model.json",
+        "notes": "Built from the model document 'assets/models/gem.model.json': 32 triangles, 1 submesh; parts: gem.",
+        "date": "2026-11-03",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/gem.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/gem.model.json",
+              "sha256": "3cd2784948cfc9e88d8d9d5f3663414217a23431f806b94ee2784e350ecee2dd"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/scout.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/scout.model.json",
+        "notes": "Built from the model document 'assets/models/scout.model.json': 3120 triangles, 8 submeshes; parts: pelvis, torso, neck, head, arm_l, arm_r, leg_l, leg_r.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/scout.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/scout.model.json",
+              "sha256": "59b624ebd35e954cb8b4a9a06d0e693cf3d569b4262d388ab13463782c96918f"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/scout.rig.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria rig.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/scout.rig.json",
+        "notes": "A humanoid skeleton of 22 bones fitted to the model 'assets/models/scout.model.json' by rig document 'assets/models/scout.rig.json': 27 landmarks from parts, 0 from geometry, 0 overridden, 0 estimated. Skin weights: auto method, up to 4 influences per vertex, 0 edit(s).",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "rig.bake",
+          "args": {
+            "path": "assets/models/scout.rig.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/scout.rig.json",
+              "sha256": "03197d9e593f903b82487c6a9f8dbf0d0966028cbc03495ed41a4db4345d5af0"
+            },
+            {
+              "path": "assets/models/scout.model.json",
+              "sha256": "59b624ebd35e954cb8b4a9a06d0e693cf3d569b4262d388ab13463782c96918f"
+            }
+          ]
+        }
+      }
+    },
+    "assets/textures/ball.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/textures/ball.image.json",
+        "notes": "Composited from the image document 'assets/textures/ball.image.json' (9 layers), 64x64.",
+        "date": "2026-11-03",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/textures/ball.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/textures/ball.image.json",
+              "sha256": "3226979c6f4d643b66f66c2ce388a95fdd1f385b3275d670ca45c44aa02921d1"
+            }
+          ]
+        }
+      }
+    },
+    "assets/textures/tile.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/textures/tile.image.json",
+        "notes": "Composited from the image document 'assets/textures/tile.image.json' (5 layers), 64x64.",
+        "date": "2026-11-03",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/textures/tile.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/textures/tile.image.json",
+              "sha256": "55127ce69c3b1bf3eea3ff40a0482e3bd4fc3e4b090f3d59d2c9dc58b4175b74"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -429,7 +429,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                 if (ec) fail("failed", "Delete failed: " + ec.message());
                 return Json::object({{"path", r}, {"deleted", n}});
             }
-            stdfs::remove(p, ec);
+            fs::remove_file(p, ec);
             if (ec) fail("failed", "Delete failed: " + ec.message());
             return Json::object({{"path", r}, {"deleted", 1}});
         });

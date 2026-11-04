@@ -553,11 +553,18 @@ Details that matter:
   | `{kind}` | `image`, `sound`, `music`, `voice` or `model3d` |
   | `{model}` | `assets.<kind>.model` or the `model` of the call |
   | `{seed}` | the `seed` of the call, else a number derived from the prompt; the seed is recorded only when `argv` has `{seed}` |
+  | `{input}` `{mask}` | images only, **inpainting**: `input.png` (the picture to repaint) and `mask.png` (grey, white where it must be repainted) in the program's temporary folder, both the same size. A plain generation gets a transparent `{input}` and a white `{mask}`. |
 
   The program is run with `env`/`unsetEnv` of the provider and stopped after `timeoutSeconds`. A non-zero exit, a timeout
   and a missing `{output}` file are errors that say what happened. On Windows a `.cmd`/`.bat` program cannot receive
   `% & | < > ^` or line breaks in an argument: use an `.exe` or a Python wrapper if prompts need them. It cannot take
   reference images or voices (the result says so); use `style.prompt` for the look.
+
+**Inpainting.** `image.inpaint` ([IMAGES.md](IMAGES.md), "Pictures from a provider") repaints part of a picture, so it needs a
+provider that can: the built-in `openai` (it sends the picture and a mask to `/images/edits`, whose transparent pixels are the ones
+repainted), `fake`, and an `asset-command` provider whose `argv` has both `{input}` and `{mask}` (the program reads them and writes the
+whole repainted picture to `{output}`). Any other image provider still serves `image.generate_layer` and `assets.generate_image`. The
+error for a provider that cannot inpaint names the configured ones that can.
 
 Provider fields used by asset providers: `type` (`openai-compatible` for OpenAI, `elevenlabs`, `meshy`, `fake`,
 `asset-command`), `baseUrl`, `apiKeyEnv`, `apiKey`, `headers`, `command`, `argv`, `env`, `unsetEnv`, `maxRetries` (at most

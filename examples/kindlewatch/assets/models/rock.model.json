@@ -1,0 +1,49 @@
+{
+  "format": "factoria.model/1",
+  "doc": "A boulder, 1.4 m wide: a squashed sphere with seeded noise, smoothed.",
+  "nodes": [
+    {
+      "op": "smooth",
+      "id": "rock_smooth",
+      "iterations": 2,
+      "children": [
+        {
+          "op": "noise",
+          "id": "rock_noise",
+          "amplitude": 0.09,
+          "frequency": 2.5,
+          "octaves": 3,
+          "seed": 11,
+          "children": [
+            {
+              "op": "sphere",
+              "id": "rock_base",
+              "radius": 0.6,
+              "segments": 16,
+              "rings": 10,
+              "scale": [
+                1.2,
+                0.7,
+                1.0
+              ],
+              "align": "bottom",
+              "color": "#46628a"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "gameReady": {
+    "origin": "bottom_center",
+    "merge": true,
+    "lods": [
+      {
+        "ratio": 0.4
+      }
+    ],
+    "collider": {
+      "shape": "convex"
+    }
+  }
+}

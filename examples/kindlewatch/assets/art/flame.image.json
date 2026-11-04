@@ -1,0 +1,228 @@
+{
+  "format": "factoria.image/1",
+  "width": 16,
+  "height": 24,
+  "description": "Four frames of a campfire flame: orange outside, yellow inside, a pale core. Tag burn loops them.",
+  "palette": [
+    {
+      "name": "ink",
+      "color": "#0d1020"
+    },
+    {
+      "name": "navy",
+      "color": "#1b2340"
+    },
+    {
+      "name": "slate",
+      "color": "#2d3a5e"
+    },
+    {
+      "name": "steel",
+      "color": "#46628a"
+    },
+    {
+      "name": "sky",
+      "color": "#7d9fc0"
+    },
+    {
+      "name": "dkgreen",
+      "color": "#1c2e1f"
+    },
+    {
+      "name": "green",
+      "color": "#2f5230"
+    },
+    {
+      "name": "grass",
+      "color": "#5a8a3c"
+    },
+    {
+      "name": "lime",
+      "color": "#9bbf5a"
+    },
+    {
+      "name": "dkbrown",
+      "color": "#4a2c1c"
+    },
+    {
+      "name": "brown",
+      "color": "#7a4a28"
+    },
+    {
+      "name": "tan",
+      "color": "#b27a45"
+    },
+    {
+      "name": "warm",
+      "color": "#e8b060"
+    },
+    {
+      "name": "orange",
+      "color": "#d9501c"
+    },
+    {
+      "name": "yellow",
+      "color": "#f2a230"
+    },
+    {
+      "name": "core",
+      "color": "#fbe8a0"
+    },
+    {
+      "name": "bone",
+      "color": "#e8e4d8"
+    },
+    {
+      "name": "dkred",
+      "color": "#8a2a2a"
+    },
+    {
+      "name": "pink",
+      "color": "#d96060"
+    }
+  ],
+  "ramps": [
+    [
+      "dkgreen",
+      "green",
+      "grass",
+      "lime"
+    ],
+    [
+      "dkbrown",
+      "brown",
+      "tan",
+      "warm"
+    ],
+    [
+      "ink",
+      "navy",
+      "slate",
+      "steel",
+      "sky"
+    ],
+    [
+      "dkred",
+      "orange",
+      "yellow",
+      "core"
+    ]
+  ],
+  "layers": [
+    {
+      "kind": "indexed",
+      "name": "flame",
+      "rows": [
+        "................",
+        "........d.......",
+        ".......ddd......",
+        ".......ddd......",
+        "......ddddd.....",
+        ".....ddddddd....",
+        ".....deeeeed....",
+        "....ddeeeeedd...",
+        "....ddeeeeedd...",
+        "....deeeeeeed...",
+        "...ddeeeeeeedd..",
+        "...ddeeeeeeedd..",
+        "...ddeefffeedd..",
+        "..dddeefffeeddd.",
+        "..ddeeefffeeedd.",
+        "..ddeefffffeedd.",
+        "..ddeefffffeedd.",
+        ".dddeefffffeeddd",
+        ".dddeefffffeeddd",
+        ".dddeefffffeeddd",
+        ".dddeefffffeeddd",
+        "..ddeeefffeeedd.",
+        "...ddeefffeedd..",
+        "........f......."
+      ],
+      "cels": [
+        {
+          "frame": 1,
+          "rows": [
+            "................",
+            "................",
+            ".........d......",
+            "........ddd.....",
+            "........dddd....",
+            ".......ddddd....",
+            ".......dddddd...",
+            "......ddeeeedd..",
+            "......deeeeedd..",
+            ".....ddeeeeeed..",
+            ".....ddeeeeeedd.",
+            "....ddeeeeeeedd.",
+            "....ddeeeeeeeddd",
+            "....ddeeffffeedd",
+            "...dddeeffffeedd",
+            "...ddeeeffffeedd",
+            "...ddeefffffeedd",
+            "..dddeeffffeeedd",
+            "..dddeeffffeeedd",
+            "..dddeeffffeeedd",
+            "..dddeeffffeeddd",
+            "..dddeeffffeedd.",
+            "...ddeefffeedd..",
+            "........f......."
+          ]
+        },
+        {
+          "frame": 2,
+          "link": 0
+        },
+        {
+          "frame": 3,
+          "rows": [
+            "................",
+            "................",
+            ".......d........",
+            "......ddd.......",
+            ".....dddd.......",
+            ".....ddddd......",
+            "....dddddd......",
+            "...ddeeeedd.....",
+            "...ddeeeeed.....",
+            "...deeeeeedd....",
+            "..ddeeeeeedd....",
+            "..ddeeeeeeedd...",
+            ".dddeeeeeeedd...",
+            ".ddeeffffeedd...",
+            ".ddeeffffeeddd..",
+            ".ddeeffffeeedd..",
+            ".ddeefffffeedd..",
+            ".ddeeeffffeeddd.",
+            ".ddeeeffffeeddd.",
+            ".ddeeeffffeeddd.",
+            ".dddeeffffeeddd.",
+            "..ddeeffffeeddd.",
+            "...ddeefffeedd..",
+            "........f......."
+          ]
+        }
+      ]
+    }
+  ],
+  "frames": [
+    {
+      "duration": 110
+    },
+    {
+      "duration": 110
+    },
+    {
+      "duration": 110
+    },
+    {
+      "duration": 110
+    }
+  ],
+  "tags": [
+    {
+      "name": "burn",
+      "from": 0,
+      "to": 3
+    }
+  ]
+}

@@ -22,6 +22,7 @@
 #include "fa/core/image.h"
 #include "fa/core/json.h"
 #include "fa/core/types.h"
+#include "fa/scene/model_uv.h"
 #include "fa/tooling/validate.h"
 
 namespace fa::assets_detail {
@@ -41,12 +42,15 @@ struct ImportOutput {
     Json details;                 // importer-specific facts for the result
     std::vector<std::string> warnings;
     std::vector<std::string> nextSteps;
+    Json document;                // a layered image document to save (and bake) once the files are written; null = none
+    std::string documentPath;     // where: project-relative, ending in .image.json; it bakes to files[0]
 };
 
 struct ImportRequest {
     stdfs::path source;  // absolute path of the file to import
     std::string dest;    // project-relative path of files[0] (the folder of the sidecars)
     int columns = 0;     // aseprite: columns of the sheet (0 = ceil(sqrt(frames)))
+    bool flat = false;   // aseprite: one PNG sprite sheet and its `sheet` entry, no image document
 };
 
 Result<ImportOutput> import_aseprite(const ImportRequest& request);
@@ -90,18 +94,47 @@ struct SvgRaster {
 SvgRaster rasterize_svg_text(const std::string& text, int w, int h, const std::string& style, double styleStrength, std::uint32_t seed,
                              std::vector<std::string>& warnings);
 
+// ---- procedural textures (assets_texture.cpp) -----------------------------------------------------------
+
+// The picture of a texture whose `args` are the picture arguments of assets.generate_texture (preset, width, height, seed,
+// color, accent, scale, roughness, tileable, vignette, vignetteWidth, angle and the planks fields; no path, overwrite, author
+// or normalMap): straight-alpha RGBA. An image document's procedural layer calls this. Errors (CommandError, code
+// invalid_argument) read "<command> <pointer>/<key>: <what>"; the arguments the preset ignores are added to `warnings`.
+Image procedural_texture_image(const Json& args, const std::string& command, const std::string& pointer, std::vector<std::string>& warnings);
+// Only the checks of procedural_texture_image, without painting (used when a document is loaded).
+void check_procedural_texture_args(const Json& args, const std::string& command, const std::string& pointer);
+
 void register_slice_sheet_command(CommandRegistry& registry, const std::string& projectDir);
 void register_pack_atlas_command(CommandRegistry& registry, const std::string& projectDir);
 void register_draw_icon_command(CommandRegistry& registry, const std::string& projectDir);
 void register_draw_capsules_command(CommandRegistry& registry, const std::string& projectDir);
 void register_synth_sound_command(CommandRegistry& registry, const std::string& projectDir);
+void register_sfx_commands(CommandRegistry& registry, const std::string& projectDir);  // sfx.render, sfx.bake, sfx.tweak, sfx.family, sfx.preset, sfx.info (assets_sfx.cpp)
 void register_texture_command(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_texture
 void register_svg_command(CommandRegistry& registry, const std::string& projectDir);      // assets.rasterize_svg
 void register_animate_svg_command(CommandRegistry& registry, const std::string& projectDir);  // assets.animate_svg
 void register_preview_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.preview_sheet
+void register_check_art_command(CommandRegistry& registry, const std::string& projectDir);  // assets.check_art
 void register_bake_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.bake_sheet
+void register_contact_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.contact_sheet
+void register_preview_scene_command(CommandRegistry& registry, const std::string& projectDir);  // assets.preview_in_scene
+void register_music_commands(CommandRegistry& registry, const std::string& projectDir);  // music.* (assets_music.cpp, assets_music_edit.cpp, docs/MUSIC.md)
+void register_audio_doc_commands(CommandRegistry& registry, const std::string& projectDir);  // audio.info, audio.render, audio.bake, audio.create, audio.edit (assets_audio_doc.cpp)
+void register_model_commands(CommandRegistry& registry, const std::string& projectDir);  // model.info, model.bake, model.create, model.edit (assets_model.cpp)
+void register_rig_commands(CommandRegistry& registry, const std::string& projectDir);  // rig.templates, rig.info, rig.create, rig.fit, rig.bake (assets_rig.cpp, docs/RIGGING.md)
+void register_skin3d_commands(CommandRegistry& registry, const std::string& projectDir);  // skin3d.info, auto, set, add, smooth, normalize, limit, mirror, clear, preview (assets_skin3d.cpp, docs/RIGGING.md)
+void register_anim3d_commands(CommandRegistry& registry, const std::string& projectDir);  // anim3d.* and ik3d.* (assets_anim3d.cpp, docs/ANIMATION.md)
+void register_model_uv_command(CommandRegistry& registry, const std::string& projectDir);  // model.uv (assets_model_uv.cpp)
+void register_model_texture_commands(CommandRegistry& registry, const std::string& projectDir);  // model.texture, model.decal, model.palette, model.bake_maps (assets_model_texture.cpp)
+void register_model_eyes_commands(CommandRegistry& registry, const std::string& projectDir);  // model.preview, model.check (assets_model_preview.cpp)
+void register_model_import_clean_command(CommandRegistry& registry, const std::string& projectDir);  // model.import_clean (assets_model_import.cpp)
+Json model_uv_report_json(const ModelUvReport& report);  // the measurements of a uv section as JSON (model.uv, and `uv` in the model.* measurements)
 void register_audio_commands(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_loop, assets.convert_audio
 void register_subset_font_command(CommandRegistry& registry, const std::string& projectDir);
+void register_image_commands(CommandRegistry& registry, const std::string& projectDir);  // image.bake, image.save (image_doc_commands.cpp)
+void register_vector_commands(CommandRegistry& registry, const std::string& projectDir);  // vector.* (vector_commands.cpp, docs/VECTOR.md)
+void register_vector_rig_command(CommandRegistry& registry, const std::string& projectDir);  // vector.to_rig (vector_rig.cpp)
+void register_vector_edit_commands(CommandRegistry& registry, const std::string& projectDir);  // vector.add, nodes, set... (vector_edit_commands.cpp)
 
 // Title text as a tightly cropped transparent image (assets_draw_icon.cpp: the rasterizer of assets.draw_icon's text
 // layers), the largest that fits maxW x maxH; `outline` (or null) draws an outline around the letters. A project font is
@@ -146,7 +179,26 @@ struct RecipeCheck {
     bool stale() const { return !changed.empty(); }
     bool ok() const { return changed.empty() && missing.empty(); }
 };
+// A recipe can also record `context`: values read from assets.json rather than from a file. Today `styleMusicLufs`, the loudness the style
+// guide asked of music when a song was rendered with `mixer.master.loudness: "style"` (null: it set none). check_recipe reports it in
+// `changed` as "assets.json (style.audio.loudnessLufs.music)" when the style guide says something else now. `styleTexelsPerUnit` is the same for the
+// texel density a model document's `uv` section took from the style guide ("assets.json (style.texelsPerUnit)").
 RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe);
+// style.audio.loudnessLufs.music of the project's assets.json, if the style guide sets it.
+std::optional<double> style_music_loudness(const std::string& projectDir);
+// Records `target` (null: none) as recipe.context.styleMusicLufs.
+void add_style_loudness_context(Json& recipe, const std::optional<double>& target);
+// style.texelsPerUnit of the project's assets.json, if the style guide sets it (a model document's `uv` section uses it as its density).
+std::optional<double> style_texels_per_unit(const std::string& projectDir);
+// Records `value` (null: none) as recipe.context.styleTexelsPerUnit; check_recipe reports "assets.json (style.texelsPerUnit)" in `changed` when the
+// style guide says something else now.
+void add_style_texels_context(Json& recipe, const std::optional<double>& value);
+// style.palette of the project's assets.json as colours (empty when the style guide has none): the "style" palette of a model document's
+// `vertexColors` section.
+std::vector<Vec4> style_palette_colors(const std::string& projectDir);
+// Records the palette (as "#rrggbb" strings; an empty one as null) as recipe.context.stylePalette; check_recipe reports "assets.json (style.palette)" in
+// `changed` when the style guide has another palette now.
+void add_style_palette_context(Json& recipe, const std::vector<Vec4>& palette);
 // The recipe of an assets.json entry (`provenance.recipe`), or null when it has none or it is malformed (no command).
 Json recipe_of(const Json& entry);
 
@@ -154,6 +206,22 @@ Json recipe_of(const Json& entry);
 void register_regenerate_command(CommandRegistry& registry, const std::string& projectDir);
 // project.validate: the warnings for assets whose recipe inputs changed (stale) or went missing, with the regenerate command.
 void check_recipes(const std::string& projectDir, std::vector<ValidationIssue>& warnings);
+// project.validate: every *.image.json that does not load is an error (file, JSON pointer, fix); one never baked, or whose PNG
+// assets.json does not record as its bake, is a warning with the image.bake command. (A stale bake is check_recipes' warning.)
+void check_image_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
+// project.validate: every *.audio.json that does not load (or would overwrite its own source) is an error with its JSON pointer and fix; one never
+// baked, or whose sound assets.json does not record as its bake, is a warning with the audio.bake command. (A stale bake is check_recipes' warning.)
+void check_audio_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
+// project.validate: every *.model.json that does not load is an error (file, JSON pointer, fix); one never baked, or whose .glb assets.json does not record as its
+// bake, is a warning with the model.bake command. (A stale bake is check_recipes' warning.)
+void check_model_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
+// project.validate: every *.rig.json that does not load or fit is an error (file, JSON pointer, fix); one never baked, or whose .glb assets.json does not
+// record as its bake, is a warning with the rig.bake command.
+void check_rig_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
+// project.validate: every *.song.json that does not parse is an error (file, JSON pointer, line and column inside note text, fix), so is an
+// instrument or drum-kit file it names that is missing or not a sound patch; the findings of the music checks that need no render (off-key
+// notes, clashes, mud, a track that never plays...) are warnings (docs/MUSIC.md).
+void check_song_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
 
 // ---- command helpers -------------------------------------------------------------------------------------
 

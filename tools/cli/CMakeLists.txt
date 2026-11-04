@@ -58,10 +58,11 @@ if(FA_BUILD_TESTS)
             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration.py $<TARGET_FILE:factoria>
             WORKING_DIRECTORY ${FA_ROOT})
         # Template JS tests must pass (strict): templates are what every new game starts from.
-        set_tests_properties(cli_integration PROPERTIES TIMEOUT 600 ENVIRONMENT "FA_CLI_STRICT_TESTS=1" LABELS "gpu")
+        set_tests_properties(cli_integration PROPERTIES TIMEOUT 600 LABELS "gpu")
+        set_property(TEST cli_integration APPEND PROPERTY ENVIRONMENT "FA_CLI_STRICT_TESTS=1")  # APPEND: keeps the Windows-rules variable
 
         # Native plugins end to end: the template plugin (platforms/plugin) built as the plugin "example", loaded by
-        # `factoria run` and by the game `factoria export` makes (which opens a window: label gpu).
+        # `factoria run` and by the game `factoria export` makes (which opens a window: labels gpu and window).
         add_library(fa_test_plugin_example SHARED ${FA_ROOT}/platforms/plugin/src/plugin.c)
         target_include_directories(fa_test_plugin_example PRIVATE ${FA_ROOT}/engine/runtime/include/fa/runtime)
         target_compile_definitions(fa_test_plugin_example PRIVATE FA_PLUGIN_NAME=example)
@@ -70,14 +71,14 @@ if(FA_BUILD_TESTS)
             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/plugin_test.py $<TARGET_FILE:factoria>
                     $<TARGET_FILE:fa_test_plugin_example> $<TARGET_FILE:factoria_player>
             WORKING_DIRECTORY ${FA_ROOT})
-        set_tests_properties(cli_plugin PROPERTIES TIMEOUT 300 LABELS "gpu")
+        set_tests_properties(cli_plugin PROPERTIES TIMEOUT 300 LABELS "gpu;window")
 
-        # factoria_player --frames N: exits 0 after N frames, 1 after a script error (opens a window: label gpu).
+        # factoria_player --frames N: exits 0 after N frames, 1 after a script error (opens a window: labels gpu and window).
         add_test(NAME cli_player_frames
             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/player_frames_test.py $<TARGET_FILE:factoria>
                     $<TARGET_FILE:factoria_player>
             WORKING_DIRECTORY ${FA_ROOT})
-        set_tests_properties(cli_player_frames PROPERTIES TIMEOUT 300 LABELS "gpu")
+        set_tests_properties(cli_player_frames PROPERTIES TIMEOUT 300 LABELS "gpu;window")
 
         # factoria_player --input / --dump-state / --screenshot: an exported build plays a replay headless and its state and
         # screenshot equal `factoria run`'s (offscreen GPU: label gpu).
@@ -135,7 +136,10 @@ if(FA_BUILD_TESTS)
         message(STATUS "Example game tests are DISABLED in this build (FA_EXAMPLE_TESTS=${FA_EXAMPLE_TESTS}, build type "
             "'${CMAKE_BUILD_TYPE}'): run them with scripts/test-all.sh, or configure an optimized build and run `ctest -L example`")
     endif()
-    set(fa_example_timeout 300)
+    # GitHub's Linux runners take 100-170 s for the longest example; the emulated x86-64 of scripts/ci-docker.sh on a Mac
+    # takes over twice that, so it raises the limit.
+    set(FA_EXAMPLE_TEST_TIMEOUT 300 CACHE STRING "Seconds an example game's test may run before ctest stops it")
+    set(fa_example_timeout ${FA_EXAMPLE_TEST_TIMEOUT})
     foreach(ex ${FA_EXAMPLE_PROJECTS})
         if(EXISTS ${ex}/factoria.json)
             get_filename_component(ex_name ${ex} NAME)
@@ -191,7 +195,8 @@ if(FA_BUILD_TESTS)
         COMMAND factoria call --no-graphics --project ${fx} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/regression.args.json
         WORKING_DIRECTORY ${FA_ROOT})
     set_tests_properties(perf_regression_detected PROPERTIES LABELS "gpu;perf" TIMEOUT 300
-        ENVIRONMENT "FACTORIA_PERF_RUNNER=regression-test" PASS_REGULAR_EXPRESSION "perf_budget_exceeded")
+        PASS_REGULAR_EXPRESSION "perf_budget_exceeded")
+    set_property(TEST perf_regression_detected APPEND PROPERTY ENVIRONMENT "FACTORIA_PERF_RUNNER=regression-test")  # APPEND: keeps the Windows-rules variable
     # The finished project of docs/MAKE_BY_HAND.md. Tutorial and fixture are one thing: when one changes, change the other
     # (the `cli` test "docs/MAKE_BY_HAND.md: every file it gives is the tested fixture's" fails when they differ).
     set(fx ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/gem-grab)

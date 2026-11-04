@@ -1,0 +1,4286 @@
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "ambientLight": [
+      0.17,
+      0.2,
+      0.34,
+      1
+    ],
+    "skyColor": [
+      0.03,
+      0.05,
+      0.14,
+      1
+    ],
+    "horizonColor": [
+      0.09,
+      0.12,
+      0.24,
+      1
+    ],
+    "fogColor": [
+      0.05,
+      0.07,
+      0.14,
+      1
+    ],
+    "fogDensity": 0.022,
+    "gravity3D": [
+      0,
+      -20,
+      0
+    ]
+  },
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            15,
+            10
+          ],
+          "rotation": [
+            -56,
+            0,
+            0
+          ]
+        },
+        "Camera": {
+          "projection": "perspective",
+          "fov": 50,
+          "nearPlane": 0.3,
+          "farPlane": 120,
+          "bloom": true,
+          "bloomThreshold": 0.85,
+          "bloomIntensity": 0.6
+        },
+        "AudioListener": {},
+        "Script": {
+          "path": "scripts/camera.js"
+        }
+      }
+    },
+    {
+      "id": "captions",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            -24,
+            0
+          ]
+        },
+        "Captions": {
+          "maxLines": 3,
+          "fontSize": 30
+        }
+      }
+    },
+    {
+      "id": "moon",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            20,
+            0
+          ],
+          "rotation": [
+            -62,
+            25,
+            0
+          ]
+        },
+        "Light": {
+          "type": "directional",
+          "color": [
+            0.45,
+            0.55,
+            0.95,
+            1
+          ],
+          "intensity": 0.5,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": "ground",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            90,
+            1,
+            90
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "plane",
+          "texture": "assets/art/ground.png",
+          "uvScale": [
+            90,
+            90
+          ],
+          "roughness": 1,
+          "receiveShadows": true,
+          "castShadows": false
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [
+            1,
+            0.2,
+            1
+          ],
+          "offset": [
+            0,
+            -0.1,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "wall_n",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            1.5,
+            -23.0
+          ]
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [
+            50.0,
+            3,
+            2
+          ]
+        }
+      },
+      "tags": [
+        "wall"
+      ]
+    },
+    {
+      "id": "wall_s",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            1.5,
+            23.0
+          ]
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [
+            50.0,
+            3,
+            2
+          ]
+        }
+      },
+      "tags": [
+        "wall"
+      ]
+    },
+    {
+      "id": "wall_w",
+      "components": {
+        "Transform": {
+          "position": [
+            -23.0,
+            1.5,
+            0
+          ]
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [
+            2,
+            3,
+            50.0
+          ]
+        }
+      },
+      "tags": [
+        "wall"
+      ]
+    },
+    {
+      "id": "wall_e",
+      "components": {
+        "Transform": {
+          "position": [
+            23.0,
+            1.5,
+            0
+          ]
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [
+            2,
+            3,
+            50.0
+          ]
+        }
+      },
+      "tags": [
+        "wall"
+      ]
+    },
+    {
+      "id": "campfire",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/campfire.glb",
+          "lods": [
+            {
+              "mesh": "assets/models/campfire.lod1.glb",
+              "distance": 9.0
+            }
+          ],
+          "roughness": 0.9
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [
+            1.5,
+            0.6,
+            1.5
+          ],
+          "offset": [
+            0,
+            0.3,
+            0
+          ]
+        },
+        "Script": {
+          "path": "scripts/fire.js"
+        }
+      },
+      "tags": [
+        "fire"
+      ],
+      "children": [
+        {
+          "id": "flames",
+          "components": {
+            "Transform": {
+              "position": [
+                0,
+                0.3,
+                0
+              ]
+            },
+            "ParticleEmitter": {
+              "is3D": true,
+              "rate": 50,
+              "lifetime": 0.8,
+              "lifetimeVariance": 0.3,
+              "speed": 1.6,
+              "speedVariance": 0.4,
+              "spread": 14,
+              "gravity": [
+                0,
+                1.8,
+                0
+              ],
+              "startSize": 0.8,
+              "endSize": 0.1,
+              "startColor": [
+                1,
+                0.6,
+                0.18,
+                0.55
+              ],
+              "endColor": [
+                0.9,
+                0.2,
+                0.05,
+                0
+              ],
+              "maxParticles": 120,
+              "blend": "additive",
+              "worldSpace": true
+            }
+          }
+        },
+        {
+          "id": "sparks",
+          "components": {
+            "Transform": {
+              "position": [
+                0,
+                0.8,
+                0
+              ]
+            },
+            "ParticleEmitter": {
+              "is3D": true,
+              "rate": 10,
+              "lifetime": 1.8,
+              "lifetimeVariance": 0.4,
+              "speed": 2.4,
+              "speedVariance": 0.5,
+              "spread": 30,
+              "gravity": [
+                0,
+                0.6,
+                0
+              ],
+              "startSize": 0.09,
+              "endSize": 0.0,
+              "startColor": [
+                1,
+                0.85,
+                0.4,
+                1
+              ],
+              "endColor": [
+                1,
+                0.3,
+                0.1,
+                0
+              ],
+              "maxParticles": 60,
+              "blend": "additive",
+              "worldSpace": true
+            }
+          }
+        },
+        {
+          "id": "smoke",
+          "components": {
+            "Transform": {
+              "position": [
+                0,
+                1.2,
+                0
+              ]
+            },
+            "ParticleEmitter": {
+              "is3D": true,
+              "rate": 6,
+              "lifetime": 3.0,
+              "lifetimeVariance": 0.3,
+              "speed": 1.0,
+              "speedVariance": 0.3,
+              "spread": 16,
+              "gravity": [
+                0,
+                0.5,
+                0
+              ],
+              "startSize": 0.5,
+              "endSize": 1.6,
+              "startColor": [
+                0.25,
+                0.27,
+                0.33,
+                0.35
+              ],
+              "endColor": [
+                0.15,
+                0.17,
+                0.22,
+                0
+              ],
+              "maxParticles": 40,
+              "blend": "alpha",
+              "worldSpace": true
+            }
+          }
+        },
+        {
+          "id": "fire_light",
+          "components": {
+            "Transform": {
+              "position": [
+                0,
+                1.1,
+                0
+              ]
+            },
+            "Light": {
+              "type": "point",
+              "color": [
+                1,
+                0.62,
+                0.28,
+                1
+              ],
+              "intensity": 2.4,
+              "range": 16
+            }
+          }
+        },
+        {
+          "id": "fire_sound",
+          "components": {
+            "Transform": {
+              "position": [
+                0,
+                0.5,
+                0
+              ]
+            },
+            "AudioSource": {
+              "clip": "assets/audio/fire_loop.wav",
+              "loop": true,
+              "playOnStart": true,
+              "spatial": true,
+              "range": 30,
+              "volume": 0.8
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "warden",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0.05,
+            4.0
+          ],
+          "rotation": [
+            0,
+            180,
+            0
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/warden.rig.glb",
+          "roughness": 0.85
+        },
+        "Animator": {
+          "clips": {
+            "idle": "anim/warden_idle.anim.json",
+            "walk": "anim/warden_walk.anim.json",
+            "run": "anim/warden_run.anim.json",
+            "hit": "anim/warden_hit.anim.json",
+            "attack": "anim/warden_attack.anim.json"
+          },
+          "states": {
+            "idle": {
+              "clip": "idle"
+            },
+            "walk": {
+              "clip": "walk"
+            },
+            "run": {
+              "clip": "run"
+            },
+            "hit": {
+              "clip": "hit",
+              "loop": false
+            },
+            "attack": {
+              "clip": "attack",
+              "loop": false
+            }
+          },
+          "params": {
+            "speed": 0,
+            "hurt": false,
+            "swing": false
+          },
+          "state": "idle",
+          "transitions": [
+            {
+              "to": "hit",
+              "when": "hurt",
+              "fade": 0.05
+            },
+            {
+              "to": "attack",
+              "when": "swing",
+              "fade": 0.05
+            },
+            {
+              "from": "hit",
+              "to": "idle",
+              "onFinish": true,
+              "fade": 0.1
+            },
+            {
+              "from": "attack",
+              "to": "idle",
+              "onFinish": true,
+              "fade": 0.1
+            },
+            {
+              "from": "idle",
+              "to": "walk",
+              "when": "speed > 0.1"
+            },
+            {
+              "from": "walk",
+              "to": "run",
+              "when": "speed > 1.9"
+            },
+            {
+              "from": "run",
+              "to": "walk",
+              "when": "speed <= 1.9"
+            },
+            {
+              "from": "walk",
+              "to": "idle",
+              "when": "speed <= 0.1"
+            },
+            {
+              "from": "run",
+              "to": "idle",
+              "when": "speed <= 0.1"
+            }
+          ],
+          "events": [
+            {
+              "clip": "attack",
+              "time": 0.17,
+              "name": "warden_swing_hit"
+            },
+            {
+              "clip": "run",
+              "time": 0.08,
+              "name": "warden_step"
+            },
+            {
+              "clip": "run",
+              "time": 0.43,
+              "name": "warden_step"
+            },
+            {
+              "clip": "walk",
+              "time": 0.1,
+              "name": "warden_step"
+            },
+            {
+              "clip": "walk",
+              "time": 0.66,
+              "name": "warden_step"
+            }
+          ]
+        },
+        "CharacterController3D": {
+          "radius": 0.35,
+          "height": 1.7,
+          "center": [
+            0,
+            0.85,
+            0
+          ],
+          "stepOffset": 0.3
+        },
+        "Script": {
+          "path": "scripts/warden.js"
+        }
+      },
+      "tags": [
+        "warden",
+        "player"
+      ],
+      "children": [
+        {
+          "id": "torch_light",
+          "components": {
+            "Transform": {
+              "position": [
+                -0.35,
+                1.25,
+                0.45
+              ]
+            },
+            "Light": {
+              "type": "point",
+              "color": [
+                1,
+                0.7,
+                0.35,
+                1
+              ],
+              "intensity": 1.2,
+              "range": 6
+            }
+          }
+        },
+        {
+          "id": "carried_1",
+          "components": {
+            "Transform": {
+              "position": [
+                0,
+                1.05,
+                -0.3
+              ],
+              "rotation": [
+                0,
+                90,
+                0
+              ],
+              "scale": [
+                0.8,
+                0.8,
+                0.8
+              ]
+            },
+            "MeshRenderer": {
+              "mesh": "assets/models/fuel_log.glb",
+              "castShadows": false
+            }
+          },
+          "active": false
+        },
+        {
+          "id": "carried_2",
+          "components": {
+            "Transform": {
+              "position": [
+                0,
+                1.19,
+                -0.3
+              ],
+              "rotation": [
+                0,
+                90,
+                0
+              ],
+              "scale": [
+                0.8,
+                0.8,
+                0.8
+              ]
+            },
+            "MeshRenderer": {
+              "mesh": "assets/models/fuel_log.glb",
+              "castShadows": false
+            }
+          },
+          "active": false
+        },
+        {
+          "id": "carried_3",
+          "components": {
+            "Transform": {
+              "position": [
+                0,
+                1.33,
+                -0.3
+              ],
+              "rotation": [
+                0,
+                90,
+                0
+              ],
+              "scale": [
+                0.8,
+                0.8,
+                0.8
+              ]
+            },
+            "MeshRenderer": {
+              "mesh": "assets/models/fuel_log.glb",
+              "castShadows": false
+            }
+          },
+          "active": false
+        }
+      ]
+    },
+    {
+      "id": "pile_1",
+      "components": {
+        "Transform": {
+          "position": [
+            -8.5,
+            0,
+            -5.0
+          ],
+          "rotation": [
+            0,
+            110.81043170415985,
+            0
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/log_pile.glb",
+          "roughness": 0.9
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [
+            0.87,
+            0.78,
+            1.0
+          ],
+          "offset": [
+            0,
+            0.39,
+            0
+          ]
+        },
+        "Script": {
+          "path": "scripts/log_pile.js"
+        }
+      },
+      "tags": [
+        "pile"
+      ]
+    },
+    {
+      "id": "pile_2",
+      "components": {
+        "Transform": {
+          "position": [
+            9.0,
+            0,
+            -6.5
+          ],
+          "rotation": [
+            0,
+            208.0648357830141,
+            0
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/log_pile.glb",
+          "roughness": 0.9
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [
+            0.87,
+            0.78,
+            1.0
+          ],
+          "offset": [
+            0,
+            0.39,
+            0
+          ]
+        },
+        "Script": {
+          "path": "scripts/log_pile.js"
+        }
+      },
+      "tags": [
+        "pile"
+      ]
+    },
+    {
+      "id": "pile_3",
+      "components": {
+        "Transform": {
+          "position": [
+            -7.0,
+            0,
+            8.5
+          ],
+          "rotation": [
+            0,
+            95.62249275054327,
+            0
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/log_pile.glb",
+          "roughness": 0.9
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [
+            0.87,
+            0.78,
+            1.0
+          ],
+          "offset": [
+            0,
+            0.39,
+            0
+          ]
+        },
+        "Script": {
+          "path": "scripts/log_pile.js"
+        }
+      },
+      "tags": [
+        "pile"
+      ]
+    },
+    {
+      "id": "pile_4",
+      "components": {
+        "Transform": {
+          "position": [
+            10.5,
+            0,
+            7.5
+          ],
+          "rotation": [
+            0,
+            290.84257851587614,
+            0
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/log_pile.glb",
+          "roughness": 0.9
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [
+            0.87,
+            0.78,
+            1.0
+          ],
+          "offset": [
+            0,
+            0.39,
+            0
+          ]
+        },
+        "Script": {
+          "path": "scripts/log_pile.js"
+        }
+      },
+      "tags": [
+        "pile"
+      ]
+    },
+    {
+      "id": "pine_1",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -26.0,
+            0,
+            -25.53
+          ],
+          "rotation": [
+            0,
+            322.8,
+            0
+          ],
+          "scale": [
+            1.17,
+            1.17,
+            1.17
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_2",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -21.48,
+            0,
+            -26.18
+          ],
+          "rotation": [
+            0,
+            239.7,
+            0
+          ],
+          "scale": [
+            1.43,
+            1.43,
+            1.43
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_3",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -16.96,
+            0,
+            -24.97
+          ],
+          "rotation": [
+            0,
+            86.2,
+            0
+          ],
+          "scale": [
+            1.19,
+            1.19,
+            1.19
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_4",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -12.43,
+            0,
+            -26.19
+          ],
+          "rotation": [
+            0,
+            284.6,
+            0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_5",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -7.91,
+            0,
+            -24.93
+          ],
+          "rotation": [
+            0,
+            226.3,
+            0
+          ],
+          "scale": [
+            1.15,
+            1.15,
+            1.15
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_6",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -3.39,
+            0,
+            -25.95
+          ],
+          "rotation": [
+            0,
+            200.2,
+            0
+          ],
+          "scale": [
+            1.26,
+            1.26,
+            1.26
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_7",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            1.13,
+            0,
+            -25.78
+          ],
+          "rotation": [
+            0,
+            39.0,
+            0
+          ],
+          "scale": [
+            1.3,
+            1.3,
+            1.3
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_8",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            5.65,
+            0,
+            -25.2
+          ],
+          "rotation": [
+            0,
+            204.0,
+            0
+          ],
+          "scale": [
+            1.01,
+            1.01,
+            1.01
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_9",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            10.17,
+            0,
+            -25.19
+          ],
+          "rotation": [
+            0,
+            98.8,
+            0
+          ],
+          "scale": [
+            1.12,
+            1.12,
+            1.12
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_10",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            14.7,
+            0,
+            -26.48
+          ],
+          "rotation": [
+            0,
+            324.7,
+            0
+          ],
+          "scale": [
+            1.06,
+            1.06,
+            1.06
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_11",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            19.22,
+            0,
+            -26.41
+          ],
+          "rotation": [
+            0,
+            298.7,
+            0
+          ],
+          "scale": [
+            1.1,
+            1.1,
+            1.1
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_12",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            23.74,
+            0,
+            -24.99
+          ],
+          "rotation": [
+            0,
+            43.9,
+            0
+          ],
+          "scale": [
+            1.32,
+            1.32,
+            1.32
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_13",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            25.24,
+            0,
+            -23.74
+          ],
+          "rotation": [
+            0,
+            135.5,
+            0
+          ],
+          "scale": [
+            1.25,
+            1.25,
+            1.25
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_14",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            26.25,
+            0,
+            -19.22
+          ],
+          "rotation": [
+            0,
+            12.1,
+            0
+          ],
+          "scale": [
+            1.32,
+            1.32,
+            1.32
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_15",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            25.72,
+            0,
+            -14.7
+          ],
+          "rotation": [
+            0,
+            63.0,
+            0
+          ],
+          "scale": [
+            1.05,
+            1.05,
+            1.05
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_16",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            25.38,
+            0,
+            -10.17
+          ],
+          "rotation": [
+            0,
+            200.2,
+            0
+          ],
+          "scale": [
+            1.16,
+            1.16,
+            1.16
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_17",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            26.57,
+            0,
+            -5.65
+          ],
+          "rotation": [
+            0,
+            196.4,
+            0
+          ],
+          "scale": [
+            1.39,
+            1.39,
+            1.39
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_18",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            26.28,
+            0,
+            -1.13
+          ],
+          "rotation": [
+            0,
+            257.7,
+            0
+          ],
+          "scale": [
+            1.08,
+            1.08,
+            1.08
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_19",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            26.54,
+            0,
+            3.39
+          ],
+          "rotation": [
+            0,
+            183.7,
+            0
+          ],
+          "scale": [
+            1.47,
+            1.47,
+            1.47
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_20",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            25.79,
+            0,
+            7.91
+          ],
+          "rotation": [
+            0,
+            158.2,
+            0
+          ],
+          "scale": [
+            1.19,
+            1.19,
+            1.19
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_21",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            26.58,
+            0,
+            12.43
+          ],
+          "rotation": [
+            0,
+            308.2,
+            0
+          ],
+          "scale": [
+            1.07,
+            1.07,
+            1.07
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_22",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            25.05,
+            0,
+            16.96
+          ],
+          "rotation": [
+            0,
+            197.5,
+            0
+          ],
+          "scale": [
+            1.28,
+            1.28,
+            1.28
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_23",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            24.69,
+            0,
+            21.48
+          ],
+          "rotation": [
+            0,
+            5.8,
+            0
+          ],
+          "scale": [
+            1.24,
+            1.24,
+            1.24
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_24",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            26.0,
+            0,
+            26.48
+          ],
+          "rotation": [
+            0,
+            208.5,
+            0
+          ],
+          "scale": [
+            1.47,
+            1.47,
+            1.47
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_25",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            21.48,
+            0,
+            26.14
+          ],
+          "rotation": [
+            0,
+            74.4,
+            0
+          ],
+          "scale": [
+            1.37,
+            1.37,
+            1.37
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_26",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            16.96,
+            0,
+            24.74
+          ],
+          "rotation": [
+            0,
+            151.4,
+            0
+          ],
+          "scale": [
+            1.19,
+            1.19,
+            1.19
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_27",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            12.43,
+            0,
+            25.59
+          ],
+          "rotation": [
+            0,
+            274.1,
+            0
+          ],
+          "scale": [
+            1.34,
+            1.34,
+            1.34
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_28",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            7.91,
+            0,
+            25.73
+          ],
+          "rotation": [
+            0,
+            120.7,
+            0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_29",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            3.39,
+            0,
+            25.86
+          ],
+          "rotation": [
+            0,
+            5.5,
+            0
+          ],
+          "scale": [
+            1.44,
+            1.44,
+            1.44
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_30",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -1.13,
+            0,
+            26.05
+          ],
+          "rotation": [
+            0,
+            122.1,
+            0
+          ],
+          "scale": [
+            1.24,
+            1.24,
+            1.24
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_31",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -5.65,
+            0,
+            26.34
+          ],
+          "rotation": [
+            0,
+            83.4,
+            0
+          ],
+          "scale": [
+            1.14,
+            1.14,
+            1.14
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_32",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -10.17,
+            0,
+            25.7
+          ],
+          "rotation": [
+            0,
+            60.3,
+            0
+          ],
+          "scale": [
+            1.32,
+            1.32,
+            1.32
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_33",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -14.7,
+            0,
+            25.64
+          ],
+          "rotation": [
+            0,
+            277.2,
+            0
+          ],
+          "scale": [
+            1.13,
+            1.13,
+            1.13
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_34",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -19.22,
+            0,
+            24.72
+          ],
+          "rotation": [
+            0,
+            175.3,
+            0
+          ],
+          "scale": [
+            1.42,
+            1.42,
+            1.42
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_35",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -23.74,
+            0,
+            25.01
+          ],
+          "rotation": [
+            0,
+            260.6,
+            0
+          ],
+          "scale": [
+            1.16,
+            1.16,
+            1.16
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_36",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -25.65,
+            0,
+            23.74
+          ],
+          "rotation": [
+            0,
+            52.6,
+            0
+          ],
+          "scale": [
+            1.06,
+            1.06,
+            1.06
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_37",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -24.74,
+            0,
+            19.22
+          ],
+          "rotation": [
+            0,
+            248.6,
+            0
+          ],
+          "scale": [
+            1.27,
+            1.27,
+            1.27
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_38",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -24.81,
+            0,
+            14.7
+          ],
+          "rotation": [
+            0,
+            200.2,
+            0
+          ],
+          "scale": [
+            1.42,
+            1.42,
+            1.42
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_39",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -26.27,
+            0,
+            10.17
+          ],
+          "rotation": [
+            0,
+            68.5,
+            0
+          ],
+          "scale": [
+            1.12,
+            1.12,
+            1.12
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_40",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -25.74,
+            0,
+            5.65
+          ],
+          "rotation": [
+            0,
+            157.1,
+            0
+          ],
+          "scale": [
+            1.45,
+            1.45,
+            1.45
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_41",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -25.4,
+            0,
+            1.13
+          ],
+          "rotation": [
+            0,
+            6.4,
+            0
+          ],
+          "scale": [
+            1.28,
+            1.28,
+            1.28
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_42",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -24.96,
+            0,
+            -3.39
+          ],
+          "rotation": [
+            0,
+            277.8,
+            0
+          ],
+          "scale": [
+            1.18,
+            1.18,
+            1.18
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_43",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -25.5,
+            0,
+            -7.91
+          ],
+          "rotation": [
+            0,
+            144.9,
+            0
+          ],
+          "scale": [
+            1.33,
+            1.33,
+            1.33
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_44",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -25.77,
+            0,
+            -12.43
+          ],
+          "rotation": [
+            0,
+            18.1,
+            0
+          ],
+          "scale": [
+            1.28,
+            1.28,
+            1.28
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_45",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -25.8,
+            0,
+            -16.96
+          ],
+          "rotation": [
+            0,
+            251.4,
+            0
+          ],
+          "scale": [
+            1.22,
+            1.22,
+            1.22
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_46",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -25.48,
+            0,
+            -21.48
+          ],
+          "rotation": [
+            0,
+            22.3,
+            0
+          ],
+          "scale": [
+            1.06,
+            1.06,
+            1.06
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_47",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            3.09,
+            0,
+            7.55
+          ],
+          "rotation": [
+            0,
+            62.5,
+            0
+          ],
+          "scale": [
+            1.15,
+            1.15,
+            1.15
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_48",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -19.36,
+            0,
+            -14.68
+          ],
+          "rotation": [
+            0,
+            212.4,
+            0
+          ],
+          "scale": [
+            1.21,
+            1.21,
+            1.21
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_49",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -17.06,
+            0,
+            11.11
+          ],
+          "rotation": [
+            0,
+            294.7,
+            0
+          ],
+          "scale": [
+            1.08,
+            1.08,
+            1.08
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_50",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -11.94,
+            0,
+            17.89
+          ],
+          "rotation": [
+            0,
+            256.7,
+            0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_51",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -16.26,
+            0,
+            15.6
+          ],
+          "rotation": [
+            0,
+            183.3,
+            0
+          ],
+          "scale": [
+            1.23,
+            1.23,
+            1.23
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_52",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            4.19,
+            0,
+            -18.1
+          ],
+          "rotation": [
+            0,
+            246.9,
+            0
+          ],
+          "scale": [
+            1.1,
+            1.1,
+            1.1
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_53",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            13.75,
+            0,
+            12.2
+          ],
+          "rotation": [
+            0,
+            280.5,
+            0
+          ],
+          "scale": [
+            0.91,
+            0.91,
+            0.91
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_54",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            4.33,
+            0,
+            -17.03
+          ],
+          "rotation": [
+            0,
+            55.7,
+            0
+          ],
+          "scale": [
+            0.82,
+            0.82,
+            0.82
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_55",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -15.72,
+            0,
+            2.03
+          ],
+          "rotation": [
+            0,
+            254.9,
+            0
+          ],
+          "scale": [
+            1.03,
+            1.03,
+            1.03
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_56",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            2.44,
+            0,
+            -18.05
+          ],
+          "rotation": [
+            0,
+            192.8,
+            0
+          ],
+          "scale": [
+            1.02,
+            1.02,
+            1.02
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_57",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -12.33,
+            0,
+            -12.1
+          ],
+          "rotation": [
+            0,
+            151.5,
+            0
+          ],
+          "scale": [
+            1.23,
+            1.23,
+            1.23
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_58",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -18.32,
+            0,
+            -15.92
+          ],
+          "rotation": [
+            0,
+            331.9,
+            0
+          ],
+          "scale": [
+            1.06,
+            1.06,
+            1.06
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_59",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -13.56,
+            0,
+            6.76
+          ],
+          "rotation": [
+            0,
+            170.0,
+            0
+          ],
+          "scale": [
+            1.05,
+            1.05,
+            1.05
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_60",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -4.89,
+            0,
+            -12.46
+          ],
+          "rotation": [
+            0,
+            64.9,
+            0
+          ],
+          "scale": [
+            0.92,
+            0.92,
+            0.92
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_61",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            12.3,
+            0,
+            1.55
+          ],
+          "rotation": [
+            0,
+            302.7,
+            0
+          ],
+          "scale": [
+            1.24,
+            1.24,
+            1.24
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_62",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -1.91,
+            0,
+            20.59
+          ],
+          "rotation": [
+            0,
+            279.3,
+            0
+          ],
+          "scale": [
+            1.16,
+            1.16,
+            1.16
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_63",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            20.88,
+            0,
+            1.43
+          ],
+          "rotation": [
+            0,
+            154.3,
+            0
+          ],
+          "scale": [
+            0.88,
+            0.88,
+            0.88
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_64",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            15.98,
+            0,
+            20.79
+          ],
+          "rotation": [
+            0,
+            112.6,
+            0
+          ],
+          "scale": [
+            1.02,
+            1.02,
+            1.02
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_65",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            4.73,
+            0,
+            16.42
+          ],
+          "rotation": [
+            0,
+            259.3,
+            0
+          ],
+          "scale": [
+            0.83,
+            0.83,
+            0.83
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "pine_66",
+      "prefab": "assets/models/pine.prefab.json",
+      "tags": [
+        "tree"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            15.42,
+            0,
+            6.85
+          ],
+          "rotation": [
+            0,
+            201.9,
+            0
+          ],
+          "scale": [
+            1.22,
+            1.22,
+            1.22
+          ]
+        },
+        "Collider3D": {
+          "shape": "capsule",
+          "radius": 0.32,
+          "height": 3.4,
+          "offset": [
+            0,
+            1.7,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "rock_1",
+      "prefab": "assets/models/rock.prefab.json",
+      "tags": [
+        "rock"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -4.49,
+            0,
+            19.34
+          ],
+          "rotation": [
+            0,
+            75.8,
+            0
+          ],
+          "scale": [
+            0.92,
+            0.92,
+            0.92
+          ]
+        }
+      }
+    },
+    {
+      "id": "rock_2",
+      "prefab": "assets/models/rock.prefab.json",
+      "tags": [
+        "rock"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -15.74,
+            0,
+            8.94
+          ],
+          "rotation": [
+            0,
+            125.1,
+            0
+          ],
+          "scale": [
+            0.83,
+            0.83,
+            0.83
+          ]
+        }
+      }
+    },
+    {
+      "id": "rock_3",
+      "prefab": "assets/models/rock.prefab.json",
+      "tags": [
+        "rock"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            19.55,
+            0,
+            14.81
+          ],
+          "rotation": [
+            0,
+            212.0,
+            0
+          ],
+          "scale": [
+            0.86,
+            0.86,
+            0.86
+          ]
+        }
+      }
+    },
+    {
+      "id": "rock_4",
+      "prefab": "assets/models/rock.prefab.json",
+      "tags": [
+        "rock"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -12.35,
+            0,
+            13.8
+          ],
+          "rotation": [
+            0,
+            281.8,
+            0
+          ],
+          "scale": [
+            0.55,
+            0.55,
+            0.55
+          ]
+        }
+      }
+    },
+    {
+      "id": "rock_5",
+      "prefab": "assets/models/rock.prefab.json",
+      "tags": [
+        "rock"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -0.56,
+            0,
+            -13.51
+          ],
+          "rotation": [
+            0,
+            98.3,
+            0
+          ],
+          "scale": [
+            0.64,
+            0.64,
+            0.64
+          ]
+        }
+      }
+    },
+    {
+      "id": "rock_6",
+      "prefab": "assets/models/rock.prefab.json",
+      "tags": [
+        "rock"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            2.52,
+            0,
+            -15.24
+          ],
+          "rotation": [
+            0,
+            95.4,
+            0
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        }
+      }
+    },
+    {
+      "id": "rock_7",
+      "prefab": "assets/models/rock.prefab.json",
+      "tags": [
+        "rock"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            5.67,
+            0,
+            11.85
+          ],
+          "rotation": [
+            0,
+            187.5,
+            0
+          ],
+          "scale": [
+            0.8,
+            0.8,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "id": "rock_8",
+      "prefab": "assets/models/rock.prefab.json",
+      "tags": [
+        "rock"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -19.38,
+            0,
+            18.48
+          ],
+          "rotation": [
+            0,
+            333.2,
+            0
+          ],
+          "scale": [
+            0.74,
+            0.74,
+            0.74
+          ]
+        }
+      }
+    },
+    {
+      "id": "rock_9",
+      "prefab": "assets/models/rock.prefab.json",
+      "tags": [
+        "rock"
+      ],
+      "components": {
+        "Transform": {
+          "position": [
+            -2.2,
+            0,
+            5.64
+          ],
+          "rotation": [
+            0,
+            2.3,
+            0
+          ],
+          "scale": [
+            0.87,
+            0.87,
+            0.87
+          ]
+        }
+      }
+    },
+    {
+      "id": "game",
+      "components": {
+        "Script": {
+          "path": "scripts/game.js"
+        }
+      }
+    },
+    {
+      "id": "music",
+      "components": {
+        "MusicPlayer": {
+          "song": "assets/music/night.song.json",
+          "volume": 0.8,
+          "quantize": "bar",
+          "layerQuantize": "bar",
+          "layerFade": 1.5,
+          "intensity": 0.1,
+          "loop": true,
+          "startSection": "intro",
+          "playOnStart": false
+        },
+        "Script": {
+          "path": "scripts/music_director.js"
+        }
+      }
+    },
+    {
+      "id": "pause_menu",
+      "components": {
+        "Script": {
+          "path": "scripts/pause_menu.js"
+        }
+      }
+    },
+    {
+      "id": "hud_panel",
+      "components": {
+        "Transform": {
+          "position": [
+            112,
+            64
+          ]
+        },
+        "Panel": {
+          "size": [
+            200,
+            100
+          ],
+          "anchor": [
+            0,
+            0
+          ],
+          "texture": "assets/art/panel.png",
+          "slice": [
+            8,
+            8,
+            8,
+            8
+          ],
+          "layer": 90,
+          "color": [
+            1,
+            1,
+            1,
+            0.85
+          ]
+        }
+      }
+    },
+    {
+      "id": "heart_1",
+      "components": {
+        "Transform": {
+          "position": [
+            48,
+            44
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/icon_heart.png",
+          "size": [
+            36,
+            36
+          ],
+          "space": "screen",
+          "anchor": [
+            0,
+            0
+          ],
+          "pivot": [
+            0.5,
+            0.5
+          ],
+          "layer": 100,
+          "pixelArt": true
+        }
+      },
+      "tags": [
+        "heart"
+      ]
+    },
+    {
+      "id": "heart_2",
+      "components": {
+        "Transform": {
+          "position": [
+            92,
+            44
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/icon_heart.png",
+          "size": [
+            36,
+            36
+          ],
+          "space": "screen",
+          "anchor": [
+            0,
+            0
+          ],
+          "pivot": [
+            0.5,
+            0.5
+          ],
+          "layer": 100,
+          "pixelArt": true
+        }
+      },
+      "tags": [
+        "heart"
+      ]
+    },
+    {
+      "id": "heart_3",
+      "components": {
+        "Transform": {
+          "position": [
+            136,
+            44
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/icon_heart.png",
+          "size": [
+            36,
+            36
+          ],
+          "space": "screen",
+          "anchor": [
+            0,
+            0
+          ],
+          "pivot": [
+            0.5,
+            0.5
+          ],
+          "layer": 100,
+          "pixelArt": true
+        }
+      },
+      "tags": [
+        "heart"
+      ]
+    },
+    {
+      "id": "log_icon",
+      "components": {
+        "Transform": {
+          "position": [
+            56,
+            88
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/icon_log.png",
+          "size": [
+            40,
+            30
+          ],
+          "space": "screen",
+          "anchor": [
+            0,
+            0
+          ],
+          "pivot": [
+            0.5,
+            0.5
+          ],
+          "layer": 100,
+          "pixelArt": true
+        }
+      }
+    },
+    {
+      "id": "log_text",
+      "components": {
+        "Transform": {
+          "position": [
+            84,
+            88
+          ]
+        },
+        "Text": {
+          "text": "Logs 0/3",
+          "fontSize": 24,
+          "space": "screen",
+          "anchor": [
+            0,
+            0
+          ],
+          "pivot": [
+            0,
+            0.5
+          ],
+          "layer": 110,
+          "align": "left",
+          "key": "game.logs",
+          "keyArgs": {
+            "count": 0,
+            "max": 3
+          }
+        }
+      }
+    },
+    {
+      "id": "fire_icon",
+      "components": {
+        "Transform": {
+          "position": [
+            -246,
+            40
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/flame.png",
+          "size": [
+            32,
+            48
+          ],
+          "space": "screen",
+          "anchor": [
+            0.5,
+            0
+          ],
+          "pivot": [
+            0.5,
+            0.5
+          ],
+          "layer": 100,
+          "pixelArt": true,
+          "region": [
+            0,
+            0,
+            16,
+            24
+          ]
+        }
+      }
+    },
+    {
+      "id": "fuel_back",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            40
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/bar_back.png",
+          "size": [
+            420,
+            30
+          ],
+          "space": "screen",
+          "anchor": [
+            0.5,
+            0
+          ],
+          "pivot": [
+            0.5,
+            0.5
+          ],
+          "layer": 100,
+          "pixelArt": true,
+          "slice": [
+            2,
+            2,
+            2,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "id": "fuel_fill",
+      "components": {
+        "Transform": {
+          "position": [
+            -205,
+            40
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/bar_fill.png",
+          "size": [
+            410,
+            20
+          ],
+          "space": "screen",
+          "anchor": [
+            0.5,
+            0
+          ],
+          "pivot": [
+            0,
+            0.5
+          ],
+          "layer": 101,
+          "pixelArt": true,
+          "slice": [
+            2,
+            2,
+            2,
+            2
+          ],
+          "color": [
+            1,
+            0.7,
+            0.3,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "sun_icon",
+      "components": {
+        "Transform": {
+          "position": [
+            -330,
+            44
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/icon_sun.png",
+          "size": [
+            32,
+            32
+          ],
+          "space": "screen",
+          "anchor": [
+            1,
+            0
+          ],
+          "pivot": [
+            0.5,
+            0.5
+          ],
+          "layer": 100,
+          "pixelArt": true
+        }
+      }
+    },
+    {
+      "id": "night_text",
+      "components": {
+        "Transform": {
+          "position": [
+            -120,
+            44
+          ]
+        },
+        "Text": {
+          "text": "Night 1 of 3",
+          "fontSize": 28,
+          "space": "screen",
+          "anchor": [
+            1,
+            0
+          ],
+          "pivot": [
+            1,
+            0.5
+          ],
+          "layer": 110,
+          "align": "right",
+          "key": "game.night",
+          "keyArgs": {
+            "n": 1,
+            "total": 3
+          }
+        }
+      }
+    },
+    {
+      "id": "dawn_back",
+      "components": {
+        "Transform": {
+          "position": [
+            -226,
+            84
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/bar_back.png",
+          "size": [
+            210,
+            14
+          ],
+          "space": "screen",
+          "anchor": [
+            1,
+            0
+          ],
+          "pivot": [
+            0.5,
+            0.5
+          ],
+          "layer": 100,
+          "pixelArt": true,
+          "slice": [
+            2,
+            2,
+            2,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "id": "dawn_fill",
+      "components": {
+        "Transform": {
+          "position": [
+            -329,
+            84
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/bar_fill.png",
+          "size": [
+            204,
+            8
+          ],
+          "space": "screen",
+          "anchor": [
+            1,
+            0
+          ],
+          "pivot": [
+            0,
+            0.5
+          ],
+          "layer": 101,
+          "pixelArt": true,
+          "slice": [
+            2,
+            2,
+            2,
+            2
+          ],
+          "color": [
+            0.55,
+            0.7,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "banner",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            -120
+          ]
+        },
+        "Text": {
+          "text": "Night 1",
+          "fontSize": 64,
+          "space": "screen",
+          "anchor": [
+            0.5,
+            0.5
+          ],
+          "pivot": [
+            0.5,
+            0.5
+          ],
+          "layer": 120,
+          "align": "center",
+          "color": [
+            1,
+            0.85,
+            0.5,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "tip",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            -36
+          ]
+        },
+        "Text": {
+          "text": "Carry logs from the piles to the fire. Swing the torch at the wolves.",
+          "fontSize": 22,
+          "space": "screen",
+          "anchor": [
+            0.5,
+            1
+          ],
+          "pivot": [
+            0.5,
+            1
+          ],
+          "layer": 110,
+          "align": "center",
+          "key": "game.tip",
+          "color": [
+            1,
+            1,
+            1,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "id": "hud",
+      "components": {
+        "Script": {
+          "path": "scripts/hud.js"
+        }
+      }
+    },
+    {
+      "id": "touch_stick",
+      "components": {
+        "Transform": {
+          "position": [
+            40,
+            -40
+          ]
+        },
+        "TouchStick": {
+          "anchor": [
+            0,
+            1
+          ],
+          "pivot": [
+            0,
+            0
+          ],
+          "size": [
+            220,
+            220
+          ],
+          "stick": "left"
+        }
+      }
+    },
+    {
+      "id": "touch_swing",
+      "components": {
+        "Transform": {
+          "position": [
+            -40,
+            -60
+          ]
+        },
+        "TouchButton": {
+          "anchor": [
+            1,
+            1
+          ],
+          "pivot": [
+            1,
+            0
+          ],
+          "size": [
+            130,
+            130
+          ],
+          "button": "A",
+          "text": "Swing"
+        }
+      }
+    },
+    {
+      "id": "touch_pause",
+      "components": {
+        "Transform": {
+          "position": [
+            -16,
+            16
+          ]
+        },
+        "TouchButton": {
+          "anchor": [
+            1,
+            0
+          ],
+          "pivot": [
+            1,
+            1
+          ],
+          "size": [
+            64,
+            64
+          ],
+          "button": "Start",
+          "text": "II"
+        }
+      }
+    },
+    {
+      "id": "end_panel",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0
+          ]
+        },
+        "Panel": {
+          "size": [
+            1280,
+            720
+          ],
+          "anchor": [
+            0.5,
+            0.5
+          ],
+          "layer": 290,
+          "color": [
+            0,
+            0,
+            0,
+            0.6
+          ],
+          "layout": "column",
+          "justify": "center",
+          "align": "center"
+        }
+      },
+      "children": [
+        {
+          "id": "end_box",
+          "components": {
+            "Panel": {
+              "layer": 300,
+              "texture": "assets/art/panel.png",
+              "slice": [
+                8,
+                8,
+                8,
+                8
+              ],
+              "layout": "column",
+              "spacing": 14,
+              "padding": [
+                40,
+                32,
+                40,
+                36
+              ],
+              "fit": true,
+              "color": [
+                1,
+                1,
+                1,
+                0.95
+              ]
+            }
+          },
+          "children": [
+            {
+              "id": "end_title",
+              "components": {
+                "Transform": {
+                  "position": [
+                    0,
+                    0
+                  ]
+                },
+                "Text": {
+                  "text": "The dawn is yours",
+                  "fontSize": 56,
+                  "space": "screen",
+                  "anchor": [
+                    0,
+                    0
+                  ],
+                  "pivot": [
+                    0.5,
+                    0.5
+                  ],
+                  "layer": 310,
+                  "align": "center",
+                  "color": [
+                    1,
+                    0.85,
+                    0.5,
+                    1
+                  ]
+                }
+              }
+            },
+            {
+              "id": "end_sub",
+              "components": {
+                "Transform": {
+                  "position": [
+                    0,
+                    0
+                  ]
+                },
+                "Text": {
+                  "text": "",
+                  "fontSize": 26,
+                  "space": "screen",
+                  "anchor": [
+                    0,
+                    0
+                  ],
+                  "pivot": [
+                    0.5,
+                    0.5
+                  ],
+                  "layer": 310,
+                  "align": "center"
+                }
+              }
+            },
+            {
+              "id": "retry",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Try again",
+                  "key": "game.restart",
+                  "layer": 312,
+                  "autoFocus": true
+                }
+              }
+            },
+            {
+              "id": "to_menu",
+              "components": {
+                "Button": {
+                  "autoSize": true,
+                  "text": "Main menu",
+                  "key": "game.toMenu",
+                  "layer": 312
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "active": false
+    }
+  ]
+}

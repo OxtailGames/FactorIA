@@ -40,7 +40,7 @@
       "properties": {
         "import": {
           "type": "object",
-          "description": "Import settings of this asset: the texture keys for images, the audio keys for sounds. They override `defaults`."
+          "description": "Import settings of this asset: the texture keys for images, the audio keys for sounds. They override `defaults`. A song rendered by music.render also gets `music`: {role: \"mix\" | \"stem\", song, ...}, what the file is for a layered player (docs/MUSIC.md \"Layers and stems\"); the importer ignores it."
         },
         "provenance": { "$ref": "#/$defs/provenance" },
         "sheet": { "$ref": "#/$defs/sheet" },
@@ -131,12 +131,24 @@
           "enum": ["none", "qoa"],
           "default": "none",
           "description": "Conversion applied by `factoria export`. qoa: WAV files become QOA (lossy, about 5x smaller than 16-bit WAV, cheap to decode). none: ship the file as it is."
+        },
+        "loopStart": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "Seconds into the sound where a looping AudioSource jumps back to (with loopEnd). Written by audio.bake for a document with a `loop` step; a sound with loop points is decoded whole, never streamed. Without loopEnd the whole sound loops."
+        },
+        "loopEnd": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "Seconds into the sound where a looping AudioSource wraps to loopStart (the end is exclusive). 0 (or not after loopStart) means the end of the sound."
         }
       }
     },
     "style": {
       "type": "object",
-      "description": "House style that assets.generate_image applies to every image, so generated art stays consistent.",
+      "description": "House style of the project. `prompt`, `references` and `palette` steer assets.generate_image; the other keys are rules that assets.check_art, assets.check_mix and project.validate measure (only the rules that are set are checked).",
       "additionalProperties": false,
       "properties": {
         "prompt": {
@@ -144,16 +156,134 @@
           "description": "Text appended to every image prompt, e.g. \"16-bit pixel art, black outline, flat shading\"."
         },
         "palette": {
-          "description": "Palette lock: generated images are reduced to these colours. Either a list of colours (\"#rrggbb\" or a colour name) or the path of an image whose pixels are the palette.",
+          "description": "The colours of the style. Generated images are reduced to them, and the art checks measure how far an asset is from them. Either a list of colours (\"#rrggbb\" or a colour name) or the path of an image whose pixels are the palette.",
           "oneOf": [
-            { "type": "array", "items": { "type": "string" }, "minItems": 2 },
-            { "type": "string" }
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 2
+            },
+            {
+              "type": "string"
+            }
           ]
         },
         "references": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Project-relative images passed to the provider as style references with every image request (providers that accept them)."
+        },
+        "outline": {
+          "type": "object",
+          "description": "The line around a sprite's silhouette: assets.check_art and project.validate warn about a sprite whose edge pixels are not this colour, or whose line is not this thick. Example: {\"color\": \"#1a1c2c\", \"width\": 1}.",
+          "required": [
+            "color"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "color": {
+              "type": "string",
+              "description": "Colour of the line: \"#rrggbb\" or a colour name."
+            },
+            "width": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 64,
+              "description": "Thickness of the line in texture pixels (default 1)."
+            }
+          }
+        },
+        "lightDirection": {
+          "description": "Where the light comes from: a name (right, upper-right, top, upper-left, left, lower-left, bottom, lower-right) or degrees towards the light, counter-clockwise from the right (0 = right, 90 = top, 135 = upper-left). assets.check_art compares it with how the shading of a sprite leans.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "texelsPerUnit": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 4096,
+          "description": "Texture pixels per world unit: the pixel density of the art. project.validate compares it with the size each Sprite draws its texture at (texture pixels divided by Sprite size times scale)."
+        },
+        "pixelArt": {
+          "type": "boolean",
+          "description": "The art is pixel art: hard edges (no partially transparent edge pixels), few colours, and with a palette every pixel exactly on it."
+        },
+        "value": {
+          "type": "object",
+          "description": "Allowed brightness (HSV value, 0 black to 1 white) of an asset's darkest and lightest pixels (the 1st and 99th percentile of its visible pixels). Example: {\"min\": 0.1, \"max\": 0.95}.",
+          "additionalProperties": false,
+          "properties": {
+            "min": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Lowest allowed value, 0 to 1."
+            },
+            "max": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Highest allowed value, 0 to 1."
+            }
+          }
+        },
+        "saturation": {
+          "type": "object",
+          "description": "Allowed mean saturation (HSV, 0 grey to 1 pure colour) of an asset's visible pixels. Example: {\"min\": 0.2, \"max\": 0.7}.",
+          "additionalProperties": false,
+          "properties": {
+            "min": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Lowest allowed value, 0 to 1."
+            },
+            "max": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Highest allowed value, 0 to 1."
+            }
+          }
+        },
+        "audio": {
+          "type": "object",
+          "description": "Loudness targets of the sounds, read by assets.check_mix. Example: {\"loudnessLufs\": {\"music\": -18, \"sfx\": -14}, \"toleranceLu\": 3}.",
+          "additionalProperties": false,
+          "properties": {
+            "loudnessLufs": {
+              "type": "object",
+              "description": "Integrated loudness (LUFS, -70 to 0) the sounds of each mixer bus aim at, by bus name: sfx, music, ui, master or a bus of factoria.json audio.buses.",
+              "additionalProperties": {
+                "type": "number",
+                "minimum": -70,
+                "maximum": 0
+              }
+            },
+            "toleranceLu": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 24,
+              "description": "How many LU a sound may be away from its bus target before assets.check_mix warns (default 3)."
+            }
+          }
+        },
+        "ignore": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Project-relative files, or folders ending in a slash, that the art checks of project.validate skip (UI, effects, photos). assets.check_art still checks a file you name."
         }
       }
     },
@@ -174,8 +304,8 @@
         },
         "kind": {
           "type": "string",
-          "enum": ["image", "sound", "music", "voice", "model3d"],
-          "description": "What the asset is, written by the assets.generate_* commands, so the AI disclosure can tell sound effects, music and voice apart."
+          "enum": ["image", "sound", "music", "voice", "model3d", "prefab"],
+          "description": "What the asset is, written by the assets.generate_* commands, so the AI disclosure can tell sound effects, music and voice apart. `prefab` is the prefab file model.game_ready writes next to a model."
         },
         "provider": { "type": "string", "description": "Asset provider name from ai.json (\"openai\", \"elevenlabs\", \"fake\"...)." },
         "model": { "type": "string", "description": "Model the provider used (\"gpt-image-1\"...)." },
@@ -187,6 +317,7 @@
         "source": { "type": "string", "description": "Where an imported asset came from: a URL or the original file path." },
         "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Date the asset was generated or imported (YYYY-MM-DD)." },
         "notes": { "type": "string", "description": "Anything else (post-processing applied, edits made by hand)." },
+        "extras": { "type": "array", "items": { "type": "string" }, "description": "The other files one bake of a model wrote (its LODs, collider and prefab from model.game_ready, the layers of its texture), project-relative. Written by model.bake and model.game_ready on the entry of the model's .glb so a later bake can remove files that are no longer made; not written by hand." },
         "recipe": {
           "type": "object",
           "description": "How to make this asset again, byte for byte: the command that made it, its arguments and the project files it read. Written by the offline makers (assets.rasterize_svg, assets.animate_svg, assets.bake_sheet...); assets.regenerate re-runs it, and `factoria validate` warns when an input changed since (a stale asset). Provider-made assets have none: they cost money and would give a different picture.",
@@ -195,6 +326,14 @@
           "properties": {
             "command": { "type": "string", "description": "The command that made the asset (\"assets.animate_svg\")." },
             "args": { "type": "object", "description": "The arguments that make the same bytes again: paths project-relative, `seed` explicit, nothing that names this machine." },
+            "context": {
+              "type": "object",
+              "description": "Values the command read from assets.json rather than from a file, as they were when the asset was made; assets.regenerate and `factoria validate` call the asset stale when one differs now. Today: `styleMusicLufs`, the loudness style.audio.loudnessLufs.music asked of a song whose master loudness is \"style\" (a number, or null when the style guide set none). Written by music.preview and music.render.",
+              "additionalProperties": false,
+              "properties": {
+                "styleMusicLufs": { "type": ["number", "null"], "description": "The music loudness of the style guide in LUFS when the song was rendered, null for none." }
+              }
+            },
             "inputs": {
               "type": "array",
               "description": "The project files the command read (an .anim.js module, an SVG, a prefab) with their hashes when the asset was made.",

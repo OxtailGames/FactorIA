@@ -6,6 +6,8 @@
 #include <memory>
 
 #include "asset_commands.h"
+#include "fa/ai/image_provider.h"
+#include "assets_review.h"
 #include "fa/ai/command_hooks.h"
 #include "fa/ai/detect.h"
 #include "fa/ai/extension_plan.h"
@@ -815,6 +817,8 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         });
     }
     register_asset_commands(registry, load, project_dir, opts->runtime, opts->cancel);
+    register_image_provider_commands(registry, load, project_dir, opts->runtime, opts->cancel);
+    register_assets_review(registry, load, project_dir, *opts);
 
     // beforeCommand / afterCommand hooks around every command of this registry, for every caller (docs/HOOKS.md).
     CommandHooksOptions hooksOptions;

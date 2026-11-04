@@ -570,7 +570,25 @@ void Editor::at_build_tools_script() {
             if (showAnimation_ || anim_.posed) anim_unpose();  // sections B2 and C2: the panels, the pose and the tools are not carried over
             anim_ = AnimUi{};
             bone_ = BoneUi{};
-            showAnimation_ = showBoneTools_ = false;
+            showAnimation_ = showBoneTools_ = showImage_ = showVector_ = showSound_ = showMusic_ = showModeler_ = false;
+            sound_close_document();   // section K3: the Sound panel, its sound and its playback are not carried over
+            sound_release_textures();
+            if (sound_.player) sound_.player->stop();
+            sound_ = SoundUi{};
+            music_close_document();   // section M3: the Music panel, its song and its playback are not carried over
+            music_.preview.reset();
+            music_.model.reset();
+            music_ = MusicUi{};
+            modeler_close_document();   // section N3: the Model panel and its document are not carried over
+            modeler_release_textures();
+            modeler_.model.reset();
+            modeler_ = ModelerUi{};
+            vector_release_textures();
+            vector_ = VectorUi{};   // section J2: the Vector panel, its drawing and its tools are not carried over
+            image_release_textures();   // section I2: the Image panel, its document and its tools are not carried over
+            image_ = ImageUi{};
+            anim3d_release_textures();   // section O3: the Animation panel's 3D mode, its clip and its sheets are not carried over
+            anim3d_ = Anim3DUi{};
             projBrowser_.query = BrowserQuery{};
             exportLast_.reset();
             exportChecked_ = -100;
@@ -4440,6 +4458,8 @@ void Editor::at_build_tools_script() {
             float grown = 0;
             size_t reportsAtCancel = 0;
             stdfs::file_time_type stampBeforeAgent{};  // the file's time before the agent's writes, set back after them
+            stdfs::file_time_type stampBeforePanelWrite{};  // the file's time before a write right after the panel's read
+            std::string panelTitle;                          // the first entry's title before that write
         };
         auto x = std::make_shared<EState>();
         // The bottom row of the dock gives the panel under 200 px on a small display (the macOS runner's 1024x642), where the
@@ -4687,6 +4707,64 @@ void Editor::at_build_tools_script() {
             at_check(fbSelected_ == "FB-0004", "...and selects the new entry");
             at_check(!entry_of("FB-0005").is_object() || entry_of("FB-0005").empty(), "the cancelled one is not there");
         });
+        // ---- the panel reads a file that changed right after its last read, within one step of the file clock (about 15 ms on
+        // Windows, and the Windows file rules of fa::fs everywhere else): the time the write leaves is the one the read saw.
+        step(1, [this] {
+            feedbackMtime_ = INT64_MIN;
+            feedbackPolled_ = -10;
+        });
+        wait_until([this] {
+            return feedbackMtime_ == fs::modified_time(engine_->project().feedbackFile) && feedbackRecheck_;
+        });
+        step(1, [this] {
+            at_check(feedbackMtime_ == fs::modified_time(engine_->project().feedbackFile) && feedbackRecheck_,
+                     "the panel has read the file and will read it once more");
+        });
+        step(2, [this, x] {
+            std::error_code ec;
+            x->stampBeforePanelWrite = stdfs::last_write_time(x->path, ec);
+            auto doc = load_json_file(x->path);
+            at_check(doc.ok() && doc->contains("entries") && !(*doc)["entries"].empty(), "the feedback file can be read back");
+            if (!doc.ok() || !doc->contains("entries") || (*doc)["entries"].empty()) return;
+            x->panelTitle = (*doc)["entries"][0].value("title", std::string());
+            (*doc)["entries"][0]["title"] = "Written right after the panel read";
+            at_check(fs::write_text(engine_->project().feedbackFile, doc->dump(2)).ok(), "the feedback file can be rewritten");
+            stdfs::last_write_time(x->path, x->stampBeforePanelWrite, ec);  // the time the panel's read saw
+            at_check(!ec, "the file's time can be set back (" + ec.message() + ")");
+            feedbackPolled_ = -10;
+        });
+        wait_until([this] {
+            return feedbackDoc_.contains("entries") && !feedbackDoc_["entries"].empty() &&
+                   feedbackDoc_["entries"][0].value("title", std::string()) == "Written right after the panel read";
+        });
+        step(1, [this] {
+            at_check(feedbackDoc_.contains("entries") && !feedbackDoc_["entries"].empty() &&
+                         feedbackDoc_["entries"][0].value("title", std::string()) == "Written right after the panel read",
+                     "the panel lists a write made right after its last read, though the file's time did not move");
+        });
+        // The title is put back until the file has it: on Windows the read can meet the share tick replacing the file (a
+        // sharing violation), and a tick that read the file before this write can write its older copy over it.
+        auto restore_title = [this, x] {
+            auto doc = load_json_file(x->path);
+            if (!doc.ok() || !doc->contains("entries") || (*doc)["entries"].empty()) return;
+            if ((*doc)["entries"][0].value("title", std::string()) == x->panelTitle) return;
+            (*doc)["entries"][0]["title"] = x->panelTitle;
+            (void)fs::write_text(engine_->project().feedbackFile, doc->dump(2));
+            feedbackPolled_ = -10;
+        };
+        step(2, [restore_title] { restore_title(); });
+        wait_until([this, x, restore_title] {
+            if (feedbackDoc_.contains("entries") && !feedbackDoc_["entries"].empty() &&
+                feedbackDoc_["entries"][0].value("title", std::string()) == x->panelTitle)
+                return true;
+            if (atWaitCount_ % 30 == 29) restore_title();
+            return false;
+        });
+        step(1, [this, x] {
+            at_check(feedbackDoc_.contains("entries") && !feedbackDoc_["entries"].empty() &&
+                         feedbackDoc_["entries"][0].value("title", std::string()) == x->panelTitle,
+                     "the panel lists the first entry as it was again");
+        });
         // ---- the AI checks the texts: a pass with a rewrite, a fail that unchecks the row, a text that cannot be made
         // The share tick has just read the file as it is now (a change it saw, so one more read is due)...
         step(1, [this] {
@@ -4694,9 +4772,8 @@ void Editor::at_build_tools_script() {
             share_.tickAt = -10;
         });
         wait_until([this, x] {
-            std::error_code ec;
-            const auto t = stdfs::last_write_time(x->path, ec);
-            return !ec && share_.docStamp == std::int64_t(t.time_since_epoch().count()) && share_.docRecheck;
+            // the time the share tick compares (fs::modified_time: stepped like Windows' under the file rules)
+            return share_.docStamp == fs::host_modified_time(x->path) && share_.docRecheck;
         });
         step(2, [this, x, add_entry] {
             std::error_code ec;
@@ -5831,6 +5908,1485 @@ void Editor::at_build_tools_script() {
                 atSavedConfig_.reset();
             }
             aiStatus_ = std::move(x->savedStatus);
+        });
+    }
+
+    section("I2");
+    // The Image panel (docs/EDITOR.md, "Image panel"): a document made with image.create opens in the panel; a pixels layer is added from
+    // the layer list, a red stroke is painted with the mouse, a rectangle is selected, its pixels are moved with the Transform tool, a
+    // brightness adjustment is added and changed, Ctrl+Z / Ctrl+Y walk the steps back and forth through the editor's own undo stack, and
+    // Save bakes the PNG whose pixels are checked. Every wait counts frames.
+    {
+        struct Is {
+            size_t undo = 0;
+            int mark = 0;
+        };
+        auto is = std::make_shared<Is>();
+        const std::string docPath = "assets/at-image.image.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        // A drag on the canvas between two image positions (the mouse goes through the middle on the way).
+        auto drag_image = [this, &step](float x0, float y0, float x1, float y1) {
+            step(2, [this, x0, y0] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, image_screen_pos(x0, y0)); });
+            step(2, [this, x0, y0] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, image_screen_pos(x0, y0)); });
+            step(2, [this, x0, y0, x1, y1] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, image_screen_pos((x0 + x1) / 2, (y0 + y1) / 2)); });
+            step(2, [this, x1, y1] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, image_screen_pos(x1, y1)); });
+            step(4, [this, x1, y1] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, image_screen_pos(x1, y1)); });
+        };
+        auto pixel = [this](int x, int y) -> Color {
+            ImageModel& m = *image_.model;
+            return m.picture().pixel(x, y);
+        };
+        auto is_rgb = [](const Color& c, float r, float g, float b) {
+            return std::fabs(c.r - r) < 0.02f && std::fabs(c.g - g) < 0.02f && std::fabs(c.b - b) < 0.02f && c.a > 0.98f;
+        };
+        step(2, [this, is, docPath] {
+            std::error_code ec;
+            stdfs::remove(projectDir_ + "/" + docPath, ec);   // a leftover of an earlier run
+            Json args = Json::object({{"path", docPath}, {"width", 32}, {"height", 32},
+                                      {"layers", Json::array({Json::object({{"kind", "fill"}, {"name", "background"}, {"color", "#ffffff"}})})}});
+            const CommandResult r = engine_->commands().call("image.create", args);
+            at_check(r.ok, "image.create made the document: " + (r.ok ? std::string() : command_error_text(r.error)));
+            after_command("image.create", args, r);
+            is->undo = undo_depth();
+            open_image_document(docPath);
+            image_.brush.color = Color{1, 0, 0, 1};
+            image_.brush.size = 4;
+            image_.tool = ImageTool::Brush;
+        });
+        wait_until([this] { return at_visible("img:canvas") && at_visible("img:layer:add"); });
+        step(3, [this] {
+            at_check(image_.model && image_.model->is_open() && image_.model->valid(), "the panel opened the document");
+            at_check(image_.model->layer_rows().size() == 1, "...which lists the background layer");
+            at_check(image_.canvasW > 40 && image_.canvasH > 40 && image_.zoom >= 1.0f, "...and the canvas shows it at a zoom of 100% or more");
+            at_check(at_visible("img:save") && at_visible("img:tool:brush") && at_visible("img:tool:magic-wand"), "...with its toolbar and tools");
+        });
+        snap("editor_image_panel.png");
+
+        // ---- add a pixels layer
+        click_widget("img:layer:add");
+        wait_until([this] { return at_visible("img:layer:add:pixels"); });
+        click_widget("img:layer:add:pixels");
+        step(4, [this, is] {
+            ImageModel& m = *image_.model;
+            at_check(m.layer_rows().size() == 2, "Add > pixels made a second layer");
+            const ImageLayer* L = m.layer(m.selected_layer());
+            at_check(L && L->kind == ImageLayerKind::Pixels, "...which is selected");
+            at_check(undo_depth() == is->undo + 1, "...as ONE undo step of the editor's stack");
+        });
+
+        // ---- paint a red stroke
+        drag_image(6.0f, 8.0f, 20.0f, 8.0f);
+        step(4, [this, is, pixel, is_rgb] {
+            at_check(is_rgb(pixel(14, 8), 1, 0, 0) && is_rgb(pixel(14, 7), 1, 0, 0), "a drag with the Brush paints red where the mouse went");
+            at_check(is_rgb(pixel(14, 20), 1, 1, 1), "...and nothing elsewhere (the white background shows)");
+            at_check(undo_depth() == is->undo + 2, "...the whole stroke is ONE undo step");
+            at_check(!image_.model->stroking(), "...and the stroke is finished");
+        });
+        snap("editor_image_paint.png");
+
+        // ---- select a rectangle
+        click_widget("img:tool:rectangle");
+        drag_image(4.0f, 4.0f, 12.0f, 12.0f);
+        step(4, [this, is] {
+            ImageModel& m = *image_.model;
+            int x = 0, y = 0, w = 0, h = 0;
+            at_check(m.has_selection() && m.selection_bounds(x, y, w, h) && x == 4 && y == 4 && w == 8 && h == 8, "the Rectangle tool selected 4,4 8x8");
+            at_check(undo_depth() == is->undo + 3, "...as one undo step");
+        });
+
+        // ---- move the selected pixels with the Transform tool
+        click_widget("img:tool:transform");
+        wait_until([this] { return image_.model->transforming() && at_visible("img:tf:apply"); });
+        drag_image(8.0f, 8.0f, 8.0f, 16.0f);
+        step(3, [this] {
+            const ImageModel::TransformState& t = image_.model->transform();
+            at_check(t.active && std::abs(t.dy - 8) <= 1 && std::abs(t.dx) <= 1, "dragging inside the transform box moved it 8 pixels down");
+        });
+        snap("editor_image_transform.png");
+        click_widget("img:tf:apply");
+        step(4, [this, is, pixel, is_rgb] {
+            at_check(!image_.model->transforming(), "Apply ended the transform");
+            at_check(is_rgb(pixel(8, 16), 1, 0, 0), "...the selected red pixels are now 8 rows lower");
+            at_check(is_rgb(pixel(8, 8), 1, 1, 1), "...and the old place shows the background again");
+            at_check(is_rgb(pixel(16, 8), 1, 0, 0), "...while the red outside the selection stayed");
+            at_check(undo_depth() == is->undo + 4, "...as one undo step");
+        });
+
+        // ---- an adjustment: add it, then change it the way a slider does (a live preview, then one kept step)
+        click_widget("img:op:add");
+        wait_until([this] { return at_visible("img:op:add:brightness"); });
+        click_widget("img:op:add:brightness");
+        step(4, [this, is] {
+            const ImageLayer* L = image_.model->layer(image_.model->selected_layer());
+            at_check(L && L->adjustments.size() == 1 && L->adjustments[0].value("type", "") == "brightness", "Add > brightness put an adjustment on the layer");
+            at_check(undo_depth() == is->undo + 5, "...as one undo step");
+        });
+        step(2, [this] {
+            ImageModel& m = *image_.model;
+            m.preview_operation(m.selected_layer(), false, 0, Json::object({{"amount", -1.0}}));
+        });
+        step(3, [this, is, pixel, is_rgb] {
+            at_check(is_rgb(pixel(16, 8), 0, 0, 0), "the live preview of amount -1 darkens the layer on the canvas at once");
+            at_check(undo_depth() == is->undo + 5, "...and a preview is not an undo step yet");
+        });
+        step(2, [this] { image_edited(image_.model->commit_operation_preview("Change brightness")); });
+        step(3, [this, is, pixel, is_rgb] {
+            at_check(undo_depth() == is->undo + 6, "letting go keeps it as ONE undo step");
+            at_check(is_rgb(pixel(16, 8), 0, 0, 0) && is_rgb(pixel(8, 16), 0, 0, 0), "...and the picture stays dark");
+        });
+        snap("editor_image_adjustment.png");
+
+        // ---- undo and redo go through the editor's stack
+        step(2, [this] { undo(); });
+        step(3, [this, pixel, is_rgb] { at_check(is_rgb(pixel(16, 8), 1, 0.2f, 0.2f), "Undo put the brightness back to its default (+0.2: a lighter red)"); });
+        step(2, [this] { redo(); });
+        step(3, [this, pixel, is_rgb] { at_check(is_rgb(pixel(16, 8), 0, 0, 0), "Redo darkened it again"); });
+        for (int i = 0; i < 6; ++i) step(2, [this] { undo(); });
+        step(4, [this, is, pixel, is_rgb] {
+            at_check(undo_depth() == is->undo, "six Undos took back every image edit and left the stack where it was");
+            at_check(image_.model->layer_rows().size() == 1 && !image_.model->has_selection(), "...the document is back to the background layer, with no selection");
+            at_check(is_rgb(pixel(14, 8), 1, 1, 1), "...and the canvas is plain white");
+        });
+        for (int i = 0; i < 6; ++i) step(2, [this] { redo(); });
+        step(4, [this, is, pixel, is_rgb] {
+            at_check(undo_depth() == is->undo + 6, "six Redos brought them all back");
+            at_check(is_rgb(pixel(16, 8), 0, 0, 0) && is_rgb(pixel(8, 16), 0, 0, 0) && is_rgb(pixel(8, 8), 1, 1, 1), "...with the same picture");
+        });
+
+        // ---- save bakes the PNG
+        step(2, [this] { at_check(image_.model->bake_status().state != ImageBakeState::Fresh, "before Save the PNG is not baked from this document"); });
+        click_widget("img:save");
+        step(6, [this] {
+            const ImageBakeStatus b = image_.model->bake_status();
+            at_check(b.state == ImageBakeState::Fresh, "Save baked the PNG (the badge says baked)");
+            auto img = load_image(projectDir_ + "/" + b.output);
+            at_check(img.ok(), "...the baked PNG loads: " + b.output);
+            if (img.ok()) {
+                const Color dark = img->pixel(16, 8), moved = img->pixel(8, 16), old = img->pixel(8, 8);
+                at_check(dark.r < 0.02f && dark.g < 0.02f && dark.b < 0.02f, "...with the stroke outside the selection darkened by the adjustment");
+                at_check(moved.r < 0.02f && moved.g < 0.02f && moved.b < 0.02f, "...and the moved pixels in their new place");
+                at_check(old.r > 0.98f && old.g > 0.98f && old.b > 0.98f, "...and white where they were");
+            }
+            const ImageDocument& d = image_.model->doc();
+            at_check(d.layers.size() == 2, "...and the saved document has the two layers");
+        });
+        step(2, [this] {
+            ImageModel& m = *image_.model;
+            at_check(m.last_composite_ms() >= 0.0 && m.composites() > 0, "the panel measured its composites");
+            FA_INFO("autotest", "image panel: {} composites, last {:.2f} ms", m.composites(), m.last_composite_ms());
+        });
+
+        // ---- a picture from the (fake) image provider: Inpaint selection... adds a provider layer, masked by the selection
+        step(2, [this] {
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                aiConfig_ = ai::default_config();
+                aiConfig_.assets["image"] = ai::AssetRoute{"fake", "", ""};
+            }
+            image_.providerChecked = ~std::uint64_t(0);
+            showImage_ = true;
+            ImageModel& m = *image_.model;
+            image_.layersBefore = int(m.layer_rows().size());
+            image_edited(m.select_rect(4, 4, 12, 12, SelectOp::Replace));
+        });
+        wait_until([this] { return at_visible("img:provider:inpaint") && image_.noInpaint.empty(); });
+        step(2, [this, is] {
+            at_check(image_.noInpaint.empty() && image_.noGenerate.empty(), "with a provider that can inpaint, both provider actions are on");
+            image_.providerUndo = undo_depth();
+            image_.providerPrompt = "a round window";   // before the popup: the text box keeps its own copy while it has the focus
+        });
+        click_widget("img:provider:inpaint");
+        wait_until([this] { return at_visible("img:provider:prompt") && at_visible("img:provider:go"); });
+        click_widget("img:provider:go");
+        wait_until([this] { return !image_.job && image_.model->layer_rows().size() == std::size_t(image_.layersBefore + 1); });
+        step(3, [this] {
+            ImageModel& m = *image_.model;
+            const ImageLayer* L = m.layer(m.selected_layer());
+            at_check(L && L->kind == ImageLayerKind::Provider && L->provenance.value("provider", "") == "fake",
+                     "Inpaint selection... added a provider layer whose provenance names the provider");
+            at_check(L && L->provenance.value("prompt", "") == "a round window", "...and the prompt");
+            at_check(L && L->masks.size() == 1, "...masked by the selection");
+            at_check(undo_depth() == image_.providerUndo + 1, "...as ONE undo step");
+            at_check(image_.providerError.empty(), "...with no error shown");
+        });
+        step(2, [this] { undo(); });
+        step(3, [this] {
+            at_check(image_.model->layer_rows().size() == std::size_t(image_.layersBefore), "Undo took the provider layer away again");
+            std::lock_guard<std::mutex> lock(aiMu_);
+            if (atSavedConfig_) aiConfig_ = std::move(*atSavedConfig_);
+            atSavedConfig_.reset();
+            image_.providerChecked = ~std::uint64_t(0);
+            showImage_ = false;
+        });
+    }
+
+    section("L3");
+    // The Image panel's pixel-art tools (docs/EDITOR.md, "Pixel-art tools"): an indexed document opens with its palette bar; the pixel grid
+    // is drawn at a high zoom and goes away with its toggle; the Tiled toggle draws the neighbour copies; "+" adds a palette colour as one
+    // undo step; a right-click on a swatch picks the secondary colour and a right-button drag paints with it; Add makes a second frame, whose
+    // onion skin ghosts the first; Play moves to the other frame; Save bakes the PNG. Every wait counts frames.
+    {
+        struct Ls {
+            size_t undo = 0;
+        };
+        auto ls = std::make_shared<Ls>();
+        const std::string docPath = "assets/at-pixel.image.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        auto right_click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), 1); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), 1); });
+        };
+        // The document is still the one this section opened (a result is never applied to another scene's panel).
+        auto current = [this, docPath] { return image_.model && image_.model->is_open() && image_.model->path() == docPath; };
+        auto pixel = [this](int x, int y) -> Color { return image_.model->picture().pixel(x, y); };
+        auto is_rgb = [](const Color& c, float r, float g, float b) {
+            return std::fabs(c.r - r) < 0.02f && std::fabs(c.g - g) < 0.02f && std::fabs(c.b - b) < 0.02f && c.a > 0.98f;
+        };
+        step(2, [this, ls, docPath] {
+            std::error_code ec;
+            stdfs::remove(projectDir_ + "/" + docPath, ec);
+            Json args = Json::object({{"path", docPath}, {"width", 16}, {"height", 16},
+                                      {"palette", Json::array({"#101018", "#ff0000", "#00ff00"})},
+                                      {"layers", Json::array({Json::object({{"kind", "indexed"}, {"name", "sprite"}})})}});
+            const CommandResult r = engine_->commands().call("image.create", args);
+            at_check(r.ok, "image.create made the pixel-art document: " + (r.ok ? std::string() : command_error_text(r.error)));
+            after_command("image.create", args, r);
+            ls->undo = undo_depth();
+            open_image_document(docPath);
+            image_.tool = ImageTool::Brush;
+            image_.brush.size = 1;
+            image_.brush.paletteIndex = 1;
+            image_.brush.color = Color{1, 0, 0, 1};
+            image_.zoom = 16.0f;   // pixel-art zoom: the grid threshold is passed
+        });
+        wait_until([this] { return at_visible("img:canvas") && at_visible("img:palette:1") && at_visible("img:frame:add"); });
+        step(3, [this, current] {
+            at_check(current(), "the pixel-art document is open");
+            at_check(image_.gridDrawn, "at a high zoom the pixel grid is drawn");
+            at_check(at_visible("img:palette:2") && at_visible("img:palette:add") && at_visible("img:onion"), "...with the palette bar and the frame timeline");
+        });
+        snap("editor_image_pixelart.png");
+        click_widget("img:grid");
+        step(3, [this] { at_check(!image_.gridDrawn, "the Grid toggle turns the grid off"); });
+        click_widget("img:grid");
+        step(3, [this] { at_check(image_.gridDrawn, "...and on again"); });
+        click_widget("img:tiled");
+        step(3, [this] { at_check(image_.tiled && image_.tiledDrawn, "the Tiled toggle draws the neighbour copies"); });
+        click_widget("img:tiled");
+        step(3, [this] { at_check(!image_.tiled && !image_.tiledDrawn, "...and off again"); });
+
+        // ---- the palette bar: a new colour is one undo step
+        step(2, [this] { image_.paletteHex = "#0000ff"; image_.paletteName = "sea"; });
+        click_widget("img:palette:add");
+        wait_until([this] { return at_visible("img:palette:add:apply"); });
+        step(2, [this] { image_.paletteHex = "#0000ff"; image_.paletteName = "sea"; });
+        click_widget("img:palette:add:apply");
+        step(4, [this, ls, current] {
+            at_check(current() && image_.model->palette().size() == 4, "+ added a fourth colour to the palette");
+            at_check(image_.model->palette().find_name("sea") == 3, "...named sea");
+            at_check(undo_depth() == ls->undo + 1, "...as ONE undo step");
+        });
+        step(2, [this] { undo(); });
+        step(3, [this, current] { at_check(current() && image_.model->palette().size() == 3, "Undo took the colour away"); });
+        step(2, [this] { redo(); });
+        step(3, [this, current] { at_check(current() && image_.model->palette().size() == 4, "Redo brought it back"); });
+
+        // ---- primary and secondary colours
+        click_widget("img:palette:1");
+        right_click_widget("img:palette:2");
+        step(3, [this] {
+            at_check(image_.brush.paletteIndex == 1 && image_.secondaryIndex == 2, "a left click on a swatch is the primary colour and a right click the secondary");
+        });
+        // paint with the left button (red) and the right button (green)
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, image_screen_pos(3.5f, 3.5f)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, image_screen_pos(3.5f, 3.5f)); });
+        step(4, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, image_screen_pos(3.5f, 3.5f)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, image_screen_pos(8.5f, 3.5f)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, image_screen_pos(8.5f, 3.5f), 1); });
+        step(4, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, image_screen_pos(8.5f, 3.5f), 1); });
+        step(3, [this, current, pixel, is_rgb] {
+            at_check(current() && is_rgb(pixel(3, 3), 1, 0, 0), "the left button paints with the primary colour");
+            at_check(is_rgb(pixel(8, 3), 0, 1, 0), "...and the right button with the secondary one");
+        });
+
+        // ---- frames and the onion skin
+        click_widget("img:frame:add");
+        step(4, [this, current] {
+            at_check(current() && image_.model->frame_count() == 2 && image_.model->frame() == 1, "Add made a second frame and selected it");
+            at_check(image_.model->picture().pixel(3, 3).a < 0.01f, "...which is empty");
+        });
+        click_widget("img:onion");
+        step(4, [this, current, pixel] {
+            at_check(current() && image_.model->onion(), "the Onion skin box turns the ghosts on");
+            at_check(pixel(3, 3).a > 0.05f, "...and the first frame's pixel shows faintly in the second");
+        });
+        snap("editor_image_onion.png");
+        step(2, [this] {
+            ImageModel& m = *image_.model;
+            ImageModel::OnionSettings o = m.onion_settings();
+            o.before = 0;
+            m.set_onion_settings(o);
+        });
+        step(3, [this, pixel] { at_check(pixel(3, 3).a < 0.01f, "with 0 frames before there is no ghost"); });
+        step(2, [this] {
+            ImageModel& m = *image_.model;
+            ImageModel::OnionSettings o = m.onion_settings();
+            o.before = 1;
+            m.set_onion_settings(o);
+            m.set_onion(false);
+        });
+        // play: the frames follow their durations
+        step(2, [this, current] {
+            if (current()) image_.model->set_frame(0);
+        });
+        click_widget("img:frame:play");
+        wait_until([this] { return !image_.model || image_.model->frame() == 1 || !image_.playing; });
+        step(3, [this, current] {
+            at_check(current() && image_.model->frame() == 1, "Play moved on to the second frame");
+            image_.playing = false;
+        });
+
+        // ---- Save bakes
+        click_widget("img:save");
+        step(6, [this, current] {
+            at_check(current(), "the document is still the one open");
+            const ImageBakeStatus b = image_.model->bake_status();
+            at_check(b.state == ImageBakeState::Fresh, "Save baked the PNG (the badge says baked)");
+            auto img = load_image(projectDir_ + "/" + b.output);
+            at_check(img.ok(), "...the baked PNG loads: " + b.output);
+            if (img.ok()) {
+                at_check(img->width >= 16 && img->height >= 16, "...at least the document's size");
+            }
+        });
+        step(2, [this] { showImage_ = false; });
+    }
+
+    section("J2");
+    // The Vector panel (docs/EDITOR.md, "Vector panel"): an SVG with two rectangles opens in the panel; a triangle with one curved corner
+    // is drawn with the Pen (clicks, a drag, a click on the first node to close), a corner is moved with the Node tool and made smooth,
+    // the two rectangles are picked with a marquee and merged with Union, Ctrl+Z / Ctrl+Y walk the steps through the editor's own undo
+    // stack, and the file on disk is checked. Then an image document with an svg layer: the Image panel's "Edit in Vector panel" button
+    // opens the layer, an ellipse drawn there is written into the document, Undo takes it out and Save bakes the PNG. Every wait counts
+    // frames.
+    {
+        struct Js {
+            size_t undo = 0;
+            std::string original;
+            std::string drawn;
+            std::string docBefore;
+        };
+        auto js = std::make_shared<Js>();
+        const std::string svgPath = "assets/at-vector.svg";
+        const std::string docPath = "assets/at-vector.image.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        // A click and a drag on the canvas, in the drawing's own units (the mouse goes through the middle on the way).
+        auto click_vec = [this, &step](double x, double y) {
+            step(2, [this, x, y] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, vector_screen_pos(x, y)); });
+            step(2, [this, x, y] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, vector_screen_pos(x, y)); });
+            step(4, [this, x, y] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, vector_screen_pos(x, y)); });
+        };
+        auto drag_vec = [this, &step](double x0, double y0, double x1, double y1) {
+            step(2, [this, x0, y0] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, vector_screen_pos(x0, y0)); });
+            step(2, [this, x0, y0] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, vector_screen_pos(x0, y0)); });
+            step(2, [this, x0, y0, x1, y1] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, vector_screen_pos((x0 + x1) / 2, (y0 + y1) / 2)); });
+            step(2, [this, x1, y1] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, vector_screen_pos(x1, y1)); });
+            step(4, [this, x1, y1] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, vector_screen_pos(x1, y1)); });
+        };
+        auto item = [this](const std::string& ref) -> const VecItem* {
+            const int i = vector_.model ? vector_.model->scene().find(ref) : -1;
+            return i < 0 ? nullptr : &vector_.model->scene().items[std::size_t(i)];
+        };
+        auto read_text = [this](const std::string& rel) {
+            std::ifstream in(projectDir_ + "/" + rel, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+        step(2, [this, js, svgPath] {
+            std::error_code ec;
+            stdfs::remove(projectDir_ + "/" + svgPath, ec);   // a leftover of an earlier run
+            stdfs::create_directories(projectDir_ + "/assets", ec);
+            std::ofstream out(projectDir_ + "/" + svgPath, std::ios::binary);
+            out << "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" width=\"100\" height=\"100\">"
+                   "<rect id=\"a\" x=\"10\" y=\"10\" width=\"30\" height=\"30\" fill=\"#d04030\"/>"
+                   "<rect id=\"b\" x=\"25\" y=\"25\" width=\"35\" height=\"35\" fill=\"#3050d0\"/></svg>";
+            out.close();
+            js->undo = undo_depth();
+            open_vector_document(svgPath);
+            vector_.model->style.useStroke = false;
+        });
+        wait_until([this] { return at_visible("vec:canvas") && at_visible("vec:tool:Pen"); });
+        step(3, [this, js, svgPath, read_text] {
+            VectorModel& m = *vector_.model;
+            js->original = read_text(svgPath);
+            at_check(m.is_open() && m.valid() && m.scene().items.size() == 2, "the panel opened the svg with its two rectangles");
+            at_check(vector_.canvasW > 40 && vector_.canvasH > 40 && vector_.zoom > 0.5f, "...and the canvas shows the drawing");
+            at_check(at_visible("vec:save") && at_visible("vec:act:union") && at_visible("vec:tool:Node"), "...with its toolbar, actions and tools");
+        });
+        snap("editor_vector_panel.png");
+
+        // ---- the Pen: three clicks (the second one dragged into a curve) and a click on the first node to close
+        click_widget("vec:tool:Pen");
+        click_vec(70, 10);
+        drag_vec(90, 10, 96, 18);
+        click_vec(90, 40);
+        step(3, [this] { at_check(vector_.model->pen().active && vector_.model->pen().path[0].nodes.size() == 3, "three Pen clicks made three nodes of a path being drawn"); });
+        click_vec(70, 10);
+        step(4, [this, js, item] {
+            VectorModel& m = *vector_.model;
+            at_check(!m.pen().active && m.scene().items.size() == 3, "a click on the first node closed the path and wrote it");
+            at_check(m.selection().size() == 1, "...the new path is selected");
+            const VecItem* it = m.selection().empty() ? nullptr : item(m.selection()[0]);
+            at_check(it && it->closed && it->nodeCount == 3 && it->curves, "...closed, with three nodes and a curved corner");
+            at_check(it && it->nodes[0].nodes[1].hasOut, "...the dragged node has its handles");
+            at_check(undo_depth() == js->undo + 1, "...as ONE undo step of the editor's stack");
+            js->drawn = m.selection().empty() ? std::string() : m.selection()[0];
+        });
+        snap("editor_vector_pen.png");
+
+        // ---- the Node tool: move a corner, then make it smooth
+        click_widget("vec:tool:Node");
+        drag_vec(70, 10, 72, 22);
+        step(4, [this, js, item] {
+            const VecItem* it = item(js->drawn);
+            at_check(it && std::abs(it->nodes[0].nodes[0].p.x - 72) < 1.0 && std::abs(it->nodes[0].nodes[0].p.y - 22) < 1.0, "dragging an anchor with the Node tool moved it to 72,22");
+            at_check(undo_depth() == js->undo + 2, "...as one undo step");
+        });
+        click_widget("vec:node:smooth");
+        step(4, [this, js, item] {
+            const VecItem* it = item(js->drawn);
+            at_check(it && it->nodes[0].nodes[0].hasIn && it->nodes[0].nodes[0].hasOut, "Make smooth gave the moved anchor its two handles");
+            at_check(undo_depth() == js->undo + 3, "...as one undo step");
+        });
+        snap("editor_vector_nodes.png");
+
+        // ---- a marquee picks the two rectangles, Union merges them
+        click_widget("vec:tool:Select");
+        drag_vec(5, 5, 65, 65);
+        step(4, [this] { at_check(vector_.model->selection().size() == 2, "a marquee from left to right picked the two rectangles (not the triangle)"); });
+        click_widget("vec:act:union");
+        step(4, [this, js] {
+            VectorModel& m = *vector_.model;
+            at_check(m.scene().items.size() == 2 && m.selection().size() == 1, "Union made one shape of the two rectangles, and selected it");
+            at_check(undo_depth() == js->undo + 4, "...as one undo step");
+        });
+        snap("editor_vector_union.png");
+
+        // ---- undo and redo go through the editor's stack
+        step(2, [this] { undo(); });
+        step(4, [this] { at_check(vector_.model->scene().items.size() == 3 && vector_.model->scene().find("a") >= 0, "Undo brought the two rectangles back (a, b and the triangle)"); });
+        step(2, [this] { redo(); });
+        step(4, [this] { at_check(vector_.model->scene().items.size() == 2 && vector_.model->scene().find("b") < 0, "Redo merged them again (the union keeps the first shape's id)"); });
+        for (int i = 0; i < 4; ++i) step(2, [this] { undo(); });
+        step(4, [this, js, svgPath, read_text] {
+            at_check(undo_depth() == js->undo, "four Undos took back every vector edit and left the stack where it was");
+            at_check(read_text(svgPath) == js->original, "...and the file on disk is the SVG we started with, byte for byte");
+            at_check(vector_.model->scene().items.size() == 2, "...the canvas shows the two rectangles");
+        });
+        for (int i = 0; i < 4; ++i) step(2, [this] { redo(); });
+        step(4, [this, js, svgPath, read_text, item] {
+            at_check(undo_depth() == js->undo + 4, "four Redos brought them all back");
+            const std::string text = read_text(svgPath);
+            at_check(text.find("id=\"" + js->drawn + "\"") != std::string::npos && text.find("<rect") == std::string::npos, "...the file has the triangle and the merged shape, and no rectangle");
+            const VecItem* it = item(js->drawn);
+            at_check(it && it->nodes[0].nodes[0].hasIn, "...the triangle kept its smooth corner");
+        });
+        click_widget("vec:save");
+        step(3, [this] { at_check(vector_.model->status().find("already written") != std::string::npos, "Save on an svg file says every edit is already written"); });
+
+        // ---- an svg layer of an image document, from the Image panel
+        step(2, [this, js, docPath] {
+            std::error_code ec;
+            stdfs::remove(projectDir_ + "/" + docPath, ec);
+            stdfs::remove(projectDir_ + "/assets/at-vector.png", ec);
+            const std::string svg =
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\" width=\"64\" height=\"64\"><rect id=\"box\" x=\"6\" y=\"6\" width=\"28\" height=\"28\" fill=\"#d04030\"/></svg>";
+            Json args = Json::object({{"path", docPath}, {"width", 64}, {"height", 64},
+                                      {"layers", Json::array({Json::object({{"kind", "fill"}, {"name", "bg"}, {"color", "#ffffff"}}),
+                                                              Json::object({{"kind", "svg"}, {"name", "art"}, {"svg", svg}})})}});
+            const CommandResult r = engine_->commands().call("image.create", args);
+            at_check(r.ok, "image.create made a document with an svg layer: " + (r.ok ? std::string() : command_error_text(r.error)));
+            after_command("image.create", args, r);
+            js->undo = undo_depth();
+            open_image_document(docPath);
+            showVector_ = false;
+        });
+        wait_until([this] { return at_visible("img:canvas") && at_visible("img:layer:add"); });
+        step(2, [this] { image_.model->select_layer("1"); });
+        wait_until([this] { return at_visible("img:insp:edit_vector"); });
+        click_widget("img:insp:edit_vector");
+        wait_until([this] { return vector_.model && vector_.model->is_layer() && at_visible("vec:canvas") && at_visible("vec:tool:Ellipse"); });
+        step(3, [this, docPath] {
+            VectorModel& m = *vector_.model;
+            at_check(m.valid() && m.path() == docPath && m.layer_path() == "1", "Edit in Vector panel opened the svg layer of the document");
+            at_check(m.scene().items.size() == 1 && m.scene().find("box") >= 0, "...with its rectangle");
+        });
+        click_widget("vec:tool:Ellipse");
+        drag_vec(40, 36, 60, 56);
+        step(4, [this, js, docPath, read_text] {
+            VectorModel& m = *vector_.model;
+            js->docBefore = read_text(docPath);
+            at_check(m.scene().items.size() == 2, "dragging with the Ellipse tool added a shape to the layer");
+            at_check(js->docBefore.find("<circle") != std::string::npos && js->docBefore.find("id=\\\"box\\\"") != std::string::npos,
+                     "...and it is in the image document's JSON, next to the rectangle with its id");
+            at_check(undo_depth() == js->undo + 1, "...as one undo step");
+        });
+        // the Image panel reads the document again on its own (every 20 frames)
+        wait_until([this] { return image_.model && image_.model->json().dump().find("<circle") != std::string::npos; });
+        step(2, [this] { at_check(true, "the Image panel read the document again and has the new shape"); });
+        step(2, [this] { undo(); });
+        step(4, [this, js, docPath, read_text] {
+            at_check(vector_.model->scene().items.size() == 1, "Undo took the ellipse out of the layer");
+            at_check(read_text(docPath).find("<circle") == std::string::npos, "...and out of the document");
+        });
+        step(2, [this] { redo(); });
+        click_widget("vec:save");
+        step(8, [this] {
+            const ImageBakeStatus b = image_.model ? image_.model->bake_status() : ImageBakeStatus{};
+            auto img = load_image(projectDir_ + "/" + b.output);
+            at_check(!b.output.empty() && img.ok(), "Save baked the document's PNG: " + b.output);
+            if (img.ok()) {
+                const Color box = img->pixel(15, 15), circle = img->pixel(50, 46), blank = img->pixel(60, 8);
+                at_check(box.r > 0.7f && box.g < 0.4f, "...the rectangle of the svg layer is in it");
+                at_check(circle.b > 0.8f && circle.r < 0.6f, "...and so is the ellipse drawn in the Vector panel (the default blue)");
+                at_check(blank.r > 0.98f && blank.g > 0.98f && blank.b > 0.98f, "...on the white background");
+            }
+        });
+        step(2, [this] {
+            FA_INFO("autotest", "vector panel: scene read {:.2f} ms, last picture {:.2f} ms", vector_.model->last_scene_ms(), vector_.model->last_raster_ms());
+            showVector_ = false;
+            showImage_ = false;
+        });
+    }
+
+    section("K3");
+    // The Sound panel (docs/EDITOR.md, "Sound panel"): a coin patch opens; the brightness knob is dragged (ONE sfx.tweak, one undo step);
+    // Play moves the playhead on the null device; a drag on the waveform selects and zooms; the patch gets variations, two variants are
+    // compared A/B at the same loudness; an audio document over the baked coin gets a step, a reorder and a loop step whose end marker is
+    // dragged on the waveform; Undo/Redo walk the steps through the editor's own stack and Save bakes both sounds. Every wait counts frames.
+    {
+        struct Ks {
+            size_t undo = 0;
+            double centroid = 0;
+            double loopEnd = 0;
+            int steps = 0;
+            double position = 0;
+            std::string patchBefore;
+        };
+        auto ks = std::make_shared<Ks>();
+        const std::string dir = "assets/at-sound";
+        const std::string patch = dir + "/coin.sfx.json";
+        const std::string wav = dir + "/coin.wav";
+        const std::string doc = dir + "/coin.audio.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        auto settled = [this] { return sound_.model && sound_.model->is_open() && !sound_.model->busy() && sound_.model->current() && sound_.model->current_is_fresh(); };
+        auto read_text = [this](const std::string& rel) {
+            std::ifstream in(projectDir_ + "/" + rel, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+        auto run = [this](const std::string& name, const Json& args) {
+            const CommandResult r = engine_->commands().call(name, args);
+            after_command(name, args, r);
+            at_check(r.ok, name + " worked: " + (r.ok ? std::string() : command_error_text(r.error)));
+        };
+        step(2, [this, ks, dir, patch, wav, doc, run] {
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/" + dir, ec);   // a leftover of an earlier run
+            run("sfx.preset", Json::object({{"name", "coin"}, {"path", patch}}));
+            run("sfx.render", Json::object({{"path", patch}, {"out", wav}, {"picture", false}, {"overwrite", true}}));
+            run("audio.create", Json::object({{"path", doc}, {"source", wav}, {"bake", false}, {"output", Json::object({{"format", "wav"}, {"path", dir + "/coin_loop.wav"}})}, {"steps", Json::array({Json::object({{"type", "gain"}, {"db", -3}})})}}));
+            ks->undo = undo_depth();
+            open_sound_document(patch);
+        });
+        wait_until([this, settled] { return at_visible("snd:wave") && at_visible("snd:play") && settled(); });
+        step(3, [this, ks] {
+            SoundModel& m = *sound_.model;
+            at_check(m.kind() == SoundKind::Patch && m.valid(), "the panel opened the coin patch");
+            at_check(m.current() && m.current()->lufs > -60 && m.current()->seconds > 0.05, "...rendered it and measured it");
+            at_check(sound_.waveW > 100 && sound_.waveH > 40, "...and the waveform is on screen");
+            at_check(at_visible("snd:knob:brightness") && at_visible("snd:save") && at_visible("snd:ab_a") && at_visible("snd:spectrogram"), "...with its knobs, A/B, Save and spectrogram");
+            at_check(at_visible("snd:field:/length"), "...and the inspector lists the patch's fields");
+            at_check(m.current() && m.current()->spectrogram.columns > 0 && sound_.specView != 0, "...the spectrogram has its texture");
+            ks->centroid = m.current() ? m.current()->centroidHz : 0.0;
+        });
+        snap("editor_sound_panel.png");
+
+        // ---- a knob: dragged up, let go: one sfx.tweak
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("snd:knob:brightness")); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget("snd:knob:brightness")); });
+        step(2, [this] {
+            Vec2 p = at_widget("snd:knob:brightness");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{p.x, p.y - 12});
+        });
+        step(2, [this] {
+            Vec2 p = at_widget("snd:knob:brightness");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{p.x, p.y - 30});
+        });
+        step(2, [this] { at_check(sound_.model->macro_previewing(), "dragging the brightness knob previews it (nothing written yet)"); });
+        step(3, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, Vec2{at_widget("snd:knob:brightness").x, at_widget("snd:knob:brightness").y}); });
+        wait_until(settled);
+        step(3, [this, ks, patch, read_text] {
+            SoundModel& m = *sound_.model;
+            double v = 0;
+            for (const SoundMacro& k : m.macros())
+                if (k.name == "brightness") v = k.value;
+            at_check(v > 0.1, "letting go of the knob made brightness " + std::to_string(v));
+            at_check(read_text(patch).find("brightness") != std::string::npos, "...and wrote it into the patch file");
+            at_check(undo_depth() == ks->undo + 1, "...as ONE undo step of the editor's stack");
+            at_check(m.before() != nullptr, "...and the sound before the turn is kept for the A/B");
+            at_check(m.current() && m.current()->centroidHz > ks->centroid, "...the sound got brighter (centroid went up)");
+        });
+
+        // ---- play on the null device: the playhead moves; stop
+        click_widget("snd:play");
+        wait_until([this] { return sound_.player && sound_.player->playing() && sound_.player->position() > 0.005; });
+        step(2, [this, ks] {
+            at_check(sound_.player->playing() && sound_.heard == 3, "Play started the sound and the playhead is moving");
+            ks->position = sound_.player->position();
+        });
+        click_widget("snd:play");
+        step(3, [this] { at_check(!sound_.player->playing(), "Stop stopped it"); });
+
+        // ---- a drag on the waveform selects, To selection zooms
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, sound_screen_pos(sound_.shownSeconds * 0.2, 0.5)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, sound_screen_pos(sound_.shownSeconds * 0.2, 0.5)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, sound_screen_pos(sound_.shownSeconds * 0.4, 0.5)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, sound_screen_pos(sound_.shownSeconds * 0.6, 0.5)); });
+        step(3, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, sound_screen_pos(sound_.shownSeconds * 0.6, 0.5)); });
+        step(3, [this] {
+            at_check(sound_.hasSelection && std::abs(sound_.sel0 - sound_.shownSeconds * 0.2) < sound_.shownSeconds * 0.03 &&
+                         std::abs(sound_.sel1 - sound_.shownSeconds * 0.6) < sound_.shownSeconds * 0.03,
+                     "a drag on the waveform selected 20% to 60% of the sound");
+        });
+        click_widget("snd:zoom_selection");
+        step(3, [this] { at_check(sound_.viewLen < sound_.shownSeconds * 0.5 && std::abs(sound_.viewStart - sound_.sel0) < 0.01, "To selection zoomed to it"); });
+        click_widget("snd:play");
+        wait_until([this] { return sound_.player->playing() && sound_.player->position() > sound_.sel0 + 0.003; });
+        step(2, [this] { at_check(sound_.player->position() >= sound_.sel0 - 0.01 && sound_.player->position() <= sound_.sel1 + 0.05, "Play with a selection starts at its start"); });
+        click_widget("snd:play");
+        // On a loaded machine the selection may have played out before that click, which then starts it again: let it end.
+        wait_until([this] { return !sound_.player->playing(); });
+        click_widget("snd:fit");
+        step(2, [this] { at_check(std::abs(sound_.viewLen - sound_.shownSeconds) < 1e-6, "Fit shows the whole sound again"); });
+
+        // ---- variations: added from the inspector, two variants compared A/B
+        step(2, [this] {
+            sound_edited(sound_.model->set_field("/variations", Json::object({{"count", 3}, {"seed", 7}, {"spread", Json::object({{"pitch", 60}, {"gain", 2}})}}), "Add variations"));
+        });
+        wait_until([this, settled] { return settled() && at_visible("snd:variant:2"); });
+        step(3, [this, ks] {
+            SoundModel& m = *sound_.model;
+            at_check(m.variations().count >= 2, "Adding variations wrote the variations object (" + std::to_string(m.variations().count) + " variants)");
+            at_check(undo_depth() == ks->undo + 2, "...as one undo step");
+        });
+        click_widget("snd:variant:1:a");
+        click_widget("snd:variant:2:b");
+        step(2, [this] {
+            at_check(sound_.slotA == SoundSlot{SoundSlotKind::Variant, 1} && sound_.slotB == SoundSlot{SoundSlotKind::Variant, 2}, "the variant rows set the A and B slots");
+        });
+        wait_until([this] { return sound_.model->slot(sound_.slotA) && sound_.model->slot(sound_.slotB); });
+        step(2, [this] { sound_.loopPlay = true; });   // a coin is short: loop it so the A/B has something to switch
+        click_widget("snd:ab_a");
+        wait_until([this] { return sound_.player->playing() && sound_.player->position() > 0.003; });
+        step(2, [this, ks] {
+            at_check(sound_.heard == 1, "Play A plays variant 1");
+            ks->position = sound_.player->position();
+        });
+        click_widget("snd:ab_b");
+        step(3, [this, ks] {
+            at_check(sound_.heard == 2 && sound_.player->playing(), "Play B switched to variant 2 without stopping");
+            at_check(sound_.player->position() + 0.2 >= ks->position, "...at the same place of the sound");
+            SoundRenderPtr a = sound_.model->slot(sound_.slotA), b = sound_.model->slot(sound_.slotB);
+            at_check(a && b, "...both variants are rendered");
+            if (a && b) {
+                const auto g = sound_level_match(a->lufs, b->lufs);
+                at_check(std::min(g.first, g.second) <= 0.0 && std::max(g.first, g.second) == 0.0, "...the louder one is played quieter and nothing is boosted");
+                at_check(std::abs((a->lufs + g.first) - (b->lufs + g.second)) < 0.05 || (a->lufs <= -69 || b->lufs <= -69), "...so A and B come out equally loud");
+            }
+        });
+        click_widget("snd:play");
+        step(2, [this] { at_check(!sound_.player->playing(), "Stop stopped the A/B"); });
+
+        // ---- undo / redo through the editor's stack
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, ks] {
+            at_check(undo_depth() == ks->undo + 1 && sound_.model->variations().count == 0, "Undo took the variations out of the patch");
+        });
+        step(2, [this] { redo(); });
+        wait_until(settled);
+        step(3, [this, ks] {
+            at_check(undo_depth() == ks->undo + 2 && sound_.model->variations().count >= 2, "Redo put them back");
+        });
+        click_widget("snd:save");
+        step(10, [this, patch, read_text] {
+            at_check(!read_text("assets/at-sound/coin.wav").empty(), "Save baked the coin next to the patch");
+            at_check(stdfs::exists(projectDir_ + "/assets/at-sound/coin_01.wav") && stdfs::exists(projectDir_ + "/assets/at-sound/coin_03.wav"), "...and its three variants (coin_01.wav ...)");
+            (void)patch;
+        });
+
+        // ---- an audio document: the chain
+        step(2, [this, ks, doc] {
+            ks->undo = undo_depth();
+            open_sound_document(doc);
+        });
+        wait_until([this, settled] { return settled() && at_visible("snd:step:0") && at_visible("snd:step:add"); });
+        step(3, [this, ks] {
+            SoundModel& m = *sound_.model;
+            at_check(m.kind() == SoundKind::Document && m.chain().size() == 1 && m.chain()[0].type == "gain", "the audio document opened with its one step");
+            ks->steps = int(m.chain().size());
+            ks->loopEnd = m.current() ? m.current()->seconds : 0.0;
+        });
+        click_widget("snd:step:add");
+        wait_until([this, settled, ks] { return settled() && int(sound_.model->chain().size()) == ks->steps + 1; });
+        step(3, [this, ks] {
+            at_check(sound_.model->chain().back().type == "gain" && undo_depth() == ks->undo + 1, "Add step appended a gain step as one undo step");
+        });
+        click_widget("snd:step:1:up");
+        step(4, [this, ks] {
+            at_check(sound_.model->chain().size() == 2 && undo_depth() == ks->undo + 2, "the up button reordered the chain as one undo step");
+        });
+        click_widget("snd:step:0:enable");
+        wait_until(settled);
+        step(3, [this, ks] {
+            at_check(!sound_.model->chain()[0].enabled && undo_depth() == ks->undo + 3, "the checkbox skips a step");
+        });
+        // a loop step, then its end marker is dragged
+        step(2, [this] { sound_.newStepType = "loop"; });
+        click_widget("snd:step:add");
+        wait_until([this, settled] { return settled() && sound_.model->loop_step() >= 0 && sound_.model->loop_seconds() && at_visible("snd:loop_end"); });
+        step(3, [this, ks] {
+            const auto lp = sound_.model->loop_seconds();
+            at_check(lp.has_value(), "a loop step makes loop points that show on the waveform");
+            ks->loopEnd = lp ? lp->second : 0.0;
+        });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("snd:loop_end")); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget("snd:loop_end")); });
+        step(2, [this, ks] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, sound_screen_pos(ks->loopEnd * 0.8, 0.5)); });
+        step(2, [this, ks] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, sound_screen_pos(ks->loopEnd * 0.6, 0.5)); });
+        step(2, [this, ks] {
+            auto lp = sound_.model->loop_seconds();
+            at_check(sound_.model->loop_previewing() && lp && std::abs(lp->second - ks->loopEnd * 0.6) < ks->loopEnd * 0.04, "dragging the loop end marker moves it on the waveform at once");
+        });
+        step(3, [this, ks] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, sound_screen_pos(ks->loopEnd * 0.6, 0.5)); });
+        wait_until(settled);
+        step(3, [this, ks, doc, read_text] {
+            auto lp = sound_.model->loop_seconds();
+            at_check(lp && std::abs(lp->second - ks->loopEnd * 0.6) < ks->loopEnd * 0.05, "letting go wrote the new loop end");
+            at_check(undo_depth() == ks->undo + 5, "...as one undo step");
+            at_check(read_text(doc).find("\"loop\"") != std::string::npos, "...into the document's loop step");
+        });
+        snap("editor_sound_loop.png");
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, ks] {
+            auto lp = sound_.model->loop_seconds();
+            at_check(lp && std::abs(lp->second - ks->loopEnd) < ks->loopEnd * 0.03, "Undo put the loop end back");
+        });
+        step(2, [this] { redo(); });
+        wait_until(settled);
+        click_widget("snd:save");
+        step(10, [this, doc] {
+            const std::string out = sound_.model->baked_path();
+            at_check(!out.empty() && stdfs::exists(projectDir_ + "/" + out), "Save baked the document's sound: " + out);
+            const std::string assets = [&] {
+                std::ifstream in(projectDir_ + "/assets.json", std::ios::binary);
+                return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            }();
+            at_check(assets.find("loopEnd") != std::string::npos, "...and wrote the loop points into assets.json");
+            (void)doc;
+        });
+        step(2, [this, dir] {
+            FA_INFO("autotest", "sound panel: last render {:.1f} ms", sound_.model->last_render_ms());
+            showSound_ = false;
+            sound_close_document();
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/" + dir, ec);
+            project_files_changed();
+        });
+    }
+
+    section("M3");
+    // The Music panel (docs/EDITOR.md, "Music panel"): a layered song opens; a note is drawn on the piano roll, moved and deleted with the
+    // mouse (each ONE music.edit, one undo step) and Undo/Redo walk them through the editor's stack; a drum hit is a click on the grid; a
+    // section's repeat is raised and a track muted in the Mixer; Play moves the playhead on the null device, the intensity buttons fade
+    // the top layer in and out, Play section loops a section; Save bakes the mix and the layers' stems. Every wait counts frames or state.
+    {
+        struct Ms {
+            size_t undo = 0;
+            size_t notes = 0;
+            int pitch = 0;
+            double position = 0;
+            int renders = 0;
+        };
+        auto ms = std::make_shared<Ms>();
+        const std::string dir = "assets/at-music";
+        const std::string song = dir + "/t.song.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        auto settled = [this] { return music_.model && music_.model->is_open() && music_.model->valid() && !music_.model->busy() && music_.model->source_is_fresh(); };
+        auto run = [this](const std::string& name, const Json& args) {
+            const CommandResult r = engine_->commands().call(name, args);
+            after_command(name, args, r);
+            at_check(r.ok, name + " worked: " + (r.ok ? std::string() : command_error_text(r.error)));
+        };
+        // The note of the roll's track/pattern that starts near `tick` at `pitch`, or null.
+        auto note_at = [this](std::int64_t tick, int pitch) -> std::optional<SongRollNote> {
+            for (const SongRollNote& n : music_.model->notes(music_.track, music_.pattern))
+                if (n.pitch == pitch && std::llabs(n.tick - tick) <= 40) return n;
+            return std::nullopt;
+        };
+        auto section_repeat = [this](const std::string& name) {
+            for (const SongSection& sec : music_.model->doc()->sections)
+                if (sec.name == name) return sec.repeat;
+            return -1;
+        };
+        step(2, [this, song, run] {
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/assets/at-music", ec);   // a leftover of an earlier run
+            run("music.create", Json::object({{"path", song}, {"picture", false}}));
+            Json layers = Json::object();
+            layers["base"] = Json::array({"drums", "bass"});
+            layers["lift"] = Json::object({{"tracks", Json::array({"pad"})}, {"intensity", 0.5}});
+            layers["top"] = Json::object({{"tracks", Json::array({"arp"})}, {"intensity", 0.9}});
+            Json op = Json::object({{"op", "set_layers"}, {"layers", layers}});
+            run("music.edit", Json::object({{"path", song}, {"ops", Json::array({op})}}));
+            open_music_document(song);
+        });
+        wait_until([this, settled] { return at_visible("mus:roll") && at_visible("mus:play") && settled(); });
+        step(3, [this, ms] {
+            MusicModel& m = *music_.model;
+            at_check(m.valid() && !m.pitched_tracks().empty() && !m.drum_tracks().empty(), "the panel opened the song with its pitched and drum tracks");
+            at_check(m.source() && m.source()->layered && m.source()->stems.size() == 3, "...rendered it for playing, as three layers");
+            at_check(!music_.track.empty() && !music_.pattern.empty() && !music_.model->notes(music_.track, music_.pattern).empty(), "...and the roll shows the notes of " + music_.track + "/" + music_.pattern);
+            at_check(at_visible("mus:save") && at_visible("mus:intensity") && at_visible("mus:tab_mixer") && at_visible("mus:velocity_lane"), "...with its transport, tabs and Save");
+            ms->undo = undo_depth();
+            ms->notes = music_.model->notes(music_.track, music_.pattern).size();
+            ms->pitch = music_.pitchTop - 3;   // a row above the chords
+        });
+        snap("editor_music_panel.png");
+
+        // ---- a note: drawn with a drag, moved, deleted
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_screen_pos(1200, ms->pitch)); });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, music_screen_pos(1200, ms->pitch)); });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_screen_pos(1500, ms->pitch)); });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_screen_pos(1700, ms->pitch)); });
+        step(3, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, music_screen_pos(1700, ms->pitch)); });
+        wait_until(settled);
+        step(3, [this, ms, note_at] {
+            const auto n = note_at(960, ms->pitch);
+            at_check(n.has_value() && n->duration == 960, "a drag on the empty roll drew a note one beat long");
+            at_check(music_.model->notes(music_.track, music_.pattern).size() == ms->notes + 1 && undo_depth() == ms->undo + 1, "...as one undo step");
+        });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_screen_pos(1440, ms->pitch)); });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, music_screen_pos(1440, ms->pitch)); });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_screen_pos(1900, ms->pitch + 1)); });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_screen_pos(2400, ms->pitch + 2)); });
+        step(3, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, music_screen_pos(2400, ms->pitch + 2)); });
+        wait_until(settled);
+        step(3, [this, ms, note_at] {
+            const auto n = note_at(1920, ms->pitch + 2);
+            at_check(n.has_value() && n->duration == 960 && !note_at(960, ms->pitch), "dragging the note moved it a beat later and two semitones up");
+            at_check(music_.model->notes(music_.track, music_.pattern).size() == ms->notes + 1 && undo_depth() == ms->undo + 2, "...as one undo step");
+        });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_screen_pos(2200, ms->pitch + 2)); });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, music_screen_pos(2200, ms->pitch + 2), 1); });
+        step(3, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, music_screen_pos(2200, ms->pitch + 2), 1); });
+        wait_until(settled);
+        step(3, [this, ms, note_at] {
+            at_check(!note_at(1920, ms->pitch + 2) && music_.model->notes(music_.track, music_.pattern).size() == ms->notes, "a right click deleted the note");
+            at_check(undo_depth() == ms->undo + 3, "...as one undo step");
+        });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, ms, note_at] { at_check(note_at(1920, ms->pitch + 2).has_value() && undo_depth() == ms->undo + 2, "Undo brought the note back"); });
+        step(2, [this] { undo(); });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, ms] {
+            at_check(music_.model->notes(music_.track, music_.pattern).size() == ms->notes && undo_depth() == ms->undo, "two more Undos took the drawn note out again");
+        });
+        step(2, [this] { redo(); });
+        wait_until(settled);
+        step(3, [this, ms, note_at] { at_check(note_at(960, ms->pitch).has_value() && undo_depth() == ms->undo + 1, "Redo drew it again"); });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+
+        // ---- the drum grid
+        click_widget("mus:tab_drums");
+        wait_until([this] { return at_visible("mus:drumgrid") && !music_.gridLanes.empty(); });
+        step(2, [this, ms] {
+            ms->undo = undo_depth();
+            const auto g = music_drum_grid(*music_.model->pattern(music_.drumTrack, music_.drumPattern));
+            at_check(g.has_value() && g->at("snare", 1, music_.model->doc()->meter) == '.', "the drum grid shows the groove with an empty snare cell");
+        });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_drum_cell_pos("snare", 1)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, music_drum_cell_pos("snare", 1)); });
+        step(4, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, music_drum_cell_pos("snare", 1)); });
+        wait_until(settled);
+        step(3, [this, ms] {
+            const auto g = music_drum_grid(*music_.model->pattern(music_.drumTrack, music_.drumPattern));
+            at_check(g.has_value() && g->at("snare", 1, music_.model->doc()->meter) == 'x', "a click on the grid put a snare hit on step 2");
+            at_check(undo_depth() == ms->undo + 1, "...as one undo step");
+        });
+
+        // ---- the arrangement: a section repeats once more
+        click_widget("mus:tab_arrangement");
+        wait_until([this] { return at_visible("mus:repeat_plus:loop"); });
+        step(2, [this, ms, section_repeat] {
+            ms->undo = undo_depth();
+            ms->renders = section_repeat("loop");
+        });
+        click_widget("mus:repeat_plus:loop");
+        wait_until(settled);
+        step(3, [this, ms, section_repeat] {
+            at_check(section_repeat("loop") == ms->renders + 1, "the + button raised the loop section's repeat");
+            at_check(undo_depth() == ms->undo + 1, "...as one undo step");
+            const SongTimeline* tl = music_.model->timeline();
+            at_check(tl && tl->spans.size() >= 4, "...and the timeline has one more pass");
+        });
+
+        // ---- the mixer: a track muted
+        click_widget("mus:tab_mixer");
+        wait_until([this] { return at_visible("mus:mute:arp"); });
+        step(2, [this, ms] { ms->undo = undo_depth(); });
+        click_widget("mus:mute:arp");
+        wait_until(settled);
+        step(3, [this, ms] {
+            const SongTrack* t = music_.model->track("arp");
+            at_check(t && t->mute && undo_depth() == ms->undo + 1, "the M button muted the arp track as one undo step");
+        });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this] {
+            const SongTrack* t = music_.model->track("arp");
+            at_check(t && !t->mute, "Undo unmuted it");
+        });
+
+        // ---- play: the playhead moves; the intensity fades the top layer
+        click_widget("mus:play");
+        wait_until([this] { return music_.preview && music_.preview->playing() && music_.preview->position_frames() > 0.25 * kMusicRate; });
+        step(2, [this, ms] {
+            ms->position = music_.preview->position_frames();
+            at_check(music_.preview->where().section >= 0 && music_.preview->where().bar >= 1, "Play started the song and the playhead is in a section");
+        });
+        wait_until([this, ms] { return music_.preview->position_frames() > ms->position + 0.25 * kMusicRate; });
+        step(2, [this] {
+            const std::vector<float> g = music_.preview->stem_gains();
+            at_check(g.size() == 3 && g[0] > 0.95f && g[2] < 0.05f, "...the playhead went on, with the base layer in and the top layer out at intensity 0");
+        });
+        click_widget("mus:int_1");
+        wait_until([this] { const auto g = music_.preview->stem_gains(); return g.size() == 3 && g[2] > 0.95f; });
+        step(2, [this] { at_check(music_.preview->intensity() > 0.99f, "the Intense button faded the top layer in"); });
+        snap("editor_music_playing.png");
+        click_widget("mus:int_0");
+        wait_until([this] { const auto g = music_.preview->stem_gains(); return g.size() == 3 && g[2] < 0.05f && g[1] < 0.05f; });
+        step(2, [this] { at_check(music_.preview->intensity() < 0.01f, "the Calm button faded the layers out again"); });
+        click_widget("mus:play");
+        step(3, [this] { at_check(!music_.preview->playing(), "Stop stopped it"); });
+        // a section, looped
+        step(2, [this] {
+            music_.section = 1;
+            music_.loopSection = true;
+        });
+        click_widget("mus:play_section");
+        wait_until([this] { return music_.preview->playing() && music_.preview->position_frames() > 0.1 * kMusicRate; });
+        step(2, [this] {
+            at_check(music_.preview->where().section == 1, "Play section started at the selected section");
+            at_check(music_.preview->loop_section() == 1, "...and Loop keeps it looping");
+        });
+        click_widget("mus:play");
+        step(3, [this] {
+            at_check(!music_.preview->playing(), "Stop stopped the section");
+            music_.loopSection = false;
+        });
+
+        // ---- Save bakes the mix and the layers
+        click_widget("mus:save");
+        step(10, [this] {
+            const std::string out = music_.model->baked_path();
+            at_check(!out.empty() && stdfs::exists(projectDir_ + "/" + out), "Save baked the song's mix: " + out);
+            int wavs = 0;
+            std::error_code ec;
+            for (const auto& e : stdfs::directory_iterator(projectDir_ + "/assets/at-music", ec))
+                if (e.path().extension() == ".wav") ++wavs;
+            at_check(wavs >= 4, "...and one stem per layer (" + std::to_string(wavs) + " wav files)");
+        });
+        step(2, [this, dir] {
+            FA_INFO("autotest", "music panel: last render {:.1f} ms", music_.model->last_render_ms());
+            showMusic_ = false;
+            music_close_document();
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/" + dir, ec);
+            project_files_changed();
+        });
+    }
+
+    section("N3");
+    // The Model panel (docs/EDITOR.md, "Model panel"): a model document opens as its operation tree with a live view of the mesh; picking a node
+    // highlights its part; a slider is clicked (ONE model.edit, one undo step) and Undo/Redo walk it through the editor's stack; a node is added,
+    // switched off and removed; the view is orbited with the mouse; the 1.8 m figure and Check show their results; Save bakes the .glb. Every wait
+    // counts frames or state.
+    {
+        struct Ns {
+            size_t undo = 0;
+            double height = 0;
+            size_t rows = 0;
+            std::uint64_t renders = 0;
+            float yaw = 0;
+        };
+        auto ns = std::make_shared<Ns>();
+        const std::string dir = "assets/at-model";
+        const std::string doc = dir + "/t.model.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        // The document is open, evaluated, and the viewport drew that mesh.
+        auto settled = [this] {
+            const ModelerModel* m = modeler_.model.get();
+            return m && m->is_open() && m->valid() && !m->busy() && m->build_is_fresh() && modeler_.picture.view != 0 && !m->has_live();
+        };
+        auto height_of = [this]() -> double {
+            const ModelerBuildPtr b = modeler_.model ? modeler_.model->build() : nullptr;
+            return b ? double(b->stats.bmax.y - b->stats.bmin.y) : 0.0;
+        };
+        step(2, [this, doc] {
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/assets/at-model", ec);   // a leftover of an earlier run
+            const Json args = Json::parse(R"({"bake":false,"nodes":[
+                {"op":"box","id":"base","size":[1,0.2,1],"part":"base","align":"bottom"},
+                {"op":"group","id":"top","part":"top","position":[0,0.2,0],"children":[
+                    {"op":"cylinder","id":"post","radius":0.2,"height":1,"align":"bottom"},
+                    {"op":"sphere","id":"ball","radius":0.3,"position":[0,1.3,0]}]}]})");
+            Json a = args;
+            a["path"] = doc;
+            const CommandResult r = engine_->commands().call("model.create", a);
+            after_command("model.create", a, r);
+            at_check(r.ok, "model.create worked: " + (r.ok ? std::string() : command_error_text(r.error)));
+            open_model_document(doc);
+        });
+        wait_until([this, settled] { return at_visible("mod:view") && at_visible("mod:save") && at_visible("mod:node:3") && settled(); });
+        step(3, [this, ns, height_of] {
+            ModelerModel& m = *modeler_.model;
+            at_check(m.valid() && m.rows().size() == 4, "the panel opened the document with its four nodes in the tree");
+            at_check(m.build() && m.build()->stats.triangles > 0, "...evaluated it to a mesh");
+            at_check(modeler_.renderCount > 0 && modeler_.picture.w > 0, "...and the viewport drew it");
+            at_check(at_visible("mod:check") && at_visible("mod:figure") && at_visible("mod:part:base") && at_visible("mod:part:top"), "...with Check, the figure toggle and its two parts listed");
+            ns->undo = undo_depth();
+            ns->height = height_of();
+            ns->renders = modeler_.renderCount;
+        });
+        snap("editor_model_panel.png");
+
+        // ---- a node picked: its part is highlighted and its parameters are listed
+        click_widget("mod:node:2");
+        wait_until([this, settled] { return modeler_.selected == "/nodes/1/children/0" && at_visible("mod:param:height") && settled(); });
+        step(3, [this, ns] {
+            at_check(modeler_.highlight == "top", "picking the post highlighted its part, `top`");
+            at_check(modeler_.renderCount > ns->renders, "...and the view was drawn again with it");
+            at_check(at_visible("mod:param:radius") && at_visible("mod:param:segments") && at_visible("mod:param:capTop") && at_visible("mod:param:position"),
+                     "...and the cylinder's parameters are listed, with the fields every node has");
+        });
+        snap("editor_model_part.png");
+
+        // ---- a slider clicked: one model.edit, one undo step
+        click_widget("mod:param:height");
+        wait_until(settled);
+        step(3, [this, ns, height_of] {
+            const Json* n = modeler_.model->node("/nodes/1/children/0");
+            at_check(n && n->contains("height") && (*n)["height"].get<double>() > 2.0, "a click on the height slider wrote its value to the document");
+            at_check(height_of() > ns->height + 1.0, "...and the model in the view is taller");
+            at_check(undo_depth() == ns->undo + 1, "...as one undo step");
+        });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, ns, height_of] {
+            at_check(std::fabs(height_of() - ns->height) < 1e-4 && undo_depth() == ns->undo, "Undo brought the height back");
+        });
+        step(2, [this] { redo(); });
+        wait_until(settled);
+        step(3, [this, ns, height_of] { at_check(height_of() > ns->height + 1.0 && undo_depth() == ns->undo + 1, "Redo made it taller again"); });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+
+        // ---- a part picked in the list
+        click_widget("mod:part:base");
+        step(3, [this] { at_check(modeler_.highlight == "base", "a click on `base` in the part list highlights it"); });
+
+        // ---- a node added, switched off, removed
+        step(2, [this, ns] {
+            ns->undo = undo_depth();
+            ns->rows = modeler_.model->rows().size();
+            modeler_.newOp = "torus";
+        });
+        click_widget("mod:add");
+        wait_until([this, settled] { return modeler_.model->rows().size() == 5 && settled(); });
+        step(3, [this, ns] {
+            at_check(undo_depth() == ns->undo + 1, "Add put a torus in the tree as one undo step");
+            at_check(modeler_.model->rows()[4].op == "torus" && modeler_.selected == "/nodes/2", "...and picked it");
+        });
+        click_widget("mod:enabled:4");
+        wait_until([this, settled] { return !modeler_.model->rows().empty() && !modeler_.model->rows()[4].enabled && settled(); });
+        step(3, [this, ns] { at_check(undo_depth() == ns->undo + 2, "the node's check box switched it off as one undo step"); });
+        click_widget("mod:remove");
+        wait_until([this, settled] { return modeler_.model->rows().size() == 4 && settled(); });
+        step(3, [this, ns] { at_check(undo_depth() == ns->undo + 3 && modeler_.selected.empty(), "Remove took it out as one undo step"); });
+        step(2, [this] { undo(); });
+        step(2, [this] { undo(); });
+        step(2, [this] { undo(); });
+        wait_until([this, settled] { return modeler_.model->rows().size() == 4 && settled(); });
+        step(3, [this, ns] {
+            at_check(undo_depth() == ns->undo && modeler_.model->rows().size() == ns->rows, "three Undos took the torus out again");
+            std::ifstream in(projectDir_ + "/assets/at-model/t.model.json");
+            std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            at_check(text.find("torus") == std::string::npos, "...and out of the document on disk");
+        });
+
+        // ---- the view: orbit with the mouse, the 1.8 m figure, Check
+        step(2, [this, ns] {
+            ns->yaw = modeler_.yaw;
+            ns->renders = modeler_.renderCount;
+        });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, modeler_screen_pos(0.5f, 0.5f)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, modeler_screen_pos(0.5f, 0.5f)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, modeler_screen_pos(0.6f, 0.5f)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, modeler_screen_pos(0.7f, 0.45f)); });
+        step(3, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, modeler_screen_pos(0.7f, 0.45f)); });
+        wait_until(settled);
+        step(3, [this, ns] {
+            at_check(std::fabs(modeler_.yaw - ns->yaw) > 5.0f, "dragging in the view orbited the model");
+            at_check(modeler_.renderCount > ns->renders, "...and the view was drawn again");
+        });
+        click_widget("mod:figure");
+        wait_until([this, settled] { return modeler_.figure && settled(); });
+        step(3, [this] { at_check(modeler_.figure, "the figure toggle stands a 1.8 m figure beside the model"); });
+        snap("editor_model_figure.png");
+        click_widget("mod:check");
+        wait_until([this] { return at_visible("mod:finding:0") || (modeler_.check.is_object() && modeler_.check["findings"].empty()); });
+        step(3, [this] {
+            at_check(modeler_.check.is_object() && modeler_.check.contains("mesh") && modeler_.check["mesh"]["triangles"].get<int>() > 0, "Check ran model.check on the document");
+            at_check(modeler_.checkError.empty(), "...with no error");
+        });
+
+        // ---- Save bakes the .glb
+        click_widget("mod:save");
+        step(10, [this] {
+            const std::string out = modeler_.model->baked_path();
+            at_check(!out.empty() && stdfs::exists(projectDir_ + "/" + out), "Save baked the model: " + out);
+        });
+        step(2, [this, dir] {
+            FA_INFO("autotest", "model panel: last evaluation {:.1f} ms, last picture {:.1f} ms", modeler_.model->last_eval_ms(), modeler_.renderMs);
+            showModeler_ = false;
+            modeler_close_document();
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/" + dir, ec);
+            project_files_changed();
+        });
+    }
+
+    section("O3");
+    // The Animation panel's 3D mode (docs/EDITOR.md, "Animation panel, 3D clips"): a generated walk opens on the rigged model, a bone is picked in the list and
+    // in the view, the rotation gizmo is dragged (ONE key, one undo step) and an IK handle too, a key is moved and deleted in the dopesheet, Mirror pose keys
+    // the other side, the filmstrip and the weights come back as pictures, a clip is generated from the panel and Undo/Redo walk every step through the
+    // editor's stack. Every wait counts frames or state.
+    {
+        struct Os {
+            size_t undo = 0;
+            std::string original, afterGizmo, afterMirror;
+            Vec3 head{};
+            std::uint64_t renders = 0;
+            Vec2 start{};
+            double playhead = 0;
+        };
+        auto os = std::make_shared<Os>();
+        const std::string dir = "assets/at-anim3d";
+        const std::string rigGlb = dir + "/hero.rig.glb";
+        const std::string clipRel = "anim/at-hero_walk.anim.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        // Press on a widget, move in four steps by `to(start, i)` (i = 1..4) and let go.
+        auto drag = [this, &step, os](const std::string& name, std::function<Vec2(Vec2, int)> to) {
+            step(2, [this, name, os] {
+                os->start = at_widget(name);
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, os->start);
+            });
+            step(2, [this, os] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, os->start); });
+            for (int i = 1; i <= 4; ++i) step(2, [this, os, to, i] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, to(os->start, i)); });
+            step(4, [this, os, to] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, to(os->start, 4)); });
+        };
+        auto clip_text = [this, clipRel] { return read_file(projectDir_ + "/" + clipRel); };
+        auto settled = [this] {
+            const Anim3DModel* m = anim3d_.model.get();
+            return m && m->is_open() && m->has_rig() && anim3d_.picture.view != 0 && !anim3d_.live && anim3d_.drag == Anim3DUi::Drag::None;
+        };
+        auto bone_head_now = [this](const std::string& bone) {
+            const Anim3DModel& m = *anim3d_.model;
+            return bone_head(*m.rig(), m.pose_at(anim3d_.playhead), m.node_of(bone));
+        };
+        step(2, [this, dir, clipRel, rigGlb] {
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/" + dir, ec);   // a leftover of an earlier run
+            stdfs::remove_all(projectDir_ + "/anim", ec);
+            stdfs::create_directories(projectDir_ + "/" + dir, ec);
+            write_file(projectDir_ + "/" + dir + "/hero.model.json", R"({"format":"factoria.model/1","nodes":[
+                {"op":"box","size":[0.36,0.2,0.2],"position":[0,0.95,0],"part":"pelvis"},
+                {"op":"box","size":[0.4,0.5,0.22],"position":[0,1.3,0],"part":"torso"},
+                {"op":"box","size":[0.1,0.1,0.1],"position":[0,1.6,0],"part":"neck"},
+                {"op":"box","size":[0.22,0.25,0.22],"position":[0,1.77,0.02],"part":"head"},
+                {"op":"box","size":[0.7,0.1,0.1],"position":[0.55,1.5,0],"part":"arm_l"},
+                {"op":"box","size":[0.7,0.1,0.1],"position":[-0.55,1.5,0],"part":"arm_r"},
+                {"op":"box","size":[0.14,0.9,0.14],"position":[0.11,0.45,0],"part":"leg_l"},
+                {"op":"box","size":[0.14,0.9,0.14],"position":[-0.11,0.45,0],"part":"leg_r"}]})");
+            const Json rigArgs = Json::object({{"path", dir + "/hero.rig.json"}, {"model", dir + "/hero.model.json"}, {"template", "humanoid"}});
+            const CommandResult rr = engine_->commands().call("rig.create", rigArgs);
+            after_command("rig.create", rigArgs, rr);
+            at_check(rr.ok, "rig.create worked: " + (rr.ok ? std::string() : command_error_text(rr.error)));
+            const Json genArgs = Json::object({{"rig", rigGlb}, {"kind", "walk"}, {"out", clipRel}});
+            const CommandResult gr = engine_->commands().call("anim3d.generate", genArgs);
+            after_command("anim3d.generate", genArgs, gr);
+            at_check(gr.ok, "anim3d.generate worked: " + (gr.ok ? std::string() : command_error_text(gr.error)));
+            at_check(anim3d_file_is_3d(projectDir_, clipRel), "the Project panel's test tells the generated file is a 3D clip");
+            open_anim3d_clip(clipRel, rigGlb);
+        });
+        wait_until([this, settled] { return settled() && at_shown("a3:view") && at_shown("a3:bone:spine_1") && at_visible("a3:key:arm_upper_l:0:0") && at_visible("a3:ruler"); });
+        step(3, [this, os, clipRel, clip_text] {
+            const Anim3DModel& m = *anim3d_.model;
+            at_check(m.path() == clipRel && m.has_rig() && m.clip() && !m.clip()->tracks.empty(), "the panel opened the generated walk on its rig");
+            at_check(anim3d_.renderCount > 0 && anim3d_.picture.w > 100, "...the viewport drew the posed model");
+            at_check(anim3d_.bonesDrawn > 8 && anim3d_.keysDrawn > 8, "...with the bones over it and the keys in the dopesheet");
+            at_check(at_visible("a3:filmstrip") && at_visible("a3:mirror") && at_visible("a3:tool:ik") && at_visible("a3:play"), "...and the toolbar and the tools are there");
+            at_check(m.rows().size() > 10, "...the bone list holds the rig's bones");
+            os->undo = undo_depth();
+            os->original = clip_text();
+            os->renders = anim3d_.renderCount;
+        });
+        snap("editor_anim3d_panel.png");
+
+        // ---- a bone picked in the list, then in the view
+        click("a3:bone:spine_1");
+        step(3, [this] {
+            at_check(anim3d_.bone == "spine_1", "a click on a bone in the list picked it");
+            at_check(anim3d_.handlesDrawn >= 3, "...and the rotation gizmo (three rings) is drawn on it");
+        });
+        wait_until([this] { return at_visible("a3:joint:arm_upper_l"); });
+        click("a3:joint:arm_upper_l");
+        step(3, [this] { at_check(anim3d_.bone == "arm_upper_l", "a click on a bone's joint in the view picked it"); });
+        wait_until([this] { return at_visible("a3:ring:x") && at_visible("a3:ring:y") && at_visible("a3:ring:z"); });
+
+        // ---- the rotation gizmo: a drag round the joint is ONE key and one undo step
+        step(2, [this, os, bone_head_now] {
+            os->head = bone_head_now("hand_l");
+            os->undo = undo_depth();
+            os->renders = anim3d_.renderCount;
+        });
+        drag("a3:ring:z", [this](Vec2 start, int i) {
+            const Vec2 c = at_widget("a3:joint:arm_upper_l");
+            const double a = 0.17 * i;   // about 40 degrees round the joint on the screen
+            const double dx = double(start.x - c.x), dy = double(start.y - c.y);
+            return Vec2{float(c.x + dx * std::cos(a) - dy * std::sin(a)), float(c.y + dx * std::sin(a) + dy * std::cos(a))};
+        });
+        wait_until(settled);
+        step(3, [this, os, clip_text, bone_head_now] {
+            const Anim3DModel& m = *anim3d_.model;
+            at_check(undo_depth() == os->undo + 1, "the gizmo drag is one undo step");
+            at_check(m.key_at(Key3D{"arm_upper_l", 0, 0}) != nullptr, "...it keyed the picked bone at the playhead");
+            at_check(clip_text() != os->original, "...the clip file on disk changed");
+            at_check(length(bone_head_now("hand_l") - os->head) > 0.02f, "...and the hand moved with the arm");
+            at_check(anim3d_.renderCount > os->renders, "...and the view was drawn again");
+            os->afterGizmo = clip_text();
+        });
+        snap("editor_anim3d_gizmo.png");
+
+        // ---- Mirror pose copies the left side onto the right as one more step
+        step(2, [this] { anim3d_.mirrorFrom = 1; });
+        click("a3:mirror");
+        wait_until([this, os] { return undo_depth() == os->undo + 2; });
+        step(3, [this, os, clip_text] {
+            at_check(clip_text() != os->afterGizmo, "Mirror pose keyed the right side as one more undo step");
+            os->afterMirror = clip_text();
+        });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, os, clip_text] { at_check(clip_text() == os->afterGizmo && undo_depth() == os->undo + 1, "Undo took the mirror back"); });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, os, clip_text] {
+            at_check(clip_text() == os->original && undo_depth() == os->undo, "Undo again took the gizmo's key back: the file is the generated one");
+            at_check(anim3d_.model->revision() > 0, "...and the panel read it again");
+        });
+        step(2, [this] { redo(); });
+        step(2, [this] { redo(); });
+        wait_until(settled);
+        step(3, [this, os, clip_text] {
+            at_check(clip_text() == os->afterMirror && undo_depth() == os->undo + 2, "two Redos brought both steps back");
+        });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+
+        // ---- the dopesheet: a key moved, undone, deleted
+        click("a3:onlybone");
+        wait_until([this] { return at_shown("a3:key:arm_upper_l:0:0"); });
+        step(2, [this, os] { os->undo = undo_depth(); });
+        drag("a3:key:arm_upper_l:0:0", [](Vec2 start, int i) { return Vec2{start.x + 14.0f * float(i), start.y}; });
+        wait_until(settled);
+        step(3, [this, os] {
+            const Anim3DModel& m = *anim3d_.model;
+            at_check(undo_depth() == os->undo + 1, "dragging a key in the dopesheet is one undo step");
+            at_check(m.key_at(Key3D{"arm_upper_l", 0, 0}) == nullptr, "...the key left its time");
+            at_check(!anim3d_.selection.empty() && anim3d_.selection.begin()->ms > 0, "...and the selection followed it");
+        });
+        step(2, [this] { undo(); });
+        wait_until([this, settled] { return settled() && at_shown("a3:key:arm_upper_l:0:0"); });
+        step(3, [this, os] { at_check(anim3d_.model->key_at(Key3D{"arm_upper_l", 0, 0}) != nullptr && undo_depth() == os->undo, "Undo put the key back"); });
+        click("a3:key:arm_upper_l:0:0");
+        wait_until([this] { return anim3d_.selection.size() == 1 && at_enabled("a3:delete"); });
+        click("a3:delete");
+        wait_until([this, os, settled] { return settled() && undo_depth() == os->undo + 1; });
+        step(3, [this] { at_check(anim3d_.model->key_at(Key3D{"arm_upper_l", 0, 0}) == nullptr && anim3d_.selection.empty(), "Delete keys removed the picked key"); });
+        step(2, [this] { undo(); });
+        wait_until([this, settled] { return settled() && anim3d_.model->key_at(Key3D{"arm_upper_l", 0, 0}) != nullptr; });
+        click("a3:onlybone");
+
+        // ---- the IK handle: a foot dragged up is one undo step
+        wait_until([this] { return at_shown("a3:joint:foot_l"); });
+        click("a3:joint:foot_l");
+        click("a3:tool:ik");
+        wait_until([this] { return anim3d_.bone == "foot_l" && at_visible("a3:ik:target") && at_visible("a3:ik:pole"); });
+        step(2, [this, os, bone_head_now] {
+            os->head = bone_head_now("foot_l");
+            os->undo = undo_depth();
+        });
+        drag("a3:ik:target", [](Vec2 start, int i) { return Vec2{start.x, start.y - 7.0f * float(i)}; });
+        wait_until(settled);
+        step(3, [this, os, bone_head_now] {
+            at_check(undo_depth() == os->undo + 1, "an IK handle drag is one undo step");
+            at_check(bone_head_now("foot_l").y > os->head.y + 0.03f, "...the foot followed the handle up");
+        });
+        snap("editor_anim3d_ik.png");
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, os, bone_head_now] { at_check(undo_depth() == os->undo && std::fabs(bone_head_now("foot_l").y - os->head.y) < 0.005f, "Undo put the foot back"); });
+        click("a3:tool:rotate");
+
+        // ---- scrubbing and playing
+        click("a3:ruler");
+        step(3, [this] { at_check(anim3d_.playhead > 0.05, "a click on the ruler moved the playhead"); });
+        step(2, [this, os] {
+            os->playhead = anim3d_.playhead;
+            anim3d_.playhead = 0;
+        });
+        click("a3:play");
+        wait_until([this] { return anim3d_.playhead > 0.05 && anim3d_.playing; });
+        click("a3:play");
+        step(3, [this] { at_check(!anim3d_.playing, "Play ran the playhead and a second click stopped it"); });
+
+        // ---- the filmstrip and the weights
+        click("a3:filmstrip");
+        wait_until([this] { return anim3d_.film.tex.view != 0 || !anim3d_.film.error.empty(); });
+        step(3, [this] {
+            at_check(anim3d_.film.error.empty() && anim3d_.film.tex.w > 300 && anim3d_.film.tex.h > 150, "the Filmstrip button drew anim3d.preview's sheet (several poses, three angles)");
+            at_check(anim3d_.showSheets, "...in its own window");
+        });
+        wait_until([this] { return at_visible("a3:sheet:filmstrip"); });
+        snap("editor_anim3d_filmstrip.png");
+        step(2, [this] { anim3d_.showSheets = false; });   // the sheet window floats over the toolbar: close it like a user would
+        click("a3:weights");
+        wait_until([this] { return anim3d_.weights.tex.view != 0 || !anim3d_.weights.error.empty(); });
+        step(3, [this] { at_check(anim3d_.weights.error.empty() && anim3d_.weights.tex.w > 100, "the Weights button drew skin3d.preview's picture: " + anim3d_.weights.error); });
+
+        // ---- Generate from the panel: a new clip, opened, with Undo and Redo
+        step(2, [this, os] {
+            os->undo = undo_depth();
+            anim3d_.kind = "idle";
+            anim3d_.generateOutEdited = false;
+        });
+        click("a3:section:generate");
+        wait_until([this] { return at_shown("a3:generate") && at_enabled("a3:generate"); });
+        click("a3:generate");
+        wait_until([this, settled] { return anim3d_.model->is_open() && anim3d_.model->path() == "anim/hero_idle.anim.json" && settled(); });
+        step(3, [this, os] {
+            at_check(undo_depth() == os->undo + 1, "Generate in the panel is one undo step");
+            at_check(stdfs::exists(projectDir_ + "/anim/hero_idle.anim.json") && anim3d_.model->clip() && anim3d_.model->clip()->generated.is_object(),
+                     "...it wrote the clip and opened it");
+        });
+        step(2, [this] { undo(); });
+        step(4, [this] {
+            at_check(!stdfs::exists(projectDir_ + "/anim/hero_idle.anim.json") && !anim3d_.model->is_open(), "Undo deleted the generated clip and closed it");
+        });
+        step(2, [this] { redo(); });
+        wait_until([this, settled] { return anim3d_.model->is_open() && anim3d_.model->path() == "anim/hero_idle.anim.json" && settled(); });
+        step(3, [this] { at_check(stdfs::exists(projectDir_ + "/anim/hero_idle.anim.json"), "Redo wrote it again and opened it"); });
+
+        step(2, [this, dir] {
+            FA_INFO("autotest", "3D animation panel: {} pictures drawn, {} edits sent", anim3d_.renderCount, anim3d_.commits);
+            showAnimation_ = false;
+            anim3d_release_textures();
+            anim3d_ = Anim3DUi{};
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/" + dir, ec);
+            stdfs::remove_all(projectDir_ + "/anim", ec);
+            project_files_changed();
         });
     }
 

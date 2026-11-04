@@ -22,18 +22,16 @@
 
 namespace fa {
 
-// Local transform of every node of a SkeletonAsset (same indices as SkeletonAsset::nodes).
-struct Pose {
-    std::vector<Vec3> translation;
-    std::vector<Quat> rotation;
-    std::vector<Vec3> scale;
-};
+struct Animator;  // components.h
 
 Pose rest_pose(const SkeletonAsset& skeleton);
 // Overwrites the nodes the clip animates; the others keep what `pose` has. `time` is clamped to [0, clip.duration].
 void sample_clip(const SkeletonAsset& skeleton, const AnimClip& clip, float time, Pose& pose);
 // Per node: translation and scale lerp, rotation slerp. weight 0 = a, 1 = b.
 Pose blend_poses(const Pose& a, const Pose& b, float weight);
+// Writes the palettes of an Animator (palette, skinPalettes) from `pose`, a pose of the skeleton the Animator plays. The Animator's own
+// update does it with the clip's pose (kept in rt.pose); update_ik3d does it again with the IK-adjusted copy.
+void animator_apply_pose(Animator& animator, const Pose& pose);
 // World (model-space) matrix of every node.
 std::vector<Mat4> pose_globals(const SkeletonAsset& skeleton, const Pose& pose);
 // jointGlobal * inverseBind for each joint of `skin`; empty when the file has no such skin.

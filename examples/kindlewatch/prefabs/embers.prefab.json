@@ -1,0 +1,42 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "embers",
+    "components": {
+      "Transform": {},
+      "ParticleEmitter": {
+        "is3D": true,
+        "emitting": false,
+        "burst": 16,
+        "rate": 0,
+        "lifetime": 1.1,
+        "lifetimeVariance": 0.3,
+        "speed": 3.2,
+        "speedVariance": 0.4,
+        "spread": 60,
+        "gravity": [
+          0,
+          -3,
+          0
+        ],
+        "startSize": 0.12,
+        "endSize": 0.0,
+        "startColor": [
+          1,
+          0.75,
+          0.25,
+          1
+        ],
+        "endColor": [
+          1,
+          0.3,
+          0.1,
+          0
+        ],
+        "maxParticles": 30,
+        "autoDestroy": true,
+        "blend": "additive"
+      }
+    }
+  }
+}

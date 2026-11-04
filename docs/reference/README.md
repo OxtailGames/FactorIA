@@ -24,6 +24,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 ### [3D](components/3d.md)
 
 - [Animator](components/3d.md#animator): Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`), or, when there is no glTF model, the keyframed 2D clips of `clips` (*.anim.json files that animate fields of this entity and its children: position, rotation.z, color.a, Sprite.region...). _Since 0.2.0._
+- [IK3D](components/3d.md#ik3d): 3D inverse kinematics on the skinned model of the Animator on the same entity (docs/ANIMATION.md, "3D IK"). _Since 0.16.0._
 - [Light](components/3d.md#light): A light source for 3D meshes.
 - [MeshRenderer](components/3d.md#meshrenderer): Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal maps; glTF materials are read).
 
@@ -31,6 +32,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 
 - [AudioListener](components/audio.md#audiolistener): The 'ears' for spatial audio, usually on the camera or player.
 - [AudioSource](components/audio.md#audiosource): Plays a sound clip from the entity.
+- [MusicPlayer](components/audio.md#musicplayer): Plays a song document (*.song.json, docs/MUSIC.md) as adaptive music. _Since 0.16.0._
 
 ### [Camera](components/camera.md)
 
@@ -120,6 +122,26 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`anim.set_event`](commands/anim.md#animset_event-modifies-state): Rename an event of a clip or replace its data. _Since 0.7.0._
 - [`anim.set_interp`](commands/anim.md#animset_interp-modifies-state): Set how selected keys reach the next key: interp or easing, and bezier tangents. _Since 0.7.0._
 - [`anim.set_keys`](commands/anim.md#animset_keys-modifies-state): Add or replace keys of one track of a clip, creating the track if it is missing. _Since 0.7.0._
+- [`anim3d.add_event`](commands/anim.md#anim3dadd_event): Add an event to a 3D clip: a game event the Animator sends when the clip passes its time. _Since 0.16.0._
+- [`anim3d.create`](commands/anim.md#anim3dcreate): Write a new, empty 3D bone clip (*.anim.json, format factoria.anim3d/1) for a skinned rig; add tracks with anim3d.set_keys. _Since 0.16.0._
+- [`anim3d.generate`](commands/anim.md#anim3dgenerate): Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide. _Since 0.16.0._
+- [`anim3d.generators`](commands/anim.md#anim3dgenerators): List the clip generators of anim3d.generate (walk, run, trot, gallop, idle, swing, hit) with their parameters, ranges and defaults. _Since 0.16.0._
+- [`anim3d.info`](commands/anim.md#anim3dinfo): Describe a 3D bone clip (duration, tracks, events, contacts, how it was generated) and, with `rig`, check its bones against a baked rig; with no `path`, list the 3D clips of the project. _Since 0.16.0._
+- [`anim3d.mirror_pose`](commands/anim.md#anim3dmirror_pose): Key the left/right mirror of a 3D clip's pose at a time: swap both sides, or copy one side onto the other (bones are paired by canonical name: thigh_l <-> thigh_r). _Since 0.16.0._
+- [`anim3d.move_keys`](commands/anim.md#anim3dmove_keys): Move keys of a 3D clip in time by dt seconds (a dopesheet drag); a moved key replaces the key it lands on. _Since 0.16.0._
+- [`anim3d.preview`](commands/anim.md#anim3dpreview): Draw a 3D bone clip as a filmstrip: the baked rig posed at evenly spaced times, shaded, on a ground grid, with the feet that are on the ground marked; returns the PNG. _Since 0.16.0._
+- [`anim3d.remove_event`](commands/anim.md#anim3dremove_event): Remove an event from a 3D clip. _Since 0.16.0._
+- [`anim3d.remove_keys`](commands/anim.md#anim3dremove_keys): Delete keys of a 3D clip by bone, channel and time; a track left with no key goes away. _Since 0.16.0._
+- [`anim3d.remove_track`](commands/anim.md#anim3dremove_track): Remove the tracks of one bone from a 3D clip (all its channels, or the one in `channel`). _Since 0.16.0._
+- [`anim3d.restore`](commands/anim.md#anim3drestore): Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits. _Since 0.16.0._
+- [`anim3d.retarget`](commands/anim.md#anim3dretarget): Carry a 3D clip from one baked rig to another (other proportions, a different template) by bone role, index and side; root motion and feet are scaled and planted feet stay planted. _Since 0.16.0._
+- [`anim3d.set_clip`](commands/anim.md#anim3dset_clip): Set the duration, loop, ground speed or description of a 3D clip. _Since 0.16.0._
+- [`anim3d.set_event`](commands/anim.md#anim3dset_event): Move, rename or change the data of an event of a 3D clip. _Since 0.16.0._
+- [`anim3d.set_interp`](commands/anim.md#anim3dset_interp): Set how selected keys of a 3D clip reach the next key: linear, step, bezier or an easing (the M42 curves). _Since 0.16.0._
+- [`anim3d.set_keys`](commands/anim.md#anim3dset_keys): Add or replace keys of one bone's track in a 3D clip (rotation as euler degrees or quaternion, translation, scale); a key at the time of an existing one replaces it. _Since 0.16.0._
+- [`ik3d.check`](commands/anim.md#ik3dcheck): Check the `solvers` of an IK3D component against a baked rig: types, keys, number ranges, bone names ('did you mean') and chains (root -> mid -> end). _Since 0.16.0._
+- [`ik3d.key`](commands/anim.md#ik3dkey): Solve a 3D IK solver (two-bone with pole, or look-at) on a clip's pose at a time and key the bones it moved: the way an IK handle poses a chain. _Since 0.16.0._
+- [`ik3d.solve`](commands/anim.md#ik3dsolve): Run one IK3D solver offline on a baked rig (its rest pose, or a clip's pose at a time) and report whether it reached, the error and where the bones ended up. _Since 0.16.0._
 
 ### [api](commands/api.md)
 
@@ -132,6 +154,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.analyze_audio`](commands/assets.md#assetsanalyze_audio-modifies-state): Measure the loudness of a sound (or of every sound) and keep the result in assets.json. _Since 0.1.6._
 - [`assets.animate_svg`](commands/assets.md#assetsanimate_svg-modifies-state): Draw an animation with code (a JS module that returns the SVG of each frame, or an SVG with SMIL) and bake it into a sprite sheet PNG plus its `sheet` entry, offline: no provider, no key. _Since 0.6.0._
 - [`assets.bake_sheet`](commands/assets.md#assetsbake_sheet-modifies-state): Bake an entity the engine draws (a prefab, or an entity of a scene) into a sprite sheet: Shape2D, tweens, particles and scripts play and are captured frame by frame. _Since 0.6.0._
+- [`assets.check_art`](commands/assets.md#assetscheck_art): Check pictures against the house style and how they read in the game: palette fit, contrast over the real backgrounds, readability at phone and desktop size, halos on alpha edges, and set consistency; returns an annotated picture. _Since 0.16.0._
+- [`assets.check_mix`](commands/assets.md#assetscheck_mix): Measure every sound of the project together: loudness per bus, music masking effects, clicks, loop seams, clipping, true peak; each finding has a fix. _Since 0.16.0._
+- [`assets.contact_sheet`](commands/assets.md#assetscontact_sheet): Look at a set of images (or .glb models) side by side at their on-screen size, over light, dark and camera-colour backgrounds and in greyscale, labelled with their file names. _Since 0.16.0._
 - [`assets.convert_audio`](commands/assets.md#assetsconvert_audio-modifies-state): Convert a WAV in the project to Ogg Vorbis (smaller, streams well) and record where it came from. _Since 0.3.0._
 - [`assets.disclosure`](commands/assets.md#assetsdisclosure): Write the AI-generated content disclosure for store forms (Steam) from the provenance records. _Since 0.1.6._
 - [`assets.draw_capsules`](commands/assets.md#assetsdraw_capsules-modifies-state): Make the store page images (capsules, heroes, covers, screenshots) at each store's sizes from one piece of key art and a logo. _Since 0.2.0._
@@ -147,19 +172,150 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.import`](commands/assets.md#assetsimport-modifies-state): Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF, MP4...) into the project's assets/ folder and record where it came from. _Since 0.1.6._
 - [`assets.list`](commands/assets.md#assetslist): List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, other (by file name).
 - [`assets.pack_atlas`](commands/assets.md#assetspack_atlas-modifies-state): Pack a folder of images into one atlas PNG and write the frame table (rect and pivot per frame) that a Sprite's `region` reads. _Since 0.3.0._
+- [`assets.preview_in_scene`](commands/assets.md#assetspreview_in_scene): See an asset inside a scene of the game: it is placed (a PNG as a Sprite, a .glb as a MeshRenderer) in a private run of the scene and captured at phone and desktop resolutions. _Since 0.16.0._
 - [`assets.preview_sheet`](commands/assets.md#assetspreview_sheet): Look at a sprite sheet the way the game plays it: a labelled grid of its frames (numbers, cell edges, pivot, optional onion skin) plus checks for empty, cut or jumping frames and a loop seam. _Since 0.6.0._
 - [`assets.provenance`](commands/assets.md#assetsprovenance): Show where assets came from: the provenance record of one file, or all of them. _Since 0.1.6._
 - [`assets.rasterize_svg`](commands/assets.md#assetsrasterize_svg-modifies-state): Turn an SVG (text or a project file) into a PNG at a given size, offline: art you write as vector shapes, no provider and no key. _Since 0.4.0._
 - [`assets.regenerate`](commands/assets.md#assetsregenerate-modifies-state): Make a made asset again from the recipe its provenance records, and say what changed. _Since 0.6.0._
+- [`assets.review`](commands/assets.md#assetsreview): A cheap one-shot vision review of the pictures you made: a verdict and concrete fixes, grounded on assets.check_art and the style references. _Since 0.16.0._
 - [`assets.set_provenance`](commands/assets.md#assetsset_provenance-modifies-state): Record where an asset came from (hand-made, imported, or made with AI elsewhere). _Since 0.1.6._
 - [`assets.slice_sheet`](commands/assets.md#assetsslice_sheet-modifies-state): Make an image playable by SpriteAnimator: check its frame grid, or find the frames of an uneven sheet and repack them. _Since 0.1.6._
+- [`assets.spectrogram`](commands/assets.md#assetsspectrogram): See a sound: a picture of its waveform, spectrogram (log frequency) and loudness curve, with the clipped samples and the loop seam marked. _Since 0.16.0._
 - [`assets.subset_font`](commands/assets.md#assetssubset_font-modifies-state): Cut a font down to the characters of the locale tables plus Latin and punctuation (a CJK font from 17 MB to a few hundred KB), pinning a variable font's axes. _Since 0.3.0._
 - [`assets.synth_sound`](commands/assets.md#assetssynth_sound-modifies-state): Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key. _Since 0.3.0._
+- [`audio.bake`](commands/assets.md#audiobake-modifies-state): Render audio documents to WAV/OGG files next to them (only the missing or stale ones unless forced), with their recipe in assets.json. _Since 0.16.0._
+- [`audio.create`](commands/assets.md#audiocreate-modifies-state): Write a new audio document (a source and a chain of steps) and bake it. _Since 0.16.0._
+- [`audio.edit`](commands/assets.md#audioedit-modifies-state): Add, change, remove or move one step of an audio document (or change its source, seed or output), then bake it. _Since 0.16.0._
+- [`audio.info`](commands/assets.md#audioinfo): Check an audio document and say what its chain renders to; with no arguments, list the step types and their fields. _Since 0.16.0._
+- [`audio.render`](commands/assets.md#audiorender): Render an audio document in memory: measurements, what each step did, and a waveform/spectrogram picture. Writes nothing. _Since 0.16.0._
+- [`image.bake`](commands/assets.md#imagebake-modifies-state): Draw a layered image document (*.image.json) into its PNG and return the picture. _Since 0.16.0._
+- [`image.create`](commands/assets.md#imagecreate-modifies-state): Make a new layered image document (*.image.json) with a canvas size, a background and optional first layers, and bake its PNG. _Since 0.16.0._
+- [`image.draw`](commands/assets.md#imagedraw-modifies-state): Draw pixel-exact shapes (lines, rectangles, ellipses, polygons, flood fills) onto an indexed pixel-art layer by palette colour. _Since 0.16.0._
+- [`image.edit`](commands/assets.md#imageedit-modifies-state): Change the selected pixels of one layer of an image document: fill, recolor, move, transform (scale, rotate, flip), delete, copy or cut to a new layer. _Since 0.16.0._
+- [`image.export`](commands/assets.md#imageexport-modifies-state): Write the flattened picture of a document, or one layer or group of it, to a PNG, optionally scaled or trimmed. _Since 0.16.0._
+- [`image.frame.add`](commands/assets.md#imageframeadd-modifies-state): Add frames to an image document (making it an animation), copying a frame or blank, and keep the tags in place. _Since 0.16.0._
+- [`image.frame.cel`](commands/assets.md#imageframecel-modifies-state): Make a layer show in one frame what it shows in another, or show nothing there. _Since 0.16.0._
+- [`image.frame.move`](commands/assets.md#imageframemove-modifies-state): Move a frame to another place in the animation; tags follow their frames. _Since 0.16.0._
+- [`image.frame.remove`](commands/assets.md#imageframeremove-modifies-state): Remove one frame of an animated image document; later frames and tags move down. _Since 0.16.0._
+- [`image.frame.set`](commands/assets.md#imageframeset-modifies-state): Set how long frames show, in milliseconds. _Since 0.16.0._
+- [`image.frame.sheet`](commands/assets.md#imageframesheet-modifies-state): Choose how many frames the baked sprite sheet has per row. _Since 0.16.0._
+- [`image.generate_layer`](commands/assets.md#imagegenerate_layer-modifies-state): Generate a picture with the image provider and add it to an image document as a `provider` layer, optionally masked by a selection. _Since 0.16.0._
+- [`image.info`](commands/assets.md#imageinfo): Describe a layered image document: its layers as a tree with index paths, sizes, bake status, the files it reads and its stored selections. _Since 0.16.0._
+- [`image.inpaint`](commands/assets.md#imageinpaint-modifies-state): Repaint the selected part of an image document with the image provider and add the result as a masked `provider` layer. _Since 0.16.0._
+- [`image.layer.add`](commands/assets.md#imagelayeradd-modifies-state): Add a layer to an image document (at the top, or at an index, or inside a group) and bake the picture. _Since 0.16.0._
+- [`image.layer.add_provider`](commands/assets.md#imagelayeradd_provider-modifies-state): Add a PNG an image provider made to an image document as a `provider` layer, with its provenance and an optional mask from a stored selection. _Since 0.16.0._
+- [`image.layer.convert`](commands/assets.md#imagelayerconvert-modifies-state): Turn a layer into an indexed pixel-art layer (quantized to the palette, optional dither) or an indexed layer back into a pixels layer. _Since 0.16.0._
+- [`image.layer.move`](commands/assets.md#imagelayermove-modifies-state): Move a layer to another position in its list, or into another group (or back to the top level), and bake. _Since 0.16.0._
+- [`image.layer.remove`](commands/assets.md#imagelayerremove-modifies-state): Remove a layer (and the children of a group) from an image document and bake. _Since 0.16.0._
+- [`image.layer.set`](commands/assets.md#imagelayerset-modifies-state): Change fields of one layer (name, visible, opacity, blend, x, y, clip, masks, adjustments, effects, its kind's fields) and bake. _Since 0.16.0._
+- [`image.paint`](commands/assets.md#imagepaint-modifies-state): Paint round-brush strokes onto a pixels layer of an image document (deterministic stamping), creating the layer's PNG when asked. _Since 0.16.0._
+- [`image.palette`](commands/assets.md#imagepalette-modifies-state): Show or change the palette and the colour ramps that indexed pixel-art layers of an image document are locked to. _Since 0.16.0._
+- [`image.palette.move`](commands/assets.md#imagepalettemove-modifies-state): Move one colour of an image document's palette to another position; the pixels follow it, so the picture does not change. _Since 0.16.0._
+- [`image.palette.remove`](commands/assets.md#imagepaletteremove-modifies-state): Remove one colour from an image document's palette; its pixels become another colour or transparent. _Since 0.16.0._
+- [`image.pixel`](commands/assets.md#imagepixel-modifies-state): Write exact pixels (a list, runs or a text stamp) onto an indexed pixel-art layer by palette colour; no anti-aliasing. _Since 0.16.0._
+- [`image.pixel.cleanup`](commands/assets.md#imagepixelcleanup-modifies-state): Clean an indexed layer: orphan pixels, doubles at line bends and uneven steps on nearly straight lines; reports what changed. _Since 0.16.0._
+- [`image.pixel.dither`](commands/assets.md#imagepixeldither-modifies-state): Fill a region of an indexed layer with a dithered blend of palette colours (Bayer or checker), constant or as a gradient along a direction. _Since 0.16.0._
+- [`image.pixel.outline`](commands/assets.md#imagepixeloutline-modifies-state): Outline an indexed pixel-art layer by palette colour: inside or outside, 4- or 8-connected, flat, darkest of the ramp, or selective (sel-out). _Since 0.16.0._
+- [`image.pixel.rotate`](commands/assets.md#imagepixelrotate-modifies-state): Rotate the pixels of an indexed layer (or a selection) by any angle, RotSprite-style: no new colours, no blur. _Since 0.16.0._
+- [`image.pixel.scale`](commands/assets.md#imagepixelscale-modifies-state): Scale the pixels of an indexed layer (or a selection) cleanly: whole factors repeat pixels, reductions take the commonest colour, scale2x/scale3x round corners; no blending. _Since 0.16.0._
+- [`image.pixel.shade`](commands/assets.md#imagepixelshade-modifies-state): Shade an indexed pixel-art shape from a light direction: shadow and highlight bands stepping along the colour ramps, optional dithered transition. _Since 0.16.0._
+- [`image.save`](commands/assets.md#imagesave-modifies-state): Check an image document, write it to a *.image.json file and bake its PNG; nothing is written when the document has a problem. _Since 0.16.0._
+- [`image.select`](commands/assets.md#imageselect-modifies-state): Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint. _Since 0.16.0._
+- [`image.tag.remove`](commands/assets.md#imagetagremove-modifies-state): Remove a tag (and so its clip) from an image document. _Since 0.16.0._
+- [`image.tag.set`](commands/assets.md#imagetagset-modifies-state): Name a run of frames (a tag); the bake makes a SpriteAnimator clip of it. _Since 0.16.0._
+- [`image.tile.check`](commands/assets.md#imagetilecheck): Check that a picture (or each tile of a sheet) repeats without a visible seam, with a preview of 3 x 3 copies. _Since 0.16.0._
+- [`image.tile.set`](commands/assets.md#imagetileset-modifies-state): Turn tile mode (wrap-around editing) on or off for an image document. _Since 0.16.0._
+- [`image.tileset.build`](commands/assets.md#imagetilesetbuild-modifies-state): Make an autotile tileset (16 or 47 tiles) from a few parts (inside, edge, corner), bake the sheet and write the Tilemap rules. _Since 0.16.0._
+- [`image.tileset.check`](commands/assets.md#imagetilesetcheck): Check an autotile tileset: every part is one tile big, and every pair of tiles that can touch in a map fits. _Since 0.16.0._
+- [`image.tileset.info`](commands/assets.md#imagetilesetinfo): Explain the parts of an autotile tileset and list its tiles (slot, neighbours, position in the sheet). _Since 0.16.0._
+- [`image.tileset.rules`](commands/assets.md#imagetilesetrules-modifies-state): Write the Tilemap autotile rules file of a tileset layer (the recipe command that keeps it current). _Since 0.16.0._
+- [`image.to_pixel_art`](commands/assets.md#imageto_pixel_art-modifies-state): Turn a painted, generated or imported picture (a layer or a PNG) into palette-exact pixel art: area-aware downscale, quantize, clean up, into an indexed layer. _Since 0.16.0._
+- [`model.bake`](commands/assets.md#modelbake-modifies-state): Build model documents into .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json. _Since 0.16.0._
+- [`model.bake_maps`](commands/assets.md#modelbake_maps): Bake a model's ambient occlusion, curvature and thickness maps in its UV atlas and measure them (nothing is written): the masks that texturing wear is built from. Returns the maps as pictures. _Since 0.16.0._
+- [`model.check`](commands/assets.md#modelcheck): Measure a model document's mesh for faults an artist finds by eye: scale, origin, flipped or inconsistent triangles, open and non-manifold edges, degenerate triangles, platform budgets. Each finding says where, what and how to fix. _Since 0.16.0._
+- [`model.create`](commands/assets.md#modelcreate-modifies-state): Write a new model document (a tree of primitives, modifiers, groups and transforms) and bake it to a .glb. _Since 0.16.0._
+- [`model.decal`](commands/assets.md#modeldecal-modifies-state): Add, replace, remove or clear the decals of a model document: pictures (logos, stains, markings) projected on its surface and baked into the texture. _Since 0.16.0._
+- [`model.edit`](commands/assets.md#modeledit-modifies-state): Add, change, remove or move one node of a model document by its id (or JSON pointer), or change its materials, output or note; then bake it. _Since 0.16.0._
+- [`model.game_ready`](commands/assets.md#modelgame_ready-modifies-state): Make a model document game-ready: origin, merged submeshes, LODs, a collider and a triangle budget report per platform; the settings live in the document. _Since 0.16.0._
+- [`model.import_clean`](commands/assets.md#modelimport_clean-modifies-state): Clean a generated or imported mesh (.glb, .gltf, .obj) into a game-ready model document: weld, drop floating bits, recentre, scale to a reference, decimate to a platform budget, optionally remesh, unwrap, and bake. _Since 0.16.0._
+- [`model.info`](commands/assets.md#modelinfo): Check a model document and measure what it builds; with no arguments, list the operations (primitives, modifiers, group) and their fields. _Since 0.16.0._
+- [`model.palette`](commands/assets.md#modelpalette-modifies-state): Colour a model with a palette without a texture: the `vertexColors` section (style palette or your own colours, one colour or a gradient per part, flat low-poly faces); returns the palette swatches. _Since 0.16.0._
+- [`model.preview`](commands/assets.md#modelpreview): Draw a model document from 4 to 8 sides (a turntable sheet, shaded and/or wireframe) beside a 1.8 m reference figure, with its triangle count and size; returns the PNG. _Since 0.16.0._
+- [`model.select`](commands/assets.md#modelselect): Try a selection of faces or edges chosen by meaning (normal direction, part, region, top/bottom, border, sharp, seam) on the mesh a node receives, and report what it matched. _Since 0.16.0._
+- [`model.texture`](commands/assets.md#modeltexture-modifies-state): Texture a model document: materials with tiling textures projected triplanar into the UV atlas, vertex colours, baked ambient occlusion and wear (worn edges, dirt in cavities) built from baked curvature and thickness, and decals; the result is a layered image document you can paint on. Returns the texture picture. _Since 0.16.0._
+- [`model.uv`](commands/assets.md#modeluv-modifies-state): Give a model document UVs (automatic unwrap, or box, cylinder, sphere and planar projections per part, packed into one texture at the style's texel density) and measure them; returns the UV layout picture. _Since 0.16.0._
+- [`music.arpeggio`](commands/assets.md#musicarpeggio-modifies-state): Make an arpeggio over a chord progression as note text, and optionally put it in a song. _Since 0.16.0._
+- [`music.bassline`](commands/assets.md#musicbassline-modifies-state): Make a bassline over a chord progression as note text, and optionally put it in a song. _Since 0.16.0._
+- [`music.check`](commands/assets.md#musiccheck): Find what is wrong in a song before listening: notes outside the key or the instrument's range, clashes, mud, silent tracks, loudness. _Since 0.16.0._
+- [`music.chord`](commands/assets.md#musicchord): Spell a chord by name, or a chord progression in a key: notes, MIDI numbers and the note text to paste. _Since 0.16.0._
+- [`music.create`](commands/assets.md#musiccreate-modifies-state): Write a new song document: pad, bass, drums and an arpeggio over a chord progression, with intro, loop and outro. _Since 0.16.0._
+- [`music.drums`](commands/assets.md#musicdrums-modifies-state): Make a drum pattern in a style (rock, funk, waltz, ...), and optionally put it in a song. _Since 0.16.0._
+- [`music.edit`](commands/assets.md#musicedit-modifies-state): Change a song document: tempo, tracks, patterns, sections, the arrangement, mutes and automation, checked before anything is written. _Since 0.16.0._
+- [`music.export_midi`](commands/assets.md#musicexport_midi-modifies-state): Write a song as a format-1 Standard MIDI File that a DAW or notation program opens. _Since 0.16.0._
+- [`music.import_midi`](commands/assets.md#musicimport_midi-modifies-state): Turn a Standard MIDI File (.mid) into a song document: tracks, patterns, sections from markers, drums as grids. _Since 0.16.0._
+- [`music.info`](commands/assets.md#musicinfo): Check a song document and say what it holds: structure, bars, seconds, a summary per section, and a piano-roll picture. _Since 0.16.0._
+- [`music.instrument`](commands/assets.md#musicinstrument-modifies-state): List the built-in song instruments (by family), the drum kits and lanes, sfx presets and project SoundFonts, show the patch behind an instrument, or list a SoundFont's presets. _Since 0.16.0._
+- [`music.mix`](commands/assets.md#musicmix): Render a song in memory and report the mix: each track's level, the buses and what the master's loudness normalization and limiter did. _Since 0.16.0._
+- [`music.notes`](commands/assets.md#musicnotes): List the notes of one pitched pattern of a song (pitch, tick, duration, velocity), or the hits of a drum pattern, as a piano roll sees them. _Since 0.16.0._
+- [`music.preview`](commands/assets.md#musicpreview-modifies-state): Render a song to a stereo WAV or OGG next to it (offline, deterministic) and see its spectrogram. _Since 0.16.0._
+- [`music.render`](commands/assets.md#musicrender-modifies-state): Render a whole song (intro, loop, outro) to a game-ready WAV or OGG with sample-exact loop points, and optionally one stem per layer. _Since 0.16.0._
+- [`music.scale`](commands/assets.md#musicscale): Say which notes a scale or mode has and the chords built on its degrees (with Roman numerals). _Since 0.16.0._
+- [`rig.bake`](commands/assets.md#rigbake-modifies-state): Fit rig documents to their models and write the skinned .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json. _Since 0.16.0._
+- [`rig.create`](commands/assets.md#rigcreate-modifies-state): Write a rig document for a model: a skeleton template (humanoid, quadruped, bird, tail, chain, generic) fitted to the model by its parts and landmarks, and bake it to a skinned .glb. _Since 0.16.0._
+- [`rig.fit`](commands/assets.md#rigfit-modifies-state): Change what a rig document tells the fit (parts, landmarks, options, symmetry, strict), fit the template to the model again and show what it matched; then bake. _Since 0.16.0._
+- [`rig.info`](commands/assets.md#riginfo): Check a rig document and fit it to its model without writing anything: every issue with its fix, the bones, where each joint came from and what the fit noticed. _Since 0.16.0._
+- [`rig.templates`](commands/assets.md#rigtemplates): List the skeleton templates (humanoid, quadruped, bird, tail, chain, generic) with their options and the words in part names they recognise; with `name`, the bones of one. _Since 0.16.0._
+- [`sfx.bake`](commands/assets.md#sfxbake-modifies-state): Render every sound patch of the project whose WAV is missing or out of date. _Since 0.16.0._
+- [`sfx.edit`](commands/assets.md#sfxedit-modifies-state): Change one field of a sound patch by JSON pointer (set, remove, add to an array, move inside an array); the result must still be a valid patch. _Since 0.16.0._
+- [`sfx.family`](commands/assets.md#sfxfamily-modifies-state): Make a consistent set of interface sounds (click, hover, confirm, cancel, error, open, close, notify) from one base patch. _Since 0.16.0._
+- [`sfx.info`](commands/assets.md#sfxinfo): Check a sound patch and say what it holds and how loud it renders, without writing anything. _Since 0.16.0._
+- [`sfx.preset`](commands/assets.md#sfxpreset-modifies-state): List the sound presets, return one as an editable patch, or write it to a *.sfx.json file. _Since 0.16.0._
+- [`sfx.render`](commands/assets.md#sfxrender-modifies-state): Render a sound patch (*.sfx.json) to a WAV or OGG next to it and see its spectrogram: the engine's own synthesizer, offline and deterministic. _Since 0.16.0._
+- [`sfx.tweak`](commands/assets.md#sfxtweak-modifies-state): Turn a patch's macros by meaning (brighter, longer tail, heavier) and write the change back to the patch. _Since 0.16.0._
+- [`skin3d.add`](commands/assets.md#skin3dadd-modifies-state): Add weight to a bone (or take it away with a negative amount) on the vertices of a part or a selection. _Since 0.16.0._
+- [`skin3d.auto`](commands/assets.md#skin3dauto-modifies-state): Choose how the weights are computed (auto, heat, voxel, rigid), for the whole rig or one part, and their settings; recompute and bake. _Since 0.16.0._
+- [`skin3d.clear`](commands/assets.md#skin3dclear-modifies-state): Remove one edit (by index) or all the edits from a rig document's skin, recompute and bake. _Since 0.16.0._
+- [`skin3d.info`](commands/assets.md#skin3dinfo): Show a rig document's skin: the method, its settings and edits, the bones with the parts they follow, and the quality of the weights it gives. _Since 0.16.0._
+- [`skin3d.limit`](commands/assets.md#skin3dlimit-modifies-state): Keep at most N influences per vertex (1 to 4) on a part or a selection, strongest first, and normalise. _Since 0.16.0._
+- [`skin3d.mirror`](commands/assets.md#skin3dmirror-modifies-state): Copy the weights of one side of the character to the other (_l to _r or the other way), pairing each vertex with its mirror image. _Since 0.16.0._
+- [`skin3d.normalize`](commands/assets.md#skin3dnormalize-modifies-state): Drop negligible influences and make each vertex's weights sum to 1, on a part or a selection. _Since 0.16.0._
+- [`skin3d.preview`](commands/assets.md#skin3dpreview): Draw the skin weights of a rig: a heat map of one bone or one colour per bone, and optionally the model bent at a bone to see how the skin deforms; returns the PNG. _Since 0.16.0._
+- [`skin3d.set`](commands/assets.md#skin3dset-modifies-state): Give a bone an exact weight on the vertices of a part or a selection; the other bones share the rest. _Since 0.16.0._
+- [`skin3d.smooth`](commands/assets.md#skin3dsmooth-modifies-state): Smooth the weights over the surface on the vertices of a part or a selection, to soften a crease at a joint. _Since 0.16.0._
+- [`vector.add`](commands/assets.md#vectoradd-modifies-state): Add a path, rectangle, ellipse or line to an SVG. _Since 0.16.0._
+- [`vector.align`](commands/assets.md#vectoralign-modifies-state): Align SVG elements to each other, the canvas or a key element. _Since 0.16.0._
+- [`vector.assign_ids`](commands/assets.md#vectorassign_ids-modifies-state): Give every drawn element without an id one. _Since 0.16.0._
+- [`vector.blob`](commands/assets.md#vectorblob-modifies-state): Add a smooth organic shape or curve through or around a few points. _Since 0.16.0._
+- [`vector.boolean`](commands/assets.md#vectorboolean-modifies-state): Union, subtract, intersect or exclude SVG shapes into one path. _Since 0.16.0._
+- [`vector.delete`](commands/assets.md#vectordelete-modifies-state): Delete SVG elements. _Since 0.16.0._
+- [`vector.distribute`](commands/assets.md#vectordistribute-modifies-state): Space SVG elements evenly along an axis. _Since 0.16.0._
+- [`vector.duplicate`](commands/assets.md#vectorduplicate-modifies-state): Copy SVG elements right after the originals. _Since 0.16.0._
+- [`vector.group`](commands/assets.md#vectorgroup-modifies-state): Wrap SVG elements in a new group. _Since 0.16.0._
+- [`vector.info`](commands/assets.md#vectorinfo): List the shapes and groups of an SVG with ids, bounds and node counts. _Since 0.16.0._
+- [`vector.mirror`](commands/assets.md#vectormirror-modifies-state): Mirror shapes across a vertical or horizontal axis and weld the halves, or add the mirrored copy. _Since 0.16.0._
+- [`vector.nodes`](commands/assets.md#vectornodes-modifies-state): Edit the nodes of a path: move anchors and handles, insert, delete, convert, break, join, close, append. _Since 0.16.0._
+- [`vector.offset`](commands/assets.md#vectoroffset-modifies-state): Grow or shrink SVG shapes by a distance (offset path, inset). _Since 0.16.0._
+- [`vector.reorder`](commands/assets.md#vectorreorder-modifies-state): Change the drawing order of SVG elements or move them into another group. _Since 0.16.0._
+- [`vector.repeat`](commands/assets.md#vectorrepeat-modifies-state): Repeat an SVG element in a grid or around a circle. _Since 0.16.0._
+- [`vector.set`](commands/assets.md#vectorset-modifies-state): Set the style, visibility, lock, id or attributes of SVG elements. _Since 0.16.0._
+- [`vector.set_path`](commands/assets.md#vectorset_path-modifies-state): Replace the path data of a shape. _Since 0.16.0._
+- [`vector.shade`](commands/assets.md#vectorshade-modifies-state): Add a shadow band and a highlight band to shapes from the light direction. _Since 0.16.0._
+- [`vector.shape`](commands/assets.md#vectorshape-modifies-state): Add a star, gear, rounded polygon, arrow, speech bubble or ribbon to an SVG. _Since 0.16.0._
+- [`vector.simplify`](commands/assets.md#vectorsimplify-modifies-state): Reduce the nodes of SVG paths within a tolerance. _Since 0.16.0._
+- [`vector.smooth`](commands/assets.md#vectorsmooth-modifies-state): Round the corners of SVG paths into smooth Bezier curves. _Since 0.16.0._
+- [`vector.stroke_to_path`](commands/assets.md#vectorstroke_to_path-modifies-state): Turn the stroke of SVG shapes into a filled outline path. _Since 0.16.0._
+- [`vector.style`](commands/assets.md#vectorstyle-modifies-state): Apply the project's style guide to an SVG: outline and palette. _Since 0.16.0._
+- [`vector.text_to_path`](commands/assets.md#vectortext_to_path-modifies-state): Turn text into path outlines with the engine's fonts, so it needs no font. _Since 0.16.0._
+- [`vector.to_rig`](commands/assets.md#vectorto_rig-modifies-state): Turn an SVG whose named groups are the parts of a character into part pictures, joints and a Bone2D prefab that animates in parts. _Since 0.16.0._
+- [`vector.transform`](commands/assets.md#vectortransform-modifies-state): Move, scale, rotate or flip SVG elements in the drawing space. _Since 0.16.0._
+- [`vector.ungroup`](commands/assets.md#vectorungroup-modifies-state): Dissolve SVG groups, keeping what is in them where it was. _Since 0.16.0._
 
 ### [audio](commands/audio.md)
 
 - [`audio.bus`](commands/audio.md#audiobus-modifies-state): Set a bus's volume and effects (low-pass, reverb, ducking), or read its state. _Since 0.3.0._
 - [`audio.log`](commands/audio.md#audiolog): List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.
+- [`audio.music`](commands/audio.md#audiomusic-modifies-state): Drive a MusicPlayer: play, stop, setIntensity, goToSection, playStinger or crossfadeTo. _Since 0.16.0._
+- [`audio.music_state`](commands/audio.md#audiomusic_state): What the MusicPlayer components are doing: song, section, bar, beat, layers and pending changes. _Since 0.16.0._
 - [`audio.snapshot`](commands/audio.md#audiosnapshot-modifies-state): Apply a named mixer snapshot from factoria.json, or list the snapshots. _Since 0.3.0._
 
 ### [docs](commands/docs.md)
@@ -317,7 +473,11 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`skin.set_weights`](commands/scene.md#skinset_weights-modifies-state): Paint the bone weights of chosen vertices: set, add or smooth. _Since 0.7.0._
 - [`tilemap.cell_at`](commands/scene.md#tilemapcell_at): The cell of a Tilemap under a world point (orthogonal squares or isometric diamonds). _Since 0.3.0._
 - [`tilemap.cell_to_world`](commands/scene.md#tilemapcell_to_world): The world position of the centre of a Tilemap cell (orthogonal squares or isometric diamonds). _Since 0.3.0._
+- [`tilemap.paint_terrain`](commands/scene.md#tilemappaint_terrain-modifies-state): Paint (or erase) a terrain on a Tilemap's cells and re-tile the cells around them with its autotile rules. _Since 0.16.0._
+- [`tilemap.retile`](commands/scene.md#tilemapretile-modifies-state): Re-tile every terrain cell of a Tilemap from its neighbours. _Since 0.16.0._
+- [`tilemap.set_terrains`](commands/scene.md#tilemapset_terrains-modifies-state): Set a Tilemap's autotile rules from a list or a rules file (as image.tileset.build writes them). _Since 0.16.0._
 - [`tilemap.set_tile`](commands/scene.md#tilemapset_tile-modifies-state): Change one tile of a Tilemap in the running scene, in place. _Since 0.3.0._
+- [`tilemap.terrains`](commands/scene.md#tilemapterrains): The autotile rules of a Tilemap: its terrains, their slots and how many cells belong to each. _Since 0.16.0._
 
 ### [screen](commands/screen.md)
 
