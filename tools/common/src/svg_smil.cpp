@@ -250,7 +250,7 @@ bool parse_clock(std::string_view text, double& out) {
         if (parts.size() < 2 || parts.size() > 3) return false;
         double total = 0;
         for (const std::string& p : parts) {
-            double v;
+            double v = 0;
             if (!parse_double(p, v) || v < 0) return false;
             total = total * 60 + v;
         }
@@ -268,7 +268,7 @@ bool parse_clock(std::string_view text, double& out) {
         return false;
     };
     if (!strip("ms", 0.001) && !strip("min", 60) && !strip("h", 3600)) strip("s", 1);
-    double v;
+    double v = 0;
     if (!parse_double(trimmed(s), v)) return false;
     out = sign * v * scale;
     return true;
@@ -798,7 +798,7 @@ struct SmilSvg::Impl {
         if (const std::string* e = n->attr("end")) a.endSpecs = split_list(*e, ';');
         const std::string dur = trimmed(n->attr_or("dur", "indefinite"));
         if (dur != "indefinite" && !dur.empty()) {
-            double v;
+            double v = 0;
             if (dur == "media" || !parse_clock(dur, v) || v <= 0)
                 warn_anim(a, "dur=\"" + dur + "\" is not a positive time like \"2s\" or \"500ms\"; the duration is treated as indefinite.");
             else
@@ -806,7 +806,7 @@ struct SmilSvg::Impl {
         }
         if (const std::string* rc = n->attr("repeatCount")) {
             a.hasRepeatCount = true;
-            double v;
+            double v = 0;
             if (trimmed(*rc) == "indefinite") a.repeatCount = kInf;
             else if (parse_double(trimmed(*rc), v) && v > 0) a.repeatCount = v;
             else {
@@ -815,7 +815,7 @@ struct SmilSvg::Impl {
             }
         }
         if (const std::string* rd = n->attr("repeatDur")) {
-            double v;
+            double v = 0;
             if (trimmed(*rd) == "indefinite") {
                 a.hasRepeatDur = true;
                 a.repeatDur = kInf;
@@ -899,7 +899,7 @@ struct SmilSvg::Impl {
             std::vector<double> times;
             bool ok = true;
             for (const std::string& s : split_list(*kt, ';')) {
-                double v;
+                double v = 0;
                 ok = ok && parse_double(s, v) && v >= 0 && v <= 1;
                 times.push_back(ok ? v : 0);
             }
@@ -988,7 +988,7 @@ struct SmilSvg::Impl {
             std::vector<double> pts;
             bool ok = !a.path.pts.empty();
             for (const std::string& s : split_list(*kp, ';')) {
-                double v;
+                double v = 0;
                 ok = ok && parse_double(s, v) && v >= 0 && v <= 1;
                 pts.push_back(ok ? v : 0);
             }
@@ -996,7 +996,7 @@ struct SmilSvg::Impl {
             std::vector<double> times;
             if (ok && kt)
                 for (const std::string& s : split_list(*kt, ';')) {
-                    double v;
+                    double v = 0;
                     ok = ok && parse_double(s, v) && v >= 0 && v <= 1;
                     times.push_back(ok ? v : 0);
                 }
@@ -1011,7 +1011,7 @@ struct SmilSvg::Impl {
             std::vector<double> times;
             bool ok = true;
             for (const std::string& s : split_list(*kt, ';')) {
-                double v;
+                double v = 0;
                 ok = ok && parse_double(s, v) && v >= 0 && v <= 1;
                 times.push_back(ok ? v : 0);
             }
@@ -1038,7 +1038,7 @@ struct SmilSvg::Impl {
             std::vector<double> out;
             for (const std::string& spec : specs) {
                 if (spec.empty() || spec == "indefinite") continue;
-                double v;
+                double v = 0;
                 if (parse_clock(spec, v)) {
                     out.push_back(v);
                     continue;
@@ -1274,7 +1274,7 @@ struct SmilSvg::Impl {
         std::vector<double> out;
         std::size_t i = 0;
         while (i < s.size()) {
-            double v;
+            double v = 0;
             if (is_space(s[i]) || s[i] == ',') ++i;
             else if (scan_number(s, i, v)) out.push_back(v);
             else ++i;

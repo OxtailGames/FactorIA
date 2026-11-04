@@ -875,13 +875,13 @@ Result<ExportReport> export_project(const ExportOptions& options) {
 
     // Image documents are the source of their PNGs: bake the ones not baked (or stale) so that the game ships the picture.
     // Before anything is written to the output, so that a document that does not load leaves the previous export in place.
-    if (auto baked = bake_image_documents_if_needed(p.dir); !baked.ok()) return baked.error();
+    if (auto baked = bake_image_documents_if_needed(generic(p.dir)); !baked.ok()) return baked.error();
     // The same for audio documents: the shipped sound is what their chain renders.
-    if (auto baked = bake_audio_documents_if_needed(p.dir); !baked.ok()) return baked.error();
+    if (auto baked = bake_audio_documents_if_needed(generic(p.dir)); !baked.ok()) return baked.error();
     // And model documents: the shipped model is what their tree builds.
-    if (auto baked = bake_model_documents_if_needed(p.dir); !baked.ok()) return baked.error();
+    if (auto baked = bake_model_documents_if_needed(generic(p.dir)); !baked.ok()) return baked.error();
     // And rig documents: the shipped skinned model is the model fitted with its skeleton.
-    if (auto baked = bake_rig_documents_if_needed(p.dir); !baked.ok()) return baked.error();
+    if (auto baked = bake_rig_documents_if_needed(generic(p.dir)); !baked.ok()) return baked.error();
 
     std::error_code ec;
     stdfs::create_directories(os_path(plan.outParent), ec);

@@ -15,6 +15,7 @@
 #include "recent_projects.h"
 #include "editor_internal.h"
 #include "fa/core/build_info.h"
+#include "fa/core/crash.h"
 #include "fa/core/fs.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
@@ -288,6 +289,10 @@ void Editor::on_init() {
         const char* show = std::getenv("FA_EDITOR_AUTOTEST_SHOW");
         ui::prepare_backbuffer_readback(show && *show && std::string(show) != "0");
         namespace stdfs = std::filesystem;
+        // Nobody watches an autotest: a failed MSVC Debug check prints and ends it instead of a dialog that waits for a
+        // click, and the watchdog can name the call the UI thread is stuck in.
+        report_runtime_checks_without_dialogs();
+        watch_thread_stack();
         atWatchdog_ = std::thread([this] {
             std::uint64_t last = atHeartbeat_.load();
             auto changed = std::chrono::steady_clock::now();
@@ -299,7 +304,9 @@ void Editor::on_init() {
                     changed = std::chrono::steady_clock::now();
                 } else if (std::chrono::steady_clock::now() - changed > std::chrono::seconds(60)) {
                     std::fprintf(stderr, "autotest watchdog: the editor drew no frame for 60 s (a UI or GPU call is stuck): ending the process "
-                                         "so the window does not stay frozen\n");
+                                         "so the window does not stay frozen\nthe UI thread's stack (innermost first):\n%s",
+                                 watched_thread_stack().c_str());
+                    std::fflush(stderr);
                     std::_Exit(86);
                 }
             }
@@ -325,11 +332,11 @@ void Editor::on_init() {
         {
             auto net = std::make_shared<ShareAutotestNet>();
             atShareNet_ = net;
-            const stdfs::path dir = base / "share_config";
-            fs::remove_tree(dir, ec);
-            stdfs::create_directories(dir, ec);
+            const stdfs::path shareDir = base / "share_config";
+            fs::remove_tree(shareDir, ec);
+            stdfs::create_directories(shareDir, ec);
             ShareEnv env;
-            const std::string cfg = (dir / "ai.json").string();  // the config folder is its parent
+            const std::string cfg = (shareDir / "ai.json").string();  // the config folder is its parent
             env.env = [cfg](const std::string& n) { return n == "FACTORIA_AI_CONFIG" ? cfg : std::string(); };
             env.now = [] { return std::int64_t(1760000000); };
             env.sleep = [](double) { std::this_thread::sleep_for(std::chrono::milliseconds(10)); };

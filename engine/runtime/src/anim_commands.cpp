@@ -338,8 +338,6 @@ std::vector<KeyRef> read_key_refs(const Json& doc, const Json& a) {
     return out;
 }
 
-Json clip_schema_properties() { return Json::object(); }
-
 }  // namespace
 
 void register_anim_view_commands(Engine& engine, Engine::Impl& I);  // anim_view_commands.cpp
@@ -349,7 +347,6 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
         R"({"type":"object","properties":{"path":{"type":"string","default":"","description":"Names (EntityInfo name) from the entity that plays the clip down to the part, joined with '/': \"body/arm_l\". \"\" is the entity itself."},
             "component":{"type":"string","default":"Transform","description":"Reflected component of that part: Transform, Sprite..."},
             "field":{"type":"string","description":"Field with an optional channel: \"rotation.z\", \"position\", \"color.a\", \"Sprite.region\" is component Sprite + field region."}},"required":["field"]})";
-    (void)clip_schema_properties;
 
     I.commands.add({"anim.create_clip", "Write a new keyframed 2D clip file (*.anim.json).",
            "Creates the file with `duration` seconds, `loop`, and optionally its `tracks` and `events` in the format of docs/ANIMATION.md "
