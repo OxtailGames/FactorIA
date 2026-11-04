@@ -242,12 +242,13 @@ Json bake_part(const std::string& projectDir, const std::string& rel, bool bake,
         return Json::array({"The document was written but could not be baked: " + b.error().message + " " + b.error().hint});
     }
     result["bake"] = Json::object({{"state", "baked"}, {"output", b->output}, {"bytes", b->bytes}, {"sha256", b->sha256}, {"joints", b->fit.bones.size()}});
+    if (!b->skin.is_null()) result["skin"] = b->skin;
     result["provenance"] = b->provenance;
     return Json();
 }
 
 Json rig_create_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys("rig.create", a, "", {"path", "model", "template", "options", "parts", "landmarks", "strict", "output", "doc", "overwrite", "bake"});
+    check_arg_keys("rig.create", a, "", {"path", "model", "template", "options", "parts", "landmarks", "strict", "output", "doc", "overwrite", "bake", "skin"});
     const std::string rel = rig_path(tooling_detail::arg_string(a, "path", true));
     std::error_code ec;
     if (!tooling_detail::arg_bool(a, "overwrite", false) && stdfs::exists(project_file(projectDir, rel), ec))
@@ -269,7 +270,7 @@ Json rig_create_command(const std::string& projectDir, const Json& a) {
     RigDoc seed = make_rig_doc(model, templateName, partNames);
     Json json = rig_doc_to_json(seed);
     if (a.contains("doc")) json["doc"] = a["doc"];
-    for (const char* key : {"options", "parts", "landmarks", "strict", "output"})
+    for (const char* key : {"options", "parts", "landmarks", "strict", "output", "skin"})
         if (a.contains(key)) json[key] = a[key];
     if (a.contains("options") && a["options"].is_object()) {  // the options given on top of the template's defaults
         Json merged = rig_doc_to_json(seed).value("options", Json::object());
@@ -310,12 +311,12 @@ void merge_object(Json& json, const char* key, const Json& values, const char* c
 }
 
 Json rig_fit_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys("rig.fit", a, "", {"path", "parts", "landmarks", "options", "symmetryX", "strict", "dryRun", "bake", "overwrite"});
+    check_arg_keys("rig.fit", a, "", {"path", "parts", "landmarks", "options", "symmetryX", "strict", "dryRun", "bake", "overwrite", "skin"});
     const std::string rel = rig_path(tooling_detail::arg_string(a, "path", true));
     Json json = read_json_file(projectDir, rel);
     const bool dryRun = tooling_detail::arg_bool(a, "dryRun", false);
     Json changes = Json::array();
-    for (const char* key : {"parts", "landmarks", "options"}) {
+    for (const char* key : {"parts", "landmarks", "options", "skin"}) {
         if (!a.contains(key)) continue;
         merge_object(json, key, a[key], "rig.fit");
         changes.push_back(key);
@@ -396,6 +397,7 @@ Json rig_bake_command(const std::string& projectDir, const Json& a) {
         }
         Json item = Json::object({{"document", rel}, {"out", b->output}, {"reason", reason}, {"bytes", b->bytes}, {"sha256", b->sha256}, {"joints", b->fit.bones.size()}});
         if (!b->warnings.empty()) item["warnings"] = b->warnings;
+        if (!b->skin.is_null()) item["skin"] = b->skin;
         baked.push_back(item);
     }
     Json result = Json::object({{dryRun ? "wouldBake" : "baked", baked}, {"count", baked.size()}, {"unchanged", unchanged}});
@@ -455,7 +457,7 @@ void register_rig_commands(CommandRegistry& registry, const std::string& project
             "({bone: [model parts]}: which parts decide where a bone is, when their names do not say) and `landmarks` ({bone: [x,y,z], \"<bone>.tail\": [x,y,z]}: explicit joint positions in the model's space). The template is fitted to the model "
             "before anything is written (a fit that cannot be made fails and writes nothing): the answer lists every bone with its head and tail, whether each came from a part, the geometry or an estimate, which parts each bone follows, the parts nobody used and the warnings (a landmark that could not "
             "be found says what to name or give). A `generic` rig gets one bone per part of the model under `root`; edit the bones in the file. Unless bake is false it is baked: <name>.rig.glb next to the document is the model with a glTF skin "
-            "(joints named like the bones, rest pose = the model's pose); until skin weights exist (M59.2) every vertex follows ONE bone, the nearest of those its part is bound to (weight 1). The model must be a model document (*.model.json). "
+            "(joints named like the bones, rest pose = the model's pose); its vertices are bound to the bones with automatic skin weights (heat diffusion by default, rigid per part for a generic rig; the document's `skin` section and the skin3d.* commands change them, docs/RIGGING.md). The model must be a model document (*.model.json). "
             "Example: {\"path\":\"assets/models/hero.rig.json\",\"model\":\"assets/models/hero.model.json\",\"template\":\"humanoid\",\"options\":{\"spine\":4}}";
         info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"path", "model", "template"})}, {"additionalProperties", false},
                                          {"properties", obj({{"path", pathArg()},
@@ -466,6 +468,7 @@ void register_rig_commands(CommandRegistry& registry, const std::string& project
                                                              {"landmarks", object_arg("{bone or \"bone.tail\": [x,y,z]}: explicit joint positions in the model's space; they win over everything the fit finds.")},
                                                              {"strict", flag("Make a landmark that could only be estimated from proportions an error instead of a warning (default false).")},
                                                              {"output", object_arg("{path: where to bake, under assets/, ending in .glb}. Default: <name>.rig.glb next to the document.")},
+                                                             {"skin", object_arg("The document's `skin` section: {method: auto|heat|voxel|rigid, maxInfluences, smooth, maxHops, locality, parts: {part: {method, bone}}, edits}. Left out: automatic weights. skin3d.* edits it afterwards (docs/RIGGING.md).")},
                                                              {"doc", str("A note on what the rig is for.")},
                                                              {"overwrite", boolean("Replace the document when it exists (and the .glb when nothing baked it).", false)},
                                                              {"bake", boolean("Bake the skinned .glb after writing.", true)}})}});
@@ -490,6 +493,7 @@ void register_rig_commands(CommandRegistry& registry, const std::string& project
                                                              {"options", Json::object({{"type", Json::array({"object", "null"})}, {"description", "The template's options to change (rig.templates {} lists them); null as a value returns one to its default."}})},
                                                              {"symmetryX", Json::object({{"type", Json::array({"number", "null"})}, {"description", "The x of the symmetry plane left and right bones mirror about. Null: the centre of the model's bounds."}})},
                                                              {"strict", flag("Make estimated landmarks errors: true or false, left as it is when not given.")},
+                                                             {"skin", Json::object({{"type", Json::array({"object", "null"})}, {"description", "Fields of the document's `skin` section to set ({method, maxInfluences, smooth, maxHops, locality, parts, edits}); a field given replaces that field, null removes it. skin3d.* edits the weights one operation at a time."}})},
                                                              {"dryRun", boolean("Fit with the changes but write nothing.", false)},
                                                              {"bake", boolean("Bake the skinned .glb after writing.", true)},
                                                              {"overwrite", boolean("Replace a .glb that no rig document baked.", false)}})}});
@@ -504,7 +508,7 @@ void register_rig_commands(CommandRegistry& registry, const std::string& project
         info.description =
             "Without `path` this bakes every *.rig.json of the project whose .glb is missing or out of date (the rig document, its model document or a file they read changed: the recipe's hashes), like model.bake. With `path` it bakes that document. "
             "The .glb is the model's mesh exactly as model.bake writes it plus one glTF skin: a node per bone named like the bone (translation = head minus the parent's head, extras {role, and index and side when the bone has them}), inverseBindMatrices that make the rest pose "
-            "draw the model unchanged, and JOINTS_0 / WEIGHTS_0 binding every vertex to ONE bone with weight 1 (the nearest of the bones its part is bound to; real blended weights come with M59.2). The origin follows the model's gameReady.origin; "
+            "draw the model unchanged, and JOINTS_0 / WEIGHTS_0 with up to four normalised influences per vertex, computed from the document's `skin` section (automatic heat-diffusion weights, rigid parts, and the edits skin3d.* wrote; deterministic). The origin follows the model's gameReady.origin; "
             "a textured model uses the picture its own bake made (bake the model first). The same inputs give the same bytes. assets.json records provenance and the recipe, so assets.regenerate and project.validate know when it is stale. "
             "A file that nothing baked is never replaced unless overwrite is true. `factoria export` bakes the stale documents first. Example: {} or {\"path\":\"assets/models/hero.rig.json\"}";
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false},

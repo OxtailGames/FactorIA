@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://factoria.dev/schemas/rig.schema.json",
   "title": "FactorIA rig document (*.rig.json)",
-  "description": "A skeleton for a model document: a template (humanoid, quadruped, bird, tail, chain, generic) fitted to the model by its parts and landmarks. `rig.bake` writes the skinned .glb (joints and inverse bind matrices; each vertex bound rigidly to its nearest bone). Errors name the file and the JSON pointer; docs/RIGGING.md explains the format and `rig.templates {}` lists the templates.",
+  "description": "A skeleton for a model document: a template (humanoid, quadruped, bird, tail, chain, generic) fitted to the model by its parts and landmarks. `rig.bake` writes the skinned .glb (joints, inverse bind matrices and the skin weights the `skin` section describes). Errors name the file and the JSON pointer; docs/RIGGING.md explains the format and `rig.templates {}` lists the templates.",
   "type": "object",
   "required": [
     "format",
@@ -133,9 +133,610 @@
       "type": "boolean",
       "description": "A landmark that could only be estimated from the template's proportions is an error. Default false."
     },
-    "binding": {
-      "const": "rigid",
-      "description": "How the .glb binds vertices: \"rigid\", each vertex wholly to its nearest bone among the bones of its part. Default \"rigid\"."
+    "skin": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the vertices are bound to the bones (docs/RIGGING.md, \"Skin weights\"). Left out: the automatic weights with their defaults.",
+      "properties": {
+        "method": {
+          "enum": [
+            "auto",
+            "heat",
+            "voxel",
+            "rigid"
+          ],
+          "description": "The default method for every part. auto: heat diffusion for every part, except in a generic rig, where each part follows its bone rigidly (the robot style). heat: Bone heat: each bone's weight diffuses over the mesh surface from the vertices nearest to it (a Laplace solve on the welded mesh), so weights are smooth, local and stay inside the part. voxel: Voxel binding: the surface is voxelised and each bone's distance travels along the voxels, so a vertex weights the bones that are near it AROUND the shape, not through the air. For meshes heat cannot solve (open, non-manifold or in pieces). rigid: The whole part follows ONE bone with weight 1: the part's bone from the fit (`bone` overrides it). For robots, doors and characters made of parts. Default auto."
+        },
+        "maxInfluences": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "Bones per vertex. Default 4."
+        },
+        "smooth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8,
+          "description": "Smoothing passes over the automatic weights. Default 1."
+        },
+        "maxHops": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "description": "A vertex is not weighted to a bone further than this many bones from its strongest bone along the skeleton. Default 2."
+        },
+        "locality": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 20,
+          "description": "Heat diffusion: higher keeps each bone's weights close to it (short blends), lower spreads them. Default 1."
+        },
+        "parts": {
+          "type": "object",
+          "description": "Model part -> how it is bound. A part that is not in the model is an error.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "enum": [
+                  "auto",
+                  "heat",
+                  "voxel",
+                  "rigid"
+                ]
+              },
+              "bone": {
+                "type": "string",
+                "description": "The bone the part follows (rigid) or is centred on (heat, voxel); default: the bones the fit gave the part."
+              }
+            }
+          }
+        },
+        "edits": {
+          "type": "array",
+          "description": "Edits of the weights, applied in order (skin3d.* commands append them).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op"
+            ],
+            "description": "One edit of the weights, applied in order after the automatic ones. set: Gives `bone` the weight `weight` (0..1) on the selected vertices; the other bones share what is left in their proportions (a vertex that had no other bone gives it to the parent of `bone`). weight 1 binds the vertices rigidly to the bone. add: Adds `amount` (-1..1) to the weight of `bone` on the selected vertices (a negative amount takes weight away) and renormalises the others. smooth: Averages the weights of each selected vertex with those of its neighbours on the mesh, `iterations` passes of `strength`. Softens a joint; seams between parts are welded for it. normalize: Makes the weights of the selected vertices sum to 1 after dropping the influences under `threshold`. limit: Keeps the `max` strongest influences of the selected vertices (1..4) and renormalises. mirror: Copies the weights of the `from` side (\"l\" is +X) to the matching vertices of the other side, swapping each bone for its `_l` / `_r` partner; bones without a side map to themselves, vertices on the symmetry plane are made symmetric.",
+            "properties": {
+              "op": {
+                "enum": [
+                  "set",
+                  "add",
+                  "smooth",
+                  "normalize",
+                  "limit",
+                  "mirror"
+                ],
+                "description": "What the edit does."
+              },
+              "bone": {
+                "type": "string",
+                "description": "set, add: the bone whose weight changes."
+              },
+              "weight": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "set: the weight the bone gets."
+              },
+              "amount": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1,
+                "description": "add: added to the bone's weight."
+              },
+              "iterations": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50,
+                "description": "smooth: passes."
+              },
+              "strength": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "smooth: how far a pass moves a vertex to its neighbours' average."
+              },
+              "threshold": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 0.5,
+                "description": "normalize: influences under this weight are dropped."
+              },
+              "max": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4,
+                "description": "limit: influences kept per vertex."
+              },
+              "from": {
+                "enum": [
+                  "l",
+                  "r"
+                ],
+                "description": "mirror: the side whose weights are copied (l = +X)."
+              },
+              "part": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  }
+                ],
+                "description": "Model part(s) the edit works on."
+              },
+              "select": {
+                "description": "A choice of faces by meaning, evaluated on the mesh at this point of the tree (never indices): `by` says how, the other fields depend on it. \"all\": Every face. \"part\": The faces of one or more parts (the `part` names of the nodes that made them; \"\" is the faces of nodes that name no part). A face keeps its part through extrusions and modifiers. \"normal\": The faces that point in a direction: the angle between the face's normal and `direction` is at most `tolerance`. {\"by\": \"normal\", \"direction\": \"top\"} picks the upward-facing faces of a box. \"top\": The highest faces along an axis: the faces whose centre is within `within` of the highest face centre. The cap of a cylinder, the top row of a wall, the faces around a sphere's pole. Unlike `normal` it picks by position, so it finds the top of a part whatever way its faces point; give `of` to look only among some faces (the top of the part \"body\"). \"bottom\": The lowest faces along an axis: the faces whose centre is within `within` of the lowest face centre. The cap of a cylinder, the top row of a wall, the faces around a sphere's pole. Unlike `normal` it picks by position, so it finds the bottom of a part whatever way its faces point; give `of` to look only among some faces (the bottom of the part \"body\"). \"box\": The faces inside an axis-aligned box. \"sphere\": The faces inside a ball. \"halfspace\": The faces on one side of a plane: the side `normal` points to. {\"by\": \"halfspace\", \"point\": [0, 0.5, 0], \"normal\": [0, 1, 0]} is everything above y = 0.5. \"and\": The faces that every query in `of` chooses. \"or\": The faces that any query in `of` chooses. \"not\": Every face that `of` does not choose. \"grow\": The faces `of` chooses plus the faces that share an edge with them, `steps` times. \"shrink\": The faces `of` chooses minus the ones on its border (the faces with an edge shared with a face that is not chosen), `steps` times. ",
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "description": "Every face.",
+                    "required": [
+                      "by"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "const": "all"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "The faces of one or more parts (the `part` names of the nodes that made them; \"\" is the faces of nodes that name no part). A face keeps its part through extrusions and modifiers.",
+                    "required": [
+                      "by"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "const": "part"
+                      },
+                      "part": {
+                        "type": "string",
+                        "description": "The part name, e.g. \"lid\"."
+                      },
+                      "parts": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1,
+                        "description": "Several part names; the faces of any of them."
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "The faces that point in a direction: the angle between the face's normal and `direction` is at most `tolerance`. {\"by\": \"normal\", \"direction\": \"top\"} picks the upward-facing faces of a box.",
+                    "required": [
+                      "by",
+                      "direction"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "const": "normal"
+                      },
+                      "direction": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "top",
+                              "bottom",
+                              "front",
+                              "back",
+                              "left",
+                              "right"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "number"
+                            },
+                            "minItems": 3,
+                            "maxItems": 3
+                          }
+                        ],
+                        "description": "Where the faces point: top (+Y), bottom (-Y), front (+Z), back (-Z), left (-X), right (+X), or a vector [x, y, z] (any length above 0)."
+                      },
+                      "tolerance": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 180.0,
+                        "description": "Degrees of difference allowed. 30 takes the top of a dome and its slopes; 1 takes only faces that are exactly flat towards the direction.",
+                        "default": 30
+                      },
+                      "space": {
+                        "type": "string",
+                        "enum": [
+                          "node",
+                          "model"
+                        ],
+                        "description": "Where the numbers of this query are measured. \"node\": the space of the edit node's children (before the node's own position, rotation and scale). \"model\": the model's space, through the transforms of this node and of the groups and modifiers above it (a mirror or array above does not count).",
+                        "default": "node"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "The highest faces along an axis: the faces whose centre is within `within` of the highest face centre. The cap of a cylinder, the top row of a wall, the faces around a sphere's pole. Unlike `normal` it picks by position, so it finds the top of a part whatever way its faces point; give `of` to look only among some faces (the top of the part \"body\").",
+                    "required": [
+                      "by"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "const": "top"
+                      },
+                      "axis": {
+                        "type": "string",
+                        "enum": [
+                          "x",
+                          "y",
+                          "z"
+                        ],
+                        "description": "The axis the top is measured along (the faces at the largest coordinate of it). y by default: up.",
+                        "default": "y"
+                      },
+                      "within": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1000.0,
+                        "description": "Metres from the extreme within which faces count. Left out: 0.01% of the size of the faces looked at, which takes exactly the flat cap and nothing below it."
+                      },
+                      "of": {
+                        "$ref": "#/$defs/face_selection",
+                        "description": "Look only among the faces this query chooses. Left out: all faces."
+                      },
+                      "space": {
+                        "type": "string",
+                        "enum": [
+                          "node",
+                          "model"
+                        ],
+                        "description": "Where the numbers of this query are measured. \"node\": the space of the edit node's children (before the node's own position, rotation and scale). \"model\": the model's space, through the transforms of this node and of the groups and modifiers above it (a mirror or array above does not count).",
+                        "default": "node"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "The lowest faces along an axis: the faces whose centre is within `within` of the lowest face centre. The cap of a cylinder, the top row of a wall, the faces around a sphere's pole. Unlike `normal` it picks by position, so it finds the bottom of a part whatever way its faces point; give `of` to look only among some faces (the bottom of the part \"body\").",
+                    "required": [
+                      "by"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "const": "bottom"
+                      },
+                      "axis": {
+                        "type": "string",
+                        "enum": [
+                          "x",
+                          "y",
+                          "z"
+                        ],
+                        "description": "The axis the bottom is measured along (the faces at the smallest coordinate of it). y by default: down.",
+                        "default": "y"
+                      },
+                      "within": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1000.0,
+                        "description": "Metres from the extreme within which faces count. Left out: 0.01% of the size of the faces looked at, which takes exactly the flat cap and nothing below it."
+                      },
+                      "of": {
+                        "$ref": "#/$defs/face_selection",
+                        "description": "Look only among the faces this query chooses. Left out: all faces."
+                      },
+                      "space": {
+                        "type": "string",
+                        "enum": [
+                          "node",
+                          "model"
+                        ],
+                        "description": "Where the numbers of this query are measured. \"node\": the space of the edit node's children (before the node's own position, rotation and scale). \"model\": the model's space, through the transforms of this node and of the groups and modifiers above it (a mirror or array above does not count).",
+                        "default": "node"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "The faces inside an axis-aligned box.",
+                    "required": [
+                      "by",
+                      "min",
+                      "max"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "const": "box"
+                      },
+                      "min": {
+                        "type": "array",
+                        "items": {
+                          "type": "number",
+                          "minimum": -1000.0,
+                          "maximum": 1000.0
+                        },
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "One corner of the box, [x, y, z] in metres."
+                      },
+                      "max": {
+                        "type": "array",
+                        "items": {
+                          "type": "number",
+                          "minimum": -1000.0,
+                          "maximum": 1000.0
+                        },
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "The opposite corner, each number at least that of `min`."
+                      },
+                      "contain": {
+                        "type": "string",
+                        "enum": [
+                          "center",
+                          "all",
+                          "any"
+                        ],
+                        "description": "When a face is inside the shape: \"center\" its centre is, \"all\" all three corners are, \"any\" at least one corner is.",
+                        "default": "center"
+                      },
+                      "space": {
+                        "type": "string",
+                        "enum": [
+                          "node",
+                          "model"
+                        ],
+                        "description": "Where the numbers of this query are measured. \"node\": the space of the edit node's children (before the node's own position, rotation and scale). \"model\": the model's space, through the transforms of this node and of the groups and modifiers above it (a mirror or array above does not count).",
+                        "default": "node"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "The faces inside a ball.",
+                    "required": [
+                      "by",
+                      "center",
+                      "radius"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "const": "sphere"
+                      },
+                      "center": {
+                        "type": "array",
+                        "items": {
+                          "type": "number",
+                          "minimum": -1000.0,
+                          "maximum": 1000.0
+                        },
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "The centre, [x, y, z] in metres."
+                      },
+                      "radius": {
+                        "type": "number",
+                        "minimum": 0.0001,
+                        "maximum": 1000.0,
+                        "description": "The radius in metres."
+                      },
+                      "contain": {
+                        "type": "string",
+                        "enum": [
+                          "center",
+                          "all",
+                          "any"
+                        ],
+                        "description": "When a face is inside the shape: \"center\" its centre is, \"all\" all three corners are, \"any\" at least one corner is.",
+                        "default": "center"
+                      },
+                      "space": {
+                        "type": "string",
+                        "enum": [
+                          "node",
+                          "model"
+                        ],
+                        "description": "Where the numbers of this query are measured. \"node\": the space of the edit node's children (before the node's own position, rotation and scale). \"model\": the model's space, through the transforms of this node and of the groups and modifiers above it (a mirror or array above does not count).",
+                        "default": "node"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "The faces on one side of a plane: the side `normal` points to. {\"by\": \"halfspace\", \"point\": [0, 0.5, 0], \"normal\": [0, 1, 0]} is everything above y = 0.5.",
+                    "required": [
+                      "by",
+                      "point",
+                      "normal"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "const": "halfspace"
+                      },
+                      "point": {
+                        "type": "array",
+                        "items": {
+                          "type": "number",
+                          "minimum": -1000.0,
+                          "maximum": 1000.0
+                        },
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "A point on the plane, [x, y, z] in metres."
+                      },
+                      "normal": {
+                        "type": "array",
+                        "items": {
+                          "type": "number",
+                          "minimum": -1000.0,
+                          "maximum": 1000.0
+                        },
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Which side is chosen, [x, y, z] (any length above 0)."
+                      },
+                      "contain": {
+                        "type": "string",
+                        "enum": [
+                          "center",
+                          "all",
+                          "any"
+                        ],
+                        "description": "When a face is inside the shape: \"center\" its centre is, \"all\" all three corners are, \"any\" at least one corner is.",
+                        "default": "center"
+                      },
+                      "space": {
+                        "type": "string",
+                        "enum": [
+                          "node",
+                          "model"
+                        ],
+                        "description": "Where the numbers of this query are measured. \"node\": the space of the edit node's children (before the node's own position, rotation and scale). \"model\": the model's space, through the transforms of this node and of the groups and modifiers above it (a mirror or array above does not count).",
+                        "default": "node"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "The faces that every query in `of` chooses.",
+                    "required": [
+                      "by",
+                      "of"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "const": "and"
+                      },
+                      "of": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "$ref": "#/$defs/face_selection"
+                        },
+                        "description": "The queries, at least one."
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "The faces that any query in `of` chooses.",
+                    "required": [
+                      "by",
+                      "of"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "const": "or"
+                      },
+                      "of": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "$ref": "#/$defs/face_selection"
+                        },
+                        "description": "The queries, at least one."
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "Every face that `of` does not choose.",
+                    "required": [
+                      "by",
+                      "of"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "const": "not"
+                      },
+                      "of": {
+                        "$ref": "#/$defs/face_selection",
+                        "description": "The query to invert."
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "The faces `of` chooses plus the faces that share an edge with them, `steps` times.",
+                    "required": [
+                      "by",
+                      "of"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "const": "grow"
+                      },
+                      "of": {
+                        "$ref": "#/$defs/face_selection",
+                        "description": "The query to grow."
+                      },
+                      "steps": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "maximum": 16.0,
+                        "description": "Rings of neighbours to add.",
+                        "default": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "description": "The faces `of` chooses minus the ones on its border (the faces with an edge shared with a face that is not chosen), `steps` times.",
+                    "required": [
+                      "by",
+                      "of"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "const": "shrink"
+                      },
+                      "of": {
+                        "$ref": "#/$defs/face_selection",
+                        "description": "The query to shrink."
+                      },
+                      "steps": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "maximum": 16.0,
+                        "description": "Rings to take off.",
+                        "default": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
     },
     "output": {
       "type": "object",
