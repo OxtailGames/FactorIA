@@ -266,7 +266,7 @@ A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is t
 | `height` | int | `0` | Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows. Range 0.0..65536.0. |
 | `tiles` | json | `[]` | Tile values, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. A value is the tileset index, optionally plus flags that mirror or turn that tile when drawn: 268435456 flips it left-right (flipX), 536870912 top-bottom (flipY), 1073741824 mirrors it across the diagonal (transpose). The image is transposed first, then flipped in x, then in y; a 90 degree clockwise turn is transpose + flipX = 1342177280 + index, 180 is flipX + flipY = 805306368 + index, 90 counter-clockwise is transpose + flipY = 1610612736 + index. scene.import_ascii legends write these for you: {"tile": 3, "rotate": 90, "flipX": true}. |
 | `solidTiles` | json | `[]` | List of plain tile indices (no flip flags) that block movement; static colliders are generated for them. A flipped or rotated copy of a solid tile is still solid. Empty = nothing collides. |
-| `terrains` | json | `[]` | Autotile rules: an array of terrains that tilemap.paint_terrain (scripts: entity.tilemap.paintTerrain) paints, choosing for every cell the edge, corner or inside tile that fits the cells around it. A terrain is {"name": "grass", "mode": "blob47", "first": 0}. mode: "basic16" looks at the 4 neighbours (16 tiles, slot = N*1 + E*2 + S*4 + W*8) and "blob47" at the 8 (47 tiles; a diagonal counts only when both cells next to it are in the terrain; the slots are the 47 reduced masks N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128 in ascending order, `factoria call image.tileset.info` prints them). The tiles come as "first": the tileset index of slot 0, the rest follow; or "tiles": one entry per slot, each a tile index or an array of tile indices that are variations of that look (one is picked from the cell's column, row and the terrain's "seed", the same every time). A cell belongs to the terrain whose tiles contain its tile index, so two terrains cannot share a tile. Optional: "seed" (integer, default 0), "joins" (names of terrains whose cells count as neighbours, e.g. a path that meets the grass), "outside": "terrain" (the map edge counts as this terrain, so no border is drawn there; default "empty"). image.tileset.build writes the terrain of a tileset it bakes; tilemap.set_terrains sets them from a rules file. Empty = no rules. (not released yet, on main after 0.14.1) |
+| `terrains` | json | `[]` | Autotile rules: an array of terrains that tilemap.paint_terrain (scripts: entity.tilemap.paintTerrain) paints, choosing for every cell the edge, corner or inside tile that fits the cells around it. A terrain is {"name": "grass", "mode": "blob47", "first": 0}. mode: "basic16" looks at the 4 neighbours (16 tiles, slot = N*1 + E*2 + S*4 + W*8) and "blob47" at the 8 (47 tiles; a diagonal counts only when both cells next to it are in the terrain; the slots are the 47 reduced masks N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128 in ascending order, `factoria call image.tileset.info` prints them). The tiles come as "first": the tileset index of slot 0, the rest follow; or "tiles": one entry per slot, each a tile index or an array of tile indices that are variations of that look (one is picked from the cell's column, row and the terrain's "seed", the same every time). A cell belongs to the terrain whose tiles contain its tile index, so two terrains cannot share a tile. Optional: "seed" (integer, default 0), "joins" (names of terrains whose cells count as neighbours, e.g. a path that meets the grass), "outside": "terrain" (the map edge counts as this terrain, so no border is drawn there; default "empty"). image.tileset.build writes the terrain of a tileset it bakes; tilemap.set_terrains sets them from a rules file. Empty = no rules. (since 0.16.0) |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Tint multiplied with the tileset. |
 | `layer` | int | `-10` | Draw order. Defaults below sprites (-10). |
 | `lit` | bool | `false` | true: the tiles are shaded by the Light2D entities and SceneSettings.ambientLight, like Sprite.lit. Default false. (since 0.2.0) |
@@ -327,7 +327,7 @@ Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal map
 | `material` | asset (material) | `""` | Project-relative path of a custom material, a *.material.json file (e.g. "materials/water.material.json"), or "" (default) for the standard PBR material. The material file names a GLSL snippet whose surface() changes what the standard material computed (albedo, alpha, normal, emission...) and whose optional vertex() moves the vertices, and declares its params, textures, lighting (pbr or unlit) and alphaMode (opaque, clip or blend). The `material.info` command lists a material's params and textures; `shader.compile` compiles it and reports errors with file:line. The material's alphaMode wins over color.a < 1; `unlit` true forces unlit lighting. A material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (since 0.2.0) |
 | `materialParams` | json | `{}` | Per-entity overrides of the material's params and textures, as an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures (a path, or "target:<name>" for the live picture of a render-target camera). Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. An entity without overrides batches with the others that share the material. (since 0.2.0) |
 | `materialColors` | json | `{}` | Per-material colours of a glTF model, an object keyed by glTF material name: {"Body": [0.2, 0.8, 0.7, 1]}. The colour REPLACES that material's baseColorFactor on its sub-meshes (the texture still multiplies it) and `color` still multiplies the result, so `color` stays the tint of the whole model. Materials not named keep their own colour. Names come from the model (the sub-mesh keeps its material name from import); `factoria validate` checks them and suggests the right one for a typo. Ignored by built-in shapes. Entities that differ only in materialColors are drawn in separate batches. (since 0.3.0) |
-| `lods` | json | `[]` | Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. (not released yet, on main after 0.14.1) |
+| `lods` | json | `[]` | Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. (since 0.16.0) |
 
 ### Light
 
@@ -368,7 +368,7 @@ Plays animation clips: the skeletal clips of a skinned glTF model (the model of 
 
 ### IK3D
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 3D inverse kinematics on the skinned model of the Animator on the same entity (docs/ANIMATION.md, "3D IK"). Every fixed step, after the Animator has posed the bones, the `solvers` adjust them and the model is drawn with the result: a hand that reaches a lever (twoBone, with a pole vector for the elbow), a head that looks at something within limits (lookAt), feet that stand on uneven ground with the pelvis lowered to fit (foot, one ray per foot through the physics world). Solvers apply in order. The bones are found by the canonical names of rig.bake (docs/RIGGING.md). Deterministic; the animated pose is never changed, the solvers start from it every step.
 
@@ -579,7 +579,7 @@ Plays a sound clip from the entity. Set playOnStart to start automatically, or s
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `clip` | asset (audio) | `""` | Project-relative path of the sound (.wav, .ogg, .mp3 or .qoa). |
-| `variants` | int | `0` | Number of baked variants of `clip` (0 = just the clip). With 2 to 64 every play picks one of clip_01 ... clip_NN ("assets/sfx/step.wav" plays assets/sfx/step_03.wav; sfx.bake writes them for a sound patch with `variations`), at random but never the one that played last on this entity, and the same on every run with the same seed: it reads the world RNG without consuming it. Range 0.0..64.0. (not released yet, on main after 0.14.1) |
+| `variants` | int | `0` | Number of baked variants of `clip` (0 = just the clip). With 2 to 64 every play picks one of clip_01 ... clip_NN ("assets/sfx/step.wav" plays assets/sfx/step_03.wav; sfx.bake writes them for a sound patch with `variations`), at random but never the one that played last on this entity, and the same on every run with the same seed: it reads the world RNG without consuming it. Range 0.0..64.0. (since 0.16.0) |
 | `volume` | float | `1.0` | Loudness multiplier, 0 (silent) to 1 (full). Range 0.0..1.0. |
 | `pitch` | float | `1.0` | Playback speed multiplier; 2 = one octave higher and twice as fast. Range 0.05..8.0. |
 | `loop` | bool | `false` | Restart the clip when it ends. |
@@ -590,7 +590,7 @@ Plays a sound clip from the entity. Set playOnStart to start automatically, or s
 
 ### MusicPlayer
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Plays a song document (*.song.json, docs/MUSIC.md) as adaptive music. `intensity` (0..1) brings the song's layers in and out with smooth fades; goToSection, stingers and crossfades to another song wait for the next beat, bar or section end (`quantize`); beats, bars and sections reach scripts as events (music.beat, music.bar, music.section ...). `mode` picks how the song sounds: live (rendered from the document when the player starts, the same bytes as music.preview) or stems (the files music.render wrote, for phones). The musical clock is the mixer's sample count, so a headless run gives the same beats on every machine. Script API: entity.music (docs/SCRIPTING.md); docs/MUSIC.md, "Playing a song in a game".
 
@@ -1610,7 +1610,7 @@ Add or replace keys of one track of a clip, creating the track if it is missing.
 
 ### `anim3d.add_event`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add an event to a 3D clip: a game event the Animator sends when the clip passes its time.
 
@@ -1626,7 +1626,7 @@ The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(nam
 
 ### `anim3d.create`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write a new, empty 3D bone clip (*.anim.json, format factoria.anim3d/1) for a skinned rig; add tracks with anim3d.set_keys.
 
@@ -1644,7 +1644,7 @@ Creates the file with `duration` seconds and `loop`, no tracks. `rotation` is "e
 
 ### `anim3d.generate`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide.
 
@@ -1660,7 +1660,7 @@ Writes `out` (default anim/<rig>_<kind>.anim.json), an ordinary 3D clip you can 
 
 ### `anim3d.generators`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 List the clip generators of anim3d.generate (walk, run, trot, gallop, idle, swing, hit) with their parameters, ranges and defaults.
 
@@ -1668,7 +1668,7 @@ The catalog behind anim3d.generate: for each kind what it makes, the rig templat
 
 ### `anim3d.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Describe a 3D bone clip (duration, tracks, events, contacts, how it was generated) and, with `rig`, check its bones against a baked rig; with no `path`, list the 3D clips of the project.
 
@@ -1681,7 +1681,7 @@ Reads the clip with the loader's own rules, so a file the game could not play co
 
 ### `anim3d.mirror_pose`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Key the left/right mirror of a 3D clip's pose at a time: swap both sides, or copy one side onto the other (bones are paired by canonical name: thigh_l <-> thigh_r).
 
@@ -1698,7 +1698,7 @@ Samples the clip at `time`, mirrors the pose across the character's mid plane an
 
 ### `anim3d.move_keys`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Move keys of a 3D clip in time by dt seconds (a dopesheet drag); a moved key replaces the key it lands on.
 
@@ -1713,7 +1713,7 @@ Move keys of a 3D clip in time by dt seconds (a dopesheet drag); a moved key rep
 
 ### `anim3d.preview`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Draw a 3D bone clip as a filmstrip: the baked rig posed at evenly spaced times, shaded, on a ground grid, with the feet that are on the ground marked; returns the PNG.
 
@@ -1733,7 +1733,7 @@ The way to SEE a clip without a window. It poses the rig's skin with the clip at
 
 ### `anim3d.remove_event`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Remove an event from a 3D clip.
 
@@ -1746,7 +1746,7 @@ Remove an event from a 3D clip.
 
 ### `anim3d.remove_keys`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Delete keys of a 3D clip by bone, channel and time; a track left with no key goes away.
 
@@ -1759,7 +1759,7 @@ Delete keys of a 3D clip by bone, channel and time; a track left with no key goe
 
 ### `anim3d.remove_track`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Remove the tracks of one bone from a 3D clip (all its channels, or the one in `channel`).
 
@@ -1773,7 +1773,7 @@ The clip is checked with the loader's rules and written in canonical form. A bon
 
 ### `anim3d.restore`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits.
 
@@ -1786,7 +1786,7 @@ Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args
 
 ### `anim3d.retarget`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Carry a 3D clip from one baked rig to another (other proportions, a different template) by bone role, index and side; root motion and feet are scaled and planted feet stay planted.
 
@@ -1805,7 +1805,7 @@ Bones are matched by (role, index, side). Rotations are copied (every rig.bake b
 
 ### `anim3d.set_clip`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Set the duration, loop, ground speed or description of a 3D clip.
 
@@ -1821,7 +1821,7 @@ Give any of `duration` (seconds; shorter than the last key or event is refused),
 
 ### `anim3d.set_event`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Move, rename or change the data of an event of a 3D clip.
 
@@ -1838,7 +1838,7 @@ Move, rename or change the data of an event of a 3D clip.
 
 ### `anim3d.set_interp`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Set how selected keys of a 3D clip reach the next key: linear, step, bezier or an easing (the M42 curves).
 
@@ -1852,7 +1852,7 @@ Set how selected keys of a 3D clip reach the next key: linear, step, bezier or a
 
 ### `anim3d.set_keys`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add or replace keys of one bone's track in a 3D clip (rotation as euler degrees or quaternion, translation, scale); a key at the time of an existing one replaces it.
 
@@ -1968,7 +1968,7 @@ Plays a prefab (`prefab`) or an entity of a scene with its children (`scene` + `
 
 ### `assets.check_art`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check pictures against the house style and how they read in the game: palette fit, contrast over the real backgrounds, readability at phone and desktop size, halos on alpha edges, and set consistency; returns an annotated picture.
 
@@ -1984,7 +1984,7 @@ Measures one picture (`path`) or a set (`paths`, up to 12) and returns an annota
 
 ### `assets.check_mix`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Measure every sound of the project together: loudness per bus, music masking effects, clicks, loop seams, clipping, true peak; each finding has a fix.
 
@@ -1998,7 +1998,7 @@ Listens for what a game's mix gets wrong. Measures the sounds of the project (th
 
 ### `assets.contact_sheet`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Look at a set of images (or .glb models) side by side at their on-screen size, over light, dark and camera-colour backgrounds and in greyscale, labelled with their file names.
 
@@ -2347,7 +2347,7 @@ Packing again is stable: a frame whose size did not change keeps its rectangle (
 
 ### `assets.preview_in_scene`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 See an asset inside a scene of the game: it is placed (a PNG as a Sprite, a .glb as a MeshRenderer) in a private run of the scene and captured at phone and desktop resolutions.
 
@@ -2440,7 +2440,7 @@ The offline makers (assets.rasterize_svg, assets.draw_icon, assets.draw_capsules
 
 ### `assets.review`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 A cheap one-shot vision review of the pictures you made: a verdict and concrete fixes, grounded on assets.check_art and the style references.
 
@@ -2504,7 +2504,7 @@ background "auto" first makes a solid background transparent (the four corners m
 
 ### `assets.spectrogram`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 See a sound: a picture of its waveform, spectrogram (log frequency) and loudness curve, with the clipped samples and the loop seam marked.
 
@@ -2571,7 +2571,7 @@ Good for placeholders and simple effects; for richer sounds import a CC0 kit (do
 
 ### `audio.bake` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Render audio documents to WAV/OGG files next to them (only the missing or stale ones unless forced), with their recipe in assets.json.
 
@@ -2607,7 +2607,7 @@ Buses are "sfx", "music", "ui", "master" (the master has no ducking) and the pro
 
 ### `audio.create` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write a new audio document (a source and a chain of steps) and bake it.
 
@@ -2626,7 +2626,7 @@ Writes `path` (*.audio.json under assets/) with the format, `source` (a project 
 
 ### `audio.edit` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add, change, remove or move one step of an audio document (or change its source, seed or output), then bake it.
 
@@ -2649,7 +2649,7 @@ Add, change, remove or move one step of an audio document (or change its source,
 
 ### `audio.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check an audio document and say what its chain renders to; with no arguments, list the step types and their fields.
 
@@ -2678,7 +2678,7 @@ Every play request is logged: audio.play and audio.music from scripts, AudioSour
 
 ### `audio.music` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Drive a MusicPlayer: play, stop, setIntensity, goToSection, playStinger or crossfadeTo.
 
@@ -2705,7 +2705,7 @@ The same calls as `entity.music` in a script, for trying the music while the gam
 
 ### `audio.music_state`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 What the MusicPlayer components are doing: song, section, bar, beat, layers and pending changes.
 
@@ -2719,7 +2719,7 @@ Without `entity`: every player, including one still fading out after a scene cha
 
 ### `audio.render`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Render an audio document in memory: measurements, what each step did, and a waveform/spectrogram picture. Writes nothing.
 
@@ -3265,7 +3265,7 @@ Returns {enabled, default, current, languages: [{code, name, file, loaded, keys,
 
 ### `ik3d.check`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check the `solvers` of an IK3D component against a baked rig: types, keys, number ranges, bone names ('did you mean') and chains (root -> mid -> end).
 
@@ -3278,7 +3278,7 @@ The same check project.validate runs on every IK3D in a scene, available before 
 
 ### `ik3d.key`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Solve a 3D IK solver (two-bone with pole, or look-at) on a clip's pose at a time and key the bones it moved: the way an IK handle poses a chain.
 
@@ -3295,7 +3295,7 @@ Poses the rig with the clip at `time`, runs `solver` (one entry of IK3D.solvers 
 
 ### `ik3d.solve`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Run one IK3D solver offline on a baked rig (its rest pose, or a clip's pose at a time) and report whether it reached, the error and where the bones ended up.
 
@@ -3313,7 +3313,7 @@ Run one IK3D solver offline on a baked rig (its rest pose, or a clip's pose at a
 
 ### `image.bake` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Draw a layered image document (*.image.json) into its PNG and return the picture.
 
@@ -3326,7 +3326,7 @@ Composites the layers of the image document at `path` (project-relative, ending 
 
 ### `image.create` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make a new layered image document (*.image.json) with a canvas size, a background and optional first layers, and bake its PNG.
 
@@ -3347,7 +3347,7 @@ Writes a new image document at `path` (project-relative, ends in .image.json) wi
 
 ### `image.draw` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Draw pixel-exact shapes (lines, rectangles, ellipses, polygons, flood fills) onto an indexed pixel-art layer by palette colour.
 
@@ -3366,7 +3366,7 @@ Each shape of `shapes` is drawn in order on the indexed layer `layer` (see image
 
 ### `image.edit` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Change the selected pixels of one layer of an image document: fill, recolor, move, transform (scale, rotate, flip), delete, copy or cut to a new layer.
 
@@ -3385,7 +3385,7 @@ Applies `action` to the pixels of `layer` inside the stored `selection` (made wi
 
 ### `image.export` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write the flattened picture of a document, or one layer or group of it, to a PNG, optionally scaled or trimmed.
 
@@ -3404,7 +3404,7 @@ Draws the document at `path` (or only `layer`, by name or index path, with its m
 
 ### `image.frame.add` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add frames to an image document (making it an animation), copying a frame or blank, and keep the tags in place.
 
@@ -3422,7 +3422,7 @@ Inserts `count` frames at `at` (0..number of frames; default: at the end). Each 
 
 ### `image.frame.cel` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make a layer show in one frame what it shows in another, or show nothing there.
 
@@ -3439,7 +3439,7 @@ A pixels or indexed layer has a picture (cel) per frame. This sets the cel of `l
 
 ### `image.frame.move` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Move a frame to another place in the animation; tags follow their frames.
 
@@ -3454,7 +3454,7 @@ Takes frame `frame` out and puts it back so that it is frame `to` (the frames in
 
 ### `image.frame.remove` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Remove one frame of an animated image document; later frames and tags move down.
 
@@ -3468,7 +3468,7 @@ Deletes frame `frame` from every layer and from `frames`. Tags after it move dow
 
 ### `image.frame.set` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Set how long frames show, in milliseconds.
 
@@ -3483,7 +3483,7 @@ Set how long frames show, in milliseconds.
 
 ### `image.frame.sheet` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Choose how many frames the baked sprite sheet has per row.
 
@@ -3497,7 +3497,7 @@ The bake of an animated document is a sprite sheet. `columns` sets the frames (c
 
 ### `image.generate_layer` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Generate a picture with the image provider and add it to an image document as a `provider` layer, optionally masked by a selection.
 
@@ -3525,7 +3525,7 @@ Draws `prompt` with the image provider and adds the picture as a `provider` laye
 
 ### `image.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Describe a layered image document: its layers as a tree with index paths, sizes, bake status, the files it reads and its stored selections.
 
@@ -3537,7 +3537,7 @@ Reads the document at `path` and returns {document, width, height, background, v
 
 ### `image.inpaint` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Repaint the selected part of an image document with the image provider and add the result as a masked `provider` layer.
 
@@ -3564,7 +3564,7 @@ Sends the picture of the document (its composite, or `layer` alone, at `frame`) 
 
 ### `image.layer.add` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add a layer to an image document (at the top, or at an index, or inside a group) and bake the picture.
 
@@ -3580,7 +3580,7 @@ Adds the `layer` object (its `kind` and fields as docs.read IMAGES describes) to
 
 ### `image.layer.add_provider` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add a PNG an image provider made to an image document as a `provider` layer, with its provenance and an optional mask from a stored selection.
 
@@ -3603,7 +3603,7 @@ The second half of image.inpaint and image.generate_layer, and the way to put an
 
 ### `image.layer.convert` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn a layer into an indexed pixel-art layer (quantized to the palette, optional dither) or an indexed layer back into a pixels layer.
 
@@ -3624,7 +3624,7 @@ Turn a layer into an indexed pixel-art layer (quantized to the palette, optional
 
 ### `image.layer.move` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Move a layer to another position in its list, or into another group (or back to the top level), and bake.
 
@@ -3640,7 +3640,7 @@ Move a layer to another position in its list, or into another group (or back to 
 
 ### `image.layer.remove` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Remove a layer (and the children of a group) from an image document and bake.
 
@@ -3654,7 +3654,7 @@ Deletes the layer addressed by name or index path. Its PNG stays on disk. Warns 
 
 ### `image.layer.set` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Change fields of one layer (name, visible, opacity, blend, x, y, clip, masks, adjustments, effects, its kind's fields) and bake.
 
@@ -3669,7 +3669,7 @@ Merges `set` into the layer: a field you give replaces the old one (objects such
 
 ### `image.paint` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Paint round-brush strokes onto a pixels layer of an image document (deterministic stamping), creating the layer's PNG when asked.
 
@@ -3688,7 +3688,7 @@ Each stroke {points [[x,y],...], size, color, hardness?, opacity?, erase?, spaci
 
 ### `image.palette` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Show or change the palette and the colour ramps that indexed pixel-art layers of an image document are locked to.
 
@@ -3703,7 +3703,7 @@ Without `palette` and `ramps` it only reads: every colour with its index, the ch
 
 ### `image.palette.move` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Move one colour of an image document's palette to another position; the pixels follow it, so the picture does not change.
 
@@ -3718,7 +3718,7 @@ Reorders the palette of the document (the colours of its indexed layers, cels an
 
 ### `image.palette.remove` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Remove one colour from an image document's palette; its pixels become another colour or transparent.
 
@@ -3733,7 +3733,7 @@ Takes the colour `index` (index, name or #rrggbb) out of the palette; the colour
 
 ### `image.pixel` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write exact pixels (a list, runs or a text stamp) onto an indexed pixel-art layer by palette colour; no anti-aliasing.
 
@@ -3754,7 +3754,7 @@ Draws on an INDEXED layer (kind "indexed": the pixels are palette indices; docs.
 
 ### `image.pixel.cleanup` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Clean an indexed layer: orphan pixels, doubles at line bends and uneven steps on nearly straight lines; reports what changed.
 
@@ -3778,7 +3778,7 @@ Three passes (`passes`, default all, in this order). orphans: a pixel with no ne
 
 ### `image.pixel.dither` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Fill a region of an indexed layer with a dithered blend of palette colours (Bayer or checker), constant or as a gradient along a direction.
 
@@ -3804,7 +3804,7 @@ Writes into the region (`selection`, and/or `rect`, else the whole layer box; tr
 
 ### `image.pixel.outline` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Outline an indexed pixel-art layer by palette colour: inside or outside, 4- or 8-connected, flat, darkest of the ramp, or selective (sel-out).
 
@@ -3830,7 +3830,7 @@ Outlines the shape of an INDEXED layer (everything that is not transparent). `si
 
 ### `image.pixel.rotate` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Rotate the pixels of an indexed layer (or a selection) by any angle, RotSprite-style: no new colours, no blur.
 
@@ -3852,7 +3852,7 @@ Rotates the visible pixels of the layer (or of the `selection`) `angle` degrees 
 
 ### `image.pixel.scale` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Scale the pixels of an indexed layer (or a selection) cleanly: whole factors repeat pixels, reductions take the commonest colour, scale2x/scale3x round corners; no blending.
 
@@ -3875,7 +3875,7 @@ Scales the visible pixels of the layer (or of the `selection`) by `factor` (a nu
 
 ### `image.pixel.shade` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Shade an indexed pixel-art shape from a light direction: shadow and highlight bands stepping along the colour ramps, optional dithered transition.
 
@@ -3900,7 +3900,7 @@ Shades the shape (the non-transparent pixels of the layer, or of the `selection`
 
 ### `image.save` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check an image document, write it to a *.image.json file and bake its PNG; nothing is written when the document has a problem.
 
@@ -3914,7 +3914,7 @@ Validates `document` (the layered image document as JSON: canvas width and heigh
 
 ### `image.select` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint.
 
@@ -3943,7 +3943,7 @@ Builds a selection: a coverage (0..255) per canvas pixel. `by` picks how: color 
 
 ### `image.tag.remove` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Remove a tag (and so its clip) from an image document.
 
@@ -3957,7 +3957,7 @@ Deletes the tag `name`; the frames stay. The next bake drops its clip from the s
 
 ### `image.tag.set` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Name a run of frames (a tag); the bake makes a SpriteAnimator clip of it.
 
@@ -3975,7 +3975,7 @@ Creates the tag `name`, or changes it when it exists (omitted fields keep their 
 
 ### `image.tile.check`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check that a picture (or each tile of a sheet) repeats without a visible seam, with a preview of 3 x 3 copies.
 
@@ -3992,7 +3992,7 @@ Compares the pixels that touch when a tile repeats: its right column against its
 
 ### `image.tile.set` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn tile mode (wrap-around editing) on or off for an image document.
 
@@ -4008,7 +4008,7 @@ Sets the `tile` key of the document at `path`. With tile mode on, the drawing co
 
 ### `image.tileset.build` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make an autotile tileset (16 or 47 tiles) from a few parts (inside, edge, corner), bake the sheet and write the Tilemap rules.
 
@@ -4037,7 +4037,7 @@ Makes the image document `path` (or adds the layer to an existing one) with a `t
 
 ### `image.tileset.check`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check an autotile tileset: every part is one tile big, and every pair of tiles that can touch in a map fits.
 
@@ -4052,7 +4052,7 @@ Reads the tileset layer of the document at `path`, reports every part that is mi
 
 ### `image.tileset.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Explain the parts of an autotile tileset and list its tiles (slot, neighbours, position in the sheet).
 
@@ -4067,7 +4067,7 @@ Describes what image.tileset.build is made of: for the mode (basic16 or blob47),
 
 ### `image.tileset.rules` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write the Tilemap autotile rules file of a tileset layer (the recipe command that keeps it current).
 
@@ -4082,7 +4082,7 @@ Writes the rules file of the tileset layer: {"format":"factoria.terrains/1","ter
 
 ### `image.to_pixel_art` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn a painted, generated or imported picture (a layer or a PNG) into palette-exact pixel art: area-aware downscale, quantize, clean up, into an indexed layer.
 
@@ -4229,7 +4229,7 @@ Takes the same arrays as mesh.create. `positions`, `uvs`, `colors`, `indices` an
 
 ### `model.bake` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Build model documents into .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json.
 
@@ -4244,7 +4244,7 @@ Without `path` this bakes every *.model.json of the project whose .glb is missin
 
 ### `model.bake_maps`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Bake a model's ambient occlusion, curvature and thickness maps in its UV atlas and measure them (nothing is written): the masks that texturing wear is built from. Returns the maps as pictures.
 
@@ -4264,7 +4264,7 @@ Measures the maps that `texturing` wear and `ao` use, so you can choose threshol
 
 ### `model.check`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Measure a model document's mesh for faults an artist finds by eye: scale, origin, flipped or inconsistent triangles, open and non-manifold edges, degenerate triangles, platform budgets. Each finding says where, what and how to fix.
 
@@ -4282,7 +4282,7 @@ Builds the document in memory and checks the mesh the game gets (the evaluated m
 
 ### `model.create` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write a new model document (a tree of primitives, modifiers, groups and transforms) and bake it to a .glb.
 
@@ -4303,7 +4303,7 @@ Writes `path` (*.model.json under assets/) with the format, the `nodes` (a list 
 
 ### `model.decal` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add, replace, remove or clear the decals of a model document: pictures (logos, stains, markings) projected on its surface and baked into the texture.
 
@@ -4321,7 +4321,7 @@ A decal is an image of the project (assets.generate_texture output, or the baked
 
 ### `model.edit` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add, change, remove or move one node of a model document by its id (or JSON pointer), or change its materials, output or note; then bake it.
 
@@ -4348,7 +4348,7 @@ Add, change, remove or move one node of a model document by its id (or JSON poin
 
 ### `model.game_ready` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make a model document game-ready: origin, merged submeshes, LODs, a collider and a triangle budget report per platform; the settings live in the document.
 
@@ -4368,7 +4368,7 @@ Reads or changes the `gameReady` settings of a model document (docs/MODELING.md,
 
 ### `model.import_clean` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Clean a generated or imported mesh (.glb, .gltf, .obj) into a game-ready model document: weld, drop floating bits, recentre, scale to a reference, decimate to a platform budget, optionally remesh, unwrap, and bake.
 
@@ -4398,7 +4398,7 @@ Takes the mesh `source` (project-relative; assets.generate_model and assets.impo
 
 ### `model.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check a model document and measure what it builds; with no arguments, list the operations (primitives, modifiers, group) and their fields.
 
@@ -4412,7 +4412,7 @@ A model document (`*.model.json`, docs/MODELING.md) is a 3D model written as a t
 
 ### `model.palette` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Colour a model with a palette without a texture: the `vertexColors` section (style palette or your own colours, one colour or a gradient per part, flat low-poly faces); returns the palette swatches.
 
@@ -4430,7 +4430,7 @@ The `vertexColors` section of a model document writes colours into the mesh whil
 
 ### `model.preview`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Draw a model document from 4 to 8 sides (a turntable sheet, shaded and/or wireframe) beside a 1.8 m reference figure, with its triangle count and size; returns the PNG.
 
@@ -4453,7 +4453,7 @@ The way to SEE a model. It builds the document in memory and draws it with a sof
 
 ### `model.select`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Try a selection of faces or edges chosen by meaning (normal direction, part, region, top/bottom, border, sharp, seam) on the mesh a node receives, and report what it matched.
 
@@ -4469,7 +4469,7 @@ The edit operations extrude_faces, inset_faces, bevel_edges, delete_faces and as
 
 ### `model.texture` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Texture a model document: materials with tiling textures projected triplanar into the UV atlas, vertex colours, baked ambient occlusion and wear (worn edges, dirt in cavities) built from baked curvature and thickness, and decals; the result is a layered image document you can paint on. Returns the texture picture.
 
@@ -4487,7 +4487,7 @@ The `texturing` section of a model document (docs/MODELING.md, "Texturing") make
 
 ### `model.uv` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Give a model document UVs (automatic unwrap, or box, cylinder, sphere and planar projections per part, packed into one texture at the style's texel density) and measure them; returns the UV layout picture.
 
@@ -4505,7 +4505,7 @@ The `uv` section of a model document replaces the primitives' own uvs: `layout` 
 
 ### `music.arpeggio` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make an arpeggio over a chord progression as note text, and optionally put it in a song.
 
@@ -4539,7 +4539,7 @@ Spells the chords of `progression` one note after another, in a direction (up, d
 
 ### `music.bassline` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make a bassline over a chord progression as note text, and optionally put it in a song.
 
@@ -4568,7 +4568,7 @@ A bass part from the progression: root (a note per beat on the root), root_fifth
 
 ### `music.check`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Find what is wrong in a song before listening: notes outside the key or the instrument's range, clashes, mud, silent tracks, loudness.
 
@@ -4584,7 +4584,7 @@ Runs the music checks on a song (`path` or inline `song`). Rules: off_key (a not
 
 ### `music.chord`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Spell a chord by name, or a chord progression in a key: notes, MIDI numbers and the note text to paste.
 
@@ -4602,7 +4602,7 @@ With `name` ("Am7", "Cmaj7/G", "F#dim", "Dsus4") it returns the chord's notes at
 
 ### `music.create` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write a new song document: pad, bass, drums and an arpeggio over a chord progression, with intro, loop and outro.
 
@@ -4631,7 +4631,7 @@ Makes a complete, valid starting song at `path` (assets/..., ending in .song.jso
 
 ### `music.drums` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make a drum pattern in a style (rock, funk, waltz, ...), and optionally put it in a song.
 
@@ -4654,7 +4654,7 @@ Without `style` it lists the styles and the kit's lanes. With one it returns a d
 
 ### `music.edit` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Change a song document: tempo, tracks, patterns, sections, the arrangement, mutes and automation, checked before anything is written.
 
@@ -4672,7 +4672,7 @@ Applies `ops` in order to the song at `path` and writes it, but only if the resu
 
 ### `music.export_midi` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write a song as a format-1 Standard MIDI File that a DAW or notation program opens.
 
@@ -4686,7 +4686,7 @@ Writes the song at `path` as a Standard MIDI File (format 1, 960 ticks per quart
 
 ### `music.import_midi` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn a Standard MIDI File (.mid) into a song document: tracks, patterns, sections from markers, drums as grids.
 
@@ -4706,7 +4706,7 @@ Reads the MIDI file `path` (absolute on this machine, or in the project) with th
 
 ### `music.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check a song document and say what it holds: structure, bars, seconds, a summary per section, and a piano-roll picture.
 
@@ -4724,7 +4724,7 @@ Reads a song (`*.song.json`, format factoria.song/1, docs/MUSIC.md and schemas/s
 
 ### `music.instrument` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 List the built-in song instruments (by family), the drum kits and lanes, sfx presets and project SoundFonts, show the patch behind an instrument, or list a SoundFont's presets.
 
@@ -4738,7 +4738,7 @@ Without `name` it lists what a track's `instrument` can be: the built-in pitched
 
 ### `music.mix`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Render a song in memory and report the mix: each track's level, the buses and what the master's loudness normalization and limiter did.
 
@@ -4757,7 +4757,7 @@ Renders the song (`path`, or inline `song`) like music.preview but writes no fil
 
 ### `music.notes`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 List the notes of one pitched pattern of a song (pitch, tick, duration, velocity), or the hits of a drum pattern, as a piano roll sees them.
 
@@ -4771,7 +4771,7 @@ Reads the pattern `pattern` of `track` in the song at `path` and returns its not
 
 ### `music.preview` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Render a song to a stereo WAV or OGG next to it (offline, deterministic) and see its spectrogram.
 
@@ -4795,7 +4795,7 @@ Renders the song at `path` with the preview voices: every note of the arrangemen
 
 ### `music.render` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Render a whole song (intro, loop, outro) to a game-ready WAV or OGG with sample-exact loop points, and optionally one stem per layer.
 
@@ -4814,7 +4814,7 @@ Renders the song at `path` as music.preview does (same voices, mixer, loudness n
 
 ### `music.scale`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Say which notes a scale or mode has and the chords built on its degrees (with Roman numerals).
 
@@ -5475,7 +5475,7 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 
 ### `rig.bake` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Fit rig documents to their models and write the skinned .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json.
 
@@ -5490,7 +5490,7 @@ Without `path` this bakes every *.rig.json of the project whose .glb is missing 
 
 ### `rig.create` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write a rig document for a model: a skeleton template (humanoid, quadruped, bird, tail, chain, generic) fitted to the model by its parts and landmarks, and bake it to a skinned .glb.
 
@@ -5513,7 +5513,7 @@ Writes `path` (*.rig.json under assets/) that names the model document (`model`)
 
 ### `rig.fit` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Change what a rig document tells the fit (parts, landmarks, options, symmetry, strict), fit the template to the model again and show what it matched; then bake.
 
@@ -5534,7 +5534,7 @@ Reads `path` (*.rig.json), applies the changes you give, checks the document as 
 
 ### `rig.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check a rig document and fit it to its model without writing anything: every issue with its fix, the bones, where each joint came from and what the fit noticed.
 
@@ -5547,7 +5547,7 @@ Reads `path` (*.rig.json). A document with mistakes returns valid false and ALL 
 
 ### `rig.templates`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 List the skeleton templates (humanoid, quadruped, bird, tail, chain, generic) with their options and the words in part names they recognise; with `name`, the bones of one.
 
@@ -5829,7 +5829,7 @@ Returns {home, host, components[]}; each component is {id, title, state, details
 
 ### `sfx.bake` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Render every sound patch of the project whose WAV is missing or out of date.
 
@@ -5843,7 +5843,7 @@ Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's p
 
 ### `sfx.edit` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Change one field of a sound patch by JSON pointer (set, remove, add to an array, move inside an array); the result must still be a valid patch.
 
@@ -5860,7 +5860,7 @@ Edits `*.sfx.json` the way a hand edit would, but checked: the patch is parsed a
 
 ### `sfx.family` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make a consistent set of interface sounds (click, hover, confirm, cancel, error, open, close, notify) from one base patch.
 
@@ -5880,7 +5880,7 @@ Writes one patch per sound into the `out` directory (default: the base's path wi
 
 ### `sfx.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check a sound patch and say what it holds and how loud it renders, without writing anything.
 
@@ -5895,7 +5895,7 @@ Reads a sound patch from `path`, or takes it inline as `patch` (JSON) or by `pre
 
 ### `sfx.preset` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 List the sound presets, return one as an editable patch, or write it to a *.sfx.json file.
 
@@ -5909,7 +5909,7 @@ The presets of assets.synth_sound (bark, growl, meow, screech, whoosh, explosion
 
 ### `sfx.render` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Render a sound patch (*.sfx.json) to a WAV or OGG next to it and see its spectrogram: the engine's own synthesizer, offline and deterministic.
 
@@ -5935,7 +5935,7 @@ Reads the sound patch at `path` (assets/.../name.sfx.json, format factoria.sfx/1
 
 ### `sfx.tweak` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn a patch's macros by meaning (brighter, longer tail, heavier) and write the change back to the patch.
 
@@ -6110,7 +6110,7 @@ Paint the bone weights of chosen vertices: set, add or smooth.
 
 ### `skin3d.add` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add weight to a bone (or take it away with a negative amount) on the vertices of a part or a selection.
 
@@ -6129,7 +6129,7 @@ Adds `amount` (-1 to 1) to the weight of `bone` on each vertex, then normalises 
 
 ### `skin3d.auto` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Choose how the weights are computed (auto, heat, voxel, rigid), for the whole rig or one part, and their settings; recompute and bake.
 
@@ -6152,7 +6152,7 @@ Changes the `skin` section of a rig document. `method`: auto (heat diffusion; a 
 
 ### `skin3d.clear` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Remove one edit (by index) or all the edits from a rig document's skin, recompute and bake.
 
@@ -6168,7 +6168,7 @@ Removes `index` (as skin3d.info and the answer of an edit command number them) o
 
 ### `skin3d.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Show a rig document's skin: the method, its settings and edits, the bones with the parts they follow, and the quality of the weights it gives.
 
@@ -6180,7 +6180,7 @@ Reads `path` (*.rig.json), fits the rig and computes the weights of its `skin` s
 
 ### `skin3d.limit` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Keep at most N influences per vertex (1 to 4) on a part or a selection, strongest first, and normalise.
 
@@ -6198,7 +6198,7 @@ Keeps the `max` strongest bones of each vertex (1 to 4, default 4) and renormali
 
 ### `skin3d.mirror` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Copy the weights of one side of the character to the other (_l to _r or the other way), pairing each vertex with its mirror image.
 
@@ -6216,7 +6216,7 @@ Copies the weights from the side `from` ("l" = the character's left, +X; "r" = r
 
 ### `skin3d.normalize` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Drop negligible influences and make each vertex's weights sum to 1, on a part or a selection.
 
@@ -6234,7 +6234,7 @@ Removes the influences under `threshold` (0 to 0.5, default 0.01) and rescales w
 
 ### `skin3d.preview`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Draw the skin weights of a rig: a heat map of one bone or one colour per bone, and optionally the model bent at a bone to see how the skin deforms; returns the PNG.
 
@@ -6255,7 +6255,7 @@ The way to SEE the weights. It fits the rig, computes the weights of the documen
 
 ### `skin3d.set` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Give a bone an exact weight on the vertices of a part or a selection; the other bones share the rest.
 
@@ -6274,7 +6274,7 @@ Sets the weight of `bone` to `weight` (0 to 1; default 1: the vertices follow on
 
 ### `skin3d.smooth` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Smooth the weights over the surface on the vertices of a part or a selection, to soften a crease at a joint.
 
@@ -6346,7 +6346,7 @@ Returns {id, col, row, x, y} for the Tilemap on entity `id`: the world position 
 
 ### `tilemap.paint_terrain` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Paint (or erase) a terrain on a Tilemap's cells and re-tile the cells around them with its autotile rules.
 
@@ -6362,7 +6362,7 @@ Sets the cells to the terrain `terrain` of the Tilemap on entity `id` (rules in 
 
 ### `tilemap.retile` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Re-tile every terrain cell of a Tilemap from its neighbours.
 
@@ -6374,7 +6374,7 @@ Recomputes the tile of every cell that belongs to a terrain of the Tilemap on en
 
 ### `tilemap.set_terrains` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Set a Tilemap's autotile rules from a list or a rules file (as image.tileset.build writes them).
 
@@ -6404,7 +6404,7 @@ Writes tile `tile` (a tileset index plus optional flip flags, or -1 for empty) a
 
 ### `tilemap.terrains`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 The autotile rules of a Tilemap: its terrains, their slots and how many cells belong to each.
 
@@ -6540,7 +6540,7 @@ The same as `ui.stopSpeaking()` in a script. Does nothing when nothing is being 
 
 ### `vector.add` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add a path, rectangle, ellipse or line to an SVG.
 
@@ -6583,7 +6583,7 @@ Inserts one new element into an SVG file, SVG text or an svg layer of an image d
 
 ### `vector.align` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Align SVG elements to each other, the canvas or a key element.
 
@@ -6610,7 +6610,7 @@ Moves the picked elements (shapes or whole groups) so their bounds line up: hori
 
 ### `vector.assign_ids` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Give every drawn element without an id one.
 
@@ -6632,7 +6632,7 @@ Names the shapes and groups that have no id (path, path-2, g, g-2...) so the oth
 
 ### `vector.blob` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add a smooth organic shape or curve through or around a few points.
 
@@ -6669,7 +6669,7 @@ Inserts a smooth closed blob (or, with closed: false, an open curve) built from 
 
 ### `vector.boolean` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Union, subtract, intersect or exclude SVG shapes into one path.
 
@@ -6696,7 +6696,7 @@ Combines the picked shapes with a path boolean (Clipper2, integer-exact) and wri
 
 ### `vector.delete` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Delete SVG elements.
 
@@ -6718,7 +6718,7 @@ Removes the picked shapes or groups (a group takes everything in it). The rest o
 
 ### `vector.distribute` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Space SVG elements evenly along an axis.
 
@@ -6744,7 +6744,7 @@ Moves the picked elements along `axis` so the gaps between them (by: "gaps", def
 
 ### `vector.duplicate` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Copy SVG elements right after the originals.
 
@@ -6767,7 +6767,7 @@ Inserts a copy of each picked element (shape or group, with everything in it) ri
 
 ### `vector.group` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Wrap SVG elements in a new group.
 
@@ -6790,7 +6790,7 @@ Puts the picked elements (all in the same group) into a new <g>, which takes the
 
 ### `vector.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 List the shapes and groups of an SVG with ids, bounds and node counts.
 
@@ -6812,7 +6812,7 @@ Reads an SVG and lists its drawable elements: id, tag, bounds in the drawing spa
 
 ### `vector.mirror` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Mirror shapes across a vertical or horizontal axis and weld the halves, or add the mirrored copy.
 
@@ -6841,7 +6841,7 @@ For each picked shape, reflects it across the line x = at (axis "vertical") or y
 
 ### `vector.nodes` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Edit the nodes of a path: move anchors and handles, insert, delete, convert, break, join, close, append.
 
@@ -6868,7 +6868,7 @@ Applies a list of node operations, in order, to ONE shape (a rect or circle beco
 
 ### `vector.offset` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Grow or shrink SVG shapes by a distance (offset path, inset).
 
@@ -6897,7 +6897,7 @@ Offsets the outline of each picked shape by `distance` drawing units (positive g
 
 ### `vector.reorder` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Change the drawing order of SVG elements or move them into another group.
 
@@ -6922,7 +6922,7 @@ Change the drawing order of SVG elements or move them into another group.
 
 ### `vector.repeat` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Repeat an SVG element in a grid or around a circle.
 
@@ -6955,7 +6955,7 @@ Adds copies of one element (a shape or a group): mode "grid" lays out `columns` 
 
 ### `vector.set` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Set the style, visibility, lock, id or attributes of SVG elements.
 
@@ -6992,7 +6992,7 @@ Sets presentation properties on the picked elements (shapes or groups): fill, st
 
 ### `vector.set_path` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Replace the path data of a shape.
 
@@ -7019,7 +7019,7 @@ Sets the outline of ONE shape to the path data `d`: a rect or circle becomes a <
 
 ### `vector.shade` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add a shadow band and a highlight band to shapes from the light direction.
 
@@ -7054,7 +7054,7 @@ For each picked shape builds a shadow band (the part of the shape on the side aw
 
 ### `vector.shape` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add a star, gear, rounded polygon, arrow, speech bubble or ribbon to an SVG.
 
@@ -7118,7 +7118,7 @@ Inserts a new element with exact geometry (the shapes AIs draw badly by hand) in
 
 ### `vector.simplify` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Reduce the nodes of SVG paths within a tolerance.
 
@@ -7143,7 +7143,7 @@ Rewrites each picked shape (default: every shape) with fewer nodes: a path with 
 
 ### `vector.smooth` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Round the corners of SVG paths into smooth Bezier curves.
 
@@ -7169,7 +7169,7 @@ Gives every node that is not a sharp corner smooth handles, so a polygon or a ro
 
 ### `vector.stroke_to_path` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn the stroke of SVG shapes into a filled outline path.
 
@@ -7201,7 +7201,7 @@ Converts the stroke of each picked shape (its stroke-width, linecap, linejoin, m
 
 ### `vector.style` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Apply the project's style guide to an SVG: outline and palette.
 
@@ -7225,7 +7225,7 @@ Applies assets.json `style` to the SVG: `outline` puts the guide's outline colou
 
 ### `vector.text_to_path` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn text into path outlines with the engine's fonts, so it needs no font.
 
@@ -7266,7 +7266,7 @@ Outlines text with the engine's own font stack (HarfBuzz shaping: kerning, ligat
 
 ### `vector.to_rig` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn an SVG whose named groups are the parts of a character into part pictures, joints and a Bone2D prefab that animates in parts.
 
@@ -7299,7 +7299,7 @@ Reads a project SVG and makes a character that animates in parts, with no other 
 
 ### `vector.transform` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Move, scale, rotate or flip SVG elements in the drawing space.
 
@@ -7327,7 +7327,7 @@ Applies a transform of the DRAWING space to the picked elements (shapes or whole
 
 ### `vector.ungroup` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Dissolve SVG groups, keeping what is in them where it was.
 
@@ -7786,7 +7786,7 @@ declare module "factoria" {
     readonly video: VideoAPI;
     /**
      * Playback of this entity's MusicPlayer component (play, stop, setIntensity, goToSection, playStinger, crossfadeTo, the beat/bar/section events, the current bar, beat and section). Throws if the entity has no MusicPlayer; entity.get("MusicPlayer") answers null instead.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly music: MusicAPI;
   }
@@ -8297,7 +8297,7 @@ declare module "factoria" {
     bus?: string;
     /**
      * The clip has this many baked variants (2..64): play one of path_01 ... path_NN instead of `path` itself ("assets/sfx/step.wav" plays assets/sfx/step_03.wav), picked with the world RNG (seeded per run, so a replay hears the same takes) and never the one played last for that path. sfx.bake writes the variants of a sound patch that declares `variations`. Example: audio.play("assets/sfx/step.wav", { variants: 6 }).
-     * @since unreleased
+     * @since 0.16.0
      */
     variants?: number;
     /**
@@ -8379,7 +8379,7 @@ declare module "factoria" {
     play(path: string, opts?: PlayOptions): number;
     /**
      * The file name of baked variant `variant` (1..count) of a clip: variantPath("assets/sfx/step.wav", 3, 8) is "assets/sfx/step_03.wav". The naming sfx.bake uses for a sound patch with `variations`: two digits, three from 100 variants. Throws for a count outside 2..64 or a variant outside 1..count.
-     * @since unreleased
+     * @since 0.16.0
      */
     variantPath(path: string, variant: number, count: number): string;
     stop(voice: number): void;
@@ -11587,22 +11587,22 @@ declare module "factoria" {
     cellToWorld(col: number, row: number): Vec2;
     /**
      * Autotile: sets the cells (a list of [col, row] pairs or {col, row} objects, row 0 = TOP row) to the terrain `terrain` of Tilemap.terrains and re-tiles them and the 8 cells around each one, so painting grass next to water draws the shore. Only cells that already belong to a terrain are re-tiled: tiles you placed by hand stay. The tile of a cell is picked from the terrain's variations by column, row and seed, so the same painting looks the same every run. Returns the number of cells `painted`, the cells that were `outside` the map (skipped), `changed` (how many cells got another tile) and `changes` (each cell's `from` and `to` tile value). Throws an Error that names the terrains of the map (did-you-mean) when `terrain` is not one, or that points at the invalid rule. Example: `map.tilemap.paintTerrain("grass", [[3, 4], [4, 4], [5, 4]])`.
-     * @since unreleased
+     * @since 0.16.0
      */
     paintTerrain(terrain: string, cells: ({ col: number; row: number } | [number, number])[]): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] };
     /**
      * Empties the cells (-1) and re-tiles the cells next to them, as paintTerrain does for painting: removing a lake cell turns its neighbours into shore. `terrain` names the rules used to re-tile (the terrain being removed). Same result as paintTerrain.
-     * @since unreleased
+     * @since 0.16.0
      */
     eraseTerrain(terrain: string, cells: ({ col: number; row: number } | [number, number])[]): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] };
     /**
      * Recomputes the tile of every cell that belongs to a terrain from the cells around it (after writing tiles with setTile or changing Tilemap.terrains). Cells that belong to no terrain are not touched. Throws when the map has no terrains.
-     * @since unreleased
+     * @since 0.16.0
      */
     retile(): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] };
     /**
      * The name of the terrain the tile at column col, row row belongs to (its tile index is one of the terrain's tiles), or null for an empty cell, a cell outside the map or a tile that is no terrain's.
-     * @since unreleased
+     * @since 0.16.0
      */
     terrainAt(col: number, row: number): string | null;
     /**
@@ -11691,97 +11691,97 @@ declare module "factoria" {
 
   /**
    * Controls a MusicPlayer component (entity.music): a song played as layers that fade with `intensity`, sections that change on the beat or the bar, stingers, crossfades between songs and beat events. The mixer does the playing and counts the musical time in audio frames, so a headless run puts beats, bars and section changes on the same frames every time. A change with a `quantize` waits for that boundary and lands on its exact frame; without `quantize` the player's own settings apply (MusicPlayer.quantize, layerQuantize). Events reach scripts one frame after they sound; `data.frame` is the audio frame they happened on. Example: `const m = theme.music; m.on("bar", () => ...); m.setIntensity(0.8); m.goToSection("battle", {quantize: "bar"})`.
-   * @since unreleased
+   * @since 0.16.0
    */
   export class MusicAPI {
     /**
      * Starts at once (a hard start: what played is cut after a short fade). A string is the song; `song` defaults to the component's, `section` to its startSection and `intensity` to its own. Sets playing to true. The song loads first when it is not loaded yet (the "ready" event says when it sounds).
-     * @since unreleased
+     * @since 0.16.0
      */
     play(options?: string | { song?: string; section?: string; intensity?: number }): void;
     /**
      * Fades the music out over `fade` seconds (default 0.3) once the `quantize` boundary comes (default none: now). The component's `playing` is false at once. Fires "ended" with stopped true.
-     * @since unreleased
+     * @since 0.16.0
      */
     stop(options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): void;
     /**
      * Sets MusicPlayer.intensity (0..1); the layers follow it from the `quantize` boundary on (default the component's layerQuantize), each fading over layerFade.
-     * @since unreleased
+     * @since 0.16.0
      */
     setIntensity(intensity: number, options?: { quantize?: "none" | "beat" | "bar" | "section" }): void;
     /**
      * Jumps to the first pass of a section on the `quantize` boundary (default the component's quantize) with an equal-power crossfade of `fade` seconds (default transitionFade). Throws for a section the song does not have, listing the ones it has. Before the song is loaded it only sets where it will start.
-     * @since unreleased
+     * @since 0.16.0
      */
     goToSection(section: string, options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): void;
     /**
      * Plays a short piece over the music from the next boundary: an audio `clip` (starts on that audio frame) or a `section` of the playing song (all its layers, then `tail` seconds of what rings after it). A string is the clip. `duck` (0..1) dips the music while it plays: down in duckAttack seconds, held for duckHold (default the length of the clip or section), back in duckRelease. Fires "stinger".
-     * @since unreleased
+     * @since 0.16.0
      */
     playStinger(options: string | { clip?: string; section?: string; quantize?: "none" | "beat" | "bar" | "section"; volume?: number; tail?: number; bus?: string; duck?: number; duckAttack?: number; duckHold?: number; duckRelease?: number }): void;
     /**
      * Changes to another song on the `quantize` boundary of the one playing: the old fades out and the new fades in over `bars` bars of the old song (default crossfadeBars), the new one starting at `section` (default its beginning). Each song keeps its own tempo. Without music playing the song just starts. Fires "crossfade". Throws for a song that does not exist or is not a song.
-     * @since unreleased
+     * @since 0.16.0
      */
     crossfadeTo(song: string, options?: { section?: string; quantize?: "none" | "beat" | "bar" | "section"; bars?: number }): void;
     /**
      * Listens to an event of THIS entity's player; returns the unsubscribe function. world.on("music.beat", fn) hears every player. Besides id, song, frame (the audio frame) and time (seconds): ready has mode; beat has bar, beat, section, index (beats since play); bar has bar, section, count; section has section, pass, bar; loop has count; ended has stopped; stinger has kind ("clip" or "section") and section.
-     * @since unreleased
+     * @since 0.16.0
      */
     on(event: "ready" | "beat" | "bar" | "section" | "loop" | "ended" | "stinger" | "crossfade", fn: (data: { id: string; song: string; frame: number; time: number; [key: string]: any }, source: Entity | null) => void): () => void;
     /**
      * A snapshot of the player (what audio.music_state shows). `mode` is "live" or "stems" (how it was made); `stemGains` the gain each layer has now; `pending` the quantized changes waiting; `error` why it could not start.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly status: { exists: boolean; ready: boolean; playing: boolean; ended: boolean; song: string; mode: string; section: string; sections: string[]; bar: number; beat: number; positionSeconds: number; tempo: number; intensity: number; volume: number; bus: string; stems: string[]; stemGains: number[]; pending: number; heads: number; error: string };
     /**
      * True once the song is loaded and can sound.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly ready: boolean;
     /**
      * True while music sounds or a start is waiting for the song to load.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly playing: boolean;
     /**
      * The song that plays (or is loading).
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly song: string;
     /**
      * The section the playhead is in; empty before the song plays.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly section: string;
     /**
      * 1-based bar of the song at the playhead; 0 when nothing plays.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly bar: number;
     /**
      * 1-based beat of the bar at the playhead; 0 when nothing plays.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly beat: number;
     /**
      * Quarter notes per minute of the song that plays.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly tempo: number;
     /**
      * MusicPlayer.intensity: the value last set, not the layers' fades (status.stemGains).
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly intensity: number;
     /**
      * The section names of the song, in order; empty until it is loaded.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly sections: string[];
     /**
      * The MusicPlayer component view (song, mode, volume, bus, quantize...).
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly component: Components["MusicPlayer"];
   }
@@ -13066,7 +13066,7 @@ declare module "factoria" {
     solidTiles: any;
     /**
      * Autotile rules: an array of terrains that tilemap.paint_terrain (scripts: entity.tilemap.paintTerrain) paints, choosing for every cell the edge, corner or inside tile that fits the cells around it. A terrain is {"name": "grass", "mode": "blob47", "first": 0}. mode: "basic16" looks at the 4 neighbours (16 tiles, slot = N*1 + E*2 + S*4 + W*8) and "blob47" at the 8 (47 tiles; a diagonal counts only when both cells next to it are in the terrain; the slots are the 47 reduced masks N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128 in ascending order, `factoria call image.tileset.info` prints them). The tiles come as "first": the tileset index of slot 0, the rest follow; or "tiles": one entry per slot, each a tile index or an array of tile indices that are variations of that look (one is picked from the cell's column, row and the terrain's "seed", the same every time). A cell belongs to the terrain whose tiles contain its tile index, so two terrains cannot share a tile. Optional: "seed" (integer, default 0), "joins" (names of terrains whose cells count as neighbours, e.g. a path that meets the grass), "outside": "terrain" (the map edge counts as this terrain, so no border is drawn there; default "empty"). image.tileset.build writes the terrain of a tileset it bakes; tilemap.set_terrains sets them from a rules file. Empty = no rules. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.16.0
      */
     terrains: any;
     /**
@@ -13278,7 +13278,7 @@ declare module "factoria" {
     materialColors: any;
     /**
      * Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.16.0
      */
     lods: any;
   }
@@ -13401,62 +13401,62 @@ declare module "factoria" {
    * 3D inverse kinematics on the skinned model of the Animator on the same entity (docs/ANIMATION.md, "3D IK"). Every fixed step, after the Animator has posed the bones, the `solvers` adjust them and the model is drawn with the result: a hand that reaches a lever (twoBone, with a pole vector for the elbow), a head that looks at something within limits (lookAt), feet that stand on uneven ground with the pelvis lowered to fit (foot, one ray per foot through the physics world). Solvers apply in order. The bones are found by the canonical names of rig.bake (docs/RIGGING.md). Deterministic; the animated pose is never changed, the solvers start from it every step.
    * 
    * Category: 3D
-   * @since unreleased
+   * @since 0.16.0
    */
   export interface IK3DComponent {
     /**
      * false: the animated pose is drawn untouched.
-     * @since unreleased
+     * @since 0.16.0
      */
     enabled: boolean;
     /**
      * 0 to 1. 0 = the animated pose, 1 = the solved pose; multiplies the weight of every solver. Fade it in while a hand holds something, out when it lets go.
-     * @since unreleased
+     * @since 0.16.0
      */
     weight: number;
     /**
      * An array of solvers, applied in order. Every solver has "type", an optional "name", "weight" (0..1, default 1) and "enabled" (default true). A target is an entity id or name ("player"), a world position [x, y, z], or {"entity": "player", "offset": [0, 1.6, 0]} (the offset in world units). twoBone: {root, mid, end} bone names (or limb "arm"|"leg" with side "l"|"r"), target, optional pole (the elbow or knee bends towards it). lookAt: {bone, target, forward (the bone's axis that looks: "+z" by default), yawLimit (70), pitchLimit (45), turnSpeed (degrees per second, 360; 0 = snap)}. foot: {side "l"|"r" (or thigh, shin, foot), footHeight (height of the ankle above the sole; default = its rest height), alignToGround (true), maxFootAngle (30)}; all foot solvers act together on the lowest ground under them. Example: [{"type": "lookAt", "bone": "head", "target": "player"}, {"type": "foot", "side": "l"}, {"type": "foot", "side": "r"}]. Problems are logged once; `ik3d.check` lists all of them. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.16.0
      */
     solvers: any;
     /**
      * Foot placement: the bone moved vertically so the feet reach lower or higher ground ('root' = the hips of every rig.bake template).
-     * @since unreleased
+     * @since 0.16.0
      */
     pelvis: string;
     /**
      * Foot placement: world units above the animated ankle where the ground ray starts.
-     * @since unreleased
+     * @since 0.16.0
      */
     rayUp: number;
     /**
      * Foot placement: world units below the animated ankle the ray reaches. No hit = the foot is left as animated.
-     * @since unreleased
+     * @since 0.16.0
      */
     rayDown: number;
     /**
      * Foot placement: bitmask of the physics layers the ray hits (-1 = all). The colliders of this entity are ignored.
-     * @since unreleased
+     * @since 0.16.0
      */
     groundMask: number;
     /**
      * Foot placement: seconds the feet and the pelvis take to settle on a new ground height, so a step does not pop (0 = at once).
-     * @since unreleased
+     * @since 0.16.0
      */
     pelvisSmooth: number;
     /**
      * Foot placement: the most the pelvis goes down, in model units. A leg that cannot reach stretches straight.
-     * @since unreleased
+     * @since 0.16.0
      */
     maxPelvisDrop: number;
     /**
      * Foot placement: the most the pelvis goes up, in model units.
-     * @since unreleased
+     * @since 0.16.0
      */
     maxPelvisRise: number;
     /**
      * Runtime state: one object per solver, {name, type, active, ...}: twoBone adds reached and error (distance of the end to the target, model units), lookAt clamped, yaw and pitch (degrees turned), foot contact (0 in the air, 1 planted), lift (ground offset, model units), reached and error. A solver with problem:true did not parse. Read-only. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly status: any;
   }
@@ -14066,7 +14066,7 @@ declare module "factoria" {
     clip: string;
     /**
      * Number of baked variants of `clip` (0 = just the clip). With 2 to 64 every play picks one of clip_01 ... clip_NN ("assets/sfx/step.wav" plays assets/sfx/step_03.wav; sfx.bake writes them for a sound patch with `variations`), at random but never the one that played last on this entity, and the same on every run with the same seed: it reads the world RNG without consuming it.
-     * @since unreleased
+     * @since 0.16.0
      */
     variants: number;
     /**
@@ -14102,112 +14102,112 @@ declare module "factoria" {
    * Plays a song document (*.song.json, docs/MUSIC.md) as adaptive music. `intensity` (0..1) brings the song's layers in and out with smooth fades; goToSection, stingers and crossfades to another song wait for the next beat, bar or section end (`quantize`); beats, bars and sections reach scripts as events (music.beat, music.bar, music.section ...). `mode` picks how the song sounds: live (rendered from the document when the player starts, the same bytes as music.preview) or stems (the files music.render wrote, for phones). The musical clock is the mixer's sample count, so a headless run gives the same beats on every machine. Script API: entity.music (docs/SCRIPTING.md); docs/MUSIC.md, "Playing a song in a game".
    * 
    * Category: Audio
-   * @since unreleased
+   * @since 0.16.0
    */
   export interface MusicPlayerComponent {
     /**
      * Project-relative path of the song document (*.song.json). Set it while playing to crossfade to the new song (crossfadeBars, quantize). (asset path: music)
-     * @since unreleased
+     * @since 0.16.0
      */
     song: string;
     /**
      * How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; it falls back to live, with a warning, when they are missing. auto: stems on phones and tablets that are not high-tier, on any low-tier device and on the web, live elsewhere (docs/MUSIC.md).
-     * @since unreleased
+     * @since 0.16.0
      */
     mode: "auto" | "live" | "stems";
     /**
      * Loudness of the player, 0 (silent) to 1 (full). Changes fade over 20 ms.
-     * @since unreleased
+     * @since 0.16.0
      */
     volume: number;
     /**
      * Mixer bus the music is summed into: "music" (default), "sfx", "ui" or a bus of the project (factoria.json audio.buses). Its volume, effects and ducking apply.
-     * @since unreleased
+     * @since 0.16.0
      */
     bus: string;
     /**
      * 0..1: how much of the song plays. Each layer of the song has a threshold (music.edit set_layers); a layer is silent below threshold - layerRange and full from its threshold. The first layer (threshold 0) always plays.
-     * @since unreleased
+     * @since 0.16.0
      */
     intensity: number;
     /**
      * Start playing when the entity spawns / the scene loads.
-     * @since unreleased
+     * @since 0.16.0
      */
     playOnStart: boolean;
     /**
      * true: stay in the song's loop section (the loop sections, repeats included) until a section change or stop; a song without a loop section restarts at its end. false: play through the outro to the end, then music.ended.
-     * @since unreleased
+     * @since 0.16.0
      */
     loop: boolean;
     /**
      * Name of the section to start at ("" = the beginning of the song). An unknown name logs an error that lists the song's sections and starts at the beginning.
-     * @since unreleased
+     * @since 0.16.0
      */
     startSection: string;
     /**
      * When a section change, stinger or crossfade lands unless the call says otherwise. none: at once. beat: on the next beat (a dotted quarter in 6/8, 9/8, 12/8). bar: on the next bar line. section: when the current section pass ends (the loop wrap counts as the end of the loop).
-     * @since unreleased
+     * @since 0.16.0
      */
     quantize: "none" | "beat" | "bar" | "section";
     /**
      * When a change of `intensity` starts its layer fades. none: at once.
-     * @since unreleased
+     * @since 0.16.0
      */
     layerQuantize: "none" | "beat" | "bar" | "section";
     /**
      * Seconds a layer takes to fade in or out when intensity changes.
-     * @since unreleased
+     * @since 0.16.0
      */
     layerFade: number;
     /**
      * How far below its threshold a layer starts to fade in (0.25: a layer with threshold 0.5 begins at 0.25 and is full at 0.5). 0 switches layers at their thresholds.
-     * @since unreleased
+     * @since 0.16.0
      */
     layerRange: number;
     /**
      * Seconds of the equal-power crossfade between the old and the new position at a section jump.
-     * @since unreleased
+     * @since 0.16.0
      */
     transitionFade: number;
     /**
      * Length of the crossfade to another song, in bars of the outgoing song (so it follows its tempo).
-     * @since unreleased
+     * @since 0.16.0
      */
     crossfadeBars: number;
     /**
      * Runtime state: true while the song plays (or waits for its first section to land). Set true to play, false to stop.
-     * @since unreleased
+     * @since 0.16.0
      */
     playing: boolean;
     /**
      * Runtime state: the song is rendered or loaded. False while a live render is still working (play waits for it).
-     * @since unreleased
+     * @since 0.16.0
      */
     ready: boolean;
     /**
      * Runtime state: name of the section being played ("" when stopped).
-     * @since unreleased
+     * @since 0.16.0
      */
     section: string;
     /**
      * Runtime state: bar of the song being played, 1-based (0 when stopped).
-     * @since unreleased
+     * @since 0.16.0
      */
     bar: number;
     /**
      * Runtime state: beat of the bar, 1-based (0 when stopped).
-     * @since unreleased
+     * @since 0.16.0
      */
     beat: number;
     /**
      * Runtime state: quarter notes per minute of the song being played (0 when stopped).
-     * @since unreleased
+     * @since 0.16.0
      */
     tempo: number;
     /**
      * Runtime state: "live" or "stems", what `mode` resolved to for the song being played.
-     * @since unreleased
+     * @since 0.16.0
      */
     activeMode: string;
   }

@@ -271,7 +271,7 @@ Returns {id, col, row, x, y} for the Tilemap on entity `id`: the world position 
 
 ## `tilemap.paint_terrain` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Paint (or erase) a terrain on a Tilemap's cells and re-tile the cells around them with its autotile rules.
 
@@ -287,7 +287,7 @@ Sets the cells to the terrain `terrain` of the Tilemap on entity `id` (rules in 
 
 ## `tilemap.retile` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Re-tile every terrain cell of a Tilemap from its neighbours.
 
@@ -299,7 +299,7 @@ Recomputes the tile of every cell that belongs to a terrain of the Tilemap on en
 
 ## `tilemap.set_terrains` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Set a Tilemap's autotile rules from a list or a rules file (as image.tileset.build writes them).
 
@@ -329,7 +329,7 @@ Writes tile `tile` (a tileset index plus optional flip flags, or -1 for empty) a
 
 ## `tilemap.terrains`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 The autotile rules of a Tilemap: its terrains, their slots and how many cells belong to each.
 
