@@ -1,0 +1,43 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "The alpha wolf's howl that opens the last wave: a long, low screech with a tail.",
+  "length": 1.2,
+  "layers": [
+    {
+      "pitch": {
+        "freq": 1500,
+        "sweep": {
+          "to": 1100
+        },
+        "vibrato": {
+          "rate": 14,
+          "depth": 100
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "saw"
+        },
+        {
+          "wave": "noise",
+          "gain": 0.4
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 7000
+      },
+      "amp": {
+        "attack": 0.01,
+        "decay": 0.59,
+        "sustain": 0,
+        "curve": 1
+      }
+    }
+  ],
+  "macros": {
+    "weight": 0.9,
+    "pitch": -0.6,
+    "tail": 0.7
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "The warden lifts a log from a pile: a dull low pickup chirp.",
+  "length": 0.25,
+  "layers": [
+    {
+      "pitch": {
+        "freq": 440,
+        "sweep": {
+          "semitones": 12
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "square"
+        }
+      ],
+      "amp": {
+        "attack": 0.002,
+        "decay": 0.248,
+        "sustain": 0,
+        "curve": 1.2
+      }
+    }
+  ],
+  "macros": {
+    "weight": 0.3
+  }
+}

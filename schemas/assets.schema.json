@@ -304,8 +304,8 @@
         },
         "kind": {
           "type": "string",
-          "enum": ["image", "sound", "music", "voice", "model3d"],
-          "description": "What the asset is, written by the assets.generate_* commands, so the AI disclosure can tell sound effects, music and voice apart."
+          "enum": ["image", "sound", "music", "voice", "model3d", "prefab"],
+          "description": "What the asset is, written by the assets.generate_* commands, so the AI disclosure can tell sound effects, music and voice apart. `prefab` is the prefab file model.game_ready writes next to a model."
         },
         "provider": { "type": "string", "description": "Asset provider name from ai.json (\"openai\", \"elevenlabs\", \"fake\"...)." },
         "model": { "type": "string", "description": "Model the provider used (\"gpt-image-1\"...)." },
@@ -317,6 +317,7 @@
         "source": { "type": "string", "description": "Where an imported asset came from: a URL or the original file path." },
         "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Date the asset was generated or imported (YYYY-MM-DD)." },
         "notes": { "type": "string", "description": "Anything else (post-processing applied, edits made by hand)." },
+        "extras": { "type": "array", "items": { "type": "string" }, "description": "The other files one bake of a model wrote (its LODs, collider and prefab from model.game_ready, the layers of its texture), project-relative. Written by model.bake and model.game_ready on the entry of the model's .glb so a later bake can remove files that are no longer made; not written by hand." },
         "recipe": {
           "type": "object",
           "description": "How to make this asset again, byte for byte: the command that made it, its arguments and the project files it read. Written by the offline makers (assets.rasterize_svg, assets.animate_svg, assets.bake_sheet...); assets.regenerate re-runs it, and `factoria validate` warns when an input changed since (a stale asset). Provider-made assets have none: they cost money and would give a different picture.",
