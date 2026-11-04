@@ -8,6 +8,7 @@
 
 #include "common.h"
 #include "fa/ai/session.h"
+#include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/mcp/server.h"
@@ -69,7 +70,7 @@ private:
 
     void scan(bool reload) {
         const fsys::path root = session_->project_dir();
-        std::map<std::string, fsys::file_time_type> now;
+        std::map<std::string, std::int64_t> now;
         std::error_code ec;
         for (const char* sub : {"scripts", "tools"}) {
             fsys::path dir = root / sub;
@@ -77,7 +78,7 @@ private:
             for (fsys::recursive_directory_iterator it(dir, fsys::directory_options::skip_permission_denied, ec), end; !ec && it != end;
                  it.increment(ec)) {
                 if (!it->is_regular_file(ec) || it->path().extension() != ".js") continue;
-                now[fsys::relative(it->path(), root, ec).generic_string()] = it->last_write_time(ec);
+                now[fsys::relative(it->path(), root, ec).generic_string()] = fs::host_modified_time(it->path());
             }
         }
         if (reload) {
@@ -104,7 +105,7 @@ private:
     Session* session_;
     CommandRegistry& registry_;
     McpServer& server_;
-    std::map<std::string, fsys::file_time_type> known_;
+    std::map<std::string, std::int64_t> known_;
     std::chrono::steady_clock::time_point last_{};
     std::string signature_;
     bool toolsDirty_ = false;

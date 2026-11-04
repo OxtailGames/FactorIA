@@ -75,7 +75,7 @@ bool write_atomic(const stdfs::path& target, const void* data, std::size_t size,
         if (err) *err = "cannot write " + tmp.generic_string() + " (disk full?)";
         return false;
     }
-    stdfs::rename(tmp, target, ec);
+    fs::replace_file(tmp, target, ec);
     if (ec) {
         stdfs::remove(tmp, ec);
         if (err) *err = "cannot replace " + target.generic_string() + ": " + ec.message();
@@ -85,18 +85,25 @@ bool write_atomic(const stdfs::path& target, const void* data, std::size_t size,
 }
 
 bool read_bytes(const stdfs::path& p, std::string& out) {
-    std::ifstream in(fs::os_path(p), std::ios::binary);
+    fs::ReadStream in(fs::os_path(p), std::ios::binary);
     if (!in) return false;
     out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     return !in.bad();
 }
 
 std::int64_t mtime_ns(const stdfs::path& p, std::error_code& ec) {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(stdfs::last_write_time(p, ec).time_since_epoch()).count();
+    // fs:: so the Windows file rules (steps of 15.6 ms) cover the cache check that compares these times.
+    const std::int64_t t = fs::host_modified_time(p);
+    if (t < 0) {
+        ec = std::make_error_code(std::errc::no_such_file_or_directory);
+        return 0;
+    }
+    ec.clear();
+    return t;
 }
 
-std::int64_t now_ns() {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(stdfs::file_time_type::clock::now().time_since_epoch()).count();
+std::int64_t now_ns() {  // the clock of mtime_ns: nanoseconds since 1970
+    return fs::file_time_ns(stdfs::file_time_type::clock::now());
 }
 
 // ---- stat cache --------------------------------------------------------------------------------------------------
@@ -260,7 +267,7 @@ void prune(const std::string& projectDir, const std::string& keepId) {
             ++kept;
             for (const auto& [p, e] : m.files) used.insert(e.hash);
         } else {
-            stdfs::remove(store / (m.info.id + ".json"), ec);
+            fs::remove_file(store / (m.info.id + ".json"), ec);
         }
     }
     std::vector<stdfs::path> doomed;
@@ -268,7 +275,7 @@ void prune(const std::string& projectDir, const std::string& keepId) {
         std::error_code ec2;
         if (it->is_regular_file(ec2) && !used.count(it->path().filename().string())) doomed.push_back(it->path());
     }
-    for (const stdfs::path& p : doomed) stdfs::remove(p, ec);
+    for (const stdfs::path& p : doomed) fs::remove_file(p, ec);
     std::vector<stdfs::path> folders;
     for (stdfs::directory_iterator it(store / "objects", ec), end; !ec && it != end; it.increment(ec)) {
         std::error_code ec2;

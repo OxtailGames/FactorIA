@@ -2,13 +2,13 @@
 #include <doctest.h>
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <fstream>
 #include <string>
 
 #include "fa/core/fs.h"
+#include "fa/core/perf.h"
 #include "fa/physics/physics.h"
 
 using namespace fa;
@@ -323,10 +323,10 @@ TEST_CASE("3d shapes: a mesh ramp of thousands of triangles is fast to query") {
     }
     Entity ball = add_shape(s.world, "ball", {0, 3, 0}, Kind::Sphere);
     make_body(s.world, ball).velocity = {6, 0, 0};
-    const auto t0 = std::chrono::steady_clock::now();
+    const double t0 = process_cpu_seconds();  // CPU time: a loaded machine or CI VM does not stretch it
     s.run(120);
-    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-    CHECK(ms < 2000.0);  // 20 000 triangles; far under a frame budget per step
+    const double ms = (process_cpu_seconds() - t0) * 1000.0;
+    CHECK(ms < 2000.0 * fa::test_speed_budget_scale());  // 20 000 triangles; far under a frame budget per step
     CHECK(pos_of(s.world, ball).y > 0.6f);  // it rolled over the spheres, never fell into one
 }
 
@@ -604,9 +604,9 @@ TEST_CASE("3d character: walks up a 6400-triangle glTF mesh ramp, stays grounded
     Walker w{s, hero};
     w.walk({0, 0, 0}, 45);
     REQUIRE(w.grounded);
-    const auto t0 = std::chrono::steady_clock::now();
+    const double t0 = process_cpu_seconds();
     w.walk({3, 0, 0}, 180);
-    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    const double ms = (process_cpu_seconds() - t0) * 1000.0;
     const Vec3 p = pos_of(s.world, hero);
     const float tan20 = std::tan(20.0f * kPiF / 180.0f);
     CHECK(p.x > 5.5f);
@@ -617,7 +617,7 @@ TEST_CASE("3d character: walks up a 6400-triangle glTF mesh ramp, stays grounded
     CHECK(w.grounded);
     CHECK(w.last.groundNormal.y == doctest::Approx(std::cos(20.0f * kPiF / 180.0f)).epsilon(0.02));
     CHECK(w.last.groundNormal.x < -0.3f);
-    CHECK(ms < 3000.0);
+    CHECK(ms < 3000.0 * fa::test_speed_budget_scale());
     w.airborneFrames = 0;
     w.walk({-3, 0, 0}, 150);
     CHECK(pos_of(s.world, hero).x < 2.0f);

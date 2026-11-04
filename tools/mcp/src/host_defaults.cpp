@@ -1,3 +1,4 @@
+#include "fa/core/fs.h"
 #include "fa/core/engine_version.h"
 #include <filesystem>
 #include <fstream>
@@ -156,7 +157,7 @@ Result<McpResourceContent> default_mcp_read_resource(const std::string& projectD
         if (!ok) return make_error("Project resource '" + rel + "' is not exposed.", "Available: factoria.json, ENGINE_FEEDBACK.json, AGENTS.md. Use fs_read for other files.");
         auto path = resolve_project_path(projectDir, rel);
         if (!path.ok()) return path.error();
-        std::ifstream in(path.value(), std::ios::binary);
+        fa::fs::ReadStream in(path.value(), std::ios::binary);
         if (!in) return make_error("File '" + rel + "' does not exist in the project.", "Create it first.");
         std::ostringstream ss;
         ss << in.rdbuf();

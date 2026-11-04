@@ -1538,6 +1538,23 @@ hand in four boxes and pressed three buttons. Entries an AI wrote already say wh
 
 FB-0038 is in `feedback/fixed.json`, so Roguestory's entry closes when the editor opens the project.
 
+## M50. A push that passes CI the first time (M) — DONE (0.15.0)
+
+Pushes kept failing CI on what this Mac does not exercise (Windows file sharing and file times, budgets on 4-vCPU runners,
+MSVC-only errors), and every fix-and-push round cost a day.
+
+- M50.1 (M) `scripts/ci-preflight.sh`: risk scan of the diff, `test-all.sh`, a stress pass of the touched editor
+  autotests and examples under load, every `ci-local.sh` job the host has, Docker and the Windows PC, one summary.
+- M50.2 (L) Windows file rules in `fa::fs` (`FA_FS_WINDOWS_RULES`, on for every ctest run on macOS and Linux):
+  `fs::ReadStream` holds a file against replace/delete, file times step 15.625 ms; the readers and change detectors of
+  tools moved to `fs::`. Found on the way: file times were negative with libstdc++ (`fs::file_time_ns`).
+- M50.3 (M) `scripts/setup-docker-macos.sh` + `scripts/ci-docker.sh`: the Linux and MinGW jobs in an Ubuntu 24.04
+  amd64 container on the Mac.
+- M50.4 (M) `scripts/ci-remote-windows.sh`: the native MSVC build, ctest and examples on a Windows PC over SSH, the
+  windowed tests in the logged-in desktop session; a PC that is off is a SKIP, never woken.
+- CI saves each job's ccache right after the build. Left open: the Mac's Wine job is not a reference (no HLSL `atan2`
+  under Rosetta), so Windows tests need the PC.
+
 ## Out of scope: Roblox
 
 Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,
