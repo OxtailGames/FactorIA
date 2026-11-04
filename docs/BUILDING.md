@@ -529,9 +529,12 @@ disk; `FA_DOCKER_CPUS`, `FA_DOCKER_MEMORY` and `FA_DOCKER_DISK` change them). It
 also run on its own (`./scripts/ci-docker.sh linux windows`; exit code 77 means Docker is not set up, and `ci-local.sh`
 then skips those jobs). The jobs run in an Ubuntu 24.04 `linux/amd64` container (`tools/ci/docker/Dockerfile`, the
 GitHub runner's OS, built the first time) with the checkout mounted at `/src`. The Linux build trees, ccache, the Wine
-prefix and `~/.factoria` in the container live in Docker volumes (`factoria-ci-linux`, `factoria-ci-windows`,
-`factoria-ci-home`), so the second run is warm and your macOS build directories never see a Linux object;
-`FA_CI_DOCKER_RESET=1` deletes the volumes. A worktree's git directory is mounted read-only at its host path, so the
+prefix and `~/.factoria` in the container live in Docker volumes (`factoria-ci-home` for ccache, the Wine prefix and
+`~/.factoria`; `factoria-ci-linux-<hash>` and `factoria-ci-windows-<hash>` for the build trees), so the second run is
+warm and your macOS build directories never see a Linux object. Each checkout and git worktree has its own build-tree
+volumes, named by a hash of its path: a tree shared by two checkouts would keep objects newer than the other branch's
+sources and link them; the shared ccache keeps a new worktree's first build fast. `FA_CI_DOCKER_RESET=1` deletes
+this checkout's volumes and the shared one; the volumes of a removed worktree stay until `docker volume prune`. A worktree's git directory is mounted read-only at its host path, so the
 build has an identity in the container.
 
 What the container does not reproduce. The `linux` job is the reliable one: the same Ubuntu 24.04 and GCC as the

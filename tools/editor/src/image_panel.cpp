@@ -223,8 +223,7 @@ void Editor::image_apply_undo(const Json& entry, bool forward) {
 void Editor::draw_image_panel() {
     ImageUi& u = image_;
     // A floating window the first time (a canvas needs room; the panel docks like any other when the user drags it in).
-    ImGui::SetNextWindowPos(ImVec2(160, 70), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(1100, 720), ImGuiCond_FirstUseEver);
+    first_floating_window(ImVec2(160, 70), ImVec2(1100, 720));
     if (!ImGui::Begin("Image", &showImage_)) {
         u.focused = false;
         ImGui::End();

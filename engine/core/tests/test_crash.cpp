@@ -253,7 +253,9 @@ TEST_CASE("thread stacks: a watchdog reads the stack of the thread it watches wh
     CHECK(counts_frames(second));
     CHECK(counts_frames(ownStack));
     CHECK(counts_frames(current_thread_stack()));
-#if defined(_MSC_VER) || defined(__APPLE__)  // Linux: backtrace_symbols names only exported symbols (no -rdynamic here); MinGW: no PDB
+// Names need symbols: Linux's backtrace_symbols names only exported ones (no -rdynamic here), MinGW and an MSVC Release build
+// write no PDB (the frames are module+offset there), macOS reads the symbol table.
+#if (defined(_MSC_VER) && !defined(NDEBUG)) || defined(__APPLE__)
     CHECK(first.find("fa_stack_probe_stuck_here") != std::string::npos);
 #endif
 #else

@@ -38,13 +38,6 @@ MeshData dirty_cube(bool withSpeck = true, bool flip = true) {
     return *data;
 }
 
-ModelMesh to_model(const MeshData& d) {
-    ModelMesh m;
-    for (std::size_t v = 0; v < d.vertex_count(); ++v) m.positions.push_back({d.positions[v * 3], d.positions[v * 3 + 1], d.positions[v * 3 + 2]});
-    m.indices = d.indices;
-    return m;
-}
-
 }  // namespace
 
 TEST_CASE("model_import_clean: a dirty mesh is welded, loses its floating bit, is scaled to a height, recentred and closed") {
