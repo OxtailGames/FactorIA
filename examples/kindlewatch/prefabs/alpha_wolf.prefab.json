@@ -1,0 +1,138 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "alpha_wolf",
+    "tags": [
+      "wolf",
+      "enemy"
+    ],
+    "components": {
+      "Transform": {
+        "scale": [
+          1.25,
+          1.25,
+          1.25
+        ]
+      },
+      "MeshRenderer": {
+        "mesh": "assets/models/alpha_wolf.rig.glb",
+        "roughness": 0.9
+      },
+      "Animator": {
+        "clips": {
+          "idle": "anim/alpha_wolf_idle.anim.json",
+          "trot": "anim/alpha_wolf_trot.anim.json",
+          "gallop": "anim/alpha_wolf_gallop.anim.json",
+          "hit": "anim/alpha_wolf_hit.anim.json",
+          "bite": "anim/alpha_wolf_bite.anim.json"
+        },
+        "states": {
+          "idle": {
+            "clip": "idle"
+          },
+          "trot": {
+            "clip": "trot"
+          },
+          "gallop": {
+            "clip": "gallop"
+          },
+          "hit": {
+            "clip": "hit",
+            "loop": false
+          },
+          "bite": {
+            "clip": "bite",
+            "loop": false
+          }
+        },
+        "transitions": [
+          {
+            "to": "hit",
+            "when": "hurt",
+            "fade": 0.05
+          },
+          {
+            "to": "bite",
+            "when": "bite",
+            "fade": 0.08
+          },
+          {
+            "from": "hit",
+            "to": "idle",
+            "onFinish": true,
+            "fade": 0.1
+          },
+          {
+            "from": "bite",
+            "to": "idle",
+            "onFinish": true,
+            "fade": 0.1
+          },
+          {
+            "from": "idle",
+            "to": "trot",
+            "when": "speed > 0.1"
+          },
+          {
+            "from": "trot",
+            "to": "gallop",
+            "when": "speed > 2.4"
+          },
+          {
+            "from": "gallop",
+            "to": "trot",
+            "when": "speed <= 2.4"
+          },
+          {
+            "from": "trot",
+            "to": "idle",
+            "when": "speed <= 0.1"
+          },
+          {
+            "from": "gallop",
+            "to": "idle",
+            "when": "speed <= 0.1"
+          }
+        ],
+        "params": {
+          "speed": 0,
+          "hurt": false,
+          "bite": false
+        },
+        "state": "idle",
+        "events": [
+          {
+            "clip": "bite",
+            "time": 0.22,
+            "name": "wolf_bite_hit"
+          }
+        ]
+      },
+      "CharacterController3D": {
+        "radius": 0.7,
+        "height": 1.9,
+        "center": [
+          0,
+          0.95,
+          0
+        ],
+        "stepOffset": 0.3
+      },
+      "Script": {
+        "path": "scripts/wolf.js",
+        "props": {
+          "kind": "alpha",
+          "hp": 5,
+          "speed": 3.2,
+          "damage": 1,
+          "fireBite": 12,
+          "biteCooldown": 1.8,
+          "reach": 2.3,
+          "fireReach": 2.9,
+          "stagger": 0.18,
+          "knock": 2.5
+        }
+      }
+    }
+  }
+}

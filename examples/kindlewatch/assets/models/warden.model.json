@@ -1,0 +1,407 @@
+{
+  "format": "factoria.model/1",
+  "doc": "The warden: a hooded watcher with a torch in the right hand, 1.75 m tall, facing +Z. Parts are named for rig.create (humanoid).",
+  "materials": {
+    "wood": {
+      "color": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "roughness": 0.9
+    },
+    "flame": {
+      "color": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "emissive": [
+        1,
+        0.6,
+        0.2,
+        1
+      ],
+      "roughness": 1
+    }
+  },
+  "nodes": [
+    {
+      "op": "sphere",
+      "id": "head_skin",
+      "part": "head",
+      "radius": 0.095,
+      "segments": 16,
+      "position": [
+        0,
+        1.64,
+        0.03
+      ],
+      "scale": [
+        1,
+        1.1,
+        0.95
+      ],
+      "color": "#e8b060"
+    },
+    {
+      "op": "sphere",
+      "id": "hood",
+      "part": "head",
+      "radius": 0.125,
+      "segments": 16,
+      "position": [
+        0,
+        1.67,
+        -0.025
+      ],
+      "scale": [
+        1,
+        1.05,
+        1.05
+      ],
+      "color": "#2d3a5e"
+    },
+    {
+      "op": "cylinder",
+      "id": "neck",
+      "part": "neck",
+      "radius": 0.05,
+      "height": 0.12,
+      "segments": 10,
+      "position": [
+        0,
+        1.5,
+        0
+      ],
+      "color": "#e8b060"
+    },
+    {
+      "op": "rounded_box",
+      "id": "torso",
+      "part": "torso",
+      "size": [
+        0.42,
+        0.54,
+        0.26
+      ],
+      "radius": 0.07,
+      "segments": 3,
+      "position": [
+        0,
+        1.25,
+        0
+      ],
+      "color": "#2d3a5e"
+    },
+    {
+      "op": "box",
+      "id": "belt",
+      "part": "torso",
+      "size": [
+        0.44,
+        0.07,
+        0.28
+      ],
+      "position": [
+        0,
+        1.0,
+        0
+      ],
+      "color": "#4a2c1c"
+    },
+    {
+      "op": "rounded_box",
+      "id": "pelvis",
+      "part": "pelvis",
+      "size": [
+        0.38,
+        0.2,
+        0.24
+      ],
+      "radius": 0.05,
+      "position": [
+        0,
+        0.92,
+        0
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "box",
+      "id": "cloak",
+      "part": "torso",
+      "size": [
+        0.4,
+        0.62,
+        0.05
+      ],
+      "segments": [
+        1,
+        3,
+        1
+      ],
+      "rotation": [
+        -7,
+        0,
+        0
+      ],
+      "position": [
+        0,
+        1.12,
+        -0.17
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "capsule",
+      "id": "arm_upper_l",
+      "part": "arm_l",
+      "radius": 0.055,
+      "height": 0.38,
+      "heightSegments": 6,
+      "segments": 10,
+      "rings": 4,
+      "position": [
+        0.27,
+        1.33,
+        0
+      ],
+      "color": "#2d3a5e"
+    },
+    {
+      "op": "capsule",
+      "id": "forearm_l",
+      "part": "forearm_l",
+      "radius": 0.048,
+      "height": 0.36,
+      "heightSegments": 6,
+      "segments": 10,
+      "rings": 4,
+      "position": [
+        0.27,
+        0.98,
+        0
+      ],
+      "color": "#4a2c1c"
+    },
+    {
+      "op": "sphere",
+      "id": "hand_l",
+      "part": "hand_l",
+      "radius": 0.05,
+      "segments": 10,
+      "rings": 4,
+      "position": [
+        0.27,
+        0.79,
+        0
+      ],
+      "color": "#e8b060"
+    },
+    {
+      "op": "capsule",
+      "id": "thigh_l",
+      "part": "thigh_l",
+      "radius": 0.085,
+      "height": 0.52,
+      "heightSegments": 6,
+      "segments": 10,
+      "rings": 4,
+      "position": [
+        0.1,
+        0.72,
+        0
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "capsule",
+      "id": "shin_l",
+      "part": "shin_l",
+      "radius": 0.065,
+      "height": 0.5,
+      "heightSegments": 6,
+      "segments": 10,
+      "rings": 4,
+      "position": [
+        0.1,
+        0.26,
+        0
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "rounded_box",
+      "id": "foot_l",
+      "part": "foot_l",
+      "size": [
+        0.11,
+        0.08,
+        0.26
+      ],
+      "radius": 0.025,
+      "position": [
+        0.1,
+        0.04,
+        0.05
+      ],
+      "color": "#4a2c1c"
+    },
+    {
+      "op": "capsule",
+      "id": "arm_upper_r",
+      "part": "arm_r",
+      "radius": 0.055,
+      "height": 0.38,
+      "heightSegments": 6,
+      "segments": 10,
+      "rings": 4,
+      "position": [
+        -0.27,
+        1.33,
+        0
+      ],
+      "color": "#2d3a5e"
+    },
+    {
+      "op": "capsule",
+      "id": "forearm_r",
+      "part": "forearm_r",
+      "radius": 0.048,
+      "height": 0.36,
+      "heightSegments": 6,
+      "segments": 10,
+      "rings": 4,
+      "position": [
+        -0.27,
+        0.98,
+        0
+      ],
+      "color": "#4a2c1c"
+    },
+    {
+      "op": "sphere",
+      "id": "hand_r",
+      "part": "hand_r",
+      "radius": 0.05,
+      "segments": 10,
+      "rings": 4,
+      "position": [
+        -0.27,
+        0.79,
+        0
+      ],
+      "color": "#e8b060"
+    },
+    {
+      "op": "capsule",
+      "id": "thigh_r",
+      "part": "thigh_r",
+      "radius": 0.085,
+      "height": 0.52,
+      "heightSegments": 6,
+      "segments": 10,
+      "rings": 4,
+      "position": [
+        -0.1,
+        0.72,
+        0
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "capsule",
+      "id": "shin_r",
+      "part": "shin_r",
+      "radius": 0.065,
+      "height": 0.5,
+      "heightSegments": 6,
+      "segments": 10,
+      "rings": 4,
+      "position": [
+        -0.1,
+        0.26,
+        0
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "rounded_box",
+      "id": "foot_r",
+      "part": "foot_r",
+      "size": [
+        0.11,
+        0.08,
+        0.26
+      ],
+      "radius": 0.025,
+      "position": [
+        -0.1,
+        0.04,
+        0.05
+      ],
+      "color": "#4a2c1c"
+    },
+    {
+      "op": "group",
+      "id": "torch",
+      "part": "torch",
+      "position": [
+        -0.27,
+        0.79,
+        0.07
+      ],
+      "rotation": [
+        55,
+        0,
+        0
+      ],
+      "children": [
+        {
+          "op": "cylinder",
+          "id": "torch_stick",
+          "radius": 0.022,
+          "height": 0.5,
+          "segments": 8,
+          "position": [
+            0,
+            0.18,
+            0
+          ],
+          "material": "wood",
+          "color": "#7a4a28"
+        },
+        {
+          "op": "cone",
+          "id": "torch_flame",
+          "radius": 0.06,
+          "height": 0.2,
+          "segments": 10,
+          "position": [
+            0,
+            0.52,
+            0
+          ],
+          "material": "flame",
+          "color": "#fbe8a0"
+        },
+        {
+          "op": "sphere",
+          "id": "torch_wrap",
+          "radius": 0.045,
+          "segments": 10,
+          "position": [
+            0,
+            0.43,
+            0
+          ],
+          "material": "wood",
+          "color": "#4a2c1c"
+        }
+      ]
+    }
+  ]
+}

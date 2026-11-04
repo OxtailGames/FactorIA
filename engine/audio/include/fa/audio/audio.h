@@ -26,6 +26,7 @@
 #include <string_view>
 #include <vector>
 
+#include "fa/audio/music_player.h"
 #include "fa/core/json.h"
 #include "fa/core/types.h"
 #include "fa/scene/world.h"
@@ -41,6 +42,7 @@ struct PlayParams {
     bool loop = false;
     std::string bus = "sfx";  // "sfx" | "music" | "ui" or a bus of the project — each bus has its own volume
     bool notifyEnd = false;   // the voice's end is queued for take_ended_voices()
+    std::int64_t delayFrames = 0;  // output frames of silence before the voice sounds (a music stinger waiting for its beat); 0 = now
 };
 
 // A bus a project declares (factoria.json "audio.buses"): `parent` is "sfx", "music", "ui", "master" or another project bus.
@@ -107,6 +109,8 @@ public:
 
     // device=false -> null output (headless). sampleRate 44100 stereo float.
     bool init(bool device, std::string* error);
+    // True when init opened a real output device (a null device only mixes when advance_null_device is called).
+    bool has_device() const;
     void shutdown();
 
     // Preload (optional; play() loads on demand). Returns false + logs a
@@ -121,6 +125,9 @@ public:
     VoiceId open_pcm_voice(int sampleRate, const PlayParams& params, std::string_view path, std::string_view source);
     void push_pcm(VoiceId voice, const float* stereo, std::size_t frames);
     void clear_pcm(VoiceId voice);  // drops the samples that wait (after a seek)
+    // How many frames of a PCM voice's own rate still wait in its queue (the part of the last frame already played does not
+    // count); 0 for a voice that is not a PCM voice. The sound panel's playhead is what it pushed minus this.
+    double pcm_queued_frames(VoiceId voice) const;
     void set_voice_bus(VoiceId voice, std::string_view bus);
     void stop(VoiceId voice);
     void stop_all();  // every voice, music included (a persisted track too)
@@ -196,6 +203,35 @@ public:
     std::vector<std::string> layer_names() const;  // names of the current layers, in start order
     void stop_music(float fadeSeconds = 0.5f);  // the track and every layer
 
+    // ---- Adaptive music: MusicPlayer components (docs/MUSIC.md, "Playing a song in a game"). update() drives the components;
+    // the calls below are what `entity.music` in a script does. They act on the player of `e` (the entity needs a MusicPlayer)
+    // and create its mixer side when it has none yet. Results are errors with a hint; a change that waits for a beat or a bar
+    // is queued in the mixer and lands on that exact frame.
+    // What the device is, for MusicPlayer.mode "auto" (the engine passes Engine::device_info()).
+    void set_music_device(const MusicDeviceProfile& device);
+    // Starts the song at once ("" = the component's song; a different one replaces what plays) at `section` ("" = startSection)
+    // with `intensity` (negative: the component's).
+    Result<void> music_play(World& world, Entity e, std::string_view song = {}, std::string_view section = {}, float intensity = -1.0f);
+    // Fades the music out over `fadeSeconds` (negative: 0.3) once the boundary of `quantize` comes.
+    void music_stop(World& world, Entity e, MusicQuantize quantize = MusicQuantize::None, float fadeSeconds = -1.0f);
+    // Sets the intensity; it reaches the layers on the boundary of `quantize` (empty: the component's layerQuantize).
+    void music_set_intensity(World& world, Entity e, float intensity, std::optional<MusicQuantize> quantize = {});
+    // Jumps to a section on the boundary (empty: the component's quantize) with a crossfade of `fadeSeconds` (negative: transitionFade).
+    // Before the song is loaded it only sets where the song will start.
+    Result<void> music_go_to_section(World& world, Entity e, std::string_view section, std::optional<MusicQuantize> quantize = {},
+                                     float fadeSeconds = -1.0f);
+    Result<void> music_play_stinger(World& world, Entity e, const MusicStingerSpec& stinger);
+    // Crosses over to another song on the boundary (empty: the component's quantize) over `bars` bars of the outgoing song
+    // (negative: crossfadeBars). It starts at `section` ("" = the beginning). Without music playing the song just starts.
+    Result<void> music_crossfade_to(World& world, Entity e, std::string_view song, std::string_view section = {},
+                                    std::optional<MusicQuantize> quantize = {}, float bars = -1.0f);
+    // The state of the player of `e` (exists = false when it has none).
+    MusicStatus music_status(World& world, Entity e) const;
+    // Every player: [{entity, ...status}], the ones playing out after a scene change included.
+    Json music_players() const;
+    // Frames the mixer has mixed (the musical clock; the null device counts exactly the time update() was given).
+    std::uint64_t mixed_frames() const;
+
     // Play log (game thread). Entries are stamped with the frame/time of `world` (the engine passes its World; null =
     // the world of the last update()). The log keeps the newest 4096 entries; play_log_dropped() counts the rest.
     void set_clock(const World* world);
@@ -220,7 +256,10 @@ public:
     // master included) and snapshot (the last one applied, "" = none).
     Json stats() const;
 
-    void reload_clip(std::string_view path);  // hot reload
+    void reload_clip(std::string_view path);  // hot reload (a stem file of a song that plays from stems reloads that song too)
+    // Hot reload of a `*.song.json`: the cached renders of the song are dropped and every MusicPlayer that plays it fetches it again
+    // and crossfades to the new version at the next beat, in the section that sounds. Call it from the game thread.
+    void reload_song(std::string_view songPath);
 
     struct Impl;
 

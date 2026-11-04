@@ -1,0 +1,751 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factoria.dev/schemas/song.schema.json",
+  "title": "FactorIA song document (*.song.json)",
+  "description": "Music composed as data: a tempo, a meter and a key, tracks (an instrument and named patterns of note text or drum grids each) and sections that say what every track plays. `music.create` writes a starting point, `music.edit` changes it, `music.check` finds problems, `music.preview` renders a WAV with the instruments and the mixer (`music.mix` shows the levels). Errors name the file, the JSON pointer and, inside note text, the line and column; docs/MUSIC.md has the notation.",
+  "type": "object",
+  "required": [
+    "format",
+    "tracks",
+    "sections"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference for editors."
+    },
+    "format": {
+      "const": "factoria.song/1",
+      "description": "File format identifier. Always \"factoria.song/1\"."
+    },
+    "doc": {
+      "type": "string",
+      "description": "What the song is for and where the game plays it."
+    },
+    "tempo": {
+      "type": "number",
+      "minimum": 20,
+      "maximum": 400,
+      "default": 120,
+      "description": "Quarter notes per minute (one tempo for the whole song)."
+    },
+    "meter": {
+      "type": "string",
+      "description": "Time signature such as \"4/4\", \"3/4\", \"6/8\", \"5/4\": 1 to 16 beats of a half, quarter, eighth or sixteenth note.",
+      "default": "4/4",
+      "pattern": "^[0-9]{1,2}/(2|4|8|16)$"
+    },
+    "key": {
+      "type": "string",
+      "description": "The key's tonic note only: C, F#, Bb. The scale goes in `mode`.",
+      "default": "C",
+      "pattern": "^[A-Ga-g][#b]?$"
+    },
+    "mode": {
+      "enum": [
+        "major",
+        "minor",
+        "dorian",
+        "phrygian",
+        "lydian",
+        "mixolydian",
+        "locrian",
+        "harmonic_minor",
+        "melodic_minor",
+        "pentatonic_major",
+        "pentatonic_minor",
+        "blues",
+        "whole_tone",
+        "chromatic"
+      ],
+      "default": "major",
+      "description": "The scale notes are judged against (music.scale describes each)."
+    },
+    "swing": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0,
+      "description": "How far the off-beats are delayed toward a triplet feel: 0 straight, 1 full triplet."
+    },
+    "swingGrid": {
+      "enum": [
+        8,
+        16
+      ],
+      "default": 8,
+      "description": "Which off-beats swing: 8 for eighth notes, 16 for sixteenth notes."
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Picks the take of random arpeggios and of the drum kit's round-robin hits."
+    },
+    "volume": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1.5,
+      "default": 0.8,
+      "description": "Master gain."
+    },
+    "layers": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 16,
+      "description": "Groups of tracks that a layered player brings in by intensity, and that `music.render` with `stems: \"layers\"` writes as one file each (docs/MUSIC.md \"Layers and stems\"). A track is in at most one layer; the tracks no layer names form the layer `other`, which cannot be named here. `music.edit` op set_layers changes it.",
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "The tracks of the layer." },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tracks"],
+            "properties": {
+              "tracks": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "The tracks of the layer." },
+              "intensity": { "type": "number", "minimum": 0, "maximum": 1, "description": "The music intensity (0 to 1) from which the layer plays: 0 is always on, 1 only at full intensity. Left out, the layers are spread evenly in the order written (the first at 0, the last at 1)." },
+              "doc": { "type": "string", "description": "What the layer adds to the music." }
+            }
+          }
+        ]
+      }
+    },
+    "mixer": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The mix: shared effect buses and the master (docs/MUSIC.md \"The mixer\"). `music.mix` shows what each did, `music.edit` op set_mixer changes it.",
+      "properties": {
+        "buses": {
+          "type": "object",
+          "maxProperties": 8,
+          "description": "Bus name (1 to 32 letters, digits, - or _) to bus. Tracks send to a bus by name; a bus returns only its effect (wet).",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "A shared effect bus.",
+            "properties": {
+              "volume": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 2,
+                "default": 1,
+                "description": "Linear gain of the bus return."
+              },
+              "pan": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1,
+                "default": 0,
+                "description": "-1 left to 1 right."
+              },
+              "mute": {
+                "type": "boolean",
+                "default": false,
+                "description": "true silences the bus (the sends still exist)."
+              },
+              "effects": {
+                "type": "array",
+                "maxItems": 8,
+                "description": "Effects of the bus, in order: usually one reverb or delay. At most 8.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "type"
+                  ],
+                  "description": "One effect step, written like a step of an audio document (docs/SOUND.md \"Audio documents\"; audio.info lists the fields of each): {\"type\": \"reverb\", \"decay\": 1.8}. A reverb or delay on a track runs inside it; put one on a bus to share it.",
+                  "properties": {
+                    "type": {
+                      "enum": [
+                        "eq",
+                        "filter",
+                        "compressor",
+                        "distortion",
+                        "bitcrush",
+                        "delay",
+                        "reverb"
+                      ],
+                      "description": "Effect type."
+                    },
+                    "enabled": {
+                      "type": "boolean",
+                      "default": true,
+                      "description": "false skips the effect without removing it."
+                    },
+                    "doc": {
+                      "type": "string",
+                      "description": "Why the effect is there."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9_-]{1,32}$"
+          }
+        },
+        "master": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The master bus.",
+          "properties": {
+            "effects": {
+              "type": "array",
+              "maxItems": 8,
+              "description": "Effects of the master bus, after the song `volume`. At most 8.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "description": "One effect step, written like a step of an audio document (docs/SOUND.md \"Audio documents\"; audio.info lists the fields of each): {\"type\": \"reverb\", \"decay\": 1.8}. A reverb or delay on a track runs inside it; put one on a bus to share it.",
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "eq",
+                      "filter",
+                      "compressor",
+                      "distortion",
+                      "bitcrush",
+                      "delay",
+                      "reverb"
+                    ],
+                    "description": "Effect type."
+                  },
+                  "enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "false skips the effect without removing it."
+                  },
+                  "doc": {
+                    "type": "string",
+                    "description": "Why the effect is there."
+                  }
+                }
+              }
+            },
+            "limiter": {
+              "description": "The lookahead peak limiter: true (default, ceiling -1 dB), false to switch it off, or {ceilingDb, release}.",
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "ceilingDb": {
+                      "type": "number",
+                      "minimum": -24,
+                      "maximum": 0,
+                      "default": -1,
+                      "description": "Highest peak, dBFS."
+                    },
+                    "release": {
+                      "type": "number",
+                      "minimum": 0.005,
+                      "maximum": 2,
+                      "description": "Seconds the gain takes to recover."
+                    }
+                  }
+                }
+              ]
+            },
+            "loudness": {
+              "description": "\"style\" (default) brings the mix to the music loudness of the project's style guide, \"off\" keeps the level the tracks add up to, or a target in LUFS (-40 to -5).",
+              "anyOf": [
+                {
+                  "enum": [
+                    "style",
+                    "off"
+                  ]
+                },
+                {
+                  "type": "number",
+                  "minimum": -40,
+                  "maximum": -5
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "tracks": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 32,
+      "description": "Track name (1 to 32 letters, digits, - or _) to track.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "instrument",
+          "patterns"
+        ],
+        "description": "One instrument and its named patterns.",
+        "properties": {
+          "instrument": {
+            "description": "What plays the track: a built-in instrument (music.instrument lists them by family: leads, pads, basses, plucks, bells, ensembles, chiptune), `kit`, `kit:electronic` or `kit:chiptune` for a drum kit, an sfx preset name, a project .sfx.json path, a SoundFont file `assets/x.sf2` (the first preset), `assets/x.sf2#Piano` (a preset by name) or `assets/x.sf2#0:25` (bank:program), or the object form {\"soundfont\": \"assets/x.sf2\", \"preset\": \"Piano\"}.",
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Instrument name, patch path or SoundFont reference."
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "soundfont"
+                ],
+                "description": "A SoundFont preset.",
+                "properties": {
+                  "soundfont": {
+                    "type": "string",
+                    "pattern": "\\.sf2$",
+                    "description": "Path of the .sf2 file inside the project, e.g. assets/audio/piano.sf2."
+                  },
+                  "preset": {
+                    "description": "Preset name, or program number 0 to 127 (with `bank`). Default: the first preset.",
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 127
+                      }
+                    ]
+                  },
+                  "bank": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 128,
+                    "description": "Bank of a numbered preset (128 is the percussion bank). Default 0."
+                  },
+                  "drums": {
+                    "type": "boolean",
+                    "description": "true plays the SoundFont's percussion kit (bank 128) with the drum lanes of a grid pattern."
+                  }
+                }
+              }
+            ]
+          },
+          "volume": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2,
+            "default": 1,
+            "description": "Linear gain of the track."
+          },
+          "pan": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1,
+            "default": 0,
+            "description": "-1 left to 1 right."
+          },
+          "mute": {
+            "type": "boolean",
+            "default": false,
+            "description": "true silences the track in every render (a section's `mute` silences it for one part)."
+          },
+          "solo": {
+            "type": "boolean",
+            "default": false,
+            "description": "true plays only the tracks marked solo."
+          },
+          "voices": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64,
+            "default": 0,
+            "description": "How many notes may sound at once (ringing releases count); 0 uses the instrument's own limit. A later note cuts the oldest voice; a chord is never cut by its own notes."
+          },
+          "effects": {
+            "type": "array",
+            "maxItems": 8,
+            "description": "Insert effects of the track, in order, applied before the fader and the pan. At most 8.",
+            "items": {
+              "type": "object",
+              "required": [
+                "type"
+              ],
+              "description": "One effect step, written like a step of an audio document (docs/SOUND.md \"Audio documents\"; audio.info lists the fields of each): {\"type\": \"reverb\", \"decay\": 1.8}. A reverb or delay on a track runs inside it; put one on a bus to share it.",
+              "properties": {
+                "type": {
+                  "enum": [
+                    "eq",
+                    "filter",
+                    "compressor",
+                    "distortion",
+                    "bitcrush",
+                    "delay",
+                    "reverb"
+                  ],
+                  "description": "Effect type."
+                },
+                "enabled": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "false skips the effect without removing it."
+                },
+                "doc": {
+                  "type": "string",
+                  "description": "Why the effect is there."
+                }
+              }
+            }
+          },
+          "sends": {
+            "type": "object",
+            "description": "Bus name to how much of the track goes there (0 to 2): a shared reverb or delay. The bus is declared in the song's `mixer.buses`.",
+            "additionalProperties": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 2
+            }
+          },
+          "transpose": {
+            "type": "integer",
+            "minimum": -48,
+            "maximum": 48,
+            "default": 0,
+            "description": "Semitones added to every pitched note."
+          },
+          "swing": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Swing of this track; overrides the song's."
+          },
+          "range": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "[lowest, highest] note the part should stay in, as note names or MIDI numbers; music.check flags notes outside it.",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 127
+                }
+              ]
+            }
+          },
+          "kit": {
+            "type": "object",
+            "description": "Drum tracks only: lane name to a .sfx.json patch that replaces that lane of the built-in kit (or adds a lane). Built-in lanes: kick, snare, clap, rim, hat, openhat, shaker, tom_low, tom_mid, tom_high, ride, crash.",
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "\\.sfx\\.json$",
+              "description": "Path of the patch, e.g. assets/audio/my_kick.sfx.json."
+            }
+          },
+          "patterns": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 64,
+            "description": "Pattern name to pattern.",
+            "additionalProperties": {
+              "description": "A pattern: note text (pitched track), {notes, bars} (note text padded to a number of bars), or a drum grid.",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "description": "Note text (docs/MUSIC.md): notes `C4 F#3 Bb2`, durations `:4 :8 :4. :8t`, `r` rest, `[C4 E4 G4]` a chord of notes, `(Am7)` or `(Am7@3)` a chord by name, `|` a checked bar line, `{...}x2` repeat, `&` another voice; after a note `!` accent, `'` staccato, `~` tie, `v90` velocity."
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "notes"
+                  ],
+                  "description": "Note text with a declared length in bars: a shorter text is padded with silence, a longer one is an error.",
+                  "properties": {
+                    "notes": {
+                      "type": "string",
+                      "description": "Note text (docs/MUSIC.md): notes `C4 F#3 Bb2`, durations `:4 :8 :4. :8t`, `r` rest, `[C4 E4 G4]` a chord of notes, `(Am7)` or `(Am7@3)` a chord by name, `|` a checked bar line, `{...}x2` repeat, `&` another voice; after a note `!` accent, `'` staccato, `~` tie, `v90` velocity."
+                    },
+                    "bars": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Length in bars.",
+                      "maximum": 256
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "grid"
+                  ],
+                  "description": "A drum pattern: a step grid per lane.",
+                  "properties": {
+                    "grid": {
+                      "type": "object",
+                      "description": "Lane name to step text: x hit, X accent, o soft ghost note, . - or _ rest; spaces and | are ignored. Lanes: kick, snare, clap, rim, hat, openhat, shaker, tom_low, tom_mid, tom_high, ride, crash, plus the lanes of the track's `kit`.",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    },
+                    "step": {
+                      "enum": [
+                        "4",
+                        "8",
+                        "16",
+                        "32",
+                        "8t",
+                        "16t"
+                      ],
+                      "description": "Note value of one grid step. Default 16."
+                    },
+                    "bars": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Length in bars; a shorter grid is padded with silence.",
+                      "maximum": 256
+                    }
+                  }
+                }
+              ]
+            },
+            "propertyNames": {
+              "pattern": "^[A-Za-z0-9_-]{1,32}$",
+              "not": {
+                "const": "rest"
+              }
+            }
+          },
+          "automation": {
+            "type": "array",
+            "description": "Lanes over the song for this track.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "param",
+                "points"
+              ],
+              "description": "One automation lane of the track.",
+              "properties": {
+                "param": {
+                  "type": "string",
+                  "description": "What the lane moves: volume (0 to 2), pan (-1 to 1), filter (Hz, 40 to 20000) or macro.<name> of the instrument's patch."
+                },
+                "points": {
+                  "type": "array",
+                  "minItems": 1,
+                  "description": "[beat, value] pairs in time order; the beat counts quarter notes from the start of the song.",
+                  "items": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "number"
+                    },
+                    "prefixItems": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "Beat."
+                      },
+                      {
+                        "type": "number",
+                        "description": "Value."
+                      }
+                    ]
+                  }
+                },
+                "curve": {
+                  "enum": [
+                    "linear",
+                    "step",
+                    "smooth"
+                  ],
+                  "default": "linear",
+                  "description": "How the value moves between points: linear, step (jumps at each point) or smooth."
+                }
+              }
+            }
+          }
+        }
+      },
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9_-]{1,32}$"
+      }
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "description": "The arrangement, in play order.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "play"
+        ],
+        "description": "A part of the song: which pattern every track plays and for how many repeats.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the section (1 to 40 characters), unique in the song.",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "kind": {
+            "enum": [
+              "intro",
+              "loop",
+              "outro",
+              "section"
+            ],
+            "default": "section",
+            "description": "intro plays once at the start, loop is the part that repeats in a game, outro plays once at the end. Later milestones use the kind for loop points and transitions."
+          },
+          "repeat": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1,
+            "description": "The section plays this many times in a row.",
+            "maximum": 64
+          },
+          "bars": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Length in bars. Default: the longest track of the section; a shorter track repeats to fill it, a longer one is cut.",
+            "maximum": 256
+          },
+          "mute": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tracks that stay silent in this section."
+          },
+          "play": {
+            "type": "object",
+            "description": "Track name to what it plays here (patterns in order).",
+            "additionalProperties": {
+              "description": "What a track plays in a section: patterns in order, `name*N` repeats one, `rest` is a silent bar. Text (\"a a b*2 rest\") or a list of the same tokens and objects.",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "description": "Entries separated by spaces: \"a a b*2 rest*2\"."
+                },
+                {
+                  "type": "array",
+                  "description": "The same entries as a list.",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "description": "One or more entries as text."
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "pattern"
+                        ],
+                        "description": "A pattern and how many times it plays.",
+                        "properties": {
+                          "pattern": {
+                            "type": "string",
+                            "description": "Name of a pattern of the track."
+                          },
+                          "repeat": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Times it plays in a row. Default 1.",
+                            "maximum": 256
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "rest"
+                        ],
+                        "description": "Silence.",
+                        "properties": {
+                          "rest": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Bars of silence.",
+                            "maximum": 256
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "automation": {
+      "type": "array",
+      "description": "Master lanes over the song.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "param",
+          "points"
+        ],
+        "description": "One automation lane of the whole song.",
+        "properties": {
+          "param": {
+            "type": "string",
+            "description": "What the lane moves: volume (0 to 2) or filter (Hz, 40 to 20000)."
+          },
+          "points": {
+            "type": "array",
+            "minItems": 1,
+            "description": "[beat, value] pairs in time order; the beat counts quarter notes from the start of the song.",
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number"
+              },
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Beat."
+                },
+                {
+                  "type": "number",
+                  "description": "Value."
+                }
+              ]
+            }
+          },
+          "curve": {
+            "enum": [
+              "linear",
+              "step",
+              "smooth"
+            ],
+            "default": "linear",
+            "description": "How the value moves between points: linear, step (jumps at each point) or smooth."
+          }
+        }
+      }
+    }
+  }
+}

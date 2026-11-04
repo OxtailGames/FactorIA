@@ -19,6 +19,7 @@
 #include "fa/scene/camera_query.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/bones2d.h"
+#include "fa/scene/ik3d.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/video.h"
 
@@ -347,9 +348,10 @@ void Engine::Impl::poll_hot_reload(bool force) {
     }
     watched = std::move(now);
     for (const std::string& p : changed) {
+        const bool songAsset = ends_with(p, ".song.json");
         const bool renderAsset = ends_with(p, ".material.json") ||
             has_ext(p, {".glsl", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj", ".gltf", ".glb"});
-        if (assetsOnly && !renderAsset) continue;  // scripts, scenes and locales belong to the host
+        if (assetsOnly && !renderAsset && !songAsset && !has_ext(p, {".wav", ".ogg", ".mp3", ".qoa"})) continue;  // scripts, scenes and locales belong to the host
         if (starts_with(p, "locales/") && has_ext(p, {".json"})) {
             if (i18n.enabled()) {
                 FA_INFO("hotreload", "String table {} changed on disk, reloading the tables", p);
@@ -359,6 +361,9 @@ void Engine::Impl::poll_hot_reload(bool force) {
             FA_INFO("hotreload", "Reloading script {}", p);
             if (starts_with(p, "tools/")) scripts.reload_tools();
             else scripts.reload_module(p);
+        } else if (songAsset) {
+            FA_INFO("hotreload", "Song {} changed on disk, the players that play it crossfade to the new version", p);
+            audio.reload_song(p);
         } else if (p.size() > 11 && ends_with(p, ".scene.json")) {
             if (p == currentScene) {
                 FA_INFO("hotreload", "Scene {} changed on disk, reloading", p);
@@ -417,6 +422,17 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             // The renderer (which deforms skinned sprites from the bones), bounds and the next physics step read the
             // result. The order "clips, then IK, then drawing" is the contract in docs/ANIMATION.md, "Bones and IK".
             update_ik2d(world);
+            // IK3D rewrites the palettes of the skinned models after their clips (docs/ANIMATION.md, "3D IK"); its foot rays
+            // ask the physics world, which has just stepped.
+            update_ik3d(world, float(fixedDt * scale),
+                        [this](Vec3 origin, Vec3 dir, float maxDistance, std::int32_t mask, Entity ignore) -> std::optional<GroundHit> {
+                            RaycastOptions ro;
+                            ro.mask = mask;
+                            ro.ignore = ignore;
+                            auto hit = physics.raycast3d(world, origin, dir, maxDistance, ro);
+                            if (!hit) return std::nullopt;
+                            return GroundHit{hit->point, hit->normal};
+                        });
         }
         {
             // Videos follow the game clock: they stop with time.scale 0, and a play / pause / seek a script made still applies.
@@ -613,6 +629,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         I.startupProblems.push_back("audio: " + aerr);
     }
     I.audio.set_clock(&I.world);  // play log entries carry the frame/time scripts see
+    device_overridden(device_info());  // MusicPlayer.mode "auto" chooses between live synthesis and stems for this device (docs/MUSIC.md)
     register_builtin_commands(*this, I);  // before scripts.init: JS tools (tools/*.js) are added on top
     // Native plugins: their commands, and their functions for the scripts (plugins.<name>), before scripts.init.
     PluginInstall installed = install_plugins(I.project, dir, config.pluginDir, I.commands, I.scripts);
@@ -1087,6 +1104,16 @@ std::string Engine::set_render_scale(double scale) {
     if (!I.renderer) return ScriptHost::set_render_scale(scale);  // no graphics: remembered, nothing to resize
     std::string err;
     return hold_render_scale(scale, &err) ? std::string() : err;
+}
+
+void Engine::device_overridden(const Json& device) {
+    MusicDeviceProfile music;
+    music.formFactor = device.value("formFactor", std::string("desktop"));
+    music.tier = device.value("tier", std::string("high"));
+#if defined(__EMSCRIPTEN__)
+    music.web = true;
+#endif
+    impl_->audio.set_music_device(music);
 }
 
 Json Engine::device_info() const {

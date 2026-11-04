@@ -48,3 +48,43 @@ TEST_CASE("tilemap.cellAt and cellToWorld: both projections, the entity's transf
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().to_string().find("cellToWorld") != std::string::npos);
 }
+
+TEST_CASE("tilemap.paintTerrain / eraseTerrain / retile / terrainAt: autotile from scripts") {
+    TestHost h("tilemap_terrain");
+    h.file("scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array({
+        Json::parse(R"({"id":"map","components":{"Tilemap":{"tileSize":[16,16],"width":4,"height":3,
+            "tiles":[-1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1],
+            "terrains":[{"name":"grass","mode":"basic16","first":0}]}}})")})}}).dump());
+    REQUIRE(h.start());
+    CHECK(h.load_scene_now("scenes/main.scene.json").empty());
+    h.step_frames(1);
+    // basic16: slot = N*1 + E*2 + S*4 + W*8
+    CHECK(eval_ok(h, R"(
+      const t = world.find('map').tilemap;
+      const r = t.paintTerrain('grass', [[0, 0], {col: 1, row: 0}]);
+      JSON.stringify([r.painted, r.outside, t.getTile(0, 0), t.getTile(1, 0), t.terrainAt(0, 0), t.terrainAt(2, 2)]))") ==
+          "[2,0,2,8,\"grass\",null]");
+    CHECK(eval_ok(h, R"(
+      const t = world.find('map').tilemap;
+      const r = t.eraseTerrain('grass', [[1, 0]]);
+      JSON.stringify([r.painted, t.getTile(1, 0), t.getTile(0, 0), r.changes.length]))") == "[1,-1,0,2]");
+    // a tile written by hand is re-tiled by retile()
+    CHECK(eval_ok(h, R"(
+      const t = world.find('map').tilemap;
+      t.setTile(1, 0, 0);
+      const r = t.retile();
+      JSON.stringify([r.changed, t.getTile(0, 0), t.getTile(1, 0)]))") == "[2,2,8]");
+    // the cells outside the map are counted, not written
+    CHECK(eval_ok(h, "world.find('map').tilemap.paintTerrain('grass', [[9, 9]]).outside").get<int>() == 1);
+
+    auto unknown = h.scripts.eval("world.find('map').tilemap.paintTerrain('gras', [[0, 0]])");
+    REQUIRE_FALSE(unknown.ok());
+    CHECK(unknown.error().to_string().find("Unknown terrain 'gras'") != std::string::npos);
+    CHECK(unknown.error().to_string().find("grass") != std::string::npos);
+    auto badCells = h.scripts.eval("world.find('map').tilemap.paintTerrain('grass', [[0, 'x']])");
+    REQUIRE_FALSE(badCells.ok());
+    CHECK(badCells.error().to_string().find("cells[0]") != std::string::npos);
+    auto badName = h.scripts.eval("world.find('map').tilemap.paintTerrain(3, [[0, 0]])");
+    REQUIRE_FALSE(badName.ok());
+    CHECK(badName.error().to_string().find("paintTerrain") != std::string::npos);
+}

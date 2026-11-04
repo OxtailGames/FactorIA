@@ -1,0 +1,58 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "confirm: an action went through: two notes up. Member of the family of assets/audio/ui_base.sfx.json (The base of the menu sounds: a soft low click that the family turns into hover, confirm, cancel, open and close.)",
+  "length": 0.13,
+  "layers": [
+    {
+      "pitch": {
+        "freq": 1200,
+        "arpeggio": {
+          "steps": [
+            0.0,
+            7.0
+          ],
+          "rate": 12.0,
+          "mode": "once"
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "noise",
+          "gain": 1
+        },
+        {
+          "wave": "sine",
+          "gain": 0.3
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 8000
+      },
+      "amp": {
+        "attack": 0.0005,
+        "decay": 0.0395,
+        "sustain": 0,
+        "curve": 2.5
+      }
+    }
+  ],
+  "master": {
+    "effects": [
+      {
+        "type": "distortion",
+        "mode": "soft",
+        "drive": 4
+      }
+    ],
+    "normalize": {
+      "mode": "lufs",
+      "target": -18,
+      "ceilingDb": -1
+    }
+  },
+  "tail": 0.12,
+  "macros": {
+    "brightness": 0.2
+  }
+}

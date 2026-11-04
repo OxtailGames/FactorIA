@@ -1,0 +1,86 @@
+{
+  "format": "factoria.project/1",
+  "name": "Kindlewatch",
+  "id": "com.factoria.examples.kindlewatch",
+  "version": "0.1.0",
+  "engine": "0.14.1",
+  "mainScene": "scenes/menu.scene.json",
+  "display": {
+    "width": 1280,
+    "height": 720,
+    "scaleMode": "fit",
+    "fullscreen": false,
+    "vsync": true,
+    "orientation": "landscape",
+    "pixelArt": true
+  },
+  "physics": {
+    "fixedHz": 60,
+    "pixelsPerMeter": 100
+  },
+  "input": {
+    "actions": {
+      "move_forward": [
+        "W",
+        "Up",
+        "GamepadLeftStickUp"
+      ],
+      "move_back": [
+        "S",
+        "Down",
+        "GamepadLeftStickDown"
+      ],
+      "move_left": [
+        "A",
+        "Left",
+        "GamepadLeftStickLeft"
+      ],
+      "move_right": [
+        "D",
+        "Right",
+        "GamepadLeftStickRight"
+      ],
+      "attack": [
+        "Space",
+        "J",
+        "GamepadA",
+        "MouseLeft"
+      ],
+      "pause": [
+        "Escape",
+        "P",
+        "GamepadStart"
+      ]
+    }
+  },
+  "platforms": [
+    "windows",
+    "macos",
+    "linux",
+    "ios",
+    "android"
+  ],
+  "feedbackFile": "ENGINE_FEEDBACK.json",
+  "description": "Hold a campfire through three wolf nights. Everything in this game was made with the engine commands of M51-M59.",
+  "audio": {
+    "buses": {
+      "ambience": {
+        "parent": "sfx"
+      }
+    }
+  },
+  "icon": "assets/icon.png",
+  "export": {
+    "android": {
+      "adaptiveIcon": {
+        "foreground": "assets/icon_fg.png"
+      }
+    }
+  },
+  "localization": {
+    "defaultLanguage": "en",
+    "languages": [
+      "en"
+    ]
+  }
+}

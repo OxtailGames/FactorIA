@@ -1,0 +1,1071 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factoria.dev/schemas/sfx.schema.json",
+  "title": "FactorIA sound patch (*.sfx.json)",
+  "description": "A sound effect or instrument described as layers of oscillators, envelopes, filters and effects. The engine renders it offline to a WAV, the same bytes on every platform (`sfx.render`). Errors name the file and the JSON pointer; docs/SOUND.md explains the format, `sfx.preset` writes a full example.",
+  "type": "object",
+  "required": [
+    "format",
+    "layers"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference for editors."
+    },
+    "format": {
+      "const": "factoria.sfx/1",
+      "description": "File format identifier. Always \"factoria.sfx/1\"."
+    },
+    "doc": {
+      "type": "string",
+      "description": "What the sound is and when the game plays it."
+    },
+    "sampleRate": {
+      "type": "integer",
+      "minimum": 8000,
+      "maximum": 96000,
+      "default": 44100,
+      "description": "Samples per second of the rendered WAV."
+    },
+    "length": {
+      "type": "number",
+      "description": "Seconds the note is held; layers without their own `length` gate this long. length + tail is at most 30.",
+      "minimum": 0.001,
+      "maximum": 30,
+      "default": 0.5
+    },
+    "tail": {
+      "type": "number",
+      "description": "Extra seconds after `length` for releases, delay repeats and reverb to die away.",
+      "minimum": 0,
+      "maximum": 30,
+      "default": 0
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Picks the take of every noise: the same patch and seed give the same sound."
+    },
+    "fadeOut": {
+      "type": "number",
+      "description": "Seconds at the end of the sound that fade to silence so it never ends in a click; 0 turns it off.",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.003
+    },
+    "gain": {
+      "type": "number",
+      "description": "Linear gain of the mix before the master effects.",
+      "minimum": 0,
+      "maximum": 8,
+      "default": 1
+    },
+    "layers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "$ref": "#/$defs/layer"
+      }
+    },
+    "master": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What happens to the mix of all layers.",
+      "properties": {
+        "effects": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/effect"
+          },
+          "description": "Effects in the order they are heard."
+        },
+        "normalize": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Levels the finished sound.",
+          "properties": {
+            "mode": {
+              "enum": [
+                "lufs",
+                "peak",
+                "none"
+              ],
+              "default": "lufs",
+              "description": "lufs levels by loudness (sound effects), peak by the loudest sample, none keeps the level the layers add up to (instruments)."
+            },
+            "target": {
+              "type": "number",
+              "description": "-18 LUFS is a quiet sound effect. In mode peak: the loudest sample in dBFS (default -3).",
+              "minimum": -60,
+              "maximum": 0,
+              "default": -18
+            },
+            "ceilingDb": {
+              "type": "number",
+              "description": "In mode lufs the loudest sample stays under this dBFS.",
+              "minimum": -24,
+              "maximum": 0,
+              "default": -1
+            }
+          }
+        }
+      }
+    },
+    "macros": {
+      "type": "object",
+      "description": "Named knobs from -1 to 1 that move several parameters by meaning (docs/SOUND.md, \"Macros\"). Built in: attack, brightness, weight, tail, pitch, grit; the value is the setting the patch renders with (0 = as written). A macro is a number, or an object {value, strength, doc, binds}; a macro of your own needs binds that set numbers of the patch by JSON pointer.",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1,
+                "default": 0,
+                "description": "The macro's setting."
+              },
+              "strength": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 3,
+                "default": 1,
+                "description": "Built-in macros: how far the knob moves things (2 = twice as far)."
+              },
+              "doc": {
+                "type": "string",
+                "description": "What the macro does in this patch."
+              },
+              "binds": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 16,
+                "description": "Numbers of the patch the macro sets: at -1 the number is `min`, at +1 it is `max`.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "min",
+                    "max"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "JSON pointer of a number of the patch, e.g. /layers/0/filter/cutoff."
+                    },
+                    "min": {
+                      "type": "number",
+                      "description": "The value at macro -1."
+                    },
+                    "max": {
+                      "type": "number",
+                      "description": "The value at macro +1."
+                    },
+                    "curve": {
+                      "enum": [
+                        "linear",
+                        "exp"
+                      ],
+                      "default": "linear",
+                      "description": "exp interpolates on a log scale (cutoffs, times); min and max must be above 0."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "variations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "count"
+      ],
+      "description": "N takes of the patch for sounds that must not repeat (footsteps, hits). sfx.bake writes name_01.wav ... name_NN.wav; an AudioSource with `variants` picks one per play.",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 64,
+          "description": "How many variants."
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Another seed gives another set of offsets."
+        },
+        "spread": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The largest offset of a variant in either direction.",
+          "properties": {
+            "pitch": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1200,
+              "default": 25,
+              "description": "Cents."
+            },
+            "length": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 0.9,
+              "default": 0.05,
+              "description": "Share of the length."
+            },
+            "gain": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 12,
+              "default": 1,
+              "description": "dB after normalization."
+            },
+            "filter": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 4,
+              "default": 0.15,
+              "description": "Octaves on every filter cutoff."
+            },
+            "noise": {
+              "type": "boolean",
+              "default": true,
+              "description": "Each variant takes another take of the noise."
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attack": {
+          "type": "number",
+          "description": "Seconds the level takes to rise from 0 to 1.",
+          "minimum": 0,
+          "maximum": 30,
+          "default": 0
+        },
+        "decay": {
+          "type": "number",
+          "description": "Seconds the level takes to fall from 1 to `sustain`.",
+          "minimum": 0,
+          "maximum": 30,
+          "default": 0
+        },
+        "sustain": {
+          "type": "number",
+          "description": "The level held after the decay, 0 (silence) to 1 (full).",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 1
+        },
+        "release": {
+          "type": "number",
+          "description": "Seconds the level takes to fall to 0 after the note is released at the layer's length.",
+          "minimum": 0,
+          "maximum": 30,
+          "default": 0
+        },
+        "curve": {
+          "type": "number",
+          "description": "Shape of every segment: 1 is a straight line, 2 to 4 falls fast first (punchy), below 1 the opposite.",
+          "minimum": 0.2,
+          "maximum": 8,
+          "default": 1
+        }
+      }
+    },
+    "effect": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "cutoff"
+          ],
+          "additionalProperties": false,
+          "description": "A filter over the whole sound.",
+          "properties": {
+            "type": {
+              "const": "filter"
+            },
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "false skips the effect without removing it."
+            },
+            "mode": {
+              "enum": [
+                "lowpass",
+                "highpass",
+                "bandpass"
+              ],
+              "default": "lowpass",
+              "description": "lowpass removes highs (muffles), highpass removes lows (thins), bandpass keeps a band."
+            },
+            "cutoff": {
+              "type": "number",
+              "description": "The frequency in Hz where the filter starts to act.",
+              "minimum": 20,
+              "maximum": 20000
+            },
+            "resonance": {
+              "type": "number",
+              "description": "Q: 0.707 is flat, 2 to 8 adds a whistle at the cutoff.",
+              "minimum": 0.5,
+              "maximum": 30,
+              "default": 0.707
+            },
+            "to": {
+              "type": "number",
+              "description": "The cutoff the filter slides to by the end of the sound (exponentially).",
+              "minimum": 20,
+              "maximum": 20000
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false,
+          "description": "Waveshaping distortion.",
+          "properties": {
+            "type": {
+              "const": "distortion"
+            },
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "false skips the effect without removing it."
+            },
+            "mode": {
+              "enum": [
+                "soft",
+                "hard",
+                "fold"
+              ],
+              "default": "soft",
+              "description": "soft rounds the peaks, hard clips them flat, fold bends them back (metallic)."
+            },
+            "drive": {
+              "type": "number",
+              "description": "Gain into the distortion: 2 is warm, 10 crunchy, 50 a wall of fuzz.",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 4
+            },
+            "level": {
+              "type": "number",
+              "description": "Gain after the distortion.",
+              "minimum": 0,
+              "maximum": 4,
+              "default": 1
+            },
+            "mix": {
+              "type": "number",
+              "description": "0 is the dry sound, 1 only the distorted one.",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false,
+          "description": "Bit depth and sample rate reduction.",
+          "properties": {
+            "type": {
+              "const": "bitcrush"
+            },
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "false skips the effect without removing it."
+            },
+            "bits": {
+              "type": "number",
+              "description": "Resolution of each sample: 8 is gritty, 4 harsh.",
+              "minimum": 1,
+              "maximum": 16,
+              "default": 8
+            },
+            "rate": {
+              "type": "number",
+              "description": "The rate samples are held at, in Hz. Leave out for the patch's sample rate.",
+              "minimum": 100,
+              "maximum": 96000
+            },
+            "mix": {
+              "type": "number",
+              "description": "0 is the dry sound, 1 only the crushed one.",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false,
+          "description": "An echo.",
+          "properties": {
+            "type": {
+              "const": "delay"
+            },
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "false skips the effect without removing it."
+            },
+            "time": {
+              "type": "number",
+              "description": "Seconds between repeats.",
+              "minimum": 0.001,
+              "maximum": 2,
+              "default": 0.25
+            },
+            "feedback": {
+              "type": "number",
+              "description": "How much of each repeat feeds the next.",
+              "minimum": 0,
+              "maximum": 0.95,
+              "default": 0.4
+            },
+            "tone": {
+              "type": "number",
+              "description": "Hz: a low-pass in the feedback so each repeat is darker. Leave out for none.",
+              "minimum": 100,
+              "maximum": 20000
+            },
+            "mix": {
+              "type": "number",
+              "description": "How loud the repeats are added to the dry sound, which always stays.",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.35
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false,
+          "description": "A Freeverb-style reverb.",
+          "properties": {
+            "type": {
+              "const": "reverb"
+            },
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "false skips the effect without removing it."
+            },
+            "decay": {
+              "type": "number",
+              "description": "Seconds the reverb takes to die away (RT60). Give the patch a `tail` as long.",
+              "minimum": 0.05,
+              "maximum": 10,
+              "default": 1
+            },
+            "damping": {
+              "type": "number",
+              "description": "0 is bright, 1 dark and soft.",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.5
+            },
+            "size": {
+              "type": "number",
+              "description": "Scales the room: 0.5 tight, 2 spacious.",
+              "minimum": 0.25,
+              "maximum": 2,
+              "default": 1
+            },
+            "preDelay": {
+              "type": "number",
+              "description": "Seconds before the reverb starts.",
+              "minimum": 0,
+              "maximum": 0.5,
+              "default": 0
+            },
+            "mix": {
+              "type": "number",
+              "description": "How loud the reverb is added to the dry sound, which always stays.",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.25
+            }
+          }
+        }
+      ]
+    },
+    "oscillator": {
+      "type": "object",
+      "required": [
+        "wave"
+      ],
+      "additionalProperties": false,
+      "description": "One oscillator of a layer; the oscillators of a layer are added together.",
+      "properties": {
+        "wave": {
+          "enum": [
+            "sine",
+            "square",
+            "saw",
+            "triangle",
+            "noise",
+            "table"
+          ],
+          "description": "The oscillator's shape."
+        },
+        "duty": {
+          "type": "number",
+          "description": "square only: the share of each cycle that is high; 0.5 is a plain square, 0.125 thin and nasal.",
+          "minimum": 0.02,
+          "maximum": 0.98,
+          "default": 0.5
+        },
+        "color": {
+          "enum": [
+            "white",
+            "pink",
+            "brown"
+          ],
+          "default": "white",
+          "description": "noise only: white is bright hiss, pink rain-like, brown a deep rumble."
+        },
+        "table": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4096,
+          "items": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1
+          },
+          "description": "table only: one cycle of the wave drawn as 2 to 4096 numbers from -1 to 1, read with linear interpolation."
+        },
+        "ratio": {
+          "type": "number",
+          "description": "A multiple of the layer's frequency: 2 is an octave up. Not for noise.",
+          "minimum": 0.01,
+          "maximum": 64,
+          "default": 1
+        },
+        "detune": {
+          "type": "number",
+          "description": "Cents (100 = a semitone). Not for noise.",
+          "minimum": -2400,
+          "maximum": 2400,
+          "default": 0
+        },
+        "freq": {
+          "type": "number",
+          "description": "A fixed frequency in Hz that ignores the layer's pitch. Not for noise.",
+          "minimum": 1,
+          "maximum": 20000
+        },
+        "gain": {
+          "type": "number",
+          "description": "Linear level of this oscillator inside the layer.",
+          "minimum": 0,
+          "maximum": 8,
+          "default": 1
+        },
+        "phase": {
+          "type": "number",
+          "description": "Where in its cycle the oscillator starts, 0 to 1. Not for noise.",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0
+        },
+        "fm": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Frequency modulation: a modulator oscillator bends this one's phase. Give `ratio` or `hz`, not both. Not for noise.",
+          "properties": {
+            "ratio": {
+              "type": "number",
+              "description": "The modulator's frequency as a multiple of the oscillator's.",
+              "minimum": 0.01,
+              "maximum": 64,
+              "default": 1
+            },
+            "hz": {
+              "type": "number",
+              "description": "A fixed modulator frequency in Hz.",
+              "minimum": 0.1,
+              "maximum": 20000
+            },
+            "index": {
+              "type": "number",
+              "description": "Peak phase deviation in radians: 0.5 a hint of brightness, 3 to 8 a clang.",
+              "minimum": 0,
+              "maximum": 40,
+              "default": 1
+            },
+            "wave": {
+              "enum": [
+                "sine",
+                "square",
+                "saw",
+                "triangle"
+              ],
+              "default": "sine",
+              "description": "The modulator's shape."
+            },
+            "indexEnv": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "attack": {
+                  "type": "number",
+                  "description": "Seconds the level takes to rise from 0 to 1.",
+                  "minimum": 0,
+                  "maximum": 30,
+                  "default": 0
+                },
+                "decay": {
+                  "type": "number",
+                  "description": "Seconds the level takes to fall from 1 to `sustain`.",
+                  "minimum": 0,
+                  "maximum": 30,
+                  "default": 0
+                },
+                "sustain": {
+                  "type": "number",
+                  "description": "The level held after the decay, 0 (silence) to 1 (full).",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 1
+                },
+                "release": {
+                  "type": "number",
+                  "description": "Seconds the level takes to fall to 0 after the note is released at the layer's length.",
+                  "minimum": 0,
+                  "maximum": 30,
+                  "default": 0
+                },
+                "curve": {
+                  "type": "number",
+                  "description": "Shape of every segment: 1 is a straight line, 2 to 4 falls fast first (punchy), below 1 the opposite.",
+                  "minimum": 0.2,
+                  "maximum": 8,
+                  "default": 1
+                }
+              }
+            }
+          }
+        },
+        "ring": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Ring modulation: the oscillator is multiplied by a modulator. Give `ratio` or `hz`, not both.",
+          "properties": {
+            "ratio": {
+              "type": "number",
+              "description": "The modulator's frequency as a multiple of the oscillator's.",
+              "minimum": 0.01,
+              "maximum": 64,
+              "default": 1
+            },
+            "hz": {
+              "type": "number",
+              "description": "A fixed modulator frequency in Hz.",
+              "minimum": 0.1,
+              "maximum": 20000
+            },
+            "mix": {
+              "type": "number",
+              "description": "0 leaves the oscillator as it is, 1 is full ring modulation.",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 1
+            },
+            "wave": {
+              "enum": [
+                "sine",
+                "square",
+                "saw",
+                "triangle"
+              ],
+              "default": "sine",
+              "description": "The modulator's shape."
+            }
+          }
+        }
+      }
+    },
+    "pitch": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The layer's base pitch and how it moves. Give `freq` or `note`, not both.",
+      "properties": {
+        "freq": {
+          "type": "number",
+          "description": "Base frequency in Hz.",
+          "minimum": 1,
+          "maximum": 20000,
+          "default": 440
+        },
+        "note": {
+          "type": "string",
+          "pattern": "^[A-Ga-g][#b]?-?[0-9]{1,2}$",
+          "description": "A note name such as \"A4\", \"C#3\" or \"Bb2\" (C4 is middle C, A4 is 440 Hz)."
+        },
+        "sweep": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Slides the pitch. Give `to` or `semitones`, one of them.",
+          "properties": {
+            "to": {
+              "type": "number",
+              "description": "The frequency the pitch slides to, in Hz.",
+              "minimum": 1,
+              "maximum": 20000
+            },
+            "semitones": {
+              "type": "number",
+              "description": "How far the pitch slides from the base: 12 is an octave up.",
+              "minimum": -96,
+              "maximum": 96
+            },
+            "time": {
+              "type": "number",
+              "description": "Seconds the slide takes. Leave out for the whole layer.",
+              "minimum": 0.001,
+              "maximum": 30
+            },
+            "curve": {
+              "type": "number",
+              "description": "1 is even; 3 jumps fast then settles (a zap); below 1 starts slowly.",
+              "minimum": 0.1,
+              "maximum": 8,
+              "default": 1
+            }
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "amount": {
+              "type": "number",
+              "description": "Semitones the envelope moves the pitch at its peak.",
+              "minimum": -96,
+              "maximum": 96
+            },
+            "attack": {
+              "type": "number",
+              "description": "Seconds the level takes to rise from 0 to 1.",
+              "minimum": 0,
+              "maximum": 30,
+              "default": 0
+            },
+            "decay": {
+              "type": "number",
+              "description": "Seconds the level takes to fall from 1 to `sustain`.",
+              "minimum": 0,
+              "maximum": 30,
+              "default": 0
+            },
+            "sustain": {
+              "type": "number",
+              "description": "The level held after the decay, 0 (silence) to 1 (full).",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 1
+            },
+            "release": {
+              "type": "number",
+              "description": "Seconds the level takes to fall to 0 after the note is released at the layer's length.",
+              "minimum": 0,
+              "maximum": 30,
+              "default": 0
+            },
+            "curve": {
+              "type": "number",
+              "description": "Shape of every segment: 1 is a straight line, 2 to 4 falls fast first (punchy), below 1 the opposite.",
+              "minimum": 0.2,
+              "maximum": 8,
+              "default": 1
+            }
+          },
+          "required": [
+            "amount"
+          ]
+        },
+        "vibrato": {
+          "type": "object",
+          "required": [
+            "rate",
+            "depth"
+          ],
+          "additionalProperties": false,
+          "description": "A pitch wobble.",
+          "properties": {
+            "rate": {
+              "type": "number",
+              "description": "Wobbles per second.",
+              "minimum": 0.1,
+              "maximum": 40
+            },
+            "depth": {
+              "type": "number",
+              "description": "Peak size in cents.",
+              "minimum": 0,
+              "maximum": 2400
+            },
+            "delay": {
+              "type": "number",
+              "description": "Seconds the vibrato fades in over.",
+              "minimum": 0,
+              "maximum": 30,
+              "default": 0
+            }
+          }
+        },
+        "arpeggio": {
+          "type": "object",
+          "required": [
+            "steps"
+          ],
+          "additionalProperties": false,
+          "description": "Steps through semitone offsets from the base pitch.",
+          "properties": {
+            "steps": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "type": "number",
+                "minimum": -48,
+                "maximum": 48
+              },
+              "description": "Semitone offsets: [0, 4, 7] is a major chord."
+            },
+            "rate": {
+              "type": "number",
+              "description": "Steps per second.",
+              "minimum": 0.5,
+              "maximum": 200,
+              "default": 12
+            },
+            "mode": {
+              "enum": [
+                "loop",
+                "once"
+              ],
+              "default": "loop",
+              "description": "loop repeats the steps; once stays on the last."
+            }
+          }
+        }
+      }
+    },
+    "layer": {
+      "type": "object",
+      "required": [
+        "oscillators"
+      ],
+      "additionalProperties": false,
+      "description": "One voice of the sound. Layers play together, each from its own `start`.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "A label for people and for the editor."
+        },
+        "start": {
+          "type": "number",
+          "description": "Seconds from the start of the sound when the layer begins.",
+          "minimum": 0,
+          "maximum": 30,
+          "default": 0
+        },
+        "length": {
+          "type": "number",
+          "description": "Seconds the layer is held before its release. Leave out to hold it until the patch's `length`.",
+          "minimum": 0.001,
+          "maximum": 30
+        },
+        "gain": {
+          "type": "number",
+          "description": "Linear level of the layer in the mix.",
+          "minimum": 0,
+          "maximum": 8,
+          "default": 1
+        },
+        "oscillators": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/oscillator"
+          }
+        },
+        "pitch": {
+          "$ref": "#/$defs/pitch"
+        },
+        "amp": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/envelope"
+            }
+          ],
+          "description": "The loudness envelope of the layer. Default: attack 0.002, sustain 1, release 0.01."
+        },
+        "tremolo": {
+          "type": "object",
+          "required": [
+            "rate",
+            "depth"
+          ],
+          "additionalProperties": false,
+          "description": "A volume wobble.",
+          "properties": {
+            "rate": {
+              "type": "number",
+              "description": "Pulses per second.",
+              "minimum": 0.1,
+              "maximum": 100
+            },
+            "depth": {
+              "type": "number",
+              "description": "0 none, 1 chops to silence.",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "filter": {
+          "type": "object",
+          "required": [
+            "cutoff"
+          ],
+          "additionalProperties": false,
+          "description": "A filter on the layer, optionally moved by an envelope.",
+          "properties": {
+            "mode": {
+              "enum": [
+                "lowpass",
+                "highpass",
+                "bandpass"
+              ],
+              "default": "lowpass",
+              "description": "lowpass removes highs (muffles), highpass removes lows (thins), bandpass keeps a band."
+            },
+            "cutoff": {
+              "type": "number",
+              "description": "The frequency in Hz where the filter starts to act.",
+              "minimum": 20,
+              "maximum": 20000
+            },
+            "resonance": {
+              "type": "number",
+              "description": "Q: 0.707 is flat, 2 to 8 adds a whistle at the cutoff.",
+              "minimum": 0.5,
+              "maximum": 30,
+              "default": 0.707
+            },
+            "keytrack": {
+              "type": "number",
+              "description": "How much of a transposed note's pitch ratio the cutoff follows: 0 keeps it fixed, 1 moves it with the pitch.",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "amount": {
+                  "type": "number",
+                  "description": "Octaves the envelope moves the cutoff at its peak.",
+                  "minimum": -96,
+                  "maximum": 96
+                },
+                "attack": {
+                  "type": "number",
+                  "description": "Seconds the level takes to rise from 0 to 1.",
+                  "minimum": 0,
+                  "maximum": 30,
+                  "default": 0
+                },
+                "decay": {
+                  "type": "number",
+                  "description": "Seconds the level takes to fall from 1 to `sustain`.",
+                  "minimum": 0,
+                  "maximum": 30,
+                  "default": 0
+                },
+                "sustain": {
+                  "type": "number",
+                  "description": "The level held after the decay, 0 (silence) to 1 (full).",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 1
+                },
+                "release": {
+                  "type": "number",
+                  "description": "Seconds the level takes to fall to 0 after the note is released at the layer's length.",
+                  "minimum": 0,
+                  "maximum": 30,
+                  "default": 0
+                },
+                "curve": {
+                  "type": "number",
+                  "description": "Shape of every segment: 1 is a straight line, 2 to 4 falls fast first (punchy), below 1 the opposite.",
+                  "minimum": 0.2,
+                  "maximum": 8,
+                  "default": 1
+                }
+              },
+              "required": [
+                "amount"
+              ]
+            }
+          }
+        },
+        "effects": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/effect"
+          },
+          "description": "Effects in the order they are heard."
+        }
+      }
+    }
+  }
+}

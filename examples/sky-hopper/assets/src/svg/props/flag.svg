@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="96" viewBox="0 0 40 96">
+<rect id="base" x="6" y="88" width="28" height="7" rx="2" fill="#4e4b58" stroke="#f6f0dc" stroke-width="1"/>
+<rect id="pole" x="8.5" y="6" width="4" height="84" rx="2" fill="#8d889c" stroke="#f6f0dc" stroke-width="1"/>
+<circle id="finial" cx="10.5" cy="5" r="3.6" fill="#f2c14e" stroke="#f6f0dc" stroke-width="1"/>
+<g id="banner">
+  <path id="cloth" d="M12.5 8 C12.5 8 20.5 7.5 25.25 10.5 C30 13.5 38 8 38 8 L31 22 L38 36 C38 36 19.9621 40.0702 12.5 36 C7 33 12.5 8 12.5 8 Z" fill="#e8b923" stroke="#f6f0dc" stroke-width="1.2"/>
+  <path id="badge" d="M21 16 L22.763 19.573 L26.706 20.146 L23.853 22.927 L24.527 26.854 L21 25 L17.473 26.854 L18.147 22.927 L15.294 20.146 L19.237 19.573 Z" fill="#9a6f06" data-fa-shape="star" data-fa-args="{&quot;center&quot;:[21,22],&quot;radius&quot;:6,&quot;points&quot;:5,&quot;innerRatio&quot;:0.5}"/>
+</g></svg>

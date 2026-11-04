@@ -279,7 +279,11 @@ TEST_CASE("mcp: ai.plugin_install is neither listed nor callable (only the user 
         return Json::object();
     });
     f.initialize();
-    for (auto& t : f.rpc("tools/list")["result"]["tools"]) CHECK(t["name"] != "ai_plugin_install");
+    // A named value: iterating `f.rpc(...)["result"]["tools"]` directly leaves the range pointing into a temporary that is
+    // already destroyed (C++20 only extends the lifetime of the first temporary, not the one behind operator[]); the MSVC
+    // debug heap overwrites it, so every element read as a number.
+    const Json listedAll = f.rpc("tools/list");
+    for (const auto& t : listedAll["result"]["tools"]) CHECK(t["name"] != "ai_plugin_install");
     CHECK(f.call("ai_plugin_install")["result"]["isError"] == true);
     CHECK_FALSE(ran);
     CHECK(is_user_only_command("ai.plugin_install"));

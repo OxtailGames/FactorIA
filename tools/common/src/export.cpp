@@ -18,10 +18,14 @@
 #include "fa/core/json.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/ai_disclosure.h"
+#include "fa/tooling/audio_doc.h"
+#include "fa/tooling/model_bake.h"
+#include "fa/tooling/rig_bake.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/feedback.h"
 #include "fa/tooling/icons.h"
+#include "fa/tooling/image_doc.h"
 #include "fa/tooling/notices.h"
 #include "fa/tooling/project_fs.h"
 #include "fa/tooling/setup.h"
@@ -869,6 +873,16 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     report.warnings = plan.warnings;
     report.pluginsLeftOut = p.pluginsLeftOut;
 
+    // Image documents are the source of their PNGs: bake the ones not baked (or stale) so that the game ships the picture.
+    // Before anything is written to the output, so that a document that does not load leaves the previous export in place.
+    if (auto baked = bake_image_documents_if_needed(p.dir); !baked.ok()) return baked.error();
+    // The same for audio documents: the shipped sound is what their chain renders.
+    if (auto baked = bake_audio_documents_if_needed(p.dir); !baked.ok()) return baked.error();
+    // And model documents: the shipped model is what their tree builds.
+    if (auto baked = bake_model_documents_if_needed(p.dir); !baked.ok()) return baked.error();
+    // And rig documents: the shipped skinned model is the model fitted with its skeleton.
+    if (auto baked = bake_rig_documents_if_needed(p.dir); !baked.ok()) return baked.error();
+
     std::error_code ec;
     stdfs::create_directories(os_path(plan.outParent), ec);
     if (ec) return err("export: cannot create output directory '" + generic(plan.outParent) + "': " + ec.message());
@@ -949,7 +963,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "Validates the project (factoria.json, name, mainScene, reverse-DNS id, the icon and export settings) and writes a "
         "fresh <out>/<game-slug>-<platform>/ folder (deleted and recreated on every call, but only when it is empty or an "
         "export wrote it: every export leaves a .factoria-export file at its top, and any other existing folder of that "
-        "name is an error that says how to proceed, never deleted; the project itself is not modified). "
+        "name is an error that says how to proceed, never deleted; the project itself is not modified, except that a layered image document (*.image.json, docs/IMAGES.md) whose PNG is missing or stale is baked first). "
         "linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria "
         "binary, so exporting for another OS than this machine's fails with a hint. android: a complete Gradle project "
         "that is then BUILT with its own Gradle wrapper (needs a JDK 17+ and the Android SDK, found automatically; the "

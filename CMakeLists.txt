@@ -5,7 +5,7 @@ if(POLICY CMP0141)
 endif()
 
 project(FactorIA
-    VERSION 0.14.1
+    VERSION 0.16.0
     DESCRIPTION "AI-native 2D/3D game engine"
     LANGUAGES C CXX)
 
@@ -63,6 +63,10 @@ option(FA_BUILD_TESTS  "Build unit tests"                                   ON)
 option(FA_BUILD_TOOLS  "Build the factoria CLI, MCP server, AI hub, editor" ${FA_DESKTOP})
 option(FA_BUILD_EDITOR "Build the visual editor (requires FA_BUILD_TOOLS)"   ${FA_DESKTOP})
 option(FA_WARNINGS_AS_ERRORS "Treat engine warnings as errors"              OFF)
+# ctest runs every test with the "Windows file rules" emulation of fa::fs (docs/BUILDING.md, "Windows file rules in tests"):
+# macOS and Linux then find the file bugs that only Windows had (a replace of a file another thread has open, a file time
+# that moves in 15.6 ms steps). OFF registers the tests without it; one run: `FA_FS_WINDOWS_RULES=0 ctest ...`.
+option(FA_TEST_WINDOWS_FILE_RULES "Run the tests with the Windows file rules emulation (not on Windows)" ON)
 # The release packages set it (.github/workflows/release.yml): their editor offers the updates published there.
 set(FA_UPDATE_REPO "" CACHE STRING "GitHub owner/repo whose Releases the editor updates from (empty: no updates)")
 

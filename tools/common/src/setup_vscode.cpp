@@ -17,6 +17,7 @@
 #include <chrono>
 #include <fstream>
 
+#include "fa/core/fs.h"
 #include "fa/core/json.h"
 #include "fa/tooling/bundle.h"
 #include "setup_internal.h"
@@ -107,7 +108,7 @@ bool write_atomic(const stdfs::path& file, const std::string& text, std::string*
     const stdfs::path tmp = file.string() + ".fa-tmp";
     if (!tooling_detail::write_file(tmp, text, err)) return false;
     std::error_code ec;
-    stdfs::rename(tmp, file, ec);
+    fa::fs::replace_file(tmp, file, ec);
     if (ec) {
         if (err) *err = "Cannot replace " + file.string() + ": " + ec.message();
         stdfs::remove(tmp, ec);

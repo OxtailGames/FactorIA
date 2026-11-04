@@ -11,6 +11,7 @@
 #include <sstream>
 
 #include "fa/audio/audio.h"
+#include "fa/audio/sfx.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
@@ -31,6 +32,7 @@
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/autotile.h"
 #include "fa/scene/tilemap.h"
 #include "fa/ui/ui.h"
 #include "debugger_internal.h"
@@ -234,7 +236,7 @@ std::filesystem::path corrupt_keep_path() {
 
 namespace {
 std::string read_whole_file(const std::filesystem::path& file, bool& ok) {
-    std::ifstream f(file, std::ios::binary);
+    fa::fs::ReadStream f(file, std::ios::binary);
     ok = bool(f);
     std::stringstream ss;
     if (f) ss << f.rdbuf();
@@ -245,7 +247,7 @@ std::string read_whole_file(const std::filesystem::path& file, bool& ok) {
 bool keep_damaged(const std::filesystem::path& file, const std::string& text, const std::string& what) {
     const std::filesystem::path keep = corrupt_keep_path();
     std::error_code ec;
-    std::filesystem::rename(file, keep, ec);
+    fs::replace_file(file, keep, ec);
     if (ec) {  // e.g. another volume: copy the bytes instead
         auto w = fs::write_bytes(keep.generic_string(), text.data(), text.size());
         if (!w) {
@@ -278,7 +280,7 @@ void Impl::storage_write(const std::string& key, bool compress) {
 void Impl::storage_remove_file(const std::string& key) {
     if (storageMode == StorageMode::Memory) return;
     std::error_code ec;
-    std::filesystem::remove(storage_files::dir() / storage_files::file_name(key), ec);
+    fs::remove_file(storage_files::dir() / storage_files::file_name(key), ec);
     fs::user_dir_changed();
 }
 
@@ -346,7 +348,7 @@ void Impl::load_storage() {
         if (!storageMeta.count(it.key())) allWritten = false;
     }
     if (!allWritten) return;  // keep storage.json where it is; the next start tries again
-    std::filesystem::rename(legacy, fs::user_dir() / "storage.migrated.json", ec);
+    fs::replace_file(legacy, fs::user_dir() / "storage.migrated.json", ec);
     if (ec) log(LogLevel::Warn, "script", "storage.json was split into " + storage_files::dir().string() + " but could not be set aside: " + ec.message());
     else log(LogLevel::Info, "script", "storage.json was split into one file per key in " + storage_files::dir().string() + "; the old file is now storage.migrated.json");
     fs::user_dir_changed();
@@ -427,11 +429,11 @@ Json Impl::storage_clear_keys(const std::string& key, bool all) {
                 storage_files::Decoded d;
                 std::string problem;
                 if (storage_files::decode(read_whole_file(f, ok), d, problem) && ok) removed.insert(d.key);
-                std::filesystem::remove(f, ec);
+                fs::remove_file(f, ec);
             }
         } else {
             const std::filesystem::path f = root / storage_files::file_name(key);
-            if (std::filesystem::remove(f, ec)) removed.insert(key);
+            if (fs::remove_file(f, ec)) removed.insert(key);
         }
         fs::user_dir_changed();
     }
@@ -857,6 +859,57 @@ NATIVE(animCall) {
         return I->from_json(*c);
     } else {
         return throw_err(ctx, "internal error: unknown animator call '" + m + "'");
+    }
+    if (!r) return throw_err(ctx, r.error().to_string());
+    return JS_UNDEFINED;
+}
+
+// MusicPlayer calls of entity.music: (entity, method, options). `options` is a plain object the JS side has checked (known keys,
+// numbers, strings). Methods: play, stop, setIntensity, goToSection, playStinger, crossfadeTo, status. Only "status" returns
+// something (the MusicStatus); the rest throw a teaching Error when the call cannot be made (unknown section, missing clip).
+NATIVE(musicCall) {
+    SETUP;
+    ENTITY(e, 0);
+    const std::string m = arg_str(ctx, argc, argv, 1);
+    const Json o = argc > 2 && JS_IsObject(argv[2]) ? I->to_json(argv[2]) : Json::object();
+    Audio& audio = I->host->audio();
+    auto str = [&](const char* k) { return o.contains(k) && o[k].is_string() ? o[k].get<std::string>() : std::string(); };
+    auto num = [&](const char* k, float fallback) { return o.contains(k) && o[k].is_number() ? o[k].get<float>() : fallback; };
+    std::optional<MusicQuantize> q;
+    if (o.contains("quantize") && o["quantize"].is_string()) {
+        q = music_quantize_from_name(o["quantize"].get<std::string>());
+        if (!q)
+            return throw_err(ctx, "unknown quantize '" + o["quantize"].get<std::string>() +
+                                      "'; use \"none\" (now), \"beat\", \"bar\" or \"section\" (when the section pass ends)");
+    }
+    Result<void> r;
+    if (m == "play") {
+        r = audio.music_play(W, e, str("song"), str("section"), num("intensity", -1.0f));
+    } else if (m == "stop") {
+        audio.music_stop(W, e, q.value_or(MusicQuantize::None), num("fade", -1.0f));
+    } else if (m == "setIntensity") {
+        audio.music_set_intensity(W, e, num("intensity", 0.0f), q);
+    } else if (m == "goToSection") {
+        r = audio.music_go_to_section(W, e, str("section"), q, num("fade", -1.0f));
+    } else if (m == "playStinger") {
+        MusicStingerSpec s;
+        s.clip = str("clip");
+        s.section = str("section");
+        s.quantize = q;
+        s.volume = num("volume", 1.0f);
+        s.tail = num("tail", 1.5f);
+        s.bus = str("bus");
+        s.duck = num("duck", 0.0f);
+        s.duckAttack = num("duckAttack", 0.05f);
+        s.duckHold = num("duckHold", -1.0f);
+        s.duckRelease = num("duckRelease", 0.5f);
+        r = audio.music_play_stinger(W, e, s);
+    } else if (m == "crossfadeTo") {
+        r = audio.music_crossfade_to(W, e, str("song"), str("section"), q, num("bars", -1.0f));
+    } else if (m == "status") {
+        return I->from_json(audio.music_status(W, e).to_json());
+    } else {
+        return throw_err(ctx, "internal error: unknown music call '" + m + "'");
     }
     if (!r) return throw_err(ctx, r.error().to_string());
     return JS_UNDEFINED;
@@ -1649,6 +1702,55 @@ NATIVE(tileSet) {  // (entity, col, row, tile) -> void; throws when outside the 
                                           c, r, v, size.width, size.height));
     }
     return JS_UNDEFINED;
+}
+
+// Autotile terrains of entity.tilemap (fa/scene/autotile.h): the cells arrive normalised as an array of [col, row].
+Json terrain_result_json(const TerrainPaintResult& r) {
+    constexpr std::size_t kMaxListed = 1000;
+    Json changes = Json::array();
+    for (std::size_t i = 0; i < r.changes.size() && i < kMaxListed; ++i)
+        changes.push_back(Json::object({{"col", r.changes[i].col}, {"row", r.changes[i].row}, {"from", r.changes[i].from}, {"to", r.changes[i].to}}));
+    return Json::object({{"painted", r.painted}, {"outside", r.outside}, {"changed", r.changes.size()}, {"changes", changes}});
+}
+
+NATIVE(tilePaintTerrain) {  // (entity, terrain, [[col,row],...], erase) -> {painted, outside, changed, changes}
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    const Json cellsJson = I->to_json(argc > 2 ? argv[2] : JS_UNDEFINED);
+    std::vector<std::pair<int, int>> cells;
+    if (cellsJson.is_array())
+        for (const Json& c : cellsJson)
+            if (c.is_array() && c.size() == 2) cells.push_back({int(std::floor(c[0].get<double>())), int(std::floor(c[1].get<double>()))});
+    auto r = paint_terrain(*tm, arg_str(ctx, argc, argv, 1), cells, arg_num(ctx, argc, argv, 3, 0) != 0);
+    if (!r.ok()) return throw_err(ctx, "tilemap.paintTerrain: " + r.error().to_string());
+    return I->from_json(terrain_result_json(*r));
+}
+
+NATIVE(tileRetile) {  // (entity) -> {painted, outside, changed, changes}
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    auto r = retile_terrains(*tm);
+    if (!r.ok()) return throw_err(ctx, "tilemap.retile: " + r.error().to_string());
+    return I->from_json(terrain_result_json(*r));
+}
+
+NATIVE(tileTerrainAt) {  // (entity, col, row) -> the name of the terrain the cell belongs to, or null
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    auto terrains = parse_terrains(tm->terrains);
+    if (!terrains.ok()) return throw_err(ctx, "tilemap.terrainAt: this tilemap's terrain rules are invalid: " + terrains.error().to_string());
+    const int col = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1, 0))), row = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2, 0)));
+    const TerrainOfTile of = terrain_of_tile(*terrains, tilemap_tile_at(*tm, tilemap_size(*tm), col, row));
+    return of.terrain.empty() ? JS_NULL : JS_NewString(ctx, of.terrain.c_str());
 }
 
 // ---- components ---------------------------------------------------------------------------------------------------
@@ -2716,6 +2818,12 @@ NATIVE(audioPlay) {
     }
     return JS_NewInt32(ctx, static_cast<int32_t>(voice));
 }
+NATIVE(audioVariantPath) {  // (path, variant 1-based, count) -> the file name of that baked variant (sfx_variant_path)
+    SETUP;
+    const std::string path = arg_str(ctx, argc, argv, 0);
+    const std::string out = sfx_variant_path(path, static_cast<int>(arg_num(ctx, argc, argv, 1, 1)), static_cast<int>(arg_num(ctx, argc, argv, 2, 2)));
+    return JS_NewStringLen(ctx, out.data(), out.size());
+}
 NATIVE(audioStop) {
     SETUP;
     const VoiceId voice = static_cast<VoiceId>(arg_num(ctx, argc, argv, 0));
@@ -3425,6 +3533,9 @@ NATIVE(testDevice) {  // (overrides object); no argument = back to the host's va
     SETUP;
     I->testDevice = argc > 0 ? I->to_json(argv[0]) : Json::object();
     if (!I->testDevice.is_object()) I->testDevice = Json::object();
+    Json d = I->host->device_info();
+    for (auto it = I->testDevice.begin(); it != I->testDevice.end(); ++it) d[it.key()] = it.value();
+    I->host->device_overridden(d);
     return JS_UNDEFINED;
 }
 
@@ -3543,7 +3654,7 @@ NATIVE(storageClear) {
         std::vector<std::filesystem::path> files;
         for (std::filesystem::directory_iterator it(storage_files::dir(), ec), end; !ec && it != end; it.increment(ec))
             if (it->path().extension() == ".json") files.push_back(it->path());
-        for (const auto& f : files) std::filesystem::remove(f, ec);
+        for (const auto& f : files) fs::remove_file(f, ec);
         fs::user_dir_changed();
     }
     return JS_UNDEFINED;
@@ -3958,11 +4069,11 @@ const Reg kRegs[] = {
     R(inPlayerLastPressed, 1), R(inPlayerData, 2), R(inKeySchemes, 1),
     R(inLastDevice, 0), R(inPadType, 1), R(inPadInfo, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowMonitors, 0), R(windowSet, 3),
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(quitCancel, 0), R(inTestRun, 0), R(testCloseWindow, 0), R(clipboardSupported, 0), R(clipboardGet, 0), R(clipboardSet, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
-    R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 11), R(audioStop, 1), R(audioActiveVoices, 0), R(audioTakeEnded, 0),
+    R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 11), R(audioVariantPath, 3), R(audioStop, 1), R(audioActiveVoices, 0), R(audioTakeEnded, 0),
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
     R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
     R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
-    R(raycast3d, 10), R(raycast2dAll, 8), R(raycast3dAll, 11), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(spriteAnimCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(tileCellAt, 3), R(tileCellToWorld, 3), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(uiMirrorRtl, 0), R(setUiMirrorRtl, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderCaptureWorld, 6), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(uiAim, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4), R(meshCreate, 2), R(meshUpdate, 3), R(meshDestroy, 1), R(meshInfo, 1), R(meshList, 0), R(meshSave, 2),
+    R(raycast3d, 10), R(raycast2dAll, 8), R(raycast3dAll, 11), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(musicCall, 3), R(spriteAnimCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(tileCellAt, 3), R(tileCellToWorld, 3), R(tilePaintTerrain, 4), R(tileRetile, 1), R(tileTerrainAt, 3), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(uiMirrorRtl, 0), R(setUiMirrorRtl, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderCaptureWorld, 6), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(uiAim, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4), R(meshCreate, 2), R(meshUpdate, 3), R(meshDestroy, 1), R(meshInfo, 1), R(meshList, 0), R(meshSave, 2),
     R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 3), R(storageSetAsync, 3), R(storageSize, 1), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nGender, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),

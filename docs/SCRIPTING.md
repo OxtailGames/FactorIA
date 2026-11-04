@@ -148,7 +148,7 @@ field, and `factoria validate` reports it too; rename the field (`tradeOn`).
 | `isGrounded(tolerance?)` | 2D or 3D physics: standing on something (contact normal up) |
 | `isTouching(direction, tolerance?)` | solid contact against the body on that side: `isTouching([1, 0])` = wall on the right, `[0, 1]` = ceiling (2D or 3D by body type) |
 | `animator` | skeletal animation of a glTF, or keyframed 2D clips (`*.anim.json`), of this entity's `Animator` component: `play(clip, fade?)`, `stop()`, `set(name, value)`, `get`, `trigger`, `clips`, `duration(clip)`, `on(event, fn)`, `state`, `speed`, `time`, and for 2D clips `sample(clip, t)`, `setLayerWeight(layer, w)`, `playLayer(layer, clip, fade?)` (throws without an Animator; see [ANIMATION.md](ANIMATION.md)) |
-| `tilemap` | this entity's `Tilemap`: `getTile(col, row)` (-1 = empty or outside), `setTile(col, row, id)`, `cellAt(point)`, `cellToWorld(col, row)`, `width`, `height` (throws without a Tilemap; see "entity.tilemap") |
+| `tilemap` | this entity's `Tilemap`: `getTile(col, row)` (-1 = empty or outside), `setTile(col, row, id)`, `paintTerrain(terrain, cells)`, `eraseTerrain(terrain, cells)`, `retile()`, `terrainAt(col, row)`, `cellAt(point)`, `cellToWorld(col, row)`, `width`, `height` (throws without a Tilemap; see "entity.tilemap") |
 | `emitBurst(n)` | immediately spawn `n` particles from this entity's `ParticleEmitter` (no-op + warning without a renderer) |
 | `toJSON()` | entity JSON (as in scene files) |
 
@@ -585,6 +585,8 @@ bus that ducks reads the other bus after its own effects and volume when that bu
 the ducked bus's parent, for example), and as the sum of its voices and its children before its own effects when it is nearer
 the master.
 
+A sound with baked variations (`sfx.bake` writes `step_01.wav` ... `step_06.wav` for a patch that declares `variations`, docs/SOUND.md) plays one take per call: `audio.play("assets/audio/step.wav", { variants: 6 })` picks with the world's seeded random numbers (a replay hears the same takes) and never the same take twice in a row; `audio.variantPath(path, n, count)` returns the file of take `n` (1-based). The `AudioSource.variants` field does the same for a source in a scene.
+
 **Snapshots** name a whole mixer state so a script does not juggle buses one by one. They live in factoria.json:
 
 ```json
@@ -769,6 +771,22 @@ write the whole array back: that copies the grid on every call.
 -1)` opens a hole a body falls through. The same edit from outside a script is the command `tilemap.set_tile`
 (`{id, col, row, tile}`). Writing the whole `tiles` array still works and rebuilds the colliders.
 
+**Autotile (terrains).** A `Tilemap` with `terrains` rules ([COMPONENTS.md](COMPONENTS.md), `Tilemap.terrains`; the rules file
+of a tileset made by `image.tileset.build`, [IMAGES.md](IMAGES.md), "Tiles") draws the edge, corner or inside tile that fits the
+cells around a cell, so you paint a terrain and the shore draws itself:
+- `paintTerrain(terrain, cells)` sets the cells (`[col, row]` pairs or `{col, row}` objects) to the terrain and re-tiles them and
+  the 8 cells around each one. It returns `{painted, outside, changed, changes: [{col, row, from, to}]}`. A cell that belongs
+  to no terrain (a tile placed by hand) is not re-tiled. The tile among a look's variations depends on the column, row and the
+  terrain's `seed` only, so the same painting looks the same every run.
+- `eraseTerrain(terrain, cells)` empties the cells (`-1`) and re-tiles their neighbours (removing a lake cell turns the cells
+  next to it into shore). `terrain` names the rules the neighbours are re-tiled with.
+- `retile()` recomputes every terrain cell (after `setTile` calls or a change of `terrains`). `terrainAt(col, row)` is the name
+  of the terrain a cell belongs to, or `null` (empty, outside the map, or a tile of no terrain).
+- A `terrain` that is not in the map's rules throws an Error that lists the terrains (with a did-you-mean), and so does a rule
+  that does not parse (the message starts with its JSON pointer). From outside a script: `tilemap.paint_terrain`,
+  `tilemap.retile`, `tilemap.terrains` (the rules, their slots, how many cells belong to each terrain and every problem of the rules) and `tilemap.set_terrains` (from a rules
+  file). They change the running world; `scene.save` keeps it.
+
 ### entity.video
 `entity.video` controls the `Video` component (an `.mpg` drawn in a UI rectangle, [ASSETS.md](ASSETS.md), "Video"). It plays
 by itself when the scene starts (`autoplay`) and follows the game clock: it pauses with `time.scale = 0` and a test steps
@@ -781,6 +799,28 @@ it with `game.step`.
   handler that loads a scene should check `scene.current` first: the answer can arrive after the scene was left.
 - A file that cannot be opened logs one error and the `Video` draws only its `color`; `duration` stays 0.
 A studio intro that any button skips: [MENUS.md](MENUS.md).
+
+### entity.music
+`entity.music` controls a `MusicPlayer` component: a song document played as layers, sections and stingers ([MUSIC.md](MUSIC.md), "Playing a song in a game").
+The entity throws if it has no `MusicPlayer` (`entity.get("MusicPlayer")` answers null). The component starts by itself (`playOnStart`); the calls below ask the mixer, and a
+change with a `quantize` (`"none"`, `"beat"`, `"bar"`, `"section"`; default: the component's `quantize`, `layerQuantize` for the intensity) lands on that boundary's exact audio frame.
+- `play(song?)` or `play({song, section, intensity})` starts at once (a hard start); `stop({quantize, fade})`; `setIntensity(0..1, {quantize})`;
+  `goToSection(name, {quantize, fade})`; `playStinger({clip | section, quantize, volume, tail, bus, duck, duckAttack, duckHold, duckRelease})` (a string is the clip);
+  `crossfadeTo(song, {section, quantize, bars})`. A section that does not exist, a song file that does not exist, a stinger with neither `clip` nor `section`
+  or a stinger with nothing playing throws an Error that says what to do; a misspelled option or event name gets a "did you mean".
+- Read: `ready`, `playing`, `song`, `section`, `sections` (the names), `bar`, `beat` (1-based), `tempo`, `intensity`, `status` (everything, including `stemGains`, `pending` and `error`).
+- `on(name, fn)` listens to one player and returns the function that unsubscribes: `ready`, `beat`, `bar`, `section`, `loop`, `ended`, `stinger`, `crossfade`. `fn(data)` gets
+  `id`, `song`, `frame` (the audio frame it sounded on) and `time` (seconds), plus `bar`, `beat`, `section`, `index` for a beat; `bar`, `section`, `count` for a bar; `section`, `pass`, `bar` for a
+  section; `count` for a loop; `stopped` for `ended`; `kind` and `section` for a stinger; `mode` for `ready`. They are the game events `music.beat`... too, so `world.on("music.bar", ...)`
+  hears every player. Events reach the script one frame after they sound.
+- Headless, the music is rendered at the first frame and the mixer advances with `game.step`, so a test can step to a bar line and assert the section. A handler that reacts
+  to a section change by loading a scene should check `scene.current` first.
+```js
+const theme = world.find("theme").music;
+theme.on("section", (d) => log("now in " + d.section));
+theme.setIntensity(0.8, { quantize: "bar" });
+```
+Tools: `audio.music_state` (what every player does) and `audio.music` (the same calls).
 
 ### particles / ui
 - `particles.burst(entity, count)` (same as `entity.emitBurst(count)`) spawns particles now from a `ParticleEmitter`,
@@ -1254,6 +1294,9 @@ The same operations are commands (CLI, MCP and the editor's AI): `mesh.create` (
 a flat list or lists of triples), `mesh.update {id, ...}`, `mesh.destroy {id}`, `mesh.save {id, path}`, `mesh.list` and
 `mesh.info {id}`. They act on the scene that is loaded in the process that runs them (a mesh lives only as long as that process and scene), and you set the field with
 `scene.set_component {"id": "...", "component": "MeshRenderer", "fields": {"mesh": "mesh:1"}}`.
+
+A model written as data (`*.model.json`, docs/MODELING.md) is baked to a `.glb` by `model.bake` through the same writer as
+`mesh.save`: each part of the model is one primitive of the file with the part's name in its `extras.part`.
 
 After an `await` (`scene.preload`, `http.fetch`, a timer) the scene may have changed, and the meshes of the old one are
 released: compare `scene.generation` with the value you kept before you use a mesh you made or build a new one.
