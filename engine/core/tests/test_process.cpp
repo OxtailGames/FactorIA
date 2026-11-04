@@ -149,8 +149,11 @@ TEST_CASE("process: onStart gives the pid, process_tree sees the program and wha
     po.onStdoutLine = [](std::string_view) {};
     CancelFlag cancel{false};
     po.cancel = &cancel;
+    // Wait for the child to be "sleep", not only to exist: between fork and exec it is still a copy named "sh", which a
+    // slow or emulated machine shows for longer.
+    auto sees_sleep = [&] { return during.size() >= 2 && during[1].name == "sleep"; };
     std::thread watcher([&] {
-        for (int i = 0; i < 100 && during.size() < 2; ++i) {
+        for (int i = 0; i < 100 && !sees_sleep(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(30));
             if (pid) during = process_tree(pid);
         }

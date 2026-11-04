@@ -4,11 +4,13 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <mutex>
 #include <system_error>
 #include <thread>
+#include <unordered_map>
 
 #ifdef _WIN32
 #include <process.h>
@@ -51,6 +53,85 @@ std::shared_ptr<const PackReader> pack_for(const std::string& normalized) {
     std::lock_guard<std::mutex> lock(state().mutex);
     return state().pack;
 }
+
+// ---- Windows file rules (docs: fs.h, "Windows file rules") ----------------------------------------------------------
+// -1: not decided yet (read the environment on first use), 0: off, 1: on. Windows is always "on" and emulates nothing.
+std::atomic<int> g_emulate{-1};
+
+bool env_flag(const char* name, bool& value) {
+    const char* v = std::getenv(name);
+    if (!v || !*v) return false;
+    std::string s = to_lower(v);
+    value = !(s == "0" || s == "false" || s == "off" || s == "no");
+    return true;
+}
+
+// True when this process emulates the Windows rules (never on Windows itself). One relaxed atomic load once decided.
+inline bool emulating() {
+#ifdef _WIN32
+    return false;
+#else
+    int v = g_emulate.load(std::memory_order_relaxed);
+    if (v >= 0) return v == 1;
+    bool on = false;
+    if (!env_flag("FA_FS_WINDOWS_RULES", on)) env_flag("FA_FS_WINDOWS_RULES_DEFAULT", on);
+    int expected = -1;
+    g_emulate.compare_exchange_strong(expected, on ? 1 : 0);  // a set_windows_rules that raced us wins
+    return g_emulate.load(std::memory_order_relaxed) == 1;
+#endif
+}
+
+// The files open for reading through ReadStream, by registry key -> number of streams. Only used while emulating.
+struct OpenFiles {
+    std::mutex mutex;
+    std::unordered_map<std::string, int> counts;
+};
+OpenFiles& open_files() {
+    static OpenFiles o;
+    return o;
+}
+
+// Windows paths are case-insensitive: so is the key. Symlinks and relative forms are resolved so that two spellings of
+// one file meet.
+std::string registry_key(const stdfs::path& p) {
+    std::error_code ec;
+    stdfs::path abs = stdfs::absolute(p, ec);
+    if (ec) abs = p;
+    stdfs::path canon = stdfs::weakly_canonical(abs, ec);
+    std::string key = (ec ? abs.lexically_normal() : canon).generic_string();
+    for (char& c : key) c = char(std::tolower(static_cast<unsigned char>(c)));
+    return key;
+}
+
+class RulesCategory : public std::error_category {
+public:
+    const char* name() const noexcept override { return "windows-file-rules"; }
+    std::string message(int) const override {
+        return "The process cannot access the file because it is being used by another process (Windows file rules)";
+    }
+};
+const RulesCategory& rules_category() {
+    static const RulesCategory c;
+    return c;
+}
+constexpr int kErrorSharingViolation = 32;  // ERROR_SHARING_VIOLATION
+
+// The error a Windows rename or delete of `p` gives while a ReadStream holds it, or of a folder with such a file inside it;
+// empty when nothing holds it or the rules are not emulated.
+std::error_code open_conflict(const stdfs::path& p) {
+    if (!emulating()) return {};
+    OpenFiles& o = open_files();
+    std::lock_guard<std::mutex> lock(o.mutex);
+    if (o.counts.empty()) return {};
+    const std::string key = registry_key(p);
+    if (o.counts.count(key)) return {kErrorSharingViolation, rules_category()};
+    const std::string below = key + "/";
+    for (const auto& [openKey, n] : o.counts)
+        if (openKey.compare(0, below.size(), below) == 0) return {kErrorSharingViolation, rules_category()};
+    return {};
+}
+
+void retry_pause(int attempt) { std::this_thread::sleep_for(std::chrono::milliseconds(attempt < 10 ? 1 : 10)); }
 
 bool use_assets(const std::string& normalized) {
 #ifdef __ANDROID__
@@ -228,6 +309,24 @@ stdfs::path os_path(const stdfs::path& p) {
 }
 
 std::uintmax_t remove_tree(const stdfs::path& dir, std::error_code& ec) {
+    if (emulating() && open_conflict(dir)) {
+        // Windows deletes what it can and leaves the open files (and the folders around them), then reports the failure.
+        std::error_code lec;
+        std::vector<stdfs::path> files, dirs;
+        for (auto it = stdfs::recursive_directory_iterator(dir, lec); !lec && it != stdfs::recursive_directory_iterator(); it.increment(lec))
+            (it->is_directory(lec) && !it->is_symlink(lec) ? dirs : files).push_back(it->path());
+        std::uintmax_t removed = 0;
+        for (const stdfs::path& f : files) {
+            std::error_code rec;
+            if (!open_conflict(f) && stdfs::remove(f, rec)) ++removed;
+        }
+        for (auto it = dirs.rbegin(); it != dirs.rend(); ++it) {
+            std::error_code rec;
+            if (!open_conflict(*it) && stdfs::remove(*it, rec)) ++removed;
+        }
+        ec = open_conflict(dir);
+        return removed;
+    }
 #ifdef _WIN32
     std::error_code aec;
     stdfs::path abs = stdfs::absolute(dir, aec).lexically_normal();
@@ -235,6 +334,102 @@ std::uintmax_t remove_tree(const stdfs::path& dir, std::error_code& ec) {
     if (!aec) return stdfs::remove_all(extended_path(abs), ec);
 #endif
     return stdfs::remove_all(dir, ec);
+}
+
+// ---- Windows file rules: public part -----------------------------------------------------------------------------
+bool windows_rules() {
+#ifdef _WIN32
+    return true;
+#else
+    return emulating();
+#endif
+}
+
+void set_windows_rules(bool on) {
+#ifndef _WIN32
+    g_emulate.store(on ? 1 : 0);
+#else
+    (void)on;
+#endif
+}
+
+bool is_sharing_violation(const std::error_code& ec) {
+    if (!ec) return false;
+    if (ec.category() == rules_category()) return true;
+#ifdef _WIN32
+    const int code = ec.value();  // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+    return code == 5 || code == 32 || code == 33;
+#else
+    return false;
+#endif
+}
+
+ReadStream::ReadStream(const stdfs::path& file, std::ios_base::openmode mode) { open(file, mode); }
+
+ReadStream::~ReadStream() {
+    std::ifstream::close();  // let go of the file before the registry says so
+    unregister();
+}
+
+void ReadStream::open(const stdfs::path& file, std::ios_base::openmode mode) {
+    close();
+    // Registered before the open, so the file is never open and unknown to the registry at once.
+    if (emulating()) {
+        registered_ = registry_key(file);
+        OpenFiles& o = open_files();
+        std::lock_guard<std::mutex> lock(o.mutex);
+        ++o.counts[registered_];
+    }
+    std::ifstream::open(file, mode);
+    if (!std::ifstream::is_open()) unregister();
+}
+
+void ReadStream::close() {
+    std::ifstream::close();
+    unregister();
+}
+
+void ReadStream::unregister() {
+    if (registered_.empty()) return;
+    OpenFiles& o = open_files();
+    {
+        std::lock_guard<std::mutex> lock(o.mutex);
+        auto it = o.counts.find(registered_);
+        if (it != o.counts.end() && --it->second <= 0) o.counts.erase(it);
+    }
+    registered_.clear();
+}
+
+void replace_file(const stdfs::path& from, const stdfs::path& to, std::error_code& ec) {
+    auto attempt = [&] {
+        ec = open_conflict(from);
+        if (!ec) ec = open_conflict(to);
+        if (!ec) stdfs::rename(from, to, ec);
+    };
+    std::error_code ignored;
+    const bool toIsDir = stdfs::is_directory(to, ignored);  // renaming onto a folder never works: do not wait for it
+    attempt();
+    // Windows refuses to replace a file that is open somewhere else (a reader without FILE_SHARE_DELETE, as every
+    // std::ifstream is: another thread polling the file, an antivirus scan). Such readers let go within milliseconds:
+    // try again for up to about a second before giving up, or a write racing a read is lost.
+    for (int i = 0; ec && !toIsDir && is_sharing_violation(ec) && i < 100; ++i) {
+        retry_pause(i);
+        attempt();
+    }
+}
+
+bool remove_file(const stdfs::path& file, std::error_code& ec) {
+    bool removed = false;
+    auto attempt = [&] {
+        ec = open_conflict(file);
+        removed = ec ? false : stdfs::remove(file, ec);
+    };
+    attempt();
+    for (int i = 0; ec && is_sharing_violation(ec) && i < 100; ++i) {
+        retry_pause(i);
+        attempt();
+    }
+    return removed;
 }
 
 namespace {
@@ -384,7 +579,7 @@ Result<std::vector<std::uint8_t>> read_bytes_source(std::string_view path) {
             return make_error("'" + std::string(path) + "' is a directory, not a file", "Use fs.list to see its contents.");
         return not_found_error(path, full);
     }
-    std::ifstream in(osFull, std::ios::binary);
+    ReadStream in(osFull, std::ios::binary);
     if (!in) return make_error("Cannot open '" + to_generic(full) + "' for reading", "Check file permissions.");
     in.seekg(0, std::ios::end);
     std::streamoff size = in.tellg();
@@ -443,18 +638,7 @@ Result<void> write_bytes(std::string_view path, const void* data, std::size_t si
     }
     auto existing = stdfs::status(osFull, ec);  // keep the mode (executable bit, read-only) of the file being replaced
     if (stdfs::is_regular_file(existing)) stdfs::permissions(osTmp, existing.permissions(), ec);
-    stdfs::rename(osTmp, osFull, ec);
-#ifdef _WIN32
-    // Windows refuses to replace a file that is open somewhere else (a reader without FILE_SHARE_DELETE, as every
-    // std::ifstream is: another thread polling the file, an antivirus scan). Such readers let go within milliseconds:
-    // try again for up to about a second before giving up, or a write racing a read is lost.
-    for (int attempt = 0; ec && !stdfs::is_directory(existing) && attempt < 100; ++attempt) {
-        const int code = ec.value();
-        if (code != 5 && code != 32 && code != 33) break;  // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
-        std::this_thread::sleep_for(std::chrono::milliseconds(attempt < 10 ? 1 : 10));
-        stdfs::rename(osTmp, osFull, ec);
-    }
-#endif
+    replace_file(osTmp, osFull, ec);  // waits for readers of the target (Windows rules)
     if (ec) {
         std::error_code ignored;
         stdfs::remove(osTmp, ignored);
@@ -511,15 +695,35 @@ std::int64_t file_size(std::string_view path) {
     return ec ? -1 : std::int64_t(size);
 }
 
+std::int64_t file_time_ns(stdfs::file_time_type time) {
+    using namespace std::chrono;
+    using Clock = stdfs::file_time_type::clock;
+#if defined(_MSC_VER)
+    return duration_cast<nanoseconds>(time.time_since_epoch() - seconds(11644473600)).count();  // FILETIME counts from 1601
+#else
+    if constexpr (requires { Clock::to_sys(time); })
+        return duration_cast<nanoseconds>(Clock::to_sys(time).time_since_epoch()).count();
+    else
+        return duration_cast<nanoseconds>(time.time_since_epoch()).count();
+#endif
+}
+
+std::int64_t host_modified_time(const stdfs::path& file) {
+    std::error_code ec;
+    const auto t = stdfs::last_write_time(os_path(file), ec);
+    if (ec) return -1;
+    std::int64_t ns = file_time_ns(t);
+    // Windows rule: a file's time moves in steps of 1/64 s (fs.h).
+    if (emulating()) ns -= ((ns % kWindowsTimeStepNs) + kWindowsTimeStepNs) % kWindowsTimeStepNs;
+    return ns;
+}
+
 std::int64_t modified_time(std::string_view path) {
     auto n = normalize_checked(path);
     if (!n) return -1;
     if (auto pack = pack_for(n.value())) return pack->contains(n.value()) || pack->is_directory(n.value()) ? pack->modified_time() : -1;
     if (use_assets(n.value())) return -1;
-    std::error_code ec;
-    auto t = stdfs::last_write_time(os_path(resolve(path)), ec);
-    if (ec) return -1;
-    return std::int64_t(t.time_since_epoch().count());
+    return host_modified_time(resolve(path));
 }
 
 std::vector<std::string> list(std::string_view dir, bool recursive, std::string_view ext) {

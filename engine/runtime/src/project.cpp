@@ -273,7 +273,7 @@ Result<std::string> read_project_text(std::string_view projectDir) {
         stdfs::path p = stdfs::path(std::string(projectDir)) / kProjectFileName;
         std::error_code ec;
         if (stdfs::is_regular_file(p, ec)) {
-            std::ifstream in(p, std::ios::binary);
+            fa::fs::ReadStream in(p, std::ios::binary);
             std::stringstream ss;
             ss << in.rdbuf();
             return ss.str();

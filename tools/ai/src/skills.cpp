@@ -47,7 +47,7 @@ bool inside_dir(const fsys::path& root, const fsys::path& p) {
 }
 
 std::optional<std::string> read_whole(const fsys::path& p) {
-    std::ifstream f(p, std::ios::binary);
+    fa::fs::ReadStream f(p, std::ios::binary);
     if (!f) return std::nullopt;
     return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }

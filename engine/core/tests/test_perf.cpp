@@ -17,5 +17,7 @@ TEST_CASE("perf probes: CPU time advances with work, peak memory grows with allo
     CHECK(t1 > t0);
     CHECK(t1 - t0 < 60.0);
     CHECK(peak_memory_bytes() >= before);
-    CHECK(peak_memory_bytes() >= std::uint64_t(40) * 1024 * 1024);
+    // Under memory pressure macOS compresses the untouched-since pages of `big` and the resident peak stays below its
+    // 48 MB (38.9 MB seen while other builds ran), so only half of it must show up.
+    CHECK(peak_memory_bytes() >= std::uint64_t(24) * 1024 * 1024);
 }
