@@ -15,14 +15,19 @@
 #include <dbghelp.h>
 #include <signal.h>
 #include <stdlib.h>
+#ifdef _MSC_VER
+#include <crtdbg.h>
+#endif
 
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
 #include <exception>
+#include <mutex>
 #include <string>
 
 #include "crash_internal.h"
+#include "fa/core/crash.h"
 
 #if defined(_M_X64) || defined(__x86_64__)
 #define FA_CRASH_X64 1
@@ -116,8 +121,7 @@ void report_path(wchar_t* out, std::size_t capacity, const Civil& when, const wc
 }
 
 // One stack frame: "#1  game.exe!fa::Foo::bar + 0x1c  (foo.cpp:42)  [0x00007ff7...]". Without symbols: "game.exe+0x1234".
-void write_frame(HANDLE file, HANDLE process, int index, DWORD64 pc) {
-    LineBuf b;
+void format_frame(LineBuf& b, HANDLE process, int index, DWORD64 pc) {
     b.str("#"); b.dec(index); b.str("  ");
     // A return address can be one past the end of the calling function: look the caller up by the byte before it.
     const DWORD64 lookup = index == 0 ? pc : pc - 1;
@@ -154,6 +158,11 @@ void write_frame(HANDLE file, HANDLE process, int index, DWORD64 pc) {
         b.str("  ("); b.str(base_name(line.FileName)); b.chr(':'); b.dec(line.LineNumber); b.chr(')');
     }
     b.str("  ["); b.hex(pc); b.str("]\n");
+}
+
+void write_frame(HANDLE file, HANDLE process, int index, DWORD64 pc) {
+    LineBuf b;
+    format_frame(b, process, index, pc);
     flush(file, b);
 }
 
@@ -368,3 +377,121 @@ bool platform_install(const std::filesystem::path& dir, std::string& error) {
 }
 
 }  // namespace fa::crash_detail
+
+// ---- the stack of a running thread (fa/core/crash.h: watch_thread_stack, watched_thread_stack, current_thread_stack) ----
+
+namespace fa {
+namespace {
+
+using crash_detail::LineBuf;
+using crash_detail::kMaxFrames;
+
+HANDLE g_watched = nullptr;
+DWORD g_watchedId = 0;
+std::mutex g_stackMutex;  // dbghelp is single-threaded
+
+#ifdef FA_CRASH_X64
+// The return addresses from `context` outwards, by the x64 unwind tables (no dbghelp, no allocation, no lock of ours: it
+// runs while the thread it walks is suspended, and that thread may hold the heap lock).
+int unwind(CONTEXT context, DWORD64* pcs, int capacity) {
+    int n = 0;
+    while (n < capacity && context.Rip) {
+        pcs[n++] = context.Rip;
+        DWORD64 imageBase = 0;
+        PRUNTIME_FUNCTION function = RtlLookupFunctionEntry(context.Rip, &imageBase, nullptr);
+        if (function) {
+            void* handlerData = nullptr;
+            DWORD64 establisher = 0;
+            RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, context.Rip, function, &context, &handlerData, &establisher, nullptr);
+        } else {  // a leaf function: no frame of its own, the return address is on top of the stack
+            if (!context.Rsp) break;
+            context.Rip = *reinterpret_cast<const DWORD64*>(context.Rsp);
+            context.Rsp += 8;
+        }
+    }
+    return n;
+}
+#endif
+
+// One "#n  module!function + 0x..  (file:line)  [address]" line per address.
+std::string name_frames(const DWORD64* pcs, int count) {
+    std::lock_guard<std::mutex> lock(g_stackMutex);
+    HANDLE process = GetCurrentProcess();
+    SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME | SYMOPT_LOAD_LINES | SYMOPT_FAIL_CRITICAL_ERRORS | SYMOPT_NO_PROMPTS);
+    SymInitialize(process, nullptr, TRUE);
+    std::string out;
+    for (int i = 0; i < count; ++i) {
+        LineBuf b;
+        crash_detail::format_frame(b, process, i, pcs[i]);
+        out.append(b.data, b.n);
+    }
+    return out;
+}
+
+#ifdef _MSC_VER
+int __cdecl print_crt_report(int type, char* message, int* returnValue) {
+    std::fprintf(stderr, "%s%s", type == _CRT_WARN ? "C runtime warning: " : "C runtime check failed: ", message ? message : "");
+    if (type == _CRT_WARN) {
+        if (returnValue) *returnValue = 0;
+        return TRUE;
+    }
+    std::fprintf(stderr, "stack (innermost first):\n%s", current_thread_stack().c_str());
+    std::fflush(stderr);
+    TerminateProcess(GetCurrentProcess(), 3);  // as abort() would, without its dialog or Windows Error Reporting
+    return TRUE;
+}
+#endif
+
+}  // namespace
+
+void watch_thread_stack() {
+    if (g_watched) CloseHandle(g_watched);
+    g_watched = nullptr;
+    HANDLE self = GetCurrentProcess();
+    if (DuplicateHandle(self, GetCurrentThread(), self, &g_watched, THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
+                        FALSE, 0))
+        g_watchedId = GetCurrentThreadId();
+    else
+        g_watched = nullptr;
+}
+
+std::string watched_thread_stack() {
+    if (!g_watched) return "no stack: no thread is watched (call fa::watch_thread_stack() on it first)\n";
+    if (GetCurrentThreadId() == g_watchedId) return current_thread_stack();
+#ifdef FA_CRASH_X64
+    DWORD64 pcs[kMaxFrames];
+    int count = 0;
+    if (SuspendThread(g_watched) == DWORD(-1)) return "no stack: SuspendThread failed (error " + std::to_string(GetLastError()) + ")\n";
+    CONTEXT context{};
+    context.ContextFlags = CONTEXT_FULL;
+    const bool got = GetThreadContext(g_watched, &context) != FALSE;
+    if (got) count = unwind(context, pcs, kMaxFrames);
+    ResumeThread(g_watched);  // before naming the frames: dbghelp allocates, and the suspended thread may hold the heap
+    if (!got) return "no stack: GetThreadContext failed (error " + std::to_string(GetLastError()) + ")\n";
+    return name_frames(pcs, count);
+#else
+    return "no stack: reading another thread's stack is only done on x64 Windows\n";
+#endif
+}
+
+std::string current_thread_stack() {
+#ifdef FA_CRASH_X64
+    CONTEXT context;
+    RtlCaptureContext(&context);
+    DWORD64 pcs[kMaxFrames + 1];
+    const int count = unwind(context, pcs, kMaxFrames + 1);
+    return count > 1 ? name_frames(pcs + 1, count - 1) : std::string("no stack\n");  // +1: not this function itself
+#else
+    return "no stack: the stack is only walked on x64 Windows\n";
+#endif
+}
+
+void report_runtime_checks_without_dialogs() {
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+#ifdef _MSC_VER
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, print_crt_report);
+#endif
+}
+
+}  // namespace fa

@@ -70,7 +70,6 @@ struct Anim3DProject {
     }
 };
 
-double deg(double rad) { return rad * 180.0 / 3.14159265358979323846; }
 
 }  // namespace
 
@@ -346,7 +345,6 @@ TEST_CASE("the ring maths: angles accumulate the short way, the ring point is on
     CHECK(std::fabs(s - 0.5) < 1e-3);
     CHECK(std::fabs(segment_distance(5, 5, 0, 0, 10, 0) - 5.0) < 1e-9);
     CHECK(std::fabs(segment_distance(-3, 4, 0, 0, 10, 0) - 5.0) < 1e-9);
-    (void)deg;
 }
 
 TEST_CASE("limbs: a hand or a foot has a root, a mid and an end; a spine bone does not; the head aims") {

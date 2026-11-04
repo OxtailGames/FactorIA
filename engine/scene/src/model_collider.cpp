@@ -1,13 +1,13 @@
 // Colliders for a mesh (model_game_ready.h): box, sphere and capsule fits, the convex hull (Manifold's quickhull, reduced with meshoptimizer's
-// simplifier) and the convex decomposition of a concave mesh (V-HACD v4, synchronous: it starts no thread, so the result is the same on
-// every machine).
+// simplifier) and the convex decomposition of a concave mesh (V-HACD v4, synchronous: it starts no thread; its header is patched at configure
+// time to keep its hulls in an ordered map and break ties in its merge queue, so every machine and standard library gives the same hulls).
 #include <algorithm>
 #include <cmath>
 #include <format>
 #include <map>
 #include <set>
 
-#include "VHACD.h"
+#include "vhacd_deterministic.h"
 #include "fa/scene/model_game_ready.h"
 #include "manifold/manifold.h"
 #include "meshoptimizer.h"

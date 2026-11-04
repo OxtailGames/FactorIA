@@ -112,7 +112,7 @@ TEST_CASE("frames: the format rejects what it cannot show, naming the JSON point
     put_pixels_pngs(p);
     auto issues = [&](const Json& j) {
         std::vector<ImageIssue> out;
-        parse_image_document(j, "a.image.json", p.dir, &out);
+        (void)parse_image_document(j, "a.image.json", p.dir, &out);
         return out;
     };
     auto find = [](const std::vector<ImageIssue>& list, const std::string& pointer) -> const ImageIssue* {
