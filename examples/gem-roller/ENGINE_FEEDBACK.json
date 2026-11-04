@@ -301,6 +301,46 @@
       "notes": [
         "Fixed in P5 of the custom shaders (docs only): SHADERS.md ('Putting a material on an entity', Cost) and the AI guide's batching note say that a test calls game.screenshot(path), then reads game.state().renderStats (materials, materialFallbacks), and that material.info compile.toolFound says whether this computer can compile materials."
       ]
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "animation",
+      "severity": "nice-to-have",
+      "title": "anim3d.generate and anim3d.retarget leave no provenance or recipe in assets.json",
+      "missing": "A clip made by anim3d.generate is a made file like a baked model, but nothing records it: assets.regenerate cannot remake it, and assets.disclosure lists no record for it. assets.set_provenance takes no kind for it (only image, sound, music, voice, model3d).",
+      "workaround": "Recorded the two clips with assets.set_provenance (origin original, provider 'factoria anim3d.generate', the rig as source, the call in notes).",
+      "workaroundFiles": [
+        "assets.json"
+      ],
+      "suggestion": "Let anim3d.generate and anim3d.retarget write a provenance record with a recipe (inputs: the rig .glb and the source clip) like rig.bake does, so assets.regenerate {stale:true} follows a re-fit of the rig.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "animation",
+      "severity": "nice-to-have",
+      "title": "A rigged model costs one draw call per part, and rig.create cannot merge them",
+      "missing": "RIGGING.md says the merge by material of gameReady is not used for a rig: every part is a submesh of the .rig.glb, so the 8-part scout adds 16 draw calls (main pass and shadows) to a scene of 14. There is no way to bake the skinned mesh with one submesh per material while the fit still reads the parts.",
+      "workaround": "Accepted the cost: the example's perf budget (drawCalls 14 -> 30) was raised for it.",
+      "workaroundFiles": [
+        "tools/cli/tests/perf/gem-roller.perf.json"
+      ],
+      "suggestion": "Fit the rig from the parts, then merge the skinned submeshes by material when baking (skin weights are per vertex, so merging does not change the pose).",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

@@ -55,6 +55,7 @@
 #include "ai_chat.h"
 #include "ai_runs.h"
 #include "ai_usage.h"
+#include "anim3d_ui.h"
 #include "anim_ui.h"
 #include "editor_tools.h"
 #include "export_job.h"
@@ -333,6 +334,31 @@ public:
     bool anim_recording() const { return anim_.recording && showAnimation_; }
     AnimUi anim_;
     bool lastEditRecorded_ = false;  // the last edit_command wrote a clip key instead of a field
+    // Animation panel, 3D mode (anim3d_panel.cpp; the "3D bone clips" button of the Animation panel, or a double click on a 3D *.anim.json in the Project
+    // panel): a factoria.anim3d/1 clip of a rigged model as a dopesheet, a viewport that shows the skinned model posed by the playhead, a bone list, the
+    // bone tools (a rotation gizmo, IK handles, mirror pose) and the generators. The rules are in anim3d_model.h: every edit is the anim3d.* / ik3d.key
+    // call an AI would make, and its undo is an entry of the editor's stack (`{"$clip3d": {path, clip}}`: the arguments of anim3d.restore).
+    bool draw_animation_mode_row();                         // the 2D | 3D switch; true when the 3D mode is on
+    void anim3d_prepare_window();                           // before Begin: the first time the 3D mode shows, the panel leaves its dock and grows
+    void draw_animation_panel_3d();
+    void draw_anim3d_sheets();                              // the filmstrip and the weights picture, in their own window
+    void anim3d_toolbar();
+    void anim3d_bone_list();
+    void anim3d_viewport();
+    void anim3d_dopesheet();
+    void anim3d_inspector();
+    void anim3d_scan_lists();
+    Anim3DModel& anim3d_ensure_model();
+    bool open_anim3d_clip(const std::string& rel, const std::string& rig = {});   // false and a toast when it does not load
+    void anim3d_commit(const Anim3DEdit& edit);             // the undo entry of an edit, a toast for an error
+    void anim3d_apply_undo(const Json& entry, bool forward);
+    void anim3d_release_textures();
+    void anim3d_load_sheet(Anim3DUi::Sheet& sheet, const std::string& what, const Json& result);
+    void anim3d_show_filmstrip();
+    void anim3d_show_weights();
+    double anim3d_snap(double t) const;
+    Vec2 anim3d_time_point(double t) const;                 // the ruler at time t (the autotest scrubs by it)
+    Anim3DUi anim3d_;
     // Image panel (image_panel.cpp, image_canvas.cpp; View > Image, or a double click on a *.image.json in the Project panel): the layered
     // image document as a canvas with brushes, selections and a transform, a layer list with an inspector, adjustments and effects, a
     // palette bar and a frame strip. The rules are in image_model.h: every edit it keeps is an image.* command, so the Console and the

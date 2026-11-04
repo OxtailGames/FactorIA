@@ -596,7 +596,8 @@ why. Nothing is baked into the `.glb`; assigning `clips` again rebuilds the bind
 modification time). The pose is the same on every platform: sampling uses `+ - * /` and `fa::det` trigonometry only.
 
 `factoria validate` checks the 3D clips (the file, the bones against the model of the Animator that names it) and an `IK3D` against the model's
-bones. The editor's Animation panel edits 2D clips only; a 3D clip is made, edited and previewed with the commands below.
+bones. A 3D clip is made, edited and previewed with the commands below, and the editor's Animation panel edits it too: its dopesheet,
+the rotation gizmo and the IK handles in a 3D viewport of the posed model are these commands (see [EDITOR.md](EDITOR.md), "Animation panel", "3D bone clips").
 
 ### Commands for 3D clips
 
@@ -609,7 +610,15 @@ bones. The editor's Animation panel edits 2D clips only; a 3D clip is made, edit
 | `anim3d.remove_track {path, bone, channel?}` | Removes the track of that channel, or every track of the bone without `channel`. |
 | `anim3d.info {path?, rig?}` | The clip's bones, channels, keys, events and contacts, or (no path) every 3D clip of the project; with `rig` it also lists the bones the rig lacks (`rigCheck`). |
 | `anim3d.retarget {path, to, from?, out?, plantFeet?, scale?, fps?, overwrite?}` | See "Retargeting". |
-| `anim3d.preview {path, rig, frames?, cell?, yaw?, pitch?, out?, overwrite?}` | See "Previewing a clip". |
+| `anim3d.preview {path, rig, frames?, cell?, yaw?, yaws?, pitch?, out?, overwrite?}` | See "Previewing a clip". |
+| `anim3d.move_keys {path, keys, dt, extendDuration?}` | Moves keys by `dt` seconds. `keys` is `[{bone, channel?, t}]` (channel `rotation`, `translation` or `scale`). Refused when a key would land before 0, on another key, or past the end without `extendDuration`. |
+| `anim3d.remove_keys {path, keys}` | Removes those keys (a track left with no key is removed too). |
+| `anim3d.set_interp {path, keys, interp}` | Sets how the segment after each key is interpolated: `linear`, `step`, `bezier` or an easing name of `tween()`. |
+| `anim3d.set_clip {path, duration?, loop?, groundSpeed?, doc?}` | Changes the clip's own fields (the file is parsed again before it is written, so a clip the format refuses is not saved). |
+| `anim3d.add_event {path, t, name, data?, extendDuration?}` / `anim3d.set_event {path, event, t?, name?, data?, extendDuration?}` / `anim3d.remove_event {path, event}` | Clip events (`event` is the index in the clip's list, in time order). |
+| `anim3d.mirror_pose {path, rig, time?, from?, to?, interp?}` | Keys the pose at `time` mirrored left/right at `to` (default the same time): `from` is `swap` (the default: both sides trade places), `left` (the left pose is copied onto the right) or `right` (the other way). Bones are paired by their `_l` / `_r` names; bones on the mid plane are mirrored in place. |
+| `ik3d.key {path, rig, time?, solver, interp?, groundHeight?}` | Runs one IK solver (a `two_bone` with a pole, or a `look_at`, the objects of `ik3d.solve`) on the clip's pose at `time` and keys the bones it moved. |
+| `anim3d.restore {path, clip}` | Writes `clip` (the whole document) back, or deletes the file when `clip` is null. Every writing `anim3d.*` command returns the call that undoes it as `undo`; the editor keeps that on its undo stack. |
 | `ik3d.check {rig, solvers}` | Checks `IK3D.solvers` against a rig: every problem with its JSON pointer, what is wrong and how to fix it. |
 | `ik3d.solve {rig, solver, clip?, time?, groundHeight?}` | Runs one solver offline on the rig's rest pose or a clip's pose at `time` and tells where the bones end up. |
 
@@ -706,12 +715,14 @@ The result has `scale`, `mapped`, `dropped`, `resampled`, `planted` and `notes`,
 
 ## Previewing a clip
 
-`anim3d.preview {path, rig, frames?, cell?, yaw?, pitch?, out?}` skins the model on the CPU at `frames` (2 to 12, default 8) evenly
+`anim3d.preview {path, rig, frames?, cell?, yaw?, yaws?, pitch?, out?}` skins the model on the CPU at `frames` (2 to 12, default 8) evenly
 spaced times of the clip and draws them with the software renderer of `model.preview` into one labelled picture (the time under each
 cell, the bones in contact marked). No window or GPU is needed, the picture is the same on every machine, and the poses are the ones the
 Animator plays (foot placement and look-at are not part of it: `ik3d.solve` shows a solver). The cells share one framing so the
 walking distance is visible. `yaw` -90 shows a character that faces +Z from the side, facing right (the default is -70); `out` keeps a PNG
-(`overwrite` replaces one). A bad rig, a clip that drives bones the rig lacks or a missing file is an error that says which.
+(`overwrite` replaces one). `yaws` is a list of 1 to 6 angles (degrees, 0 = front, 90 = the character's left; at most 48 poses in all) and makes a filmstrip: one row of cells per angle, the same times in
+every row (give `yaws` or `yaw`, not both), so a gait is seen from the side, the front and the back at once; the Animation panel's
+**Filmstrip** button calls it with `[-70, 0, 90]`. A bad rig, a clip that drives bones the rig lacks or a missing file is an error that says which.
 
 ## Tweens
 
@@ -846,9 +857,8 @@ onFixedUpdate(dt) {
 - Morph targets and root motion are not supported for glTF models (a 3D clip's `root` translation moves the model inside its
   entity; the entity moves at the clip's `groundSpeed` only if a script does it). Animation layers and masks exist for 2D clips only
   (see "2D clips").
-- 3D bone clips are not edited in the editor's Animation panel (its timeline is for 2D
-  clips): use the `anim3d.*` commands. `anim3d.preview` and `ik3d.solve` show a clip or a solver without a scene; the
-  preview poses the clip only (no `IK3D`). Foot placement needs 3D colliders to hit and a flat, mostly-horizontal ground
+- The editor's Animation panel edits 3D bone clips of a rigged model (keys, gizmo, IK handles, events), but one clip at a time and
+  without `IK3D`: `anim3d.preview` and `ik3d.solve` show a clip or a solver without a scene, and the preview poses the clip only. Foot placement needs 3D colliders to hit and a flat, mostly-horizontal ground
   (a step taller than `rayUp`/`rayDown` or the pelvis limits is not followed).
 - A clip poses bones the same way it moves any entity, through their Transform (see [Bones and IK](#bones-and-ik)). The
   editor's Animation panel edits one clip at a time: `Animator.layers` and the state machine are set in the Inspector.

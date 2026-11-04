@@ -205,6 +205,62 @@ ModelViewFrame frame_model_items(const std::vector<ModelViewItem>& items) {
     return f;
 }
 
+ModelViewCamera model_view_camera(const ModelViewOptions& o, Vec3 center, double radius) {
+    const int w = std::clamp(o.width, 1, 4096), h = std::clamp(o.height, 1, 4096);
+    const Camera c = make_camera(o, center, std::max(radius, 0.05), w, h);
+    ModelViewCamera out;
+    out.eye = {float(c.eye.x), float(c.eye.y), float(c.eye.z)};
+    out.right = {float(c.right.x), float(c.right.y), float(c.right.z)};
+    out.up = {float(c.up.x), float(c.up.y), float(c.up.z)};
+    out.forward = {float(c.forward.x), float(c.forward.y), float(c.forward.z)};
+    out.orthographic = c.ortho;
+    out.focal = c.focal;
+    out.cx = c.cx;
+    out.cy = c.cy;
+    return out;
+}
+
+namespace {
+Camera to_camera(const ModelViewCamera& c) {
+    Camera out;
+    out.eye = {c.eye.x, c.eye.y, c.eye.z};
+    out.right = {c.right.x, c.right.y, c.right.z};
+    out.up = {c.up.x, c.up.y, c.up.z};
+    out.forward = {c.forward.x, c.forward.y, c.forward.z};
+    out.ortho = c.orthographic;
+    out.focal = c.focal;
+    out.cx = c.cx;
+    out.cy = c.cy;
+    return out;
+}
+}  // namespace
+
+bool ModelViewCamera::project(Vec3 p, double& sx, double& sy, double& depth) const {
+    const Camera cam = to_camera(*this);
+    const V3d d = sub({p.x, p.y, p.z}, cam.eye);
+    const double z = dot3(d, cam.forward);
+    const Projected pr = fa::project(cam, {p.x, p.y, p.z});
+    if (!pr.ok) return false;
+    sx = pr.sx;
+    sy = pr.sy;
+    depth = z;
+    return true;
+}
+
+void ModelViewCamera::ray(double sx, double sy, Vec3& origin, Vec3& direction) const {
+    const double x = (sx - cx) / focal, y = (cy - sy) / focal;  // view-plane units: per metre (orthographic) or per unit depth
+    V3d dir;
+    V3d org{eye.x, eye.y, eye.z};
+    if (orthographic) {
+        org = {eye.x + right.x * x + up.x * y, eye.y + right.y * x + up.y * y, eye.z + right.z * x + up.z * y};
+        dir = {forward.x, forward.y, forward.z};
+    } else {
+        dir = norm3({forward.x + right.x * x + up.x * y, forward.y + right.y * x + up.y * y, forward.z + right.z * x + up.z * y});
+    }
+    origin = {float(org.x), float(org.y), float(org.z)};
+    direction = {float(dir.x), float(dir.y), float(dir.z)};
+}
+
 const MeshData& model_reference_figure() {
     static MeshData figure;
     static std::once_flag once;

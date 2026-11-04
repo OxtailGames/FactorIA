@@ -73,11 +73,17 @@ void Editor::draw_animation_panel() {
     if (ImGuiWindow* console = ImGui::FindWindowByName("Console"); console && console->DockId != 0)
         ImGui::SetNextWindowDockID(console->DockId, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(980, 340), ImGuiCond_FirstUseEver);
+    anim3d_prepare_window();
     if (!ImGui::Begin("Animation", &showAnimation_)) {
         ImGui::End();
         return;
     }
     AnimUi& u = anim_;
+    if (draw_animation_mode_row()) {   // the 3D bone clips (anim3d_panel.cpp)
+        draw_animation_panel_3d();
+        ImGui::End();
+        return;
+    }
     if (play_ != PlayState::Edit) {
         ImGui::TextDisabled("The game is running. Stop it to edit clips (a clip file is not part of the running scene).");
         ImGui::End();

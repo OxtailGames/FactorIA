@@ -330,6 +330,16 @@
       }
     },
     {
+      "id": "scout",
+      "name": "Scout",
+      "components": {
+        "Transform": { "position": [-3.6, 0.5, -1.2], "scale": [0.8, 0.8, 0.8] },
+        "MeshRenderer": { "mesh": "assets/models/scout.rig.glb" },
+        "Animator": { "clips": { "walk": "assets/anim/scout_walk.anim.json", "idle": "assets/anim/scout_idle.anim.json" }, "clip": "walk" },
+        "Script": { "path": "scripts/scout.js" }
+      }
+    },
+    {
       "id": "game",
       "name": "Game Manager",
       "components": {
