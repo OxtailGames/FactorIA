@@ -442,6 +442,55 @@ int __cdecl print_crt_report(int type, char* message, int* returnValue) {
 }
 #endif
 
+// report_runtime_checks_without_dialogs: an unhandled exception (access violation, stack overflow, ...) prints what it
+// was and the stack, from a helper thread (the faulting thread may have no stack left), then ends the process.
+struct Fault {
+    EXCEPTION_POINTERS* pointers;
+    DWORD threadId;  // the faulting thread
+};
+
+DWORD WINAPI print_fault(LPVOID param) {
+    const Fault& job = *static_cast<const Fault*>(param);
+    const EXCEPTION_POINTERS& fault = *job.pointers;
+    const EXCEPTION_RECORD& record = *fault.ExceptionRecord;
+    LineBuf b;
+    b.str("unhandled exception "); b.hex(record.ExceptionCode); b.str(" ("); b.str(crash_detail::exception_name(record.ExceptionCode));
+    b.chr(')');
+    if (record.ExceptionCode == EXCEPTION_ACCESS_VIOLATION && record.NumberParameters >= 2) {
+        const ULONG_PTR kind = record.ExceptionInformation[0];
+        b.str(kind == 0 ? ", read of " : kind == 1 ? ", write to " : ", execution of ");
+        b.hex(record.ExceptionInformation[1]);
+    }
+    b.str(" in thread "); b.dec(job.threadId);
+    b.chr('\n');
+    std::fwrite(b.data, 1, b.n, stderr);
+    crash_detail::note_cpp_exception(record);
+    if (crash_detail::g_shared.terminateMessage[0]) std::fprintf(stderr, "%s\n", crash_detail::g_shared.terminateMessage);
+#ifdef FA_CRASH_X64
+    DWORD64 pcs[kMaxFrames];
+    const int count = unwind(*fault.ContextRecord, pcs, kMaxFrames);
+    std::fprintf(stderr, "stack (innermost first):\n%s", name_frames(pcs, count).c_str());
+#endif
+    std::fflush(stderr);
+    return 0;
+}
+
+LONG WINAPI print_unhandled(EXCEPTION_POINTERS* fault) {
+    static LONG busy = 0;
+    if (InterlockedExchange(&busy, 1) == 0) {
+        Fault job{fault, GetCurrentThreadId()};
+        HANDLE helper = CreateThread(nullptr, 1 << 20, print_fault, &job, 0, nullptr);
+        if (helper) {
+            WaitForSingleObject(helper, 30000);
+            CloseHandle(helper);
+        }
+    } else {
+        Sleep(30000);  // a second fault while the first one prints: let the first end the process
+    }
+    TerminateProcess(GetCurrentProcess(), fault->ExceptionRecord->ExceptionCode);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
 }  // namespace
 
 void watch_thread_stack() {
@@ -488,6 +537,9 @@ std::string current_thread_stack() {
 
 void report_runtime_checks_without_dialogs() {
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+    SetUnhandledExceptionFilter(print_unhandled);
+    ULONG guarantee = 64 * 1024;  // stack kept free for the filter after an overflow of THIS thread's stack
+    SetThreadStackGuarantee(&guarantee);
 #ifdef _MSC_VER
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
     _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, print_crt_report);

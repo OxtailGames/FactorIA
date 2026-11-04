@@ -65,9 +65,11 @@ std::string current_thread_stack();
 
 // For a process nobody watches (a test run, an autotest): a failed C runtime check (an MSVC Debug assertion such as
 // "vector subscript out of range", abort()) prints its message and the stack to stderr and ends the process with code 3,
-// instead of a modal dialog that freezes the run until someone clicks it. Windows only; elsewhere the runtime already
-// prints and aborts, and this does nothing. Never call it in a program a person debugs: the dialog's Retry is how they
-// break into the debugger.
+// instead of a modal dialog that freezes the run until someone clicks it. An unhandled exception (access violation,
+// stack overflow) likewise prints its name, the faulting address and the stack, and ends the process with the exception
+// code, where Windows would otherwise end it silently. Windows only; elsewhere the runtime already prints and aborts, and
+// this does nothing. Never call it in a program a person debugs (the dialog's Retry is how they break into the
+// debugger), nor together with install_crash_reporter: it replaces the reporter's exception filter.
 void report_runtime_checks_without_dialogs();
 
 }  // namespace fa

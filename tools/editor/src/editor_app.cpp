@@ -332,11 +332,11 @@ void Editor::on_init() {
         {
             auto net = std::make_shared<ShareAutotestNet>();
             atShareNet_ = net;
-            const stdfs::path dir = base / "share_config";
-            fs::remove_tree(dir, ec);
-            stdfs::create_directories(dir, ec);
+            const stdfs::path shareDir = base / "share_config";
+            fs::remove_tree(shareDir, ec);
+            stdfs::create_directories(shareDir, ec);
             ShareEnv env;
-            const std::string cfg = (dir / "ai.json").string();  // the config folder is its parent
+            const std::string cfg = (shareDir / "ai.json").string();  // the config folder is its parent
             env.env = [cfg](const std::string& n) { return n == "FACTORIA_AI_CONFIG" ? cfg : std::string(); };
             env.now = [] { return std::int64_t(1760000000); };
             env.sleep = [](double) { std::this_thread::sleep_for(std::chrono::milliseconds(10)); };

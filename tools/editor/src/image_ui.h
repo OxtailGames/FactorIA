@@ -102,7 +102,8 @@ struct ImageUi {
     std::string providerPrompt;
     std::string providerError;                  // why the last request could not start or finish (shown in the popup)
     std::string noGenerate, noInpaint;          // why each action is off ("" = a provider is ready)
-    int layersBefore = 0, providerUndo = 0;     // autotest bookkeeping
+    int layersBefore = 0;                       // autotest bookkeeping
+    std::size_t providerUndo = 0;               // autotest bookkeeping
     std::uint64_t providerChecked = ~std::uint64_t(0);
 
     // ---- textures

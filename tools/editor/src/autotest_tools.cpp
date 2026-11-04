@@ -6577,7 +6577,9 @@ void Editor::at_build_tools_script() {
             at_check(m.current() && m.current()->centroidHz > ks->centroid, "...the sound got brighter (centroid went up)");
         });
 
-        // ---- play on the null device: the playhead moves; stop
+        // ---- play on the null device: the playhead moves; stop. Looped: a slow frame (MSVC Debug) can play a short sound
+        // to its end before the Stop click, which would then start it again.
+        step(2, [this] { sound_.loopPlay = true; });
         click_widget("snd:play");
         wait_until([this] { return sound_.player && sound_.player->playing() && sound_.player->position() > 0.005; });
         step(2, [this, ks] {
@@ -6585,7 +6587,10 @@ void Editor::at_build_tools_script() {
             ks->position = sound_.player->position();
         });
         click_widget("snd:play");
-        step(3, [this] { at_check(!sound_.player->playing(), "Stop stopped it"); });
+        step(3, [this] {
+            at_check(!sound_.player->playing(), "Stop stopped it");
+            sound_.loopPlay = false;
+        });
 
         // ---- a drag on the waveform selects, To selection zooms
         step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, sound_screen_pos(sound_.shownSeconds * 0.2, 0.5)); });

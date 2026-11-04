@@ -2,7 +2,8 @@
 //
 //   fa_crash_child <report folder> <mode>
 //   modes: clean | null-write | abort | uncaught | stack-overflow | invalid-parameter and pure-call (MSVC only) |
-//          runtime-check (MSVC Debug only: a failed _ASSERTE with fa::report_runtime_checks_without_dialogs)
+//          runtime-check (MSVC Debug only: a failed _ASSERTE with fa::report_runtime_checks_without_dialogs) |
+//          fault-printed (MSVC only: a null write with fa::report_runtime_checks_without_dialogs)
 //
 // It dies on purpose: run it through ctest (the "core" test), not by hand. Its functions are exported (dllexport, or
 // default visibility + -rdynamic) so the stack of the report names them even without symbol files (a mangled name still
@@ -106,6 +107,10 @@ int main(int argc, char** argv) {
 #ifdef _MSC_VER
     else if (mode == "invalid-parameter") fa_crash_child_invalid_parameter();
     else if (mode == "pure-call") fa_crash_child_pure_call();
+    else if (mode == "fault-printed") {
+        fa::report_runtime_checks_without_dialogs();  // replaces the crash reporter's filter
+        fa_crash_child_null_write();
+    }
 #ifdef _DEBUG
     else if (mode == "runtime-check") {
         fa::report_runtime_checks_without_dialogs();  // replaces the silent report modes of no_crash_dialogs()

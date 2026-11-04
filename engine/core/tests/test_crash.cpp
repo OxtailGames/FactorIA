@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -252,7 +253,7 @@ TEST_CASE("thread stacks: a watchdog reads the stack of the thread it watches wh
     CHECK(counts_frames(second));
     CHECK(counts_frames(ownStack));
     CHECK(counts_frames(current_thread_stack()));
-#if defined(_WIN32) || defined(__APPLE__)  // Linux: backtrace_symbols names only exported symbols (no -rdynamic here)
+#if defined(_MSC_VER) || defined(__APPLE__)  // Linux: backtrace_symbols names only exported symbols (no -rdynamic here); MinGW: no PDB
     CHECK(first.find("fa_stack_probe_stuck_here") != std::string::npos);
 #endif
 #else
@@ -261,6 +262,17 @@ TEST_CASE("thread stacks: a watchdog reads the stack of the thread it watches wh
 }
 
 #ifdef _MSC_VER
+TEST_CASE("thread stacks: an unhandled access violation prints its stack and ends the run, no silent exit") {
+    TempDir dir;
+    ProcessResult r;
+    if (!run_child(dir.path, "fault-printed", r)) return;
+    INFO("child stderr: " << r.stderrText);
+    CHECK(std::uint32_t(r.exitCode) == 0xC0000005u);
+    CHECK(r.stderrText.find("unhandled exception ") != std::string::npos);
+    CHECK(r.stderrText.find("write to ") != std::string::npos);
+    CHECK(r.stderrText.find("fa_crash_child_null_write") != std::string::npos);
+}
+
 #ifdef _DEBUG
 TEST_CASE("thread stacks: a failed Debug runtime check prints and ends the run, no dialog") {
     TempDir dir;
