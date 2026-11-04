@@ -11,6 +11,7 @@
 #include "fa/scene/model_doc.h"
 #include "fa/scene/rig_doc.h"
 #include "fa/scene/rig_fit.h"
+#include "fa/scene/rig_skin.h"
 
 namespace fa {
 
@@ -30,10 +31,13 @@ struct RigEvaluation {
     Vec3 originOffset{};
     MeshData mesh;          // what the .glb holds: the model after the origin offset (and the texture, when there is one)
     RigFit fit;
+    RigSkinResult skin;     // the skin weights (only when rig_evaluate was asked for them)
+    bool hasSkin = false;
     std::vector<std::string> inputs;    // project files the result depends on: the model document, what it reads, the picture
     std::vector<std::string> warnings;  // from the fit and from the evaluation
 };
-Result<RigEvaluation> rig_evaluate(const std::string& projectDir, const RigDoc& doc);
+// `withSkin` also computes the skin weights (rig_skin.h) from the document's `skin` section: it costs a heat solve, so only the bake and skin3d.* ask.
+Result<RigEvaluation> rig_evaluate(const std::string& projectDir, const RigDoc& doc, bool withSkin = false);
 
 enum class RigBakeState {
     Fresh,       // the .glb exists and the recipe in assets.json matches the rig document, the model document and every file they read
@@ -64,6 +68,7 @@ struct RigBakeResult {
     std::vector<std::string> inputs;
     Json provenance;       // the record written to assets.json
     RigFit fit;            // the skeleton that was baked (empty when not written)
+    Json skin;             // the quality report of the skin weights that were baked (rig_skin_report_to_json); null when nothing was written
     std::vector<std::string> warnings;
 };
 // Fits the rig, writes the skinned .glb (deterministic bytes), then records provenance + recipe {command "rig.bake", args {path}, inputs: the

@@ -1,4 +1,4 @@
-// The skinned .glb of a rig (rig_glb.h): mesh_to_glb's bytes with the joints, the inverse bind matrices and the rigid weights added.
+// The skinned .glb of a rig (rig_glb.h): mesh_to_glb's bytes with the joints, the inverse bind matrices and the weights added.
 #include "fa/scene/rig_glb.h"
 
 #include <cstring>
@@ -12,7 +12,7 @@ std::uint32_t read32(const std::uint8_t* p) { return std::uint32_t(p[0]) | (std:
 
 }  // namespace
 
-Result<std::vector<std::uint8_t>> rig_to_glb(const MeshData& model, const RigFit& fit, const std::string& glbPath) {
+Result<std::vector<std::uint8_t>> rig_to_glb(const MeshData& model, const RigFit& fit, const std::string& glbPath, const RigWeights* given) {
     if (fit.bones.empty() || fit.bones.size() > kRigMaxBones)
         return make_error(std::format("a skin needs 1 to {} joints, the rig has {}", kRigMaxBones, fit.bones.size()), "Lower the spine, neck or tail options.");
     auto base = mesh_to_glb(model, glbPath);
@@ -29,7 +29,8 @@ Result<std::vector<std::uint8_t>> rig_to_glb(const MeshData& model, const RigFit
     std::vector<std::uint8_t> bin(binStart, binStart + binLen);
 
     const std::size_t n = model.vertex_count();
-    const std::vector<std::uint16_t> binding = rig_rigid_binding(fit, model);
+    if (given && given->vertex_count() != n)
+        return make_error(std::format("internal: {} skin weights for a model of {} vertices", given->vertex_count(), n), "Report this as an engine bug.");
     auto append = [&](const void* p, std::size_t bytes) {
         const std::size_t at = bin.size();
         bin.resize(at + bytes);
@@ -51,9 +52,15 @@ Result<std::vector<std::uint8_t>> rig_to_glb(const MeshData& model, const RigFit
 
     std::vector<std::uint16_t> joints(n * 4, 0);
     std::vector<float> weights(n * 4, 0.0f);
-    for (std::size_t v = 0; v < n; ++v) {
-        joints[v * 4] = binding[v];
-        weights[v * 4] = 1.0f;
+    if (given) {
+        joints = given->joints;
+        weights = given->weights;
+    } else {
+        const std::vector<std::uint16_t> binding = rig_rigid_binding(fit, model);
+        for (std::size_t v = 0; v < n; ++v) {
+            joints[v * 4] = binding[v];
+            weights[v * 4] = 1.0f;
+        }
     }
     const int jointsAcc = add_accessor(add_view(joints.data(), joints.size() * 2, 34962), 5123, n, "VEC4");
     const int weightsAcc = add_accessor(add_view(weights.data(), weights.size() * 4, 34962), 5126, n, "VEC4");

@@ -194,7 +194,7 @@ Result<RigDoc> parse_rig_doc(const Json& json, std::string_view file, std::vecto
               "Start from `rig.create`, or write {\"format\": \"factoria.rig/1\", \"model\": \"assets/models/hero.model.json\", \"template\": \"humanoid\"}.");
         return finish();
     }
-    static const std::vector<std::string> topKeys = {"$schema", "format", "doc", "model", "template", "options", "parts", "landmarks", "symmetryX", "strict", "binding", "output", "bones"};
+    static const std::vector<std::string> topKeys = {"$schema", "format", "doc", "model", "template", "options", "parts", "landmarks", "symmetryX", "strict", "skin", "binding", "output", "bones"};
     for (auto it = json.begin(); it != json.end(); ++it)
         if (std::find(topKeys.begin(), topKeys.end(), it.key()) == topKeys.end())
             r.err("/" + it.key(), "\"" + it.key() + "\" is not a field of a rig document", did_you_mean(it.key(), topKeys));
@@ -300,10 +300,9 @@ Result<RigDoc> parse_rig_doc(const Json& json, std::string_view file, std::vecto
         if (!it->is_boolean()) r.err("/strict", "strict must be true or false, got " + describe_json_value(*it), "true makes a landmark that was only estimated from proportions an error.");
         else doc.strict = it->get<bool>();
     }
-    if (auto it = json.find("binding"); it != json.end()) {
-        if (!it->is_string() || it->get<std::string>() != "rigid")
-            r.err("/binding", "binding must be \"rigid\", got " + describe_json_value(*it), "\"rigid\" binds each vertex wholly to its nearest bone. Smooth skin weights come with skin3d (docs/RIGGING.md).");
-    }
+    if (auto it = json.find("binding"); it != json.end())
+        r.err("/binding", "\"binding\" was replaced by the `skin` section", "Write {\"skin\": {\"method\": \"rigid\"}} for the rigid binding; `skin.method` also takes auto, heat and voxel (docs/RIGGING.md, \"Skin weights\").");
+    if (auto it = json.find("skin"); it != json.end()) parse_rig_skin(*it, doc.skin, issues);
     if (auto it = json.find("output"); it != json.end()) {
         if (!it->is_object()) r.err("/output", "output must be an object like {\"path\": \"assets/models/hero.rig.glb\"}, got " + describe_json_value(*it), "Leave it out to bake next to the document.");
         else {
@@ -398,6 +397,7 @@ Json rig_doc_to_json(const RigDoc& doc) {
     }
     if (doc.symmetryX) j["symmetryX"] = to_json(*doc.symmetryX);
     if (doc.strict) j["strict"] = true;
+    if (Json skin = rig_skin_to_json(doc.skin); !skin.is_null()) j["skin"] = skin;
     if (!doc.outputPath.empty()) j["output"] = Json::object({{"path", doc.outputPath}});
     if (!doc.bones.empty()) {
         Json arr = Json::array();
@@ -484,7 +484,7 @@ Json rig_doc_schema() {
          {"$id", "https://factoria.dev/schemas/rig.schema.json"},
          {"title", "FactorIA rig document (*.rig.json)"},
          {"description", "A skeleton for a model document: a template (humanoid, quadruped, bird, tail, chain, generic) fitted to the model by its parts and landmarks. `rig.bake` writes the skinned .glb "
-                         "(joints and inverse bind matrices; each vertex bound rigidly to its nearest bone). Errors name the file and the JSON pointer; docs/RIGGING.md explains the format and `rig.templates {}` lists the templates."},
+                         "(joints, inverse bind matrices and the skin weights the `skin` section describes). Errors name the file and the JSON pointer; docs/RIGGING.md explains the format and `rig.templates {}` lists the templates."},
          {"type", "object"},
          {"required", Json::array({"format", "model", "template"})},
          {"additionalProperties", false},
@@ -499,7 +499,7 @@ Json rig_doc_schema() {
                         {"landmarks", Json::object({{"type", "object"}, {"description", "Explicit joint positions [x, y, z] in the model's space (after its gameReady origin), by bone name; \"<bone>.tail\" is the end of a bone with no children. Wins over parts and proportions."}, {"additionalProperties", vec3}})},
                         {"symmetryX", Json::object({{"type", "number"}, {"description", "The x of the symmetry plane (left = +X of it). Default: the centre of the model's bounds."}})},
                         {"strict", Json::object({{"type", "boolean"}, {"description", "A landmark that could only be estimated from the template's proportions is an error. Default false."}})},
-                        {"binding", Json::object({{"const", "rigid"}, {"description", "How the .glb binds vertices: \"rigid\", each vertex wholly to its nearest bone among the bones of its part. Default \"rigid\"."}})},
+                        {"skin", rig_skin_schema()},
                         {"output", Json::object({{"type", "object"}, {"additionalProperties", false}, {"description", "Where `rig.bake` writes the skinned .glb."},
                                                  {"properties", Json::object({{"path", Json::object({{"type", "string"}, {"pattern", "\\.[gG][lL][bB]$"}, {"description", "Project-relative file under assets/ ending in .glb. Left out: next to the document, with .glb instead of .rig.json."}})}})}})},
                         {"bones", Json::object({{"type", "array"}, {"description", "generic template only: the bones, parents before children."}, {"items", bone}})}})}});

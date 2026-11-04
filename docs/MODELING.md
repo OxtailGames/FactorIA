@@ -822,7 +822,7 @@ pieces falls back to the convex hull and says so; a LOD never removes a submesh 
 
 ### Giving a model a skeleton
 
-A model made of named parts can be fitted with a skeleton (humanoid, quadruped, bird, tail, chain or generic) and baked as a skinned `.glb`: see docs/RIGGING.md (`rig.create`, `rig.fit`, `rig.bake`). Name the nodes of the model with `part` ("head", "arm_l", "leg_r"...): the fit finds each bone from the part names.
+A model made of named parts can be fitted with a skeleton (humanoid, quadruped, bird, tail, chain or generic) and baked as a skinned `.glb`: see docs/RIGGING.md (`rig.create`, `rig.fit`, `rig.bake`; `skin3d.*` for the skin weights). Give limbs `segments` so there are vertices where the skin should bend. Name the nodes of the model with `part` ("head", "arm_l", "leg_r"...): the fit finds each bone from the part names.
 
 ## Looking at a model: `model.preview` and `model.check`
 
