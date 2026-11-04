@@ -77,6 +77,39 @@ void read_node_rest(const cgltf_node& n, SkelNode& out) {
     if (n.has_scale) out.scale = {n.scale[0], n.scale[1], n.scale[2]};
 }
 
+// The JSON of an `extras` block, null when there is none or it is not valid.
+Json extras_json(const cgltf_data* data, const cgltf_extras& extras) {
+    if (extras.start_offset == extras.end_offset) return Json();
+    cgltf_size size = 0;
+    if (cgltf_copy_extras_json(data, &extras, nullptr, &size) != cgltf_result_success || size == 0) return Json();
+    std::string text(size, '\0');
+    if (cgltf_copy_extras_json(data, &extras, text.data(), &size) != cgltf_result_success) return Json();
+    Json out = Json::parse(text.c_str(), nullptr, false);
+    return out.is_discarded() ? Json() : out;
+}
+
+// rig.bake's bone triple and rest direction (rig_glb.cpp): extras {role, index, side, axis, length}.
+void read_node_extras(const cgltf_data* data, const cgltf_node& n, SkelNode& out) {
+    const Json x = extras_json(data, n.extras);
+    if (!x.is_object()) return;
+    if (auto it = x.find("role"); it != x.end() && it->is_string()) out.role = it->get<std::string>();
+    if (auto it = x.find("index"); it != x.end() && it->is_number_integer()) out.roleIndex = it->get<int>();
+    if (auto it = x.find("side"); it != x.end() && it->is_string()) out.side = it->get<std::string>();
+    if (auto it = x.find("length"); it != x.end() && it->is_number()) out.length = it->get<float>();
+    if (auto it = x.find("axis"); it != x.end() && it->is_array() && it->size() == 3 && (*it)[0].is_number() &&
+                                  (*it)[1].is_number() && (*it)[2].is_number())
+        out.axis = {(*it)[0].get<float>(), (*it)[1].get<float>(), (*it)[2].get<float>()};
+}
+
+std::string skin_rig_template(const cgltf_data* data, const cgltf_skin& sk) {
+    const Json x = extras_json(data, sk.extras);
+    if (!x.is_object()) return {};
+    auto it = x.find("factoriaRig");
+    if (it == x.end() || !it->is_object()) return {};
+    auto t = it->find("template");
+    return t != it->end() && t->is_string() ? t->get<std::string>() : std::string();
+}
+
 }  // namespace
 
 void gltf_use_fs(cgltf_options& opts) {
@@ -87,6 +120,12 @@ void gltf_use_fs(cgltf_options& opts) {
 int SkeletonAsset::find_clip(std::string_view name) const {
     for (std::size_t i = 0; i < clips.size(); ++i)
         if (clips[i].name == name) return int(i);
+    return -1;
+}
+
+int SkeletonAsset::find_node(std::string_view name) const {
+    for (std::size_t i = 0; i < nodes.size(); ++i)
+        if (nodes[i].name == name) return int(i);
     return -1;
 }
 
@@ -124,6 +163,7 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
         n.name = data->nodes[i].name ? data->nodes[i].name : "";
         n.parent = node_index(data->nodes[i].parent);
         read_node_rest(data->nodes[i], n);
+        read_node_extras(data, data->nodes[i], n);
     }
     // Parents before children, whatever the order of the file (stable: file order among siblings).
     std::vector<char> placed(out.nodes.size(), 0);
@@ -155,6 +195,7 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
             for (cgltf_size j = 0; j < sk.joints_count; ++j)
                 cgltf_accessor_read_float(sk.inverse_bind_matrices, j, skin.inverseBind[j].m, 16);
         }
+        skin.rigTemplate = skin_rig_template(data, sk);
         out.skins.push_back(std::move(skin));
     }
 

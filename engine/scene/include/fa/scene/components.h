@@ -17,6 +17,7 @@
 #include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/core/types.h"
+#include "fa/scene/skeleton.h"
 
 namespace fa {
 
@@ -766,7 +767,6 @@ struct Light {
     bool castShadows = false;         // directional only for now
 };
 
-struct SkeletonAsset;  // skeleton.h
 struct ClipRuntime;    // what the Animator keeps while it plays *.anim.json clips (src/clip_animator.h)
 
 // Owner of the ClipRuntime of an Animator. A copy starts EMPTY (the bindings belong to the entity tree they were made
@@ -803,6 +803,13 @@ struct AnimatorRuntime {
     float fadeElapsed = 0.0f, fadeDuration = 0.0f;
     std::vector<std::string> triggers;  // trigger() calls, true for one update
     ClipRuntimeBox clip;             // *.anim.json clips: bindings, driven fields, layers (empty while the Animator plays a glTF)
+    // 3D clip files (anim3d.h): the `clips` of an Animator that plays a glTF model, converted to the model's bones. Their indices
+    // follow the model's own animations (clip index >= skeleton->clips.size() is extraClips[index - size]).
+    std::vector<AnimClip> extraClips;
+    Json extraClipsFrom;             // the `clips` value extraClips was built from (a change rebuilds them)
+    bool extraClipsBuilt = false;
+    std::vector<std::string> clipWarnings;  // what the last build of extraClips dropped (bones the model lacks...), once logged
+    Pose pose;                       // the animated pose the palettes were built from, before IK3D (empty until the first build)
 };
 
 // Skeletal animation of a skinned glTF model, played by the animation system every fixed step (headless runs too).
@@ -829,6 +836,34 @@ struct Animator {
     // after the file's own). A mesh is drawn with the palette of its own skin; `palette` is skinPalettes[0].
     std::vector<std::vector<Mat4>> skinPalettes;
     AnimatorRuntime rt;
+};
+
+// What update_ik3d (ik3d.h) keeps per IK3D between steps. Never serialized; copying an IK3D copies it.
+struct IK3DRuntime {
+    std::vector<Quat> turn;           // per solver: the look-at turn carried between steps (smoothing)
+    std::vector<float> lift;          // per solver: the smoothed ground offset of a foot, model units
+    float pelvisShift = 0.0f;         // the smoothed vertical shift of the pelvis, model units
+    bool started = false;             // the first step ran (smoothing starts from the first answer, not from zero)
+    bool warned = false;              // a problem was already logged (once per component)
+};
+
+// 3D inverse kinematics on the skinned model of the Animator on the same entity (docs/ANIMATION.md, "3D IK"): after the
+// animation poses the bones each fixed step, `solvers` adjust them. A solver is an object {type, ...}: "twoBone" (an arm or a leg:
+// root, mid, end, target, pole), "lookAt" (a head or an eye: bone, target, limits) or "foot" (a leg on the ground: thigh, shin,
+// foot; a ray down finds the ground, the pelvis lowers to fit). They apply in order.
+struct IK3D {
+    bool enabled = true;              // false: the animated pose is drawn untouched
+    float weight = 1.0f;              // 0 = the animated pose, 1 = the solved pose; multiplies every solver's own weight
+    Json solvers = Json::array();     // [{"type": "lookAt", "bone": "head", "target": "player"}, ...]
+    std::string pelvis = "root";      // foot placement: the bone moved down when the ground is lower (or up when it is higher)
+    float rayUp = 0.5f;               // foot placement: world units above the animated foot the ground ray starts
+    float rayDown = 0.8f;             // foot placement: world units below the animated foot the ray reaches
+    std::int32_t groundMask = -1;     // foot placement: layers the ray hits (bitmask, -1 = all); the entity's own colliders are ignored
+    float pelvisSmooth = 0.1f;        // foot placement: seconds the pelvis and the feet take to settle on a new height (0 = at once)
+    float maxPelvisDrop = 0.4f;       // foot placement: the most the pelvis goes down, model units
+    float maxPelvisRise = 0.15f;      // foot placement: the most the pelvis goes up, model units
+    Json status = Json::array();      // runtime: one object per solver {name, type, active, reached, error, ...}
+    IK3DRuntime rt;
 };
 
 // ------------------------------------------------------------- physics ---

@@ -1037,11 +1037,13 @@ void register_builtin_components(TypeRegistry& r) {
                "at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported), "
                "or, for 2D clips, the fields rest where they were before the first clip drove them.")
         .field("clips", &Animator::clips,
-               "Keyframed 2D clips, an object name -> project-relative *.anim.json path, such as "
-               "{\"walk\": \"anim/hero_walk.anim.json\", \"idle\": \"anim/hero_idle.anim.json\"} (docs/ANIMATION.md, "
-               "\"2D clips\"). Used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a glTF): "
-               "`clip`, `states` and play() then name these. A clip animates fields of this entity and its descendants "
-               "(found by EntityInfo name); those fields are a runtime pose that scene.save does not write.")
+               "Clip files, an object name -> project-relative *.anim.json path, such as "
+               "{\"walk\": \"anim/hero_walk.anim.json\", \"idle\": \"anim/hero_idle.anim.json\"}. Two kinds (docs/ANIMATION.md). "
+               "2D clips (\"2D clips\") are used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a "
+               "glTF): they animate fields of this entity and its descendants (found by EntityInfo name), a runtime pose that "
+               "scene.save does not write. 3D bone clips (format factoria.anim3d/1, \"3D bone clips\") are used when the Animator "
+               "plays a skinned glTF (a rig.bake .glb): they pose its bones, and sit next to the model's own animations. "
+               "`clip`, `states` and play() name these either way.")
         .field("speed", &Animator::speed, "Playback speed multiplier: 1 = authored speed, 2 = twice as fast, 0 = frozen.").range(0, 100)
         .field("loop", &Animator::loop,
                "true = start over when the clip ends. false = stop on the last pose and send the `anim.finished` event.")
@@ -1076,6 +1078,45 @@ void register_builtin_components(TypeRegistry& r) {
                "state of `states`). Updated as transitions fire.")
         .field("time", &Animator::time, "Runtime state: seconds into the current clip. Assigning it seeks (no events fire).").runtime_only()
         .field("values", &Animator::values, "Runtime state: current value of every state machine parameter.").runtime_only();
+
+    r.add<IK3D>("IK3D",
+                "3D inverse kinematics on the skinned model of the Animator on the same entity (docs/ANIMATION.md, \"3D IK\"). Every "
+                "fixed step, after the Animator has posed the bones, the `solvers` adjust them and the model is drawn with the result: "
+                "a hand that reaches a lever (twoBone, with a pole vector for the elbow), a head that looks at something within limits "
+                "(lookAt), feet that stand on uneven ground with the pelvis lowered to fit (foot, one ray per foot through the physics "
+                "world). Solvers apply in order. The bones are found by the canonical names of rig.bake (docs/RIGGING.md). "
+                "Deterministic; the animated pose is never changed, the solvers start from it every step.",
+                "3D")
+        .field("enabled", &IK3D::enabled, "false: the animated pose is drawn untouched.")
+        .field("weight", &IK3D::weight,
+               "0 to 1. 0 = the animated pose, 1 = the solved pose; multiplies the weight of every solver. Fade it in while a hand "
+               "holds something, out when it lets go.").range(0, 1)
+        .field("solvers", &IK3D::solvers,
+               "An array of solvers, applied in order. Every solver has \"type\", an optional \"name\", \"weight\" (0..1, default 1) and "
+               "\"enabled\" (default true). A target is an entity id or name (\"player\"), a world position [x, y, z], or "
+               "{\"entity\": \"player\", \"offset\": [0, 1.6, 0]} (the offset in world units). "
+               "twoBone: {root, mid, end} bone names (or limb \"arm\"|\"leg\" with side \"l\"|\"r\"), target, optional pole (the "
+               "elbow or knee bends towards it). lookAt: {bone, target, forward (the bone's axis that looks: \"+z\" by default), "
+               "yawLimit (70), pitchLimit (45), turnSpeed (degrees per second, 360; 0 = snap)}. foot: {side \"l\"|\"r\" (or thigh, shin, "
+               "foot), footHeight (height of the ankle above the sole; default = its rest height), alignToGround (true), "
+               "maxFootAngle (30)}; all foot solvers act together on the lowest ground under them. Example: "
+               "[{\"type\": \"lookAt\", \"bone\": \"head\", \"target\": \"player\"}, {\"type\": \"foot\", \"side\": \"l\"}, "
+               "{\"type\": \"foot\", \"side\": \"r\"}]. Problems are logged once; `ik3d.check` lists all of them.")
+        .field("pelvis", &IK3D::pelvis,
+               "Foot placement: the bone moved vertically so the feet reach lower or higher ground ('root' = the hips of every "
+               "rig.bake template).")
+        .field("rayUp", &IK3D::rayUp, "Foot placement: world units above the animated ankle where the ground ray starts.").range(0, 100)
+        .field("rayDown", &IK3D::rayDown, "Foot placement: world units below the animated ankle the ray reaches. No hit = the foot is left as animated.").range(0, 100)
+        .field("groundMask", &IK3D::groundMask,
+               "Foot placement: bitmask of the physics layers the ray hits (-1 = all). The colliders of this entity are ignored.")
+        .field("pelvisSmooth", &IK3D::pelvisSmooth,
+               "Foot placement: seconds the feet and the pelvis take to settle on a new ground height, so a step does not pop (0 = at once).").range(0, 5)
+        .field("maxPelvisDrop", &IK3D::maxPelvisDrop, "Foot placement: the most the pelvis goes down, in model units. A leg that cannot reach stretches straight.").range(0, 10)
+        .field("maxPelvisRise", &IK3D::maxPelvisRise, "Foot placement: the most the pelvis goes up, in model units.").range(0, 10)
+        .field("status", &IK3D::status,
+               "Runtime state: one object per solver, {name, type, active, ...}: twoBone adds reached and error (distance of the end "
+               "to the target, model units), lookAt clamped, yaw and pitch (degrees turned), foot contact (0 in the air, 1 planted), "
+               "lift (ground offset, model units), reached and error. A solver with problem:true did not parse.").runtime_only().read_only();
 
     // ---------------------------------------------------------- Physics ---
     r.add<RigidBody2D>("RigidBody2D",
