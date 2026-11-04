@@ -262,13 +262,29 @@ Add or replace keys of one track of a clip, creating the track if it is missing.
 | `extendDuration` | boolean | no | Raise the clip's duration when a key is later than it. Default false. |
 | `track` | object | yes |  |
 
+## `anim3d.add_event`
+
+Not released yet (on main after 0.14.1).
+
+Add an event to a 3D clip: a game event the Animator sends when the clip passes its time.
+
+The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: the clip summary plus {event, undo}. Example: {"path":"anim/hero_walk.anim.json","t":0.2,"name":"footstep","data":{"foot":"left"}} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `t` | number | yes | Seconds from the start of the clip. |
+| `name` | string | yes | The game event name. |
+| `data` | object | no | Extra fields sent with the event. |
+| `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
+
 ## `anim3d.create`
 
 Not released yet (on main after 0.14.1).
 
 Write a new, empty 3D bone clip (*.anim.json, format factoria.anim3d/1) for a skinned rig; add tracks with anim3d.set_keys.
 
-Creates the file with `duration` seconds and `loop`, no tracks. `rotation` is "euler" (keys are [pitch, yaw, roll] degrees, the default) or "quat" (keys are [x, y, z, w]). `rig` (optional) records the rig the clip is for and its template (retargeting and anim3d.preview read it). It refuses to replace a file unless `overwrite` is true. For a whole walk, run, idle, swing or hit clip use anim3d.generate instead. Format: schemas/anim3d.schema.json, docs/ANIMATION.md, "3D bone clips". Example: {"path":"anim/hero_wave.anim.json","duration":1.2,"loop":false,"rig":"assets/models/hero.rig.glb"}
+Creates the file with `duration` seconds and `loop`, no tracks. `rotation` is "euler" (keys are [pitch, yaw, roll] degrees, the default) or "quat" (keys are [x, y, z, w]). `rig` (optional) records the rig the clip is for and its template (retargeting and anim3d.preview read it). It refuses to replace a file unless `overwrite` is true. For a whole walk, run, idle, swing or hit clip use anim3d.generate instead. Format: schemas/anim3d.schema.json, docs/ANIMATION.md, "3D bone clips". Example: {"path":"anim/hero_wave.anim.json","duration":1.2,"loop":false,"rig":"assets/models/hero.rig.glb"} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -286,7 +302,7 @@ Not released yet (on main after 0.14.1).
 
 Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide.
 
-Writes `out` (default anim/<rig>_<kind>.anim.json), an ordinary 3D clip you can then edit key by key (anim3d.set_keys). `kind`: walk, run (biped legs; walk also fits a quadruped), trot, gallop (a quadruped's four legs), idle (spine breathing, a little sway), swing (the bones of a tail or chain swinging with a phase delay), hit (a reaction that recoils and settles). `params` are the kind's own (anim3d.generators lists them with ranges; an unknown name is an error with 'did you mean'). A gait is solved with the rig's own proportions: each foot follows a path that stands still on the ground in stance (the clip's `contacts` say when) and the clip's `groundSpeed` is the speed to move the entity at so the planted feet do not slide. The clip records the kind and every parameter used in `generated`, so the same call writes the same bits. A rig that lacks what the kind needs (legs, spine, tail) is an error that says which template has it. Refuses to replace a file unless `overwrite`. Example: {"rig":"assets/models/hero.rig.glb","kind":"walk","params":{"strideLength":1.2,"cadence":1.0},"out":"anim/hero_walk.anim.json"}
+Writes `out` (default anim/<rig>_<kind>.anim.json), an ordinary 3D clip you can then edit key by key (anim3d.set_keys). `kind`: walk, run (biped legs; walk also fits a quadruped), trot, gallop (a quadruped's four legs), idle (spine breathing, a little sway), swing (the bones of a tail or chain swinging with a phase delay), hit (a reaction that recoils and settles). `params` are the kind's own (anim3d.generators lists them with ranges; an unknown name is an error with 'did you mean'). A gait is solved with the rig's own proportions: each foot follows a path that stands still on the ground in stance (the clip's `contacts` say when) and the clip's `groundSpeed` is the speed to move the entity at so the planted feet do not slide. The clip records the kind and every parameter used in `generated`, so the same call writes the same bits. A rig that lacks what the kind needs (legs, spine, tail) is an error that says which template has it. Refuses to replace a file unless `overwrite`. Example: {"rig":"assets/models/hero.rig.glb","kind":"walk","params":{"strideLength":1.2,"cadence":1.0},"out":"anim/hero_walk.anim.json"} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -317,13 +333,45 @@ Reads the clip with the loader's own rules, so a file the game could not play co
 | `path` | string | no | The 3D clip file, project-relative, ending in .anim.json. |
 | `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
 
+## `anim3d.mirror_pose`
+
+Not released yet (on main after 0.14.1).
+
+Key the left/right mirror of a 3D clip's pose at a time: swap both sides, or copy one side onto the other (bones are paired by canonical name: thigh_l <-> thigh_r).
+
+Samples the clip at `time`, mirrors the pose across the character's mid plane and writes it as keys at `to` (default `time`) for every bone the clip animates: `from` "swap" (default) puts each side's pose on the other side and mirrors the bones with no side (spine, head, root) in place; "left" copies the left side onto the right bones; "right" the other way. A mirrored rotation keeps pitch and flips yaw and roll (a quaternion (x, y, z, w) becomes (x, -y, -z, w)); a translation flips x. Only channels the clip has a track for are keyed. `rig` defaults to the clip's own. Use it to build the second half of a cycle from the first. Result: the clip summary plus {time, from, keys, bones, undo}. Example: {"path":"anim/hero_walk.anim.json","time":0,"to":0.5} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `time` | number | yes | Seconds into the clip: the pose to mirror. |
+| `to` | number | no | Where to key the mirrored pose (default: `time`). |
+| `from` | string ["swap","left","right"] | no | swap (default), left or right: which side's pose is copied. |
+| `interp` | string | no | Interpolation of the new keys (default: what an existing key has, else linear). |
+
+## `anim3d.move_keys`
+
+Not released yet (on main after 0.14.1).
+
+Move keys of a 3D clip in time by dt seconds (a dopesheet drag); a moved key replaces the key it lands on.
+
+`keys` selects keys as [{bone, channel?, t}]; each moves to t + dt (rounded to 0.1 ms). A key may not leave the clip: before 0 is an error, past the duration is an error unless `extendDuration`. Two moved keys of one track landing on the same time is an error; a moved key replaces an unselected key at its new time. Bezier keys get smooth tangents again. Result: the clip summary plus {moved, dt, undo}. Example: {"path":"anim/hero_walk.anim.json","keys":[{"bone":"thigh_l","t":0.5}],"dt":0.05} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
+| `dt` | number | yes | Seconds to move by (negative = earlier). |
+| `extendDuration` | boolean | no | Lengthen the clip when a key moves past its end. |
+
 ## `anim3d.preview`
 
 Not released yet (on main after 0.14.1).
 
 Draw a 3D bone clip as a filmstrip: the baked rig posed at evenly spaced times, shaded, on a ground grid, with the feet that are on the ground marked; returns the PNG.
 
-The way to SEE a clip without a window. It poses the rig's skin with the clip at `frames` times (a looping clip does not repeat its first pose at the end) and draws each with the software renderer of model.preview (no graphics device, the same pixels on every machine), all framed the same way so the motion reads across the strip. Under each pose: its time and the bones the clip's contacts say are on the ground. The mesh is skinned with the vertex weights stored in the .glb (rigid per bone as rig.bake writes them). `yaw` picks the side (default -70: from the character's right and a little in front); the picture is returned as $image in a temporary file, pass `out` (a .png) to keep it. Nothing in the project changes otherwise. Example: {"path":"anim/hero_walk.anim.json","rig":"assets/models/hero.rig.glb","frames":8}
+The way to SEE a clip without a window. It poses the rig's skin with the clip at `frames` times (a looping clip does not repeat its first pose at the end) and draws each with the software renderer of model.preview (no graphics device, the same pixels on every machine), all framed the same way so the motion reads across the strip. Under each pose: its time and the bones the clip's contacts say are on the ground. The mesh is skinned with the vertex weights stored in the .glb (rigid per bone as rig.bake writes them). `yaw` picks the side (default -70: from the character's right and a little in front); `yaws` (a list, e.g. [-70, 0, 90]) draws one row of poses per side in one sheet, which is how a pose is checked from several angles at once; the picture is returned as $image in a temporary file, pass `out` (a .png) to keep it. Nothing in the project changes otherwise. Example: {"path":"anim/hero_walk.anim.json","rig":"assets/models/hero.rig.glb","frames":8}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -332,9 +380,36 @@ The way to SEE a clip without a window. It poses the rig's skin with the clip at
 | `frames` | number | no | How many poses, 2 to 12 (default 8), evenly spaced over the clip. |
 | `cell` | number | no | Pixels per side of each pose (default 200). |
 | `yaw` | number | no | The side to look from in degrees: 0 the front (+Z), 90 the character's left (+X), -90 its right (default -70). |
+| `yaws` | array | no | Several sides in one sheet: one row of `frames` poses per angle (instead of `yaw`), at most 6 angles and 48 poses. Example [-70, 0, 90]. |
 | `pitch` | number | no | Degrees above the horizon (default 10). |
 | `out` | string | no | Keep the picture as a PNG at this project-relative path. Left out, it is a temporary file. |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. |
+
+## `anim3d.remove_event`
+
+Not released yet (on main after 0.14.1).
+
+Remove an event from a 3D clip.
+
+`event` is the event's index in the clip's events, or {t, name?}. Result: the clip summary plus {removed, undo}. Example: {"path":"anim/hero_walk.anim.json","event":0} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `event` | any | yes | The event: its index in the clip's events, or {t, name?}. |
+
+## `anim3d.remove_keys`
+
+Not released yet (on main after 0.14.1).
+
+Delete keys of a 3D clip by bone, channel and time; a track left with no key goes away.
+
+`keys` selects keys as [{bone, channel?, t}] (anim3d.info lists the tracks; a time within 1 ms matches). Result: the clip summary plus {removed, tracksRemoved, undo}. Example: {"path":"anim/hero_walk.anim.json","keys":[{"bone":"thigh_l","t":0.5}]} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
 
 ## `anim3d.remove_track`
 
@@ -342,7 +417,7 @@ Not released yet (on main after 0.14.1).
 
 Remove the tracks of one bone from a 3D clip (all its channels, or the one in `channel`).
 
-The clip is checked with the loader's rules and written in canonical form. A bone with no track is an error that lists the bones that have one. Example: {"path":"anim/hero_walk.anim.json","bone":"hand_l"}
+The clip is checked with the loader's rules and written in canonical form. A bone with no track is an error that lists the bones that have one. Example: {"path":"anim/hero_walk.anim.json","bone":"hand_l"} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -350,13 +425,26 @@ The clip is checked with the loader's rules and written in canonical form. A bon
 | `bone` | string | yes | The bone whose track to remove. |
 | `channel` | string ["rotation","translation","scale"] | no | Which channel of the bone (default rotation). |
 
+## `anim3d.restore`
+
+Not released yet (on main after 0.14.1).
+
+Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits.
+
+Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args: {path, clip}}; calling it writes `clip` (the whole previous document, checked with the loader's rules) or, when `clip` is null, deletes the file (the undo of a command that created it). Its own result carries the `undo` that goes forward again (redo). Example: {"path":"anim/hero_walk.anim.json","clip":null}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `clip` | any | yes | The whole clip document to write, or null to delete the file. |
+
 ## `anim3d.retarget`
 
 Not released yet (on main after 0.14.1).
 
 Carry a 3D clip from one baked rig to another (other proportions, a different template) by bone role, index and side; root motion and feet are scaled and planted feet stay planted.
 
-Bones are matched by (role, index, side). Rotations are copied (every rig.bake bone rests with an identity rotation), a chain with a different bone count keeps its total bend, a bone the target lacks is dropped and listed in `dropped`, a bone the clip does not move rests. Root translation, ground speed and feet are scaled by the ratio of the leg lengths (hip to ankle) or `scale`; with `plantFeet` (default) the legs the clip has contacts for are solved again with the two-bone solver so planted feet stay planted on the new proportions (`planted`); a foot the new legs cannot reach stretches straight and is reported in `notes`. `from` defaults to the rig recorded in the clip. Result: {path, scale, mapped, dropped, resampled, planted, notes}. Example: {"path":"anim/hero_walk.anim.json","to":"assets/models/guard.rig.glb","out":"anim/guard_walk.anim.json"}
+Bones are matched by (role, index, side). Rotations are copied (every rig.bake bone rests with an identity rotation), a chain with a different bone count keeps its total bend, a bone the target lacks is dropped and listed in `dropped`, a bone the clip does not move rests. Root translation, ground speed and feet are scaled by the ratio of the leg lengths (hip to ankle) or `scale`; with `plantFeet` (default) the legs the clip has contacts for are solved again with the two-bone solver so planted feet stay planted on the new proportions (`planted`); a foot the new legs cannot reach stretches straight and is reported in `notes`. `from` defaults to the rig recorded in the clip. Result: {path, scale, mapped, dropped, resampled, planted, notes}. Example: {"path":"anim/hero_walk.anim.json","to":"assets/models/guard.rig.glb","out":"anim/guard_walk.anim.json"} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -369,13 +457,60 @@ Bones are matched by (role, index, side). Rotations are copied (every rig.bake b
 | `fps` | number | no | Keys per second of the legs solved again (default 30). |
 | `overwrite` | boolean | no | Replace the file at `out` if it exists. |
 
+## `anim3d.set_clip`
+
+Not released yet (on main after 0.14.1).
+
+Set the duration, loop, ground speed or description of a 3D clip.
+
+Give any of `duration` (seconds; shorter than the last key or event is refused), `loop`, `groundSpeed` (model units per second the planted feet move back at; 0 = in place) and `doc`. Result: the clip summary plus {undo}. Example: {"path":"anim/hero_walk.anim.json","duration":1.2,"loop":false} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `duration` | number | no | Length of the clip in seconds. |
+| `loop` | boolean | no | true repeats the clip, false stops on its last pose. |
+| `groundSpeed` | number | no | Model units per second the ground moves under the planted feet; 0 = in place. |
+| `doc` | string | no | What the clip shows. |
+
+## `anim3d.set_event`
+
+Not released yet (on main after 0.14.1).
+
+Move, rename or change the data of an event of a 3D clip.
+
+`event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Give any of `t` (move it), `name` and `data` (an empty object or null clears it). Events stay sorted by t. Result: the clip summary plus {undo}. Example: {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"},"t":0.25} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `event` | any | yes | The event: its index in the clip's events, or {t, name?}. |
+| `t` | number | no | The new time in seconds. |
+| `name` | string | no | The new event name. |
+| `data` | object | no | The new data (replaces the old). |
+| `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
+
+## `anim3d.set_interp`
+
+Not released yet (on main after 0.14.1).
+
+Set how selected keys of a 3D clip reach the next key: linear, step, bezier or an easing (the M42 curves).
+
+`keys` selects keys as [{bone, channel?, t}]; `interp` is linear, step, bezier (smooth tangents through the neighbours) or an easing name (quadIn, quadOut, quadInOut, backOut, elasticOut... as tween()). A quaternion clip takes linear, step or an easing. Result: the clip summary plus {changed, interp, undo}. Example: {"path":"anim/hero_walk.anim.json","keys":[{"bone":"thigh_l","t":0.5}],"interp":"quadInOut"} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `keys` | array | yes | The keys, each {bone, channel (default rotation), t}. |
+| `interp` | string | yes | linear, step, bezier or an easing name. |
+
 ## `anim3d.set_keys`
 
 Not released yet (on main after 0.14.1).
 
 Add or replace keys of one bone's track in a 3D clip (rotation as euler degrees or quaternion, translation, scale); a key at the time of an existing one replaces it.
 
-Edits one track (`bone` + `channel`, made when it does not exist): each key is {t, value, interp, in, out} as in the file (schemas/anim3d.schema.json). `value` is [x, y, z] (rotation: pitch, yaw, roll degrees; translation: an offset from the rest position in the parent's frame, model units; scale: a multiplier) or [x, y, z, w] for a quaternion clip. `interp` is linear (default), step, bezier or an easing name (quadInOut, backOut...). Keys within 0.1 ms of an existing key replace it; the rest are added; keys end up in time order. `duration` sets the length of the clip (a key later than it is an error). `rig` (optional) checks that the bone exists in that rig (with 'did you mean'). The whole clip is checked with the loader's rules and nothing is written if it is wrong. The file is written in canonical form. Example: {"path":"anim/hero_wave.anim.json","bone":"arm_upper_l","keys":[{"t":0,"value":[0,0,0]},{"t":0.4,"value":[0,0,150],"interp":"quadOut"}]}
+Edits one track (`bone` + `channel`, made when it does not exist): each key is {t, value, interp, in, out} as in the file (schemas/anim3d.schema.json). `value` is [x, y, z] (rotation: pitch, yaw, roll degrees; translation: an offset from the rest position in the parent's frame, model units; scale: a multiplier) or [x, y, z, w] for a quaternion clip. `interp` is linear (default), step, bezier or an easing name (quadInOut, backOut...). Keys within 0.1 ms of an existing key replace it; the rest are added; keys end up in time order. `duration` sets the length of the clip (a key later than it is an error). `rig` (optional) checks that the bone exists in that rig (with 'did you mean'). The whole clip is checked with the loader's rules and nothing is written if it is wrong. The file is written in canonical form. Example: {"path":"anim/hero_wave.anim.json","bone":"arm_upper_l","keys":[{"t":0,"value":[0,0,0]},{"t":0.4,"value":[0,0,150],"interp":"quadOut"}]} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -398,6 +533,23 @@ The same check project.validate runs on every IK3D in a scene, available before 
 |---|---|---|---|
 | `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
 | `solvers` | array | yes | The solvers as an IK3D component holds them. |
+
+## `ik3d.key`
+
+Not released yet (on main after 0.14.1).
+
+Solve a 3D IK solver (two-bone with pole, or look-at) on a clip's pose at a time and key the bones it moved: the way an IK handle poses a chain.
+
+Poses the rig with the clip at `time`, runs `solver` (one entry of IK3D.solvers with [x, y, z] targets in the model's space, as ik3d.solve) and writes rotation keys at that time for every bone the solver changed (translation for a foot solver that lowers the pelvis). The keys are ordinary ones: anim3d.set_keys, anim3d.move_keys and the Animation panel edit them. Result: the clip summary plus {time, keyed: [{bone, channel}], solved (as ik3d.solve), undo}. An error says the solver changed nothing when the pose already satisfied it. Example: {"path":"anim/hero_wave.anim.json","time":0.4,"solver":{"type":"twoBone","root":"arm_upper_r","mid":"arm_lower_r","end":"hand_r","target":[-0.4,1.5,0.4],"pole":[-0.5,1.2,-0.5]}} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `time` | number | yes | Seconds into the clip to key. |
+| `solver` | object | yes | One IK3D solver with fixed [x, y, z] targets (twoBone, lookAt or foot). |
+| `interp` | string | no | Interpolation of the new keys (default: what an existing key has, else linear). |
+| `groundHeight` | number | no | Height of the flat ground a foot solver stands on (default 0). |
 
 ## `ik3d.solve`
 

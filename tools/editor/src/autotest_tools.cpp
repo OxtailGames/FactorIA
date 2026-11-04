@@ -587,6 +587,8 @@ void Editor::at_build_tools_script() {
             vector_ = VectorUi{};   // section J2: the Vector panel, its drawing and its tools are not carried over
             image_release_textures();   // section I2: the Image panel, its document and its tools are not carried over
             image_ = ImageUi{};
+            anim3d_release_textures();   // section O3: the Animation panel's 3D mode, its clip and its sheets are not carried over
+            anim3d_ = Anim3DUi{};
             projBrowser_.query = BrowserQuery{};
             exportLast_.reset();
             exportChecked_ = -100;
@@ -7076,6 +7078,255 @@ void Editor::at_build_tools_script() {
             modeler_close_document();
             std::error_code ec;
             stdfs::remove_all(projectDir_ + "/" + dir, ec);
+            project_files_changed();
+        });
+    }
+
+    section("O3");
+    // The Animation panel's 3D mode (docs/EDITOR.md, "Animation panel, 3D clips"): a generated walk opens on the rigged model, a bone is picked in the list and
+    // in the view, the rotation gizmo is dragged (ONE key, one undo step) and an IK handle too, a key is moved and deleted in the dopesheet, Mirror pose keys
+    // the other side, the filmstrip and the weights come back as pictures, a clip is generated from the panel and Undo/Redo walk every step through the
+    // editor's stack. Every wait counts frames or state.
+    {
+        struct Os {
+            size_t undo = 0;
+            std::string original, afterGizmo, afterMirror;
+            Vec3 head{};
+            std::uint64_t renders = 0;
+            Vec2 start{};
+            double playhead = 0;
+        };
+        auto os = std::make_shared<Os>();
+        const std::string dir = "assets/at-anim3d";
+        const std::string rigGlb = dir + "/hero.rig.glb";
+        const std::string clipRel = "anim/at-hero_walk.anim.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        // Press on a widget, move in four steps by `to(start, i)` (i = 1..4) and let go.
+        auto drag = [this, &step, os](const std::string& name, std::function<Vec2(Vec2, int)> to) {
+            step(2, [this, name, os] {
+                os->start = at_widget(name);
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, os->start);
+            });
+            step(2, [this, os] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, os->start); });
+            for (int i = 1; i <= 4; ++i) step(2, [this, os, to, i] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, to(os->start, i)); });
+            step(4, [this, os, to] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, to(os->start, 4)); });
+        };
+        auto clip_text = [this, clipRel] { return read_file(projectDir_ + "/" + clipRel); };
+        auto settled = [this] {
+            const Anim3DModel* m = anim3d_.model.get();
+            return m && m->is_open() && m->has_rig() && anim3d_.picture.view != 0 && !anim3d_.live && anim3d_.drag == Anim3DUi::Drag::None;
+        };
+        auto bone_head_now = [this](const std::string& bone) {
+            const Anim3DModel& m = *anim3d_.model;
+            return bone_head(*m.rig(), m.pose_at(anim3d_.playhead), m.node_of(bone));
+        };
+        step(2, [this, dir, clipRel, rigGlb] {
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/" + dir, ec);   // a leftover of an earlier run
+            stdfs::remove_all(projectDir_ + "/anim", ec);
+            stdfs::create_directories(projectDir_ + "/" + dir, ec);
+            write_file(projectDir_ + "/" + dir + "/hero.model.json", R"({"format":"factoria.model/1","nodes":[
+                {"op":"box","size":[0.36,0.2,0.2],"position":[0,0.95,0],"part":"pelvis"},
+                {"op":"box","size":[0.4,0.5,0.22],"position":[0,1.3,0],"part":"torso"},
+                {"op":"box","size":[0.1,0.1,0.1],"position":[0,1.6,0],"part":"neck"},
+                {"op":"box","size":[0.22,0.25,0.22],"position":[0,1.77,0.02],"part":"head"},
+                {"op":"box","size":[0.7,0.1,0.1],"position":[0.55,1.5,0],"part":"arm_l"},
+                {"op":"box","size":[0.7,0.1,0.1],"position":[-0.55,1.5,0],"part":"arm_r"},
+                {"op":"box","size":[0.14,0.9,0.14],"position":[0.11,0.45,0],"part":"leg_l"},
+                {"op":"box","size":[0.14,0.9,0.14],"position":[-0.11,0.45,0],"part":"leg_r"}]})");
+            const Json rigArgs = Json::object({{"path", dir + "/hero.rig.json"}, {"model", dir + "/hero.model.json"}, {"template", "humanoid"}});
+            const CommandResult rr = engine_->commands().call("rig.create", rigArgs);
+            after_command("rig.create", rigArgs, rr);
+            at_check(rr.ok, "rig.create worked: " + (rr.ok ? std::string() : command_error_text(rr.error)));
+            const Json genArgs = Json::object({{"rig", rigGlb}, {"kind", "walk"}, {"out", clipRel}});
+            const CommandResult gr = engine_->commands().call("anim3d.generate", genArgs);
+            after_command("anim3d.generate", genArgs, gr);
+            at_check(gr.ok, "anim3d.generate worked: " + (gr.ok ? std::string() : command_error_text(gr.error)));
+            at_check(anim3d_file_is_3d(projectDir_, clipRel), "the Project panel's test tells the generated file is a 3D clip");
+            open_anim3d_clip(clipRel, rigGlb);
+        });
+        wait_until([this, settled] { return settled() && at_shown("a3:view") && at_shown("a3:bone:spine_1") && at_visible("a3:key:arm_upper_l:0:0") && at_visible("a3:ruler"); });
+        step(3, [this, os, clipRel, clip_text] {
+            const Anim3DModel& m = *anim3d_.model;
+            at_check(m.path() == clipRel && m.has_rig() && m.clip() && !m.clip()->tracks.empty(), "the panel opened the generated walk on its rig");
+            at_check(anim3d_.renderCount > 0 && anim3d_.picture.w > 100, "...the viewport drew the posed model");
+            at_check(anim3d_.bonesDrawn > 8 && anim3d_.keysDrawn > 8, "...with the bones over it and the keys in the dopesheet");
+            at_check(at_visible("a3:filmstrip") && at_visible("a3:mirror") && at_visible("a3:tool:ik") && at_visible("a3:play"), "...and the toolbar and the tools are there");
+            at_check(m.rows().size() > 10, "...the bone list holds the rig's bones");
+            os->undo = undo_depth();
+            os->original = clip_text();
+            os->renders = anim3d_.renderCount;
+        });
+        snap("editor_anim3d_panel.png");
+
+        // ---- a bone picked in the list, then in the view
+        click("a3:bone:spine_1");
+        step(3, [this] {
+            at_check(anim3d_.bone == "spine_1", "a click on a bone in the list picked it");
+            at_check(anim3d_.handlesDrawn >= 3, "...and the rotation gizmo (three rings) is drawn on it");
+        });
+        wait_until([this] { return at_visible("a3:joint:arm_upper_l"); });
+        click("a3:joint:arm_upper_l");
+        step(3, [this] { at_check(anim3d_.bone == "arm_upper_l", "a click on a bone's joint in the view picked it"); });
+        wait_until([this] { return at_visible("a3:ring:x") && at_visible("a3:ring:y") && at_visible("a3:ring:z"); });
+
+        // ---- the rotation gizmo: a drag round the joint is ONE key and one undo step
+        step(2, [this, os, bone_head_now] {
+            os->head = bone_head_now("hand_l");
+            os->undo = undo_depth();
+            os->renders = anim3d_.renderCount;
+        });
+        drag("a3:ring:z", [this](Vec2 start, int i) {
+            const Vec2 c = at_widget("a3:joint:arm_upper_l");
+            const double a = 0.17 * i;   // about 40 degrees round the joint on the screen
+            const double dx = double(start.x - c.x), dy = double(start.y - c.y);
+            return Vec2{float(c.x + dx * std::cos(a) - dy * std::sin(a)), float(c.y + dx * std::sin(a) + dy * std::cos(a))};
+        });
+        wait_until(settled);
+        step(3, [this, os, clip_text, bone_head_now] {
+            const Anim3DModel& m = *anim3d_.model;
+            at_check(undo_depth() == os->undo + 1, "the gizmo drag is one undo step");
+            at_check(m.key_at(Key3D{"arm_upper_l", 0, 0}) != nullptr, "...it keyed the picked bone at the playhead");
+            at_check(clip_text() != os->original, "...the clip file on disk changed");
+            at_check(length(bone_head_now("hand_l") - os->head) > 0.02f, "...and the hand moved with the arm");
+            at_check(anim3d_.renderCount > os->renders, "...and the view was drawn again");
+            os->afterGizmo = clip_text();
+        });
+        snap("editor_anim3d_gizmo.png");
+
+        // ---- Mirror pose copies the left side onto the right as one more step
+        step(2, [this] { anim3d_.mirrorFrom = 1; });
+        click("a3:mirror");
+        wait_until([this, os] { return undo_depth() == os->undo + 2; });
+        step(3, [this, os, clip_text] {
+            at_check(clip_text() != os->afterGizmo, "Mirror pose keyed the right side as one more undo step");
+            os->afterMirror = clip_text();
+        });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, os, clip_text] { at_check(clip_text() == os->afterGizmo && undo_depth() == os->undo + 1, "Undo took the mirror back"); });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, os, clip_text] {
+            at_check(clip_text() == os->original && undo_depth() == os->undo, "Undo again took the gizmo's key back: the file is the generated one");
+            at_check(anim3d_.model->revision() > 0, "...and the panel read it again");
+        });
+        step(2, [this] { redo(); });
+        step(2, [this] { redo(); });
+        wait_until(settled);
+        step(3, [this, os, clip_text] {
+            at_check(clip_text() == os->afterMirror && undo_depth() == os->undo + 2, "two Redos brought both steps back");
+        });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+
+        // ---- the dopesheet: a key moved, undone, deleted
+        click("a3:onlybone");
+        wait_until([this] { return at_shown("a3:key:arm_upper_l:0:0"); });
+        step(2, [this, os] { os->undo = undo_depth(); });
+        drag("a3:key:arm_upper_l:0:0", [](Vec2 start, int i) { return Vec2{start.x + 14.0f * float(i), start.y}; });
+        wait_until(settled);
+        step(3, [this, os] {
+            const Anim3DModel& m = *anim3d_.model;
+            at_check(undo_depth() == os->undo + 1, "dragging a key in the dopesheet is one undo step");
+            at_check(m.key_at(Key3D{"arm_upper_l", 0, 0}) == nullptr, "...the key left its time");
+            at_check(!anim3d_.selection.empty() && anim3d_.selection.begin()->ms > 0, "...and the selection followed it");
+        });
+        step(2, [this] { undo(); });
+        wait_until([this, settled] { return settled() && at_shown("a3:key:arm_upper_l:0:0"); });
+        step(3, [this, os] { at_check(anim3d_.model->key_at(Key3D{"arm_upper_l", 0, 0}) != nullptr && undo_depth() == os->undo, "Undo put the key back"); });
+        click("a3:key:arm_upper_l:0:0");
+        wait_until([this] { return anim3d_.selection.size() == 1 && at_enabled("a3:delete"); });
+        click("a3:delete");
+        wait_until([this, os, settled] { return settled() && undo_depth() == os->undo + 1; });
+        step(3, [this] { at_check(anim3d_.model->key_at(Key3D{"arm_upper_l", 0, 0}) == nullptr && anim3d_.selection.empty(), "Delete keys removed the picked key"); });
+        step(2, [this] { undo(); });
+        wait_until([this, settled] { return settled() && anim3d_.model->key_at(Key3D{"arm_upper_l", 0, 0}) != nullptr; });
+        click("a3:onlybone");
+
+        // ---- the IK handle: a foot dragged up is one undo step
+        wait_until([this] { return at_shown("a3:joint:foot_l"); });
+        click("a3:joint:foot_l");
+        click("a3:tool:ik");
+        wait_until([this] { return anim3d_.bone == "foot_l" && at_visible("a3:ik:target") && at_visible("a3:ik:pole"); });
+        step(2, [this, os, bone_head_now] {
+            os->head = bone_head_now("foot_l");
+            os->undo = undo_depth();
+        });
+        drag("a3:ik:target", [](Vec2 start, int i) { return Vec2{start.x, start.y - 7.0f * float(i)}; });
+        wait_until(settled);
+        step(3, [this, os, bone_head_now] {
+            at_check(undo_depth() == os->undo + 1, "an IK handle drag is one undo step");
+            at_check(bone_head_now("foot_l").y > os->head.y + 0.03f, "...the foot followed the handle up");
+        });
+        snap("editor_anim3d_ik.png");
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, os, bone_head_now] { at_check(undo_depth() == os->undo && std::fabs(bone_head_now("foot_l").y - os->head.y) < 0.005f, "Undo put the foot back"); });
+        click("a3:tool:rotate");
+
+        // ---- scrubbing and playing
+        click("a3:ruler");
+        step(3, [this] { at_check(anim3d_.playhead > 0.05, "a click on the ruler moved the playhead"); });
+        step(2, [this, os] {
+            os->playhead = anim3d_.playhead;
+            anim3d_.playhead = 0;
+        });
+        click("a3:play");
+        wait_until([this] { return anim3d_.playhead > 0.05 && anim3d_.playing; });
+        click("a3:play");
+        step(3, [this] { at_check(!anim3d_.playing, "Play ran the playhead and a second click stopped it"); });
+
+        // ---- the filmstrip and the weights
+        click("a3:filmstrip");
+        wait_until([this] { return anim3d_.film.tex.view != 0 || !anim3d_.film.error.empty(); });
+        step(3, [this] {
+            at_check(anim3d_.film.error.empty() && anim3d_.film.tex.w > 300 && anim3d_.film.tex.h > 150, "the Filmstrip button drew anim3d.preview's sheet (several poses, three angles)");
+            at_check(anim3d_.showSheets, "...in its own window");
+        });
+        wait_until([this] { return at_visible("a3:sheet:filmstrip"); });
+        snap("editor_anim3d_filmstrip.png");
+        step(2, [this] { anim3d_.showSheets = false; });   // the sheet window floats over the toolbar: close it like a user would
+        click("a3:weights");
+        wait_until([this] { return anim3d_.weights.tex.view != 0 || !anim3d_.weights.error.empty(); });
+        step(3, [this] { at_check(anim3d_.weights.error.empty() && anim3d_.weights.tex.w > 100, "the Weights button drew skin3d.preview's picture: " + anim3d_.weights.error); });
+
+        // ---- Generate from the panel: a new clip, opened, with Undo and Redo
+        step(2, [this, os] {
+            os->undo = undo_depth();
+            anim3d_.kind = "idle";
+            anim3d_.generateOutEdited = false;
+        });
+        click("a3:section:generate");
+        wait_until([this] { return at_shown("a3:generate") && at_enabled("a3:generate"); });
+        click("a3:generate");
+        wait_until([this, settled] { return anim3d_.model->is_open() && anim3d_.model->path() == "anim/hero_idle.anim.json" && settled(); });
+        step(3, [this, os] {
+            at_check(undo_depth() == os->undo + 1, "Generate in the panel is one undo step");
+            at_check(stdfs::exists(projectDir_ + "/anim/hero_idle.anim.json") && anim3d_.model->clip() && anim3d_.model->clip()->generated.is_object(),
+                     "...it wrote the clip and opened it");
+        });
+        step(2, [this] { undo(); });
+        step(4, [this] {
+            at_check(!stdfs::exists(projectDir_ + "/anim/hero_idle.anim.json") && !anim3d_.model->is_open(), "Undo deleted the generated clip and closed it");
+        });
+        step(2, [this] { redo(); });
+        wait_until([this, settled] { return anim3d_.model->is_open() && anim3d_.model->path() == "anim/hero_idle.anim.json" && settled(); });
+        step(3, [this] { at_check(stdfs::exists(projectDir_ + "/anim/hero_idle.anim.json"), "Redo wrote it again and opened it"); });
+
+        step(2, [this, dir] {
+            FA_INFO("autotest", "3D animation panel: {} pictures drawn, {} edits sent", anim3d_.renderCount, anim3d_.commits);
+            showAnimation_ = false;
+            anim3d_release_textures();
+            anim3d_ = Anim3DUi{};
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/" + dir, ec);
+            stdfs::remove_all(projectDir_ + "/anim", ec);
             project_files_changed();
         });
     }
