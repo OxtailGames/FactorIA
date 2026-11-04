@@ -64,7 +64,8 @@ TEST_CASE("anim3d.generators lists every kind with parameters, and the commands 
     CHECK(kinds == std::set<std::string>{"walk", "run", "trot", "gallop", "idle", "swing", "hit"});
     const CommandResult bad = p.call("anim3d.generators", {{"kind", "walk"}});
     REQUIRE_FALSE(bad.ok);
-    for (const char* cmd : {"anim3d.create", "anim3d.info", "anim3d.set_keys", "anim3d.remove_track", "anim3d.generate", "anim3d.retarget", "anim3d.preview", "ik3d.check", "ik3d.solve"}) {
+    for (const char* cmd : {"anim3d.create", "anim3d.info", "anim3d.set_keys", "anim3d.remove_track", "anim3d.generate", "anim3d.retarget", "anim3d.preview", "ik3d.check", "ik3d.solve", "anim3d.restore", "anim3d.move_keys", "anim3d.remove_keys", "anim3d.set_interp",
+                                  "anim3d.set_clip", "anim3d.add_event", "anim3d.set_event", "anim3d.remove_event", "anim3d.mirror_pose", "ik3d.key"}) {
         REQUIRE(p.registry.has(cmd));
         CHECK_FALSE(p.registry.info(cmd)->description.empty());
         CHECK_FALSE(p.registry.info(cmd)->summary.empty());
@@ -293,4 +294,170 @@ TEST_CASE("ik3d.check and ik3d.solve work on a baked rig without a scene") {
     const Json posed = p.ok("ik3d.solve", {{"rig", kHero}, {"clip", "anim/hero_walk.anim.json"}, {"time", 0.3},
                                            {"solver", {{"type", "foot"}, {"thigh", "thigh_l"}, {"shin", "shin_l"}, {"foot", "foot_l"}}}});
     CHECK(posed["pose"] == "anim/hero_walk.anim.json");
+}
+
+// ---- the commands behind the editor's Animation panel -------------------------------------------------------------------------------------------
+
+namespace {
+Json keys_of(const Json& clip, const std::string& bone, const std::string& channel = "rotation") {
+    for (const Json& t : clip["tracks"])
+        if (t["bone"] == bone && t.value("channel", "rotation") == channel) return t["keys"];
+    return Json::array();
+}
+}  // namespace
+
+TEST_CASE("anim3d edit commands move, remove and ease keys, edit events and clip settings, and every one returns an undo that restores the file") {
+    RigProject p;
+    p.ok("anim3d.create", {{"path", "anim/a.anim.json"}, {"duration", 1.0}, {"rig", kHero}});
+    const Json made = p.ok("anim3d.set_keys", {{"path", "anim/a.anim.json"}, {"bone", "thigh_l"}, {"keys", Json::array({{{"t", 0.0}, {"value", {0, 0, 0}}}, {{"t", 0.5}, {"value", {30, 0, 0}}}, {{"t", 1.0}, {"value", {0, 0, 0}}}})}});
+    REQUIRE(made.contains("undo"));
+    CHECK(made["undo"]["command"] == "anim3d.restore");
+    CHECK(made["undo"]["args"]["clip"]["tracks"].size() == 0);
+    const Json start = p.clip("anim/a.anim.json");
+
+    // move: the key goes to its new time, never out of the clip; a collision is refused, an unselected key at the target is replaced
+    const Json moved = p.ok("anim3d.move_keys", {{"path", "anim/a.anim.json"}, {"keys", Json::array({{{"bone", "thigh_l"}, {"t", 0.5}}})}, {"dt", 0.25}});
+    CHECK(moved["moved"] == 1);
+    CHECK(keys_of(p.clip("anim/a.anim.json"), "thigh_l")[1]["t"].get<double>() == doctest::Approx(0.75));
+    CHECK(contains(p.error_text("anim3d.move_keys", {{"path", "anim/a.anim.json"}, {"keys", Json::array({{{"bone", "thigh_l"}, {"t", 0.75}}})}, {"dt", 0.5}}), "after the end"));
+    CHECK(contains(p.error_text("anim3d.move_keys", {{"path", "anim/a.anim.json"}, {"keys", Json::array({{{"bone", "thigh_l"}, {"t", 0.0}}})}, {"dt", -0.1}}), "before the start"));
+    CHECK(contains(p.error_text("anim3d.move_keys", {{"path", "anim/a.anim.json"}, {"keys", Json::array({{{"bone", "thigh_l"}, {"t", 0.6}}})}, {"dt", 0.1}}), "t=0.6"));
+    p.ok("anim3d.move_keys", {{"path", "anim/a.anim.json"}, {"keys", Json::array({{{"bone", "thigh_l"}, {"t", 0.75}}})}, {"dt", 0.25}});  // onto the key at 1.0: replaces it
+    CHECK(keys_of(p.clip("anim/a.anim.json"), "thigh_l").size() == 2);
+    const Json extended = p.ok("anim3d.move_keys", {{"path", "anim/a.anim.json"}, {"keys", Json::array({{{"bone", "thigh_l"}, {"t", 1.0}}})}, {"dt", 0.5}, {"extendDuration", true}});
+    CHECK(extended["duration"].get<double>() == doctest::Approx(1.5));
+
+    // undo of a move is a restore of the whole previous document; the restore's own undo goes forward again
+    const Json undo = extended["undo"];
+    const Json back = p.ok(undo["command"].get<std::string>(), undo["args"]);
+    CHECK(p.clip("anim/a.anim.json")["duration"].get<double>() == doctest::Approx(1.0));
+    const Json redo = p.ok(back["undo"]["command"].get<std::string>(), back["undo"]["args"]);
+    CHECK(p.clip("anim/a.anim.json")["duration"].get<double>() == doctest::Approx(1.5));
+    (void)redo;
+
+    // easing and removal
+    p.ok("anim3d.set_interp", {{"path", "anim/a.anim.json"}, {"keys", Json::array({{{"bone", "thigh_l"}, {"t", 0.0}}})}, {"interp", "quadInOut"}});
+    CHECK(keys_of(p.clip("anim/a.anim.json"), "thigh_l")[0]["interp"] == "quadInOut");
+    CHECK(contains(p.error_text("anim3d.set_interp", {{"path", "anim/a.anim.json"}, {"keys", Json::array({{{"bone", "thigh_l"}, {"t", 0.0}}})}, {"interp", "quadInOu"}}), "quadInOut"));
+    CHECK(contains(p.error_text("anim3d.remove_keys", {{"path", "anim/a.anim.json"}, {"keys", Json::array({{{"bone", "thigh_l"}, {"t", 0.3}}})}}), "no key at"));
+    const Json removed = p.ok("anim3d.remove_keys", {{"path", "anim/a.anim.json"}, {"keys", Json::array({{{"bone", "thigh_l"}, {"t", 0.0}}, {{"bone", "thigh_l"}, {"t", 1.5}}})}});
+    CHECK(removed["removed"] == 2);
+    CHECK(removed["tracksRemoved"] == 1);  // the track had two keys
+    CHECK(p.clip("anim/a.anim.json")["tracks"].size() == 0);
+    p.ok(removed["undo"]["command"].get<std::string>(), removed["undo"]["args"]);
+    CHECK(p.clip("anim/a.anim.json")["tracks"].size() == 1);
+
+    // events
+    p.ok("anim3d.add_event", {{"path", "anim/a.anim.json"}, {"t", 0.5}, {"name", "footstep"}, {"data", {{"foot", "left"}}}});
+    p.ok("anim3d.add_event", {{"path", "anim/a.anim.json"}, {"t", 0.1}, {"name", "swish"}});
+    Json doc = p.clip("anim/a.anim.json");
+    REQUIRE(doc["events"].size() == 2);
+    CHECK(doc["events"][0]["name"] == "swish");  // sorted by t
+    CHECK(contains(p.error_text("anim3d.add_event", {{"path", "anim/a.anim.json"}, {"t", 9.0}, {"name", "late"}}), "extendDuration"));
+    p.ok("anim3d.set_event", {{"path", "anim/a.anim.json"}, {"event", {{"t", 0.5}, {"name", "footstep"}}}, {"t", 0.3}, {"name", "step"}});
+    CHECK(p.clip("anim/a.anim.json")["events"][1]["name"] == "step");
+    CHECK(p.clip("anim/a.anim.json")["events"][1]["data"]["foot"] == "left");
+    CHECK(contains(p.error_text("anim3d.remove_event", {{"path", "anim/a.anim.json"}, {"event", 5}}), "no event 5"));
+    const Json gone = p.ok("anim3d.remove_event", {{"path", "anim/a.anim.json"}, {"event", 0}});
+    CHECK(gone["removed"]["name"] == "swish");
+    CHECK(p.clip("anim/a.anim.json")["events"].size() == 1);
+
+    // clip settings
+    p.ok("anim3d.set_clip", {{"path", "anim/a.anim.json"}, {"duration", 2.0}, {"loop", false}, {"groundSpeed", 1.5}});
+    doc = p.clip("anim/a.anim.json");
+    CHECK(doc["duration"].get<double>() == doctest::Approx(2.0));
+    CHECK(doc["loop"] == false);
+    CHECK(doc["groundSpeed"].get<double>() == doctest::Approx(1.5));
+    CHECK(contains(p.error_text("anim3d.set_clip", {{"path", "anim/a.anim.json"}, {"duration", 0.1}}), "/"));  // shorter than its last key
+    CHECK(contains(p.error_text("anim3d.set_clip", {{"path", "anim/a.anim.json"}}), "nothing to change"));
+
+    // restore can delete: the undo of a file a call created
+    const Json created = p.ok("anim3d.create", {{"path", "anim/new.anim.json"}});
+    CHECK(created["undo"]["args"]["clip"].is_null());
+    p.ok("anim3d.restore", created["undo"]["args"].contains("path") ? Json{{"path", created["undo"]["args"]["path"]}, {"clip", nullptr}} : Json::object());
+    CHECK_FALSE(p.exists("anim/new.anim.json"));
+    // the original start is reachable through the first undo
+    p.ok("anim3d.restore", {{"path", "anim/a.anim.json"}, {"clip", start}});
+    CHECK(keys_of(p.clip("anim/a.anim.json"), "thigh_l").size() == 3);
+    CHECK(contains(p.error_text("anim3d.restore", {{"path", "anim/a.anim.json"}, {"clip", Json::object({{"format", "factoria.anim/1"}})}}), "3D clip"));
+}
+
+TEST_CASE("anim3d.mirror_pose swaps or copies left and right by canonical name, and ik3d.key keys the bones a solver moved") {
+    RigProject p;
+    p.ok("anim3d.create", {{"path", "anim/m.anim.json"}, {"duration", 1.0}, {"rig", kHero}});
+    p.ok("anim3d.set_keys", {{"path", "anim/m.anim.json"}, {"bone", "thigh_l"}, {"keys", Json::array({{{"t", 0.0}, {"value", {30, 10, 5}}}})}});
+    p.ok("anim3d.set_keys", {{"path", "anim/m.anim.json"}, {"bone", "spine_1"}, {"keys", Json::array({{{"t", 0.0}, {"value", {4, 8, 6}}}})}});
+    p.ok("anim3d.set_keys", {{"path", "anim/m.anim.json"}, {"bone", "root"}, {"channel", "translation"}, {"keys", Json::array({{{"t", 0.0}, {"value", {0.1, 0.2, 0.3}}}})}});
+
+    // swap: the right thigh gets the mirrored left one (pitch stays, yaw and roll flip), the left one gets the (rest) right one; the spine mirrors in place
+    p.ok("anim3d.mirror_pose", {{"path", "anim/m.anim.json"}, {"time", 0.0}, {"to", 0.5}});
+    const Json doc = p.clip("anim/m.anim.json");
+    const Json r = keys_of(doc, "thigh_r");
+    REQUIRE(r.size() == 1);
+    CHECK(r[0]["t"].get<double>() == doctest::Approx(0.5));
+    CHECK(r[0]["value"][0].get<double>() == doctest::Approx(30).epsilon(0.001));
+    CHECK(r[0]["value"][1].get<double>() == doctest::Approx(-10).epsilon(0.001));
+    CHECK(r[0]["value"][2].get<double>() == doctest::Approx(-5).epsilon(0.001));
+    const Json l = keys_of(doc, "thigh_l");
+    REQUIRE(l.size() == 2);
+    CHECK(std::abs(l[1]["value"][0].get<double>()) < 0.001);  // the right thigh was at rest
+    const Json s = keys_of(doc, "spine_1");
+    CHECK(s[1]["value"][1].get<double>() == doctest::Approx(-8).epsilon(0.001));
+    CHECK(keys_of(doc, "root", "translation")[1]["value"][0].get<double>() == doctest::Approx(-0.1).epsilon(0.001));
+    // copy left onto right leaves the left side and the spine alone
+    p.ok("anim3d.create", {{"path", "anim/c.anim.json"}, {"duration", 1.0}, {"rig", kHero}, {"overwrite", true}});
+    p.ok("anim3d.set_keys", {{"path", "anim/c.anim.json"}, {"bone", "thigh_l"}, {"keys", Json::array({{{"t", 0.0}, {"value", {30, 10, 5}}}})}});
+    p.ok("anim3d.set_keys", {{"path", "anim/c.anim.json"}, {"bone", "spine_1"}, {"keys", Json::array({{{"t", 0.0}, {"value", {4, 8, 6}}}})}});
+    p.ok("anim3d.mirror_pose", {{"path", "anim/c.anim.json"}, {"time", 0.0}, {"from", "left"}, {"to", 0.5}});
+    const Json c = p.clip("anim/c.anim.json");
+    CHECK(keys_of(c, "thigh_l").size() == 1);
+    CHECK(keys_of(c, "spine_1").size() == 1);
+    CHECK(keys_of(c, "thigh_r").size() == 1);
+    CHECK(contains(p.error_text("anim3d.mirror_pose", {{"path", "anim/c.anim.json"}, {"time", 0.0}, {"from", "lefft"}}), "left"));
+    CHECK(contains(p.error_text("anim3d.mirror_pose", {{"path", "anim/c.anim.json"}, {"time", 7.0}}), "0 to"));
+
+    // ik3d.key: a two-bone arm reaches a target at 0.5 s; keys appear for the bones it moved and the hand ends near the target
+    p.ok("anim3d.create", {{"path", "anim/ik.anim.json"}, {"duration", 1.0}, {"rig", kHero}});
+    const Json solver = {{"type", "twoBone"}, {"root", "arm_upper_r"}, {"mid", "arm_lower_r"}, {"end", "hand_r"}, {"target", {-0.55, 1.2, 0.35}}, {"pole", {-0.6, 1.0, -0.6}}};
+    const Json keyed = p.ok("ik3d.key", {{"path", "anim/ik.anim.json"}, {"time", 0.5}, {"solver", solver}});
+    CHECK(keyed["keyed"].size() >= 2);
+    CHECK(keyed["solved"]["reached"] == true);
+    CHECK(keyed["undo"]["command"] == "anim3d.restore");
+    const Json ik = p.clip("anim/ik.anim.json");
+    CHECK(keys_of(ik, "arm_upper_r").size() == 1);
+    CHECK(keys_of(ik, "arm_lower_r").size() == 1);
+    p.ok("anim3d.restore", keyed["undo"]["args"]);
+    CHECK(p.clip("anim/ik.anim.json")["tracks"].size() == 0);
+    CHECK(contains(p.error_text("ik3d.key", {{"path", "anim/ik.anim.json"}, {"solver", solver}}), "time"));
+}
+
+TEST_CASE("anim3d.preview draws several sides in one sheet: a row per yaw, the rows differ, errors teach") {
+    RigProject p;
+    p.ok("anim3d.generate", {{"rig", kHero}, {"kind", "walk"}, {"out", "anim/hero_walk.anim.json"}});
+    const Json r = p.ok("anim3d.preview", {{"path", "anim/hero_walk.anim.json"}, {"frames", 4}, {"cell", 96}, {"yaws", {-70, 0, 90}}});
+    CHECK(r["picture"]["columns"] == 4);
+    CHECK(r["picture"]["rows"] == 3);
+    CHECK(r["yaws"].size() == 3);
+    const Image pic = read_png(r["$image"]["path"].get<std::string>());
+    CHECK(pic.width == r["picture"]["width"].get<int>());
+    CHECK(pic.height == r["picture"]["height"].get<int>());
+    const int cell = 96, pad = 8, header = 46;
+    auto cell_pixels = [&](int col, int row) {
+        std::vector<std::uint8_t> out;
+        const int x0 = pad + col * (cell + pad), y0 = header + pad + row * (cell + 34 + pad);
+        for (int y = 0; y < cell; ++y)
+            for (int x = 0; x < cell; ++x) {
+                const std::uint8_t* px = pic.rgba.data() + (std::size_t(y0 + y) * std::size_t(pic.width) + std::size_t(x0 + x)) * 4;
+                out.insert(out.end(), px, px + 3);
+            }
+        return out;
+    };
+    CHECK(cell_pixels(0, 0) != cell_pixels(0, 1));  // the same time from another side
+    CHECK(cell_pixels(0, 1) != cell_pixels(0, 2));
+    // the single-yaw call still draws what it drew (its first row equals the same side of the sheet)
+    const Json single = p.ok("anim3d.preview", {{"path", "anim/hero_walk.anim.json"}, {"frames", 4}, {"cell", 96}, {"yaw", 0}});
+    CHECK(single["picture"]["rows"] == 1);
+    CHECK(contains(p.error_text("anim3d.preview", {{"path", "anim/hero_walk.anim.json"}, {"yaw", 0}, {"yaws", {0, 90}}}), "not both"));
+    CHECK(contains(p.error_text("anim3d.preview", {{"path", "anim/hero_walk.anim.json"}, {"yaws", Json::array()}}), "1 to 6"));
+    CHECK(contains(p.error_text("anim3d.preview", {{"path", "anim/hero_walk.anim.json"}, {"frames", 12}, {"yaws", {0, 1, 2, 3, 4}}}), "48"));
 }
