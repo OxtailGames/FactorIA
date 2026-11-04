@@ -1,0 +1,42 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "A brand lands on a wolf: a heavy thump with grit. Four takes.",
+  "length": 0.18,
+  "layers": [
+    {
+      "pitch": {
+        "freq": 220,
+        "sweep": {
+          "to": 60
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "square"
+        },
+        {
+          "wave": "noise",
+          "gain": 0.65
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 4000
+      },
+      "amp": {
+        "attack": 0.001,
+        "decay": 0.179,
+        "sustain": 0,
+        "curve": 2.5
+      }
+    }
+  ],
+  "macros": {
+    "weight": 0.4,
+    "grit": 0.3
+  },
+  "variations": {
+    "count": 4,
+    "seed": 2
+  }
+}

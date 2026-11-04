@@ -1,0 +1,20 @@
+{
+  "format": "factoria.rig/1",
+  "model": "assets/models/warden.model.json",
+  "template": "humanoid",
+  "options": {
+    "spine": 2,
+    "neck": 1,
+    "tail": 0,
+    "toes": false,
+    "pose": "down"
+  },
+  "skin": {
+    "parts": {
+      "torch": {
+        "method": "rigid",
+        "bone": "hand_r"
+      }
+    }
+  }
+}

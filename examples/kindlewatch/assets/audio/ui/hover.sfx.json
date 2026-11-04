@@ -1,0 +1,52 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "hover: the pointer arrives on a control: soft, high and brief. Member of the family of assets/audio/ui_base.sfx.json (The base of the menu sounds: a soft low click that the family turns into hover, confirm, cancel, open and close.)",
+  "length": 0.05,
+  "layers": [
+    {
+      "pitch": {
+        "freq": 1200
+      },
+      "oscillators": [
+        {
+          "wave": "noise",
+          "gain": 1
+        },
+        {
+          "wave": "sine",
+          "gain": 0.3
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 8000
+      },
+      "amp": {
+        "attack": 0.0005,
+        "decay": 0.0395,
+        "sustain": 0,
+        "curve": 2.5
+      }
+    }
+  ],
+  "master": {
+    "effects": [
+      {
+        "type": "distortion",
+        "mode": "soft",
+        "drive": 4
+      }
+    ],
+    "normalize": {
+      "mode": "lufs",
+      "target": -18,
+      "ceilingDb": -1
+    }
+  },
+  "tail": 0.05,
+  "macros": {
+    "pitch": 0.25,
+    "brightness": 0.1,
+    "weight": -0.3
+  }
+}

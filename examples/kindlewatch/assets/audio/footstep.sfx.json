@@ -1,0 +1,43 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "A boot on frozen grass. Six takes, played with AudioSource.variants.",
+  "length": 0.14,
+  "layers": [
+    {
+      "pitch": {
+        "freq": 110,
+        "sweep": {
+          "to": 70
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "sine",
+          "gain": 0.32
+        },
+        {
+          "wave": "noise",
+          "color": "brown",
+          "gain": 0.8
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 900
+      },
+      "amp": {
+        "attack": 0.002,
+        "decay": 0.138,
+        "sustain": 0,
+        "curve": 2.5
+      }
+    }
+  ],
+  "macros": {
+    "weight": 0.2
+  },
+  "variations": {
+    "count": 6,
+    "seed": 6
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "pine",
+    "components": {
+      "MeshRenderer": {
+        "mesh": "assets/models/pine.glb",
+        "lods": [
+          {
+            "mesh": "assets/models/pine.lod1.glb",
+            "distance": 15.01839
+          },
+          {
+            "mesh": "assets/models/pine.lod2.glb",
+            "distance": 30.03678
+          }
+        ]
+      },
+      "Collider3D": {
+        "shape": "capsule",
+        "radius": 1.02892,
+        "height": 3.7546,
+        "offset": [
+          0.0,
+          1.8773,
+          0.0
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "format": "factoria.rig/1",
+  "model": "assets/models/wolf.model.json",
+  "template": "quadruped",
+  "options": {
+    "spine": 3,
+    "neck": 2,
+    "tail": 4
+  }
+}

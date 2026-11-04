@@ -1,0 +1,30 @@
+{
+  "format": "factoria.audio/1",
+  "doc": "The alpha's howl heard from far away: dulled, echoing and quiet. Plays when a wave is about to start.",
+  "source": "assets/audio/alpha_howl.sfx.json",
+  "steps": [
+    {
+      "type": "filter",
+      "mode": "lowpass",
+      "cutoff": 1400,
+      "resonance": 0.8
+    },
+    {
+      "type": "delay",
+      "time": 0.35,
+      "feedback": 0.4,
+      "mix": 0.4,
+      "tone": 1800,
+      "tail": 1.0
+    },
+    {
+      "type": "reverb",
+      "mix": 0.3,
+      "decay": 1.6
+    },
+    {
+      "type": "normalize",
+      "target": -22
+    }
+  ]
+}
