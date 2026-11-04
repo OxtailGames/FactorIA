@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iterator>
 
+#include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/core/utf8.h"
 
@@ -37,7 +38,7 @@ std::tm local_tm(i64 epoch, bool* ok) {
 
 // fa::load_json_file would read the path in the Windows ANSI code page
 std::optional<Json> read_json(const std::string& path) {
-    std::ifstream in(utf8_path(path), std::ios::binary);
+    fa::fs::ReadStream in(utf8_path(path), std::ios::binary);
     if (!in) return std::nullopt;
     std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     Json j = Json::parse(text, nullptr, false);
@@ -339,7 +340,7 @@ bool AiChats::erase(const std::string& id) {
     bool existed = false;
     if (!dir.empty()) {
         std::error_code ec;
-        existed = stdfs::remove(utf8_path(path_of(id)), ec);
+        existed = fa::fs::remove_file(utf8_path(path_of(id)), ec);
     }
     const int i = index_of(id);
     if (i >= 0) {
@@ -355,7 +356,7 @@ void AiChats::clear() {
     AiChat& c = current();
     if (!dir.empty()) {
         std::error_code ec;
-        stdfs::remove(utf8_path(path_of(c.id)), ec);
+        fa::fs::remove_file(utf8_path(path_of(c.id)), ec);
     }
     c = blank_chat(c.id, static_cast<i64>(std::time(nullptr)));
     save_open_list();
@@ -492,7 +493,7 @@ constexpr int kMaxImageSide = 1568;
 constexpr std::size_t kMaxSentImageBytes = 3500u << 10;
 
 Result<std::string> fit_for_ai(const stdfs::path& dir, const std::string& name) {
-    std::ifstream in(dir / utf8_path(name), std::ios::binary);
+    fa::fs::ReadStream in(dir / utf8_path(name), std::ios::binary);
     const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     in.close();
     auto img = decode_image(bytes.data(), bytes.size());

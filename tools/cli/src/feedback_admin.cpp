@@ -43,7 +43,7 @@ std::string utc_today_now() {
 }
 
 std::string read_text(const std::string& path) {
-    std::ifstream f(path, std::ios::binary);
+    fa::fs::ReadStream f(path, std::ios::binary);
     if (!f) return {};
     std::stringstream ss;
     ss << f.rdbuf();

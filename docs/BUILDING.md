@@ -305,6 +305,22 @@ cmake --build build/my-build -j 2
   `ctest -L example`. `--debug-only` and `--examples-only` run one half; `FA_TEST_DEBUG_DIR`, `FA_TEST_RELEASE_DIR`,
   `FA_TEST_JOBS` and `FA_TEST_CTEST_JOBS` (default 3) tune it; ccache is used when installed. CI already builds Release,
   so its `ctest` runs the examples with no extra job.
+- **Windows file rules in tests (macOS and Linux).** Two Windows behaviours broke the engine and only the Windows CI job
+  found them: a file open for reading cannot be replaced or deleted (every `std::ifstream` opens without
+  `FILE_SHARE_DELETE`, so the atomic rename of `fs::write_bytes` fails while another thread reads the file), and a file's
+  modification time moves in steps of 15.625 ms, so a write right after a read keeps the time the read saw. On macOS and
+  Linux `ctest` runs every test with `fa::fs` emulating both (`FA_FS_WINDOWS_RULES_DEFAULT=1`, set by `add_test` in
+  `cmake/FactoriaHelpers.cmake`; `scripts/test-all.sh` too): a replace, rename or delete of a file held open through
+  `fs::ReadStream` (or `fs::read_bytes`) fails with a sharing violation after the same retries as on Windows, a folder
+  with such a file inside loses everything else and reports the violation, paths compare case-insensitively, and
+  `fs::modified_time` / `fs::host_modified_time` round down to 15.625 ms. A test that fails only with the mode on found a
+  real Windows bug: read the file with `fs::ReadStream` (not a bare `std::ifstream`, which the registry cannot see), and
+  never rely on a time change smaller than 16 ms. Details and limits: `core/fs.h`, "Windows file rules".
+  Switch it off for one run with `FA_FS_WINDOWS_RULES=0 ctest ...` (any value other than `0`, `false`, `off`, `no` turns
+  it on, also for a program run by hand: `FA_FS_WINDOWS_RULES=1 factoria test ...`), or for a build directory with
+  `cmake -DFA_TEST_WINDOWS_FILE_RULES=OFF`. A test that sets its own `ENVIRONMENT` property must `APPEND` to it
+  (`set_property(TEST <name> APPEND PROPERTY ENVIRONMENT ...)`); `set_tests_properties(... ENVIRONMENT ...)` replaces the
+  mode's variable.
 - **Time limits count CPU time.** The 60 s of one test of `factoria test`, the 5 s of `script.eval`, the 2 s of a callback
   and the like measure the CPU time the script thread spent (`CLOCK_THREAD_CPUTIME_ID`, `GetThreadTimes`), not the wall
   clock, so a loaded machine or a build running next to the tests cannot fail them. A script blocked for good (a native that
@@ -444,6 +460,46 @@ Pull requests from forks never receive the secrets. A pull request from a branch
 workflow runs on the ones that change `release.yml`: review those like any change that can read the secrets (a GitHub
 Environment with required reviewers is the stricter option).
 
+## Before a push
+
+`scripts/ci-preflight.sh` is the one command to run before every push, so the PR passes GitHub CI the first time. It
+covers what CI exercises and a developer machine does not (Windows file semantics, waits and budgets on loaded 4-vCPU VMs,
+compilers other than yours, other platforms):
+
+1. **Risk scan.** The lines the branch adds (`git diff <base>...HEAD`, base `origin/main`) are checked against a table of
+   patterns that failed CI before: `std::ofstream` or `rename`/`remove` on files others may hold open, `sleep_for`, wall-clock
+   time and timeouts in tests and editor autotests, perf/memory budget files, platform `#if` branches, `.glsl` edits without
+   regenerated headers, render-backend code, headers using `std::format`/`<ranges>`/`<thread>`/`<chrono>`/`<cstring>` without
+   the include, `long`/`%ld` formats, text parsing that may see CRLF, case-only path clashes and workflow changes. It prints
+   file:line, why it matters and what to check. The table is the `RULES` block of the script: add a line to add a pattern.
+   The scan reads commits only, and never fails the run unless `--strict`.
+2. **`scripts/test-all.sh`**, with the same environment variables.
+3. **Stress.** The editor autotests (`editor_autotest_*`, in the Debug dir) and the example tests (`example_<name>_*`, in the
+   Release dir) the diff touches run with `ctest --repeat until-fail:N` while one CPU burner per core keeps the machine busy.
+   `tools/editor/**` selects the editor autotests, `examples/<name>/**` that example's tests, `engine/**`, `tools/cli/**`,
+   `tools/common/**`, `external/**` and the CMake files all of both; docs and scripts select nothing. The example tests get twice their
+   ctest limit (`FA_EXAMPLE_TEST_TIMEOUT`) in this pass, since the burners halve their CPU; it is put back afterwards. The
+   burners are killed when the script ends, fails or is interrupted. `--plan` prints the selection only.
+4. **Other platforms.** The `scripts/ci-local.sh` jobs this host supports (Mac: `macos ios web android`; Linux: `linux windows
+   android web`; a job without its tooling skips itself), then on a Mac `scripts/ci-docker.sh linux` (the Linux job in
+   Docker; its MinGW + Wine Windows job is not a reference on a Mac, see below) and `scripts/ci-remote-windows.sh`, the
+   native Windows check on a PC (exit 0 pass, 1 fail, 77 not set up, PC off or nobody logged in: reported as SKIP).
+
+It ends with a PASS/FAIL/SKIP table with the time of each step and exits 1 if any step failed. Logs:
+`build/ci-logs/preflight-<step>.log`.
+
+```bash
+scripts/ci-preflight.sh                      # everything
+scripts/ci-preflight.sh --quick              # risk scan + test-all only
+scripts/ci-preflight.sh --no-stress --no-platforms
+scripts/ci-preflight.sh --repeat 5 --base origin/main --strict
+scripts/ci-preflight.sh --scan-only          # the risk scan alone (seconds)
+scripts/ci-preflight.sh --no-test --no-platforms  # stress only, on the build dirs of an earlier run
+```
+
+On a Windows host the script (Git Bash) runs the risk scan and then points to `scripts\agent-build.ps1 build\agent-<name>
+-Test -Examples`, the Windows build and test path.
+
 ## Continuous integration (local, no GitHub minutes)
 
 CI runs on your own machine with one script. It runs every job the host can run
@@ -456,15 +512,38 @@ and reports the others as skipped, with the reason:
 
 | Job | Runs on | What it checks |
 |---|---|---|
-| `linux` | Linux | full build + every ctest suite (GPU tests through Xvfb + Mesa llvmpipe) |
-| `windows` | Linux with `g++-mingw-w64-x86-64-posix` (+ `wine64 wine` to run tests) | Windows x64 cross-build (D3D11 backend), every unit-test `.exe` under Wine, and a CLI smoke test that creates, validates, tests and renders a game through D3D11 |
+| `linux` | Linux, or a Mac with Docker (see below) | full build + every ctest suite (GPU tests through Xvfb + Mesa llvmpipe) |
+| `windows` | Linux with `g++-mingw-w64-x86-64-posix` (+ `wine64 wine` to run tests), or a Mac with Docker (see below) | Windows x64 cross-build (D3D11 backend), every unit-test `.exe` under Wine, and a CLI smoke test that creates, validates, tests and renders a game through D3D11 |
 | `android` | any host with `ANDROID_NDK_HOME` (NDK r27+) | `factoria_player` for arm64-v8a |
 | `macos` | a Mac | macOS build + ctest |
 | `ios` | a Mac with Xcode | iOS Simulator app bundle with a demo game |
 | `web` | any host with `EMSDK` set (Emscripten 6.0.10), Node 22+ and Chrome or Chromium (`CHROME_BIN`) | the web player (`web-release`), the `factoria` CLI, a template game exported with `--platform web`, the zip checked as itch.io takes it (`index.html` at the root, at most 1000 files and 500 MB) and the export run in headless Chrome until `player: 60 frames rendered` (`scripts/web-smoke.sh`) |
-| `sniper` | Linux with Docker or Podman; only when named (`./scripts/ci-local.sh sniper`) | the Linux release programs built in the Steam Runtime sniper container, their symbol versions checked, and run in the sniper runtime (`scripts/build-sniper.sh all`) |
+| `sniper` | Linux with Docker or Podman, or a Mac with Docker; only when named (`./scripts/ci-local.sh sniper`) | the Linux release programs built in the Steam Runtime sniper container, their symbol versions checked, and run in the sniper runtime (`scripts/build-sniper.sh all`) |
 
 Logs go to `build/ci-logs/`. The exit code is non-zero if any job that ran failed.
+
+**Linux and Windows jobs on a Mac (Docker).** Run `./scripts/setup-docker-macos.sh` once: it installs Colima and the
+Docker CLI with Homebrew and starts a Colima VM (Apple Virtualization.framework with Rosetta, 6 CPUs, 8 GiB, 100 GiB
+disk; `FA_DOCKER_CPUS`, `FA_DOCKER_MEMORY` and `FA_DOCKER_DISK` change them). It is safe to run again. After that
+`./scripts/ci-local.sh` runs the `linux`, `windows` and `sniper` jobs through `./scripts/ci-docker.sh`, which you can
+also run on its own (`./scripts/ci-docker.sh linux windows`; exit code 77 means Docker is not set up, and `ci-local.sh`
+then skips those jobs). The jobs run in an Ubuntu 24.04 `linux/amd64` container (`tools/ci/docker/Dockerfile`, the
+GitHub runner's OS, built the first time) with the checkout mounted at `/src`. The Linux build trees, ccache, the Wine
+prefix and `~/.factoria` in the container live in Docker volumes (`factoria-ci-linux`, `factoria-ci-windows`,
+`factoria-ci-home`), so the second run is warm and your macOS build directories never see a Linux object;
+`FA_CI_DOCKER_RESET=1` deletes the volumes. A worktree's git directory is mounted read-only at its host path, so the
+build has an identity in the container.
+
+What the container does not reproduce. The `linux` job is the reliable one: the same Ubuntu 24.04 and GCC as the
+runner, with three differences. The `*_perf` budget tests are not run (the numbers are the runner's; emulated x86-64
+uses about 30% more memory and twice the CPU time; `FA_CI_DOCKER_PERF=1` runs them), and an example game's test may
+run 900 s instead of 300 (`FA_EXAMPLE_TEST_TIMEOUT`; the longest takes ~170 s on the runner and over 300 s emulated). The image has Node 22 like the
+runner, so the feedback server's tests run. The `windows` job (MinGW-w64 under
+Wine) is not a reference on a Mac: Ubuntu's Wine 9.0 under Rosetta has no `atan2` in its HLSL compiler, so every
+test that renders through D3D11 fails, some Windows file and process tests fail on the bind mount, and a hung
+program is stopped after `FA_CI_WINE_TIMEOUT` seconds (600). The build half of that job (the MinGW cross-compile)
+does catch Windows compile and link errors. For the Windows tests use a Windows host (`scripts/ci-remote-windows.sh`
+or the native MSVC build). Neither job reproduces MSVC, WARP, or the GitHub runner's CPU and ccache state.
 
 **The shader compiler.** Custom materials (`*.material.json`) are compiled with sokol-shdc, a separate program the
 build does not make (the release downloads carry it next to `factoria`, see Releasing). Install the pinned one with the CLI you just built: `factoria setup shaders` (about 10 MB, SHA-256
@@ -511,7 +590,8 @@ one test at a time: its editor autotests draw with the software D3D11 renderer (
 4 vCPUs, so running tests side by side made the step slower and its timing-sensitive tests fail. The performance
 budgets have the `RUN_SERIAL` property, so `ctest` runs each of them alone and the other tests cannot skew their times.
 A newer push to the same pull request or branch cancels the older run.
-Each job that compiles restores a ccache and saves it again with only the entries its build used; `CI result` then
+Each job that compiles restores a ccache and saves it again with only the entries its build used, right after the build,
+so a run whose tests fail still leaves the next run a warm cache; `CI result` then
 deletes the older ccaches of the same branch or pull request. That keeps the repository's 10 GB of caches holding
 `main`'s, which every pull request starts from.
 `./scripts/ci-local.sh` runs the same kind of checks on your own machine before
@@ -533,6 +613,77 @@ changes the font size), and upload their logs, the screenshot and crash reports 
 `android-smoke` (look there when one of them fails). The Android game also carries a native plugin (built by
 `android-apk` with the NDK, outside the game's folder through `FA_CI_PLUGINS`), and the emulator job checks that its
 script got the plugin's answers. What they cover and what not is in [MOBILE.md](MOBILE.md).
+
+### Checking Windows from the Mac
+
+GitHub's Windows job (MSVC) is the one that fails most, and a Mac cannot build with MSVC. If you also have a Windows PC
+on the same home network, the Mac can run the native check on it over SSH before a push: the commit checked out on the
+Mac is pushed to a repository the check owns on the PC (to the ref `refs/heads/preflight/<branch>`), built in a
+worktree of it, and checked with
+`scripts\agent-build.ps1 build\agent-preflight -Test -Examples` (Debug build and ctest, then the Release build and the
+example games' tests). The output streams to the Mac terminal. The PC needs no clone of FactorIA: the check works in its
+own folder `%USERPROFILE%\FactorIA-remote` (a bare repository `repo.git` and the worktree `work`, whose `build\` is kept
+between runs) and never touches any other folder. A folder that is a git repository of its own, or holds anything else, is
+refused (`--repo` on the Mac, `-RemoteDir` on the PC pick another one).
+
+**Setup, once** (two commands, one on each machine):
+
+1. On the Mac: `scripts/setup-windows-remote.sh`. It creates the key `~/.ssh/factoria_windows` if missing and prints (and
+   copies to the clipboard) one PowerShell line that carries `scripts/setup-windows-remote.ps1` and the public key.
+2. On the PC: open PowerShell **as administrator** and paste that line (or, from a clone that has the script, run
+   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-windows-remote.ps1 -PublicKey '<key>' [-RemoteDir C:\path\FactorIA-remote]`).
+   It installs and starts the OpenSSH Server, opens port 22 on **private networks only** (the rule Windows creates itself
+   is turned off; if the home network is set to "Public" it warns and gives the command to change it), makes PowerShell
+   the SSH shell, authorizes the key (`C:\ProgramData\ssh\administrators_authorized_keys` with the ACL sshd requires for
+   an administrator, `~\.ssh\authorized_keys` otherwise), creates the check's folder, checks git,
+   Visual Studio 2022 with the C++ tools and its CMake and Ninja (what `agent-build.ps1` uses), prints what is missing with
+   the `winget` / installer command to add it (it installs none of them), and ends by printing the command for the Mac.
+   Running it again changes nothing that is already right.
+3. On the Mac: run the command the PC printed, `scripts/setup-windows-remote.sh --host <ip> --user <name>` (with `--repo` only if the PC folder is not the default).
+   It shows the `Host factoria-windows` block it will write to `~/.ssh/config` and asks first (a rerun replaces the
+   block between its marker comments), stores the PC folder in `build/windows-remote.conf` of the main checkout and tests
+   the connection (`scripts/ci-remote-windows.sh --check`).
+
+**Every time:**
+
+```bash
+scripts/ci-remote-windows.sh              # Windows: Debug build + ctest + Release example games
+scripts/ci-remote-windows.sh --no-examples
+scripts/ci-remote-windows.sh --wsl        # also scripts/ci-local.sh linux android in the PC's WSL Ubuntu-24.04
+```
+
+Exit status: 0 = passed, 1 = a build or a test failed, 77 = the check could not be done or finished, which is not a
+failure (`scripts/ci-preflight.sh` records it as a skip): not set up (the message names the setup script), the PC is off
+or unreachable, the connection was lost halfway, or the windowed tests were skipped because nobody is logged in.
+
+**The PC is often off, and the script never switches it on or puts it to sleep.** It first checks that the PC answers
+(5 s at most). If it does not: in a terminal it asks "Can you switch it on?" and Enter means "I am switching it on, wait
+for it" (it waits for sshd, up to `--wait-timeout SECONDS`, default 300, with a note every 15 s), `s` skips (exit 77). Without a
+terminal (an AI agent runs it) it exits 77 at once saying so, and the agent asks you; once you say you are switching the
+PC on, it runs the script again with `--wait`. While the PC is off, the MinGW cross-compile of the Docker `windows`
+job and the Windows file rules that `ctest` turns on (see "Running tests") still cover part of what the MSVC check finds.
+If the connection drops during the run (the PC went to sleep or off, the network failed) the script says which part had
+run, that this is not a build or test failure, and exits 77; a dead PC is noticed after about a minute.
+Only committed work is tested: uncommitted changes to tracked files are listed in a warning and not sent. The first run
+builds everything cold on the PC; later runs reuse `build\agent-preflight` and `build\agent-preflight-release` in the
+worktree. Do not start two runs at once (they share that worktree). The logs come back to `build/ci-logs/windows-remote/`.
+**Windowed tests.** An SSH session on Windows has no desktop, so a D3D11 swap chain cannot be created there. The tests
+that open a window carry the ctest label `window` (`editor_autotest_*`, `cli_player_frames`, `cli_plugin`, which exports
+and runs a game) and are left out of the SSH run (`agent-build.ps1 -NoWindowTests`). The script then runs them in the desktop
+session of the user logged in on the PC (`scripts\windows-run-interactive.ps1`, `agent-build.ps1 -WindowTestsOnly`): a
+one-shot scheduled task with an interactive logon for that user, whose output and exit code come back through the SSH
+session, and which is deleted afterwards even if the run is stopped (nothing persistent is left, and power and sleep
+settings are not touched). While it runs, windows may flash on that desktop. If nobody is logged in, those tests are
+reported as `SKIPPED` (not passed) in the summary and the exit status is 77; the one-line fix is to log in to the PC (it
+can be locked afterwards) and run the script again.
+
+**Timing checks in tests.** A test that asserts a speed budget scales it with `fa::test_speed_budget_scale()`
+(`fa/core/perf.h`): 4 on an MSVC Debug build, whose unoptimized code ran `script_instrument`'s 1000 ms check in 2.1 s,
+and 1 everywhere else, so an optimized build keeps the tight budget.
+
+`--wsl` fetches the commit into its own clone `~/FactorIA-preflight` in WSL (made by the first run, from the PC's
+`repo.git`); your `~/FactorIA` there is not used. It needs the WSL set-up of "Continuous integration" above, with
+`ANDROID_NDK_HOME` exported in `~/.profile` for the android job.
 
 ## Troubleshooting
 

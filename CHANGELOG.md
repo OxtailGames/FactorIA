@@ -2,6 +2,52 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## 0.15.0
+
+FactorIA 0.15.0 (M50) is about pushes that pass CI the first time. Each failed CI round (a Windows file rule, a timing
+budget on a slow runner, an MSVC-only error) cost a day, so the checks CI makes now run before the push:
+`scripts/ci-preflight.sh` scans the diff for the patterns that failed before, runs the whole test suite, repeats the
+tests the change touches under load, runs the Linux job in a Docker container on the Mac and the native Windows check
+on a Windows PC of the same network, and prints what passed, failed or could not run. macOS and Linux test runs follow
+the Windows file rules, so the bugs that only Windows CI found show up on any machine; on the way it found that file
+times read as "missing" on Linux.
+
+### Changes
+
+- `scripts/ci-preflight.sh`, the one command before a push: a risk scan of the branch's added lines against the patterns that
+  failed CI before, `scripts/test-all.sh`, a stress pass (the editor autotests and example tests the diff touches, repeated under
+  CPU load), the other platforms of `scripts/ci-local.sh` and the Docker/remote Windows scripts when present, and a PASS/FAIL/SKIP
+  summary (docs/BUILDING.md, "Before a push").
+- **For engine developers:** the "Windows file rules" mode of `fa::fs` makes macOS and Linux test runs find the file bugs
+  that only the Windows CI job found. With `FA_FS_WINDOWS_RULES=1` a file open through the new `fs::ReadStream` (or
+  `fs::read_bytes` / `read_text`) cannot be replaced, renamed or deleted (`fs::write_bytes`, the new `fs::replace_file` and
+  `fs::remove_file`, `fs::remove_tree` fail with a sharing violation after the retries Windows needs), and
+  `fs::modified_time` / the new `fs::host_modified_time` round a file's time down to 15.625 ms. `ctest` turns it on for
+  every test on macOS and Linux (`FA_FS_WINDOWS_RULES=0 ctest` for one run without; `-DFA_TEST_WINDOWS_FILE_RULES=OFF`
+  for a build). Change detectors of the editor, the checkpoint store, the MCP module watcher and self-update read times
+  through `fs::`; the readers of files that other threads write (stores, settings, chats, the project file, progress
+  files) read through `fs::ReadStream`; their replaces and deletes go through `fs::replace_file` / `remove_file`.
+  (docs/BUILDING.md, "Running tests"; docs/ARCHITECTURE.md, "Files")
+- `scripts/setup-docker-macos.sh` installs Colima and Docker on a Mac and starts a VM with Rosetta; `scripts/ci-docker.sh`
+  runs the Linux and Windows (MinGW-w64 + Wine) jobs of `ci-local.sh` in an Ubuntu 24.04 `linux/amd64` container
+  (`tools/ci/docker/Dockerfile`), and `ci-local.sh` uses it on a Mac instead of skipping those jobs and `sniper`.
+- **For engine developers:** the Mac can run the native Windows check (MSVC build, full ctest, example games) on a Windows
+  PC on the same network over SSH before a push: `scripts/setup-windows-remote.sh` (Mac) and
+  `scripts/setup-windows-remote.ps1` (the PC, administrator PowerShell, idempotent) set it up once, then
+  `scripts/ci-remote-windows.sh [--no-examples] [--wsl]` pushes HEAD to `refs/heads/preflight/<branch>` of a repository it owns on the PC
+  (`%USERPROFILE%\FactorIA-remote`, no clone needed; a folder that is a git repository of its own is refused),
+  builds it in a worktree there and brings the logs back to `build/ci-logs/windows-remote/`. A PC that is off is not a failure: after a 5 s check the script asks in a terminal whether you are switching it on (or waits with `--wait`, `--wait-timeout`) and otherwise exits 77, as it does when not set up or when the connection drops mid-run; it never switches the PC on or off. The tests that need a window (ctest label `window`) run in the desktop session of the user logged in on the PC through a one-shot scheduled task; with nobody logged in they are reported as skipped and the exit status is 77.
+  (docs/BUILDING.md, "Checking Windows from the Mac")
+- Tests with a speed budget scale it with `fa::test_speed_budget_scale()` (4 on an MSVC Debug build, 1 elsewhere); the `mcp` test no longer reads a freed temporary in a range-for, which the MSVC debug heap exposed. `/bigobj` is on for MSVC builds.
+- CI saves each job's ccache right after the build instead of at the end of the job, which `actions/cache` only does
+  when every step passed: a run whose tests failed left the next run of the branch a stale cache (Windows rebuilt
+  cold with 11% hits, 35-45 min).
+
+### Fixes
+
+- `fs::modified_time` counts nanoseconds from 1970 with every standard library (new `fs::file_time_ns`): with GCC's
+  libstdc++, whose file clock starts in 2174, a file written today had a negative time that read as a missing file.
+
 ## 0.14.1
 
 FactorIA 0.14.1 makes the test runs of game authors and engine developers stop failing on a busy machine. Script time limits (a `factoria test` test, `script.eval`, callbacks, tools and module loads) now count the CPU time the script spends, with a wall-clock cap eight times larger for a script blocked forever, so a build running next to the tests no longer fails a test that passes alone. The example games' tests run on optimized builds only, and `scripts/test-all.sh` is the one command that runs everything before a push.
