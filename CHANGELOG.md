@@ -2,9 +2,9 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.16.1
 
-Engine feedback that claims a gap the engine does not have is caught, rejected with a reason the person can read, and can be deleted. A weak model filed "No one-way platforms" although `Collider2D.oneWay` exists, because it copied the example in the `feedback.report` docs.
+FactorIA 0.16.1 makes engine feedback trustworthy: feedback that claims a gap the engine does not have is caught, rejected with a reason the person can read, and can be deleted. A weak model filed "No one-way platforms" although `Collider2D.oneWay` exists, because it copied the example in the `feedback.report` docs.
 
 ### Changes
 

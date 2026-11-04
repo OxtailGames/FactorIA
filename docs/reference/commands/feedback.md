@@ -12,7 +12,7 @@ ENGINE_FEEDBACK.json should only hold what is still open: this moves every entry
 
 ## `feedback.check`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.1.
 
 Check, before filing, whether the engine already has what a feedback report says is missing.
 
@@ -36,7 +36,7 @@ Every FactorIA release ships a list of the gaps it fixed (feedback/fixed.json, e
 
 ## `feedback.delete` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.1.
 
 Delete a closed feedback entry (rejected, wont-fix, duplicate, fixed) from the file and its archive.
 
@@ -131,7 +131,7 @@ Engine developers use this when a gap is fixed (status fixed-in-engine), will no
 
 ## `feedback.verdicts` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.1.
 
 Ask the feedback server what the engine developers decided about the reports this installation sent.
 
