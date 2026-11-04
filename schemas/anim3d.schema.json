@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factoria.dev/schemas/anim3d.schema.json",
+  "title": "FactorIA 3D bone clip (*.anim.json, format factoria.anim3d/1)",
+  "description": "A clip for the bones of a skinned rig (a .rig.glb made by rig.bake): Animator.clips maps a clip name to this file and the Animator plays it on the model beside it. Each track is one channel (rotation, translation or scale) of one bone, named by its canonical name (thigh_l, spine_2, root). Same file suffix, keys, easings and events as the 2D clips of anim.schema.json; `format` tells them apart. Generated clips (anim3d.generate) also carry `contacts`, `groundSpeed` and `generated`. Errors name the file and the JSON pointer; docs/ANIMATION.md, \"3D bone clips\", explains the format.",
+  "type": "object",
+  "required": [
+    "format",
+    "duration",
+    "tracks"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference for editors."
+    },
+    "format": {
+      "const": "factoria.anim3d/1",
+      "description": "File format identifier. Always \"factoria.anim3d/1\"."
+    },
+    "doc": {
+      "type": "string",
+      "description": "What the clip shows and when it is used."
+    },
+    "rig": {
+      "type": "string",
+      "description": "The rig document or model the clip was made for. Informational."
+    },
+    "template": {
+      "type": "string",
+      "description": "The rig template the bones follow (humanoid, quadruped, bird, tail, chain, generic). Informational; retargeting reads it."
+    },
+    "duration": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Length of the clip in seconds. No key, event or contact is later than this. A looping clip wraps here."
+    },
+    "loop": {
+      "type": "boolean",
+      "default": true,
+      "description": "true repeats the clip, false stops on its last pose and sends \"anim.finished\"."
+    },
+    "rotation": {
+      "enum": [
+        "euler",
+        "quat"
+      ],
+      "default": "euler",
+      "description": "How rotation keys are written: \"euler\" is [x, y, z] degrees (pitch, yaw, roll; the engine's Quat::from_euler_deg order), \"quat\" is [x, y, z, w]."
+    },
+    "groundSpeed": {
+      "type": "number",
+      "minimum": 0,
+      "default": 0,
+      "description": "Model units per second the ground moves under a planted foot (stride length times cadence for a generated gait). 0 = in place."
+    },
+    "tracks": {
+      "type": "array",
+      "description": "The animated bone channels. Two tracks may not drive the same bone channel.",
+      "items": {
+        "$ref": "#/$defs/track"
+      }
+    },
+    "events": {
+      "type": "array",
+      "description": "Game events sent when the clip's time passes `t` (once per loop). They reach world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data`.",
+      "items": {
+        "$ref": "#/$defs/event"
+      }
+    },
+    "contacts": {
+      "type": "array",
+      "description": "Stretches where a bone rests on the ground (a foot's stance). `from` > `to` wraps through the end of a looping clip. Generators write them; retargeting keeps the feet planted through them.",
+      "items": {
+        "$ref": "#/$defs/contact"
+      }
+    },
+    "generated": {
+      "type": "object",
+      "description": "What anim3d.generate made the clip from: {kind, params}. Informational; edit the tracks freely."
+    }
+  },
+  "$defs": {
+    "track": {
+      "type": "object",
+      "required": [
+        "bone",
+        "keys"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "bone": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Canonical bone name: role[_index][_side], e.g. \"root\", \"spine_1\", \"thigh_l\", \"arm_upper_r\"."
+        },
+        "channel": {
+          "enum": [
+            "rotation",
+            "translation",
+            "scale"
+          ],
+          "default": "rotation",
+          "description": "rotation: the bone's local rotation from rest. translation: an offset from the rest position in the parent's frame, meters (normally only the root). scale: a multiplier of the rest scale."
+        },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Keys in ascending order of `t`, one per time.",
+          "items": {
+            "$ref": "#/$defs/key"
+          }
+        }
+      }
+    },
+    "key": {
+      "type": "object",
+      "required": [
+        "t",
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "t": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Seconds from the start of the clip, at most the clip's `duration`."
+        },
+        "value": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 4,
+          "items": {
+            "type": "number"
+          },
+          "description": "The value at `t`: [x, y, z] for rotation (euler degrees, pitch yaw roll), translation (meters) and scale (multiplier); [x, y, z, w] for rotation when the clip says \"rotation\": \"quat\". Before the first key and after the last the track holds that key's value."
+        },
+        "interp": {
+          "description": "How the value reaches the next key. \"linear\" (default), \"step\" (holds until the next key), \"bezier\" (cubic Hermite curve using this key's `out` and the next key's `in`; not for quaternions), or an easing name of tween().",
+          "anyOf": [
+            {
+              "enum": [
+                "linear",
+                "step",
+                "bezier"
+              ]
+            },
+            {
+              "enum": [
+                "quadIn",
+                "quadOut",
+                "quadInOut",
+                "cubicIn",
+                "cubicOut",
+                "cubicInOut",
+                "quartIn",
+                "quartOut",
+                "quartInOut",
+                "quintIn",
+                "quintOut",
+                "quintInOut",
+                "sineIn",
+                "sineOut",
+                "sineInOut",
+                "expoIn",
+                "expoOut",
+                "expoInOut",
+                "circIn",
+                "circOut",
+                "circInOut",
+                "backIn",
+                "backOut",
+                "backInOut",
+                "elasticIn",
+                "elasticOut",
+                "elasticInOut",
+                "bounceIn",
+                "bounceOut",
+                "bounceInOut"
+              ]
+            }
+          ]
+        },
+        "in": {
+          "description": "bezier: slope arriving at this key, per second; a number or [x, y, z]. Missing tangents are made smooth from the neighbouring keys.",
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ]
+        },
+        "out": {
+          "description": "bezier: slope leaving this key, per second; a number or [x, y, z].",
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ]
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": [
+        "t",
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "t": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Seconds from the start of the clip, at most the clip's `duration`."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The game event name."
+        },
+        "data": {
+          "type": "object",
+          "description": "Extra fields sent with the event. The keys id, clip and time are the engine's and cannot be used.",
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "id"
+                ]
+              },
+              {
+                "required": [
+                  "clip"
+                ]
+              },
+              {
+                "required": [
+                  "time"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "contact": {
+      "type": "object",
+      "required": [
+        "bone",
+        "from",
+        "to"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "bone": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The bone that rests on the ground, normally the foot."
+        },
+        "from": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Seconds into the clip where the stance starts."
+        },
+        "to": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Seconds where it ends. Less than `from` = the stance wraps through the end of a looping clip."
+        }
+      }
+    }
+  }
+}

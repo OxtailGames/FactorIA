@@ -122,6 +122,7 @@ void register_music_commands(CommandRegistry& registry, const std::string& proje
 void register_audio_doc_commands(CommandRegistry& registry, const std::string& projectDir);  // audio.info, audio.render, audio.bake, audio.create, audio.edit (assets_audio_doc.cpp)
 void register_model_commands(CommandRegistry& registry, const std::string& projectDir);  // model.info, model.bake, model.create, model.edit (assets_model.cpp)
 void register_rig_commands(CommandRegistry& registry, const std::string& projectDir);  // rig.templates, rig.info, rig.create, rig.fit, rig.bake (assets_rig.cpp, docs/RIGGING.md)
+void register_anim3d_commands(CommandRegistry& registry, const std::string& projectDir);  // anim3d.* and ik3d.* (assets_anim3d.cpp, docs/ANIMATION.md)
 void register_model_uv_command(CommandRegistry& registry, const std::string& projectDir);  // model.uv (assets_model_uv.cpp)
 void register_model_texture_commands(CommandRegistry& registry, const std::string& projectDir);  // model.texture, model.decal, model.palette, model.bake_maps (assets_model_texture.cpp)
 void register_model_eyes_commands(CommandRegistry& registry, const std::string& projectDir);  // model.preview, model.check (assets_model_preview.cpp)

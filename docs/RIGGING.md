@@ -23,10 +23,11 @@ is told with `rig.fit`, look at the result with `rig.info`.
 
 What exists today, and what does not:
 
-| Done here (M59.1) | Later |
+| Done here (M59.1, M59.3) | Later |
 |---|---|
 | Templates, the canonical bone names, the fit to a model, the rest pose, the skinned `.glb` | Smooth skin weights (`skin3d.*`, M59.2) |
-| A rigid placeholder binding: every vertex follows ONE bone | 3D clips, IK, generators and retargeting between templates (M59.3), the editor panel (M59.4) |
+| A rigid placeholder binding: every vertex follows ONE bone | The editor panel (M59.4) |
+| 3D bone clips, 3D IK, clip generators, retargeting and the filmstrip preview (M59.3, "Clips, IK and retargeting") | |
 
 Until skin weights exist the `.glb` has the rigid placeholder, see "Binding", so a posed model would show hard seams at the joints.
 The file is already complete as a skeleton: the joints, their hierarchy and names, and the inverse bind matrices do not change when
@@ -135,7 +136,9 @@ texture) plus:
 - `JOINTS_0` and `WEIGHTS_0` on every primitive.
 
 It loads like any skinned glTF (`MeshRenderer.mesh: "assets/models/hero.rig.glb"`; `parse_skeleton` returns the joints and the
-skin, `skin_palette` of the rest pose is the identity). It has no animation clips; the clips of M59.3 will use these joints.
+skin, `skin_palette` of the rest pose is the identity). It has no animation clips of its own; the `*.anim.json` 3D clips (below) animate these joints, and each joint's `extras` also
+hold `axis` (the unit vector from the bone's head to its tail at rest) and `length` (head to tail, model units) when the bone is
+not zero-length, which the generators and IK read (a leaf bone has no child to measure from).
 
 ### Binding (the placeholder until M59.2)
 
@@ -151,10 +154,24 @@ the model document, every file the model reads and, for a textured model, its ba
 `rig.info` says so, `project.validate` warns, and `rig.bake` or `assets.regenerate {"stale": true}` builds it again. The same inputs
 give the same bytes on every platform (the fit uses `+ - * /` and `sqrt` and ordered iteration only).
 
+## Clips, IK and retargeting
+
+The bones of the `.rig.glb` are animated with `*.anim.json` 3D clips (`format` `factoria.anim3d/1`) that an `Animator` plays, and
+bent by the `IK3D` component; all of it is described in [ANIMATION.md](ANIMATION.md) ("3D bone clips", "3D IK", "Generators",
+"Retargeting", "Previewing a clip"). In short:
+
+- `anim3d.generate {rig, kind}` writes a walk, run, trot, gallop, idle, swing or hit clip from the skeleton's proportions.
+- `anim3d.retarget {path, to, out}` carries a clip to another rig by the (role, index, side) of its bones, keeping planted feet.
+- `anim3d.preview {path, rig}` draws a filmstrip of the clip on the model without a window.
+- Keep the same bone names in a rig that a clip names: re-fitting a rig (`rig.fit`) keeps them, but a different `options` (spine
+  count, tail segments) changes which bones exist, and a clip that names one that is gone says so (`anim3d.info {path, rig}`).
+
 ## Limits and known gaps
 
-- Weights are the rigid placeholder (see "Binding"); smooth weights, posing, clips, IK and retargeting come with M59.2 and M59.3.
-- The skeleton is the rest pose only, every bone with identity rotation: a bone has no roll or twist axis yet.
+- Weights are the rigid placeholder (see "Binding"); smooth weights and posing come with M59.2. A rigid binding bends at hard seams
+  when a clip rotates a joint.
+- The skeleton is the rest pose only, every bone with identity rotation: a bone has no roll or twist axis yet. A 3D clip rotates
+  a bone in the model's axes, so the same angles bend any bone the same way whatever its direction.
 - A textured model's rig uses the picture the model's own bake wrote. If the model is baked for the first time after the rig,
   bake the rig again (`rig.bake {"force": true}`): the rig only learns of the picture once it exists. `rig.bake` warns when a
   textured model has not been baked.

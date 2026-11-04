@@ -1,6 +1,7 @@
 // The skinned .glb of a rig (rig_glb.h): mesh_to_glb's bytes with the joints, the inverse bind matrices and the rigid weights added.
 #include "fa/scene/rig_glb.h"
 
+#include <cmath>
 #include <cstring>
 #include <format>
 
@@ -82,6 +83,13 @@ Result<std::vector<std::uint8_t>> rig_to_glb(const MeshData& model, const RigFit
         Json extras = {{"role", b.role}};
         if (b.index) extras["index"] = b.index;
         if (!b.side.empty()) extras["side"] = b.side;
+        // Where the bone points at rest (head to tail), for the 3D clips and IK (anim3d.h): a leaf has no child to read it from.
+        const Vec3 d = b.tail - b.head;
+        const float len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+        if (len > 1e-6f) {
+            extras["axis"] = Json::array({d.x / len, d.y / len, d.z / len});
+            extras["length"] = len;
+        }
         node["extras"] = extras;
         nodes.push_back(node);
         joinsList.push_back(int(i + 1));

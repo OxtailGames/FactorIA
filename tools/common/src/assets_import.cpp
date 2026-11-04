@@ -673,6 +673,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
     register_audio_doc_commands(registry, projectDir);
     register_model_commands(registry, projectDir);
     register_rig_commands(registry, projectDir);
+    register_anim3d_commands(registry, projectDir);
     register_music_commands(registry, projectDir);
     register_texture_command(registry, projectDir);
     register_svg_command(registry, projectDir);
