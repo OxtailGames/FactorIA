@@ -114,3 +114,29 @@ TEST_CASE("asset manifest: sheet() parses the sheet entry and follows edits of t
     CHECK(assets::sheet("assets/coin.png")->columns == 8);  // the cache follows the file
     CHECK(assets::parse_sheet(Json::object({{"columns", 2}})) == nullptr);
 }
+
+TEST_CASE("asset manifest: a second write of the same size right after a read is seen, though time and size match") {
+    TempProject p;
+    const stdfs::path file = p.dir / assets::kManifestFile;
+    auto write_with_time = [&](const std::string& text, stdfs::file_time_type time) {
+        REQUIRE(fs::write_text(assets::kManifestFile, text).ok());
+        std::error_code ec;
+        stdfs::last_write_time(file, time, ec);  // the same step of the file clock, as two quick writes on Windows
+        REQUIRE_FALSE(ec);
+    };
+    REQUIRE(fs::write_text(assets::kManifestFile, R"({"format":1,"style":{"name":"aaaa"}})").ok());
+    std::error_code ec;
+    const stdfs::file_time_type stamp = stdfs::last_write_time(file, ec);
+    REQUIRE_FALSE(ec);
+    CHECK(assets::manifest()["style"]["name"] == "aaaa");
+    write_with_time(R"({"format":1,"style":{"name":"bbbb"}})", stamp);
+    CHECK(assets::manifest()["style"]["name"] == "bbbb");
+    CHECK(assets::manifest()["style"]["name"] == "bbbb");  // the same text again keeps the parsed document
+    // A read long after the file's time trusts time and size again: an old file is not re-read on every call.
+    write_with_time(R"({"format":1,"style":{"name":"cccc"}})", stamp - std::chrono::seconds(60));
+    CHECK(assets::manifest()["style"]["name"] == "cccc");
+    const std::uint64_t reads = fs::disk_reads();
+    (void)assets::manifest();
+    (void)assets::manifest();
+    CHECK(fs::disk_reads() == reads);
+}

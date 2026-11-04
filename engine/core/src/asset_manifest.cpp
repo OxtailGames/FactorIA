@@ -5,6 +5,8 @@
 #include <ctime>
 #include <format>
 #include <mutex>
+#include <optional>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -21,6 +23,8 @@ struct Cache {
     std::string root;           // project root the cached manifest belongs to
     std::int64_t modified = -2; // modified_time of the file when read (-1 = missing, -2 = never read)
     std::int64_t size = -1;     // and its size: two writes within the clock's step (~16 ms on Windows) share a time
+    std::string text;           // the text of that read, while time and size alone cannot tell a second write (see settled)
+    bool settled = false;       // the read came well after the file's time: a later write moves the time, so text is not kept
     Json doc;
     std::unordered_map<std::string, std::shared_ptr<const Sheet>> sheets;  // parsed sheet entries of this read of the file
     std::string warnedFor;      // "root|mtime" of the last warning, so a broken file warns once
@@ -146,20 +150,49 @@ const char* kind_name(AssetKind kind) {
 }
 
 namespace {
+// How long after a file's time a read is taken as settled. A write that lands in the same step of the file clock as the
+// previous one (15.625 ms on Windows, 2 s on FAT) and keeps the size leaves time and size as they were; a read made that
+// close to the file's time keeps the text and compares it on the next refresh instead.
+constexpr std::int64_t kSettleNs = 2'000'000'000;
+
+std::int64_t now_ns() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
 // Re-reads the file when it changed (c.mutex held by the caller).
 void refresh_locked(Cache& c) {
     const std::string root = fs::project_root().generic_string();
     const std::int64_t modified = fs::exists(kManifestFile) ? fs::modified_time(kManifestFile) : -1;
     const std::int64_t size = modified == -1 ? -1 : fs::file_size(kManifestFile);
-    if (c.root == root && c.modified == modified && c.size == size && c.modified != -2) return;
+    const bool same = c.root == root && c.modified == modified && c.size == size && c.modified != -2;
+    if (same && (c.settled || modified == -1)) return;
+    std::optional<Result<std::string>> text;
+    if (same) {  // time and size match, but the last read was too close to the file's time to trust them
+        text = fs::read_text(kManifestFile);
+        const bool settledNow = now_ns() - modified > kSettleNs;
+        if (*text && **text == c.text) {
+            if (settledNow) {
+                c.settled = true;
+                c.text.clear();
+                c.text.shrink_to_fit();
+            }
+            return;
+        }
+    }
     c.root = root;
     c.modified = modified;
     c.size = size;
     c.sheets.clear();
     c.doc = empty_manifest();
+    c.text.clear();
+    c.settled = true;
     if (modified == -1) return;
-    auto text = fs::read_text(kManifestFile);
-    auto parsed = text ? parse_manifest(*text) : Result<Json>(make_error(text.error().message));
+    if (!text) text = fs::read_text(kManifestFile);
+    auto parsed = *text ? parse_manifest(**text) : Result<Json>(make_error(text->error().message));
+    if (*text && now_ns() - modified <= kSettleNs) {
+        c.settled = false;
+        c.text = **text;
+    }
     if (parsed) {
         c.doc = std::move(*parsed);
     } else {
