@@ -48,6 +48,8 @@ Done means: `project_validate` is clean, a screenshot shows the intended result,
 
 Whenever the engine lacks a feature, has a bug, gives an error that does not say how to fix it, or has a wrong or missing doc, **and** you build a workaround or drop the feature: record it now, in the same turn, before you continue. Do not wait until the end of the task. Duplicates are fine: a similar open entry in the same category is merged, and its `occurrences` count goes up. Not reporting is the only wrong choice.
 
+**Check that the gap is real before you file it.** A report that calls missing something the engine has is useless and is refused: models often invent gaps for a component field or a command that exists. Search first (`docs_search`, `docs_components` for the fields of the component you mean, the `reference` pages), or call `feedback_check {title, missing, suggestion}` (CLI `factoria call feedback.check`). `feedback_report` runs the same check and REFUSES the report, naming what exists, its doc string and the page that documents it. If the thing exists but does not work as documented, file a **bug**: say what you set, what you expected and what happened. A request for an extra option on an existing component is fine. An entry that slips through is later set to status `rejected` with a reason (by the engine, you, or the engine developer): read it in the editor's Feedback panel.
+
 Call the MCP tool `feedback_report`, or run `factoria call feedback.report '{...}'`, or run `factoria feedback add --category ... --severity ... --title ... --missing ... --workaround ...` (`--missing` needs a few words, not one). All three write to `ENGINE_FEEDBACK.json`.
 
 | Field | Value |
@@ -104,7 +106,7 @@ Bad example:
 
 It passes the schema and is still useless. The title names no gap, `missing` does not say what was needed, the workaround names no file, and there is no suggestion, so the engine team cannot act on it. Write each entry so that a developer who has never seen your project understands the gap.
 
-`ENGINE_FEEDBACK.json` holds the open entries. Closed ones (`fixed-in-engine`, `wont-fix`, `duplicate`) move to `ENGINE_FEEDBACK.archive.json` next to it when the editor opens the project or `factoria feedback archive` (command `feedback.archive`) runs. Do not edit the archive by hand. Reporting a gap that matches an archived `fixed-in-engine` entry reopens it with a note "reported again ...: regression?". `feedback.list` with `includeArchive` (CLI: `feedback list --archive`) shows the archived entries too.
+`ENGINE_FEEDBACK.json` holds the open entries. Closed ones (`fixed-in-engine`, `wont-fix`, `duplicate`, `rejected`) move to `ENGINE_FEEDBACK.archive.json` next to it when the editor opens the project or `factoria feedback archive` (command `feedback.archive`) runs. Do not edit the archive by hand. Reporting a gap that matches an archived `fixed-in-engine` entry reopens it with a note "reported again ...: regression?". `feedback.list` with `includeArchive` (CLI: `feedback list --archive`) shows the archived entries too.
 
 Without MCP and without the CLI, add an object to the `entries` array of `ENGINE_FEEDBACK.json` by hand. It must match `schemas/engine-feedback.schema.json`, which also requires `id` (`FB-0001`, the next free number), `date`, `occurrences` and `status`. The tools set those for you, so prefer them.
 

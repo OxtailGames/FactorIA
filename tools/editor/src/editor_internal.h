@@ -291,6 +291,7 @@ public:
     void share_fill_consent_preview(const std::string& file, const Json& doc);
     void share_choose_mode(ShareMode mode);
     void share_start_flush(bool force, std::uint64_t session = 0);
+    void share_start_verdicts(const std::string& feedbackFile);  // ask the server what the engine developers decided (a thread)
     void share_start_sign_in();
     void share_start_ai_checks();
     void draw_feedback_share_cell(const Json& entry, const char* track = nullptr);                          // the panel table's share column
@@ -729,6 +730,26 @@ public:
     double feedbackPolled_ = -10;
     int fbStatus_ = 0, fbCategory_ = 0, fbSeverity_ = 0;
     std::string fbSelected_;
+    // The closed entries (fixed, won't fix, duplicate, rejected) live in ENGINE_FEEDBACK.archive.json: the panel reads it too, shows
+    // its entries when "closed" is ticked or a closed status is filtered, and keeps the detail windows of archived entries working.
+    Json fbArchive_;
+    std::int64_t fbArchiveMtime_ = INT64_MIN;
+    bool fbShowClosed_ = false;
+    // Detail windows: double-clicking a row opens one for that entry (several can be open at once; each is movable and resizable).
+    std::vector<std::string> fbWindows_;
+    // The question a status change or a delete asks first: why an entry is rejected (a reason is required), or "delete it?".
+    struct FbAsk {
+        std::string id;      // the entry
+        std::string status;  // "rejected": asking for the reason | "delete": asking for the confirmation
+        std::string reason;  // typed by the person
+        std::string error;
+        bool open = false;
+    } fbAsk_;
+    void draw_feedback_windows();                                    // the detail windows (after the panel)
+    void draw_feedback_detail(const Json& entry, const std::string& path, bool inWindow);  // fields + share + actions of one entry
+    void draw_feedback_actions(const Json& entry, const std::string& path);   // status combo, Copy, Delete (+ their popups)
+    void feedback_reload_soon();                                     // read both files again, and run the share tick, next frame
+    const Json* feedback_entry(const std::string& id) const;         // an entry of the file or of the archive (nullptr: none)
     bool fbAddOpen_ = false;        // the Add feedback modal is open
     int fbNewCategory_ = 0, fbNewSeverity_ = 1;
     std::string fbNewTitle_, fbNewMissing_, fbNewWorkaround_, fbNewSuggestion_, fbMessage_;

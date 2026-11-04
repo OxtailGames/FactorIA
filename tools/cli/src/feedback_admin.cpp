@@ -17,6 +17,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/feedback.h"
+#include "fa/tooling/feedback_check.h"
 
 
 namespace fa::cli {
@@ -336,6 +337,12 @@ std::string entry_from_report(const Json& r, const std::string& today, Json& ent
     if (auto ef = r.value("effort", std::string()); ef == "small" || ef == "medium" || ef == "large") entry["effort"] = ef;
     entry["occurrences"] = std::max(1, r.value("occurrences", 1));
     entry["status"] = "open";
+    if (r.value("verdict", std::string()) == "rejected") {  // the server already carries a rejection (another machine, or an earlier pull)
+        entry["status"] = "rejected";
+        std::string why = sanitize_status_reason(r.value("verdictReason", std::string()));
+        entry["statusReason"] = why.empty() ? std::string("Rejected by the engine developer.") : why;
+        entry["statusBy"] = "developer";
+    }
     if (r.value("reviewed", false)) entry["reviewed"] = true;
     Json remote = Json::object({{"shareId", shareId}, {"installKey", installKey}, {"trust", r.value("trust", std::string("anonymous")) == "verified" ? "verified" : "anonymous"}});
     if (!receivedAt.empty()) remote["receivedAt"] = receivedAt;
@@ -424,6 +431,7 @@ Json PullSummary::to_json() const {
     return Json::object({{"inbox", inbox}, {"pages", pages}, {"fetched", fetched}, {"added", added}, {"updated", updated},
                          {"known", known}, {"invalid", invalid}, {"valid", valid}, {"doubtful", doubtful}, {"junk", junk},
                          {"unclassified", unclassified}, {"classification", classification}, {"installations", installations},
+                         {"suggestedRejections", suggestions}, {"alreadyRejected", alreadyRejected},
                          {"warnings", warnings}, {"cursor", cursor}});
 }
 
@@ -570,6 +578,15 @@ Result<PullSummary> feedback_pull(const PullOptions& options, const FeedbackAdmi
         } else {
             ++sum.unclassified;
         }
+        // The check: does the report call missing something the engine already has? Then it is a SUGGESTED rejection with a ready
+        // reason (what exists, where it is documented) that the engine developer only confirms. The server's own verdict wins.
+        if (entry.value("status", std::string("open")) == "rejected") {
+            ++sum.alreadyRejected;
+        } else if (const ClaimResult claim = check_feedback_entry_claim(entry); claim.refused()) {
+            entry["suggestedRejection"] = Json::object({{"reason", claim.reason()}, {"date", today}});
+            sum.suggestions.push_back(Json::object({{"shareId", shareId}, {"id", entry.value("id", std::string())}, {"installKey", f.installKey},
+                                                    {"title", entry.value("title", std::string())}, {"reason", claim.reason()}}));
+        }
         in.mainDoc["entries"].push_back(entry);
         in.dirty = true;
         ++sum.added;
@@ -634,6 +651,200 @@ Result<int> quarantine_clear(const std::string& inbox) {
     q["items"] = Json::array();
     if (auto w = save_feedback(quarantine_path(inbox), q); !w.ok()) return make_error("Cannot write " + quarantine_path(inbox) + ": " + w.error().message);
     return n;
+}
+
+// -------------------------------------------------------------------------------------------- verdicts: reject, unreject, keep
+Result<std::string> checked_reject_reason(const std::string& text) {
+    const std::string reason = sanitize_status_reason(text);
+    if (reason.empty())
+        return make_error("The reason is empty.", "Say why the report is not accepted, in one or two sentences: what the engine already has and where it is documented. The person who sent it reads it.");
+    // sanitize_status_reason cuts at the limit: a longer text is refused instead of silently shortened. Count what it would be uncut.
+    std::size_t full = 0;
+    bool space = true;
+    for (unsigned char c : text) {
+        if (c < 0x20 || c == 0x7F || c == ' ') {
+            space = true;
+            continue;
+        }
+        if (space && full > 0) ++full;  // the single space that replaces a run of whitespace
+        space = false;
+        full += (c & 0xC0) != 0x80;
+    }
+    if (full > static_cast<std::size_t>(kFeedbackReasonMax))
+        return make_error("The reason has " + std::to_string(full) + " characters; the limit is " + std::to_string(kFeedbackReasonMax) + ".",
+                          "Shorten it: say what exists and where it is documented.");
+    return reason;
+}
+
+Result<std::vector<RejectItem>> parse_reject_batch(const std::string& jsonText, const std::string& what) {
+    auto parsed = parse_json(jsonText, what);
+    if (!parsed.ok()) return make_error(parsed.error().message, "The file is a JSON array of {\"shareId\": \"r_8f3k2m\", \"reason\": \"...\"}.");
+    const Json* list = &*parsed;
+    if (parsed->is_object() && parsed->contains("rejections")) list = &(*parsed)["rejections"];
+    if (!list->is_array() || list->empty())
+        return make_error(what + " must be a non-empty JSON array of {shareId, reason} (or {\"rejections\": [...]}).", "Example: [{\"shareId\": \"r_8f3k2m\", \"reason\": \"Tilemap has it: docs/reference/components/rendering.md\"}]");
+    std::vector<RejectItem> items;
+    for (std::size_t i = 0; i < list->size(); ++i) {
+        const Json& v = (*list)[i];
+        const std::string where = what + "[" + std::to_string(i) + "]";
+        if (!v.is_object() || !v.contains("shareId") || !v["shareId"].is_string())
+            return make_error(where + " must be an object with a \"shareId\" text.", "Copy the shareId from `feedback pull` (the 'remote' field of an inbox entry).");
+        RejectItem it;
+        it.shareId = v["shareId"].get<std::string>();
+        if (!is_safe_token(it.shareId)) return make_error(where + ": '" + it.shareId + "' is not a shareId.", "A shareId is letters, digits, '_' and '-', like r_8f3k2m.");
+        auto reason = checked_reject_reason(v.value("reason", std::string()));
+        if (!reason.ok()) return make_error(where + " (" + it.shareId + "): " + reason.error().message, reason.error().hint);
+        it.reason = *reason;
+        items.push_back(std::move(it));
+    }
+    return items;
+}
+
+namespace {
+
+// The installation folders of the inbox.
+std::vector<fsys::path> inbox_installs(const std::string& inbox) {
+    std::vector<fsys::path> out;
+    std::error_code ec;
+    for (fsys::directory_iterator it(inbox, ec), end; !ec && it != end; it.increment(ec))
+        if (it->is_directory(ec) && it->path().filename() != "quarantine" && is_safe_token(it->path().filename().string())) out.push_back(it->path());
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+// Calls fn(mainPath, entry) for the entry with this remote.shareId in the file or its archive of every installation.
+template <class Fn>
+bool for_inbox_entry(const std::string& inbox, const std::string& shareId, Fn fn) {
+    bool found = false;
+    for (const fsys::path& dir : inbox_installs(inbox)) {
+        const std::string main = (dir / kFeedbackFile).string();
+        for (const std::string& path : {main, feedback_archive_path(main)}) {
+            std::error_code ec;
+            if (!fsys::is_regular_file(path, ec)) continue;
+            auto doc = load_feedback(path);
+            if (!doc.ok()) continue;
+            if (Json* e = find_by_share_id(*doc, shareId)) {
+                fn(main, *e);
+                found = true;
+            }
+        }
+    }
+    return found;
+}
+
+Result<VerdictOutcome> send_verdicts(const FeedbackAdminConfig& cfg, const ai::HttpTransport& transport, const std::string& inbox,
+                                     const std::vector<std::pair<std::string, std::string>>& items, bool reject) {
+    VerdictOutcome out;
+    constexpr std::size_t kBatch = 50;
+    for (std::size_t start = 0; start < items.size(); start += kBatch) {
+        const std::size_t end = std::min(items.size(), start + kBatch);
+        Json body = Json::object();
+        if (reject) {
+            Json list = Json::array();
+            for (std::size_t i = start; i < end; ++i) list.push_back(Json::object({{"shareId", items[i].first}, {"reason", items[i].second}}));
+            body["rejections"] = list;
+        } else {
+            Json ids = Json::array();
+            for (std::size_t i = start; i < end; ++i) ids.push_back(items[i].first);
+            body["shareIds"] = ids;
+        }
+        auto res = feedback_admin_request(cfg, transport, "POST", reject ? "/v1/admin/reject" : "/v1/admin/unreject", &body);
+        if (!res.ok())
+            return make_error(res.error().message + (start > 0 ? " (" + std::to_string(out.done.size()) + " of " + std::to_string(items.size()) + " were done before this)" : std::string()),
+                              res.error().hint.empty() && reject ? "The server may be older than this CLI: run tools/feedback-server/deploy.sh again." : res.error().hint);
+        const Json& doneList = (*res)[reject ? "rejected" : "restored"];
+        if (doneList.is_array())
+            for (const Json& v : doneList)
+                if (v.is_string()) out.done.push_back(v.get<std::string>());
+        if (res->contains("notFound") && (*res)["notFound"].is_array())
+            for (const Json& v : (*res)["notFound"])
+                if (v.is_string()) out.notFound.push_back(v.get<std::string>());
+        // The local side of what the server accepted.
+        for (std::size_t i = start; i < end; ++i) {
+            if (!contains_str(out.done, items[i].first)) continue;
+            const std::string& shareId = items[i].first;
+            std::vector<std::pair<std::string, std::string>> updates;  // main path, entry id
+            for_inbox_entry(inbox, shareId, [&](const std::string& main, const Json& e) { updates.push_back({main, e.value("id", std::string())}); });
+            for (const auto& [main, id] : updates) {
+                auto u = reject ? update_feedback_file(main, id, "rejected", "", {}, items[i].second, "developer")
+                                : update_feedback_file(main, id, "open", "");
+                if (u.ok()) ++out.localMarked;
+            }
+            Json q = load_quarantine_doc(inbox);
+            bool changed = false;
+            for (Json& it : q["items"])
+                if (it.value("shareId", std::string()) == shareId) {
+                    if (reject) it["rejection"] = items[i].second;
+                    else it.erase("rejection");
+                    changed = true;
+                    ++out.localMarked;
+                }
+            if (changed) (void)save_feedback(quarantine_path(inbox), q);
+        }
+    }
+    return out;
+}
+
+}  // namespace
+
+Json VerdictOutcome::to_json(const std::string& doneName) const {
+    return Json::object({{doneName, done}, {"notFound", notFound}, {"localMarked", localMarked}});
+}
+
+Json inbox_suggestions(const std::string& inbox) {
+    Json out = Json::array();
+    for (const fsys::path& dir : inbox_installs(inbox)) {
+        const std::string main = (dir / kFeedbackFile).string();
+        std::error_code ec;
+        if (!fsys::is_regular_file(main, ec)) continue;
+        auto doc = load_feedback(main);
+        if (!doc.ok() || !doc->contains("entries") || !(*doc)["entries"].is_array()) continue;
+        for (const Json& e : (*doc)["entries"]) {
+            if (!e.contains("suggestedRejection") || !e["suggestedRejection"].is_object() || e.value("status", std::string("open")) != "open") continue;
+            if (!e.contains("remote") || !e["remote"].is_object()) continue;
+            out.push_back(Json::object({{"shareId", e["remote"].value("shareId", std::string())}, {"id", e.value("id", std::string())},
+                                        {"installKey", dir.filename().string()}, {"title", e.value("title", std::string())},
+                                        {"reason", e["suggestedRejection"].value("reason", std::string())}}));
+        }
+    }
+    return out;
+}
+
+Result<VerdictOutcome> feedback_reject_reports(const FeedbackAdminConfig& cfg, const ai::HttpTransport& transport, const std::string& inbox,
+                                               const std::vector<RejectItem>& items) {
+    std::vector<std::pair<std::string, std::string>> list;
+    for (const RejectItem& it : items) list.push_back({it.shareId, it.reason});
+    return send_verdicts(cfg, transport, inbox, list, true);
+}
+
+Result<VerdictOutcome> feedback_unreject_reports(const FeedbackAdminConfig& cfg, const ai::HttpTransport& transport, const std::string& inbox,
+                                                 const std::vector<std::string>& shareIds) {
+    std::vector<std::pair<std::string, std::string>> list;
+    for (const std::string& id : shareIds) list.push_back({id, std::string()});
+    return send_verdicts(cfg, transport, inbox, list, false);
+}
+
+Result<int> feedback_keep_reports(const std::string& inbox, const std::vector<std::string>& shareIds) {
+    int changed = 0;
+    for (const fsys::path& dir : inbox_installs(inbox)) {
+        const std::string main = (dir / kFeedbackFile).string();
+        std::error_code ec;
+        if (!fsys::is_regular_file(main, ec)) continue;
+        auto doc = load_feedback(main);
+        if (!doc.ok() || !doc->contains("entries") || !(*doc)["entries"].is_array()) continue;
+        bool dirty = false;
+        for (Json& e : (*doc)["entries"]) {
+            if (!e.contains("suggestedRejection")) continue;
+            const std::string shareId = e.contains("remote") && e["remote"].is_object() ? e["remote"].value("shareId", std::string()) : std::string();
+            if (!shareIds.empty() && !contains_str(shareIds, shareId)) continue;
+            e.erase("suggestedRejection");
+            dirty = true;
+            ++changed;
+        }
+        if (dirty)
+            if (auto w = save_feedback(main, *doc); !w.ok()) return make_error("Cannot write " + main + ": " + w.error().message);
+    }
+    return changed;
 }
 
 // -------------------------------------------------------------------------------------------- ban keys, local delete
@@ -719,6 +930,13 @@ std::string fixed_add_offer(const Json& entry) {
         quoted += c;
     }
     return "factoria feedback fixed add --category " + category + " --title \"" + quoted + "\" --version <the engine version that ships the fix, now " + FA_ENGINE_VERSION + ">";
+}
+
+std::string reject_offer(const Json& entry) {
+    if (!entry.is_object() || !entry.contains("remote") || !entry["remote"].is_object()) return {};
+    const std::string shareId = entry["remote"].value("shareId", std::string());
+    if (shareId.empty()) return {};
+    return "factoria feedback reject " + shareId + " --reason \"<what the engine has and where it is documented>\"";
 }
 
 }  // namespace fa::cli

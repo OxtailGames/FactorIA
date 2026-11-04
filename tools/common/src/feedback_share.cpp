@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <future>
+#include <map>
 #include <memory>
 #include <random>
 #include <thread>
@@ -310,7 +311,7 @@ bool entry_is_shareable(const Json& e) {
     if (!e.contains("share") || !e["share"].is_object()) return false;
     if (e.contains("shared") && e["shared"].is_object()) {
         const std::string st = e["shared"].value("status", std::string());
-        if (st == "rejected") return false;
+        if (st == "rejected" || st == "declined") return false;  // refused by the server / rejected by the engine developer
         // A gap hit again after it was sent goes again (the server counts one more occurrence for this installation),
         // up to the most occurrences the developer's ranking counts.
         if (st == "sent")
@@ -894,6 +895,112 @@ Json share_report_summary(const ShareEnv& env, const std::string& feedbackFile, 
     return done("queued", "Queued; it is sent with the next report.");
 }
 
+// ------------------------------------------------------------------------------------------------------- verdicts, discard
+
+void share_discard(const ShareEnv& env, const std::string& feedbackFile, const std::vector<std::string>& ids) {
+    Outbox box = load_outbox(env);
+    const std::size_t before = box.items.size();
+    box.items.erase(std::remove_if(box.items.begin(), box.items.end(),
+                                   [&](const OutboxItem& it) { return it.file == feedbackFile && contains(ids, it.localId); }),
+                    box.items.end());
+    if (box.items.size() != before) (void)save_outbox(env, box);
+}
+
+namespace {
+
+struct SentEntry {
+    std::string localId, status, reason;  // status: the entry's `shared.status` (sent | declined)
+};
+
+}  // namespace
+
+VerdictResult share_sync_verdicts(const ShareEnv& env, const std::string& feedbackFile, double timeoutSec) {
+    VerdictResult res;
+    auto finish = [&](const std::string& outcome, const std::string& message) {
+        res.outcome = outcome;
+        res.message = message;
+        return res;
+    };
+    const ShareSettings settings = load_share_settings(env);
+    if (settings.mode != ShareMode::Always && settings.mode != ShareMode::Ask)
+        return finish("off", "Sharing is not on: the engine developer's answers are not asked for.");
+    const std::string endpoint = share_endpoint(env, settings);
+    if (endpoint.empty()) return finish("unavailable", share_unavailable_message());
+    // The shareIds of this file's own sent entries (also the archived ones): the server only answers for this installation's reports.
+    std::map<std::string, SentEntry> byShareId;
+    for (const std::string& path : {feedbackFile, feedback_archive_path(feedbackFile)}) {
+        if (!stdfs::exists(path)) continue;
+        auto doc = load_feedback(path);
+        if (!doc.ok() || !doc->is_object() || !doc->contains("entries") || !(*doc)["entries"].is_array()) continue;
+        for (const Json& e : (*doc)["entries"]) {
+            if (!e.is_object() || !e.contains("shared") || !e["shared"].is_object()) continue;
+            const std::string st = e["shared"].value("status", std::string());
+            const std::string shareId = e["shared"].value("shareId", std::string());
+            if ((st != "sent" && st != "declined") || shareId.empty()) continue;
+            byShareId[shareId] = {e.value("id", std::string()), st, e["shared"].value("reason", std::string())};
+        }
+    }
+    if (byShareId.empty()) return finish("idle", "No sent entry to ask about.");
+    auto install = ensure_install_id(env);
+    if (!install.ok()) return finish("failed", install.error().message);
+
+    std::vector<std::string> ids;
+    for (const auto& [shareId, entry] : byShareId) {
+        ids.push_back(shareId);
+        if (ids.size() >= std::size_t(kShareMaxVerdictIds)) break;
+    }
+    HttpRequest req;
+    req.method = "POST";
+    req.url = endpoint + "/v1/verdicts";
+    req.timeoutSec = timeoutSec;
+    req.maxResponseBytes = 256 * 1024;
+    req.headers = {{"Content-Type", "application/json"}, {"Accept", "application/json"}, {"X-Factoria-Install", install.value()}};
+    if (!settings.credential.empty()) req.headers.push_back({"Authorization", "Bearer " + settings.credential});
+    req.body = Json::object({{"format", kFeedbackShareFormat}, {"shareIds", ids}}).dump();
+    const HttpResponse resp = env.send(req);
+    if (!resp.ok) return finish("failed", "Could not reach the feedback server (" + (resp.error.empty() ? std::string("the request failed") : resp.error) + ").");
+    // A server from before the verdicts answers 404 (or 405): nothing to learn from it, and nothing is wrong.
+    if (resp.status == 404 || resp.status == 405) return finish("unsupported", "This feedback server does not give verdicts yet.");
+    Json body = Json::parse(resp.body, nullptr, false);
+    if (resp.status != 200 || !body.is_object() || !body.value("ok", false) || !body.contains("verdicts") || !body["verdicts"].is_array())
+        return finish("failed", server_message(body, "the server answered " + std::to_string(resp.status)));
+    res.checked = int(ids.size());
+    for (const Json& v : body["verdicts"]) {
+        if (!v.is_object()) continue;
+        const std::string shareId = v.value("shareId", std::string());
+        const auto found = byShareId.find(shareId);
+        if (found == byShareId.end()) continue;  // not one of ours: ignored, whatever the server said
+        const SentEntry& entry = found->second;
+        const std::string verdict = v.value("status", std::string());
+        if (verdict == "rejected") {
+            std::string reason = sanitize_status_reason(v.value("reason", std::string()));
+            if (reason.empty()) reason = "The engine developers rejected this report without giving a reason.";
+            if (entry.status == "declined" && entry.reason == reason) continue;  // already known
+            write_entry_shared(feedbackFile, entry.localId, shared_state(env, "declined", reason, shareId));
+            auto u = update_feedback_file(feedbackFile, entry.localId, "rejected", "", {}, reason, "developer");
+            if (u.ok()) {
+                ++res.declined;
+                res.changed.push_back(entry.localId);
+            }
+        } else if (entry.status == "declined") {
+            // The developer took the rejection back: the entry is sent again, and open again when the developer closed it.
+            write_entry_shared(feedbackFile, entry.localId, shared_state(env, "sent", {}, shareId));
+            for (const std::string& path : {feedbackFile, feedback_archive_path(feedbackFile)}) {
+                if (!stdfs::exists(path)) continue;
+                auto doc = load_feedback(path);
+                if (!doc.ok()) continue;
+                for (const Json& e : (*doc)["entries"])
+                    if (e.value("id", std::string()) == entry.localId && e.value("status", std::string()) == "rejected" &&
+                        e.value("statusBy", std::string()) == "developer")
+                        (void)update_feedback_file(feedbackFile, entry.localId, "open", "");
+            }
+            ++res.restored;
+            res.changed.push_back(entry.localId);
+        }
+    }
+    return finish("ok", std::to_string(res.declined) + " rejected by the engine developers, " + std::to_string(res.restored) + " taken back.");
+}
+
 // ---------------------------------------------------------------------------------------------------------------- commands
 
 namespace {
@@ -991,6 +1098,27 @@ void register_feedback_share_commands(CommandRegistry& registry, const std::stri
             "and failed ones with their reason and when they are retried. Use it to tell the user why a report was not sent.";
         info.inputSchema = Json::object({{"type", "object"}, {"properties", Json::object()}});
         registry.add(info, [](const Json&) { return share_status(share_env()); });
+    }
+    {
+        CommandInfo info;
+        info.name = "feedback.verdicts";
+        info.category = "feedback";
+        info.readOnly = false;
+        info.summary = "Ask the feedback server what the engine developers decided about the reports this installation sent.";
+        info.description =
+            "Asks POST /v1/verdicts for the entries of this project's ENGINE_FEEDBACK.json (and its archive) that were sent, by their "
+            "shareIds, authenticated by the installation header: only this installation's reports are answered. A report the engine "
+            "developers rejected becomes status rejected (statusBy developer, statusReason = their reason, shared.status declined); a "
+            "rejection they took back reopens it. The editor asks by itself about every 30 minutes. Needs the sharing mode always or ask; "
+            "a server without verdicts changes nothing. Result: {outcome, checked, declined, restored, changed[], message}. Example: {}";
+        info.inputSchema = Json::object({{"type", "object"}, {"properties", Json::object()}});
+        registry.add(info, [projectDir](const Json&) {
+            const std::string file = feedback_file_for(projectDir);
+            if (!stdfs::exists(file)) throw CommandError("not_found", "No ENGINE_FEEDBACK.json yet.", "Nothing was sent, so there is nothing to ask about.");
+            const VerdictResult r = share_sync_verdicts(share_env(), file, 10.0);
+            return Json::object({{"outcome", r.outcome}, {"message", r.message}, {"checked", r.checked}, {"declined", r.declined},
+                                 {"restored", r.restored}, {"changed", r.changed}});
+        });
     }
     {
         CommandInfo info;

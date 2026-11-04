@@ -37,6 +37,8 @@ constexpr const char* kRules = R"(# Rules
 5. Keep edits inside the project directory. Prefer the dedicated tools over raw file edits when one exists.
 6. ALWAYS record engine gaps with feedback_report before finishing: whenever the engine lacked a feature, an
    error was confusing, or you needed a workaround, add an entry (what was missing, workaround, suggestion).
+   Check first that the engine really lacks it (docs_search, docs_components or feedback_check): a report whose
+   missing thing exists is refused; if it exists but misbehaves, report a bug (what you set, expected, got).
 7. Finish with a short summary: what you changed, how you verified it, open problems.)";
 
 // %TOOL% = the delegation tool: agent_delegate (built-in loop) or ai_run (CLI agents, through the FactorIA MCP server).

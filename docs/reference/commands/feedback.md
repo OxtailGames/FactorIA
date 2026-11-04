@@ -6,9 +6,25 @@
 
 Since 0.4.0.
 
-Move the closed feedback entries (fixed-in-engine, wont-fix, duplicate) to the archive file.
+Move the closed feedback entries (fixed-in-engine, wont-fix, duplicate, rejected) to the archive file.
 
 ENGINE_FEEDBACK.json should only hold what is still open: this moves every entry whose status is not open to ENGINE_FEEDBACK.archive.json next to it (same format). Ids stay unique across both files and keep counting up; a new report that matches an archived fixed-in-engine entry reopens it (feedback.report says reopened). The editor runs this when it opens the project. Safe to repeat: with nothing closed it changes nothing. feedback.list with includeArchive and `factoria feedback collect` still see the archived entries.
+
+## `feedback.check`
+
+Not released yet (on main after 0.14.1).
+
+Check, before filing, whether the engine already has what a feedback report says is missing.
+
+feedback.report runs this check itself and refuses a report that calls missing something the engine has (a component, a field such as Collider2D.oneWay, a command, a scripting member): the answer names what exists, its doc string and the page that documents it. Call it first with the title, missing and suggestion you are about to file to find out. `exists: true` means do not file: read the docs; if it does not work as documented, file a BUG that says what you tried. `exists: false` lists `related` documentation to read before you decide. A request for an extra option on an existing component (the field is not there) passes. With `entries: true` it checks the OPEN entries already in this project's ENGINE_FEEDBACK.json instead, and with `reject: true` too it rejects the ones it catches (status rejected, statusBy engine, the reason says what exists); a person can reopen one and it is not rejected again. Example: {"title":"No fluid simulation","missing":"There is no liquid solver."}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `title` | string | no | The title you would file. |
+| `missing` | string | no | What you say the engine lacks. |
+| `suggestion` | string | no | The engine change you would propose. |
+| `entries` | boolean | no | Check the open entries of this project's feedback file instead of a new report. |
+| `reject` | boolean | no | With entries: reject the entries the check catches (statusBy engine). |
 
 ## `feedback.check_fixed` (modifies state)
 
@@ -18,6 +34,18 @@ Close the open feedback entries whose gap this engine version fixed.
 
 Every FactorIA release ships a list of the gaps it fixed (feedback/fixed.json, embedded). Each open entry of this project's ENGINE_FEEDBACK.json with the same category (or family) and a similar title (`title` or `share.title`, similarity 0.7) becomes fixed-in-engine with engineIssue "FactorIA <version>" and a note to check whether the workaround can go; feedback.archive then moves it to the archive. The editor runs this when it opens the project. Reporting the gap again reopens it as a possible regression. Safe to repeat. Example: {}
 
+## `feedback.delete` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Delete a closed feedback entry (rejected, wont-fix, duplicate, fixed) from the file and its archive.
+
+Removes entry `id` from ENGINE_FEEDBACK.json or ENGINE_FEEDBACK.archive.json for good, and takes it out of the sharing outbox. Only a closed entry can go (any status but open), or an open one the engine developer refused (its `shared` says rejected or declined): an open entry is a question for the engine developers, so close it first with feedback.update. Its id is not given again. What was already sent to the engine developer stays with them. The editor's Feedback panel offers this with a confirmation. Example: {"id":"FB-0004"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Entry id, e.g. FB-0004. |
+
 ## `feedback.list`
 
 List the engine-feedback entries recorded for this project.
@@ -26,7 +54,7 @@ Check this before reporting to see what is already recorded. Filters are optiona
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `status` | string ["open","fixed-in-engine","wont-fix","duplicate"] | no | Only entries with this status. |
+| `status` | string ["open","fixed-in-engine","wont-fix","duplicate","rejected"] | no | Only entries with this status. |
 | `category` | string ["rendering-2d","rendering-3d","physics","audio","input","ui","scripting","scene","assets","animation","tooling","ai-integration","docs","platform","performance","networking","other"] | no | Only this category. |
 | `severity` | string ["blocker","major","minor","nice-to-have"] | no | Only this severity. |
 | `includeArchive` | boolean | no | Also list the archived (closed) entries, marked archived: true. |
@@ -36,9 +64,11 @@ Check this before reporting to see what is already recorded. Filters are optiona
 Record an engine gap (missing feature, bug, confusing doc) and the workaround you used.
 
 CALL THIS WHENEVER the engine lacked a feature or had a bug/limitation and you built a workaround or gave up on something, right when it happens (not at the end). Examples: a component field you expected does not exist; an error message did not say how to fix the problem; a documented API behaves differently; you had to emulate a feature in JavaScript; a command you wanted is missing.
-The entry is appended to the project's ENGINE_FEEDBACK.json, which engine developers aggregate to decide what to build next. Reporting a gap similar to an open one merges into it (occurrences + 1), so duplicates are harmless. A gap the engine already fixed (archived, see feedback.archive) and that you report again reopens the archived entry as a possible regression. Write 'title' as a short noun phrase ("No one-way platforms"), 'missing' as what you needed and why, 'workaround' as what you did instead and where (list files in workaroundFiles), 'suggestion' as the concrete engine change that would remove the workaround.
-SHARE (optional, strongly recommended): `share` is the same gap written for the ENGINE DEVELOPER, who must never learn what the game is about. Write it in engine terms only: components, fields, commands and API names that exist (or that you propose), and NOTHING about the game: no game, character, level, scene, entity, asset or script names, no file names or paths, no quotes from the game, no story. {title (8-120 characters), missing (20-1500, at least 4 words), suggestion?, workaround? (the kind of workaround, without project details)}. Good: {"title":"No one-way platforms","missing":"Collider2D has no one-way option, so a body cannot pass up through a platform and land on it.","suggestion":"Add Collider2D.oneWay (bool).","workaround":"A script disables the collider while the body moves up."}. Bad: "The knight in Dungeon of Ash cannot jump through scripts/ledge.js platforms" (names the game, a character and a file). Check the docs first (docs.search) so the gap is real and about the engine, then pass reviewed: true. An entry without `share` is never sent. Whether anything is sent is the USER's choice (mode always, ask or never): the result's `share` says what happened, and no command changes the mode, so do not try; if it says sharing is not set up, tell the user how to turn it on, once.
-Example: {"category":"physics","severity":"major","title":"No one-way platforms","missing":"Collider2D has no one-way option so the player cannot jump up through platforms.","workaround":"scripts/one_way.js disables the platform collider while the player moves upward.","workaroundFiles":["scripts/one_way.js"],"suggestion":"Add Collider2D.oneWay (bool).","share":{"title":"No one-way platforms","missing":"Collider2D has no one-way option, so a body cannot pass up through a platform and land on it.","suggestion":"Add Collider2D.oneWay (bool)."},"reviewed":true}
+The entry is appended to the project's ENGINE_FEEDBACK.json, which engine developers aggregate to decide what to build next. Reporting a gap similar to an open one merges into it (occurrences + 1), so duplicates are harmless. A gap the engine already fixed (archived, see feedback.archive) and that you report again reopens the archived entry as a possible regression.
+CHECK BEFORE YOU FILE: models often report as missing something the engine has (a component field, a command, a scripting member). Search first: docs.search for the thing, docs.components for the fields of the component you mean, or call feedback.check with your title/missing/suggestion. This command runs the same check and REFUSES a report whose missing thing exists, naming what exists and the page that documents it. If it exists but does not work as documented, file a BUG instead: say what you set, what you expected and what happened. A request for an extra option on an existing component is fine. The examples below are INVENTED to show the shape: do not copy or adapt them.
+Write 'title' as a short noun phrase ("No fluid simulation"), 'missing' as what you needed and why, 'workaround' as what you did instead and where (list files in workaroundFiles), 'suggestion' as the concrete engine change that would remove the workaround.
+SHARE (optional, strongly recommended): `share` is the same gap written for the ENGINE DEVELOPER, who must never learn what the game is about. Write it in engine terms only: components, fields, commands and API names that exist (or that you propose), and NOTHING about the game: no game, character, level, scene, entity, asset or script names, no file names or paths, no quotes from the game, no story. {title (8-120 characters), missing (20-1500, at least 4 words), suggestion?, workaround? (the kind of workaround, without project details)}. Good (invented): {"title":"No fluid simulation","missing":"There is no liquid solver, so water cannot flow around bodies and fill a container.","suggestion":"Add a particle-based Fluid2D component.","workaround":"A script moves sprites to fake a water surface."}. Bad: "The knight in Dungeon of Ash cannot jump through scripts/ledge.js platforms" (names the game, a character and a file). Check the docs first (docs.search) so the gap is real and about the engine, then pass reviewed: true. An entry without `share` is never sent. Whether anything is sent is the USER's choice (mode always, ask or never): the result's `share` says what happened, and no command changes the mode, so do not try; if it says sharing is not set up, tell the user how to turn it on, once.
+Example (an invented gap, only to show the fields): {"category":"physics","severity":"major","title":"No fluid simulation","missing":"There is no liquid solver, so water cannot flow around bodies and fill a container.","workaround":"scripts/water.js moves sprites to fake a water surface.","workaroundFiles":["scripts/water.js"],"suggestion":"Add a particle-based Fluid2D component.","share":{"title":"No fluid simulation","missing":"There is no liquid solver, so water cannot flow around bodies and fill a container.","suggestion":"Add a particle-based Fluid2D component."},"reviewed":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -88,13 +118,22 @@ Reports the mode the USER chose (unset, always, ask or never; no command changes
 
 ## `feedback.update` (modifies state)
 
-Change the status of a feedback entry or link it to an engine issue.
+Change the status of a feedback entry (with a reason when it is rejected) or link it to an engine issue.
 
-Engine developers use this when a gap is fixed (status fixed-in-engine), rejected (wont-fix) or duplicated; the entry moves to the archive on the next feedback.archive (the editor runs it when it opens the project). An archived entry is found too, and set to open it moves back to the file. Example: {"id":"FB-0001","status":"fixed-in-engine","engineIssue":"#42"}
+Engine developers use this when a gap is fixed (status fixed-in-engine), will not be done (wont-fix) or duplicated; the entry moves to the archive on the next feedback.archive (the editor runs it when it opens the project). Status `rejected` means the entry claims a gap the engine does not have (the thing exists, or it is not about the engine): it REQUIRES `statusReason`, a sentence the person reads in the editor (what exists and where it is documented). A reason may also be given with wont-fix and duplicate. An archived entry is found too, and set to open it moves back to the file (its reason is removed). Example: {"id":"FB-0001","status":"fixed-in-engine","engineIssue":"#42"} or {"id":"FB-0002","status":"rejected","statusReason":"The field exists: see the Collider2D page of the reference."}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | Entry id, e.g. FB-0001. |
-| `status` | string ["open","fixed-in-engine","wont-fix","duplicate"] | no | New status. |
+| `status` | string ["open","fixed-in-engine","wont-fix","duplicate","rejected"] | no | New status. |
+| `statusReason` | string | no | Why (at most 500 characters, plain text). Required with status rejected; shown to the person in the editor. |
 | `engineIssue` | string | no | Issue/PR link or id. |
+
+## `feedback.verdicts` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Ask the feedback server what the engine developers decided about the reports this installation sent.
+
+Asks POST /v1/verdicts for the entries of this project's ENGINE_FEEDBACK.json (and its archive) that were sent, by their shareIds, authenticated by the installation header: only this installation's reports are answered. A report the engine developers rejected becomes status rejected (statusBy developer, statusReason = their reason, shared.status declined); a rejection they took back reopens it. The editor asks by itself about every 30 minutes. Needs the sharing mode always or ask; a server without verdicts changes nothing. Result: {outcome, checked, declined, restored, changed[], message}. Example: {}
 

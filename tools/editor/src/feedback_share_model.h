@@ -23,7 +23,7 @@ struct ShareColumn {
     std::string tooltip;  // why: the reason of a rejection or a skip, what waiting means...
 };
 // What the share column shows for a feedback entry: no `share` -> "-" (not shared: it stays on this computer); `share` with no
-// `shared` -> "not shared"; shared.status pending -> "waiting", sent -> "sent", rejected -> "rejected" (reason), skipped -> "skipped".
+// `shared` -> "not shared"; shared.status pending -> "waiting", sent -> "sent", rejected -> "rejected" (reason), declined (the engine developers rejected the report) -> "declined" (their reason), skipped -> "skipped".
 ShareColumn share_column(const Json& entry);
 
 // The four texts of `share`.

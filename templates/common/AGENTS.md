@@ -128,12 +128,15 @@ had a bug and you built a workaround or dropped the feature, record it immediate
 
 - MCP tool `feedback_report`, CLI `factoria feedback add ...` or `factoria call feedback.report '{...}'`,
   or append an object to the `entries` array of `ENGINE_FEEDBACK.json` by hand (schema `schemas/engine-feedback.schema.json`).
+- CHECK FIRST that the engine really lacks it: `docs_search` for the thing, `docs_components` for the fields of the component you mean,
+  or `feedback_check {title, missing, suggestion}`. A report whose missing thing exists (a component field, a command) is refused with
+  where it is documented. If it exists but does not work as documented, report a BUG: what you set, expected and got.
 - Fields: `category`, `severity` (`blocker` | `major` | `minor` | `nice-to-have`), `title` (short
   noun phrase, reuse wording for the same gap), `missing` (what and why you needed it),
   `workaround` (what you did, with `workaroundFiles`), `suggestion` (how the engine could fix it).
 - Reporting the same gap again merges into the existing entry (counts occurrences), so do not
   worry about duplicates. Not reporting is the only wrong choice.
-- `ENGINE_FEEDBACK.json` holds the open entries; closed ones move to `ENGINE_FEEDBACK.archive.json` (never edit it); reporting a fixed gap again reopens it.
+- `ENGINE_FEEDBACK.json` holds the open entries; closed ones (including `rejected`, with its `statusReason`) move to `ENGINE_FEEDBACK.archive.json` (never edit it); reporting a fixed gap again reopens it.
 - `share` (include it in every report): the gap for the engine developer, written in engine terms only (component, field and command names;
   `{title, missing, suggestion?}`, nothing about this game). The user sends feedback from the editor's Send feedback window; an entry
   without `share` only gets a text made from your own words there, less exact than yours. Then run `ai.review_feedback {id}`: a cheap model checks it and sets `reviewed: true`

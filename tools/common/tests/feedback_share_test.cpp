@@ -749,9 +749,10 @@ TEST_CASE("feedback.report: share and reviewed are stored; the answer tells what
     const std::string proj = s.project();
     CommandRegistry registry;
     register_feedback_commands(registry, proj);
-    Json args = Json::object({{"category", "physics"}, {"severity", "major"}, {"title", "No one-way platforms"},
-                              {"missing", "Collider2D has no one-way option"}, {"workaround", "toggled a collider in a script"},
-                              {"share", Share::good_share()}, {"reviewed", true}});
+    const Json cloth_share = Json::parse(R"({"title":"No cloth simulation","missing":"Nothing simulates cloth that drapes over bodies and folds.","suggestion":"Add a cloth solver.","workaround":"A script moves a sprite chain by hand."})");
+    Json args = Json::object({{"category", "physics"}, {"severity", "major"}, {"title", "No cloth simulation"},
+                              {"missing", "Nothing simulates cloth that drapes over bodies"}, {"workaround", "toggled a collider in a script"},
+                              {"share", cloth_share}, {"reviewed", true}});
     SUBCASE("unset: recorded, and the answer says how the USER turns sharing on") {
         auto r = registry.call("feedback.report", args);
         REQUIRE(r.ok);
@@ -760,7 +761,7 @@ TEST_CASE("feedback.report: share and reviewed are stored; the answer tells what
         CHECK(msg.find("factoria feedback sharing") != std::string::npos);
         CHECK(msg.find("Only the user") != std::string::npos);
         const Json e = load_feedback(proj + "/ENGINE_FEEDBACK.json").value()["entries"][0];
-        CHECK(e["share"]["title"] == "No one-way platforms");
+        CHECK(e["share"]["title"] == "No cloth simulation");
         CHECK(e["reviewed"] == true);
         CHECK(s.requests.empty());
         CHECK(load_share_settings(s.env).mode == ShareMode::Unset);  // the command did not change it
