@@ -1,0 +1,43 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "A wolf bites the warden: a short, gritty, higher hit.",
+  "length": 0.18,
+  "layers": [
+    {
+      "pitch": {
+        "freq": 220,
+        "sweep": {
+          "to": 60
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "square"
+        },
+        {
+          "wave": "noise",
+          "gain": 0.65
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 4000
+      },
+      "amp": {
+        "attack": 0.001,
+        "decay": 0.179,
+        "sustain": 0,
+        "curve": 2.5
+      }
+    }
+  ],
+  "macros": {
+    "weight": -0.2,
+    "grit": 0.7,
+    "pitch": 0.2
+  },
+  "variations": {
+    "count": 3,
+    "seed": 5
+  }
+}

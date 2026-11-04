@@ -1,0 +1,30 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "campfire",
+    "components": {
+      "MeshRenderer": {
+        "mesh": "assets/models/campfire.glb",
+        "lods": [
+          {
+            "mesh": "assets/models/campfire.lod1.glb",
+            "distance": 9.04705
+          }
+        ]
+      },
+      "Collider3D": {
+        "shape": "box",
+        "size": [
+          2.26176,
+          0.41,
+          2.22944
+        ],
+        "offset": [
+          0.0,
+          0.205,
+          0.0
+        ]
+      }
+    }
+  }
+}

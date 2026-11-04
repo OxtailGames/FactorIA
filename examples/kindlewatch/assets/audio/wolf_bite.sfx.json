@@ -1,0 +1,84 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "A wolf snaps at the fire or the warden. Three takes.",
+  "length": 0.45,
+  "layers": [
+    {
+      "name": "first bark",
+      "length": 0.22,
+      "pitch": {
+        "freq": 520,
+        "sweep": {
+          "to": 330
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "saw"
+        },
+        {
+          "wave": "noise",
+          "gain": 0.55
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 3000
+      },
+      "amp": {
+        "attack": 0.004,
+        "decay": 0.216,
+        "sustain": 0,
+        "curve": 2.2
+      }
+    },
+    {
+      "name": "second bark",
+      "start": 0.23,
+      "length": 0.22,
+      "gain": 0.8,
+      "pitch": {
+        "freq": 470,
+        "sweep": {
+          "to": 280
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "saw"
+        },
+        {
+          "wave": "noise",
+          "gain": 0.55
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 3000
+      },
+      "amp": {
+        "attack": 0.004,
+        "decay": 0.216,
+        "sustain": 0,
+        "curve": 2.2
+      }
+    }
+  ],
+  "master": {
+    "effects": [
+      {
+        "type": "distortion",
+        "mode": "soft",
+        "drive": 1.6
+      }
+    ]
+  },
+  "macros": {
+    "grit": 0.5,
+    "brightness": 0.2
+  },
+  "variations": {
+    "count": 3,
+    "seed": 4
+  }
+}

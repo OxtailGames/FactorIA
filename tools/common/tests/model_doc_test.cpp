@@ -792,6 +792,8 @@ TEST_CASE("model.game_ready: settings go into the document, the bake writes LODs
     CHECK(doc["gameReady"]["origin"] == "bottom_center");
     CHECK(p.manifest()["assets"].contains("assets/models/ball.lod2.glb"));
     CHECK(model_bake_status(p.dir, "assets/models/ball.model.json").state == ModelBakeState::Fresh);
+    // what the bake records (extras on the model, kind "prefab" on the prefab) is valid for assets.json's schema: project.validate has no error for it
+    for (const ValidationIssue& e : validate_project(p.dir).errors) CHECK_MESSAGE(e.file != "assets.json", e.message);
 
     // a LOD file that is gone makes the document's bake missing
     std::filesystem::remove(p.file("assets/models/ball.lod1.glb"));
