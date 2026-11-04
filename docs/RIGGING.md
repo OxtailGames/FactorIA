@@ -23,11 +23,12 @@ is told with `rig.fit`, look at the result with `rig.info`.
 
 What exists today, and what does not:
 
-| Done here (M59.1, M59.2, M59.3) | Later |
+| Done here (M59.1, M59.2, M59.3, M59.4) | Later |
 |---|---|
-| Templates, the canonical bone names, the fit to a model, the rest pose, the skinned `.glb` | The editor panel (M59.4) |
+| Templates, the canonical bone names, the fit to a model, the rest pose, the skinned `.glb` | |
 | Skin weights: heat diffusion, voxel binding or rigid per part, the `skin` section, `skin3d.*` edits and the weight preview | |
 | 3D bone clips, 3D IK, clip generators, retargeting and the filmstrip preview (M59.3, "Clips, IK and retargeting") | |
+| The editor's Animation panel in 3D: the posed model, a gizmo and IK handles that key a bone, a dopesheet, the filmstrip and the weights sheet (M59.4, [EDITOR.md](EDITOR.md), "Animation panel", "3D bone clips") | |
 
 The file is complete as a skeleton (the joints, their hierarchy and names, and the inverse bind matrices) and as a skin: every
 vertex carries up to four bones with normalised weights, computed from the document each time (see "Skin weights").
@@ -253,7 +254,9 @@ bent by the `IK3D` component; all of it is described in [ANIMATION.md](ANIMATION
 
 - `anim3d.generate {rig, kind}` writes a walk, run, trot, gallop, idle, swing or hit clip from the skeleton's proportions.
 - `anim3d.retarget {path, to, out}` carries a clip to another rig by the (role, index, side) of its bones, keeping planted feet.
-- `anim3d.preview {path, rig}` draws a filmstrip of the clip on the model without a window.
+- `anim3d.preview {path, rig}` draws a filmstrip of the clip on the model without a window (`yaws` for several angles).
+- The editor's Animation panel edits these clips on the posed model: pick a bone, turn it with a gizmo or drag an IK handle, and the result is
+  keyed with `anim3d.set_keys` / `ik3d.key` (see [EDITOR.md](EDITOR.md), "3D bone clips"). Its Weights button is `skin3d.preview`.
 - Keep the same bone names in a rig that a clip names: re-fitting a rig (`rig.fit`) keeps them, but a different `options` (spine
   count, tail segments) changes which bones exist, and a clip that names one that is gone says so (`anim3d.info {path, rig}`).
 
