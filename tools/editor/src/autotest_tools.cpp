@@ -4742,17 +4742,23 @@ void Editor::at_build_tools_script() {
                          feedbackDoc_["entries"][0].value("title", std::string()) == "Written right after the panel read",
                      "the panel lists a write made right after its last read, though the file's time did not move");
         });
-        step(2, [this, x] {
+        // The title is put back until the file has it: on Windows the read can meet the share tick replacing the file (a
+        // sharing violation), and a tick that read the file before this write can write its older copy over it.
+        auto restore_title = [this, x] {
             auto doc = load_json_file(x->path);
-            if (doc.ok() && doc->contains("entries") && !(*doc)["entries"].empty()) {
-                (*doc)["entries"][0]["title"] = x->panelTitle;
-                (void)fs::write_text(engine_->project().feedbackFile, doc->dump(2));
-            }
+            if (!doc.ok() || !doc->contains("entries") || (*doc)["entries"].empty()) return;
+            if ((*doc)["entries"][0].value("title", std::string()) == x->panelTitle) return;
+            (*doc)["entries"][0]["title"] = x->panelTitle;
+            (void)fs::write_text(engine_->project().feedbackFile, doc->dump(2));
             feedbackPolled_ = -10;
-        });
-        wait_until([this, x] {
-            return feedbackDoc_.contains("entries") && !feedbackDoc_["entries"].empty() &&
-                   feedbackDoc_["entries"][0].value("title", std::string()) == x->panelTitle;
+        };
+        step(2, [restore_title] { restore_title(); });
+        wait_until([this, x, restore_title] {
+            if (feedbackDoc_.contains("entries") && !feedbackDoc_["entries"].empty() &&
+                feedbackDoc_["entries"][0].value("title", std::string()) == x->panelTitle)
+                return true;
+            if (atWaitCount_ % 30 == 29) restore_title();
+            return false;
         });
         step(1, [this, x] {
             at_check(feedbackDoc_.contains("entries") && !feedbackDoc_["entries"].empty() &&
