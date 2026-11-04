@@ -25,6 +25,12 @@ Controls: W/A/S/D or the arrows roll the ball relative to the camera, Space jump
 - `tools/scatter_gems.js`: project tool `project.scatter_gems`. Places N gems on the platforms (entities tagged
   `platform`), deterministically from a seed. The game manager calls it on start, so the layout is the same on
   every run: `factoria call project.scatter_gems '{"count":8,"seed":7,"clear":true}'`.
+- `assets/models/scout.model.json`, `scout.rig.json`, `assets/anim/scout_walk.anim.json`, `scout_idle.anim.json`: the scout, a character
+  made entirely with the engine, no imported file. The model is primitives (capsules, a sphere, rounded boxes; docs/MODELING.md); `rig.create`
+  fitted a humanoid skeleton to it with automatic skin weights and baked `scout.rig.glb` (docs/RIGGING.md; `scout.glb` is the plain model);
+  `anim3d.generate` made the walk and the idle from the skeleton's proportions (docs/ANIMATION.md, "Generators"). Open a clip in the editor's
+  Animation panel (3D bone clips) to key it by hand. `scripts/scout.js` walks a loop at the walk clip's ground speed (no foot sliding) and
+  cross-fades to the idle clip while the ball is near, turned towards it.
 - `tests/gem_roller.test.js`: movement, rolling, moving platforms, gems, falling, the timer, winning, restart and
   every sound (`game.audioLog()`).
 

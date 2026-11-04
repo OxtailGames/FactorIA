@@ -4,7 +4,9 @@
 // filmstrip of anim3d.preview with the software renderer of model.preview (fa/tooling/model_view.h), so a clip can be SEEN without a window.
 #include <algorithm>
 #include <cmath>
+#include <array>
 #include <format>
+#include <map>
 #include <set>
 
 #include "assets_internal.h"
@@ -18,6 +20,7 @@
 #include "fa/scene/ik3d.h"
 #include "fa/scene/rig3d.h"
 #include "fa/scene/skeleton.h"
+#include "fa/tooling/anim3d_tools.h"
 #include "fa/tooling/model_view.h"
 #include "fa/tooling/project_fs.h"
 #include "fa/tooling/rig_bake.h"
@@ -123,6 +126,21 @@ void check_can_write(const char* command, const std::string& projectDir, const s
 void write_clip_json(const std::string& projectDir, const std::string& rel, const Json& json) {
     std::string err;
     if (!tooling_detail::write_file(project_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
+    clear_anim3d_cache();  // the next load reads the file again, whatever its modification time says
+}
+
+// The clip file as it is now, or null when it does not exist or is not readable JSON: what anim3d.restore puts back.
+Json clip_before(const std::string& projectDir, const std::string& rel) {
+    auto text = tooling_detail::read_file(project_file(projectDir, rel));
+    if (!text) return nullptr;
+    auto json = parse_json(*text, rel);
+    return json.ok() ? *json : Json(nullptr);
+}
+
+// {command, args} that puts the clip back to `before` (null = the file did not exist: delete it). Every writing anim3d.* command returns it
+// as `undo`, so an editor or an AI can step back; the result of calling it carries the undo that goes forward again.
+Json undo_restore(const std::string& rel, const Json& before) {
+    return obj({{"command", "anim3d.restore"}, {"args", obj({{"path", rel}, {"clip", before}})}});
 }
 
 // ---- rigs ---------------------------------------------------------------------------------------------------------------------------------
@@ -200,6 +218,12 @@ Json string_list(const std::vector<std::string>& v) {
     return j;
 }
 
+std::string join_numbers(const std::vector<double>& v) {
+    std::string out;
+    for (double d : v) out += (out.empty() ? "" : ", ") + std::format("{:.0f}", d);
+    return out;
+}
+
 // ---- anim3d.generators / create / info ----------------------------------------------------------------------------------------------------
 
 Json anim3d_generators_command(const Json& a) {
@@ -255,8 +279,9 @@ Json anim3d_create_command(const std::string& projectDir, const Json& a) {
     doc["tracks"] = Json::array();
     parse_clip_or_fail(doc, rel);
     check_can_write("anim3d.create", projectDir, rel, tooling_detail::arg_bool(a, "overwrite", false));
+    const Json before = clip_before(projectDir, rel);
     write_clip_json(projectDir, rel, doc);
-    Json r = obj({{"path", rel}, {"duration", duration}, {"loop", doc["loop"]}, {"rotation", rotation}});
+    Json r = obj({{"path", rel}, {"duration", duration}, {"loop", doc["loop"]}, {"rotation", rotation}, {"undo", undo_restore(rel, before)}});
     r["nextSteps"] = Json::array({"anim3d.set_keys {\"path\":\"" + rel + "\",\"bone\":\"spine_1\",\"keys\":[{\"t\":0,\"value\":[0,0,0]},{\"t\":0.5,\"value\":[10,0,0],\"interp\":\"quadInOut\"}]} adds the keys of one bone (euler degrees: pitch, yaw, roll).",
                                   "anim3d.generate writes a whole walk, run, idle, swing or hit clip from a rig instead."});
     return r;
@@ -337,6 +362,7 @@ Json anim3d_set_keys_command(const std::string& projectDir, const Json& a) {
     if (!a.contains("keys") || !a["keys"].is_array() || a["keys"].empty())
         fail("invalid_argument", "anim3d.set_keys: give `keys`, a list of {t, value, interp} (value is [x, y, z]).", "Example: \"keys\":[{\"t\":0,\"value\":[0,0,0]},{\"t\":0.5,\"value\":[20,0,0],\"interp\":\"quadInOut\"}].");
     Json doc = read_clip_json(projectDir, rel);
+    const Json before = doc;
     if (a.contains("rig") && !a["rig"].is_null()) {
         const RigHold rig = rig_from_args("anim3d.set_keys", projectDir, a);
         if (rig.rig.find(bone) < 0)
@@ -371,7 +397,7 @@ Json anim3d_set_keys_command(const std::string& projectDir, const Json& a) {
     std::stable_sort(keys.begin(), keys.end(), [](const Json& x, const Json& y) { return x["t"].get<double>() < y["t"].get<double>(); });
     const auto clip = parse_clip_or_fail(doc, rel);  // a refused edit leaves the file as it was
     write_clip_json(projectDir, rel, anim3d_to_json(*clip));
-    Json r = obj({{"path", rel}, {"bone", bone}, {"channel", anim3d_channel_name(channel)}, {"added", added}, {"replaced", replaced}, {"duration", round_to(clip->duration, 4)}});
+    Json r = obj({{"path", rel}, {"bone", bone}, {"channel", anim3d_channel_name(channel)}, {"added", added}, {"replaced", replaced}, {"duration", round_to(clip->duration, 4)}, {"undo", undo_restore(rel, before)}});
     for (const Anim3DTrack& t : clip->tracks)
         if (t.bone == bone && t.channel == channel) r["keys"] = t.keys.size();
     r["nextSteps"] = Json::array({"anim3d.preview {\"path\":\"" + rel + "\",\"rig\":...} draws the clip as a filmstrip; keys at the same time as an existing one replace it."});
@@ -387,6 +413,7 @@ Json anim3d_remove_track_command(const std::string& projectDir, const Json& a) {
     const bool oneChannel = a.contains("channel") && !a["channel"].is_null();
     const Anim3DChannel channel = oneChannel ? channel_arg("anim3d.remove_track", a) : Anim3DChannel::Rotation;
     Json doc = read_clip_json(projectDir, rel);
+    const Json before = doc;
     Json kept = Json::array();
     Json removed = Json::array();
     std::vector<std::string> existing;
@@ -408,8 +435,439 @@ Json anim3d_remove_track_command(const std::string& projectDir, const Json& a) {
     doc["tracks"] = kept;
     const auto clip = parse_clip_or_fail(doc, rel);
     write_clip_json(projectDir, rel, anim3d_to_json(*clip));
-    Json r = obj({{"path", rel}, {"bone", bone}, {"removed", removed}, {"tracks", clip->tracks.size()}});
+    Json r = obj({{"path", rel}, {"bone", bone}, {"removed", removed}, {"tracks", clip->tracks.size()}, {"undo", undo_restore(rel, before)}});
     r["nextSteps"] = Json::array({"anim3d.set_keys adds a track back."});
+    return r;
+}
+
+// ---- undo, key references, the edit commands of the Animation panel ---------------------------------------------------------------------
+
+Json round_floats(const std::array<float, 4>& v, int comps) {
+    Json out = Json::array();
+    for (int i = 0; i < comps; ++i) out.push_back(round_to(double(v[std::size_t(i)]), 5));
+    return out;
+}
+
+// Checks the edited document with the loader's rules (a refused edit leaves the file as it was), writes it canonical and builds the result.
+Json commit_clip(const std::string& projectDir, const std::string& rel, const Json& before, const Json& edited, Json extra = Json::object()) {
+    const auto clip = parse_clip_or_fail(edited, rel);
+    write_clip_json(projectDir, rel, anim3d_to_json(*clip));
+    Json r = clip_summary(*clip);
+    r["path"] = rel;
+    for (auto it = extra.begin(); it != extra.end(); ++it) r[it.key()] = *it;
+    r["undo"] = undo_restore(rel, before);
+    return r;
+}
+
+// Sets (or adds) the key at time `t` of the (bone, channel) track in `doc`; interp "" keeps what an existing key has.
+void put_key(Json& doc, const std::string& bone, Anim3DChannel channel, double t, const Json& value, const std::string& interp) {
+    if (!doc.contains("tracks") || !doc["tracks"].is_array()) doc["tracks"] = Json::array();
+    int index = find_track_json(doc, bone, channel);
+    if (index < 0) {
+        doc["tracks"].push_back(obj({{"bone", bone}, {"channel", anim3d_channel_name(channel)}, {"keys", Json::array()}}));
+        index = int(doc["tracks"].size()) - 1;
+    }
+    Json& keys = doc["tracks"][std::size_t(index)]["keys"];
+    bool done = false;
+    for (Json& old : keys)
+        if (std::fabs(old["t"].get<double>() - t) < kTimeEps) {
+            old["value"] = value;
+            old.erase("in");
+            old.erase("out");
+            if (!interp.empty()) old["interp"] = interp;
+            done = true;
+            break;
+        }
+    if (!done) {
+        Json key = obj({{"t", t}, {"value", value}});
+        if (!interp.empty()) key["interp"] = interp;
+        keys.push_back(key);
+    }
+    std::stable_sort(keys.begin(), keys.end(), [](const Json& x, const Json& y) { return x["t"].get<double>() < y["t"].get<double>(); });
+}
+
+std::string interp_arg(const char* command, const Json& a, const char* key, bool required) {
+    if (!a.contains(key) || a[key].is_null()) {
+        if (required) fail("invalid_argument", std::string(command) + ": give `" + key + "`: linear, step, bezier or an easing such as quadInOut.", "Example: \"" + std::string(key) + "\":\"quadInOut\".");
+        return "";
+    }
+    std::vector<std::string> names = {"linear", "step", "bezier"};
+    for (const std::string& e : clip_ease_names()) names.push_back(e);
+    if (!a[key].is_string() || std::find(names.begin(), names.end(), a[key].get<std::string>()) == names.end())
+        fail("invalid_argument", std::string(command) + ": `" + key + "` is " + describe_json_value(a[key]) + ", not an interpolation.",
+             (a[key].is_string() ? did_you_mean(a[key].get<std::string>(), names) + " " : std::string()) + "Valid: linear, step, bezier or an easing (" + join(clip_ease_names(), ", ") + ").");
+    return a[key].get<std::string>();
+}
+
+struct KeyRef {
+    std::string bone;
+    Anim3DChannel channel = Anim3DChannel::Rotation;
+    double t = 0;
+};
+
+std::vector<KeyRef> key_refs_arg(const char* command, const Json& a) {
+    if (!a.contains("keys") || !a["keys"].is_array() || a["keys"].empty())
+        fail("invalid_argument", std::string(command) + ": give `keys`, the keys to change as [{bone, channel?, t}].", "Example: \"keys\":[{\"bone\":\"thigh_l\",\"t\":0.5}]. anim3d.info {path} lists the tracks; channel defaults to rotation.");
+    std::vector<KeyRef> out;
+    for (std::size_t i = 0; i < a["keys"].size(); ++i) {
+        const Json& k = a["keys"][i];
+        if (!k.is_object() || !k.contains("bone") || !k["bone"].is_string() || !k.contains("t") || !k["t"].is_number())
+            fail("invalid_argument", std::format("{}: keys/{} must be {{bone, channel?, t}}, got {}.", command, i, describe_json_value(k)), "Example: {\"bone\":\"thigh_l\",\"channel\":\"rotation\",\"t\":0.5}.");
+        KeyRef r;
+        r.bone = k["bone"].get<std::string>();
+        r.channel = channel_arg(command, k);
+        r.t = k["t"].get<double>();
+        out.push_back(r);
+    }
+    return out;
+}
+
+// (track index, key index) of a referenced key of `doc`, or a not_found that lists the times the track has.
+std::pair<int, int> locate_key(const char* command, const Json& doc, const KeyRef& r, const std::string& rel) {
+    const int ti = find_track_json(doc, r.bone, r.channel);
+    if (ti < 0) {
+        std::vector<std::string> bones;
+        if (doc.contains("tracks") && doc["tracks"].is_array())
+            for (const Json& t : doc["tracks"])
+                if (t.contains("bone") && t["bone"].is_string()) bones.push_back(t["bone"].get<std::string>());
+        std::sort(bones.begin(), bones.end());
+        bones.erase(std::unique(bones.begin(), bones.end()), bones.end());
+        fail("not_found", std::string(command) + ": '" + rel + "' has no " + anim3d_channel_name(r.channel) + " track for '" + r.bone + "'.",
+             bones.empty() ? "The clip has no tracks." : did_you_mean(r.bone, bones) + " Bones with a track: " + join(bones, ", ") + ".");
+    }
+    const Json& keys = doc["tracks"][std::size_t(ti)]["keys"];
+    std::string times;
+    for (std::size_t k = 0; k < keys.size(); ++k) {
+        if (std::fabs(keys[k]["t"].get<double>() - r.t) < 1e-3) return {ti, int(k)};
+        times += (times.empty() ? "" : ", ") + std::format("{:g}", keys[k]["t"].get<double>());
+    }
+    fail("not_found", std::format("{}: the {} track of '{}' has no key at t={}.", command, anim3d_channel_name(r.channel), r.bone, r.t), "Its keys are at: " + times + ".");
+}
+
+Json anim3d_restore_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("anim3d.restore", a, "", {"path", "clip"});
+    const std::string rel = clip_path_arg("anim3d.restore", a, "path");
+    if (!a.contains("clip")) fail("invalid_argument", "anim3d.restore: give `clip`, the whole document to write, or null to delete the file.", "Every writing anim3d.* command returns the call that undoes it as `undo`.");
+    const Json before = clip_before(projectDir, rel);
+    if (a["clip"].is_null()) {
+        const stdfs::path file = project_file(projectDir, rel);
+        std::error_code ec;
+        if (!stdfs::exists(file, ec)) fail("not_found", "anim3d.restore: '" + rel + "' does not exist, so there is nothing to delete.", "Nothing to undo here.");
+        stdfs::remove(file, ec);
+        if (ec) fail("failed", "anim3d.restore: cannot delete '" + rel + "': " + ec.message(), "Check that the file is not open elsewhere.");
+        clear_anim3d_cache();
+        return obj({{"path", rel}, {"deleted", true}, {"undo", undo_restore(rel, before)}});
+    }
+    if (!a["clip"].is_object() || !is_anim3d_json(a["clip"]))
+        fail("invalid_argument", "anim3d.restore: `clip` is " + describe_json_value(a["clip"]) + ", not a 3D clip document.", "Pass the whole document (format \"" + std::string(kAnim3DFormat) + "\") or null.");
+    return commit_clip(projectDir, rel, before, a["clip"]);
+}
+
+Json anim3d_move_keys_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("anim3d.move_keys", a, "", {"path", "keys", "dt", "extendDuration"});
+    const std::string rel = clip_path_arg("anim3d.move_keys", a, "path");
+    const std::vector<KeyRef> refs = key_refs_arg("anim3d.move_keys", a);
+    const double dt = number_arg("anim3d.move_keys", a, "dt", 0.0, -3600.0, 3600.0, "Seconds to move the keys by (negative = earlier).");
+    const bool extend = tooling_detail::arg_bool(a, "extendDuration", false);
+    const Json before = read_clip_json(projectDir, rel);
+    Json doc = before;
+    std::map<int, std::set<int>> selected;  // track -> key indices
+    for (const KeyRef& r : refs) {
+        const auto [ti, ki] = locate_key("anim3d.move_keys", doc, r, rel);
+        selected[ti].insert(ki);
+    }
+    double duration = doc.value("duration", 1.0);
+    for (auto& [ti, picked] : selected) {
+        Json& keys = doc["tracks"][std::size_t(ti)]["keys"];
+        const std::string bone = doc["tracks"][std::size_t(ti)]["bone"].get<std::string>();
+        std::vector<std::pair<double, int>> moved;  // new time, old index
+        for (int ki : picked) {
+            const double t = round_to(keys[std::size_t(ki)]["t"].get<double>() + dt, 4);
+            if (t < -1e-9) fail("invalid_argument", std::format("anim3d.move_keys: the key of '{}' at t={} would move to t={}, before the start of the clip.", bone, keys[std::size_t(ki)]["t"].get<double>(), t), "Move it by a smaller dt, or move the other keys later first.");
+            if (t > duration + 1e-9) {
+                if (!extend) fail("invalid_argument", std::format("anim3d.move_keys: the key of '{}' would move to t={}, after the end of the clip ({} s).", bone, t, duration), "Pass extendDuration: true to lengthen the clip, or anim3d.set_clip {duration} first.");
+                duration = t;
+            }
+            moved.push_back({std::max(0.0, t), ki});
+        }
+        for (std::size_t i = 0; i < moved.size(); ++i)
+            for (std::size_t j = i + 1; j < moved.size(); ++j)
+                if (std::fabs(moved[i].first - moved[j].first) < kTimeEps)
+                    fail("invalid_argument", std::format("anim3d.move_keys: two keys of '{}' would land on t={}.", bone, moved[i].first), "Select keys that do not collide, or move them by a different dt.");
+        Json next = Json::array();
+        for (std::size_t ki = 0; ki < keys.size(); ++ki) {
+            if (picked.count(int(ki))) continue;
+            bool covered = false;  // a moved key replaces the key it lands on
+            for (const auto& m : moved)
+                if (std::fabs(keys[ki]["t"].get<double>() - m.first) < kTimeEps) covered = true;
+            if (!covered) next.push_back(keys[ki]);
+        }
+        for (const auto& m : moved) {
+            Json k = keys[std::size_t(m.second)];
+            k["t"] = m.first;
+            k.erase("in");  // a moved bezier key gets smooth tangents again
+            k.erase("out");
+            next.push_back(k);
+        }
+        std::stable_sort(next.begin(), next.end(), [](const Json& x, const Json& y) { return x["t"].get<double>() < y["t"].get<double>(); });
+        keys = next;
+    }
+    doc["duration"] = duration;
+    Json r = commit_clip(projectDir, rel, before, doc, obj({{"moved", refs.size()}, {"dt", dt}}));
+    r["nextSteps"] = Json::array({"anim3d.preview {\"path\":\"" + rel + "\"} draws the result."});
+    return r;
+}
+
+Json anim3d_remove_keys_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("anim3d.remove_keys", a, "", {"path", "keys"});
+    const std::string rel = clip_path_arg("anim3d.remove_keys", a, "path");
+    const std::vector<KeyRef> refs = key_refs_arg("anim3d.remove_keys", a);
+    const Json before = read_clip_json(projectDir, rel);
+    Json doc = before;
+    std::map<int, std::set<int>> selected;
+    for (const KeyRef& r : refs) {
+        const auto [ti, ki] = locate_key("anim3d.remove_keys", doc, r, rel);
+        selected[ti].insert(ki);
+    }
+    int emptied = 0;
+    Json tracks = Json::array();
+    for (std::size_t ti = 0; ti < doc["tracks"].size(); ++ti) {
+        Json track = doc["tracks"][ti];
+        auto it = selected.find(int(ti));
+        if (it != selected.end()) {
+            Json keys = Json::array();
+            for (std::size_t ki = 0; ki < track["keys"].size(); ++ki)
+                if (!it->second.count(int(ki))) keys.push_back(track["keys"][ki]);
+            track["keys"] = keys;
+            if (keys.empty()) {
+                ++emptied;
+                continue;  // a track with no key is no track
+            }
+        }
+        tracks.push_back(track);
+    }
+    doc["tracks"] = tracks;
+    Json r = commit_clip(projectDir, rel, before, doc, obj({{"removed", refs.size()}, {"tracksRemoved", emptied}}));
+    r["nextSteps"] = Json::array({"anim3d.set_keys adds keys back."});
+    return r;
+}
+
+Json anim3d_set_interp_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("anim3d.set_interp", a, "", {"path", "keys", "interp"});
+    const std::string rel = clip_path_arg("anim3d.set_interp", a, "path");
+    const std::vector<KeyRef> refs = key_refs_arg("anim3d.set_interp", a);
+    const std::string interp = interp_arg("anim3d.set_interp", a, "interp", true);
+    const Json before = read_clip_json(projectDir, rel);
+    Json doc = before;
+    for (const KeyRef& r : refs) {
+        const auto [ti, ki] = locate_key("anim3d.set_interp", doc, r, rel);
+        Json& key = doc["tracks"][std::size_t(ti)]["keys"][std::size_t(ki)];
+        key["interp"] = interp;
+        if (interp != "bezier") {
+            key.erase("in");
+            key.erase("out");
+        }
+    }
+    return commit_clip(projectDir, rel, before, doc, obj({{"changed", refs.size()}, {"interp", interp}}));
+}
+
+Json anim3d_set_clip_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("anim3d.set_clip", a, "", {"path", "duration", "loop", "groundSpeed", "doc"});
+    const std::string rel = clip_path_arg("anim3d.set_clip", a, "path");
+    if (!a.contains("duration") && !a.contains("loop") && !a.contains("groundSpeed") && !a.contains("doc"))
+        fail("invalid_argument", "anim3d.set_clip: nothing to change.", "Pass `duration`, `loop`, `groundSpeed` and/or `doc`.");
+    const Json before = read_clip_json(projectDir, rel);
+    Json doc = before;
+    if (a.contains("duration")) doc["duration"] = round_to(number_arg("anim3d.set_clip", a, "duration", 1.0, 0.0, 3600.0, "The length of the clip in seconds."), 4);
+    if (a.contains("loop")) {
+        if (!a["loop"].is_boolean()) fail("invalid_argument", "anim3d.set_clip: `loop` must be true or false, got " + describe_json_value(a["loop"]) + ".", "true repeats the clip, false stops on its last pose.");
+        doc["loop"] = a["loop"];
+    }
+    if (a.contains("groundSpeed")) {
+        const double g = number_arg("anim3d.set_clip", a, "groundSpeed", 0.0, 0.0, 1000.0, "Model units per second the ground moves under the planted feet; 0 = in place.");
+        if (g > 0) doc["groundSpeed"] = g;
+        else doc.erase("groundSpeed");
+    }
+    if (a.contains("doc")) {
+        if (!a["doc"].is_string()) fail("invalid_argument", "anim3d.set_clip: `doc` must be a string, got " + describe_json_value(a["doc"]) + ".", "What the clip shows, in a sentence.");
+        if (a["doc"].get<std::string>().empty()) doc.erase("doc");
+        else doc["doc"] = a["doc"];
+    }
+    return commit_clip(projectDir, rel, before, doc);
+}
+
+// An event of `doc` by index or {t, name?}.
+int event_ref(const char* command, const Json& doc, const Json& ref, const std::string& rel) {
+    const Json& events = doc.contains("events") && doc["events"].is_array() ? doc["events"] : Json::array();
+    auto list = [&] {
+        std::string s;
+        for (std::size_t i = 0; i < events.size(); ++i) s += (s.empty() ? "" : ", ") + std::format("{}: {} at {:g}", i, events[i].value("name", std::string()), events[i].value("t", 0.0));
+        return s.empty() ? std::string("The clip has no events (anim3d.add_event adds one).") : "The events: " + s + ".";
+    };
+    if (ref.is_number_integer()) {
+        const long long i = ref.get<long long>();
+        if (i < 0 || std::size_t(i) >= events.size()) fail("not_found", std::format("{}: '{}' has no event {}.", command, rel, i), list());
+        return int(i);
+    }
+    if (ref.is_object() && ref.contains("t") && ref["t"].is_number()) {
+        int found = -1, matches = 0;
+        for (std::size_t i = 0; i < events.size(); ++i) {
+            if (std::fabs(events[i].value("t", -1.0) - ref["t"].get<double>()) > 1e-3) continue;
+            if (ref.contains("name") && events[i].value("name", std::string()) != ref["name"].get<std::string>()) continue;
+            found = int(i);
+            ++matches;
+        }
+        if (matches == 0) fail("not_found", std::format("{}: '{}' has no event at t={}.", command, rel, ref["t"].get<double>()), list());
+        if (matches > 1) fail("invalid_argument", std::format("{}: {} events are at t={}.", command, matches, ref["t"].get<double>()), "Add `name` to {t, name}, or use the index. " + list());
+        return found;
+    }
+    fail("invalid_argument", std::string(command) + ": `event` must be the event's index or {t, name?}, got " + describe_json_value(ref) + ".", list());
+}
+
+Json anim3d_add_event_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("anim3d.add_event", a, "", {"path", "t", "name", "data", "extendDuration"});
+    const std::string rel = clip_path_arg("anim3d.add_event", a, "path");
+    if (!a.contains("name") || !a["name"].is_string() || a["name"].get<std::string>().empty())
+        fail("invalid_argument", "anim3d.add_event: give `name`, the game event this raises.", "Example: {\"t\":0.2,\"name\":\"footstep\",\"data\":{\"foot\":\"left\"}}.");
+    const double t = round_to(number_arg("anim3d.add_event", a, "t", -1.0, 0.0, 3600.0, "Seconds from the start of the clip."), 4);
+    if (!a.contains("t")) fail("invalid_argument", "anim3d.add_event: give `t`, the time of the event in seconds.", "Example: \"t\":0.2.");
+    const Json before = read_clip_json(projectDir, rel);
+    Json doc = before;
+    if (t > doc.value("duration", 1.0) + 1e-9) {
+        if (!tooling_detail::arg_bool(a, "extendDuration", false)) fail("invalid_argument", std::format("anim3d.add_event: t={} is after the end of the clip ({} s).", t, doc.value("duration", 1.0)), "Pass extendDuration: true, or anim3d.set_clip {duration} first.");
+        doc["duration"] = t;
+    }
+    Json ev = obj({{"t", t}, {"name", a["name"]}});
+    if (a.contains("data") && !a["data"].is_null()) ev["data"] = a["data"];
+    if (!doc.contains("events") || !doc["events"].is_array()) doc["events"] = Json::array();
+    doc["events"].push_back(ev);
+    return commit_clip(projectDir, rel, before, doc, obj({{"event", ev}}));
+}
+
+Json anim3d_set_event_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("anim3d.set_event", a, "", {"path", "event", "t", "name", "data", "extendDuration"});
+    const std::string rel = clip_path_arg("anim3d.set_event", a, "path");
+    if (!a.contains("event")) fail("invalid_argument", "anim3d.set_event: give `event`, the index of the event or {t, name?}.", "anim3d.info {path} lists the events.");
+    if (!a.contains("t") && !a.contains("name") && !a.contains("data")) fail("invalid_argument", "anim3d.set_event: nothing to change.", "Pass `t` (move it), `name` and/or `data`.");
+    const Json before = read_clip_json(projectDir, rel);
+    Json doc = before;
+    const int i = event_ref("anim3d.set_event", doc, a["event"], rel);
+    Json& ev = doc["events"][std::size_t(i)];
+    if (a.contains("t")) {
+        const double t = round_to(number_arg("anim3d.set_event", a, "t", 0.0, 0.0, 3600.0, "Seconds from the start of the clip."), 4);
+        if (t > doc.value("duration", 1.0) + 1e-9) {
+            if (!tooling_detail::arg_bool(a, "extendDuration", false)) fail("invalid_argument", std::format("anim3d.set_event: t={} is after the end of the clip ({} s).", t, doc.value("duration", 1.0)), "Pass extendDuration: true, or anim3d.set_clip {duration} first.");
+            doc["duration"] = t;
+        }
+        ev["t"] = t;
+    }
+    if (a.contains("name")) {
+        if (!a["name"].is_string() || a["name"].get<std::string>().empty()) fail("invalid_argument", "anim3d.set_event: `name` must be a non-empty string.", "The game event name world.on(name, fn) listens to.");
+        ev["name"] = a["name"];
+    }
+    if (a.contains("data")) {
+        if (a["data"].is_null() || (a["data"].is_object() && a["data"].empty())) ev.erase("data");
+        else ev["data"] = a["data"];
+    }
+    return commit_clip(projectDir, rel, before, doc);
+}
+
+Json anim3d_remove_event_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("anim3d.remove_event", a, "", {"path", "event"});
+    const std::string rel = clip_path_arg("anim3d.remove_event", a, "path");
+    if (!a.contains("event")) fail("invalid_argument", "anim3d.remove_event: give `event`, the index of the event or {t, name?}.", "anim3d.info {path} lists the events.");
+    const Json before = read_clip_json(projectDir, rel);
+    Json doc = before;
+    const int i = event_ref("anim3d.remove_event", doc, a["event"], rel);
+    const Json removed = doc["events"][std::size_t(i)];
+    Json events = Json::array();
+    for (std::size_t k = 0; k < doc["events"].size(); ++k)
+        if (int(k) != i) events.push_back(doc["events"][k]);
+    if (events.empty()) doc.erase("events");
+    else doc["events"] = events;
+    return commit_clip(projectDir, rel, before, doc, obj({{"removed", removed}}));
+}
+
+// The baked rig a command works with: `rig`, else the one the clip records.
+RigHold rig_for_clip(const char* command, const std::string& projectDir, const Json& a, const Anim3DClip& clip) {
+    if (a.contains("rig") && a["rig"].is_string() && !a["rig"].get<std::string>().empty()) return load_rig_arg(command, projectDir, a["rig"].get<std::string>(), "rig");
+    if (!clip.rig.empty()) return load_rig_arg(command, projectDir, clip.rig, "rig");
+    fail("invalid_argument", std::string(command) + ": give `rig`, the baked rig of the clip.", "The clip names no rig of its own. Example: {\"rig\":\"assets/models/hero.rig.glb\"}.");
+}
+
+double time_arg(const char* command, const Json& a, const Anim3DClip& clip) {
+    if (!a.contains("time") || !a["time"].is_number()) fail("invalid_argument", std::string(command) + ": give `time`, the second of the clip to key.", "Example: \"time\":0.5.");
+    return round_to(number_arg(command, a, "time", 0.0, 0.0, double(clip.duration), "Seconds into the clip, from 0 to its duration."), 4);
+}
+
+Json anim3d_mirror_pose_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("anim3d.mirror_pose", a, "", {"path", "rig", "time", "from", "to", "interp"});
+    const std::string rel = clip_path_arg("anim3d.mirror_pose", a, "path");
+    const Json before = read_clip_json(projectDir, rel);
+    const auto clip = parse_clip_or_fail(before, rel);
+    const RigHold rig = rig_for_clip("anim3d.mirror_pose", projectDir, a, *clip);
+    const double time = time_arg("anim3d.mirror_pose", a, *clip);
+    const double dest = a.contains("to") && !a["to"].is_null() ? round_to(number_arg("anim3d.mirror_pose", a, "to", time, 0.0, double(clip->duration), "Seconds into the clip where the mirrored pose is keyed."), 4) : time;
+    std::string from = "swap";
+    if (a.contains("from") && !a["from"].is_null()) {
+        const std::vector<std::string> names = {"swap", "left", "right"};
+        if (!a["from"].is_string() || std::find(names.begin(), names.end(), a["from"].get<std::string>()) == names.end())
+            fail("invalid_argument", "anim3d.mirror_pose: `from` is " + describe_json_value(a["from"]) + ", not swap, left or right.", a["from"].is_string() ? did_you_mean(a["from"].get<std::string>(), names) : "swap exchanges both sides, left copies the left pose onto the right, right the other way.");
+        from = a["from"].get<std::string>();
+    }
+    const std::string interp = interp_arg("anim3d.mirror_pose", a, "interp", false);
+    const std::vector<Anim3DPoseKey> keys = mirror_pose_keys(*clip, rig.rig, float(time), from);
+    if (keys.empty())
+        fail("invalid_argument", "anim3d.mirror_pose: the clip has no track to mirror" + std::string(from == "swap" ? "." : " on that side."), "Key some bones first (anim3d.set_keys), or pass from: \"swap\" for the bones on the mid plane.");
+    Json doc = before;
+    Json bones = Json::array();
+    for (const Anim3DPoseKey& k : keys) {
+        const int comps = k.channel == Anim3DChannel::Rotation && clip->quat ? 4 : 3;
+        put_key(doc, k.bone, k.channel, dest, round_floats(k.value, comps), interp);
+        bones.push_back(k.bone);
+    }
+    Json r = commit_clip(projectDir, rel, before, doc, obj({{"time", dest}, {"from", from}, {"keys", keys.size()}, {"bones", bones}}));
+    r["nextSteps"] = Json::array({"anim3d.preview {\"path\":\"" + rel + "\"} draws the clip; mirror the pose at another time to build the second half of a cycle."});
+    return r;
+}
+
+Json ik3d_key_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("ik3d.key", a, "", {"path", "rig", "time", "solver", "interp", "groundHeight"});
+    const std::string rel = clip_path_arg("ik3d.key", a, "path");
+    if (!a.contains("solver") || !a["solver"].is_object())
+        fail("invalid_argument", "ik3d.key: give `solver`, one entry of IK3D.solvers with [x, y, z] targets.", "Example: {\"type\":\"twoBone\",\"root\":\"thigh_l\",\"mid\":\"shin_l\",\"end\":\"foot_l\",\"target\":[0.3,0.2,0.4],\"pole\":[0.3,0.5,1.5]}.");
+    const Json before = read_clip_json(projectDir, rel);
+    const auto clip = parse_clip_or_fail(before, rel);
+    const RigHold rig = rig_for_clip("ik3d.key", projectDir, a, *clip);
+    const double time = time_arg("ik3d.key", a, *clip);
+    const std::string interp = interp_arg("ik3d.key", a, "interp", false);
+    const float ground = float(number_arg("ik3d.key", a, "groundHeight", 0.0, -1000.0, 1000.0, "The height of the flat ground a `foot` solver stands on."));
+    const Anim3DBinding binding = bind_anim3d(*clip, *rig.skeleton);
+    Pose pose = rig.rig.rest;
+    sample_anim3d(*clip, binding, *rig.skeleton, float(time), pose);
+    const Pose animated = pose;
+    auto solved = ik3d_solve_once(rig.rig, pose, a["solver"], ground);
+    if (!solved.ok()) fail("invalid_argument", "ik3d.key: " + solved.error().message, solved.error().hint);
+    Json doc = before;
+    Json keyed = Json::array();
+    for (int n : rig.rig.bones) {
+        const std::string& name = rig.rig.node(n).name;
+        const Quat da = pose_delta_rotation(rig.rig, animated, n), db = pose_delta_rotation(rig.rig, pose, n);
+        if (std::fabs(da.x - db.x) + std::fabs(da.y - db.y) + std::fabs(da.z - db.z) + std::fabs(da.w - db.w) > 1e-5f) {
+            const std::array<float, 4> v = rotation_key_value(*clip, db);
+            put_key(doc, name, Anim3DChannel::Rotation, time, round_floats(v, clip->quat ? 4 : 3), interp);
+            keyed.push_back(obj({{"bone", name}, {"channel", "rotation"}}));
+        }
+        const Vec3 d = pose.translation[std::size_t(n)] - animated.translation[std::size_t(n)];
+        if (std::fabs(d.x) + std::fabs(d.y) + std::fabs(d.z) > 1e-6f) {
+            const Vec3 off = pose.translation[std::size_t(n)] - rig.rig.rest.translation[std::size_t(n)];
+            put_key(doc, name, Anim3DChannel::Translation, time, round_floats({off.x, off.y, off.z, 0.0f}, 3), interp);
+            keyed.push_back(obj({{"bone", name}, {"channel", "translation"}}));
+        }
+    }
+    if (keyed.empty()) fail("invalid_argument", "ik3d.key: the solver changed no bone at t=" + std::to_string(time) + ", so there is nothing to key.", "The pose already satisfies it, or the bones it names are not part of the chain.");
+    Json r = commit_clip(projectDir, rel, before, doc, obj({{"time", time}, {"keyed", keyed}, {"solved", *solved}}));
+    r["nextSteps"] = Json::array({"anim3d.preview {\"path\":\"" + rel + "\"} draws the clip; the keys are ordinary ones (anim3d.set_keys, anim3d.move_keys edit them)."});
     return r;
 }
 
@@ -438,9 +896,11 @@ Json anim3d_generate_command(const std::string& projectDir, const Json& a) {
     if (clip.templateName.empty()) clip.templateName = rig.rig.templateName;
     const Json json = anim3d_to_json(clip);
     parse_clip_or_fail(json, out);  // what was made reads back
+    const Json before = clip_before(projectDir, out);
     write_clip_json(projectDir, out, json);
     Json r = clip_summary(clip);
     r["path"] = out;
+    r["undo"] = undo_restore(out, before);
     r["kind"] = kind;
     r["rig"] = rig.path;
     r["generated"] = clip.generated;
@@ -479,9 +939,11 @@ Json anim3d_retarget_command(const std::string& projectDir, const Json& a) {
     if (!to.rig.templateName.empty()) result.clip.templateName = to.rig.templateName;
     const Json json = anim3d_to_json(result.clip);
     parse_clip_or_fail(json, out);
+    const Json before = clip_before(projectDir, out);
     write_clip_json(projectDir, out, json);
     Json r = clip_summary(result.clip);
     r["path"] = out;
+    r["undo"] = undo_restore(out, before);
     r["from"] = from.path;
     r["to"] = to.path;
     r["scale"] = round_to(result.scale, 4);
@@ -507,59 +969,31 @@ bool in_contact(const Anim3DContact& c, float t) {
     return t >= c.from || t <= c.to;  // wraps through the end of a looping clip
 }
 
-// The bind-pose mesh of the rig's glb skinned by `palette` (the matrices of the skin), the way the renderer draws the Animator.
-MeshData skin_mesh(const MeshData& bind, const SkeletonAsset& sk, int skin, const std::vector<Mat4>& palette) {
-    MeshData out = bind;
-    const bool hasNormals = bind.normals.size() == bind.positions.size();
-    std::size_t base = 0;
-    for (const SkinVertices& sv : sk.skinVertices) {
-        const std::size_t count = sv.joints.size();
-        if (sv.skin == skin && !sv.rigid) {
-            for (std::size_t i = 0; i < count && base + i < bind.vertex_count(); ++i) {
-                const std::size_t v = base + i;
-                const Vec3 p{bind.positions[v * 3], bind.positions[v * 3 + 1], bind.positions[v * 3 + 2]};
-                const Vec3 n = hasNormals ? Vec3{bind.normals[v * 3], bind.normals[v * 3 + 1], bind.normals[v * 3 + 2]} : Vec3{0, 1, 0};
-                Vec3 sp{}, sn{};
-                float total = 0.0f;
-                for (std::size_t k = 0; k < 4; ++k) {
-                    const float w = sv.weights[i][k];
-                    const std::size_t j = sv.joints[i][k];
-                    if (w <= 0.0f || j >= palette.size()) continue;
-                    sp = sp + palette[j].transform_point(p) * w;
-                    sn = sn + palette[j].transform_dir(n) * w;
-                    total += w;
-                }
-                if (total <= 0.0f) continue;
-                sp = sp * (1.0f / total);
-                out.positions[v * 3] = sp.x;
-                out.positions[v * 3 + 1] = sp.y;
-                out.positions[v * 3 + 2] = sp.z;
-                if (hasNormals) {
-                    const float l = std::sqrt(sn.x * sn.x + sn.y * sn.y + sn.z * sn.z);
-                    if (l > 1e-8f) {
-                        out.normals[v * 3] = sn.x / l;
-                        out.normals[v * 3 + 1] = sn.y / l;
-                        out.normals[v * 3 + 2] = sn.z / l;
-                    }
-                }
-            }
-        }
-        base += count;
+// A baked rig with its bind mesh, or a CommandError that says what is wrong with it.
+std::shared_ptr<Anim3DRigModel> rig_model_arg(const char* command, const std::string& projectDir, const std::string& arg, const char* key) {
+    const RigHold hold = load_rig_arg(command, projectDir, arg, key);
+    auto model = std::make_shared<Anim3DRigModel>();
+    model->path = hold.path;
+    model->skeleton = hold.skeleton;
+    model->rig = make_rig3d(*model->skeleton, hold.rig.skin);
+    GltfMesh glb;
+    {
+        ProjectRootGuard root(projectDir);
+        auto mesh = read_gltf_mesh(model->path);
+        if (!mesh.ok()) fail("failed", std::string(command) + ": " + mesh.error().message, mesh.error().hint);
+        glb = std::move(*mesh);
     }
-    // bounds of the posed mesh
-    if (!out.positions.empty()) {
-        out.bmin = out.bmax = {out.positions[0], out.positions[1], out.positions[2]};
-        for (std::size_t v = 0; v + 2 < out.positions.size(); v += 3) {
-            const Vec3 q{out.positions[v], out.positions[v + 1], out.positions[v + 2]};
-            out.bmin = min(out.bmin, q);
-            out.bmax = max(out.bmax, q);
-        }
-    }
-    return out;
+    std::size_t skinned = 0;
+    for (const SkinVertices& sv : model->skeleton->skinVertices) skinned += sv.joints.size();
+    if (skinned != glb.data.vertex_count())
+        fail("failed", std::format("{}: '{}' has {} skinned vertices but {} in its mesh, so the skin cannot be applied.", command, model->path, skinned, glb.data.vertex_count()),
+             "Bake the rig again (rig.bake); the .glb must hold one skin and its mesh.");
+    model->bind = std::move(glb.data);
+    return model;
 }
 
 Json anim3d_preview_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys("anim3d.preview", a, "", {"path", "rig", "frames", "cell", "yaw", "pitch", "out", "overwrite"});
+    check_arg_keys("anim3d.preview", a, "", {"path", "rig", "frames", "cell", "yaw", "yaws", "pitch", "out", "overwrite"});
     const std::string rel = clip_path_arg("anim3d.preview", a, "path");
     const int frames = int(number_arg("anim3d.preview", a, "frames", 8, 2, 12, "How many poses to draw, 2 to 12, evenly spaced over the clip."));
     if (a.contains("frames") && a["frames"].is_number() && a["frames"].get<double>() != std::floor(a["frames"].get<double>()))
@@ -567,6 +1001,20 @@ Json anim3d_preview_command(const std::string& projectDir, const Json& a) {
     const int cell = int(number_arg("anim3d.preview", a, "cell", 200, 96, 480, "Pixels per side of each pose."));
     const double yaw = number_arg("anim3d.preview", a, "yaw", -70, -360, 360, "The side to look from, in degrees: 0 looks at the character's front (+Z), 90 from its +X side (the character's left), -90 from its right.");
     const double pitch = number_arg("anim3d.preview", a, "pitch", 10, -80, 80, "Degrees above the horizon.");
+    std::vector<double> yaws;  // one row of poses per angle
+    if (a.contains("yaws") && !a["yaws"].is_null()) {
+        if (a.contains("yaw")) fail("invalid_argument", "anim3d.preview: give `yaw` (one side) or `yaws` (several rows), not both.", "Example: \"yaws\":[-70,0,90].");
+        if (!a["yaws"].is_array() || a["yaws"].empty() || a["yaws"].size() > 6)
+            fail("invalid_argument", "anim3d.preview: `yaws` must be a list of 1 to 6 angles in degrees, got " + describe_json_value(a["yaws"]) + ".", "Example: \"yaws\":[-70,0,90] draws the clip from the right, the front and the left.");
+        for (const Json& y : a["yaws"]) {
+            if (!y.is_number() || y.get<double>() < -360 || y.get<double>() > 360)
+                fail("invalid_argument", "anim3d.preview: every entry of `yaws` must be a number of degrees from -360 to 360, got " + describe_json_value(y) + ".", "0 is the front (+Z), 90 the character's left, -90 its right, 180 the back.");
+            yaws.push_back(y.get<double>());
+        }
+        if (int(yaws.size()) * frames > 48) fail("invalid_argument", std::format("anim3d.preview: {} angles x {} frames is {} poses, more than the 48 a sheet holds.", yaws.size(), frames, int(yaws.size()) * frames), "Lower `frames` or give fewer `yaws`.");
+    } else {
+        yaws.push_back(yaw);
+    }
     std::string outRel;
     if (a.contains("out") && !a["out"].is_null()) {
         auto norm = a["out"].is_string() ? fs::normalize_checked(a["out"].get<std::string>()) : Result<std::string>(Error{"not a string", ""});
@@ -580,30 +1028,17 @@ Json anim3d_preview_command(const std::string& projectDir, const Json& a) {
     if (a.contains("rig") && a["rig"].is_string()) rigArg = a["rig"].get<std::string>();
     else if (!clip->rig.empty()) rigArg = clip->rig;
     else fail("invalid_argument", "anim3d.preview: give `rig`, the baked rig to pose.", "The clip names no rig of its own. Example: {\"rig\":\"assets/models/hero.rig.glb\"}.");
-    const RigHold rig = load_rig_arg("anim3d.preview", projectDir, rigArg, "rig");
-    const SkeletonAsset& sk = *rig.skeleton;
-
-    GltfMesh glb;
-    {
-        ProjectRootGuard root(projectDir);
-        auto mesh = read_gltf_mesh(rig.path);
-        if (!mesh.ok()) fail("failed", "anim3d.preview: " + mesh.error().message, mesh.error().hint);
-        glb = std::move(*mesh);
-    }
-    std::size_t skinned = 0;
-    for (const SkinVertices& sv : sk.skinVertices) skinned += sv.joints.size();
-    if (skinned != glb.data.vertex_count())
-        fail("failed", std::format("anim3d.preview: '{}' has {} skinned vertices but {} in its mesh, so the skin cannot be applied.", rig.path, skinned, glb.data.vertex_count()),
-             "Bake the rig again (rig.bake); the .glb must hold one skin and its mesh.");
+    const std::shared_ptr<Anim3DRigModel> model = rig_model_arg("anim3d.preview", projectDir, rigArg, "rig");
+    const SkeletonAsset& sk = *model->skeleton;
 
     const Anim3DBinding binding = bind_anim3d(*clip, sk);
     std::vector<MeshData> posed;
     std::vector<float> times;
     for (int i = 0; i < frames; ++i) {
         const float t = clip->loop ? clip->duration * float(i) / float(frames) : clip->duration * float(i) / float(frames - 1);
-        Pose pose = rig.rig.rest;
+        Pose pose = model->rig.rest;
         sample_anim3d(*clip, binding, sk, t, pose);
-        posed.push_back(skin_mesh(glb.data, sk, rig.rig.skin, skin_palette(sk, pose, rig.rig.skin)));
+        posed.push_back(skin_rig_mesh(*model, pose));
         times.push_back(t);
     }
     // One framing for every pose, so the motion reads across the strip: centred on the first pose horizontally, the sphere that holds them all.
@@ -624,28 +1059,34 @@ Json anim3d_preview_command(const std::string& projectDir, const Json& a) {
         frame.radius = radius;
     }
 
-    const int columns = frames <= 4 ? frames : frames <= 6 ? 3 : 4;
-    const int rows = (frames + columns - 1) / columns;
+    // One angle: the poses fill a grid (4 across at most). Several angles: one row of `frames` poses per angle.
+    const bool several = yaws.size() > 1;
+    const int columns = several ? frames : frames <= 4 ? frames : frames <= 6 ? 3 : 4;
+    const int rows = several ? int(yaws.size()) : (frames + columns - 1) / columns;
     const int width = columns * cell + (columns + 1) * kPad, height = kHeader + rows * (cell + kLabel) + (rows + 1) * kPad;
     Canvas canvas(width, height, {22, 24, 28});
     ModelViewOptions vo;
     vo.width = vo.height = cell;
-    vo.yawDeg = yaw;
     vo.pitchDeg = pitch;
     vo.shaded = true;
     vo.ground = true;
     vo.center = frame.center;
     vo.radius = frame.radius;
     vo.supersample = cell > 320 ? 1 : 2;
-    for (int i = 0; i < frames; ++i) {
+    const int cells = several ? rows * frames : frames;
+    for (int n = 0; n < cells; ++n) {
+        const int i = several ? n % frames : n;
+        const double cellYaw = several ? yaws[std::size_t(n / frames)] : yaws.front();
+        vo.yawDeg = cellYaw;
         ModelViewItem item;
         item.mesh = &posed[std::size_t(i)];
         const Image cellImage = render_model_view({item}, vo);
-        const int col = i % columns, row = i / columns;
+        const int col = several ? i : n % columns, row = several ? n / frames : n / columns;
         const int x = kPad + col * (cell + kPad), y = kHeader + kPad + row * (cell + kLabel + kPad);
         draw_over(canvas.img, cellImage, x, y);
         canvas.rect(x, y + cell, x + cell - 1, y + cell + kLabel - 1, {30, 33, 39});
         canvas.text(std::format("{} / {}   t {:.2f} s", i + 1, frames, times[std::size_t(i)]), x + 6, y + cell + 4, 12, {170, 178, 190});
+        if (several) canvas.text(std::format("yaw {:.0f}", cellYaw), x + cell - 62, y + cell + 4, 12, {150, 170, 210});
         std::vector<std::string> planted;
         for (const Anim3DContact& c : clip->contacts)
             if (in_contact(c, times[std::size_t(i)])) planted.push_back(c.bone);
@@ -653,15 +1094,18 @@ Json anim3d_preview_command(const std::string& projectDir, const Json& a) {
     }
     canvas.text(rel, kPad + 2, 6, 17, {235, 238, 245});
     canvas.text(std::format("{:.2f} s  {}   {} track{}   ground speed {:.2f} per s   rig {}", clip->duration, clip->loop ? "loops" : "plays once", clip->tracks.size(),
-                            clip->tracks.size() == 1 ? "" : "s", clip->groundSpeed, rig.path),
+                            clip->tracks.size() == 1 ? "" : "s", clip->groundSpeed, model->path),
                 kPad + 2, 28, 13, {185, 192, 204});
 
-    Json result = obj({{"path", rel}, {"rig", rig.path}});
+    Json result = obj({{"path", rel}, {"rig", model->path}});
     result["clip"] = clip_summary(*clip);
     result["frames"] = frames;
     Json timeList = Json::array();
     for (int i = 0; i < frames; ++i) timeList.push_back(round_to(times[std::size_t(i)], 4));
     result["times"] = timeList;
+    Json yawList = Json::array();
+    for (double y : yaws) yawList.push_back(y);
+    result["yaws"] = yawList;
     result["picture"] = obj({{"width", canvas.img.width}, {"height", canvas.img.height}, {"cell", cell}, {"columns", columns}, {"rows", rows}});
     if (!binding.missing.empty()) result["missingBones"] = string_list(binding.missing);
     if (!outRel.empty()) {
@@ -675,9 +1119,14 @@ Json anim3d_preview_command(const std::string& projectDir, const Json& a) {
         result["$image"] = image_member(write_temporary_picture(projectDir, canvas.img, "anim3d"), true);
     }
     Json steps = Json::array();
-    steps.push_back(std::format("Read the strip left to right, top to bottom: the rig posed at {} times of the clip, seen from yaw {:.0f} on the ground grid y = 0. The mesh is skinned with the rig's weights as the .glb stores them.", frames, yaw));
+    if (several)
+        steps.push_back(std::format("Read the sheet left to right (time) and top to bottom (the sides: yaw {}): the rig posed at {} times of the clip on the ground grid y = 0. The mesh is skinned with the rig's weights as the .glb stores them.",
+                                    join_numbers(yaws), frames));
+    else
+        steps.push_back(std::format("Read the strip left to right, top to bottom: the rig posed at {} times of the clip, seen from yaw {:.0f} on the ground grid y = 0. The mesh is skinned with the rig's weights as the .glb stores them.", frames, yaws.front()));
     steps.push_back("A green line under a pose names the bones the clip's contacts say are on the ground then.");
     if (!binding.missing.empty()) steps.push_back("The clip has tracks for bones this rig lacks (`missingBones`); anim3d.retarget carries a clip to another rig.");
+    if (!several) steps.push_back("`yaws` (e.g. [-70, 0, 90]) draws one row per side in one sheet.");
     if (outRel.empty()) steps.push_back("Pass `out` to keep the picture as a PNG in the project.");
     result["nextSteps"] = steps;
     return result;
@@ -730,6 +1179,7 @@ Json ik3d_solve_command(const std::string& projectDir, const Json& a) {
 }  // namespace
 
 void register_anim3d_commands(CommandRegistry& registry, const std::string& projectDir) {
+    const std::string kUndoNote = " The result carries `undo`: {command: \"anim3d.restore\", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.";
     const Json rigProp = str_prop("The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative.");
     const Json pathProp = str_prop("The 3D clip file, project-relative, ending in .anim.json.");
     const Json channelProp = Json::object({{"type", "string"}, {"enum", Json::array({"rotation", "translation", "scale"})}, {"description", "Which channel of the bone (default rotation)."}});
@@ -762,6 +1212,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
                                                              {"rig", rigProp},
                                                              {"doc", str_prop("What the clip shows and when it is used.")},
                                                              {"overwrite", bool_prop("Replace the file if it exists.")}})}});
+        info.description += kUndoNote;
         registry.add(info, [projectDir](const Json& args) { return anim3d_create_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -794,6 +1245,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
                                                              {"keys", Json::object({{"type", "array"}, {"items", Json::object({{"type", "object"}})}, {"description", "[{t, value, interp?, in?, out?}]: seconds from the start and the value (3 numbers, or 4 for a quaternion)."}})},
                                                              {"duration", num_prop("Set the clip's length in seconds (it must reach the last key).", 0, 3600)},
                                                              {"rig", rigProp}})}});
+        info.description += kUndoNote;
         registry.add(info, [projectDir](const Json& args) { return anim3d_set_keys_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -804,6 +1256,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         info.description = "The clip is checked with the loader's rules and written in canonical form. A bone with no track is an error that lists the bones that have one. Example: {\"path\":\"anim/hero_walk.anim.json\",\"bone\":\"hand_l\"}";
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "bone"})},
                                          {"properties", obj({{"path", pathProp}, {"bone", str_prop("The bone whose track to remove.")}, {"channel", channelProp}})}});
+        info.description += kUndoNote;
         registry.add(info, [projectDir](const Json& args) { return anim3d_remove_track_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -823,6 +1276,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
                                                              {"params", obj_prop("The kind's parameters (anim3d.generators lists them): strideLength, cadence, bounce, armSwing, fps...")},
                                                              {"out", str_prop("Where to write the clip (ending in .anim.json). Default anim/<rig name>_<kind>.anim.json.")},
                                                              {"overwrite", bool_prop("Replace the file if it exists.")}})}});
+        info.description += kUndoNote;
         registry.add(info, [projectDir](const Json& args) { return anim3d_generate_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -844,6 +1298,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
                                                              {"scale", num_prop("Factor for root motion, ground speed and feet; 0 (default) = the ratio of the leg lengths.", 0, 100)},
                                                              {"fps", num_prop("Keys per second of the legs solved again (default 30).", 4, 120)},
                                                              {"overwrite", bool_prop("Replace the file at `out` if it exists.")}})}});
+        info.description += kUndoNote;
         registry.add(info, [projectDir](const Json& args) { return anim3d_retarget_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
@@ -855,7 +1310,7 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         info.description =
             "The way to SEE a clip without a window. It poses the rig's skin with the clip at `frames` times (a looping clip does not repeat its first pose at the end) and draws each with the software renderer of model.preview (no graphics device, the same pixels on "
             "every machine), all framed the same way so the motion reads across the strip. Under each pose: its time and the bones the clip's contacts say are on the ground. The mesh is skinned with the vertex weights stored in the .glb (rigid per bone as rig.bake writes them). "
-            "`yaw` picks the side (default -70: from the character's right and a little in front); the picture is returned as $image in a temporary file, pass `out` (a .png) to keep it. Nothing in the project changes otherwise. "
+            "`yaw` picks the side (default -70: from the character's right and a little in front); `yaws` (a list, e.g. [-70, 0, 90]) draws one row of poses per side in one sheet, which is how a pose is checked from several angles at once; the picture is returned as $image in a temporary file, pass `out` (a .png) to keep it. Nothing in the project changes otherwise. "
             "Example: {\"path\":\"anim/hero_walk.anim.json\",\"rig\":\"assets/models/hero.rig.glb\",\"frames\":8}";
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path"})},
                                          {"properties", obj({{"path", pathProp},
@@ -863,10 +1318,139 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
                                                              {"frames", num_prop("How many poses, 2 to 12 (default 8), evenly spaced over the clip.", 2, 12)},
                                                              {"cell", num_prop("Pixels per side of each pose (default 200).", 96, 480)},
                                                              {"yaw", num_prop("The side to look from in degrees: 0 the front (+Z), 90 the character's left (+X), -90 its right (default -70).", -360, 360)},
+                                                             {"yaws", Json::object({{"type", "array"}, {"minItems", 1}, {"maxItems", 6}, {"items", Json::object({{"type", "number"}, {"minimum", -360}, {"maximum", 360}})},
+                                                                                    {"description", "Several sides in one sheet: one row of `frames` poses per angle (instead of `yaw`), at most 6 angles and 48 poses. Example [-70, 0, 90]."}})},
                                                              {"pitch", num_prop("Degrees above the horizon (default 10).", -80, 80)},
                                                              {"out", str_prop("Keep the picture as a PNG at this project-relative path. Left out, it is a temporary file.")},
                                                              {"overwrite", bool_prop("Replace the file at `out` if it exists.")}})}});
         registry.add(info, [projectDir](const Json& args) { return anim3d_preview_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    const Json keyRefsProp = Json::object({{"type", "array"}, {"minItems", 1}, {"items", obj({{"type", "object"}, {"properties", obj({{"bone", str_prop("Canonical bone name.")}, {"channel", channelProp}, {"t", num_prop("The key's time in seconds.", 0, 3600)}})}, {"required", Json::array({"bone", "t"})}})},
+                                           {"description", "The keys, each {bone, channel (default rotation), t}."}});
+    const Json eventRefProp = Json::object({{"description", "The event: its index in the clip's events, or {t, name?}."}});
+    {
+        CommandInfo info;
+        info.name = "anim3d.restore";
+        info.category = "anim";
+        info.summary = "Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits.";
+        info.description =
+            "Every writing anim3d.* command returns `undo` = {command: \"anim3d.restore\", args: {path, clip}}; calling it writes `clip` (the whole previous document, checked with the loader's rules) or, when `clip` is null, deletes the file (the undo of a "
+            "command that created it). Its own result carries the `undo` that goes forward again (redo). Example: {\"path\":\"anim/hero_walk.anim.json\",\"clip\":null}";
+        info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "clip"})},
+                                         {"properties", obj({{"path", pathProp}, {"clip", Json::object({{"type", Json::array({"object", "null"})}, {"description", "The whole clip document to write, or null to delete the file."}})}})}});
+        registry.add(info, [projectDir](const Json& args) { return anim3d_restore_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        CommandInfo info;
+        info.name = "anim3d.move_keys";
+        info.category = "anim";
+        info.summary = "Move keys of a 3D clip in time by dt seconds (a dopesheet drag); a moved key replaces the key it lands on.";
+        info.description =
+            "`keys` selects keys as [{bone, channel?, t}]; each moves to t + dt (rounded to 0.1 ms). A key may not leave the clip: before 0 is an error, past the duration is an error unless `extendDuration`. Two moved keys of one track landing on the same time is an error; "
+            "a moved key replaces an unselected key at its new time. Bezier keys get smooth tangents again. Result: the clip summary plus {moved, dt, undo}. Example: {\"path\":\"anim/hero_walk.anim.json\",\"keys\":[{\"bone\":\"thigh_l\",\"t\":0.5}],\"dt\":0.05}" + kUndoNote;
+        info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "keys", "dt"})},
+                                         {"properties", obj({{"path", pathProp}, {"keys", keyRefsProp}, {"dt", num_prop("Seconds to move by (negative = earlier).", -3600, 3600)},
+                                                             {"extendDuration", bool_prop("Lengthen the clip when a key moves past its end.")}})}});
+        registry.add(info, [projectDir](const Json& args) { return anim3d_move_keys_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        CommandInfo info;
+        info.name = "anim3d.remove_keys";
+        info.category = "anim";
+        info.summary = "Delete keys of a 3D clip by bone, channel and time; a track left with no key goes away.";
+        info.description = "`keys` selects keys as [{bone, channel?, t}] (anim3d.info lists the tracks; a time within 1 ms matches). Result: the clip summary plus {removed, tracksRemoved, undo}. "
+                           "Example: {\"path\":\"anim/hero_walk.anim.json\",\"keys\":[{\"bone\":\"thigh_l\",\"t\":0.5}]}" + kUndoNote;
+        info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "keys"})}, {"properties", obj({{"path", pathProp}, {"keys", keyRefsProp}})}});
+        registry.add(info, [projectDir](const Json& args) { return anim3d_remove_keys_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        CommandInfo info;
+        info.name = "anim3d.set_interp";
+        info.category = "anim";
+        info.summary = "Set how selected keys of a 3D clip reach the next key: linear, step, bezier or an easing (the M42 curves).";
+        info.description = "`keys` selects keys as [{bone, channel?, t}]; `interp` is linear, step, bezier (smooth tangents through the neighbours) or an easing name (quadIn, quadOut, quadInOut, backOut, elasticOut... as tween()). "
+                           "A quaternion clip takes linear, step or an easing. Result: the clip summary plus {changed, interp, undo}. Example: {\"path\":\"anim/hero_walk.anim.json\",\"keys\":[{\"bone\":\"thigh_l\",\"t\":0.5}],\"interp\":\"quadInOut\"}" + kUndoNote;
+        info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "keys", "interp"})},
+                                         {"properties", obj({{"path", pathProp}, {"keys", keyRefsProp}, {"interp", str_prop("linear, step, bezier or an easing name.")}})}});
+        registry.add(info, [projectDir](const Json& args) { return anim3d_set_interp_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        CommandInfo info;
+        info.name = "anim3d.set_clip";
+        info.category = "anim";
+        info.summary = "Set the duration, loop, ground speed or description of a 3D clip.";
+        info.description = "Give any of `duration` (seconds; shorter than the last key or event is refused), `loop`, `groundSpeed` (model units per second the planted feet move back at; 0 = in place) and `doc`. Result: the clip summary plus {undo}. "
+                           "Example: {\"path\":\"anim/hero_walk.anim.json\",\"duration\":1.2,\"loop\":false}" + kUndoNote;
+        info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path"})},
+                                         {"properties", obj({{"path", pathProp}, {"duration", num_prop("Length of the clip in seconds.", 0, 3600)}, {"loop", bool_prop("true repeats the clip, false stops on its last pose.")},
+                                                             {"groundSpeed", num_prop("Model units per second the ground moves under the planted feet; 0 = in place.", 0, 1000)}, {"doc", str_prop("What the clip shows.")}})}});
+        registry.add(info, [projectDir](const Json& args) { return anim3d_set_clip_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        CommandInfo info;
+        info.name = "anim3d.add_event";
+        info.category = "anim";
+        info.summary = "Add an event to a 3D clip: a game event the Animator sends when the clip passes its time.";
+        info.description = "The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. Events stay sorted by t. A time past the duration is refused unless "
+                           "`extendDuration`. Result: the clip summary plus {event, undo}. Example: {\"path\":\"anim/hero_walk.anim.json\",\"t\":0.2,\"name\":\"footstep\",\"data\":{\"foot\":\"left\"}}" + kUndoNote;
+        info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "t", "name"})},
+                                         {"properties", obj({{"path", pathProp}, {"t", num_prop("Seconds from the start of the clip.", 0, 3600)}, {"name", str_prop("The game event name.")},
+                                                             {"data", obj_prop("Extra fields sent with the event.")}, {"extendDuration", bool_prop("Lengthen the clip when t is past its end.")}})}});
+        registry.add(info, [projectDir](const Json& args) { return anim3d_add_event_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        CommandInfo info;
+        info.name = "anim3d.set_event";
+        info.category = "anim";
+        info.summary = "Move, rename or change the data of an event of a 3D clip.";
+        info.description = "`event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Give any of `t` (move it), `name` and `data` (an empty object or null clears it). Events stay sorted by t. "
+                           "Result: the clip summary plus {undo}. Example: {\"path\":\"anim/hero_walk.anim.json\",\"event\":{\"t\":0.2,\"name\":\"footstep\"},\"t\":0.25}" + kUndoNote;
+        info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "event"})},
+                                         {"properties", obj({{"path", pathProp}, {"event", eventRefProp}, {"t", num_prop("The new time in seconds.", 0, 3600)}, {"name", str_prop("The new event name.")},
+                                                             {"data", obj_prop("The new data (replaces the old).")}, {"extendDuration", bool_prop("Lengthen the clip when t is past its end.")}})}});
+        registry.add(info, [projectDir](const Json& args) { return anim3d_set_event_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        CommandInfo info;
+        info.name = "anim3d.remove_event";
+        info.category = "anim";
+        info.summary = "Remove an event from a 3D clip.";
+        info.description = "`event` is the event's index in the clip's events, or {t, name?}. Result: the clip summary plus {removed, undo}. Example: {\"path\":\"anim/hero_walk.anim.json\",\"event\":0}" + kUndoNote;
+        info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "event"})}, {"properties", obj({{"path", pathProp}, {"event", eventRefProp}})}});
+        registry.add(info, [projectDir](const Json& args) { return anim3d_remove_event_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        CommandInfo info;
+        info.name = "anim3d.mirror_pose";
+        info.category = "anim";
+        info.summary = "Key the left/right mirror of a 3D clip's pose at a time: swap both sides, or copy one side onto the other (bones are paired by canonical name: thigh_l <-> thigh_r).";
+        info.description =
+            "Samples the clip at `time`, mirrors the pose across the character's mid plane and writes it as keys at `to` (default `time`) for every bone the clip animates: `from` \"swap\" (default) puts each side's pose on the other side and mirrors the bones with no side "
+            "(spine, head, root) in place; \"left\" copies the left side onto the right bones; \"right\" the other way. A mirrored rotation keeps pitch and flips yaw and roll (a quaternion (x, y, z, w) becomes (x, -y, -z, w)); a translation flips x. Only channels the clip has a "
+            "track for are keyed. `rig` defaults to the clip's own. Use it to build the second half of a cycle from the first. Result: the clip summary plus {time, from, keys, bones, undo}. "
+            "Example: {\"path\":\"anim/hero_walk.anim.json\",\"time\":0,\"to\":0.5}" + kUndoNote;
+        info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "time"})},
+                                         {"properties", obj({{"path", pathProp}, {"rig", rigProp}, {"time", num_prop("Seconds into the clip: the pose to mirror.", 0, 3600)},
+                                                             {"to", num_prop("Where to key the mirrored pose (default: `time`).", 0, 3600)},
+                                                             {"from", Json::object({{"type", "string"}, {"enum", Json::array({"swap", "left", "right"})}, {"description", "swap (default), left or right: which side's pose is copied."}})},
+                                                             {"interp", str_prop("Interpolation of the new keys (default: what an existing key has, else linear).")}})}});
+        registry.add(info, [projectDir](const Json& args) { return anim3d_mirror_pose_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        CommandInfo info;
+        info.name = "ik3d.key";
+        info.category = "anim";
+        info.summary = "Solve a 3D IK solver (two-bone with pole, or look-at) on a clip's pose at a time and key the bones it moved: the way an IK handle poses a chain.";
+        info.description =
+            "Poses the rig with the clip at `time`, runs `solver` (one entry of IK3D.solvers with [x, y, z] targets in the model's space, as ik3d.solve) and writes rotation keys at that time for every bone the solver changed (translation for a foot solver that lowers the pelvis). "
+            "The keys are ordinary ones: anim3d.set_keys, anim3d.move_keys and the Animation panel edit them. Result: the clip summary plus {time, keyed: [{bone, channel}], solved (as ik3d.solve), undo}. "
+            "An error says the solver changed nothing when the pose already satisfied it. Example: {\"path\":\"anim/hero_wave.anim.json\",\"time\":0.4,\"solver\":{\"type\":\"twoBone\",\"root\":\"arm_upper_r\",\"mid\":\"arm_lower_r\",\"end\":\"hand_r\",\"target\":[-0.4,1.5,0.4],\"pole\":[-0.5,1.2,-0.5]}}" + kUndoNote;
+        info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "time", "solver"})},
+                                         {"properties", obj({{"path", pathProp}, {"rig", rigProp}, {"time", num_prop("Seconds into the clip to key.", 0, 3600)},
+                                                             {"solver", obj_prop("One IK3D solver with fixed [x, y, z] targets (twoBone, lookAt or foot).")},
+                                                             {"interp", str_prop("Interpolation of the new keys (default: what an existing key has, else linear).")},
+                                                             {"groundHeight", num_prop("Height of the flat ground a foot solver stands on (default 0).", -1000, 1000)}})}});
+        registry.add(info, [projectDir](const Json& args) { return ik3d_key_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
         CommandInfo info;
@@ -903,3 +1487,15 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
 }
 
 }  // namespace fa::assets_detail
+
+namespace fa {
+
+Result<std::shared_ptr<Anim3DRigModel>> load_anim3d_rig_model(const std::string& projectDir, const std::string& rigPath) {
+    try {
+        return assets_detail::rig_model_arg("anim3d", projectDir, rigPath, "rig");
+    } catch (const CommandError& e) {
+        return Error{e.what(), e.hint};
+    }
+}
+
+}  // namespace fa

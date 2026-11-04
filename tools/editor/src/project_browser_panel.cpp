@@ -296,6 +296,7 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && (ends_with(f.path, ".sfx.json") || ends_with(f.path, ".audio.json") || ends_with(f.path, ".wav") || ends_with(f.path, ".ogg"))) open_sound_document(f.path);
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".song.json")) open_music_document(f.path);
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".model.json")) open_model_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".anim.json") && anim3d_file_is_3d(projectDir_, f.path)) open_anim3d_clip(f.path);
     const AssetRecipeStatus* recipe = recipe_of_file(pb.listing, f.path);
     if (hovered && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
         std::string made;

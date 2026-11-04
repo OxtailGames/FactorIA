@@ -549,6 +549,8 @@ bool Editor::boot(const std::string& dirIn) {
         image_release_textures();
         vector_release_textures();
         sound_release_textures();
+        anim3d_release_textures();
+        anim3d_.model.reset();
         modeler_release_textures();
         modeler_.model.reset();  // (its evaluation worker is joined here)
         sound_.player.reset();   // before the engine: it owns a voice of the mixer
@@ -1151,6 +1153,13 @@ void Editor::undo() {
         anim_apply_clip_undo(entry, false);
         return;
     }
+    if (undo_.back().is_object() && undo_.back().contains("$clip3d")) {  // a step of a 3D clip file (anim3d_panel.cpp)
+        Json entry = std::move(undo_.back());
+        undo_.pop_back();
+        lastEditKey_.clear();
+        anim3d_apply_undo(entry, false);
+        return;
+    }
     if (undo_.back().is_object() && undo_.back().contains("$image")) {  // a step of an image document (image_panel.cpp)
         Json entry = std::move(undo_.back());
         undo_.pop_back();
@@ -1201,6 +1210,13 @@ void Editor::redo() {
         redo_.pop_back();
         lastEditKey_.clear();
         anim_apply_clip_undo(entry, true);
+        return;
+    }
+    if (redo_.back().is_object() && redo_.back().contains("$clip3d")) {
+        Json entry = std::move(redo_.back());
+        redo_.pop_back();
+        lastEditKey_.clear();
+        anim3d_apply_undo(entry, true);
         return;
     }
     if (redo_.back().is_object() && redo_.back().contains("$image")) {
@@ -1431,6 +1447,7 @@ void Editor::build_ui() {
         if (showProfiler_) draw_profiler_panel();
         if (showAnimation_) draw_animation_panel();
         else if (anim_.posed) anim_unpose();  // the panel was closed: the entity goes back to its rest values
+        if (showAnimation_ && anim3d_.mode3d && anim3d_.showSheets) draw_anim3d_sheets();
         if (showImage_) draw_image_panel();
         if (showVector_) draw_vector_panel();
         if (showSound_) draw_sound_panel();

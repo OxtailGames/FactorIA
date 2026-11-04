@@ -45,6 +45,20 @@ struct ModelViewFrame {
 // The sphere around the items' bounds (offsets applied) that views frame; radius at least 0.05.
 ModelViewFrame frame_model_items(const std::vector<ModelViewItem>& items);
 
+// The camera render_model_view builds for `options` looking at (`center`, `radius`), at the size of the picture (width x height, no supersampling):
+// what an overlay (bones, gizmos, handles drawn over the picture) projects with and what picking casts rays through. Pixels are the picture's, y down.
+struct ModelViewCamera {
+    Vec3 eye{}, right{}, up{}, forward{};
+    bool orthographic = false;
+    double focal = 1;       // pixels per unit at depth 1 (perspective) or per metre (orthographic)
+    double cx = 0, cy = 0;  // the pixel the camera looks through
+    // Where world point `p` falls: false when it is behind the camera. `depth` is the distance along `forward`.
+    bool project(Vec3 p, double& sx, double& sy, double& depth) const;
+    // The ray through pixel (sx, sy): its origin and unit direction.
+    void ray(double sx, double sy, Vec3& origin, Vec3& direction) const;
+};
+ModelViewCamera model_view_camera(const ModelViewOptions& options, Vec3 center, double radius);
+
 // The items seen from the camera of `options`. Always returns an image of options.width x options.height.
 Image render_model_view(const std::vector<ModelViewItem>& items, const ModelViewOptions& options);
 
