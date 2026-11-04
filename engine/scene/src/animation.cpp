@@ -10,6 +10,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/scene/anim3d.h"
 #include "fa/scene/components.h"
 
 #include "clip_animator.h"
@@ -195,6 +196,77 @@ void warn_once(World& w, Entity e, Animator& a, const std::string& msg) {
     FA_WARN("animation", "entity '{}' Animator: {}", w.id_of(e), msg);
 }
 
+// ---- clips: the glTF's own animations, then the 3D clip files of `clips` (rt.extraClips) ----
+
+const AnimClip& clip_ref(const AnimatorRuntime& rt, int index) {
+    const std::size_t own = rt.skeleton->clips.size();
+    return std::size_t(index) < own ? rt.skeleton->clips[std::size_t(index)] : rt.extraClips[std::size_t(index) - own];
+}
+
+// Index of the clip called `name`: a clip file of `clips` first (it is the explicit choice), then the glTF's animations. -1 if none.
+int find_clip_index(const AnimatorRuntime& rt, std::string_view name) {
+    const std::size_t own = rt.skeleton->clips.size();
+    for (std::size_t i = 0; i < rt.extraClips.size(); ++i)
+        if (rt.extraClips[i].name == name) return int(own + i);
+    return rt.skeleton->find_clip(name);
+}
+
+std::vector<std::string> all_clip_names(const AnimatorRuntime& rt) {
+    std::vector<std::string> names = rt.skeleton->clip_names();
+    for (const AnimClip& c : rt.extraClips) names.push_back(c.name);
+    return names;
+}
+
+void warn_once(World& w, Entity e, Animator& a, const std::string& msg);
+void clear_fade_forward(AnimatorRuntime& rt);
+
+// Builds rt.extraClips from `clips` (name -> *.anim.json of format factoria.anim3d/1) for the skeleton in rt. Runs again when `clips`
+// changes. A file that does not load, or a 2D clip, is skipped with one warning; a track on a bone the model lacks is dropped and said.
+void sync_extra_clips(World& w, Entity e, Animator& a) {
+    AnimatorRuntime& rt = a.rt;
+    if (rt.extraClipsBuilt && rt.extraClipsFrom == a.clips) return;
+    const std::string playing = rt.activeClip;
+    const std::string fromName = rt.fromIndex >= 0 ? clip_ref(rt, rt.fromIndex).name : std::string();
+    rt.extraClips.clear();
+    rt.clipWarnings.clear();
+    rt.extraClipsBuilt = true;
+    rt.extraClipsFrom = a.clips;
+    if (a.clips.is_object()) {
+        for (auto it = a.clips.begin(); it != a.clips.end(); ++it) {
+            if (!it.value().is_string() || it.value().get<std::string>().empty()) {
+                rt.clipWarnings.push_back(std::format("clip '{}': the value must be the path of a .anim.json file, got {}", it.key(), describe_json_value(it.value())));
+                continue;
+            }
+            const std::string path = it.value().get<std::string>();
+            auto loaded = load_anim3d(path);
+            if (!loaded) {
+                rt.clipWarnings.push_back(std::format("clip '{}': {}", it.key(), loaded.error().to_string()));
+                continue;
+            }
+            const Anim3DBinding binding = bind_anim3d(**loaded, *rt.skeleton);
+            if (!binding.missing.empty()) {
+                std::string list;
+                for (std::size_t i = 0; i < binding.missing.size() && i < 6; ++i) list += (i ? ", " : "") + binding.missing[i];
+                if (binding.missing.size() > 6) list += std::format(" and {} more", binding.missing.size() - 6);
+                rt.clipWarnings.push_back(std::format("clip '{}' ({}) drives bones the model '{}' does not have ({}); those tracks are skipped. "
+                                                      "anim3d.retarget carries a clip over to another skeleton",
+                                                      it.key(), path, rt.skeletonPath, list));
+            }
+            rt.extraClips.push_back(anim3d_to_anim_clip(**loaded, binding, *rt.skeleton, it.key()));
+        }
+    }
+    for (const std::string& m : rt.clipWarnings) FA_WARN("animation", "entity '{}' Animator: {}", w.id_of(e), m);
+    // The clip that plays may have a new index (or be gone).
+    if (!playing.empty()) {
+        rt.clipIndex = find_clip_index(rt, playing);
+        if (rt.clipIndex < 0) rt.activeClip.clear();
+    }
+    if (rt.fromIndex >= 0) {
+        rt.fromIndex = find_clip_index(rt, fromName);
+        if (rt.fromIndex < 0) clear_fade_forward(rt);
+    }
+}
+
 // The skeleton to play: `model`, else the mesh of the MeshRenderer on the entity. Null when there is none.
 bool resolve_skeleton(World& w, Entity e, Animator& a, std::string* why = nullptr) {
     std::string path = a.model;
@@ -206,14 +278,20 @@ bool resolve_skeleton(World& w, Entity e, Animator& a, std::string* why = nullpt
         return false;
     };
     if (path.empty()) return fail("no model: add a MeshRenderer whose `mesh` is a .gltf/.glb file, or set `model`");
-    if (path == a.rt.skeletonPath && a.rt.skeleton) return true;
+    if (path == a.rt.skeletonPath && a.rt.skeleton) {
+        sync_extra_clips(w, e, a);
+        return true;
+    }
     if (path == a.rt.skeletonPath && !a.rt.skeleton) return fail("the model '" + path + "' could not be loaded");
     if (!ends_with(path, ".gltf") && !ends_with(path, ".glb")) return fail("'" + path + "' is not a .gltf/.glb file (a built-in shape has no skeleton)");
     a.rt.skeletonPath = path;
     a.rt.skeleton = nullptr;
+    a.rt.extraClips.clear();
+    a.rt.extraClipsBuilt = false;
     auto r = load_skeleton(path);
     if (!r) return fail(r.error().to_string());
     a.rt.skeleton = *r;
+    sync_extra_clips(w, e, a);
     return true;
 }
 
@@ -221,18 +299,20 @@ void clear_fade(AnimatorRuntime& rt) {
     rt.fromIndex = -1;
     rt.fadeElapsed = rt.fadeDuration = 0.0f;
 }
+void clear_fade_forward(AnimatorRuntime& rt) { clear_fade(rt); }
 
 Result<void> play_clip(World& w, Entity e, Animator& a, std::string_view clip, float fade) {
     std::string why;
     if (!resolve_skeleton(w, e, a, &why)) return make_error("cannot play '" + std::string(clip) + "': " + why);
     AnimatorRuntime& rt = a.rt;
     const SkeletonAsset& sk = *rt.skeleton;
-    const int idx = sk.find_clip(clip);
+    const int idx = find_clip_index(rt, clip);
     if (idx < 0) {
-        const std::vector<std::string> names = sk.clip_names();
-        return make_error(std::format("'{}' has no animation clip '{}'", sk.path, clip),
-                          names.empty() ? "The file contains no animations."
-                                        : did_you_mean(std::string(clip), names));
+        const std::vector<std::string> names = all_clip_names(rt);
+        std::string hint = names.empty() ? "The file contains no animations; add 3D clips with Animator.clips (anim3d.generate makes one)."
+                                         : did_you_mean(std::string(clip), names);
+        for (const std::string& m : rt.clipWarnings) hint += " " + m + ".";
+        return make_error(std::format("'{}' has no animation clip '{}'", sk.path, clip), hint);
     }
     if (rt.clipIndex == idx && a.playing && !rt.finished) {
         a.clip = rt.activeClip;
@@ -253,6 +333,7 @@ Result<void> play_clip(World& w, Entity e, Animator& a, std::string_view clip, f
     rt.finished = false;
     a.time = rt.lastTime = 0.0f;
     a.playing = true;
+    if (clip_ref(rt, idx).loop >= 0 && !(a.states.is_object() && !a.states.empty())) a.loop = clip_ref(rt, idx).loop == 1;  // the clip file's own `loop`
     return {};
 }
 
@@ -270,6 +351,8 @@ void enter_state(World& w, Entity e, Animator& a, const std::string& name, float
     if (!clip.empty()) {
         auto r = play_clip(w, e, a, clip, fade);
         if (!r) warn_once(w, e, a, std::format("state '{}': {}", name, r.error().to_string()));
+        else if (!it->contains("loop") && a.rt.clipIndex >= 0 && clip_ref(a.rt, a.rt.clipIndex).loop >= 0)
+            a.loop = clip_ref(a.rt, a.rt.clipIndex).loop == 1;  // a clip file's `loop` is the default of a state that does not say
     }
     const std::string onEnter = it->value("onEnter", "");
     if (!onEnter.empty()) emit(w, onEnter, e, Json::object({{"state", name}, {"from", prev}}));
@@ -295,16 +378,27 @@ void run_state_machine(World& w, Entity e, Animator& a) {
 // ================================================================================================== playback ======
 
 void fire_events(World& w, Entity e, Animator& a, float from, float to) {
-    if (!a.events.is_array() || a.events.empty()) return;
-    struct Hit { float time; const Json* ev; };
+    struct Hit { float time; const Json* ev; const AnimClipEvent* own; };
     std::vector<Hit> hits;
-    for (const Json& ev : a.events) {
-        if (!ev.is_object() || ev.value("clip", "") != a.rt.activeClip) continue;
-        const float t = ev.value("time", 0.0f);
-        if (t > from && t <= to) hits.push_back({t, &ev});
-    }
+    if (a.events.is_array())
+        for (const Json& ev : a.events) {
+            if (!ev.is_object() || ev.value("clip", "") != a.rt.activeClip) continue;
+            const float t = ev.value("time", 0.0f);
+            if (t > from && t <= to) hits.push_back({t, &ev, nullptr});
+        }
+    if (a.rt.clipIndex >= 0)  // the events written in a 3D clip file
+        for (const AnimClipEvent& ev : clip_ref(a.rt, a.rt.clipIndex).events)
+            if (ev.time > from && ev.time <= to) hits.push_back({ev.time, nullptr, &ev});
+    if (hits.empty()) return;
     std::stable_sort(hits.begin(), hits.end(), [](const Hit& x, const Hit& y) { return x.time < y.time; });
     for (const Hit& h : hits) {
+        if (h.own) {
+            Json data = h.own->data.is_object() ? h.own->data : Json::object();
+            data["clip"] = a.rt.activeClip;
+            data["time"] = h.time;
+            if (!h.own->name.empty()) emit(w, h.own->name, e, std::move(data));
+            continue;
+        }
         const std::string name = h.ev->value("name", "");
         if (!name.empty()) emit(w, name, e, Json::object({{"clip", a.rt.activeClip}, {"time", h.time}}));
     }
@@ -312,7 +406,7 @@ void fire_events(World& w, Entity e, Animator& a, float from, float to) {
 
 void advance(World& w, Entity e, Animator& a, float dt) {
     AnimatorRuntime& rt = a.rt;
-    const AnimClip& clip = rt.skeleton->clips[std::size_t(rt.clipIndex)];
+    const AnimClip& clip = clip_ref(rt, rt.clipIndex);
     const float dur = clip.duration;
     const float step = dt * std::max(0.0f, a.speed);
     float t = a.time + step;
@@ -346,7 +440,7 @@ void advance(World& w, Entity e, Animator& a, float dt) {
     }
     rt.lastTime = a.time;
     if (rt.fromIndex >= 0) {
-        const float fd = rt.skeleton->clips[std::size_t(rt.fromIndex)].duration;
+        const float fd = clip_ref(rt, rt.fromIndex).duration;
         rt.fromTime += step;
         if (fd > 0.0f) rt.fromTime = rt.fromLoop ? std::fmod(rt.fromTime, fd) : std::min(rt.fromTime, fd);
         rt.fadeElapsed += dt;
@@ -359,13 +453,22 @@ void build_palette(Animator& a) {
     const SkeletonAsset& sk = *rt.skeleton;
     Pose pose = rest_pose(sk);
     if (rt.clipIndex >= 0) {
-        sample_clip(sk, sk.clips[std::size_t(rt.clipIndex)], a.time, pose);
+        sample_clip(sk, clip_ref(rt, rt.clipIndex), a.time, pose);
         if (rt.fromIndex >= 0 && rt.fadeDuration > 0.0f) {
             Pose from = rest_pose(sk);
-            sample_clip(sk, sk.clips[std::size_t(rt.fromIndex)], rt.fromTime, from);
+            sample_clip(sk, clip_ref(rt, rt.fromIndex), rt.fromTime, from);
             pose = blend_poses(from, pose, std::clamp(rt.fadeElapsed / rt.fadeDuration, 0.0f, 1.0f));
         }
     }
+    rt.pose = pose;
+    animator_apply_pose(a, pose);
+}
+
+}  // namespace
+
+void animator_apply_pose(Animator& a, const Pose& pose) {
+    AnimatorRuntime& rt = a.rt;
+    const SkeletonAsset& sk = *rt.skeleton;
     const std::vector<Mat4> globals = pose_globals(sk, pose);
     a.skinPalettes.resize(sk.skins.size());
     for (std::size_t si = 0; si < sk.skins.size(); ++si) {
@@ -376,6 +479,8 @@ void build_palette(Animator& a) {
     }
     a.palette = a.skinPalettes.empty() ? std::vector<Mat4>{} : a.skinPalettes[0];
 }
+
+namespace {
 
 void update_one(World& w, Entity e, Animator& a, float dt) {
     AnimatorRuntime& rt = a.rt;
@@ -512,6 +617,12 @@ Result<Json> animator_clips(World& w, Entity e) {
     if (!resolve_skeleton(w, e, **a, &why)) return make_error("no clips: " + why);
     Json out = Json::array();
     for (const AnimClip& c : (*a)->rt.skeleton->clips) out.push_back(Json::object({{"name", c.name}, {"duration", c.duration}}));
+    for (const AnimClip& c : (*a)->rt.extraClips) {  // 3D clip files
+        Json o = Json::object({{"name", c.name}, {"duration", c.duration}});
+        if (c.loop >= 0) o["loop"] = c.loop == 1;
+        if (auto f = (*a)->clips.find(c.name); f != (*a)->clips.end()) o["file"] = *f;
+        out.push_back(o);
+    }
     return out;
 }
 

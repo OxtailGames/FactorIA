@@ -24,6 +24,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 ### [3D](components/3d.md)
 
 - [Animator](components/3d.md#animator): Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`), or, when there is no glTF model, the keyframed 2D clips of `clips` (*.anim.json files that animate fields of this entity and its children: position, rotation.z, color.a, Sprite.region...). _Since 0.2.0._
+- [IK3D](components/3d.md#ik3d): 3D inverse kinematics on the skinned model of the Animator on the same entity (docs/ANIMATION.md, "3D IK"). _Not released yet._
 - [Light](components/3d.md#light): A light source for 3D meshes.
 - [MeshRenderer](components/3d.md#meshrenderer): Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal maps; glTF materials are read).
 
@@ -121,6 +122,16 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`anim.set_event`](commands/anim.md#animset_event-modifies-state): Rename an event of a clip or replace its data. _Since 0.7.0._
 - [`anim.set_interp`](commands/anim.md#animset_interp-modifies-state): Set how selected keys reach the next key: interp or easing, and bezier tangents. _Since 0.7.0._
 - [`anim.set_keys`](commands/anim.md#animset_keys-modifies-state): Add or replace keys of one track of a clip, creating the track if it is missing. _Since 0.7.0._
+- [`anim3d.create`](commands/anim.md#anim3dcreate): Write a new, empty 3D bone clip (*.anim.json, format factoria.anim3d/1) for a skinned rig; add tracks with anim3d.set_keys. _Not released yet._
+- [`anim3d.generate`](commands/anim.md#anim3dgenerate): Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide. _Not released yet._
+- [`anim3d.generators`](commands/anim.md#anim3dgenerators): List the clip generators of anim3d.generate (walk, run, trot, gallop, idle, swing, hit) with their parameters, ranges and defaults. _Not released yet._
+- [`anim3d.info`](commands/anim.md#anim3dinfo): Describe a 3D bone clip (duration, tracks, events, contacts, how it was generated) and, with `rig`, check its bones against a baked rig; with no `path`, list the 3D clips of the project. _Not released yet._
+- [`anim3d.preview`](commands/anim.md#anim3dpreview): Draw a 3D bone clip as a filmstrip: the baked rig posed at evenly spaced times, shaded, on a ground grid, with the feet that are on the ground marked; returns the PNG. _Not released yet._
+- [`anim3d.remove_track`](commands/anim.md#anim3dremove_track): Remove the tracks of one bone from a 3D clip (all its channels, or the one in `channel`). _Not released yet._
+- [`anim3d.retarget`](commands/anim.md#anim3dretarget): Carry a 3D clip from one baked rig to another (other proportions, a different template) by bone role, index and side; root motion and feet are scaled and planted feet stay planted. _Not released yet._
+- [`anim3d.set_keys`](commands/anim.md#anim3dset_keys): Add or replace keys of one bone's track in a 3D clip (rotation as euler degrees or quaternion, translation, scale); a key at the time of an existing one replaces it. _Not released yet._
+- [`ik3d.check`](commands/anim.md#ik3dcheck): Check the `solvers` of an IK3D component against a baked rig: types, keys, number ranges, bone names ('did you mean') and chains (root -> mid -> end). _Not released yet._
+- [`ik3d.solve`](commands/anim.md#ik3dsolve): Run one IK3D solver offline on a baked rig (its rest pose, or a clip's pose at a time) and report whether it reached, the error and where the bones ended up. _Not released yet._
 
 ### [api](commands/api.md)
 

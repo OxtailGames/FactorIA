@@ -19,6 +19,7 @@
 #include "fa/scene/camera_query.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/bones2d.h"
+#include "fa/scene/ik3d.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/video.h"
 
@@ -421,6 +422,17 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             // The renderer (which deforms skinned sprites from the bones), bounds and the next physics step read the
             // result. The order "clips, then IK, then drawing" is the contract in docs/ANIMATION.md, "Bones and IK".
             update_ik2d(world);
+            // IK3D rewrites the palettes of the skinned models after their clips (docs/ANIMATION.md, "3D IK"); its foot rays
+            // ask the physics world, which has just stepped.
+            update_ik3d(world, float(fixedDt * scale),
+                        [this](Vec3 origin, Vec3 dir, float maxDistance, std::int32_t mask, Entity ignore) -> std::optional<GroundHit> {
+                            RaycastOptions ro;
+                            ro.mask = mask;
+                            ro.ignore = ignore;
+                            auto hit = physics.raycast3d(world, origin, dir, maxDistance, ro);
+                            if (!hit) return std::nullopt;
+                            return GroundHit{hit->point, hit->normal};
+                        });
         }
         {
             // Videos follow the game clock: they stop with time.scale 0, and a play / pause / seek a script made still applies.
