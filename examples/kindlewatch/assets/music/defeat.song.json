@@ -1,0 +1,35 @@
+{
+  "format": "factoria.song/1",
+  "doc": "Defeat: the fire is out. Dark pad and a slow bass; plays once.",
+  "tempo": 60.0,
+  "meter": "4/4",
+  "key": "A",
+  "mode": "minor",
+  "tracks": {
+    "pad": {
+      "instrument": "pad_dark",
+      "volume": 0.8,
+      "patterns": {
+        "chords": "v70 (Am@3):1 | (Dm@3) | (Am@3) | (Em@3)"
+      }
+    },
+    "bass": {
+      "instrument": "bass_sub",
+      "volume": 0.9,
+      "patterns": {
+        "line": "v80 A1:1 | D1 | A1 | E1"
+      }
+    }
+  },
+  "sections": [
+    {
+      "name": "loop",
+      "kind": "section",
+      "repeat": 1,
+      "play": {
+        "pad": "chords",
+        "bass": "line"
+      }
+    }
+  ]
+}

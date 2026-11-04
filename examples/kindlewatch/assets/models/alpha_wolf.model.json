@@ -1,0 +1,342 @@
+{
+  "format": "factoria.model/1",
+  "doc": "The alpha wolf: half again as big as the wolf, black fur, red eyes and a mane of spikes.",
+  "materials": {
+    "eyes": {
+      "color": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "emissive": [
+        1,
+        0.15,
+        0.1,
+        1
+      ],
+      "roughness": 1
+    }
+  },
+  "nodes": [
+    {
+      "op": "capsule",
+      "id": "body",
+      "part": "body",
+      "radius": 0.30000000000000004,
+      "height": 1.7249999999999999,
+      "segments": 12,
+      "rings": 5,
+      "heightSegments": 6,
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1.05
+      ],
+      "position": [
+        0.0,
+        0.99,
+        0.0
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "sphere",
+      "id": "chest",
+      "part": "body",
+      "radius": 0.34500000000000003,
+      "segments": 12,
+      "position": [
+        0.0,
+        0.96,
+        0.45
+      ],
+      "scale": [
+        1,
+        1.1,
+        1.1
+      ],
+      "color": "#2d3a5e"
+    },
+    {
+      "op": "capsule",
+      "id": "neck",
+      "part": "neck",
+      "radius": 0.15000000000000002,
+      "height": 0.63,
+      "segments": 10,
+      "rings": 4,
+      "heightSegments": 4,
+      "rotation": [
+        50,
+        0,
+        0
+      ],
+      "position": [
+        0.0,
+        1.26,
+        0.75
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "rounded_box",
+      "id": "skull",
+      "part": "head",
+      "size": [
+        0.3,
+        0.285,
+        0.39
+      ],
+      "radius": 0.07500000000000001,
+      "position": [
+        0.0,
+        1.455,
+        1.05
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "cone",
+      "id": "snout",
+      "part": "head",
+      "radius": 0.11249999999999999,
+      "radiusTop": 0.06,
+      "height": 0.36,
+      "segments": 10,
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "position": [
+        0.0,
+        1.395,
+        1.35
+      ],
+      "color": "#2d3a5e"
+    },
+    {
+      "op": "cone",
+      "id": "ear_l",
+      "part": "head",
+      "radius": 0.0675,
+      "height": 0.195,
+      "segments": 6,
+      "position": [
+        0.105,
+        1.68,
+        0.96
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "cone",
+      "id": "ear_r",
+      "part": "head",
+      "radius": 0.0675,
+      "height": 0.195,
+      "segments": 6,
+      "position": [
+        -0.105,
+        1.68,
+        0.96
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "sphere",
+      "id": "eye_l",
+      "part": "head",
+      "radius": 0.03,
+      "segments": 8,
+      "position": [
+        0.105,
+        1.5,
+        1.215
+      ],
+      "material": "eyes",
+      "color": "#d96060"
+    },
+    {
+      "op": "sphere",
+      "id": "eye_r",
+      "part": "head",
+      "radius": 0.03,
+      "segments": 8,
+      "position": [
+        -0.105,
+        1.5,
+        1.215
+      ],
+      "material": "eyes",
+      "color": "#d96060"
+    },
+    {
+      "op": "capsule",
+      "id": "tail",
+      "part": "tail",
+      "radius": 0.07500000000000001,
+      "height": 0.9299999999999999,
+      "segments": 8,
+      "rings": 4,
+      "heightSegments": 8,
+      "rotation": [
+        -125,
+        0,
+        0
+      ],
+      "position": [
+        0.0,
+        0.825,
+        -1.17
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "capsule",
+      "id": "foreleg_l",
+      "part": "foreleg_l",
+      "radius": 0.08700000000000001,
+      "height": 0.96,
+      "segments": 10,
+      "rings": 4,
+      "heightSegments": 8,
+      "position": [
+        0.21,
+        0.495,
+        0.57
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "capsule",
+      "id": "hindleg_l",
+      "part": "hindleg_l",
+      "radius": 0.10200000000000001,
+      "height": 0.96,
+      "segments": 10,
+      "rings": 4,
+      "heightSegments": 8,
+      "position": [
+        0.225,
+        0.495,
+        -0.6
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "capsule",
+      "id": "foreleg_r",
+      "part": "foreleg_r",
+      "radius": 0.08700000000000001,
+      "height": 0.96,
+      "segments": 10,
+      "rings": 4,
+      "heightSegments": 8,
+      "position": [
+        -0.21,
+        0.495,
+        0.57
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "capsule",
+      "id": "hindleg_r",
+      "part": "hindleg_r",
+      "radius": 0.10200000000000001,
+      "height": 0.96,
+      "segments": 10,
+      "rings": 4,
+      "heightSegments": 8,
+      "position": [
+        -0.225,
+        0.495,
+        -0.6
+      ],
+      "color": "#1b2340"
+    },
+    {
+      "op": "cone",
+      "id": "mane_0",
+      "part": "neck",
+      "radius": 0.07500000000000001,
+      "height": 0.30000000000000004,
+      "segments": 5,
+      "rotation": [
+        -20,
+        0,
+        0
+      ],
+      "position": [
+        0,
+        1.395,
+        0.5700000000000001
+      ],
+      "color": "#8a2a2a"
+    },
+    {
+      "op": "cone",
+      "id": "mane_1",
+      "part": "neck",
+      "radius": 0.07500000000000001,
+      "height": 0.30000000000000004,
+      "segments": 5,
+      "rotation": [
+        -20,
+        0,
+        0
+      ],
+      "position": [
+        0,
+        1.4175,
+        0.72
+      ],
+      "color": "#8a2a2a"
+    },
+    {
+      "op": "cone",
+      "id": "mane_2",
+      "part": "neck",
+      "radius": 0.07500000000000001,
+      "height": 0.30000000000000004,
+      "segments": 5,
+      "rotation": [
+        -20,
+        0,
+        0
+      ],
+      "position": [
+        0,
+        1.4400000000000002,
+        0.8700000000000001
+      ],
+      "color": "#8a2a2a"
+    },
+    {
+      "op": "cone",
+      "id": "mane_3",
+      "part": "neck",
+      "radius": 0.07500000000000001,
+      "height": 0.30000000000000004,
+      "segments": 5,
+      "rotation": [
+        -20,
+        0,
+        0
+      ],
+      "position": [
+        0,
+        1.4625000000000001,
+        1.02
+      ],
+      "color": "#8a2a2a"
+    }
+  ]
+}

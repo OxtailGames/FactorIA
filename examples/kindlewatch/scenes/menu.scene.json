@@ -1,0 +1,595 @@
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "gravity2D": [
+      0.0,
+      -980.0
+    ],
+    "gravity3D": [
+      0.0,
+      -9.81,
+      0.0
+    ]
+  },
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Transform": {
+          "position": [
+            640.0,
+            360.0,
+            0.0
+          ]
+        },
+        "Camera": {
+          "clearColor": [
+            0.02,
+            0.03,
+            0.07,
+            1.0
+          ]
+        }
+      }
+    },
+    {
+      "id": "captions",
+      "components": {
+        "Transform": {
+          "position": [
+            0.0,
+            -24.0,
+            0.0
+          ]
+        },
+        "Captions": {
+          "fontSize": 30.0
+        }
+      }
+    },
+    {
+      "id": "sky",
+      "components": {
+        "Transform": {
+          "position": [
+            640,
+            368,
+            0
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/sky.png",
+          "size": [
+            1280,
+            736
+          ],
+          "layer": -100
+        }
+      }
+    },
+    {
+      "id": "forest",
+      "components": {
+        "Transform": {
+          "position": [
+            0.0,
+            150.0,
+            0.0
+          ],
+          "scale": [
+            4.0,
+            4.0,
+            1.0
+          ]
+        },
+        "Tilemap": {
+          "tileset": "assets/art/forest.png",
+          "columns": 8,
+          "width": 20,
+          "height": 3,
+          "tiles": [
+            -1,
+            10,
+            31,
+            26,
+            -1,
+            -1,
+            -1,
+            10,
+            31,
+            31,
+            31,
+            26,
+            -1,
+            -1,
+            -1,
+            10,
+            31,
+            31,
+            26,
+            -1,
+            10,
+            33,
+            46,
+            45,
+            31,
+            31,
+            31,
+            33,
+            46,
+            46,
+            46,
+            45,
+            31,
+            31,
+            31,
+            33,
+            46,
+            46,
+            45,
+            26,
+            4,
+            36,
+            36,
+            36,
+            36,
+            36,
+            36,
+            36,
+            36,
+            36,
+            36,
+            36,
+            36,
+            36,
+            36,
+            36,
+            36,
+            36,
+            36,
+            34
+          ],
+          "terrains": [
+            {
+              "name": "forest",
+              "mode": "blob47",
+              "first": 0
+            }
+          ],
+          "layer": -20
+        }
+      }
+    },
+    {
+      "id": "pine_1",
+      "components": {
+        "Transform": {
+          "position": [
+            90.0,
+            70.0,
+            0.0
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/pine_art.png",
+          "size": [
+            160.0,
+            240.0
+          ],
+          "pivot": [
+            0.5,
+            0.0
+          ],
+          "layer": -10
+        }
+      }
+    },
+    {
+      "id": "pine_2",
+      "components": {
+        "Transform": {
+          "position": [
+            250.0,
+            70.0,
+            0.0
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/pine_art.png",
+          "size": [
+            128.0,
+            192.0
+          ],
+          "pivot": [
+            0.5,
+            0.0
+          ],
+          "layer": -10
+        }
+      }
+    },
+    {
+      "id": "pine_3",
+      "components": {
+        "Transform": {
+          "position": [
+            1040.0,
+            70.0,
+            0.0
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/pine_art.png",
+          "size": [
+            136.0,
+            204.0
+          ],
+          "pivot": [
+            0.5,
+            0.0
+          ],
+          "layer": -10
+        }
+      }
+    },
+    {
+      "id": "pine_4",
+      "components": {
+        "Transform": {
+          "position": [
+            1190.0,
+            70.0,
+            0.0
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/pine_art.png",
+          "size": [
+            168.0,
+            252.0
+          ],
+          "pivot": [
+            0.5,
+            0.0
+          ],
+          "layer": -10
+        }
+      }
+    },
+    {
+      "id": "pine_5",
+      "components": {
+        "Transform": {
+          "position": [
+            430.0,
+            70.0,
+            0.0
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/pine_art.png",
+          "size": [
+            88.0,
+            132.0
+          ],
+          "pivot": [
+            0.5,
+            0.0
+          ],
+          "layer": -15
+        }
+      }
+    },
+    {
+      "id": "pine_6",
+      "components": {
+        "Transform": {
+          "position": [
+            850.0,
+            70.0,
+            0.0
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/pine_art.png",
+          "size": [
+            96.0,
+            144.0
+          ],
+          "pivot": [
+            0.5,
+            0.0
+          ],
+          "layer": -15
+        }
+      }
+    },
+    {
+      "id": "logs",
+      "components": {
+        "Transform": {
+          "position": [
+            640.0,
+            90.0,
+            0.0
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/icon_log.png",
+          "size": [
+            112,
+            84
+          ],
+          "layer": 4
+        }
+      }
+    },
+    {
+      "id": "logs2",
+      "components": {
+        "Transform": {
+          "position": [
+            640.0,
+            100.0,
+            0.0
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/icon_log.png",
+          "size": [
+            112,
+            84
+          ],
+          "flipX": true,
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "flame",
+      "components": {
+        "Transform": {
+          "position": [
+            640.0,
+            112.0,
+            0.0
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/flame.png",
+          "size": [
+            96.0,
+            144.0
+          ],
+          "pivot": [
+            0.5,
+            0.0
+          ],
+          "layer": 5
+        },
+        "SpriteAnimator": {
+          "clip": "burn"
+        }
+      }
+    },
+    {
+      "id": "sparks",
+      "components": {
+        "Transform": {
+          "position": [
+            640.0,
+            170.0,
+            0.0
+          ]
+        },
+        "ParticleEmitter": {
+          "rate": 14.0,
+          "lifetime": 1.8,
+          "lifetimeVariance": 0.4,
+          "speed": 70.0,
+          "speedVariance": 0.5,
+          "spread": 25.0,
+          "gravity": [
+            0.0,
+            18.0,
+            0.0
+          ],
+          "startSize": 6.0,
+          "startColor": [
+            1.0,
+            0.75,
+            0.25,
+            1.0
+          ],
+          "endColor": [
+            1.0,
+            0.25,
+            0.1,
+            0.0
+          ],
+          "layer": 8,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "logo",
+      "components": {
+        "Transform": {
+          "position": [
+            600,
+            610,
+            0
+          ]
+        },
+        "Sprite": {
+          "texture": "assets/art/logo.png",
+          "size": [
+            700,
+            140
+          ],
+          "layer": 20
+        }
+      }
+    },
+    {
+      "id": "music",
+      "components": {
+        "MusicPlayer": {
+          "song": "assets/music/title.song.json"
+        }
+      }
+    },
+    {
+      "id": "main_menu",
+      "components": {
+        "Transform": {
+          "position": [
+            0.0,
+            -30.0,
+            0.0
+          ]
+        },
+        "Panel": {
+          "anchor": [
+            0.5,
+            0.5
+          ],
+          "color": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "layout": "column",
+          "spacing": 10.0,
+          "fit": true
+        },
+        "Script": {
+          "path": "scripts/main_menu.js",
+          "props": {
+            "firstScene": "scenes/game.scene.json"
+          }
+        }
+      },
+      "children": [
+        {
+          "id": "play",
+          "components": {
+            "Button": {
+              "key": "menu.play",
+              "autoFocus": true,
+              "text": "Play",
+              "autoSize": true
+            }
+          }
+        },
+        {
+          "id": "options_button",
+          "components": {
+            "Button": {
+              "key": "menu.options",
+              "text": "Options",
+              "autoSize": true
+            }
+          }
+        },
+        {
+          "id": "credits_button",
+          "components": {
+            "Button": {
+              "key": "menu.credits",
+              "text": "Credits",
+              "autoSize": true
+            }
+          }
+        },
+        {
+          "id": "quit",
+          "components": {
+            "Button": {
+              "key": "menu.quit",
+              "text": "Quit",
+              "autoSize": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "options",
+      "active": false,
+      "prefab": "prefabs/ui/options.prefab.json"
+    },
+    {
+      "id": "credits",
+      "active": false,
+      "components": {
+        "Panel": {
+          "size": [
+            760.0,
+            620.0
+          ],
+          "anchor": [
+            0.5,
+            0.5
+          ],
+          "layer": 300,
+          "layout": "column",
+          "spacing": 16.0,
+          "padding": [
+            24.0,
+            24.0,
+            24.0,
+            24.0
+          ]
+        },
+        "Script": {
+          "path": "scripts/ui/credits.js"
+        }
+      },
+      "children": [
+        {
+          "id": "credits_list",
+          "components": {
+            "ScrollList": {
+              "size": [
+                712.0,
+                476.0
+              ],
+              "layer": 301,
+              "color": [
+                0.0,
+                0.0,
+                0.0,
+                0.25
+              ],
+              "spacing": 14.0,
+              "padding": [
+                16.0,
+                16.0,
+                16.0,
+                16.0
+              ]
+            }
+          }
+        },
+        {
+          "id": "credits_back",
+          "tags": [
+            "back"
+          ],
+          "components": {
+            "Button": {
+              "layer": 302,
+              "key": "menu.back",
+              "autoFocus": true,
+              "text": "Back",
+              "autoSize": true
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

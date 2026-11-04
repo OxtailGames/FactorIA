@@ -1,0 +1,509 @@
+{
+  "format": "factoria.feedback/1",
+  "project": "Kindlewatch",
+  "engineVersion": "0.14.1",
+  "entries": [
+    {
+      "id": "FB-0001",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "performance",
+      "severity": "major",
+      "title": "MusicPlayer holds hundreds of MB of decoded audio, and the perf and memory numbers do not show it",
+      "missing": "A MusicPlayer on a menu scene (an 80 s, 44.1 kHz stereo song of this project) takes the whole process from 46 MB to 264 MB peak resident memory (perf.measure of that scene with and without the MusicPlayer component). The game scene (a 65 s song with four layer stems, plus a 11 s and a 16 s song to crossfade to) peaks at 576 MB. Meanwhile perf.profile reports audioDecodedMB 3.0, so the figure that is supposed to show decoded audio does not include what the music player keeps. 80 s of stereo float PCM is about 28 MB, so the player holds several times that (several copies, or a higher internal rate). On a phone or in the browser this is the biggest cost of a game with a few minutes of music, and the only way to learn it is to bisect the scene by hand.",
+      "workaround": "None: the song lengths stayed as designed and perf.kindlewatch budgets carry a 600+ MB memory baseline. I did not shorten the songs.",
+      "suggestion": "Stream the ogg of a song instead of decoding it whole (or keep one decoded copy per song, not per layer and per section), count the player's buffers in audioDecodedMB and in perf.measure, and say in the MusicPlayer docs how much memory a song costs (about N MB per minute per layer).",
+      "share": {
+        "title": "MusicPlayer decodes whole songs and layer stems into memory, far above the decoded size",
+        "missing": "A MusicPlayer component playing one 80 second stereo song raises peak process memory by about 220 MB, and a scene with a 65 second four-layer song plus two crossfade targets reaches about 575 MB. perf.profile's audioDecodedMB stays near 3 MB, so the audio memory metric does not include what the music player keeps. Mobile and web builds are at risk.",
+        "suggestion": "Stream or share one decoded copy per song, and include the music player's buffers in audioDecodedMB and perf.measure.",
+        "workaround": "None: the songs were kept and the perf budget carries the high memory baseline."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0002",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "tooling",
+      "severity": "major",
+      "title": "assets.json schema rejects the provenance the engine's own model.game_ready and model.bake write",
+      "missing": "After model.game_ready (origin, merge, LODs, collider) and model.bake wrote the model's prefab, the project failed `factoria validate`: provenance.kind \"prefab\" was not in the schema's enum and the new `extras` array (the LOD and collider files of a model) was not a known property. The commands' own output made the project invalid, with 8 errors on a project made only by the documented commands.",
+      "workaround": "Fixed in this work package (schemas/assets.schema.json: \"prefab\" added to the kind enum, `extras` added as an array of strings) and a regression check in tools/common/tests/model_doc_test.cpp that validate_project has no assets.json error after model.game_ready.",
+      "workaroundFiles": [
+        "schemas/assets.schema.json"
+      ],
+      "suggestion": "Keep one source of truth for the provenance fields (a test that validates what every recipe command writes against the schema).",
+      "share": {
+        "title": "assets.json schema rejects provenance written by model.game_ready",
+        "missing": "Project validation fails with schema errors on assets.json after model.game_ready and model.bake: the provenance kind enum lacks the value the prefab output gets, and the extras property (LOD and collider outputs) is not declared. Output of the engine's own commands makes the project invalid.",
+        "suggestion": "Validate what each recipe command writes against the schema in a unit test, so the two cannot drift.",
+        "workaround": "Edit the schema by hand."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0003",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "audio",
+      "severity": "minor",
+      "title": "MusicPlayer.startSection is applied to crossfadeTo into another song that lacks that section",
+      "missing": "MusicPlayer.startSection (\"intro\") belongs to the night song. crossfadeTo(songB) with no `section` argument used the component's startSection, so crossfading to a song whose only section is \"loop\" failed with \"has no section 'intro'\". The error is correct, but the default should not come from a field that describes the first song.",
+      "workaround": "Every crossfade passes `section` explicitly (scripts/music_director.js, cross()).",
+      "workaroundFiles": [
+        "scripts/music_director.js"
+      ],
+      "suggestion": "When crossfadeTo has no `section`, start the target song at its first section (or its loop) instead of the component's startSection.",
+      "share": {
+        "title": "MusicPlayer crossfadeTo uses the component's startSection for another song",
+        "missing": "MusicPlayer.crossfadeTo(song) without a section argument starts the new song at the component's startSection, which names a section of the first song; a crossfade to a song with different sections fails with a no-such-section error.",
+        "suggestion": "Default to the first section of the target song when no section is given.",
+        "workaround": "Pass the section on every crossfadeTo call."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0004",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "audio",
+      "severity": "major",
+      "title": "A pending MusicPlayer crossfade or section change survives a scene load",
+      "missing": "crossfadeTo(songB) changes the component's `song` at once and the audible switch waits for the next bar. If the scene is reloaded or another scene loads in that time (the player dies, presses retry and the game scene loads again), the new scene's first goToSection(\"calm\") ran against the OLD song and raised \"has no section 'calm'\" in a later test. The pending request of the previous scene leaks into the next one.",
+      "workaround": "The music director starts the new scene with a hard play({song, section}) instead of goToSection, and the tests assert no script error after scene.reload.",
+      "workaroundFiles": [
+        "scripts/music_director.js"
+      ],
+      "suggestion": "Drop pending crossfades and section changes when the entity that owns the MusicPlayer is destroyed (scene unload), and report in audio.music_state what is audible versus what is queued.",
+      "share": {
+        "title": "Pending MusicPlayer crossfade survives a scene load",
+        "missing": "A MusicPlayer crossfadeTo that is waiting for the bar boundary is not cancelled when its scene is unloaded, so the next scene's section change runs against the previous song and fails with a no-such-section error.",
+        "suggestion": "Cancel the queued crossfade and section change when the owning entity is destroyed.",
+        "workaround": "Use a hard play() with an explicit song and section at the start of each scene."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0005",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "audio",
+      "severity": "minor",
+      "title": "MusicPlayer.song reads as the new song while the old one is still audible",
+      "missing": "After crossfadeTo the component's `song` field already holds the target song, but the audible switch is at the next bar (quantize) and the fade takes more bars. A script that wants to know what the player hears (to time a stinger or to decide the next section name) cannot tell from the component; audio.music_state shows the song and section, not whether a change is queued.",
+      "workaround": "The director keeps its own record of the song it asked for last.",
+      "suggestion": "Expose `song` (audible), `pendingSong` and `pendingSection` on entity.music, and in audio.music_state.",
+      "share": {
+        "title": "MusicPlayer does not expose the audible song versus the queued one",
+        "missing": "After MusicPlayer.crossfadeTo the song field already shows the target while the old song is still audible until the bar boundary; there is no read-only property for the audible song and the pending one, so scripts keep their own copy.",
+        "suggestion": "Add audible and pending song and section to the MusicPlayer script API and to audio.music_state.",
+        "workaround": "Keep a script-side record of the last request."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0006",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "audio",
+      "severity": "minor",
+      "title": "audio.play has no world position: one-shot sounds in 3D are flat unless an AudioSource is spawned",
+      "missing": "In a 3D game most one-shots (a wolf growl, a bite, a footstep, a log landing) come from a place. audio.play(path, {volume, pan, variants, pitch, bus}) takes no position, and an AudioSource needs an entity (spawn, play, destroy). I wrote a playAt(path, point, options) helper that finds the camera's ground point, attenuates the volume by distance and pans by the side, which is the engine's job and ignores the listener's orientation.",
+      "workaround": "scripts/common.js playAt() (distance attenuation and pan computed by hand, with the camera's ground point as the listener).",
+      "workaroundFiles": [
+        "scripts/common.js"
+      ],
+      "suggestion": "audio.play({position:[x,y,z], range, rolloff}) that uses the AudioListener, with the same variants/pitch/bus options.",
+      "share": {
+        "title": "audio.play cannot take a 3D position",
+        "missing": "The audio.play script function has volume, pan, pitch, variants and bus options but no world position, so one-shot sounds in a 3D scene are not attenuated or panned by the AudioListener unless a script spawns a temporary AudioSource entity.",
+        "suggestion": "Add position, range and rolloff options to audio.play that use the AudioListener.",
+        "workaround": "A helper function computes distance volume and pan by hand."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0007",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "No command to resize or crop the canvas of an image document",
+      "missing": "A layered image document has a fixed width and height from image.create. The style check wants texture sizes that are multiples of 4, and the sky, the heart and the log icon had been drawn at other sizes (for example 12x11). There is no image.resize or image.crop, and the pixel rows of an indexed layer are text of the old size, so each of those documents was recreated with image.create and its pixels stamped again with image.pixel.",
+      "workaround": "Recreate the document with image.create and repeat the image.pixel / image.draw calls (the call scripts are the recipe).",
+      "suggestion": "image.resize {path, width, height, anchor} that moves or crops every layer, keeping palette, ramps, frames and tags.",
+      "share": {
+        "title": "Image documents cannot be resized",
+        "missing": "Image documents have no command to change the canvas size: a pixel-art layer's rows are fixed at creation, so adding rows or columns means recreating the document and repeating every edit.",
+        "suggestion": "Add an image resize/crop command with an anchor that keeps palette, frames and tags.",
+        "workaround": "Recreate and redraw."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0008",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "scene.save of a loaded scene expands a prefab reference into inline entities",
+      "missing": "After the menu kit was added (project.add_menu_kit) the menu scene held its options screen as a prefab reference. Editing the scene in a running engine and saving it with scene.save wrote that entity expanded into inline entities, so the file lost the reference (the docs say a scene loaded into the world expands because a reference cannot express an edit, but the saved file then no longer follows the kit's prefab). Every later change of the prefab stops reaching the scene.",
+      "workaround": "Restored the reference by hand in the scene file. The game scene is written by a generator script that emits {\"prefab\": ..., \"components\": overrides} and is never saved with scene.save.",
+      "suggestion": "scene.save should write an instance whose prefab file is unchanged as the prefab path plus the component differences, or warn which instances it expanded.",
+      "share": {
+        "title": "scene.save expands unedited prefab instances into inline entities",
+        "missing": "scene.save of a scene loaded in the world writes entities that came from a prefab reference as inline entities even when nothing in them was edited, so the saved scene no longer follows later edits of the prefab.",
+        "suggestion": "Write an unedited instance as the prefab path, and an edited one as the path plus the differences."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0009",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "Style warnings flag assets that are deliberately different from the project style",
+      "missing": "The style rules of assets.json (lightDirection, texelsPerUnit, palette) warned about assets that are deliberately different from the house style: the flame (an effect lit by itself, drawn at 0.17 texture pixels per world unit as a billboard) and the interface icons (a log icon shaded from the right). The warnings say \"if this asset is meant to differ (UI, an effect), list it in style.ignore\", and that is the only escape: an ignore list of paths that then hides every rule for those files, a real problem included.",
+      "workaround": "style.ignore lists the sky, logo, pine art, flame, icons, panel and bar pictures in assets.json.",
+      "workaroundFiles": [
+        "assets.json"
+      ],
+      "suggestion": "Let a rule be disabled by an asset's role (ui, icon, particle) or by a tag in the provenance, and apply texelsPerUnit only to textures a 3D mesh uses.",
+      "share": {
+        "title": "Style rules cannot be scoped to a kind of asset",
+        "missing": "Asset style rules (texel density, palette) apply to every picture, including pixel-art interface pictures and icons that are never on a mesh. The only escape is an ignore list of paths that hides every rule for that file.",
+        "suggestion": "Allow a rule to apply only to textures that a mesh material uses, or to be scoped by asset role.",
+        "workaround": "An ignore list."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0010",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "sfx.bake takes no path and there is no one-line re-render of a single sound patch",
+      "missing": "To render one sound patch after editing it I called sfx.bake with a path, which failed (arguments are force, macros, dryRun); the command that renders one patch is sfx.render. The two names read as the same action in two sizes. I ended up using assets.regenerate {\"stale\":true} for everything, which is the right habit but not what the sfx docs lead to.",
+      "workaround": "assets.regenerate {\"stale\":true} after every edit.",
+      "suggestion": "Say in sfx.bake's summary that it renders every stale patch and that sfx.render renders one, and have both accept `path`.",
+      "share": {
+        "title": "sfx.bake and sfx.render differ in a way the names do not show",
+        "missing": "sfx.bake renders all stale patches and takes no path, sfx.render renders one patch: a call to sfx.bake with a path fails on an unknown argument. The names and summaries do not say which is the batch one.",
+        "suggestion": "Let sfx.bake accept a path (or say so in its summary) and cross-reference sfx.render.",
+        "workaround": "Use the stale regeneration command."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "audio",
+      "severity": "minor",
+      "title": "A sound patch with variants renders one variant at full scale and lowering the layer gains did not help",
+      "missing": "footstep.sfx.json with 6 variants: validate warned that one variant peaks at -0.0 dBFS. I lowered the layer gains and ran assets.regenerate {stale:true}: it answered that the outputs were up to date (the gain change was in the patch the output depends on) and the file still peaked. The peak seems to be normalised per variant. What fixed it was import.normalize on the six wavs in assets.json.",
+      "workaround": "import.normalize: true on the footstep files in assets.json.",
+      "workaroundFiles": [
+        "assets.json",
+        "assets/audio/footstep.sfx.json"
+      ],
+      "suggestion": "Make a patch's peak target a field of the patch (peakDb) that applies to every variant, and make assets.regenerate list which input it saw changed when it says unchanged.",
+      "share": {
+        "title": "Sound patch variants reach full scale whatever the layer gains",
+        "missing": "A sound patch rendered with several variants can produce one variant that peaks at 0 dBFS and the validator warns about clipping; lowering the layer gains has no effect on the peak, so the render seems to be peak-normalised per variant. A peak target for the whole patch is missing.",
+        "suggestion": "Add a peak target to the patch format that applies to all variants.",
+        "workaround": "Normalise the output files on import."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "input.record does not record presses made with game.input by action name",
+      "missing": "Recording a replay while driving the game with game.input {\"press\":[\"move_left\"]} (an action of factoria.json) wrote a replay with only the mouse position; the movement was missing, so the replay played back to nothing. The same sequence with key names (\"A\", \"Space\") was recorded and played back to the same end state. The docs say a recording holds every key, mouse, touch and gamepad event the game receives from a window, a test, game.input or a replay.",
+      "workaround": "Record with key names, not action names (replays/first_night.json).",
+      "workaroundFiles": [
+        "replays/first_night.json"
+      ],
+      "suggestion": "Record an action press as the keys that produce it, or store the action name in the replay and play it back as an action.",
+      "share": {
+        "title": "input.record ignores action presses injected by game.input",
+        "missing": "input.record records key presses injected with game.input, but a press given by action name (as declared in the project's input bindings) is missing from the replay, which then plays back with no movement.",
+        "suggestion": "Store action presses in the replay, or translate them to the bound keys.",
+        "workaround": "Press the keys by name instead of the actions."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "fa.call in factoria:test tests cannot run assets.provenance",
+      "missing": "A test that checks that every asset has an engine recipe wanted assets.provenance (the command that lists records and files with no record). Inside a test, fa.call answers \"Unknown command 'assets.provenance'\" while fs.read, fs.list and assets.regenerate work, so the test reads assets.json itself and lists the folder with fs.list. The command set of the test runtime is not documented.",
+      "workaround": "tests/assets.test.js reads assets.json and fs.list.",
+      "workaroundFiles": [
+        "tests/assets.test.js"
+      ],
+      "suggestion": "Document which commands fa.call runs in tests, and add the read-only assets.* ones (provenance, list, check_art).",
+      "share": {
+        "title": "Test runtime fa.call lacks the read-only assets commands",
+        "missing": "The factoria:test runtime's fa.call knows only a subset of the registered commands, and read-only asset commands like the provenance listing answer unknown command; the available subset is not documented.",
+        "suggestion": "Document the subset and include the read-only asset commands.",
+        "workaround": "Read the project files directly with fs.read and fs.list."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "game.findByTag is missing from factoria:test, world.findByTag must be imported",
+      "missing": "In a test, game.find(id) exists, but there is no game.findByTag; to count the wolves a test imports world from factoria and calls world.findByTag, which is correct but not where one looks next to game.find.",
+      "workaround": "import { world } from \"factoria\" in the tests.",
+      "suggestion": "Add game.findByTag (and game.findAll) beside game.find in factoria:test.",
+      "share": {
+        "title": "factoria:test game object has find but no findByTag",
+        "missing": "The game object of the test module has find(id) for one entity but no way to find entities by tag; tests must import the world API instead.",
+        "suggestion": "Add findByTag to the test game object.",
+        "workaround": "Use the world API in tests."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Touch controls are hidden on desktop and cannot be previewed or tested by touch",
+      "missing": "TouchStick and TouchButton default to touchOnly: true: they are drawn only while the last input came from a finger, so a desktop screenshot or headless run does not show them and a layout cannot be judged without making a touch the last input (or turning touchOnly off in the scene). Their input arrives as gamepad bindings, so a test drives them with game.gamepad(0).axis(...), which does not exercise the touch path.",
+      "workaround": "Checked the layout with a touch as the last input; the tests use the gamepad.",
+      "workaroundFiles": [
+        "scenes/game.scene.json"
+      ],
+      "suggestion": "A `factoria run --touch` or screenshot option that forces touch UI on, and a game.touch helper in factoria:test that drops a finger on a TouchStick.",
+      "share": {
+        "title": "No way to see or test touch controls on desktop",
+        "missing": "TouchStick and TouchButton are hidden when the device has no touch, so desktop screenshots and headless tests never show them; checking their layout requires editing the scene, and tests cannot drive them by touch.",
+        "suggestion": "Add a run and screenshot option that forces the touch interface on, and a touch helper in the test module.",
+        "workaround": "Temporarily set touchOnly to false."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "rendering-3d",
+      "severity": "minor",
+      "title": "model.game_ready gives a conifer a capsule collider far wider than its trunk",
+      "missing": "model.game_ready on a pine (a trunk and stacked cones) wrote a prefab whose Collider3D is a capsule of radius 1.03 m, the width of the canopy, so characters were stopped a metre from the trunk. The scene overrides it to about 0.35 m.",
+      "workaround": "The pine instances override the capsule radius and height in the scene.",
+      "workaroundFiles": [
+        "scenes/game.scene.json"
+      ],
+      "suggestion": "Offer collider \"trunk\" (the lowest part's bounds or a part named for it), or a `colliderPart` argument.",
+      "share": {
+        "title": "model.game_ready collider fits the whole model, not the part that blocks",
+        "missing": "The collider that model.game_ready writes for a model with a thin trunk and a wide canopy is a capsule as wide as the canopy; the argument list has no way to say which part should block.",
+        "suggestion": "Add a colliderPart or colliderRadius option to model.game_ready.",
+        "workaround": "Override the collider in the scene."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0017",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "animation",
+      "severity": "minor",
+      "title": "anim3d clips carry no provenance record, so a project cannot prove they were made by commands",
+      "missing": "Models, rigs, pictures, sounds and songs get a provenance recipe in assets.json (command, args, inputs). The 3D clips written by anim3d.generate, anim3d.create and anim3d.set_keys (15 files under anim/) do not, so a test that wants to check that nothing in the project was imported (the point of this reference game) can only look at the clip's `generated` field, which hand-keyed clips lack.",
+      "workaround": "tests/assets.test.js checks assets/ only; the clips are described in the README.",
+      "suggestion": "Write a provenance record for every clip the anim3d commands write.",
+      "share": {
+        "title": "anim3d commands write no provenance record",
+        "missing": "Clips written by the 3D animation commands are not recorded in the project's asset provenance file, unlike models, rigs, images and sounds, so the origin of a clip cannot be checked.",
+        "suggestion": "Record the command, arguments and rig input of every anim3d output.",
+        "workaround": "Describe the clips in the project documentation."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0018",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "animation",
+      "severity": "nice-to-have",
+      "title": "Hand-keyed clips (bite, attack) need many set_keys calls and a guess of the euler axes",
+      "missing": "anim3d.generate has walk, run, trot, gallop, idle, swing and hit, but a bite lunge and a torch chop are not among them. I made both with anim3d.create and anim3d.set_keys, one call per bone and channel, and looked at anim3d.preview filmstrips to find which sign of which axis bent the neck down. The filmstrip is the thing that worked well; there is no pose-from-description step.",
+      "workaround": "set_keys by hand with filmstrip checks (anim/wolf_bite.anim.json, anim/warden_attack.anim.json).",
+      "workaroundFiles": [
+        "anim/wolf_bite.anim.json",
+        "anim/warden_attack.anim.json"
+      ],
+      "suggestion": "A `bite`/`lunge` generator (a body reaches forward and the head snaps down) and an anim3d.pose command that sets a named pose (head_down, arm_up) to key between.",
+      "share": {
+        "title": "No generator for lunge or chop clips and no named poses",
+        "missing": "The 3D clip generators cover cycles and a hit reaction; a one-shot attack such as a lunge needs hand-set keys per bone and channel with trial and error on the axis signs. Named poses or an attack generator would remove the guesswork.",
+        "suggestion": "Add an attack/lunge generator and a way to key from named poses.",
+        "workaround": "Set keys by hand and check with the filmstrip."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0019",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "rendering-3d",
+      "severity": "nice-to-have",
+      "title": "Scene lighting cannot be animated without a script that writes six values every frame",
+      "missing": "The dawn needs the moon light, the ambient, the sky, horizon and fog colours to move together from night to dawn over five seconds. world.settings is writable, which made it possible, but it is a per-frame lerp of five colours and two light fields written by hand (game.js setMoon).",
+      "workaround": "game.js setMoon() lerps the colours every frame.",
+      "workaroundFiles": [
+        "scripts/game.js"
+      ],
+      "suggestion": "A scene-settings tween (settings.animate({skyColor, ambientLight...}, seconds)) or a day-night preset component.",
+      "share": {
+        "title": "No tween for scene environment settings",
+        "missing": "The scene environment (ambient, sky, horizon, fog colour and the main light) can be set from scripts but there is no timed transition; a script must interpolate every value each frame.",
+        "suggestion": "Add a timed transition for scene settings.",
+        "workaround": "A per-frame interpolation helper."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0020",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "A new example's perf baseline for Windows and Linux cannot be authored locally",
+      "missing": "perf.check fails on memory past the baseline and on time in CI, and a runner with no entry only passes with no_baseline. A new example's first CI run therefore has no baseline for the Windows and Linux runners, and a local machine measures only its own kind. The drawCalls and entities are the same everywhere, but cpu and memory have to be guessed (this file carries generous estimates) until a CI run measures them.",
+      "workaround": "Estimated entries in tools/cli/tests/perf/kindlewatch.perf.json, to be replaced by the CI measurement.",
+      "workaroundFiles": [
+        "tools/cli/tests/perf/kindlewatch.perf.json"
+      ],
+      "suggestion": "A CI job (or workflow_dispatch) that runs perf.baseline on each runner and commits or uploads the entries, and a `provisional` flag that only enforces drawCalls and entities.",
+      "share": {
+        "title": "Perf baselines for other runners cannot be created before the first CI run",
+        "missing": "The perf budget file needs a baseline per runner kind, but a new project can only measure its own machine. Until CI runs, memory and time baselines for the other runners are guesses and a wrong guess fails the check.",
+        "suggestion": "Support a provisional baseline that enforces only draw calls and entities, and a job that records baselines on CI.",
+        "workaround": "Estimate generously and correct after the first CI run."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0021",
+      "date": "2026-11-04",
+      "reporter": {
+        "kind": "ai"
+      },
+      "category": "rendering-3d",
+      "severity": "nice-to-have",
+      "title": "Rigged, animated characters cost one draw call per material part and cannot be merged",
+      "missing": "model.game_ready can merge the submeshes of a static model, but a rigged character (the baked rig of a model of 18 primitives) keeps its parts. The renderer reports 66 draw calls at the start of the game with only 15 meshes drawn after culling; characters, trees, HUD pictures and text all add to it. A merge option for parts that share a material and a skin would keep the count down on mobile.",
+      "workaround": "None: the count stays at 75 draw calls, well under the budget of 120.",
+      "suggestion": "rig.bake option mergeParts that welds parts with the same material and the same skin method.",
+      "share": {
+        "title": "rig.bake cannot merge parts of a skinned model",
+        "missing": "Skinned models keep one mesh per body part, so a scene with several characters adds many draw calls, and the merge that model.game_ready offers for static models does not apply to a baked rig.",
+        "suggestion": "Add a merge option to rig.bake for parts that share material and skin.",
+        "workaround": "None."
+      },
+      "reviewed": true,
+      "occurrences": 1,
+      "status": "open"
+    }
+  ]
+}

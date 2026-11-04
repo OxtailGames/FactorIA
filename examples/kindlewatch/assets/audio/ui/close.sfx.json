@@ -1,0 +1,55 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "close: a panel closes: a falling slide. Member of the family of assets/audio/ui_base.sfx.json (The base of the menu sounds: a soft low click that the family turns into hover, confirm, cancel, open and close.)",
+  "length": 0.12,
+  "layers": [
+    {
+      "pitch": {
+        "freq": 1200,
+        "sweep": {
+          "semitones": -7.0,
+          "time": 0.12,
+          "curve": 1.0
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "noise",
+          "gain": 1
+        },
+        {
+          "wave": "sine",
+          "gain": 0.3
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 8000
+      },
+      "amp": {
+        "attack": 0.0005,
+        "decay": 0.0395,
+        "sustain": 0,
+        "curve": 2.5
+      }
+    }
+  ],
+  "master": {
+    "effects": [
+      {
+        "type": "distortion",
+        "mode": "soft",
+        "drive": 4
+      }
+    ],
+    "normalize": {
+      "mode": "lufs",
+      "target": -18,
+      "ceilingDb": -1
+    }
+  },
+  "tail": 0.12,
+  "macros": {
+    "brightness": -0.2
+  }
+}

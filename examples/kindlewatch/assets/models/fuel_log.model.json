@@ -1,0 +1,67 @@
+{
+  "format": "factoria.model/1",
+  "doc": "One split log, 0.8 m long, with pale cut ends: the fuel the warden carries.",
+  "nodes": [
+    {
+      "op": "cylinder",
+      "id": "bark",
+      "part": "bark",
+      "radius": 0.13,
+      "height": 0.8,
+      "segments": 10,
+      "rotation": [
+        0,
+        0,
+        90
+      ],
+      "position": [
+        0,
+        0.13,
+        0
+      ],
+      "color": "#7a4a28"
+    },
+    {
+      "op": "cylinder",
+      "id": "end_a",
+      "part": "ends",
+      "radius": 0.118,
+      "height": 0.02,
+      "segments": 10,
+      "rotation": [
+        0,
+        0,
+        90
+      ],
+      "position": [
+        0.405,
+        0.13,
+        0
+      ],
+      "color": "#e8b060"
+    },
+    {
+      "op": "cylinder",
+      "id": "end_b",
+      "part": "ends",
+      "radius": 0.118,
+      "height": 0.02,
+      "segments": 10,
+      "rotation": [
+        0,
+        0,
+        90
+      ],
+      "position": [
+        -0.405,
+        0.13,
+        0
+      ],
+      "color": "#e8b060"
+    }
+  ],
+  "gameReady": {
+    "origin": "bottom_center",
+    "merge": true
+  }
+}

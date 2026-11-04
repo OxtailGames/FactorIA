@@ -1,0 +1,2720 @@
+{
+  "format": "factoria.assets/1",
+  "style": {
+    "palette": [
+      "#0d1020",
+      "#1b2340",
+      "#2d3a5e",
+      "#46628a",
+      "#7d9fc0",
+      "#1c2e1f",
+      "#2f5230",
+      "#5a8a3c",
+      "#9bbf5a",
+      "#4a2c1c",
+      "#7a4a28",
+      "#b27a45",
+      "#e8b060",
+      "#d9501c",
+      "#f2a230",
+      "#fbe8a0",
+      "#e8e4d8",
+      "#8a2a2a",
+      "#d96060"
+    ],
+    "outline": {
+      "color": "#0d1020",
+      "width": 1
+    },
+    "lightDirection": "upper-left",
+    "texelsPerUnit": 16,
+    "pixelArt": true,
+    "audio": {
+      "loudnessLufs": {
+        "music": -18,
+        "sfx": -14,
+        "ui": -20
+      },
+      "toleranceLu": 4
+    },
+    "ignore": [
+      "assets/art/sky.png",
+      "assets/art/logo.png",
+      "assets/art/pine_art.png",
+      "assets/art/flame.png",
+      "assets/art/icon_log.png",
+      "assets/art/icon_heart.png",
+      "assets/art/icon_sun.png",
+      "assets/art/panel.png",
+      "assets/art/bar_back.png",
+      "assets/art/bar_fill.png"
+    ]
+  },
+  "assets": {
+    "assets/art/bar_back.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/art/bar_back.image.json",
+        "notes": "Composited from the image document 'assets/art/bar_back.image.json' (1 layer), 8x8.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/art/bar_back.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/art/bar_back.image.json",
+              "sha256": "3b92abf1a57e9778c40e7c772f8bc12e40be436dd1caa428cfb9cae33769585f"
+            }
+          ]
+        }
+      }
+    },
+    "assets/art/bar_fill.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/art/bar_fill.image.json",
+        "notes": "Composited from the image document 'assets/art/bar_fill.image.json' (1 layer), 8x8.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/art/bar_fill.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/art/bar_fill.image.json",
+              "sha256": "0ca8fd697ece015542b3200f73983e85212bb27f22edfb0e90cfc20532983320"
+            }
+          ]
+        }
+      }
+    },
+    "assets/art/dirt.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/art/dirt.image.json",
+        "notes": "Composited from the image document 'assets/art/dirt.image.json' (1 layer), 32x32.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/art/dirt.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/art/dirt.image.json",
+              "sha256": "a5bbfddd22b0dd690b9cbc6b706847325e9f1fffcfe6eca93ee1c5561885ea3d"
+            }
+          ]
+        }
+      }
+    },
+    "assets/art/flame.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/art/flame.image.json",
+        "notes": "Sprite sheet of the image document 'assets/art/flame.image.json': 4 frames of 16x24 (1 layer), 1 tag as clips.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/art/flame.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/art/flame.image.json",
+              "sha256": "d88b118687095c36fc9a4b70032b1ba204a65657c5af6547ad0c63174f40bb1b"
+            }
+          ]
+        }
+      },
+      "sheet": {
+        "columns": 2,
+        "rows": 2,
+        "frameWidth": 16,
+        "frameHeight": 24,
+        "frames": 4,
+        "clips": [
+          {
+            "name": "burn",
+            "firstFrame": 0,
+            "lastFrame": 3,
+            "fps": 9.091,
+            "loop": true
+          }
+        ]
+      }
+    },
+    "assets/art/forest.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/art/forest.image.json",
+        "notes": "Composited from the image document 'assets/art/forest.image.json' (1 layer), 128x96.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/art/forest.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/art/forest.image.json",
+              "sha256": "313d894a2026155cf519bdcd03fd2eca5ab282c639cd87771fd37ad052fa1f79"
+            }
+          ]
+        }
+      }
+    },
+    "assets/art/forest.terrains.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "provider": "factoria image.tileset.rules",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/art/forest.image.json",
+        "notes": "Autotile rules (Tilemap.terrains) of the tileset layer 'tileset' of 'assets/art/forest.image.json': which tile of the sheet to use for each combination of neighbours.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "image.tileset.rules",
+          "args": {
+            "path": "assets/art/forest.image.json",
+            "layer": "tileset",
+            "rules": "assets/art/forest.terrains.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/art/forest.image.json",
+              "sha256": "313d894a2026155cf519bdcd03fd2eca5ab282c639cd87771fd37ad052fa1f79"
+            }
+          ]
+        }
+      }
+    },
+    "assets/art/ground.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/art/ground.image.json",
+        "notes": "Composited from the image document 'assets/art/ground.image.json' (1 layer), 32x32.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/art/ground.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/art/ground.image.json",
+              "sha256": "e0b5d2da576032614120a218351431db272f066637d3fab87a2dee807f6f9736"
+            }
+          ]
+        }
+      }
+    },
+    "assets/art/icon_heart.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/art/icon_heart.image.json",
+        "notes": "Composited from the image document 'assets/art/icon_heart.image.json' (1 layer), 12x12.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/art/icon_heart.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/art/icon_heart.image.json",
+              "sha256": "00c327df0ee761578dcfee3677658a652d6c29088e1aa9251d51f4a22ca019a4"
+            }
+          ]
+        }
+      }
+    },
+    "assets/art/icon_log.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/art/icon_log.image.json",
+        "notes": "Composited from the image document 'assets/art/icon_log.image.json' (1 layer), 16x12.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/art/icon_log.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/art/icon_log.image.json",
+              "sha256": "4bd9141b27b348077af6a674556926dd7f8fa255ea796441148e0d3764a5fe8d"
+            }
+          ]
+        }
+      }
+    },
+    "assets/art/icon_sun.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/art/icon_sun.image.json",
+        "notes": "Composited from the image document 'assets/art/icon_sun.image.json' (1 layer), 16x16.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/art/icon_sun.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/art/icon_sun.image.json",
+              "sha256": "51f3adf8d1c9f5d267d4279afa116b2f22d9aee82b962b821d3340b71a2e5a1a"
+            }
+          ]
+        }
+      }
+    },
+    "assets/art/logo.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/art/logo.image.json",
+        "notes": "Composited from the image document 'assets/art/logo.image.json' (2 layers), 200x40.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/art/logo.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/art/logo.image.json",
+              "sha256": "4ef6382de8fe632ef2d3a88ce42d62d253774be2d7bfba89d9b33459015139b1"
+            }
+          ]
+        }
+      }
+    },
+    "assets/art/panel.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/art/panel.image.json",
+        "notes": "Composited from the image document 'assets/art/panel.image.json' (1 layer), 24x24.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/art/panel.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/art/panel.image.json",
+              "sha256": "960b74e78383d3b0abb2f0c414ac3084f4a316412478a060f69581a981477e1d"
+            }
+          ]
+        }
+      }
+    },
+    "assets/art/pine_art.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/art/pine_art.image.json",
+        "notes": "Composited from the image document 'assets/art/pine_art.image.json' (1 layer), 32x48.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/art/pine_art.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/art/pine_art.image.json",
+              "sha256": "82b020d56aaad3334bc44ecb96eecb7fbd4793663834ae2fef65943468cbd1bf"
+            }
+          ]
+        }
+      }
+    },
+    "assets/art/sky.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/art/sky.image.json",
+        "notes": "Composited from the image document 'assets/art/sky.image.json' (3 layers), 160x92.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/art/sky.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/art/sky.image.json",
+              "sha256": "d925d649b608aa8d7647ceb07bfccb8c2644342ca1ac4db6cf83169e36cc8df1"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/alpha_howl.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/alpha_howl.sfx.json, 1.36 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/alpha_howl.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/alpha_howl.sfx.json",
+              "sha256": "12d9cc2f725444fa71e3378b980d79210c4a1b29932aa3a29e0640ba96d0a279"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/distant_howl.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria audio.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/audio/distant_howl.audio.json",
+        "notes": "Rendered from the audio document 'assets/audio/distant_howl.audio.json' (4 steps), 3.96 s, -32.5 LUFS.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "audio.bake",
+          "args": {
+            "path": "assets/audio/distant_howl.audio.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/distant_howl.audio.json",
+              "sha256": "91d304eaebdb2b9abd7c9e1026582ef4db0530a53b0d303aef47d4bda1bec04d"
+            },
+            {
+              "path": "assets/audio/alpha_howl.sfx.json",
+              "sha256": "12d9cc2f725444fa71e3378b980d79210c4a1b29932aa3a29e0640ba96d0a279"
+            }
+          ]
+        }
+      },
+      "import": {
+        "normalize": true
+      }
+    },
+    "assets/audio/fire_loop.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.generate_loop",
+        "seed": 4,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Synthesised loop (noise): noise brown, cutoff 700 Hz, level 0.5, gusts 0, crackles 5/s, tick 0 s, 8.00 s at 22050 Hz, seed 4. No recording or sample.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "assets.generate_loop",
+          "args": {
+            "path": "assets/audio/fire_loop.wav",
+            "kind": "noise",
+            "color": "brown",
+            "cutoff": 700,
+            "crackles": 5,
+            "seconds": 8.0,
+            "level": 0.5,
+            "seed": 4,
+            "sampleRate": 22050,
+            "peak": 0.6,
+            "quality": 0.6
+          }
+        }
+      }
+    },
+    "assets/audio/fire_low.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/fire_low.sfx.json, 0.46 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/fire_low.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/fire_low.sfx.json",
+              "sha256": "30ddf25f4276218458a5696224b9090b683770f9823db7986a623c67287e45af"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/footstep.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/footstep.sfx.json, 0.14 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/footstep.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/footstep.sfx.json",
+              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+            }
+          ]
+        }
+      },
+      "import": {
+        "normalize": true
+      }
+    },
+    "assets/audio/footstep_01.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/footstep.sfx.json variant 1, 0.14 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/footstep.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/footstep_01.wav",
+            "variant": 1
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/footstep.sfx.json",
+              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+            }
+          ]
+        }
+      },
+      "import": {
+        "normalize": true
+      }
+    },
+    "assets/audio/footstep_02.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/footstep.sfx.json variant 2, 0.13 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/footstep.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/footstep_02.wav",
+            "variant": 2
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/footstep.sfx.json",
+              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+            }
+          ]
+        }
+      },
+      "import": {
+        "normalize": true
+      }
+    },
+    "assets/audio/footstep_03.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/footstep.sfx.json variant 3, 0.15 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/footstep.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/footstep_03.wav",
+            "variant": 3
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/footstep.sfx.json",
+              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+            }
+          ]
+        }
+      },
+      "import": {
+        "normalize": true
+      }
+    },
+    "assets/audio/footstep_04.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/footstep.sfx.json variant 4, 0.14 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/footstep.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/footstep_04.wav",
+            "variant": 4
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/footstep.sfx.json",
+              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+            }
+          ]
+        }
+      },
+      "import": {
+        "normalize": true
+      }
+    },
+    "assets/audio/footstep_05.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/footstep.sfx.json variant 5, 0.14 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/footstep.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/footstep_05.wav",
+            "variant": 5
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/footstep.sfx.json",
+              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+            }
+          ]
+        }
+      },
+      "import": {
+        "normalize": true
+      }
+    },
+    "assets/audio/footstep_06.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/footstep.sfx.json variant 6, 0.14 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/footstep.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/footstep_06.wav",
+            "variant": 6
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/footstep.sfx.json",
+              "sha256": "34ced7b3787397aa5aa2e147fe9eb0bc412ad9f1f6c3748a02bee128a60e06f1"
+            }
+          ]
+        }
+      },
+      "import": {
+        "normalize": true
+      }
+    },
+    "assets/audio/log_feed.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/log_feed.sfx.json, 0.60 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/log_feed.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/log_feed.sfx.json",
+              "sha256": "7c0a7e4812a76afcfe152e75b78159fc9e542bf2529ad36d1d6117a021f6f89d"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/log_pickup.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/log_pickup.sfx.json, 0.25 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/log_pickup.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/log_pickup.sfx.json",
+              "sha256": "4387bd8e607b93a980f6af61ef4791acd7cf0ab181a6801a4d98c834754a7c1d"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/swing.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/swing.sfx.json, 0.22 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/swing.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/swing.sfx.json",
+              "sha256": "fbe1f4db6d81126cb2e8c25a5db49cb7b3c92d8daa2c5f0cf843bb3383308d81"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/swing_01.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/swing.sfx.json variant 1, 0.22 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/swing.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/swing_01.wav",
+            "variant": 1
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/swing.sfx.json",
+              "sha256": "fbe1f4db6d81126cb2e8c25a5db49cb7b3c92d8daa2c5f0cf843bb3383308d81"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/swing_02.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/swing.sfx.json variant 2, 0.21 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/swing.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/swing_02.wav",
+            "variant": 2
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/swing.sfx.json",
+              "sha256": "fbe1f4db6d81126cb2e8c25a5db49cb7b3c92d8daa2c5f0cf843bb3383308d81"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/swing_03.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/swing.sfx.json variant 3, 0.22 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/swing.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/swing_03.wav",
+            "variant": 3
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/swing.sfx.json",
+              "sha256": "fbe1f4db6d81126cb2e8c25a5db49cb7b3c92d8daa2c5f0cf843bb3383308d81"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/swing_04.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/swing.sfx.json variant 4, 0.22 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/swing.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/swing_04.wav",
+            "variant": 4
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/swing.sfx.json",
+              "sha256": "fbe1f4db6d81126cb2e8c25a5db49cb7b3c92d8daa2c5f0cf843bb3383308d81"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/ui/cancel.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/ui/cancel.sfx.json, 0.23 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/ui/cancel.sfx.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/ui/cancel.sfx.json",
+              "sha256": "2508bee2538bc82923acfb0fb6c278f5d33853ed3ccf84f566ee0817dfb6f2d6"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/ui/click.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/ui/click.sfx.json, 0.04 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/ui/click.sfx.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/ui/click.sfx.json",
+              "sha256": "6b3792fee407ad22b07da1dffcfc7099f37040442bad57170410f5c73e8b8f16"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/ui/close.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/ui/close.sfx.json, 0.24 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/ui/close.sfx.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/ui/close.sfx.json",
+              "sha256": "6cbd001b3145a2528551cfdc25ee4e3c0cb9e0c271a249b2cf5254ee066ffa5f"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/ui/confirm.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/ui/confirm.sfx.json, 0.25 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/ui/confirm.sfx.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/ui/confirm.sfx.json",
+              "sha256": "d7b708ff9fac5f7d0e66e0c00ee68e374bdedc3537123b8481787dadd189a052"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/ui/hover.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/ui/hover.sfx.json, 0.10 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/ui/hover.sfx.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/ui/hover.sfx.json",
+              "sha256": "10459ca93bc96bb8cb89b78255a4b6d943932f2ec0dbcddf2d5a15891efb2e25"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/ui/open.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/ui/open.sfx.json, 0.30 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/ui/open.sfx.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/ui/open.sfx.json",
+              "sha256": "f1237b13819e5c006ecd3fdb6e2ab23db925847a8c29625270355768cf0c8767"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/warden_hurt.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/warden_hurt.sfx.json, 0.18 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/warden_hurt.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/warden_hurt.sfx.json",
+              "sha256": "7e4098ed21029306343565a1495716e82059808120a1a65b876a215876adfa3d"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/warden_hurt_01.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/warden_hurt.sfx.json variant 1, 0.18 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/warden_hurt.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/warden_hurt_01.wav",
+            "variant": 1
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/warden_hurt.sfx.json",
+              "sha256": "7e4098ed21029306343565a1495716e82059808120a1a65b876a215876adfa3d"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/warden_hurt_02.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/warden_hurt.sfx.json variant 2, 0.18 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/warden_hurt.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/warden_hurt_02.wav",
+            "variant": 2
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/warden_hurt.sfx.json",
+              "sha256": "7e4098ed21029306343565a1495716e82059808120a1a65b876a215876adfa3d"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/warden_hurt_03.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/warden_hurt.sfx.json variant 3, 0.18 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/warden_hurt.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/warden_hurt_03.wav",
+            "variant": 3
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/warden_hurt.sfx.json",
+              "sha256": "7e4098ed21029306343565a1495716e82059808120a1a65b876a215876adfa3d"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/wind_loop.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.generate_loop",
+        "seed": 8,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Synthesised loop (noise): noise brown, cutoff 900 Hz, level 0.5, gusts 0.7, crackles 0/s, tick 0 s, 16.00 s at 22050 Hz, seed 8. No recording or sample.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "assets.generate_loop",
+          "args": {
+            "path": "assets/audio/wind_loop.wav",
+            "kind": "noise",
+            "color": "brown",
+            "cutoff": 900,
+            "gusts": 0.7,
+            "seconds": 16.0,
+            "level": 0.5,
+            "seed": 8,
+            "sampleRate": 22050,
+            "peak": 0.6,
+            "quality": 0.6
+          }
+        }
+      }
+    },
+    "assets/audio/wolf_bite.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/wolf_bite.sfx.json, 0.45 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/wolf_bite.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/wolf_bite.sfx.json",
+              "sha256": "f94910935b2458897a2d4072100a541ff0224bfb88b48ec55e69cfc52fa8586a"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/wolf_bite_01.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/wolf_bite.sfx.json variant 1, 0.44 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/wolf_bite.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/wolf_bite_01.wav",
+            "variant": 1
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/wolf_bite.sfx.json",
+              "sha256": "f94910935b2458897a2d4072100a541ff0224bfb88b48ec55e69cfc52fa8586a"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/wolf_bite_02.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/wolf_bite.sfx.json variant 2, 0.45 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/wolf_bite.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/wolf_bite_02.wav",
+            "variant": 2
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/wolf_bite.sfx.json",
+              "sha256": "f94910935b2458897a2d4072100a541ff0224bfb88b48ec55e69cfc52fa8586a"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/wolf_bite_03.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/wolf_bite.sfx.json variant 3, 0.45 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/wolf_bite.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/wolf_bite_03.wav",
+            "variant": 3
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/wolf_bite.sfx.json",
+              "sha256": "f94910935b2458897a2d4072100a541ff0224bfb88b48ec55e69cfc52fa8586a"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/wolf_growl.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/wolf_growl.sfx.json, 0.90 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/wolf_growl.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/wolf_growl.sfx.json",
+              "sha256": "7450d8197cd8b670f920bb7d3a770d0bcde5bcc6e070e9289a5e7e60aee01dcb"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/wolf_growl_01.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/wolf_growl.sfx.json variant 1, 0.93 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/wolf_growl.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/wolf_growl_01.wav",
+            "variant": 1
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/wolf_growl.sfx.json",
+              "sha256": "7450d8197cd8b670f920bb7d3a770d0bcde5bcc6e070e9289a5e7e60aee01dcb"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/wolf_growl_02.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/wolf_growl.sfx.json variant 2, 0.92 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/wolf_growl.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/wolf_growl_02.wav",
+            "variant": 2
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/wolf_growl.sfx.json",
+              "sha256": "7450d8197cd8b670f920bb7d3a770d0bcde5bcc6e070e9289a5e7e60aee01dcb"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/wolf_growl_03.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/wolf_growl.sfx.json variant 3, 0.91 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/wolf_growl.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/wolf_growl_03.wav",
+            "variant": 3
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/wolf_growl.sfx.json",
+              "sha256": "7450d8197cd8b670f920bb7d3a770d0bcde5bcc6e070e9289a5e7e60aee01dcb"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/wolf_hit.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/wolf_hit.sfx.json, 0.18 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/wolf_hit.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/wolf_hit.sfx.json",
+              "sha256": "37db09bf030745b8b9943b07bbb01f76fe26a253d7fe9da42c5fdb2504a34c79"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/wolf_hit_01.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/wolf_hit.sfx.json variant 1, 0.19 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/wolf_hit.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/wolf_hit_01.wav",
+            "variant": 1
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/wolf_hit.sfx.json",
+              "sha256": "37db09bf030745b8b9943b07bbb01f76fe26a253d7fe9da42c5fdb2504a34c79"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/wolf_hit_02.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/wolf_hit.sfx.json variant 2, 0.18 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/wolf_hit.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/wolf_hit_02.wav",
+            "variant": 2
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/wolf_hit.sfx.json",
+              "sha256": "37db09bf030745b8b9943b07bbb01f76fe26a253d7fe9da42c5fdb2504a34c79"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/wolf_hit_03.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/wolf_hit.sfx.json variant 3, 0.18 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/wolf_hit.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/wolf_hit_03.wav",
+            "variant": 3
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/wolf_hit.sfx.json",
+              "sha256": "37db09bf030745b8b9943b07bbb01f76fe26a253d7fe9da42c5fdb2504a34c79"
+            }
+          ]
+        }
+      }
+    },
+    "assets/audio/wolf_hit_04.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/audio/wolf_hit.sfx.json variant 4, 0.18 s, seed 0",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/audio/wolf_hit.sfx.json",
+            "seed": 0,
+            "out": "assets/audio/wolf_hit_04.wav",
+            "variant": 4
+          },
+          "inputs": [
+            {
+              "path": "assets/audio/wolf_hit.sfx.json",
+              "sha256": "37db09bf030745b8b9943b07bbb01f76fe26a253d7fe9da42c5fdb2504a34c79"
+            }
+          ]
+        }
+      }
+    },
+    "assets/icon.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-11-04",
+        "notes": "Drawn from shapes and text by assets.draw_icon.",
+        "recipe": {
+          "command": "assets.draw_icon",
+          "args": {
+            "background": {
+              "color": "#1b2340",
+              "shape": "rounded"
+            },
+            "layers": [
+              {
+                "type": "circle",
+                "x": 72,
+                "y": 28,
+                "radius": 10,
+                "fill": "#fbe8a0"
+              },
+              {
+                "type": "circle",
+                "x": 50,
+                "y": 66,
+                "radius": 30,
+                "fill": "#d9501c",
+                "softness": 8
+              },
+              {
+                "type": "polygon",
+                "points": [
+                  [
+                    50,
+                    26
+                  ],
+                  [
+                    68,
+                    62
+                  ],
+                  [
+                    62,
+                    78
+                  ],
+                  [
+                    38,
+                    78
+                  ],
+                  [
+                    32,
+                    62
+                  ]
+                ],
+                "fill": "#f2a230",
+                "fillBottom": "#d9501c"
+              },
+              {
+                "type": "polygon",
+                "points": [
+                  [
+                    50,
+                    44
+                  ],
+                  [
+                    60,
+                    68
+                  ],
+                  [
+                    56,
+                    78
+                  ],
+                  [
+                    44,
+                    78
+                  ],
+                  [
+                    40,
+                    68
+                  ]
+                ],
+                "fill": "#fbe8a0"
+              },
+              {
+                "type": "rect",
+                "x": 24,
+                "y": 80,
+                "w": 52,
+                "h": 7,
+                "fill": "#7a4a28",
+                "outline": "#0d1020"
+              }
+            ],
+            "path": "assets/icon.png",
+            "foreground": "assets/icon_fg.png"
+          }
+        }
+      }
+    },
+    "assets/icon_fg.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-11-04",
+        "notes": "Drawn from shapes and text by assets.draw_icon.",
+        "recipe": {
+          "command": "assets.draw_icon",
+          "args": {
+            "background": {
+              "color": "#1b2340",
+              "shape": "rounded"
+            },
+            "layers": [
+              {
+                "type": "circle",
+                "x": 72,
+                "y": 28,
+                "radius": 10,
+                "fill": "#fbe8a0"
+              },
+              {
+                "type": "circle",
+                "x": 50,
+                "y": 66,
+                "radius": 30,
+                "fill": "#d9501c",
+                "softness": 8
+              },
+              {
+                "type": "polygon",
+                "points": [
+                  [
+                    50,
+                    26
+                  ],
+                  [
+                    68,
+                    62
+                  ],
+                  [
+                    62,
+                    78
+                  ],
+                  [
+                    38,
+                    78
+                  ],
+                  [
+                    32,
+                    62
+                  ]
+                ],
+                "fill": "#f2a230",
+                "fillBottom": "#d9501c"
+              },
+              {
+                "type": "polygon",
+                "points": [
+                  [
+                    50,
+                    44
+                  ],
+                  [
+                    60,
+                    68
+                  ],
+                  [
+                    56,
+                    78
+                  ],
+                  [
+                    44,
+                    78
+                  ],
+                  [
+                    40,
+                    68
+                  ]
+                ],
+                "fill": "#fbe8a0"
+              },
+              {
+                "type": "rect",
+                "x": 24,
+                "y": 80,
+                "w": 52,
+                "h": 7,
+                "fill": "#7a4a28",
+                "outline": "#0d1020"
+              }
+            ],
+            "path": "assets/icon.png",
+            "foreground": "assets/icon_fg.png"
+          }
+        }
+      }
+    },
+    "assets/models/alpha_wolf.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/alpha_wolf.model.json",
+        "notes": "Built from the model document 'assets/models/alpha_wolf.model.json': 3312 triangles, 9 submeshes; parts: body, neck, head, tail, foreleg_l, hindleg_l, foreleg_r, hindleg_r.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/alpha_wolf.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/alpha_wolf.model.json",
+              "sha256": "a58ba33c7b170d1973f56ab904503d5437f94ea066f5c575a7ca0fdb90fcab3f"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/alpha_wolf.rig.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria rig.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/alpha_wolf.rig.json",
+        "notes": "A quadruped skeleton of 28 bones fitted to the model 'assets/models/alpha_wolf.model.json' by rig document 'assets/models/alpha_wolf.rig.json': 34 landmarks from parts, 0 from geometry, 0 overridden, 0 estimated. Skin weights: auto method, up to 4 influences per vertex, 0 edit(s).",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "rig.bake",
+          "args": {
+            "path": "assets/models/alpha_wolf.rig.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/alpha_wolf.rig.json",
+              "sha256": "4949f2a46c26d7df978b40649d8503ef40b6c4b613fb70400935578c253317b0"
+            },
+            {
+              "path": "assets/models/alpha_wolf.model.json",
+              "sha256": "a58ba33c7b170d1973f56ab904503d5437f94ea066f5c575a7ca0fdb90fcab3f"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/campfire.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/campfire.model.json",
+        "notes": "Built from the model document 'assets/models/campfire.model.json': 5420 triangles, 3 submeshes; parts: stones, logs, embers.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/campfire.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/campfire.model.json",
+              "sha256": "ad6f1c90c3fade88a963c4b97b6943746e7390ba52d53b30fbc38fcdfae128d2"
+            }
+          ]
+        },
+        "extras": [
+          "assets/models/campfire.lod1.glb",
+          "assets/models/campfire.prefab.json"
+        ]
+      }
+    },
+    "assets/models/campfire.lod1.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/campfire.model.json",
+        "notes": "Made with 'assets/models/campfire.glb' from the model document 'assets/models/campfire.model.json' (gameReady settings).",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/campfire.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/campfire.model.json",
+              "sha256": "ad6f1c90c3fade88a963c4b97b6943746e7390ba52d53b30fbc38fcdfae128d2"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/campfire.prefab.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "prefab",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/campfire.model.json",
+        "notes": "Made with 'assets/models/campfire.glb' from the model document 'assets/models/campfire.model.json' (gameReady settings).",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/campfire.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/campfire.model.json",
+              "sha256": "ad6f1c90c3fade88a963c4b97b6943746e7390ba52d53b30fbc38fcdfae128d2"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/fuel_log.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/fuel_log.model.json",
+        "notes": "Built from the model document 'assets/models/fuel_log.model.json': 120 triangles, 2 submeshes; parts: bark, ends.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/fuel_log.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/fuel_log.model.json",
+              "sha256": "e2e9f6a47dc31e5722c75639a940b18ad3645c343dd47ce7afee5495e0456a49"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/log_pile.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/log_pile.model.json",
+        "notes": "Built from the model document 'assets/models/log_pile.model.json': 480 triangles, 2 submeshes; parts: logs, cuts.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/log_pile.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/log_pile.model.json",
+              "sha256": "7cb287ffdf3ef2dec133bf07087037507424a68c225ca7973e7ce5a3a587b62e"
+            }
+          ]
+        },
+        "extras": [
+          "assets/models/log_pile.prefab.json"
+        ]
+      }
+    },
+    "assets/models/log_pile.prefab.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "prefab",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/log_pile.model.json",
+        "notes": "Made with 'assets/models/log_pile.glb' from the model document 'assets/models/log_pile.model.json' (gameReady settings).",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/log_pile.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/log_pile.model.json",
+              "sha256": "7cb287ffdf3ef2dec133bf07087037507424a68c225ca7973e7ce5a3a587b62e"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/pine.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/pine.model.json",
+        "notes": "Built from the model document 'assets/models/pine.model.json': 212 triangles, 2 submeshes; parts: trunk, leaves.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/pine.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/pine.model.json",
+              "sha256": "96ad7394161f6c14f5c25afb94bcb892d02de54101b974608d500327f39da088"
+            }
+          ]
+        },
+        "extras": [
+          "assets/models/pine.lod1.glb",
+          "assets/models/pine.lod2.glb",
+          "assets/models/pine.prefab.json"
+        ]
+      }
+    },
+    "assets/models/pine.lod1.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/pine.model.json",
+        "notes": "Made with 'assets/models/pine.glb' from the model document 'assets/models/pine.model.json' (gameReady settings).",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/pine.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/pine.model.json",
+              "sha256": "96ad7394161f6c14f5c25afb94bcb892d02de54101b974608d500327f39da088"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/pine.lod2.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/pine.model.json",
+        "notes": "Made with 'assets/models/pine.glb' from the model document 'assets/models/pine.model.json' (gameReady settings).",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/pine.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/pine.model.json",
+              "sha256": "96ad7394161f6c14f5c25afb94bcb892d02de54101b974608d500327f39da088"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/pine.prefab.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "prefab",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/pine.model.json",
+        "notes": "Made with 'assets/models/pine.glb' from the model document 'assets/models/pine.model.json' (gameReady settings).",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/pine.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/pine.model.json",
+              "sha256": "96ad7394161f6c14f5c25afb94bcb892d02de54101b974608d500327f39da088"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/rock.collider.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/rock.model.json",
+        "notes": "Made with 'assets/models/rock.glb' from the model document 'assets/models/rock.model.json' (gameReady settings).",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/rock.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/rock.model.json",
+              "sha256": "8cb2c4c814b10ed9282a4f4ab3e40f067e0659e3e64bac8a3697bd05ee371775"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/rock.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/rock.model.json",
+        "notes": "Built from the model document 'assets/models/rock.model.json': 288 triangles, 1 submesh.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/rock.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/rock.model.json",
+              "sha256": "8cb2c4c814b10ed9282a4f4ab3e40f067e0659e3e64bac8a3697bd05ee371775"
+            }
+          ]
+        },
+        "extras": [
+          "assets/models/rock.lod1.glb",
+          "assets/models/rock.collider.glb",
+          "assets/models/rock.prefab.json"
+        ]
+      }
+    },
+    "assets/models/rock.lod1.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/rock.model.json",
+        "notes": "Made with 'assets/models/rock.glb' from the model document 'assets/models/rock.model.json' (gameReady settings).",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/rock.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/rock.model.json",
+              "sha256": "8cb2c4c814b10ed9282a4f4ab3e40f067e0659e3e64bac8a3697bd05ee371775"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/rock.prefab.json": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "prefab",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/rock.model.json",
+        "notes": "Made with 'assets/models/rock.glb' from the model document 'assets/models/rock.model.json' (gameReady settings).",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/rock.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/rock.model.json",
+              "sha256": "8cb2c4c814b10ed9282a4f4ab3e40f067e0659e3e64bac8a3697bd05ee371775"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/warden.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/warden.model.json",
+        "notes": "Built from the model document 'assets/models/warden.model.json': 6364 triangles, 18 submeshes; parts: head, neck, torso, pelvis, arm_l, forearm_l, hand_l, thigh_l, shin_l, foot_l, arm_r, forearm_r, hand_r, thigh_r, shin_r, foot_r, torch.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/warden.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/warden.model.json",
+              "sha256": "787ca07ee70dbf7ec8ca9c90fefb6051db8229e9a7361df2cbd483db15ed1eea"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/warden.rig.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria rig.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/warden.rig.json",
+        "notes": "A humanoid skeleton of 19 bones fitted to the model 'assets/models/warden.model.json' by rig document 'assets/models/warden.rig.json': 24 landmarks from parts, 0 from geometry, 0 overridden, 0 estimated. Skin weights: auto method, up to 4 influences per vertex, 0 edit(s).",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "rig.bake",
+          "args": {
+            "path": "assets/models/warden.rig.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/warden.rig.json",
+              "sha256": "6d752f3b79393fdf6f4e93b2d56f146fbe10cc2150cfcf25c0bf2ddf24c462a0"
+            },
+            {
+              "path": "assets/models/warden.model.json",
+              "sha256": "787ca07ee70dbf7ec8ca9c90fefb6051db8229e9a7361df2cbd483db15ed1eea"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/wolf.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria model.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/wolf.model.json",
+        "notes": "Built from the model document 'assets/models/wolf.model.json': 3272 triangles, 9 submeshes; parts: body, neck, head, tail, foreleg_l, hindleg_l, foreleg_r, hindleg_r.",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "model.bake",
+          "args": {
+            "path": "assets/models/wolf.model.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/wolf.model.json",
+              "sha256": "d457fce008d33797fd4348bd42925894351e53b7723092f0b79bf1007d0316db"
+            }
+          ]
+        }
+      }
+    },
+    "assets/models/wolf.rig.glb": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "model3d",
+        "provider": "factoria rig.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/models/wolf.rig.json",
+        "notes": "A quadruped skeleton of 27 bones fitted to the model 'assets/models/wolf.model.json' by rig document 'assets/models/wolf.rig.json': 33 landmarks from parts, 0 from geometry, 0 overridden, 0 estimated. Skin weights: auto method, up to 4 influences per vertex, 0 edit(s).",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "rig.bake",
+          "args": {
+            "path": "assets/models/wolf.rig.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/models/wolf.rig.json",
+              "sha256": "81bf82a834fd1dd8c6604a9d4500d291661a7f28adb732a3b22ae2d7e06ffe60"
+            },
+            {
+              "path": "assets/models/wolf.model.json",
+              "sha256": "d457fce008d33797fd4348bd42925894351e53b7723092f0b79bf1007d0316db"
+            }
+          ]
+        }
+      }
+    },
+    "assets/music/dawn.ogg": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "music",
+        "provider": "factoria music.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "song assets/music/dawn.song.json, 11.4 s, 42 notes, seed 0, no loop",
+        "source": "assets/music/dawn.song.json",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "music.render",
+          "args": {
+            "path": "assets/music/dawn.song.json",
+            "loop": false,
+            "sampleRate": 44100,
+            "seed": 0,
+            "out": "assets/music/dawn.ogg"
+          },
+          "inputs": [
+            {
+              "path": "assets/music/dawn.song.json",
+              "sha256": "f3b727e9df32443aeaf3445ce84fe595f463badcc08127293f64ba4e041368f8"
+            }
+          ],
+          "context": {
+            "styleMusicLufs": -18.0
+          }
+        }
+      },
+      "import": {
+        "music": {
+          "role": "mix",
+          "song": "assets/music/dawn.song.json"
+        }
+      }
+    },
+    "assets/music/defeat.ogg": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "music",
+        "provider": "factoria music.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "song assets/music/defeat.song.json, 16.0 s, 16 notes, seed 0, no loop",
+        "source": "assets/music/defeat.song.json",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "music.render",
+          "args": {
+            "path": "assets/music/defeat.song.json",
+            "loop": false,
+            "sampleRate": 44100,
+            "seed": 0,
+            "out": "assets/music/defeat.ogg"
+          },
+          "inputs": [
+            {
+              "path": "assets/music/defeat.song.json",
+              "sha256": "534342b61f9551d2c740541f491503fcd39f88c14dadf67bbbe1a3ecf6954528"
+            }
+          ],
+          "context": {
+            "styleMusicLufs": -18.0
+          }
+        }
+      },
+      "import": {
+        "music": {
+          "role": "mix",
+          "song": "assets/music/defeat.song.json"
+        }
+      }
+    },
+    "assets/music/night.ogg": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "music",
+        "provider": "factoria music.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "song assets/music/night.song.json, 65.5 s, 526 notes, seed 0, loop bars 5-20",
+        "source": "assets/music/night.song.json",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "music.render",
+          "args": {
+            "path": "assets/music/night.song.json",
+            "stems": "layers",
+            "sampleRate": 44100,
+            "seed": 0,
+            "loop": true,
+            "out": "assets/music/night.ogg"
+          },
+          "inputs": [
+            {
+              "path": "assets/music/night.song.json",
+              "sha256": "0fcb4e20b22aea14bcd4ea911c294e076b7195483674ffcc7faadc17dc70c72e"
+            }
+          ],
+          "context": {
+            "styleMusicLufs": -18.0
+          }
+        }
+      },
+      "import": {
+        "loopStart": 10.909093,
+        "loopEnd": 54.545465,
+        "music": {
+          "role": "mix",
+          "song": "assets/music/night.song.json",
+          "stemGrouping": "layers",
+          "stems": [
+            {
+              "name": "base",
+              "path": "assets/music/night.stem.base.ogg",
+              "kind": "layer",
+              "intensity": 0.0,
+              "tracks": [
+                "pad",
+                "bass"
+              ],
+              "buses": []
+            },
+            {
+              "name": "pulse",
+              "path": "assets/music/night.stem.pulse.ogg",
+              "kind": "layer",
+              "intensity": 0.3,
+              "tracks": [
+                "drums"
+              ],
+              "buses": []
+            },
+            {
+              "name": "tension",
+              "path": "assets/music/night.stem.tension.ogg",
+              "kind": "layer",
+              "intensity": 0.55,
+              "tracks": [
+                "arp"
+              ],
+              "buses": []
+            },
+            {
+              "name": "voice",
+              "path": "assets/music/night.stem.voice.ogg",
+              "kind": "layer",
+              "intensity": 0.8,
+              "tracks": [
+                "lead"
+              ],
+              "buses": []
+            }
+          ]
+        }
+      }
+    },
+    "assets/music/night.stem.base.ogg": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "music",
+        "provider": "factoria music.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "stem 'base' of song assets/music/night.song.json, 65.5 s, 526 notes, seed 0",
+        "source": "assets/music/night.song.json",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "music.render",
+          "args": {
+            "path": "assets/music/night.song.json",
+            "stems": "layers",
+            "sampleRate": 44100,
+            "seed": 0,
+            "loop": true,
+            "out": "assets/music/night.ogg"
+          },
+          "inputs": [
+            {
+              "path": "assets/music/night.song.json",
+              "sha256": "0fcb4e20b22aea14bcd4ea911c294e076b7195483674ffcc7faadc17dc70c72e"
+            }
+          ],
+          "context": {
+            "styleMusicLufs": -18.0
+          }
+        }
+      },
+      "import": {
+        "loopStart": 10.909093,
+        "loopEnd": 54.545465,
+        "music": {
+          "role": "stem",
+          "song": "assets/music/night.song.json",
+          "mix": "assets/music/night.ogg",
+          "name": "base",
+          "kind": "layer",
+          "intensity": 0.0,
+          "tracks": [
+            "pad",
+            "bass"
+          ],
+          "buses": []
+        }
+      }
+    },
+    "assets/music/night.stem.pulse.ogg": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "music",
+        "provider": "factoria music.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "stem 'pulse' of song assets/music/night.song.json, 65.5 s, 526 notes, seed 0",
+        "source": "assets/music/night.song.json",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "music.render",
+          "args": {
+            "path": "assets/music/night.song.json",
+            "stems": "layers",
+            "sampleRate": 44100,
+            "seed": 0,
+            "loop": true,
+            "out": "assets/music/night.ogg"
+          },
+          "inputs": [
+            {
+              "path": "assets/music/night.song.json",
+              "sha256": "0fcb4e20b22aea14bcd4ea911c294e076b7195483674ffcc7faadc17dc70c72e"
+            }
+          ],
+          "context": {
+            "styleMusicLufs": -18.0
+          }
+        }
+      },
+      "import": {
+        "loopStart": 10.909093,
+        "loopEnd": 54.545465,
+        "music": {
+          "role": "stem",
+          "song": "assets/music/night.song.json",
+          "mix": "assets/music/night.ogg",
+          "name": "pulse",
+          "kind": "layer",
+          "intensity": 0.3,
+          "tracks": [
+            "drums"
+          ],
+          "buses": []
+        }
+      }
+    },
+    "assets/music/night.stem.tension.ogg": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "music",
+        "provider": "factoria music.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "stem 'tension' of song assets/music/night.song.json, 65.5 s, 526 notes, seed 0",
+        "source": "assets/music/night.song.json",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "music.render",
+          "args": {
+            "path": "assets/music/night.song.json",
+            "stems": "layers",
+            "sampleRate": 44100,
+            "seed": 0,
+            "loop": true,
+            "out": "assets/music/night.ogg"
+          },
+          "inputs": [
+            {
+              "path": "assets/music/night.song.json",
+              "sha256": "0fcb4e20b22aea14bcd4ea911c294e076b7195483674ffcc7faadc17dc70c72e"
+            }
+          ],
+          "context": {
+            "styleMusicLufs": -18.0
+          }
+        }
+      },
+      "import": {
+        "loopStart": 10.909093,
+        "loopEnd": 54.545465,
+        "music": {
+          "role": "stem",
+          "song": "assets/music/night.song.json",
+          "mix": "assets/music/night.ogg",
+          "name": "tension",
+          "kind": "layer",
+          "intensity": 0.55,
+          "tracks": [
+            "arp"
+          ],
+          "buses": []
+        }
+      }
+    },
+    "assets/music/night.stem.voice.ogg": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "music",
+        "provider": "factoria music.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "stem 'voice' of song assets/music/night.song.json, 65.5 s, 526 notes, seed 0",
+        "source": "assets/music/night.song.json",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "music.render",
+          "args": {
+            "path": "assets/music/night.song.json",
+            "stems": "layers",
+            "sampleRate": 44100,
+            "seed": 0,
+            "loop": true,
+            "out": "assets/music/night.ogg"
+          },
+          "inputs": [
+            {
+              "path": "assets/music/night.song.json",
+              "sha256": "0fcb4e20b22aea14bcd4ea911c294e076b7195483674ffcc7faadc17dc70c72e"
+            }
+          ],
+          "context": {
+            "styleMusicLufs": -18.0
+          }
+        }
+      },
+      "import": {
+        "loopStart": 10.909093,
+        "loopEnd": 54.545465,
+        "music": {
+          "role": "stem",
+          "song": "assets/music/night.song.json",
+          "mix": "assets/music/night.ogg",
+          "name": "voice",
+          "kind": "layer",
+          "intensity": 0.8,
+          "tracks": [
+            "lead"
+          ],
+          "buses": []
+        }
+      }
+    },
+    "assets/music/title.ogg": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "music",
+        "provider": "factoria music.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "song assets/music/title.song.json, 80.0 s, 299 notes, seed 0, loop bars 5-20",
+        "source": "assets/music/title.song.json",
+        "date": "2026-11-04",
+        "recipe": {
+          "command": "music.render",
+          "args": {
+            "path": "assets/music/title.song.json",
+            "sampleRate": 44100,
+            "seed": 0,
+            "loop": true,
+            "out": "assets/music/title.ogg"
+          },
+          "inputs": [
+            {
+              "path": "assets/music/title.song.json",
+              "sha256": "dfec468810fbc76b4ac6ceb3d84db311a7210c5d657dcccb3aceaca88e3382aa"
+            }
+          ],
+          "context": {
+            "styleMusicLufs": -18.0
+          }
+        }
+      },
+      "import": {
+        "loopStart": 13.333333,
+        "loopEnd": 66.666667,
+        "music": {
+          "role": "mix",
+          "song": "assets/music/title.song.json"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "rock",
+    "components": {
+      "MeshRenderer": {
+        "mesh": "assets/models/rock.glb",
+        "lods": [
+          {
+            "mesh": "assets/models/rock.lod1.glb",
+            "distance": 5.17339
+          }
+        ]
+      },
+      "Collider3D": {
+        "shape": "convex",
+        "mesh": "assets/models/rock.collider.glb"
+      }
+    }
+  }
+}
