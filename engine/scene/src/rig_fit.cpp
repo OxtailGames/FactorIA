@@ -173,6 +173,8 @@ std::vector<RigIssue> rig_check_doc(const RigDoc& doc) {
         else hint = did_you_mean(name, landmarkNames);
         issues.push_back({"/landmarks/" + name, "'" + name + "' is not a landmark of the " + doc.templateName + " rig", hint});
     }
+    const std::vector<RigIssue> skinIssues = rig_check_skin(doc, names);
+    issues.insert(issues.end(), skinIssues.begin(), skinIssues.end());
     return issues;
 }
 

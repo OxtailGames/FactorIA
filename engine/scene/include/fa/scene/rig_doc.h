@@ -19,6 +19,7 @@
 #include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/core/types.h"
+#include "fa/scene/rig_skin_doc.h"
 
 namespace fa {
 
@@ -73,13 +74,18 @@ struct RigDoc {
     std::vector<std::pair<std::string, Vec3>> landmarks;                 // explicit joint positions in the model's space; "<bone>.tail" is the end of a leaf bone
     std::optional<float> symmetryX;   // the x of the symmetry plane; left out: the centre of the model's bounds
     bool strict = false;              // a landmark that could only be estimated from proportions is an error
-    std::string binding = "rigid";    // how the .glb binds vertices: "rigid" (each vertex to its nearest bone of the part's bones, weight 1)
+    RigSkinSettings skin;             // how the .glb binds vertices to bones (rig_skin_doc.h): the method per part and the edits
     std::string outputPath;           // where rig.bake writes the .glb; "" = next to the document
     std::vector<RigGenericBone> bones;  // generic only
     int optionInt(std::string_view key, int fallback) const;
     std::string optionString(std::string_view key, std::string_view fallback) const;
     bool optionBool(std::string_view key, bool fallback) const;
 };
+
+// Reads the `skin` section (rig_skin_doc.cpp): every problem is appended to `issues` with its pointer under "/skin".
+void parse_rig_skin(const Json& json, RigSkinSettings& out, std::vector<RigIssue>& issues);
+// Checks the bone names of the skin section against the template's bones ("did you mean").
+std::vector<RigIssue> rig_check_skin(const RigDoc& doc, const std::vector<std::string>& boneNames);
 
 // Reads a document. Every problem found is listed in `issues` (not only the first), each with its JSON pointer, what is wrong and the fix.
 // `file` only names the document in the message of the error that is returned for the first. The bone and part names are checked against the

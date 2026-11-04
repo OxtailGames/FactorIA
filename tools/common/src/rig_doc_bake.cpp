@@ -60,7 +60,7 @@ Result<RigDoc> load_rig_document(const std::string& projectDir, const std::strin
     return doc;
 }
 
-Result<RigEvaluation> rig_evaluate(const std::string& projectDir, const RigDoc& rigDoc) {
+Result<RigEvaluation> rig_evaluate(const std::string& projectDir, const RigDoc& rigDoc, bool withSkin) {
     RigEvaluation out;
     out.modelPath = normalized(rigDoc.model);
     ProjectRootGuard root(projectDir);
@@ -95,6 +95,13 @@ Result<RigEvaluation> rig_evaluate(const std::string& projectDir, const RigDoc& 
     if (!fit.ok()) return make_error(fit.error().message, fit.error().hint);
     out.fit = std::move(*fit);
     out.warnings = out.fit.warnings;
+    if (withSkin) {
+        auto skin = compute_rig_skin(rigDoc.skin, out.fit, out.mesh);
+        if (!skin.ok()) return make_error("the skin weights of the rig cannot be computed: " + skin.error().message, skin.error().hint);
+        out.skin = std::move(*skin);
+        out.hasSkin = true;
+        for (const std::string& w : out.skin.report.warnings) out.warnings.push_back(w);
+    }
 
     out.inputs.push_back(out.modelPath);
     for (const std::string& s : out.build.inputs)
@@ -188,9 +195,9 @@ Result<RigBakeResult> bake_rig_document(const std::string& projectDir, const std
         }
     }
 
-    auto eval = rig_evaluate(projectDir, *doc);
+    auto eval = rig_evaluate(projectDir, *doc, true);
     if (!eval.ok()) return make_error(rel + ": " + eval.error().message, eval.error().hint);
-    auto bytes = rig_to_glb(eval->mesh, eval->fit, result.output);
+    auto bytes = rig_to_glb(eval->mesh, eval->fit, result.output, &eval->skin.weights);
     if (!bytes.ok()) return make_error(rel + ": cannot write '" + result.output + "': " + bytes.error().message, bytes.error().hint);
     result.sha256 = sha256_hex(bytes->data(), bytes->size());
     result.bytes = bytes->size();
@@ -230,8 +237,9 @@ Result<RigBakeResult> bake_rig_document(const std::string& projectDir, const std
         std::string author = authors.empty() ? "factoria" : join(std::vector<std::string>(authors.begin(), authors.end()), "; ");
         if (madeHere && previousProv.contains("author") && previousProv["author"].is_string()) author = previousProv["author"].get<std::string>();
         const std::string notes = std::format("A {} skeleton of {} bones fitted to the model '{}' by rig document '{}': {} landmarks from parts, {} from geometry, {} overridden, {} estimated. "
-                                              "Vertices follow one bone each (rigid binding).",
-                                              eval->fit.templateName, eval->fit.bones.size(), eval->modelPath, rel, eval->fit.fromParts, eval->fit.fromGeometry, eval->fit.overrides, eval->fit.estimated);
+                                              "Skin weights: {} method, up to {} influences per vertex, {} edit(s).",
+                                              eval->fit.templateName, eval->fit.bones.size(), eval->modelPath, rel, eval->fit.fromParts, eval->fit.fromGeometry, eval->fit.overrides, eval->fit.estimated,
+                                              doc->skin.method, doc->skin.maxInfluences, doc->skin.edits.size());
         Json prov = Json::object({{"origin", ai ? "generated" : "original"},
                                   {"ai", ai},
                                   {"kind", "model3d"},
@@ -252,6 +260,7 @@ Result<RigBakeResult> bake_rig_document(const std::string& projectDir, const std
         return make_error(e.what(), e.hint);
     }
     result.fit = std::move(eval->fit);
+    result.skin = rig_skin_report_to_json(eval->skin.report);
     return result;
 }
 

@@ -2178,7 +2178,7 @@ Not released yet (on main after 0.14.1).
 
 Fit rig documents to their models and write the skinned .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json.
 
-Without `path` this bakes every *.rig.json of the project whose .glb is missing or out of date (the rig document, its model document or a file they read changed: the recipe's hashes), like model.bake. With `path` it bakes that document. The .glb is the model's mesh exactly as model.bake writes it plus one glTF skin: a node per bone named like the bone (translation = head minus the parent's head, extras {role, and index and side when the bone has them}), inverseBindMatrices that make the rest pose draw the model unchanged, and JOINTS_0 / WEIGHTS_0 binding every vertex to ONE bone with weight 1 (the nearest of the bones its part is bound to; real blended weights come with M59.2). The origin follows the model's gameReady.origin; a textured model uses the picture its own bake made (bake the model first). The same inputs give the same bytes. assets.json records provenance and the recipe, so assets.regenerate and project.validate know when it is stale. A file that nothing baked is never replaced unless overwrite is true. `factoria export` bakes the stale documents first. Example: {} or {"path":"assets/models/hero.rig.json"}
+Without `path` this bakes every *.rig.json of the project whose .glb is missing or out of date (the rig document, its model document or a file they read changed: the recipe's hashes), like model.bake. With `path` it bakes that document. The .glb is the model's mesh exactly as model.bake writes it plus one glTF skin: a node per bone named like the bone (translation = head minus the parent's head, extras {role, and index and side when the bone has them}), inverseBindMatrices that make the rest pose draw the model unchanged, and JOINTS_0 / WEIGHTS_0 with up to four normalised influences per vertex, computed from the document's `skin` section (automatic heat-diffusion weights, rigid parts, and the edits skin3d.* wrote; deterministic). The origin follows the model's gameReady.origin; a textured model uses the picture its own bake made (bake the model first). The same inputs give the same bytes. assets.json records provenance and the recipe, so assets.regenerate and project.validate know when it is stale. A file that nothing baked is never replaced unless overwrite is true. `factoria export` bakes the stale documents first. Example: {} or {"path":"assets/models/hero.rig.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2193,7 +2193,7 @@ Not released yet (on main after 0.14.1).
 
 Write a rig document for a model: a skeleton template (humanoid, quadruped, bird, tail, chain, generic) fitted to the model by its parts and landmarks, and bake it to a skinned .glb.
 
-Writes `path` (*.rig.json under assets/) that names the model document (`model`) and a `template`, with the template's `options` (rig.templates lists them: spine, neck and tail bone counts, toes, pose, segments, axis), optional `parts` ({bone: [model parts]}: which parts decide where a bone is, when their names do not say) and `landmarks` ({bone: [x,y,z], "<bone>.tail": [x,y,z]}: explicit joint positions in the model's space). The template is fitted to the model before anything is written (a fit that cannot be made fails and writes nothing): the answer lists every bone with its head and tail, whether each came from a part, the geometry or an estimate, which parts each bone follows, the parts nobody used and the warnings (a landmark that could not be found says what to name or give). A `generic` rig gets one bone per part of the model under `root`; edit the bones in the file. Unless bake is false it is baked: <name>.rig.glb next to the document is the model with a glTF skin (joints named like the bones, rest pose = the model's pose); until skin weights exist (M59.2) every vertex follows ONE bone, the nearest of those its part is bound to (weight 1). The model must be a model document (*.model.json). Example: {"path":"assets/models/hero.rig.json","model":"assets/models/hero.model.json","template":"humanoid","options":{"spine":4}}
+Writes `path` (*.rig.json under assets/) that names the model document (`model`) and a `template`, with the template's `options` (rig.templates lists them: spine, neck and tail bone counts, toes, pose, segments, axis), optional `parts` ({bone: [model parts]}: which parts decide where a bone is, when their names do not say) and `landmarks` ({bone: [x,y,z], "<bone>.tail": [x,y,z]}: explicit joint positions in the model's space). The template is fitted to the model before anything is written (a fit that cannot be made fails and writes nothing): the answer lists every bone with its head and tail, whether each came from a part, the geometry or an estimate, which parts each bone follows, the parts nobody used and the warnings (a landmark that could not be found says what to name or give). A `generic` rig gets one bone per part of the model under `root`; edit the bones in the file. Unless bake is false it is baked: <name>.rig.glb next to the document is the model with a glTF skin (joints named like the bones, rest pose = the model's pose); its vertices are bound to the bones with automatic skin weights (heat diffusion by default, rigid per part for a generic rig; the document's `skin` section and the skin3d.* commands change them, docs/RIGGING.md). The model must be a model document (*.model.json). Example: {"path":"assets/models/hero.rig.json","model":"assets/models/hero.model.json","template":"humanoid","options":{"spine":4}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2205,6 +2205,7 @@ Writes `path` (*.rig.json under assets/) that names the model document (`model`)
 | `landmarks` | object | no | {bone or "bone.tail": [x,y,z]}: explicit joint positions in the model's space; they win over everything the fit finds. |
 | `strict` | boolean | no | Make a landmark that could only be estimated from proportions an error instead of a warning (default false). |
 | `output` | object | no | {path: where to bake, under assets/, ending in .glb}. Default: <name>.rig.glb next to the document. |
+| `skin` | object | no | The document's `skin` section: {method: auto\|heat\|voxel\|rigid, maxInfluences, smooth, maxHops, locality, parts: {part: {method, bone}}, edits}. Left out: automatic weights. skin3d.* edits it afterwards (docs/RIGGING.md). |
 | `doc` | string | no | A note on what the rig is for. |
 | `overwrite` | boolean | no | Replace the document when it exists (and the .glb when nothing baked it). Default false. |
 | `bake` | boolean | no | Bake the skinned .glb after writing. Default true. |
@@ -2225,6 +2226,7 @@ Reads `path` (*.rig.json), applies the changes you give, checks the document as 
 | `options` | any | no | The template's options to change (rig.templates {} lists them); null as a value returns one to its default. |
 | `symmetryX` | any | no | The x of the symmetry plane left and right bones mirror about. Null: the centre of the model's bounds. |
 | `strict` | boolean | no | Make estimated landmarks errors: true or false, left as it is when not given. |
+| `skin` | any | no | Fields of the document's `skin` section to set ({method, maxInfluences, smooth, maxHops, locality, parts, edits}); a field given replaces that field, null removes it. skin3d.* edits the weights one operation at a time. |
 | `dryRun` | boolean | no | Fit with the changes but write nothing. Default false. |
 | `bake` | boolean | no | Bake the skinned .glb after writing. Default true. |
 | `overwrite` | boolean | no | Replace a .glb that no rig document baked. Default false. |
@@ -2380,6 +2382,189 @@ Turn a patch's macros by meaning (brighter, longer tail, heavier) and write the 
 | `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
 | `width` | integer | no | Width of the picture in pixels. |
 | `height` | integer | no | Height of the picture in pixels. |
+
+## `skin3d.add` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Add weight to a bone (or take it away with a negative amount) on the vertices of a part or a selection.
+
+Adds `amount` (-1 to 1) to the weight of `bone` on each vertex, then normalises (a vertex keeps at most the document's `maxInfluences` strongest bones, the others are dropped). A positive amount makes the bone pull the vertices harder, a negative one releases them from it. Example: {"path":"assets/models/hero.rig.json","bone":"spine_2","amount":0.3,"select":{"by":"box","min":[-0.3,1.2,-0.2],"max":[0.3,1.4,0.2]}}. The vertices it works on are those of `part` and of the faces `select` matches (both given: the vertices in both; neither: every vertex); `select` is a face query of the model document (model.select_info). The edit is appended to the rig document's `skin.edits` (applied in order after the automatic weights, so it survives a re-bake), the weights are computed with it before anything is written (a bone or part that does not exist fails with a "did you mean" and writes nothing), and unless bake is false the skinned .glb is baked again. The answer has the edit, its `index`, how many vertices it changed (`verticesChanged`) and the `quality` of the weights (vertices without weight, most influences, blends across far bones, bones that lead no vertex, warnings). dryRun reports without writing.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `part` | any | no | The model part (or list of parts) the edit works on. Combined with `select`: the vertices in both. Left out with no `select`: every vertex. |
+| `select` | object | no | A face query of the model document ({"by":"box","min":[x,y,z],"max":[x,y,z]}; model.select_info lists them: box, sphere, halfspace, part, normal, and, or, not...): the edit works on the vertices of the faces it matches. |
+| `dryRun` | boolean | no | Compute the weights with the edit and report, but write nothing. Default false. |
+| `bake` | boolean | no | Bake the skinned .glb after writing. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no rig document baked. Default false. |
+| `bone` | string | yes | The bone whose weight changes. |
+| `amount` | number | yes | Added to the bone's weight, -1 to 1. |
+
+## `skin3d.auto` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Choose how the weights are computed (auto, heat, voxel, rigid), for the whole rig or one part, and their settings; recompute and bake.
+
+Changes the `skin` section of a rig document. `method`: auto (heat diffusion; a generic rig, whose bones were placed on parts, is rigid per part), heat (bone heat diffusion on the surface: smooth weights that follow the shape; works on the meshes the engine makes, SDF creatures included), voxel (distance along a voxelised copy of the surface: needs no manifold mesh; what a part falls back to when the heat solve cannot converge) or rigid (the whole part follows ONE bone: robot style). With `part` the method is that part's only (`bone` is the bone it follows: rigid = the one bone, heat and voxel = the bone the part is centred on; without `method` and `bone` the part's override is removed). Settings: `maxInfluences` (1 to 4 bones per vertex), `smooth` (passes over the automatic weights, 0 to 8), `maxHops` (a vertex never follows bones further than this many bones from its strongest, 1 to 8) and `locality` (heat: higher hugs each bone, 0.05 to 20). `clearEdits` also removes every edit. The weights are computed before anything is written (a bad part or bone fails and writes nothing), the .glb is baked again unless bake is false, and the answer has the `quality` of the weights. Examples: {"path":"assets/models/robot.rig.json","part":"claw","method":"rigid","bone":"arm_lower_l"}, {"path":"assets/models/hero.rig.json","smooth":3,"locality":1.5}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `method` | string ["auto","heat","voxel","rigid"] | no | The method: for every part, or for `part` when given. |
+| `part` | string | no | A model part to give its own method (and bone). Without `method` and `bone` its override is removed. |
+| `bone` | string | no | With `part`: the bone the part follows (rigid) or is centred on (heat, voxel). |
+| `maxInfluences` | integer | no | Bones per vertex, 1 to 4. |
+| `smooth` | integer | no | Smoothing passes over the automatic weights, 0 to 8. |
+| `maxHops` | integer | no | A vertex does not follow bones further than this many bones from its strongest one, 1 to 8. |
+| `locality` | number | no | Heat diffusion: higher = weights hug each bone (shorter blends), lower = longer blends. 0.05 to 20 (default 1). |
+| `clearEdits` | boolean | no | Also remove every edit (skin.edits). Default false. |
+| `dryRun` | boolean | no | Compute the weights with the change and report, but write nothing. Default false. |
+| `bake` | boolean | no | Bake the skinned .glb after writing. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no rig document baked. Default false. |
+
+## `skin3d.clear` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Remove one edit (by index) or all the edits from a rig document's skin, recompute and bake.
+
+Removes `index` (as skin3d.info and the answer of an edit command number them) or, without it, every entry of `skin.edits`; the automatic weights and the per-part methods stay. The weights are recomputed and the .glb is baked again unless bake is false. Example: {"path":"assets/models/hero.rig.json","index":2}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `index` | integer | no | The edit to remove (0 is the first); left out: every edit. |
+| `dryRun` | boolean | no | Report without writing. Default false. |
+| `bake` | boolean | no | Bake the skinned .glb after writing. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no rig document baked. Default false. |
+
+## `skin3d.info`
+
+Not released yet (on main after 0.14.1).
+
+Show a rig document's skin: the method, its settings and edits, the bones with the parts they follow, and the quality of the weights it gives.
+
+Reads `path` (*.rig.json), fits the rig and computes the weights of its `skin` section. Returns the effective settings (`skin`: method, maxInfluences, smooth, maxHops, locality and the per-part overrides), the `edits` with their index (skin3d.clear removes one), the `bones` with their parent and the model parts each follows, the `quality` of the weights and the state of the baked .glb. `quality` counts vertices without weight (`unweighted`: they follow the nearest bone), the most influences any vertex has, `farBlends` (vertices blending bones more than `maxHops` apart in the hierarchy), the vertices led by each bone (`boneVertices`; `idleBones` lead none), the method used per part, the heat solver's pieces and the `warnings` (each says what to change). Nothing is written. Example: {"path":"assets/models/hero.rig.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+
+## `skin3d.limit` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Keep at most N influences per vertex (1 to 4) on a part or a selection, strongest first, and normalise.
+
+Keeps the `max` strongest bones of each vertex (1 to 4, default 4) and renormalises. max 1 makes the selection rigid per vertex. Example: {"path":"assets/models/hero.rig.json","max":2,"part":"hand_l"}. The vertices it works on are those of `part` and of the faces `select` matches (both given: the vertices in both; neither: every vertex); `select` is a face query of the model document (model.select_info). The edit is appended to the rig document's `skin.edits` (applied in order after the automatic weights, so it survives a re-bake), the weights are computed with it before anything is written (a bone or part that does not exist fails with a "did you mean" and writes nothing), and unless bake is false the skinned .glb is baked again. The answer has the edit, its `index`, how many vertices it changed (`verticesChanged`) and the `quality` of the weights (vertices without weight, most influences, blends across far bones, bones that lead no vertex, warnings). dryRun reports without writing.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `part` | any | no | The model part (or list of parts) the edit works on. Combined with `select`: the vertices in both. Left out with no `select`: every vertex. |
+| `select` | object | no | A face query of the model document ({"by":"box","min":[x,y,z],"max":[x,y,z]}; model.select_info lists them: box, sphere, halfspace, part, normal, and, or, not...): the edit works on the vertices of the faces it matches. |
+| `dryRun` | boolean | no | Compute the weights with the edit and report, but write nothing. Default false. |
+| `bake` | boolean | no | Bake the skinned .glb after writing. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no rig document baked. Default false. |
+| `max` | integer | no | Influences kept per vertex, 1 to 4 (default 4). |
+
+## `skin3d.mirror` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Copy the weights of one side of the character to the other (_l to _r or the other way), pairing each vertex with its mirror image.
+
+Copies the weights from the side `from` ("l" = the character's left, +X; "r" = right) to the opposite side: each vertex is paired with the vertex nearest to its mirror image across the symmetry plane (`symmetryX` of the rig document, else the centre of the model's bounds), preferring one of the mirrored part, and takes its weights with every bone swapped for its opposite (arm_upper_l <-> arm_upper_r; bones on the centre line keep themselves). Vertices with no partner within a tolerance are left as they were and counted in `quality.mirrorUnmatched`. Use it after hand-editing one arm. Example: {"path":"assets/models/hero.rig.json","from":"l"}. The vertices it works on are those of `part` and of the faces `select` matches (both given: the vertices in both; neither: every vertex); `select` is a face query of the model document (model.select_info). The edit is appended to the rig document's `skin.edits` (applied in order after the automatic weights, so it survives a re-bake), the weights are computed with it before anything is written (a bone or part that does not exist fails with a "did you mean" and writes nothing), and unless bake is false the skinned .glb is baked again. The answer has the edit, its `index`, how many vertices it changed (`verticesChanged`) and the `quality` of the weights (vertices without weight, most influences, blends across far bones, bones that lead no vertex, warnings). dryRun reports without writing.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `part` | any | no | The model part (or list of parts) the edit works on. Combined with `select`: the vertices in both. Left out with no `select`: every vertex. |
+| `select` | object | no | A face query of the model document ({"by":"box","min":[x,y,z],"max":[x,y,z]}; model.select_info lists them: box, sphere, halfspace, part, normal, and, or, not...): the edit works on the vertices of the faces it matches. |
+| `dryRun` | boolean | no | Compute the weights with the edit and report, but write nothing. Default false. |
+| `bake` | boolean | no | Bake the skinned .glb after writing. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no rig document baked. Default false. |
+| `from` | string ["l","r"] | yes | The side whose weights are copied to the other: l (+X) or r (-X). |
+
+## `skin3d.normalize` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Drop negligible influences and make each vertex's weights sum to 1, on a part or a selection.
+
+Removes the influences under `threshold` (0 to 0.5, default 0.01) and rescales what is left to sum to 1. A vertex whose weights are all under the threshold keeps its strongest bone. Example: {"path":"assets/models/hero.rig.json","threshold":0.05}. The vertices it works on are those of `part` and of the faces `select` matches (both given: the vertices in both; neither: every vertex); `select` is a face query of the model document (model.select_info). The edit is appended to the rig document's `skin.edits` (applied in order after the automatic weights, so it survives a re-bake), the weights are computed with it before anything is written (a bone or part that does not exist fails with a "did you mean" and writes nothing), and unless bake is false the skinned .glb is baked again. The answer has the edit, its `index`, how many vertices it changed (`verticesChanged`) and the `quality` of the weights (vertices without weight, most influences, blends across far bones, bones that lead no vertex, warnings). dryRun reports without writing.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `part` | any | no | The model part (or list of parts) the edit works on. Combined with `select`: the vertices in both. Left out with no `select`: every vertex. |
+| `select` | object | no | A face query of the model document ({"by":"box","min":[x,y,z],"max":[x,y,z]}; model.select_info lists them: box, sphere, halfspace, part, normal, and, or, not...): the edit works on the vertices of the faces it matches. |
+| `dryRun` | boolean | no | Compute the weights with the edit and report, but write nothing. Default false. |
+| `bake` | boolean | no | Bake the skinned .glb after writing. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no rig document baked. Default false. |
+| `threshold` | number | no | Influences under this weight are dropped, 0 to 0.5 (default 0.01). |
+
+## `skin3d.preview`
+
+Not released yet (on main after 0.14.1).
+
+Draw the skin weights of a rig: a heat map of one bone or one colour per bone, and optionally the model bent at a bone to see how the skin deforms; returns the PNG.
+
+The way to SEE the weights. It fits the rig, computes the weights of the document's `skin` section (edits included) and draws the model with the software renderer of model.preview (no graphics device, the same pixels everywhere), from `views` sides. With `bone` (mode "heat"): the weights of that bone as a heat map, blue 0 to red 1, so a blend that is too long, too short or on the wrong limb is visible. Without it (mode "bones"): each vertex has the weighted mix of its bones' colours, with a legend of the bones. `pose` ({"arm_lower_l":60} or [{bone, degrees, axis:[x,y,z]}]) bends bones about the axis perpendicular to the bone (a knee or an elbow; `axis` overrides it), taking their children along, and adds a second row with the model deformed by linear blend skinning the way the .glb would deform it: creases, stretched triangles and parts left behind are what a bad skin looks like. The answer has the weights' `quality` and, for one bone, how many vertices it has weight on. The picture is returned as $image in a temporary file; pass `out` (a project-relative .png) to keep it. Nothing in the project changes otherwise. Example: {"path":"assets/models/hero.rig.json","bone":"arm_lower_l","pose":{"arm_lower_l":70}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `bone` | string | no | Draw the weights of this bone as a heat map. |
+| `mode` | string ["heat","bones"] | no | heat (needs `bone`; the default with it) or bones (one colour per bone; the default without). |
+| `pose` | any | no | Bones to bend: {bone: degrees} or a list of {bone, degrees, axis}. Adds a row with the deformed model. |
+| `views` | integer | no | How many sides to draw, 1 to 6 (default 3). |
+| `yaw` | number | no | The angle of the first view in degrees: 0 looks at the model's +Z side (default 20). |
+| `pitch` | number | no | Degrees above the horizon (default 12). |
+| `cell` | number | no | Pixels per side of each view (default 280). |
+| `out` | string | no | Keep the picture as a PNG at this project-relative path (ending in .png). Left out, it is a temporary file. |
+| `overwrite` | boolean | no | Replace the file at `out` if it exists. Default false. |
+
+## `skin3d.set` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Give a bone an exact weight on the vertices of a part or a selection; the other bones share the rest.
+
+Sets the weight of `bone` to `weight` (0 to 1; default 1: the vertices follow only that bone) and scales the other influences of each vertex to share what is left in their proportions. A vertex whose only influence was the bone keeps it at 1. Use it to pin a hand to its bone, a sleeve to an arm or free a vertex from a bone (weight 0). The vertices it works on are those of `part` and of the faces `select` matches (both given: the vertices in both; neither: every vertex); `select` is a face query of the model document (model.select_info). The edit is appended to the rig document's `skin.edits` (applied in order after the automatic weights, so it survives a re-bake), the weights are computed with it before anything is written (a bone or part that does not exist fails with a "did you mean" and writes nothing), and unless bake is false the skinned .glb is baked again. The answer has the edit, its `index`, how many vertices it changed (`verticesChanged`) and the `quality` of the weights (vertices without weight, most influences, blends across far bones, bones that lead no vertex, warnings). dryRun reports without writing. Example: {"path":"assets/models/hero.rig.json","bone":"hand_l","weight":1,"part":"glove_l"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `part` | any | no | The model part (or list of parts) the edit works on. Combined with `select`: the vertices in both. Left out with no `select`: every vertex. |
+| `select` | object | no | A face query of the model document ({"by":"box","min":[x,y,z],"max":[x,y,z]}; model.select_info lists them: box, sphere, halfspace, part, normal, and, or, not...): the edit works on the vertices of the faces it matches. |
+| `dryRun` | boolean | no | Compute the weights with the edit and report, but write nothing. Default false. |
+| `bake` | boolean | no | Bake the skinned .glb after writing. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no rig document baked. Default false. |
+| `bone` | string | yes | The bone whose weight is set. |
+| `weight` | number | no | The weight it gets, 0 to 1 (default 1). |
+
+## `skin3d.smooth` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Smooth the weights over the surface on the vertices of a part or a selection, to soften a crease at a joint.
+
+Moves the weights of each vertex towards the average of the vertices that share an edge with it (welded by position, so seams do not break it): `iterations` passes of `strength` (0 to 1). The neighbours outside the selection take part, so the border blends in. Example: {"path":"assets/models/hero.rig.json","part":"arm_lower_l","iterations":3}. The vertices it works on are those of `part` and of the faces `select` matches (both given: the vertices in both; neither: every vertex); `select` is a face query of the model document (model.select_info). The edit is appended to the rig document's `skin.edits` (applied in order after the automatic weights, so it survives a re-bake), the weights are computed with it before anything is written (a bone or part that does not exist fails with a "did you mean" and writes nothing), and unless bake is false the skinned .glb is baked again. The answer has the edit, its `index`, how many vertices it changed (`verticesChanged`) and the `quality` of the weights (vertices without weight, most influences, blends across far bones, bones that lead no vertex, warnings). dryRun reports without writing.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The rig document, project-relative, under assets/, ending in .rig.json. |
+| `part` | any | no | The model part (or list of parts) the edit works on. Combined with `select`: the vertices in both. Left out with no `select`: every vertex. |
+| `select` | object | no | A face query of the model document ({"by":"box","min":[x,y,z],"max":[x,y,z]}; model.select_info lists them: box, sphere, halfspace, part, normal, and, or, not...): the edit works on the vertices of the faces it matches. |
+| `dryRun` | boolean | no | Compute the weights with the edit and report, but write nothing. Default false. |
+| `bake` | boolean | no | Bake the skinned .glb after writing. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no rig document baked. Default false. |
+| `iterations` | integer | no | Passes, 1 to 50 (default 1). |
+| `strength` | number | no | How far each pass moves a vertex to its neighbours' average, 0 to 1 (default 0.5). |
 
 ## `vector.add` (modifies state)
 
