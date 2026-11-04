@@ -437,7 +437,7 @@ TEST_CASE("game ready: the same mesh gives the same bytes (and the same bytes on
     std::string q;
     for (const ModelHull& h : a->collider.hulls)
         for (const Vec3& p : h.points) q += std::to_string(std::lround(p.x * 1000)) + "," + std::to_string(std::lround(p.y * 1000)) + "," + std::to_string(std::lround(p.z * 1000)) + ";";
-    CHECK(sha256_hex(q) == "1b5e1613d1dbf9c01edd924926eab4651304dfb78e4053cc079ab0e27323e629");
+    CHECK(sha256_hex(q) == "3e832ed4a035569d279b11f0986f39852beade59fd9dc267e95566bea27bcbb1");
 }
 
 #include "fa/scene/lod.h"

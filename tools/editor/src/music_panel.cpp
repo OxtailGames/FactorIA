@@ -400,8 +400,11 @@ const int kRates[] = {4, 8, 16, 32};
 
 void Editor::draw_music_roll(MusicModel& m) {
     MusicUi& u = music_;
-    const SongDoc* doc = m.doc();
-    if (!doc) return;
+    if (!m.doc()) return;
+    // This frame's song, copied: an edit below replaces the model's (sections, patterns), and a reference into that
+    // would dangle for the rest of the frame.
+    const SongDoc docNow = *m.doc();
+    const SongDoc* doc = &docNow;
     const bool canEdit = play_ == PlayState::Edit;
     const std::vector<std::string> tracks = m.pitched_tracks();
     if (tracks.empty()) {
@@ -901,8 +904,11 @@ void Editor::draw_music_roll(MusicModel& m) {
 // ----------------------------------------------------------------------------------------------------------- drum grid --
 void Editor::draw_music_drums(MusicModel& m) {
     MusicUi& u = music_;
-    const SongDoc* doc = m.doc();
-    if (!doc) return;
+    if (!m.doc()) return;
+    // This frame's song, copied: an edit below replaces the model's (sections, patterns), and a reference into that
+    // would dangle for the rest of the frame.
+    const SongDoc docNow = *m.doc();
+    const SongDoc* doc = &docNow;
     const bool canEdit = play_ == PlayState::Edit;
     const std::vector<std::string> tracks = m.drum_tracks();
     if (tracks.empty()) {

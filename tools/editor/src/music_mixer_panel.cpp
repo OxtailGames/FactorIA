@@ -181,8 +181,11 @@ const Json& json_at(const Json& root, const char* a, const std::string& b = "", 
 // ---------------------------------------------------------------------------------------------------------------- arrangement --
 void Editor::draw_music_arrangement(MusicModel& m) {
     MusicUi& u = music_;
-    const SongDoc* doc = m.doc();
-    if (!doc) return;
+    if (!m.doc()) return;
+    // This frame's song, copied: an edit below replaces the model's (sections, patterns), and a reference into that
+    // would dangle for the rest of the frame.
+    const SongDoc docNow = *m.doc();
+    const SongDoc* doc = &docNow;
     const bool canEdit = play_ == PlayState::Edit;
     const std::vector<std::string> sections = section_names_of(*doc), tracks = track_names_of(*doc);
     u.section = std::clamp(u.section, 0, std::max(0, int(sections.size()) - 1));
@@ -323,7 +326,7 @@ void Editor::draw_music_arrangement(MusicModel& m) {
     ImGui::SameLine();
     ImGui::TextDisabled("(tracks that fade in with the intensity; entity.music.setIntensity in a game. The first plays always.)");
     const std::vector<SongLayer> shown = song_layers(*doc);
-    const Json& rawLayers = json_at(m.json(), "layers");
+    const Json rawLayers = json_at(m.json(), "layers");  // a copy, as docNow
     for (const SongLayer& l : shown) {
         ImGui::PushID(l.name.c_str());
         const bool written = std::any_of(doc->layers.begin(), doc->layers.end(), [&](const SongLayer& w) { return w.name == l.name; });
@@ -392,10 +395,13 @@ void Editor::draw_music_arrangement(MusicModel& m) {
 // --------------------------------------------------------------------------------------------------------------------- mixer --
 void Editor::draw_music_mixer(MusicModel& m) {
     MusicUi& u = music_;
-    const SongDoc* doc = m.doc();
-    if (!doc) return;
+    if (!m.doc()) return;
+    // This frame's song, copied: an edit below replaces the model's (sections, patterns), and a reference into that
+    // would dangle for the rest of the frame.
+    const SongDoc docNow = *m.doc();
+    const SongDoc* doc = &docNow;
     const bool canEdit = play_ == PlayState::Edit;
-    const Json& file = m.json();
+    const Json file = m.json();  // a copy, as docNow
     std::vector<std::string> busNames;
     for (const SongBus& b : doc->mixer.buses) busNames.push_back(b.name);
 
