@@ -156,8 +156,7 @@ void Editor::draw_music_panel() {
     }
     u.preview->set_loop_section(u.loopSection && u.preview->playing() ? u.preview->loop_section() : -1);
 
-    ImGui::SetNextWindowPos(ImVec2(220, 100), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(1100, 780), ImGuiCond_FirstUseEver);
+    first_floating_window(ImVec2(220, 100), ImVec2(1100, 780));
     if (!ImGui::Begin("Music", &showMusic_)) {
         u.focused = false;
         ImGui::End();
@@ -340,7 +339,13 @@ void Editor::draw_music_transport(MusicModel& m) {
     const MusicSourcePtr src = m.source();
     const bool layered = src && src->layered;
     ImGui::BeginDisabled(!layered);
-    ImGui::SameLine(0, 18);
+    // The intensity group stays on the transport's line when it fits, and starts the next line in a narrow panel (a small
+    // screen), where it would run past the panel's right edge.
+    const ImGuiStyle& style = ImGui::GetStyle();
+    float groupW = 18.0f + 170.0f;
+    for (const char* label : {"Calm", "Tense", "Intense"})
+        groupW += style.ItemSpacing.x + ImGui::CalcTextSize(label).x + style.FramePadding.x * 2.0f;
+    if (ImGui::GetItemRectMax().x + groupW <= ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x) ImGui::SameLine(0, 18);
     ImGui::SetNextItemWidth(170);
     if (ImGui::SliderFloat("##musintensity", &u.intensity, 0.0f, 1.0f, "intensity %.2f") && playing) u.preview->set_intensity(u.intensity);
     at_track("mus:intensity", layered);
