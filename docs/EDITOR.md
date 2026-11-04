@@ -1019,7 +1019,9 @@ The icon of a game is its own (`factoria.json` `icon`, docs/EXPORTING.md), not t
   every action and saves window screenshots (`FA_EDITOR_AUTOTEST_OUT=<dir>`). A click only lands on a widget whose centre is
   shown in its window (a widget scrolled out of view, even half, fails the check instead of hitting what is under it), and a
   watchdog thread ends the process with exit code 86 when the editor draws no frame for 60 seconds, so a stuck GPU or UI call
-  can never freeze the window for good. While it runs the editor ignores the real mouse, keyboard and focus changes (using
+  can never freeze the window for good; before it does, it prints the UI thread's stack to stderr (`fa::watched_thread_stack`),
+  which names the call that never returned. A failed MSVC Debug check (an STL assertion, `abort()`) prints its message and
+  stack and ends the run with exit code 3 instead of a dialog that waits for a click. While it runs the editor ignores the real mouse, keyboard and focus changes (using
   the computer or switching apps does not disturb it). On macOS its window stays above the others (a covered window
   draws nothing to take a screenshot of) but out of your way: see-through, without a Dock icon, clicks reach the windows
   below and the app you were using keeps the keyboard, so you can go on working while ctest runs it.

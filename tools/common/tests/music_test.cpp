@@ -321,7 +321,9 @@ TEST_CASE("music.edit: tracks, patterns, sections, arrangement, mutes and automa
     for (const Json& s : doc2["sections"]) melodyInLoop = melodyInLoop || (s["name"] == "loop" && s["play"].contains("melody"));
     CHECK(melodyInLoop);
     edit(p, Json::array({{{"op", "remove_pattern"}, {"track", "melody"}, {"pattern", "b"}}}));
-    for (const Json& s : song_file(p)["sections"])
+    // the file goes into a local first: a range-for over a member of a temporary reads a destroyed value before C++23
+    const Json afterRemove = song_file(p);
+    for (const Json& s : afterRemove["sections"])
         if (s["name"] == "outro") CHECK_FALSE(s["play"].contains("melody"));
     edit(p, Json::array({{{"op", "remove_track"}, {"track", "melody"}}, {{"op", "remove_section"}, {"section", "break"}}}));
     CHECK_FALSE(song_file(p)["tracks"].contains("melody"));
@@ -387,7 +389,8 @@ TEST_CASE("music.edit: a drum pattern by grid and a section arrangement by list"
     CHECK(sawHalf);
     // removing it takes it out of the list in the arrangement
     edit(p, Json::array({{{"op", "remove_pattern"}, {"track", "drums"}, {"pattern", "half"}}}));
-    for (const Json& s : song_file(p)["sections"])
+    const Json afterRemove = song_file(p);
+    for (const Json& s : afterRemove["sections"])
         if (s["name"] == "loop") CHECK(s["play"]["drums"] == "groove");
 }
 

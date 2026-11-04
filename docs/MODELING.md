@@ -814,7 +814,7 @@ The operations (origin, merge, LOD, collider fit) work on any mesh, not only a d
 another, so the settings apply to it in the same way. LODs use meshoptimizer, the one simplifier the engine has (the `sdf`
 mesher uses it too); each submesh is simplified on its own with its border locked, so parts stay apart and no crack opens
 between them, and normals, uvs and colours weigh in the error so seams and colour edges survive. A decomposition uses V-HACD
-on one thread. Everything is serial, so a document gives the same LODs, hulls and bytes on every platform (the tests pin
+on one thread, with its hull order and merge-queue ties made independent of the C++ standard library. Everything is serial, so a document gives the same LODs, hulls and bytes on every platform (the tests pin
 triangle counts and hashes).
 
 Limits: the capsule is always along Y (the report warns when the model is wider than tall); a decomposition that finds no

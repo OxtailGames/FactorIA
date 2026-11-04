@@ -474,7 +474,7 @@ TEST_CASE("model.info: the catalogue lists the sdf shapes with their kind and th
 
 TEST_CASE("docs/MODELING.md: every sdf example is a valid document that builds a closed surface") {
     namespace stdfs = std::filesystem;
-    const std::string text = read_all(stdfs::path(FA_REPO_ROOT) / "docs" / "MODELING.md");
+    const std::string text = read_text(stdfs::path(FA_REPO_ROOT) / "docs" / "MODELING.md");
     int found = 0;
     for (std::size_t at = text.find("```json\n"); at != std::string::npos; at = text.find("```json\n", at + 1)) {
         const std::size_t begin = at + 8, end = text.find("```", begin);
@@ -547,7 +547,7 @@ TEST_CASE("model.select: tries a query on the mesh a node receives; model.info l
 
 TEST_CASE("docs/MODELING.md: every example of Selections and edits is a valid document that builds a closed surface without warnings") {
     namespace stdfs = std::filesystem;
-    const std::string text = read_all(stdfs::path(FA_REPO_ROOT) / "docs" / "MODELING.md");
+    const std::string text = read_text(stdfs::path(FA_REPO_ROOT) / "docs" / "MODELING.md");
     const std::size_t from = text.find("## Selections and edits");
     REQUIRE(from != std::string::npos);
     const std::size_t to = text.find("\n## ", from + 5);
