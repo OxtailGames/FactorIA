@@ -75,7 +75,7 @@ Result<RigFit> fit_rig(const RigDoc& doc, const MeshData& model);
 // The rest skeleton as JSON, for the commands and the editor: bones with role, index, side, parent, head, tail, sources and parts.
 Json rig_fit_to_json(const RigFit& fit);
 
-// Which bone every vertex of the mesh follows in the rigid binding (the "rigid" binding of the document; M59.2 replaces it with weights): the
+// Which bone every vertex of the mesh follows in the rigid binding (what rig_to_glb writes when it is given no weights; the document's skin weights are computed by compute_rig_skin, rig_skin.h): the
 // nearest bone, measured from the vertex to the bone's segment (head to tail), among the bones the vertex's part is bound to; vertices of a part
 // no bone claims use every bone.
 std::vector<std::uint16_t> rig_rigid_binding(const RigFit& fit, const MeshData& model);

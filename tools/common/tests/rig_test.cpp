@@ -119,17 +119,23 @@ TEST_CASE("rig.create: writes the document, fits and bakes a skinned .glb that l
     CHECK(hand->translation.x > 0);  // character-left is +X
     CHECK(node_named(*sk, "toe_r") != nullptr);
 
-    // every primitive carries one bone per vertex with weight 1
+    // every vertex carries up to four bones whose weights sum to 1 (automatic skin weights, docs/RIGGING.md "Skin weights")
     REQUIRE_FALSE(sk->skinVertices.empty());
     for (const SkinVertices& v : sk->skinVertices) {
         REQUIRE_FALSE(v.joints.empty());
         CHECK(v.joints.size() == v.weights.size());
         for (std::size_t i = 0; i < v.joints.size(); ++i) {
-            CHECK(v.weights[i][0] == doctest::Approx(1.0f));
-            CHECK(v.weights[i][1] == 0.0f);
-            CHECK(v.joints[i][0] < skin.joints.size());
+            float total = 0;
+            for (int k = 0; k < 4; ++k) {
+                total += v.weights[i][k];
+                if (v.weights[i][k] > 0) CHECK(v.joints[i][k] < skin.joints.size());
+            }
+            CHECK(total == doctest::Approx(1.0f).epsilon(1e-4));
+            CHECK(v.weights[i][0] >= v.weights[i][1]);
         }
     }
+    CHECK(r["skin"]["unweighted"] == 0);
+    CHECK(r["skin"]["maxInfluences"].get<int>() <= 4);
 
     // at rest the skin palette is the identity: the model draws exactly as it was built
     const std::vector<Mat4> palette = skin_palette(*sk, rest_pose(*sk), 0);
@@ -346,12 +352,20 @@ TEST_CASE("rig schema: schemas/rig.schema.json is the schema the catalog builds,
     CHECK_MESSAGE(*schema == built, "schemas/rig.schema.json is out of date: run the tests with FA_REGENERATE_RIG_SCHEMA=1 to write it again");
 
     Json sample = *parse_json(R"({"format":"factoria.rig/1","model":"assets/models/a.model.json","template":"quadruped","options":{"tail":4},
-        "parts":{"head":["skull","jaw"]},"landmarks":{"head":[0,1,0.5],"tail_1.tail":[0,0.8,-1]},"symmetryX":0,"strict":true})", "sample");
+        "parts":{"head":["skull","jaw"]},"landmarks":{"head":[0,1,0.5],"tail_1.tail":[0,0.8,-1]},"symmetryX":0,"strict":true,
+        "skin":{"method":"heat","maxInfluences":3,"smooth":2,"parts":{"sleeve":{"method":"rigid","bone":"arm_upper_l"}},
+                "edits":[{"op":"set","bone":"hand_l","weight":1,"part":"glove"},{"op":"mirror","from":"l"},{"op":"limit","max":2,"part":["a","b"]}]}})", "sample");
     CHECK(validate_json(*schema, sample).empty());
     Json broken = sample;
     broken["template"] = "dragon";
     CHECK_FALSE(validate_json(*schema, broken).empty());
     broken = sample;
     broken["landmarks"]["head"] = Json::array({0, 1});
+    CHECK_FALSE(validate_json(*schema, broken).empty());
+    broken = sample;
+    broken["skin"]["method"] = "magic";
+    CHECK_FALSE(validate_json(*schema, broken).empty());
+    broken = sample;
+    broken["skin"]["edits"][0]["op"] = "paint";
     CHECK_FALSE(validate_json(*schema, broken).empty());
 }

@@ -251,6 +251,16 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`sfx.preset`](commands/assets.md#sfxpreset-modifies-state): List the sound presets, return one as an editable patch, or write it to a *.sfx.json file. _Not released yet._
 - [`sfx.render`](commands/assets.md#sfxrender-modifies-state): Render a sound patch (*.sfx.json) to a WAV or OGG next to it and see its spectrogram: the engine's own synthesizer, offline and deterministic. _Not released yet._
 - [`sfx.tweak`](commands/assets.md#sfxtweak-modifies-state): Turn a patch's macros by meaning (brighter, longer tail, heavier) and write the change back to the patch. _Not released yet._
+- [`skin3d.add`](commands/assets.md#skin3dadd-modifies-state): Add weight to a bone (or take it away with a negative amount) on the vertices of a part or a selection. _Not released yet._
+- [`skin3d.auto`](commands/assets.md#skin3dauto-modifies-state): Choose how the weights are computed (auto, heat, voxel, rigid), for the whole rig or one part, and their settings; recompute and bake. _Not released yet._
+- [`skin3d.clear`](commands/assets.md#skin3dclear-modifies-state): Remove one edit (by index) or all the edits from a rig document's skin, recompute and bake. _Not released yet._
+- [`skin3d.info`](commands/assets.md#skin3dinfo): Show a rig document's skin: the method, its settings and edits, the bones with the parts they follow, and the quality of the weights it gives. _Not released yet._
+- [`skin3d.limit`](commands/assets.md#skin3dlimit-modifies-state): Keep at most N influences per vertex (1 to 4) on a part or a selection, strongest first, and normalise. _Not released yet._
+- [`skin3d.mirror`](commands/assets.md#skin3dmirror-modifies-state): Copy the weights of one side of the character to the other (_l to _r or the other way), pairing each vertex with its mirror image. _Not released yet._
+- [`skin3d.normalize`](commands/assets.md#skin3dnormalize-modifies-state): Drop negligible influences and make each vertex's weights sum to 1, on a part or a selection. _Not released yet._
+- [`skin3d.preview`](commands/assets.md#skin3dpreview): Draw the skin weights of a rig: a heat map of one bone or one colour per bone, and optionally the model bent at a bone to see how the skin deforms; returns the PNG. _Not released yet._
+- [`skin3d.set`](commands/assets.md#skin3dset-modifies-state): Give a bone an exact weight on the vertices of a part or a selection; the other bones share the rest. _Not released yet._
+- [`skin3d.smooth`](commands/assets.md#skin3dsmooth-modifies-state): Smooth the weights over the surface on the vertices of a part or a selection, to soften a crease at a joint. _Not released yet._
 - [`vector.add`](commands/assets.md#vectoradd-modifies-state): Add a path, rectangle, ellipse or line to an SVG. _Not released yet._
 - [`vector.align`](commands/assets.md#vectoralign-modifies-state): Align SVG elements to each other, the canvas or a key element. _Not released yet._
 - [`vector.assign_ids`](commands/assets.md#vectorassign_ids-modifies-state): Give every drawn element without an id one. _Not released yet._
