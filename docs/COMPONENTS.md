@@ -352,7 +352,7 @@ Plays animation clips: the skeletal clips of a skinned glTF model (the model of 
 |---|---|---|---|
 | `model` | string | `""` | Project-relative .gltf/.glb path with the skin and the clips. Empty = the `mesh` of the MeshRenderer on the same entity (usual case: leave it empty). |
 | `clip` | string | `""` | Name of the clip playing now: a glTF animation, or a key of `clips` (see entity.animator.clips). Assigning it at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported), or, for 2D clips, the fields rest where they were before the first clip drove them. |
-| `clips` | json | `{}` | Keyframed 2D clips, an object name -> project-relative *.anim.json path, such as {"walk": "anim/hero_walk.anim.json", "idle": "anim/hero_idle.anim.json"} (docs/ANIMATION.md, "2D clips"). Used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a glTF): `clip`, `states` and play() then name these. A clip animates fields of this entity and its descendants (found by EntityInfo name); those fields are a runtime pose that scene.save does not write. (since 0.7.0) |
+| `clips` | json | `{}` | Clip files, an object name -> project-relative *.anim.json path, such as {"walk": "anim/hero_walk.anim.json", "idle": "anim/hero_idle.anim.json"}. Two kinds (docs/ANIMATION.md). 2D clips ("2D clips") are used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a glTF): they animate fields of this entity and its descendants (found by EntityInfo name), a runtime pose that scene.save does not write. 3D bone clips (format factoria.anim3d/1, "3D bone clips") are used when the Animator plays a skinned glTF (a rig.bake .glb): they pose its bones, and sit next to the model's own animations. `clip`, `states` and play() name these either way. (since 0.7.0) |
 | `speed` | float | `1.0` | Playback speed multiplier: 1 = authored speed, 2 = twice as fast, 0 = frozen. Range 0.0..100.0. |
 | `loop` | bool | `true` | true = start over when the clip ends. false = stop on the last pose and send the `anim.finished` event. |
 | `playing` | bool | `true` | Set false to pause, true to play. |
@@ -365,6 +365,26 @@ Plays animation clips: the skeletal clips of a skinned glTF model (the model of 
 | `state` | string | `""` | State machine: the state the animator is in (the start state when set in the scene; empty = the first state of `states`). Updated as transitions fire. |
 | `time` | float | `0.0` | Runtime state: seconds into the current clip. Assigning it seeks (no events fire). Runtime-only (not saved). |
 | `values` | json | `{}` | Runtime state: current value of every state machine parameter. Runtime-only (not saved). |
+
+### IK3D
+
+Not released yet (on main after 0.14.1).
+
+3D inverse kinematics on the skinned model of the Animator on the same entity (docs/ANIMATION.md, "3D IK"). Every fixed step, after the Animator has posed the bones, the `solvers` adjust them and the model is drawn with the result: a hand that reaches a lever (twoBone, with a pole vector for the elbow), a head that looks at something within limits (lookAt), feet that stand on uneven ground with the pelvis lowered to fit (foot, one ray per foot through the physics world). Solvers apply in order. The bones are found by the canonical names of rig.bake (docs/RIGGING.md). Deterministic; the animated pose is never changed, the solvers start from it every step.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | `true` | false: the animated pose is drawn untouched. |
+| `weight` | float | `1.0` | 0 to 1. 0 = the animated pose, 1 = the solved pose; multiplies the weight of every solver. Fade it in while a hand holds something, out when it lets go. Range 0.0..1.0. |
+| `solvers` | json | `[]` | An array of solvers, applied in order. Every solver has "type", an optional "name", "weight" (0..1, default 1) and "enabled" (default true). A target is an entity id or name ("player"), a world position [x, y, z], or {"entity": "player", "offset": [0, 1.6, 0]} (the offset in world units). twoBone: {root, mid, end} bone names (or limb "arm"\|"leg" with side "l"\|"r"), target, optional pole (the elbow or knee bends towards it). lookAt: {bone, target, forward (the bone's axis that looks: "+z" by default), yawLimit (70), pitchLimit (45), turnSpeed (degrees per second, 360; 0 = snap)}. foot: {side "l"\|"r" (or thigh, shin, foot), footHeight (height of the ankle above the sole; default = its rest height), alignToGround (true), maxFootAngle (30)}; all foot solvers act together on the lowest ground under them. Example: [{"type": "lookAt", "bone": "head", "target": "player"}, {"type": "foot", "side": "l"}, {"type": "foot", "side": "r"}]. Problems are logged once; `ik3d.check` lists all of them. |
+| `pelvis` | string | `"root"` | Foot placement: the bone moved vertically so the feet reach lower or higher ground ('root' = the hips of every rig.bake template). |
+| `rayUp` | float | `0.5` | Foot placement: world units above the animated ankle where the ground ray starts. Range 0.0..100.0. |
+| `rayDown` | float | `0.8` | Foot placement: world units below the animated ankle the ray reaches. No hit = the foot is left as animated. Range 0.0..100.0. |
+| `groundMask` | int | `-1` | Foot placement: bitmask of the physics layers the ray hits (-1 = all). The colliders of this entity are ignored. |
+| `pelvisSmooth` | float | `0.1` | Foot placement: seconds the feet and the pelvis take to settle on a new ground height, so a step does not pop (0 = at once). Range 0.0..5.0. |
+| `maxPelvisDrop` | float | `0.4` | Foot placement: the most the pelvis goes down, in model units. A leg that cannot reach stretches straight. Range 0.0..10.0. |
+| `maxPelvisRise` | float | `0.15` | Foot placement: the most the pelvis goes up, in model units. Range 0.0..10.0. |
+| `status` | json | `[]` | Runtime state: one object per solver, {name, type, active, ...}: twoBone adds reached and error (distance of the end to the target, model units), lookAt clamped, yaw and pitch (degrees turned), foot contact (0 in the air, 1 planted), lift (ground offset, model units), reached and error. A solver with problem:true did not parse. Read-only. Runtime-only (not saved). |
 
 ## Physics
 
@@ -1587,6 +1607,130 @@ Add or replace keys of one track of a clip, creating the track if it is missing.
 | `entity` | string | no | Entity that plays the clip (id or name): the track's part and component are checked against it. |
 | `extendDuration` | boolean | no | Raise the clip's duration when a key is later than it. Default false. |
 | `track` | object | yes |  |
+
+### `anim3d.create`
+
+Not released yet (on main after 0.14.1).
+
+Write a new, empty 3D bone clip (*.anim.json, format factoria.anim3d/1) for a skinned rig; add tracks with anim3d.set_keys.
+
+Creates the file with `duration` seconds and `loop`, no tracks. `rotation` is "euler" (keys are [pitch, yaw, roll] degrees, the default) or "quat" (keys are [x, y, z, w]). `rig` (optional) records the rig the clip is for and its template (retargeting and anim3d.preview read it). It refuses to replace a file unless `overwrite` is true. For a whole walk, run, idle, swing or hit clip use anim3d.generate instead. Format: schemas/anim3d.schema.json, docs/ANIMATION.md, "3D bone clips". Example: {"path":"anim/hero_wave.anim.json","duration":1.2,"loop":false,"rig":"assets/models/hero.rig.glb"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `duration` | number | no | Length of the clip in seconds (default 1). |
+| `loop` | boolean | no | true repeats the clip (default), false stops on its last pose. |
+| `rotation` | string ["euler","quat"] | no | How rotation keys are written: euler degrees (default) or quaternions. |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `doc` | string | no | What the clip shows and when it is used. |
+| `overwrite` | boolean | no | Replace the file if it exists. |
+
+### `anim3d.generate`
+
+Not released yet (on main after 0.14.1).
+
+Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide.
+
+Writes `out` (default anim/<rig>_<kind>.anim.json), an ordinary 3D clip you can then edit key by key (anim3d.set_keys). `kind`: walk, run (biped legs; walk also fits a quadruped), trot, gallop (a quadruped's four legs), idle (spine breathing, a little sway), swing (the bones of a tail or chain swinging with a phase delay), hit (a reaction that recoils and settles). `params` are the kind's own (anim3d.generators lists them with ranges; an unknown name is an error with 'did you mean'). A gait is solved with the rig's own proportions: each foot follows a path that stands still on the ground in stance (the clip's `contacts` say when) and the clip's `groundSpeed` is the speed to move the entity at so the planted feet do not slide. The clip records the kind and every parameter used in `generated`, so the same call writes the same bits. A rig that lacks what the kind needs (legs, spine, tail) is an error that says which template has it. Refuses to replace a file unless `overwrite`. Example: {"rig":"assets/models/hero.rig.glb","kind":"walk","params":{"strideLength":1.2,"cadence":1.0},"out":"anim/hero_walk.anim.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `kind` | string ["walk","run","trot","gallop","idle","swing","hit"] | yes | What to generate. |
+| `params` | object | no | The kind's parameters (anim3d.generators lists them): strideLength, cadence, bounce, armSwing, fps... |
+| `out` | string | no | Where to write the clip (ending in .anim.json). Default anim/<rig name>_<kind>.anim.json. |
+| `overwrite` | boolean | no | Replace the file if it exists. |
+
+### `anim3d.generators`
+
+Not released yet (on main after 0.14.1).
+
+List the clip generators of anim3d.generate (walk, run, trot, gallop, idle, swing, hit) with their parameters, ranges and defaults.
+
+The catalog behind anim3d.generate: for each kind what it makes, the rig templates it fits and every parameter with its meaning, default and range. Defaults that scale with the leg are written as 'N x leg' (the leg is hip to ankle in the rig's rest pose). The gait tables are in docs/ANIMATION.md, "Generators". Nothing is written. Example: {}
+
+### `anim3d.info`
+
+Not released yet (on main after 0.14.1).
+
+Describe a 3D bone clip (duration, tracks, events, contacts, how it was generated) and, with `rig`, check its bones against a baked rig; with no `path`, list the 3D clips of the project.
+
+Reads the clip with the loader's own rules, so a file the game could not play comes back as an error with the JSON pointer of each problem. The result gives the length, whether it loops, the ground speed, the tracks (bone, channel, key count, first and last time), the events and the contacts (stretches where a foot is on the ground), and, for a generated clip, `generated` (kind and parameters). With `rig` it also reports bones the rig does not have (with 'did you mean'). Example: {"path":"anim/hero_walk.anim.json","rig":"assets/models/hero.rig.glb"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The 3D clip file, project-relative, ending in .anim.json. |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+
+### `anim3d.preview`
+
+Not released yet (on main after 0.14.1).
+
+Draw a 3D bone clip as a filmstrip: the baked rig posed at evenly spaced times, shaded, on a ground grid, with the feet that are on the ground marked; returns the PNG.
+
+The way to SEE a clip without a window. It poses the rig's skin with the clip at `frames` times (a looping clip does not repeat its first pose at the end) and draws each with the software renderer of model.preview (no graphics device, the same pixels on every machine), all framed the same way so the motion reads across the strip. Under each pose: its time and the bones the clip's contacts say are on the ground. The mesh is skinned with the vertex weights stored in the .glb (rigid per bone as rig.bake writes them). `yaw` picks the side (default -70: from the character's right and a little in front); the picture is returned as $image in a temporary file, pass `out` (a .png) to keep it. Nothing in the project changes otherwise. Example: {"path":"anim/hero_walk.anim.json","rig":"assets/models/hero.rig.glb","frames":8}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `frames` | number | no | How many poses, 2 to 12 (default 8), evenly spaced over the clip. |
+| `cell` | number | no | Pixels per side of each pose (default 200). |
+| `yaw` | number | no | The side to look from in degrees: 0 the front (+Z), 90 the character's left (+X), -90 its right (default -70). |
+| `pitch` | number | no | Degrees above the horizon (default 10). |
+| `out` | string | no | Keep the picture as a PNG at this project-relative path. Left out, it is a temporary file. |
+| `overwrite` | boolean | no | Replace the file at `out` if it exists. |
+
+### `anim3d.remove_track`
+
+Not released yet (on main after 0.14.1).
+
+Remove the tracks of one bone from a 3D clip (all its channels, or the one in `channel`).
+
+The clip is checked with the loader's rules and written in canonical form. A bone with no track is an error that lists the bones that have one. Example: {"path":"anim/hero_walk.anim.json","bone":"hand_l"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `bone` | string | yes | The bone whose track to remove. |
+| `channel` | string ["rotation","translation","scale"] | no | Which channel of the bone (default rotation). |
+
+### `anim3d.retarget`
+
+Not released yet (on main after 0.14.1).
+
+Carry a 3D clip from one baked rig to another (other proportions, a different template) by bone role, index and side; root motion and feet are scaled and planted feet stay planted.
+
+Bones are matched by (role, index, side). Rotations are copied (every rig.bake bone rests with an identity rotation), a chain with a different bone count keeps its total bend, a bone the target lacks is dropped and listed in `dropped`, a bone the clip does not move rests. Root translation, ground speed and feet are scaled by the ratio of the leg lengths (hip to ankle) or `scale`; with `plantFeet` (default) the legs the clip has contacts for are solved again with the two-bone solver so planted feet stay planted on the new proportions (`planted`); a foot the new legs cannot reach stretches straight and is reported in `notes`. `from` defaults to the rig recorded in the clip. Result: {path, scale, mapped, dropped, resampled, planted, notes}. Example: {"path":"anim/hero_walk.anim.json","to":"assets/models/guard.rig.glb","out":"anim/guard_walk.anim.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `from` | string | no | The rig the clip was made for (default: the rig recorded in the clip). |
+| `to` | string | yes | The rig to carry the clip to. |
+| `out` | string | yes | Where to write the retargeted clip (ending in .anim.json). |
+| `plantFeet` | boolean | no | Solve the legs with a contact again so planted feet stay planted (default true). |
+| `scale` | number | no | Factor for root motion, ground speed and feet; 0 (default) = the ratio of the leg lengths. |
+| `fps` | number | no | Keys per second of the legs solved again (default 30). |
+| `overwrite` | boolean | no | Replace the file at `out` if it exists. |
+
+### `anim3d.set_keys`
+
+Not released yet (on main after 0.14.1).
+
+Add or replace keys of one bone's track in a 3D clip (rotation as euler degrees or quaternion, translation, scale); a key at the time of an existing one replaces it.
+
+Edits one track (`bone` + `channel`, made when it does not exist): each key is {t, value, interp, in, out} as in the file (schemas/anim3d.schema.json). `value` is [x, y, z] (rotation: pitch, yaw, roll degrees; translation: an offset from the rest position in the parent's frame, model units; scale: a multiplier) or [x, y, z, w] for a quaternion clip. `interp` is linear (default), step, bezier or an easing name (quadInOut, backOut...). Keys within 0.1 ms of an existing key replace it; the rest are added; keys end up in time order. `duration` sets the length of the clip (a key later than it is an error). `rig` (optional) checks that the bone exists in that rig (with 'did you mean'). The whole clip is checked with the loader's rules and nothing is written if it is wrong. The file is written in canonical form. Example: {"path":"anim/hero_wave.anim.json","bone":"arm_upper_l","keys":[{"t":0,"value":[0,0,0]},{"t":0.4,"value":[0,0,150],"interp":"quadOut"}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
+| `bone` | string | yes | Canonical bone name: role[_index][_side], e.g. "spine_1", "thigh_l", "root". |
+| `channel` | string ["rotation","translation","scale"] | no | Which channel of the bone (default rotation). |
+| `keys` | array | yes | [{t, value, interp?, in?, out?}]: seconds from the start and the value (3 numbers, or 4 for a quaternion). |
+| `duration` | number | no | Set the clip's length in seconds (it must reach the last key). |
+| `rig` | string | no | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
 
 ## api
 
@@ -2981,6 +3125,37 @@ Since 0.2.0.
 Show the languages of the game: which is current, which strings each lacks compared with the default language.
 
 Returns {enabled, default, current, languages: [{code, name, file, loaded, keys, missing, missingKeys}], systemLanguages}. `enabled` is false when factoria.json has no "localization" section (then there is nothing else). Each language has one string table, file locales/<code>.json; `loaded` is false when the file is missing or broken (its strings come from the fallback languages: see the log). `keys` counts the strings of the table, `missing` the keys of the default language's table that this one lacks (missingKeys lists up to 20 of them), `name` is the table's "$name" or the code. systemLanguages is the player's system languages in a game with its own window and empty in headless runs. Example: i18n.state {}
+
+## anim
+
+### `ik3d.check`
+
+Not released yet (on main after 0.14.1).
+
+Check the `solvers` of an IK3D component against a baked rig: types, keys, number ranges, bone names ('did you mean') and chains (root -> mid -> end).
+
+The same check project.validate runs on every IK3D in a scene, available before the scene exists. Each problem has a JSON pointer into `solvers` ("/2/root"), what is wrong and how to fix it. The result also lists the rig's bones. Nothing is written. Example: {"rig":"assets/models/hero.rig.glb","solvers":[{"type":"lookAt","bone":"head","target":"player"},{"type":"foot","thigh":"thigh_l","shin":"shin_l","foot":"foot_l"}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `solvers` | array | yes | The solvers as an IK3D component holds them. |
+
+### `ik3d.solve`
+
+Not released yet (on main after 0.14.1).
+
+Run one IK3D solver offline on a baked rig (its rest pose, or a clip's pose at a time) and report whether it reached, the error and where the bones ended up.
+
+`solver` is one entry of IK3D.solvers whose targets are positions [x, y, z] in the model's space (an entity target is an error: there is no scene). twoBone moves root, mid and end so the end reaches `target` bending towards `pole`; lookAt aims `bone` within its yaw and pitch limits; foot puts the ankle at the height of a flat ground at `groundHeight` over where it is. Result: for a limb {reached, error, target, bones: [{bone, head}]}, for lookAt {clamped, yaw, pitch, aim}. Use it to find a target the limb can reach and limits that look right. Nothing is written. Example: {"rig":"assets/models/hero.rig.glb","solver":{"type":"twoBone","root":"arm_upper_r","mid":"arm_lower_r","end":"hand_r","target":[-0.4,1.3,0.5]}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `rig` | string | yes | The baked rig: a .rig.glb written by rig.bake, or the .rig.json that bakes it. Project-relative. |
+| `solver` | object | yes | One IK3D solver with fixed [x, y, z] targets. |
+| `clip` | string | no | A 3D clip to pose the rig with first (default: the rest pose). |
+| `time` | number | no | Seconds into `clip` (default 0). |
+| `groundHeight` | number | no | Height of the flat ground a foot solver stands on (default 0). |
 
 ## assets
 
@@ -13005,7 +13180,7 @@ declare module "factoria" {
      */
     clip: string;
     /**
-     * Keyframed 2D clips, an object name -> project-relative *.anim.json path, such as {"walk": "anim/hero_walk.anim.json", "idle": "anim/hero_idle.anim.json"} (docs/ANIMATION.md, "2D clips"). Used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a glTF): `clip`, `states` and play() then name these. A clip animates fields of this entity and its descendants (found by EntityInfo name); those fields are a runtime pose that scene.save does not write. Returns a plain-object COPY; assign a new value to write.
+     * Clip files, an object name -> project-relative *.anim.json path, such as {"walk": "anim/hero_walk.anim.json", "idle": "anim/hero_idle.anim.json"}. Two kinds (docs/ANIMATION.md). 2D clips ("2D clips") are used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a glTF): they animate fields of this entity and its descendants (found by EntityInfo name), a runtime pose that scene.save does not write. 3D bone clips (format factoria.anim3d/1, "3D bone clips") are used when the Animator plays a skinned glTF (a rig.bake .glb): they pose its bones, and sit next to the model's own animations. `clip`, `states` and play() name these either way. Returns a plain-object COPY; assign a new value to write.
      * @since 0.7.0
      */
     clips: any;
@@ -13069,6 +13244,69 @@ declare module "factoria" {
      * @since 0.2.0
      */
     values: any;
+  }
+  /**
+   * 3D inverse kinematics on the skinned model of the Animator on the same entity (docs/ANIMATION.md, "3D IK"). Every fixed step, after the Animator has posed the bones, the `solvers` adjust them and the model is drawn with the result: a hand that reaches a lever (twoBone, with a pole vector for the elbow), a head that looks at something within limits (lookAt), feet that stand on uneven ground with the pelvis lowered to fit (foot, one ray per foot through the physics world). Solvers apply in order. The bones are found by the canonical names of rig.bake (docs/RIGGING.md). Deterministic; the animated pose is never changed, the solvers start from it every step.
+   * 
+   * Category: 3D
+   * @since unreleased
+   */
+  export interface IK3DComponent {
+    /**
+     * false: the animated pose is drawn untouched.
+     * @since unreleased
+     */
+    enabled: boolean;
+    /**
+     * 0 to 1. 0 = the animated pose, 1 = the solved pose; multiplies the weight of every solver. Fade it in while a hand holds something, out when it lets go.
+     * @since unreleased
+     */
+    weight: number;
+    /**
+     * An array of solvers, applied in order. Every solver has "type", an optional "name", "weight" (0..1, default 1) and "enabled" (default true). A target is an entity id or name ("player"), a world position [x, y, z], or {"entity": "player", "offset": [0, 1.6, 0]} (the offset in world units). twoBone: {root, mid, end} bone names (or limb "arm"|"leg" with side "l"|"r"), target, optional pole (the elbow or knee bends towards it). lookAt: {bone, target, forward (the bone's axis that looks: "+z" by default), yawLimit (70), pitchLimit (45), turnSpeed (degrees per second, 360; 0 = snap)}. foot: {side "l"|"r" (or thigh, shin, foot), footHeight (height of the ankle above the sole; default = its rest height), alignToGround (true), maxFootAngle (30)}; all foot solvers act together on the lowest ground under them. Example: [{"type": "lookAt", "bone": "head", "target": "player"}, {"type": "foot", "side": "l"}, {"type": "foot", "side": "r"}]. Problems are logged once; `ik3d.check` lists all of them. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    solvers: any;
+    /**
+     * Foot placement: the bone moved vertically so the feet reach lower or higher ground ('root' = the hips of every rig.bake template).
+     * @since unreleased
+     */
+    pelvis: string;
+    /**
+     * Foot placement: world units above the animated ankle where the ground ray starts.
+     * @since unreleased
+     */
+    rayUp: number;
+    /**
+     * Foot placement: world units below the animated ankle the ray reaches. No hit = the foot is left as animated.
+     * @since unreleased
+     */
+    rayDown: number;
+    /**
+     * Foot placement: bitmask of the physics layers the ray hits (-1 = all). The colliders of this entity are ignored.
+     * @since unreleased
+     */
+    groundMask: number;
+    /**
+     * Foot placement: seconds the feet and the pelvis take to settle on a new ground height, so a step does not pop (0 = at once).
+     * @since unreleased
+     */
+    pelvisSmooth: number;
+    /**
+     * Foot placement: the most the pelvis goes down, in model units. A leg that cannot reach stretches straight.
+     * @since unreleased
+     */
+    maxPelvisDrop: number;
+    /**
+     * Foot placement: the most the pelvis goes up, in model units.
+     * @since unreleased
+     */
+    maxPelvisRise: number;
+    /**
+     * Runtime state: one object per solver, {name, type, active, ...}: twoBone adds reached and error (distance of the end to the target, model units), lookAt clamped, yaw and pitch (degrees turned), foot contact (0 in the air, 1 planted), lift (ground offset, model units), reached and error. A solver with problem:true did not parse. Read-only. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    readonly status: any;
   }
   /**
    * Puts the entity under 2D physics (Box2D). Pair it with a Collider2D. Positions are simulated in world units; gravity comes from the scene settings (gravity2D).
@@ -15823,6 +16061,7 @@ declare module "factoria" {
     MeshRenderer: MeshRendererComponent;
     Light: LightComponent;
     Animator: AnimatorComponent;
+    IK3D: IK3DComponent;
     RigidBody2D: RigidBody2DComponent;
     Collider2D: Collider2DComponent;
     Joint2D: Joint2DComponent;
@@ -15872,6 +16111,7 @@ declare module "factoria" {
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
     Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
+    IK3D: { enabled?: boolean; weight?: number; solvers?: any; pelvis?: string; rayUp?: number; rayDown?: number; groundMask?: number; pelvisSmooth?: number; maxPelvisDrop?: number; maxPelvisRise?: number };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };
     Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; enabled?: boolean; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
     Joint2D: { type?: "revolute" | "distance" | "prismatic" | "weld"; connected?: EntityLike; anchor?: Vec2Like; connectedAnchor?: Vec2Like; axis?: Vec2Like; collideConnected?: boolean; length?: number; enableLimit?: boolean; lowerLimit?: number; upperLimit?: number; enableMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; enableSpring?: boolean; springHertz?: number; dampingRatio?: number };

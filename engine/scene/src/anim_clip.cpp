@@ -455,7 +455,10 @@ Result<std::shared_ptr<const ClipAsset>> parse_anim_clip(const Json& json, std::
     p.unknown_keys(json, "", {"$schema", "format", "doc", "duration", "loop", "tracks", "events"});
     if (auto it = json.find("format"); it == json.end() || !it->is_string() || it->get<std::string>() != "factoria.anim/1")
         p.err("/format", it == json.end() ? "missing `format`" : "format is " + describe_json_value(*it) + ", expected \"factoria.anim/1\"",
-              "Add \"format\": \"factoria.anim/1\" at the top of the file.");
+              (it != json.end() && it->is_string() && it->get<std::string>() == "factoria.anim3d/1")
+                  ? "This is a 3D bone clip (it drives the bones of a skinned .rig.glb): put it in the `clips` of an Animator whose model is that rig, "
+                    "or read it with anim3d.info. A 2D clip drives fields of entities and says \"factoria.anim/1\"."
+                  : "Add \"format\": \"factoria.anim/1\" at the top of the file.");
     if (auto it = json.find("doc"); it != json.end() && it->is_string()) clip->doc = it->get<std::string>();
     float duration = 0;
     bool durationOk = true;

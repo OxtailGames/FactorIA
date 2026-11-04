@@ -5979,7 +5979,7 @@ declare module "factoria" {
      */
     clip: string;
     /**
-     * Keyframed 2D clips, an object name -> project-relative *.anim.json path, such as {"walk": "anim/hero_walk.anim.json", "idle": "anim/hero_idle.anim.json"} (docs/ANIMATION.md, "2D clips"). Used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a glTF): `clip`, `states` and play() then name these. A clip animates fields of this entity and its descendants (found by EntityInfo name); those fields are a runtime pose that scene.save does not write. Returns a plain-object COPY; assign a new value to write.
+     * Clip files, an object name -> project-relative *.anim.json path, such as {"walk": "anim/hero_walk.anim.json", "idle": "anim/hero_idle.anim.json"}. Two kinds (docs/ANIMATION.md). 2D clips ("2D clips") are used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a glTF): they animate fields of this entity and its descendants (found by EntityInfo name), a runtime pose that scene.save does not write. 3D bone clips (format factoria.anim3d/1, "3D bone clips") are used when the Animator plays a skinned glTF (a rig.bake .glb): they pose its bones, and sit next to the model's own animations. `clip`, `states` and play() name these either way. Returns a plain-object COPY; assign a new value to write.
      * @since 0.7.0
      */
     clips: any;
@@ -6043,6 +6043,69 @@ declare module "factoria" {
      * @since 0.2.0
      */
     values: any;
+  }
+  /**
+   * 3D inverse kinematics on the skinned model of the Animator on the same entity (docs/ANIMATION.md, "3D IK"). Every fixed step, after the Animator has posed the bones, the `solvers` adjust them and the model is drawn with the result: a hand that reaches a lever (twoBone, with a pole vector for the elbow), a head that looks at something within limits (lookAt), feet that stand on uneven ground with the pelvis lowered to fit (foot, one ray per foot through the physics world). Solvers apply in order. The bones are found by the canonical names of rig.bake (docs/RIGGING.md). Deterministic; the animated pose is never changed, the solvers start from it every step.
+   * 
+   * Category: 3D
+   * @since unreleased
+   */
+  export interface IK3DComponent {
+    /**
+     * false: the animated pose is drawn untouched.
+     * @since unreleased
+     */
+    enabled: boolean;
+    /**
+     * 0 to 1. 0 = the animated pose, 1 = the solved pose; multiplies the weight of every solver. Fade it in while a hand holds something, out when it lets go.
+     * @since unreleased
+     */
+    weight: number;
+    /**
+     * An array of solvers, applied in order. Every solver has "type", an optional "name", "weight" (0..1, default 1) and "enabled" (default true). A target is an entity id or name ("player"), a world position [x, y, z], or {"entity": "player", "offset": [0, 1.6, 0]} (the offset in world units). twoBone: {root, mid, end} bone names (or limb "arm"|"leg" with side "l"|"r"), target, optional pole (the elbow or knee bends towards it). lookAt: {bone, target, forward (the bone's axis that looks: "+z" by default), yawLimit (70), pitchLimit (45), turnSpeed (degrees per second, 360; 0 = snap)}. foot: {side "l"|"r" (or thigh, shin, foot), footHeight (height of the ankle above the sole; default = its rest height), alignToGround (true), maxFootAngle (30)}; all foot solvers act together on the lowest ground under them. Example: [{"type": "lookAt", "bone": "head", "target": "player"}, {"type": "foot", "side": "l"}, {"type": "foot", "side": "r"}]. Problems are logged once; `ik3d.check` lists all of them. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    solvers: any;
+    /**
+     * Foot placement: the bone moved vertically so the feet reach lower or higher ground ('root' = the hips of every rig.bake template).
+     * @since unreleased
+     */
+    pelvis: string;
+    /**
+     * Foot placement: world units above the animated ankle where the ground ray starts.
+     * @since unreleased
+     */
+    rayUp: number;
+    /**
+     * Foot placement: world units below the animated ankle the ray reaches. No hit = the foot is left as animated.
+     * @since unreleased
+     */
+    rayDown: number;
+    /**
+     * Foot placement: bitmask of the physics layers the ray hits (-1 = all). The colliders of this entity are ignored.
+     * @since unreleased
+     */
+    groundMask: number;
+    /**
+     * Foot placement: seconds the feet and the pelvis take to settle on a new ground height, so a step does not pop (0 = at once).
+     * @since unreleased
+     */
+    pelvisSmooth: number;
+    /**
+     * Foot placement: the most the pelvis goes down, in model units. A leg that cannot reach stretches straight.
+     * @since unreleased
+     */
+    maxPelvisDrop: number;
+    /**
+     * Foot placement: the most the pelvis goes up, in model units.
+     * @since unreleased
+     */
+    maxPelvisRise: number;
+    /**
+     * Runtime state: one object per solver, {name, type, active, ...}: twoBone adds reached and error (distance of the end to the target, model units), lookAt clamped, yaw and pitch (degrees turned), foot contact (0 in the air, 1 planted), lift (ground offset, model units), reached and error. A solver with problem:true did not parse. Read-only. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    readonly status: any;
   }
   /**
    * Puts the entity under 2D physics (Box2D). Pair it with a Collider2D. Positions are simulated in world units; gravity comes from the scene settings (gravity2D).
@@ -8797,6 +8860,7 @@ declare module "factoria" {
     MeshRenderer: MeshRendererComponent;
     Light: LightComponent;
     Animator: AnimatorComponent;
+    IK3D: IK3DComponent;
     RigidBody2D: RigidBody2DComponent;
     Collider2D: Collider2DComponent;
     Joint2D: Joint2DComponent;
@@ -8846,6 +8910,7 @@ declare module "factoria" {
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
     Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
+    IK3D: { enabled?: boolean; weight?: number; solvers?: any; pelvis?: string; rayUp?: number; rayDown?: number; groundMask?: number; pelvisSmooth?: number; maxPelvisDrop?: number; maxPelvisRise?: number };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };
     Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; enabled?: boolean; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
     Joint2D: { type?: "revolute" | "distance" | "prismatic" | "weld"; connected?: EntityLike; anchor?: Vec2Like; connectedAnchor?: Vec2Like; axis?: Vec2Like; collideConnected?: boolean; length?: number; enableLimit?: boolean; lowerLimit?: number; upperLimit?: number; enableMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; enableSpring?: boolean; springHertz?: number; dampingRatio?: number };

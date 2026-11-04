@@ -1003,6 +1003,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             if (!parsed.ok()) continue;  // load_scene_file already reported it
             const Json& j = parsed.value();
             validate_detail::check_animator_clips(rel, world, j, namedClips, c.report);
+            validate_detail::check_ik3d(rel, world, j, c.report);
             if (j.is_object() && j.contains("settings"))
                 check_component_assets(c, rel, "/settings", "SceneSettings", j["settings"]);
             if (j.is_object() && j.contains("entities") && j["entities"].is_array()) {
@@ -1022,6 +1023,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 instantiate_prefab(prefabWorld, rel, kNullEntity, ignored);
                 if (c.artRules) collect_art_use(prefabWorld, rel, c.artUse);
                 validate_detail::check_animator_clips(rel, prefabWorld, parsed.value(), namedClips, c.report);
+                validate_detail::check_ik3d(rel, prefabWorld, parsed.value(), c.report);
             }
             if (parsed.value().is_object() && parsed.value().contains("entity"))
                 check_entity_assets(c, rel, "/entity", parsed.value()["entity"], scripts);
