@@ -1,3 +1,4 @@
+#include "fa/core/fs.h"
 #include "fa/ai/progress_file.h"
 
 #include <chrono>
@@ -56,7 +57,7 @@ void ProgressTail::poll() {
     if (ec) return;
     if (size < offset_) offset_ = 0;  // the file was truncated: start over
     if (size == offset_) return;
-    std::ifstream in(path_, std::ios::binary);
+    fa::fs::ReadStream in(path_, std::ios::binary);
     if (!in) return;
     in.seekg(static_cast<std::streamoff>(offset_));
     std::string chunk(static_cast<std::size_t>(size - offset_), '\0');

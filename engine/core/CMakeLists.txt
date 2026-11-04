@@ -41,5 +41,6 @@ if(FA_BUILD_TESTS AND TARGET fa_test_core)
     add_executable(fa_echo_child tests/programs/echo_child.cpp)
     target_link_libraries(fa_echo_child PRIVATE fa_warnings)
     add_dependencies(fa_test_core fa_echo_child)
-    set_tests_properties(core PROPERTIES ENVIRONMENT "FA_CRASH_CHILD=$<TARGET_FILE:fa_crash_child>;FA_ECHO_CHILD=$<TARGET_FILE:fa_echo_child>")
+    # APPEND: add_test (cmake/FactoriaHelpers.cmake) already put the Windows-rules variable in ENVIRONMENT.
+    set_property(TEST core APPEND PROPERTY ENVIRONMENT "FA_CRASH_CHILD=$<TARGET_FILE:fa_crash_child>;FA_ECHO_CHILD=$<TARGET_FILE:fa_echo_child>")
 endif()

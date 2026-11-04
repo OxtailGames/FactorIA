@@ -4458,6 +4458,8 @@ void Editor::at_build_tools_script() {
             float grown = 0;
             size_t reportsAtCancel = 0;
             stdfs::file_time_type stampBeforeAgent{};  // the file's time before the agent's writes, set back after them
+            stdfs::file_time_type stampBeforePanelWrite{};  // the file's time before a write right after the panel's read
+            std::string panelTitle;                          // the first entry's title before that write
         };
         auto x = std::make_shared<EState>();
         // The bottom row of the dock gives the panel under 200 px on a small display (the macOS runner's 1024x642), where the
@@ -4705,6 +4707,58 @@ void Editor::at_build_tools_script() {
             at_check(fbSelected_ == "FB-0004", "...and selects the new entry");
             at_check(!entry_of("FB-0005").is_object() || entry_of("FB-0005").empty(), "the cancelled one is not there");
         });
+        // ---- the panel reads a file that changed right after its last read, within one step of the file clock (about 15 ms on
+        // Windows, and the Windows file rules of fa::fs everywhere else): the time the write leaves is the one the read saw.
+        step(1, [this] {
+            feedbackMtime_ = INT64_MIN;
+            feedbackPolled_ = -10;
+        });
+        wait_until([this] {
+            return feedbackMtime_ == fs::modified_time(engine_->project().feedbackFile) && feedbackRecheck_;
+        });
+        step(1, [this] {
+            at_check(feedbackMtime_ == fs::modified_time(engine_->project().feedbackFile) && feedbackRecheck_,
+                     "the panel has read the file and will read it once more");
+        });
+        step(2, [this, x] {
+            std::error_code ec;
+            x->stampBeforePanelWrite = stdfs::last_write_time(x->path, ec);
+            auto doc = load_json_file(x->path);
+            at_check(doc.ok() && doc->contains("entries") && !(*doc)["entries"].empty(), "the feedback file can be read back");
+            if (!doc.ok() || !doc->contains("entries") || (*doc)["entries"].empty()) return;
+            x->panelTitle = (*doc)["entries"][0].value("title", std::string());
+            (*doc)["entries"][0]["title"] = "Written right after the panel read";
+            at_check(fs::write_text(engine_->project().feedbackFile, doc->dump(2)).ok(), "the feedback file can be rewritten");
+            stdfs::last_write_time(x->path, x->stampBeforePanelWrite, ec);  // the time the panel's read saw
+            at_check(!ec, "the file's time can be set back (" + ec.message() + ")");
+            feedbackPolled_ = -10;
+        });
+        wait_until([this] {
+            return feedbackDoc_.contains("entries") && !feedbackDoc_["entries"].empty() &&
+                   feedbackDoc_["entries"][0].value("title", std::string()) == "Written right after the panel read";
+        });
+        step(1, [this] {
+            at_check(feedbackDoc_.contains("entries") && !feedbackDoc_["entries"].empty() &&
+                         feedbackDoc_["entries"][0].value("title", std::string()) == "Written right after the panel read",
+                     "the panel lists a write made right after its last read, though the file's time did not move");
+        });
+        step(2, [this, x] {
+            auto doc = load_json_file(x->path);
+            if (doc.ok() && doc->contains("entries") && !(*doc)["entries"].empty()) {
+                (*doc)["entries"][0]["title"] = x->panelTitle;
+                (void)fs::write_text(engine_->project().feedbackFile, doc->dump(2));
+            }
+            feedbackPolled_ = -10;
+        });
+        wait_until([this, x] {
+            return feedbackDoc_.contains("entries") && !feedbackDoc_["entries"].empty() &&
+                   feedbackDoc_["entries"][0].value("title", std::string()) == x->panelTitle;
+        });
+        step(1, [this, x] {
+            at_check(feedbackDoc_.contains("entries") && !feedbackDoc_["entries"].empty() &&
+                         feedbackDoc_["entries"][0].value("title", std::string()) == x->panelTitle,
+                     "the panel lists the first entry as it was again");
+        });
         // ---- the AI checks the texts: a pass with a rewrite, a fail that unchecks the row, a text that cannot be made
         // The share tick has just read the file as it is now (a change it saw, so one more read is due)...
         step(1, [this] {
@@ -4712,9 +4766,8 @@ void Editor::at_build_tools_script() {
             share_.tickAt = -10;
         });
         wait_until([this, x] {
-            std::error_code ec;
-            const auto t = stdfs::last_write_time(x->path, ec);
-            return !ec && share_.docStamp == std::int64_t(t.time_since_epoch().count()) && share_.docRecheck;
+            // the time the share tick compares (fs::modified_time: stepped like Windows' under the file rules)
+            return share_.docStamp == fs::host_modified_time(x->path) && share_.docRecheck;
         });
         step(2, [this, x, add_entry] {
             std::error_code ec;

@@ -1,3 +1,4 @@
+#include "fa/core/fs.h"
 #include "fa/ai/types.h"
 
 #include <cstdio>
@@ -38,7 +39,7 @@ Result<ImageData> load_image_data(const std::string& path) {
                           "Use a .png, .jpg, .jpeg, .gif or .webp file.");
     }
     // The path is UTF-8 (the editor passes what the OS dialog gave it); path(std::string) would read it as ANSI on Windows.
-    std::ifstream in(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(path.data()), path.size())), std::ios::binary);
+    fa::fs::ReadStream in(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(path.data()), path.size())), std::ios::binary);
     if (!in) return make_error("Cannot read the image '" + path + "'", "Does the file still exist, and can this user read it?");
     const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     if (bytes.empty()) return make_error("The image '" + path + "' is empty", "Attach a different file.");

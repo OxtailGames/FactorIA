@@ -6,6 +6,7 @@
 #include <map>
 #include <sstream>
 
+#include "fa/core/fs.h"
 #include "fa/ai/session.h"
 #include "fa/core/date.h"
 #include "fa/core/strings.h"
@@ -218,7 +219,7 @@ Json session_timeline_from_text(const std::string& text, double minGapSeconds) {
 Result<Json> session_timeline(const std::string& projectDir, const std::string& session, double minGapSeconds) {
     auto path = find_session_file(projectDir, session);
     if (!path) return path.error();
-    std::ifstream f(*path, std::ios::binary);
+    fa::fs::ReadStream f(*path, std::ios::binary);
     if (!f) return Error{"Cannot read " + *path, "Check the file exists and is readable."};
     std::stringstream ss;
     ss << f.rdbuf();

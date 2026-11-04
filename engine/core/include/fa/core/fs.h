@@ -12,9 +12,11 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include "fa/core/types.h"
@@ -80,7 +82,64 @@ std::filesystem::path resolve(std::string_view path);  // absolute host path (de
 std::filesystem::path os_path(const std::filesystem::path& p);
 // std::filesystem::remove_all that also deletes files deeper than MAX_PATH: on Windows it always goes through the
 // \\?\ form of `dir`, since remove_all on a short folder path stops at its first long child. Same result and error.
+// Under the Windows rules (below) a file inside that is open through ReadStream stays, the rest is deleted and `ec` is a
+// sharing violation, as remove_all does on Windows.
 std::uintmax_t remove_tree(const std::filesystem::path& dir, std::error_code& ec);
+
+// ---- Windows file rules ------------------------------------------------------------------------------------------
+// Some file bugs only happen on Windows, so only a Windows CI run found them. Two rules cause most of them:
+//   1. A file that is open for reading cannot be replaced, renamed or deleted: every std::ifstream opens without
+//      FILE_SHARE_DELETE, so a rename onto it (the atomic write of write_bytes) or a remove fails with a sharing
+//      violation until the reader closes it. POSIX allows both.
+//   2. A file's modification time moves in steps of about 15.6 ms (1/64 s), not in nanoseconds: two writes within a step
+//      keep the same time, and a change detector that compares times alone misses the second one.
+// The "Windows file rules" mode makes fa::fs follow both rules on macOS and Linux, so a test run there finds those bugs.
+// Windows always follows them (nothing is emulated there). The mode is off by default and costs one atomic load per
+// guarded call when it is off. It is on for a process when FA_FS_WINDOWS_RULES is set to anything but 0 / false / off / no;
+// when that variable is not set, FA_FS_WINDOWS_RULES_DEFAULT is read the same way (ctest sets it on for every test, so
+// `FA_FS_WINDOWS_RULES=0 ctest` turns the mode off for one run). set_windows_rules overrides both (tests).
+//
+// What it covers: files opened through ReadStream or fs::read_bytes / read_text (the registry only knows those: a file
+// opened with a bare std::ifstream, or by another process, is invisible to it); replace_file, remove_file, remove_tree and
+// write_bytes against them; modified_time. What it does not: files held open for writing or memory-mapped, other
+// processes, reserved names (CON, NUL), the 260-character limit, text/binary newline translation.
+bool windows_rules();             // true when file operations follow Windows rules: on Windows always, elsewhere when the mode is on
+void set_windows_rules(bool on);  // turns the emulation on or off for the rest of the process (tests); a no-op on Windows
+// The size of one step of a file's modification time under the Windows rules, in nanoseconds (15.625 ms = 1/64 s).
+constexpr std::int64_t kWindowsTimeStepNs = 15'625'000;
+
+// An input file stream that the "Windows file rules" mode knows about: while it is open, replace_file, remove_file,
+// remove_tree and write_bytes on that file fail like they do on Windows (sharing violation). Use it instead of
+// std::ifstream for any file another thread or process may write or delete while it is read (watchers, pollers, panels,
+// stores); it is a std::ifstream otherwise, with the same constructors and members. With the mode off it adds nothing.
+class ReadStream : public std::ifstream {
+public:
+    ReadStream() = default;
+    explicit ReadStream(const std::filesystem::path& file, std::ios_base::openmode mode = std::ios_base::in);
+    ~ReadStream();
+    ReadStream(const ReadStream&) = delete;
+    ReadStream& operator=(const ReadStream&) = delete;
+    // Same as std::ifstream::open / close, and they keep the registry right.
+    void open(const std::filesystem::path& file, std::ios_base::openmode mode = std::ios_base::in);
+    void close();
+
+private:
+    std::string registered_;  // the registry key of the open file; empty when it is not registered
+    void unregister();
+};
+
+// True when `ec` says the file is held open by someone else: ERROR_ACCESS_DENIED (5), ERROR_SHARING_VIOLATION (32) or
+// ERROR_LOCK_VIOLATION (33) on Windows, the error the emulation returns elsewhere. Anything else is false (on POSIX, 5, 32
+// and 33 are other errors).
+bool is_sharing_violation(const std::error_code& ec);
+// std::filesystem::rename(from, to) that replaces an existing `to`, and waits for readers: while a sharing violation says
+// `to` is open somewhere else (another thread polling it, an antivirus scan) it tries again for up to about a second, since
+// such readers let go within milliseconds. `ec` is the last error (a sharing violation after the last try). Under the Windows
+// rules a file open through ReadStream counts as such a reader, `from` as well.
+void replace_file(const std::filesystem::path& from, const std::filesystem::path& to, std::error_code& ec);
+// std::filesystem::remove(file) with the same waiting. Returns true when the file was deleted (false: it was not there or
+// `ec` says why not).
+bool remove_file(const std::filesystem::path& file, std::error_code& ec);
 
 // ---- Reading ahead (scene.preload, assets.preload) ---------------------------------------------------------------
 // warm(path) reads the file now and keeps its bytes; the next read_bytes / read_text of that path answers from memory
@@ -103,7 +162,17 @@ Result<void> write_bytes(std::string_view path, const void* data, std::size_t si
 bool exists(std::string_view path);
 bool is_directory(std::string_view path);
 std::int64_t file_size(std::string_view path);      // bytes; -1 if missing or not a file
-std::int64_t modified_time(std::string_view path);  // -1 if missing; any monotonic unit (a file of a pack: a fixed number)
+// -1 if missing; nanoseconds since 1970 (file_time_ns; a file of a pack: the pack's time). Under the Windows rules a file's time is rounded down to
+// steps of 15.625 ms: compare it for "changed" only together with something else (size, content), or read once more after a change.
+std::int64_t modified_time(std::string_view path);
+// The modification time of a file given as a host path (no pack, no project root), in the unit and with the rounding of
+// modified_time; -1 if missing. A change detector for a file outside what fs:: reads (editor state, tool stores) uses this
+// instead of std::filesystem::last_write_time, so the Windows rules cover it too.
+std::int64_t host_modified_time(const std::filesystem::path& file);
+// A std::filesystem file time as nanoseconds since 1970. Use it instead of the raw time_since_epoch().count(): each
+// standard library puts that clock's epoch elsewhere (libstdc++ in 2174, so a file written today counts negative and reads
+// as "missing"; MSVC in 1601).
+std::int64_t file_time_ns(std::filesystem::file_time_type time);
 
 // Lists files (project-relative paths, sorted). `extension` like ".png" filters.
 std::vector<std::string> list(std::string_view dir, bool recursive = true, std::string_view extension = {});

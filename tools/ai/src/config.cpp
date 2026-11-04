@@ -781,7 +781,7 @@ Result<AiConfig> load_config(std::string_view pathIn, const EnvLookup& env) {
         AiConfig cfg = default_config();
         return cfg;
     }
-    std::ifstream f(path, std::ios::binary);
+    fa::fs::ReadStream f(path, std::ios::binary);
     if (!f) return make_error("Cannot read AI config '" + path + "'", "Check file permissions.");
     std::stringstream ss;
     ss << f.rdbuf();
