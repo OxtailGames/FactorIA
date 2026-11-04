@@ -264,7 +264,7 @@ Add or replace keys of one track of a clip, creating the track if it is missing.
 
 ## `anim3d.add_event`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add an event to a 3D clip: a game event the Animator sends when the clip passes its time.
 
@@ -280,7 +280,7 @@ The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(nam
 
 ## `anim3d.create`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write a new, empty 3D bone clip (*.anim.json, format factoria.anim3d/1) for a skinned rig; add tracks with anim3d.set_keys.
 
@@ -298,7 +298,7 @@ Creates the file with `duration` seconds and `loop`, no tracks. `rotation` is "e
 
 ## `anim3d.generate`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide.
 
@@ -314,7 +314,7 @@ Writes `out` (default anim/<rig>_<kind>.anim.json), an ordinary 3D clip you can 
 
 ## `anim3d.generators`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 List the clip generators of anim3d.generate (walk, run, trot, gallop, idle, swing, hit) with their parameters, ranges and defaults.
 
@@ -322,7 +322,7 @@ The catalog behind anim3d.generate: for each kind what it makes, the rig templat
 
 ## `anim3d.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Describe a 3D bone clip (duration, tracks, events, contacts, how it was generated) and, with `rig`, check its bones against a baked rig; with no `path`, list the 3D clips of the project.
 
@@ -335,7 +335,7 @@ Reads the clip with the loader's own rules, so a file the game could not play co
 
 ## `anim3d.mirror_pose`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Key the left/right mirror of a 3D clip's pose at a time: swap both sides, or copy one side onto the other (bones are paired by canonical name: thigh_l <-> thigh_r).
 
@@ -352,7 +352,7 @@ Samples the clip at `time`, mirrors the pose across the character's mid plane an
 
 ## `anim3d.move_keys`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Move keys of a 3D clip in time by dt seconds (a dopesheet drag); a moved key replaces the key it lands on.
 
@@ -367,7 +367,7 @@ Move keys of a 3D clip in time by dt seconds (a dopesheet drag); a moved key rep
 
 ## `anim3d.preview`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Draw a 3D bone clip as a filmstrip: the baked rig posed at evenly spaced times, shaded, on a ground grid, with the feet that are on the ground marked; returns the PNG.
 
@@ -387,7 +387,7 @@ The way to SEE a clip without a window. It poses the rig's skin with the clip at
 
 ## `anim3d.remove_event`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Remove an event from a 3D clip.
 
@@ -400,7 +400,7 @@ Remove an event from a 3D clip.
 
 ## `anim3d.remove_keys`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Delete keys of a 3D clip by bone, channel and time; a track left with no key goes away.
 
@@ -413,7 +413,7 @@ Delete keys of a 3D clip by bone, channel and time; a track left with no key goe
 
 ## `anim3d.remove_track`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Remove the tracks of one bone from a 3D clip (all its channels, or the one in `channel`).
 
@@ -427,7 +427,7 @@ The clip is checked with the loader's rules and written in canonical form. A bon
 
 ## `anim3d.restore`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits.
 
@@ -440,7 +440,7 @@ Every writing anim3d.* command returns `undo` = {command: "anim3d.restore", args
 
 ## `anim3d.retarget`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Carry a 3D clip from one baked rig to another (other proportions, a different template) by bone role, index and side; root motion and feet are scaled and planted feet stay planted.
 
@@ -459,7 +459,7 @@ Bones are matched by (role, index, side). Rotations are copied (every rig.bake b
 
 ## `anim3d.set_clip`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Set the duration, loop, ground speed or description of a 3D clip.
 
@@ -475,7 +475,7 @@ Give any of `duration` (seconds; shorter than the last key or event is refused),
 
 ## `anim3d.set_event`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Move, rename or change the data of an event of a 3D clip.
 
@@ -492,7 +492,7 @@ Move, rename or change the data of an event of a 3D clip.
 
 ## `anim3d.set_interp`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Set how selected keys of a 3D clip reach the next key: linear, step, bezier or an easing (the M42 curves).
 
@@ -506,7 +506,7 @@ Set how selected keys of a 3D clip reach the next key: linear, step, bezier or a
 
 ## `anim3d.set_keys`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add or replace keys of one bone's track in a 3D clip (rotation as euler degrees or quaternion, translation, scale); a key at the time of an existing one replaces it.
 
@@ -523,7 +523,7 @@ Edits one track (`bone` + `channel`, made when it does not exist): each key is {
 
 ## `ik3d.check`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check the `solvers` of an IK3D component against a baked rig: types, keys, number ranges, bone names ('did you mean') and chains (root -> mid -> end).
 
@@ -536,7 +536,7 @@ The same check project.validate runs on every IK3D in a scene, available before 
 
 ## `ik3d.key`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Solve a 3D IK solver (two-bone with pole, or look-at) on a clip's pose at a time and key the bones it moved: the way an IK handle poses a chain.
 
@@ -553,7 +553,7 @@ Poses the rig with the clip at `time`, runs `solver` (one entry of IK3D.solvers 
 
 ## `ik3d.solve`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Run one IK3D solver offline on a baked rig (its rest pose, or a clip's pose at a time) and report whether it reached, the error and where the bones ended up.
 

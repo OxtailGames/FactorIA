@@ -33,7 +33,7 @@ Every play request is logged: audio.play and audio.music from scripts, AudioSour
 
 ## `audio.music` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Drive a MusicPlayer: play, stop, setIntensity, goToSection, playStinger or crossfadeTo.
 
@@ -60,7 +60,7 @@ The same calls as `entity.music` in a script, for trying the music while the gam
 
 ## `audio.music_state`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 What the MusicPlayer components are doing: song, section, bar, beat, layers and pending changes.
 

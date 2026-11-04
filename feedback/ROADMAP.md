@@ -1592,7 +1592,7 @@ Order: M51 first (it multiplies every later tool), then 2D images (M52-M54: most
 (M55-M56), then 3D (M57-M59), then a reference game that uses only these tools (M60). The audio and 3D blocks do not
 depend on the 2D block and can move earlier if a game asks for them.
 
-## M51. Eyes and ears: the AI sees and hears what it made (L; 5 packages)
+## M51. Eyes and ears: the AI sees and hears what it made (L; 5 packages) — DONE (0.16.0)
 
 - M51.1 (M) A measurable style guide: `style` in `assets.json` gains rules a check can measure, next to `prompt`,
   `references` and `palette`: `outline` (colour, width in pixels), `lightDirection`, `texelsPerUnit` (pixel density),
@@ -1613,7 +1613,7 @@ depend on the 2D block and can move earlier if a game asks for them.
   model set up, `assets.review {path}` compares an asset with the style references and returns concrete fixes (optional,
   like `ai.review_feedback`).
 
-## M52. Layered images: the engine's raster editor (L; 5 packages)
+## M52. Layered images: the engine's raster editor (L; 5 packages) — DONE (0.16.0)
 
 - M52.1 (L) `*.image.json` and its compositor: canvas size; layers of pixels (a PNG next to the document), fill, gradient,
   `assets.generate_texture` arguments, SVG (rasterized), text (engine fonts) and a provider image (with its recipe);
@@ -1633,7 +1633,7 @@ depend on the 2D block and can move earlier if a game asks for them.
   generated picture as a layer with a mask); without one the commands say so and point at the offline route. IMAGES.md,
   and an example game that keeps its art as image documents.
 
-## M53. Pixel art and tiles (L; 5 packages)
+## M53. Pixel art and tiles (L; 5 packages) — DONE (0.16.0)
 
 - M53.1 (M) Indexed image documents: a canvas locked to the style palette, colour ramps (shade and light per colour),
   pixel-exact lines, ellipses and fills with no anti-aliasing, `image.pixel` to draw exact pixel lists.
@@ -1647,7 +1647,7 @@ depend on the 2D block and can move earlier if a game asks for them.
 - M53.5 (M) Editor pixel tools (pixel grid, palette bar, frame timeline with onion skin, tiled preview), docs, and an
   example game whose pixel art is redrawn with them.
 
-## M54. Vector illustration (L; 4 packages)
+## M54. Vector illustration (L; 4 packages) — DONE (0.16.0)
 
 - M54.1 (L) SVG stays the document (AIs already write it) and the engine adds operations: path booleans (union,
   subtract, intersect, exclude), offset and inset, stroke to path, simplify, smooth (Clipper2, Boost license, is the
@@ -1661,7 +1661,7 @@ depend on the 2D block and can move earlier if a game asks for them.
 - M54.4 (L) Editor: a Vector panel (pen, node editing, shape tools, boolean buttons, layers), also used for the SVG
   layers of image documents; docs; an example.
 
-## M55. Sound design: the engine's synthesizer (L; 4 packages)
+## M55. Sound design: the engine's synthesizer (L; 4 packages) — DONE (0.16.0)
 
 - M55.1 (L) `*.sfx.json` patches: oscillators (sine, square with duty, saw, triangle, noise colours, a drawn wavetable),
   FM and ring modulation, pitch and amplitude envelopes, sweeps, arpeggios, filters with envelopes, distortion,
@@ -1676,7 +1676,7 @@ depend on the 2D block and can move earlier if a game asks for them.
 - M55.4 (M) Editor: a Sound panel (waveform, spectrogram, macros as knobs, play and loop, A/B of variants); docs; an
   example game whose sounds become patches.
 
-## M56. Music: composed as data, adaptive at runtime (L; 5 packages)
+## M56. Music: composed as data, adaptive at runtime (L; 5 packages) — DONE (0.16.0)
 
 - M56.1 (L) `*.song.json`: tempo, meter, key, sections (intro, loop, outro), tracks with an instrument and patterns written
   as note text, drums by name, velocity, swing and automation, and an arrangement of patterns per section. Helpers:
@@ -1693,7 +1693,7 @@ depend on the 2D block and can move earlier if a game asks for them.
   between songs.
 - M56.5 (L) Editor: a Music panel (piano roll, arrangement, mixer); MUSIC.md; an example game with an adaptive score.
 
-## M57. 3D modeling by recipe (L; 5 packages)
+## M57. 3D modeling by recipe (L; 5 packages) — DONE (0.16.0)
 
 - M57.1 (L) `*.model.json`: a tree of operations evaluated to a mesh by an engine mesh kernel (module chosen per
   ARCHITECTURE.md). Primitives (box, rounded box, cylinder, cone, sphere, capsule, torus, grid, stairs, arch, pipe,
@@ -1710,7 +1710,7 @@ depend on the 2D block and can move earlier if a game asks for them.
   triangle count) and `model.check` (scale, flipped normals, non-manifold edges, triangles over the platform budget); a
   Model panel (operation tree, parameter sliders, live viewport, part selection); MODELING.md; an example.
 
-## M58. 3D materials, UVs and game-ready models (L; 4 packages)
+## M58. 3D materials, UVs and game-ready models (L; 4 packages) — DONE (0.16.0)
 
 - M58.1 (L) UVs: automatic unwrap (xatlas, MIT, is the candidate), box, cylinder and sphere projections per part,
   packing and the style's texel density (`model.uv`).
@@ -1723,7 +1723,7 @@ depend on the 2D block and can move earlier if a game asks for them.
   bits, recentred, scaled to a reference, decimated to the budget, remeshed and unwrapped, and wrapped in a model
   document so later operations apply to it.
 
-## M59. 3D rigging and animation (L; 4 packages)
+## M59. 3D rigging and animation (L; 4 packages) — DONE (0.16.0)
 
 - M59.1 (L) Skeletons from templates (humanoid, quadruped, bird, tail or chain, generic) fitted to a model by its parts
   and landmarks (`rig.create`, `rig.fit`), saved as a glTF skin.
@@ -1735,7 +1735,7 @@ depend on the 2D block and can move earlier if a game asks for them.
 - M59.4 (L) Editor: M42's Animation panel and bone tools in 3D (gizmos, IK handles), a filmstrip from several angles;
   docs; an example whose 3D character is made, rigged and animated entirely in the engine.
 
-## M60. A sixth reference game made only with the engine's tools (L)
+## M60. A sixth reference game made only with the engine's tools (L) — DONE (0.16.0)
 
 A complete game whose every picture, model, sound and song is made with the commands of M51-M59: no asset provider and
 no imported asset. It measures what the AI reaches with these tools against the reference games that used providers,

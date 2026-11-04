@@ -81,7 +81,7 @@ Plays a prefab (`prefab`) or an entity of a scene with its children (`scene` + `
 
 ## `assets.check_art`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check pictures against the house style and how they read in the game: palette fit, contrast over the real backgrounds, readability at phone and desktop size, halos on alpha edges, and set consistency; returns an annotated picture.
 
@@ -97,7 +97,7 @@ Measures one picture (`path`) or a set (`paths`, up to 12) and returns an annota
 
 ## `assets.check_mix`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Measure every sound of the project together: loudness per bus, music masking effects, clicks, loop seams, clipping, true peak; each finding has a fix.
 
@@ -111,7 +111,7 @@ Listens for what a game's mix gets wrong. Measures the sounds of the project (th
 
 ## `assets.contact_sheet`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Look at a set of images (or .glb models) side by side at their on-screen size, over light, dark and camera-colour backgrounds and in greyscale, labelled with their file names.
 
@@ -460,7 +460,7 @@ Packing again is stable: a frame whose size did not change keeps its rectangle (
 
 ## `assets.preview_in_scene`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 See an asset inside a scene of the game: it is placed (a PNG as a Sprite, a .glb as a MeshRenderer) in a private run of the scene and captured at phone and desktop resolutions.
 
@@ -553,7 +553,7 @@ The offline makers (assets.rasterize_svg, assets.draw_icon, assets.draw_capsules
 
 ## `assets.review`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 A cheap one-shot vision review of the pictures you made: a verdict and concrete fixes, grounded on assets.check_art and the style references.
 
@@ -617,7 +617,7 @@ background "auto" first makes a solid background transparent (the four corners m
 
 ## `assets.spectrogram`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 See a sound: a picture of its waveform, spectrogram (log frequency) and loudness curve, with the clipped samples and the loop seam marked.
 
@@ -684,7 +684,7 @@ Good for placeholders and simple effects; for richer sounds import a CC0 kit (do
 
 ## `audio.bake` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Render audio documents to WAV/OGG files next to them (only the missing or stale ones unless forced), with their recipe in assets.json.
 
@@ -699,7 +699,7 @@ Without `path` this bakes every *.audio.json of the project whose sound is missi
 
 ## `audio.create` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write a new audio document (a source and a chain of steps) and bake it.
 
@@ -718,7 +718,7 @@ Writes `path` (*.audio.json under assets/) with the format, `source` (a project 
 
 ## `audio.edit` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add, change, remove or move one step of an audio document (or change its source, seed or output), then bake it.
 
@@ -741,7 +741,7 @@ Add, change, remove or move one step of an audio document (or change its source,
 
 ## `audio.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check an audio document and say what its chain renders to; with no arguments, list the step types and their fields.
 
@@ -756,7 +756,7 @@ An audio document (`*.audio.json`, docs/SOUND.md "Audio documents") is a non-des
 
 ## `audio.render`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Render an audio document in memory: measurements, what each step did, and a waveform/spectrogram picture. Writes nothing.
 
@@ -775,7 +775,7 @@ Applies the chain of the document (`path`, or an inline `document`) and returns 
 
 ## `image.bake` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Draw a layered image document (*.image.json) into its PNG and return the picture.
 
@@ -788,7 +788,7 @@ Composites the layers of the image document at `path` (project-relative, ending 
 
 ## `image.create` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make a new layered image document (*.image.json) with a canvas size, a background and optional first layers, and bake its PNG.
 
@@ -809,7 +809,7 @@ Writes a new image document at `path` (project-relative, ends in .image.json) wi
 
 ## `image.draw` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Draw pixel-exact shapes (lines, rectangles, ellipses, polygons, flood fills) onto an indexed pixel-art layer by palette colour.
 
@@ -828,7 +828,7 @@ Each shape of `shapes` is drawn in order on the indexed layer `layer` (see image
 
 ## `image.edit` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Change the selected pixels of one layer of an image document: fill, recolor, move, transform (scale, rotate, flip), delete, copy or cut to a new layer.
 
@@ -847,7 +847,7 @@ Applies `action` to the pixels of `layer` inside the stored `selection` (made wi
 
 ## `image.export` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write the flattened picture of a document, or one layer or group of it, to a PNG, optionally scaled or trimmed.
 
@@ -866,7 +866,7 @@ Draws the document at `path` (or only `layer`, by name or index path, with its m
 
 ## `image.frame.add` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add frames to an image document (making it an animation), copying a frame or blank, and keep the tags in place.
 
@@ -884,7 +884,7 @@ Inserts `count` frames at `at` (0..number of frames; default: at the end). Each 
 
 ## `image.frame.cel` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make a layer show in one frame what it shows in another, or show nothing there.
 
@@ -901,7 +901,7 @@ A pixels or indexed layer has a picture (cel) per frame. This sets the cel of `l
 
 ## `image.frame.move` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Move a frame to another place in the animation; tags follow their frames.
 
@@ -916,7 +916,7 @@ Takes frame `frame` out and puts it back so that it is frame `to` (the frames in
 
 ## `image.frame.remove` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Remove one frame of an animated image document; later frames and tags move down.
 
@@ -930,7 +930,7 @@ Deletes frame `frame` from every layer and from `frames`. Tags after it move dow
 
 ## `image.frame.set` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Set how long frames show, in milliseconds.
 
@@ -945,7 +945,7 @@ Set how long frames show, in milliseconds.
 
 ## `image.frame.sheet` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Choose how many frames the baked sprite sheet has per row.
 
@@ -959,7 +959,7 @@ The bake of an animated document is a sprite sheet. `columns` sets the frames (c
 
 ## `image.generate_layer` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Generate a picture with the image provider and add it to an image document as a `provider` layer, optionally masked by a selection.
 
@@ -987,7 +987,7 @@ Draws `prompt` with the image provider and adds the picture as a `provider` laye
 
 ## `image.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Describe a layered image document: its layers as a tree with index paths, sizes, bake status, the files it reads and its stored selections.
 
@@ -999,7 +999,7 @@ Reads the document at `path` and returns {document, width, height, background, v
 
 ## `image.inpaint` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Repaint the selected part of an image document with the image provider and add the result as a masked `provider` layer.
 
@@ -1026,7 +1026,7 @@ Sends the picture of the document (its composite, or `layer` alone, at `frame`) 
 
 ## `image.layer.add` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add a layer to an image document (at the top, or at an index, or inside a group) and bake the picture.
 
@@ -1042,7 +1042,7 @@ Adds the `layer` object (its `kind` and fields as docs.read IMAGES describes) to
 
 ## `image.layer.add_provider` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add a PNG an image provider made to an image document as a `provider` layer, with its provenance and an optional mask from a stored selection.
 
@@ -1065,7 +1065,7 @@ The second half of image.inpaint and image.generate_layer, and the way to put an
 
 ## `image.layer.convert` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn a layer into an indexed pixel-art layer (quantized to the palette, optional dither) or an indexed layer back into a pixels layer.
 
@@ -1086,7 +1086,7 @@ Turn a layer into an indexed pixel-art layer (quantized to the palette, optional
 
 ## `image.layer.move` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Move a layer to another position in its list, or into another group (or back to the top level), and bake.
 
@@ -1102,7 +1102,7 @@ Move a layer to another position in its list, or into another group (or back to 
 
 ## `image.layer.remove` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Remove a layer (and the children of a group) from an image document and bake.
 
@@ -1116,7 +1116,7 @@ Deletes the layer addressed by name or index path. Its PNG stays on disk. Warns 
 
 ## `image.layer.set` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Change fields of one layer (name, visible, opacity, blend, x, y, clip, masks, adjustments, effects, its kind's fields) and bake.
 
@@ -1131,7 +1131,7 @@ Merges `set` into the layer: a field you give replaces the old one (objects such
 
 ## `image.paint` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Paint round-brush strokes onto a pixels layer of an image document (deterministic stamping), creating the layer's PNG when asked.
 
@@ -1150,7 +1150,7 @@ Each stroke {points [[x,y],...], size, color, hardness?, opacity?, erase?, spaci
 
 ## `image.palette` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Show or change the palette and the colour ramps that indexed pixel-art layers of an image document are locked to.
 
@@ -1165,7 +1165,7 @@ Without `palette` and `ramps` it only reads: every colour with its index, the ch
 
 ## `image.palette.move` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Move one colour of an image document's palette to another position; the pixels follow it, so the picture does not change.
 
@@ -1180,7 +1180,7 @@ Reorders the palette of the document (the colours of its indexed layers, cels an
 
 ## `image.palette.remove` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Remove one colour from an image document's palette; its pixels become another colour or transparent.
 
@@ -1195,7 +1195,7 @@ Takes the colour `index` (index, name or #rrggbb) out of the palette; the colour
 
 ## `image.pixel` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write exact pixels (a list, runs or a text stamp) onto an indexed pixel-art layer by palette colour; no anti-aliasing.
 
@@ -1216,7 +1216,7 @@ Draws on an INDEXED layer (kind "indexed": the pixels are palette indices; docs.
 
 ## `image.pixel.cleanup` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Clean an indexed layer: orphan pixels, doubles at line bends and uneven steps on nearly straight lines; reports what changed.
 
@@ -1240,7 +1240,7 @@ Three passes (`passes`, default all, in this order). orphans: a pixel with no ne
 
 ## `image.pixel.dither` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Fill a region of an indexed layer with a dithered blend of palette colours (Bayer or checker), constant or as a gradient along a direction.
 
@@ -1266,7 +1266,7 @@ Writes into the region (`selection`, and/or `rect`, else the whole layer box; tr
 
 ## `image.pixel.outline` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Outline an indexed pixel-art layer by palette colour: inside or outside, 4- or 8-connected, flat, darkest of the ramp, or selective (sel-out).
 
@@ -1292,7 +1292,7 @@ Outlines the shape of an INDEXED layer (everything that is not transparent). `si
 
 ## `image.pixel.rotate` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Rotate the pixels of an indexed layer (or a selection) by any angle, RotSprite-style: no new colours, no blur.
 
@@ -1314,7 +1314,7 @@ Rotates the visible pixels of the layer (or of the `selection`) `angle` degrees 
 
 ## `image.pixel.scale` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Scale the pixels of an indexed layer (or a selection) cleanly: whole factors repeat pixels, reductions take the commonest colour, scale2x/scale3x round corners; no blending.
 
@@ -1337,7 +1337,7 @@ Scales the visible pixels of the layer (or of the `selection`) by `factor` (a nu
 
 ## `image.pixel.shade` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Shade an indexed pixel-art shape from a light direction: shadow and highlight bands stepping along the colour ramps, optional dithered transition.
 
@@ -1362,7 +1362,7 @@ Shades the shape (the non-transparent pixels of the layer, or of the `selection`
 
 ## `image.save` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check an image document, write it to a *.image.json file and bake its PNG; nothing is written when the document has a problem.
 
@@ -1376,7 +1376,7 @@ Validates `document` (the layered image document as JSON: canvas width and heigh
 
 ## `image.select` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint.
 
@@ -1405,7 +1405,7 @@ Builds a selection: a coverage (0..255) per canvas pixel. `by` picks how: color 
 
 ## `image.tag.remove` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Remove a tag (and so its clip) from an image document.
 
@@ -1419,7 +1419,7 @@ Deletes the tag `name`; the frames stay. The next bake drops its clip from the s
 
 ## `image.tag.set` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Name a run of frames (a tag); the bake makes a SpriteAnimator clip of it.
 
@@ -1437,7 +1437,7 @@ Creates the tag `name`, or changes it when it exists (omitted fields keep their 
 
 ## `image.tile.check`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check that a picture (or each tile of a sheet) repeats without a visible seam, with a preview of 3 x 3 copies.
 
@@ -1454,7 +1454,7 @@ Compares the pixels that touch when a tile repeats: its right column against its
 
 ## `image.tile.set` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn tile mode (wrap-around editing) on or off for an image document.
 
@@ -1470,7 +1470,7 @@ Sets the `tile` key of the document at `path`. With tile mode on, the drawing co
 
 ## `image.tileset.build` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make an autotile tileset (16 or 47 tiles) from a few parts (inside, edge, corner), bake the sheet and write the Tilemap rules.
 
@@ -1499,7 +1499,7 @@ Makes the image document `path` (or adds the layer to an existing one) with a `t
 
 ## `image.tileset.check`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check an autotile tileset: every part is one tile big, and every pair of tiles that can touch in a map fits.
 
@@ -1514,7 +1514,7 @@ Reads the tileset layer of the document at `path`, reports every part that is mi
 
 ## `image.tileset.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Explain the parts of an autotile tileset and list its tiles (slot, neighbours, position in the sheet).
 
@@ -1529,7 +1529,7 @@ Describes what image.tileset.build is made of: for the mode (basic16 or blob47),
 
 ## `image.tileset.rules` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write the Tilemap autotile rules file of a tileset layer (the recipe command that keeps it current).
 
@@ -1544,7 +1544,7 @@ Writes the rules file of the tileset layer: {"format":"factoria.terrains/1","ter
 
 ## `image.to_pixel_art` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn a painted, generated or imported picture (a layer or a PNG) into palette-exact pixel art: area-aware downscale, quantize, clean up, into an indexed layer.
 
@@ -1576,7 +1576,7 @@ Takes `source` (a layer of the document of any kind: a pixels layer, a painted, 
 
 ## `model.bake` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Build model documents into .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json.
 
@@ -1591,7 +1591,7 @@ Without `path` this bakes every *.model.json of the project whose .glb is missin
 
 ## `model.bake_maps`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Bake a model's ambient occlusion, curvature and thickness maps in its UV atlas and measure them (nothing is written): the masks that texturing wear is built from. Returns the maps as pictures.
 
@@ -1611,7 +1611,7 @@ Measures the maps that `texturing` wear and `ao` use, so you can choose threshol
 
 ## `model.check`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Measure a model document's mesh for faults an artist finds by eye: scale, origin, flipped or inconsistent triangles, open and non-manifold edges, degenerate triangles, platform budgets. Each finding says where, what and how to fix.
 
@@ -1629,7 +1629,7 @@ Builds the document in memory and checks the mesh the game gets (the evaluated m
 
 ## `model.create` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write a new model document (a tree of primitives, modifiers, groups and transforms) and bake it to a .glb.
 
@@ -1650,7 +1650,7 @@ Writes `path` (*.model.json under assets/) with the format, the `nodes` (a list 
 
 ## `model.decal` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add, replace, remove or clear the decals of a model document: pictures (logos, stains, markings) projected on its surface and baked into the texture.
 
@@ -1668,7 +1668,7 @@ A decal is an image of the project (assets.generate_texture output, or the baked
 
 ## `model.edit` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add, change, remove or move one node of a model document by its id (or JSON pointer), or change its materials, output or note; then bake it.
 
@@ -1695,7 +1695,7 @@ Add, change, remove or move one node of a model document by its id (or JSON poin
 
 ## `model.game_ready` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make a model document game-ready: origin, merged submeshes, LODs, a collider and a triangle budget report per platform; the settings live in the document.
 
@@ -1715,7 +1715,7 @@ Reads or changes the `gameReady` settings of a model document (docs/MODELING.md,
 
 ## `model.import_clean` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Clean a generated or imported mesh (.glb, .gltf, .obj) into a game-ready model document: weld, drop floating bits, recentre, scale to a reference, decimate to a platform budget, optionally remesh, unwrap, and bake.
 
@@ -1745,7 +1745,7 @@ Takes the mesh `source` (project-relative; assets.generate_model and assets.impo
 
 ## `model.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check a model document and measure what it builds; with no arguments, list the operations (primitives, modifiers, group) and their fields.
 
@@ -1759,7 +1759,7 @@ A model document (`*.model.json`, docs/MODELING.md) is a 3D model written as a t
 
 ## `model.palette` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Colour a model with a palette without a texture: the `vertexColors` section (style palette or your own colours, one colour or a gradient per part, flat low-poly faces); returns the palette swatches.
 
@@ -1777,7 +1777,7 @@ The `vertexColors` section of a model document writes colours into the mesh whil
 
 ## `model.preview`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Draw a model document from 4 to 8 sides (a turntable sheet, shaded and/or wireframe) beside a 1.8 m reference figure, with its triangle count and size; returns the PNG.
 
@@ -1800,7 +1800,7 @@ The way to SEE a model. It builds the document in memory and draws it with a sof
 
 ## `model.select`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Try a selection of faces or edges chosen by meaning (normal direction, part, region, top/bottom, border, sharp, seam) on the mesh a node receives, and report what it matched.
 
@@ -1816,7 +1816,7 @@ The edit operations extrude_faces, inset_faces, bevel_edges, delete_faces and as
 
 ## `model.texture` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Texture a model document: materials with tiling textures projected triplanar into the UV atlas, vertex colours, baked ambient occlusion and wear (worn edges, dirt in cavities) built from baked curvature and thickness, and decals; the result is a layered image document you can paint on. Returns the texture picture.
 
@@ -1834,7 +1834,7 @@ The `texturing` section of a model document (docs/MODELING.md, "Texturing") make
 
 ## `model.uv` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Give a model document UVs (automatic unwrap, or box, cylinder, sphere and planar projections per part, packed into one texture at the style's texel density) and measure them; returns the UV layout picture.
 
@@ -1852,7 +1852,7 @@ The `uv` section of a model document replaces the primitives' own uvs: `layout` 
 
 ## `music.arpeggio` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make an arpeggio over a chord progression as note text, and optionally put it in a song.
 
@@ -1886,7 +1886,7 @@ Spells the chords of `progression` one note after another, in a direction (up, d
 
 ## `music.bassline` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make a bassline over a chord progression as note text, and optionally put it in a song.
 
@@ -1915,7 +1915,7 @@ A bass part from the progression: root (a note per beat on the root), root_fifth
 
 ## `music.check`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Find what is wrong in a song before listening: notes outside the key or the instrument's range, clashes, mud, silent tracks, loudness.
 
@@ -1931,7 +1931,7 @@ Runs the music checks on a song (`path` or inline `song`). Rules: off_key (a not
 
 ## `music.chord`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Spell a chord by name, or a chord progression in a key: notes, MIDI numbers and the note text to paste.
 
@@ -1949,7 +1949,7 @@ With `name` ("Am7", "Cmaj7/G", "F#dim", "Dsus4") it returns the chord's notes at
 
 ## `music.create` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write a new song document: pad, bass, drums and an arpeggio over a chord progression, with intro, loop and outro.
 
@@ -1978,7 +1978,7 @@ Makes a complete, valid starting song at `path` (assets/..., ending in .song.jso
 
 ## `music.drums` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make a drum pattern in a style (rock, funk, waltz, ...), and optionally put it in a song.
 
@@ -2001,7 +2001,7 @@ Without `style` it lists the styles and the kit's lanes. With one it returns a d
 
 ## `music.edit` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Change a song document: tempo, tracks, patterns, sections, the arrangement, mutes and automation, checked before anything is written.
 
@@ -2019,7 +2019,7 @@ Applies `ops` in order to the song at `path` and writes it, but only if the resu
 
 ## `music.export_midi` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write a song as a format-1 Standard MIDI File that a DAW or notation program opens.
 
@@ -2033,7 +2033,7 @@ Writes the song at `path` as a Standard MIDI File (format 1, 960 ticks per quart
 
 ## `music.import_midi` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn a Standard MIDI File (.mid) into a song document: tracks, patterns, sections from markers, drums as grids.
 
@@ -2053,7 +2053,7 @@ Reads the MIDI file `path` (absolute on this machine, or in the project) with th
 
 ## `music.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check a song document and say what it holds: structure, bars, seconds, a summary per section, and a piano-roll picture.
 
@@ -2071,7 +2071,7 @@ Reads a song (`*.song.json`, format factoria.song/1, docs/MUSIC.md and schemas/s
 
 ## `music.instrument` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 List the built-in song instruments (by family), the drum kits and lanes, sfx presets and project SoundFonts, show the patch behind an instrument, or list a SoundFont's presets.
 
@@ -2085,7 +2085,7 @@ Without `name` it lists what a track's `instrument` can be: the built-in pitched
 
 ## `music.mix`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Render a song in memory and report the mix: each track's level, the buses and what the master's loudness normalization and limiter did.
 
@@ -2104,7 +2104,7 @@ Renders the song (`path`, or inline `song`) like music.preview but writes no fil
 
 ## `music.notes`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 List the notes of one pitched pattern of a song (pitch, tick, duration, velocity), or the hits of a drum pattern, as a piano roll sees them.
 
@@ -2118,7 +2118,7 @@ Reads the pattern `pattern` of `track` in the song at `path` and returns its not
 
 ## `music.preview` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Render a song to a stereo WAV or OGG next to it (offline, deterministic) and see its spectrogram.
 
@@ -2142,7 +2142,7 @@ Renders the song at `path` with the preview voices: every note of the arrangemen
 
 ## `music.render` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Render a whole song (intro, loop, outro) to a game-ready WAV or OGG with sample-exact loop points, and optionally one stem per layer.
 
@@ -2161,7 +2161,7 @@ Renders the song at `path` as music.preview does (same voices, mixer, loudness n
 
 ## `music.scale`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Say which notes a scale or mode has and the chords built on its degrees (with Roman numerals).
 
@@ -2174,7 +2174,7 @@ With `key` and `mode` returns the scale's notes, intervals, and the triads and s
 
 ## `rig.bake` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Fit rig documents to their models and write the skinned .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json.
 
@@ -2189,7 +2189,7 @@ Without `path` this bakes every *.rig.json of the project whose .glb is missing 
 
 ## `rig.create` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Write a rig document for a model: a skeleton template (humanoid, quadruped, bird, tail, chain, generic) fitted to the model by its parts and landmarks, and bake it to a skinned .glb.
 
@@ -2212,7 +2212,7 @@ Writes `path` (*.rig.json under assets/) that names the model document (`model`)
 
 ## `rig.fit` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Change what a rig document tells the fit (parts, landmarks, options, symmetry, strict), fit the template to the model again and show what it matched; then bake.
 
@@ -2233,7 +2233,7 @@ Reads `path` (*.rig.json), applies the changes you give, checks the document as 
 
 ## `rig.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check a rig document and fit it to its model without writing anything: every issue with its fix, the bones, where each joint came from and what the fit noticed.
 
@@ -2246,7 +2246,7 @@ Reads `path` (*.rig.json). A document with mistakes returns valid false and ALL 
 
 ## `rig.templates`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 List the skeleton templates (humanoid, quadruped, bird, tail, chain, generic) with their options and the words in part names they recognise; with `name`, the bones of one.
 
@@ -2259,7 +2259,7 @@ A rig document (`*.rig.json`, docs/RIGGING.md) fits a skeleton template to a mod
 
 ## `sfx.bake` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Render every sound patch of the project whose WAV is missing or out of date.
 
@@ -2273,7 +2273,7 @@ Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's p
 
 ## `sfx.edit` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Change one field of a sound patch by JSON pointer (set, remove, add to an array, move inside an array); the result must still be a valid patch.
 
@@ -2290,7 +2290,7 @@ Edits `*.sfx.json` the way a hand edit would, but checked: the patch is parsed a
 
 ## `sfx.family` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Make a consistent set of interface sounds (click, hover, confirm, cancel, error, open, close, notify) from one base patch.
 
@@ -2310,7 +2310,7 @@ Writes one patch per sound into the `out` directory (default: the base's path wi
 
 ## `sfx.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Check a sound patch and say what it holds and how loud it renders, without writing anything.
 
@@ -2325,7 +2325,7 @@ Reads a sound patch from `path`, or takes it inline as `patch` (JSON) or by `pre
 
 ## `sfx.preset` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 List the sound presets, return one as an editable patch, or write it to a *.sfx.json file.
 
@@ -2339,7 +2339,7 @@ The presets of assets.synth_sound (bark, growl, meow, screech, whoosh, explosion
 
 ## `sfx.render` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Render a sound patch (*.sfx.json) to a WAV or OGG next to it and see its spectrogram: the engine's own synthesizer, offline and deterministic.
 
@@ -2365,7 +2365,7 @@ Reads the sound patch at `path` (assets/.../name.sfx.json, format factoria.sfx/1
 
 ## `sfx.tweak` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn a patch's macros by meaning (brighter, longer tail, heavier) and write the change back to the patch.
 
@@ -2385,7 +2385,7 @@ Turn a patch's macros by meaning (brighter, longer tail, heavier) and write the 
 
 ## `skin3d.add` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add weight to a bone (or take it away with a negative amount) on the vertices of a part or a selection.
 
@@ -2404,7 +2404,7 @@ Adds `amount` (-1 to 1) to the weight of `bone` on each vertex, then normalises 
 
 ## `skin3d.auto` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Choose how the weights are computed (auto, heat, voxel, rigid), for the whole rig or one part, and their settings; recompute and bake.
 
@@ -2427,7 +2427,7 @@ Changes the `skin` section of a rig document. `method`: auto (heat diffusion; a 
 
 ## `skin3d.clear` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Remove one edit (by index) or all the edits from a rig document's skin, recompute and bake.
 
@@ -2443,7 +2443,7 @@ Removes `index` (as skin3d.info and the answer of an edit command number them) o
 
 ## `skin3d.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Show a rig document's skin: the method, its settings and edits, the bones with the parts they follow, and the quality of the weights it gives.
 
@@ -2455,7 +2455,7 @@ Reads `path` (*.rig.json), fits the rig and computes the weights of its `skin` s
 
 ## `skin3d.limit` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Keep at most N influences per vertex (1 to 4) on a part or a selection, strongest first, and normalise.
 
@@ -2473,7 +2473,7 @@ Keeps the `max` strongest bones of each vertex (1 to 4, default 4) and renormali
 
 ## `skin3d.mirror` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Copy the weights of one side of the character to the other (_l to _r or the other way), pairing each vertex with its mirror image.
 
@@ -2491,7 +2491,7 @@ Copies the weights from the side `from` ("l" = the character's left, +X; "r" = r
 
 ## `skin3d.normalize` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Drop negligible influences and make each vertex's weights sum to 1, on a part or a selection.
 
@@ -2509,7 +2509,7 @@ Removes the influences under `threshold` (0 to 0.5, default 0.01) and rescales w
 
 ## `skin3d.preview`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Draw the skin weights of a rig: a heat map of one bone or one colour per bone, and optionally the model bent at a bone to see how the skin deforms; returns the PNG.
 
@@ -2530,7 +2530,7 @@ The way to SEE the weights. It fits the rig, computes the weights of the documen
 
 ## `skin3d.set` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Give a bone an exact weight on the vertices of a part or a selection; the other bones share the rest.
 
@@ -2549,7 +2549,7 @@ Sets the weight of `bone` to `weight` (0 to 1; default 1: the vertices follow on
 
 ## `skin3d.smooth` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Smooth the weights over the surface on the vertices of a part or a selection, to soften a crease at a joint.
 
@@ -2568,7 +2568,7 @@ Moves the weights of each vertex towards the average of the vertices that share 
 
 ## `vector.add` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add a path, rectangle, ellipse or line to an SVG.
 
@@ -2611,7 +2611,7 @@ Inserts one new element into an SVG file, SVG text or an svg layer of an image d
 
 ## `vector.align` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Align SVG elements to each other, the canvas or a key element.
 
@@ -2638,7 +2638,7 @@ Moves the picked elements (shapes or whole groups) so their bounds line up: hori
 
 ## `vector.assign_ids` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Give every drawn element without an id one.
 
@@ -2660,7 +2660,7 @@ Names the shapes and groups that have no id (path, path-2, g, g-2...) so the oth
 
 ## `vector.blob` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add a smooth organic shape or curve through or around a few points.
 
@@ -2697,7 +2697,7 @@ Inserts a smooth closed blob (or, with closed: false, an open curve) built from 
 
 ## `vector.boolean` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Union, subtract, intersect or exclude SVG shapes into one path.
 
@@ -2724,7 +2724,7 @@ Combines the picked shapes with a path boolean (Clipper2, integer-exact) and wri
 
 ## `vector.delete` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Delete SVG elements.
 
@@ -2746,7 +2746,7 @@ Removes the picked shapes or groups (a group takes everything in it). The rest o
 
 ## `vector.distribute` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Space SVG elements evenly along an axis.
 
@@ -2772,7 +2772,7 @@ Moves the picked elements along `axis` so the gaps between them (by: "gaps", def
 
 ## `vector.duplicate` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Copy SVG elements right after the originals.
 
@@ -2795,7 +2795,7 @@ Inserts a copy of each picked element (shape or group, with everything in it) ri
 
 ## `vector.group` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Wrap SVG elements in a new group.
 
@@ -2818,7 +2818,7 @@ Puts the picked elements (all in the same group) into a new <g>, which takes the
 
 ## `vector.info`
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 List the shapes and groups of an SVG with ids, bounds and node counts.
 
@@ -2840,7 +2840,7 @@ Reads an SVG and lists its drawable elements: id, tag, bounds in the drawing spa
 
 ## `vector.mirror` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Mirror shapes across a vertical or horizontal axis and weld the halves, or add the mirrored copy.
 
@@ -2869,7 +2869,7 @@ For each picked shape, reflects it across the line x = at (axis "vertical") or y
 
 ## `vector.nodes` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Edit the nodes of a path: move anchors and handles, insert, delete, convert, break, join, close, append.
 
@@ -2896,7 +2896,7 @@ Applies a list of node operations, in order, to ONE shape (a rect or circle beco
 
 ## `vector.offset` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Grow or shrink SVG shapes by a distance (offset path, inset).
 
@@ -2925,7 +2925,7 @@ Offsets the outline of each picked shape by `distance` drawing units (positive g
 
 ## `vector.reorder` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Change the drawing order of SVG elements or move them into another group.
 
@@ -2950,7 +2950,7 @@ Change the drawing order of SVG elements or move them into another group.
 
 ## `vector.repeat` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Repeat an SVG element in a grid or around a circle.
 
@@ -2983,7 +2983,7 @@ Adds copies of one element (a shape or a group): mode "grid" lays out `columns` 
 
 ## `vector.set` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Set the style, visibility, lock, id or attributes of SVG elements.
 
@@ -3020,7 +3020,7 @@ Sets presentation properties on the picked elements (shapes or groups): fill, st
 
 ## `vector.set_path` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Replace the path data of a shape.
 
@@ -3047,7 +3047,7 @@ Sets the outline of ONE shape to the path data `d`: a rect or circle becomes a <
 
 ## `vector.shade` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add a shadow band and a highlight band to shapes from the light direction.
 
@@ -3082,7 +3082,7 @@ For each picked shape builds a shadow band (the part of the shape on the side aw
 
 ## `vector.shape` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Add a star, gear, rounded polygon, arrow, speech bubble or ribbon to an SVG.
 
@@ -3146,7 +3146,7 @@ Inserts a new element with exact geometry (the shapes AIs draw badly by hand) in
 
 ## `vector.simplify` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Reduce the nodes of SVG paths within a tolerance.
 
@@ -3171,7 +3171,7 @@ Rewrites each picked shape (default: every shape) with fewer nodes: a path with 
 
 ## `vector.smooth` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Round the corners of SVG paths into smooth Bezier curves.
 
@@ -3197,7 +3197,7 @@ Gives every node that is not a sharp corner smooth handles, so a polygon or a ro
 
 ## `vector.stroke_to_path` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn the stroke of SVG shapes into a filled outline path.
 
@@ -3229,7 +3229,7 @@ Converts the stroke of each picked shape (its stroke-width, linecap, linejoin, m
 
 ## `vector.style` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Apply the project's style guide to an SVG: outline and palette.
 
@@ -3253,7 +3253,7 @@ Applies assets.json `style` to the SVG: `outline` puts the guide's outline colou
 
 ## `vector.text_to_path` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn text into path outlines with the engine's fonts, so it needs no font.
 
@@ -3294,7 +3294,7 @@ Outlines text with the engine's own font stack (HarfBuzz shaping: kerning, ligat
 
 ## `vector.to_rig` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Turn an SVG whose named groups are the parts of a character into part pictures, joints and a Bone2D prefab that animates in parts.
 
@@ -3327,7 +3327,7 @@ Reads a project SVG and makes a character that animates in parts, with no other 
 
 ## `vector.transform` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Move, scale, rotate or flip SVG elements in the drawing space.
 
@@ -3355,7 +3355,7 @@ Applies a transform of the DRAWING space to the picked elements (shapes or whole
 
 ## `vector.ungroup` (modifies state)
 
-Not released yet (on main after 0.14.1).
+Since 0.16.0.
 
 Dissolve SVG groups, keeping what is in them where it was.
 

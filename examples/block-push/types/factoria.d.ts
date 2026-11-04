@@ -433,7 +433,7 @@ declare module "factoria" {
     readonly video: VideoAPI;
     /**
      * Playback of this entity's MusicPlayer component (play, stop, setIntensity, goToSection, playStinger, crossfadeTo, the beat/bar/section events, the current bar, beat and section). Throws if the entity has no MusicPlayer; entity.get("MusicPlayer") answers null instead.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly music: MusicAPI;
   }
@@ -944,7 +944,7 @@ declare module "factoria" {
     bus?: string;
     /**
      * The clip has this many baked variants (2..64): play one of path_01 ... path_NN instead of `path` itself ("assets/sfx/step.wav" plays assets/sfx/step_03.wav), picked with the world RNG (seeded per run, so a replay hears the same takes) and never the one played last for that path. sfx.bake writes the variants of a sound patch that declares `variations`. Example: audio.play("assets/sfx/step.wav", { variants: 6 }).
-     * @since unreleased
+     * @since 0.16.0
      */
     variants?: number;
     /**
@@ -1026,7 +1026,7 @@ declare module "factoria" {
     play(path: string, opts?: PlayOptions): number;
     /**
      * The file name of baked variant `variant` (1..count) of a clip: variantPath("assets/sfx/step.wav", 3, 8) is "assets/sfx/step_03.wav". The naming sfx.bake uses for a sound patch with `variations`: two digits, three from 100 variants. Throws for a count outside 2..64 or a variant outside 1..count.
-     * @since unreleased
+     * @since 0.16.0
      */
     variantPath(path: string, variant: number, count: number): string;
     stop(voice: number): void;
@@ -4234,22 +4234,22 @@ declare module "factoria" {
     cellToWorld(col: number, row: number): Vec2;
     /**
      * Autotile: sets the cells (a list of [col, row] pairs or {col, row} objects, row 0 = TOP row) to the terrain `terrain` of Tilemap.terrains and re-tiles them and the 8 cells around each one, so painting grass next to water draws the shore. Only cells that already belong to a terrain are re-tiled: tiles you placed by hand stay. The tile of a cell is picked from the terrain's variations by column, row and seed, so the same painting looks the same every run. Returns the number of cells `painted`, the cells that were `outside` the map (skipped), `changed` (how many cells got another tile) and `changes` (each cell's `from` and `to` tile value). Throws an Error that names the terrains of the map (did-you-mean) when `terrain` is not one, or that points at the invalid rule. Example: `map.tilemap.paintTerrain("grass", [[3, 4], [4, 4], [5, 4]])`.
-     * @since unreleased
+     * @since 0.16.0
      */
     paintTerrain(terrain: string, cells: ({ col: number; row: number } | [number, number])[]): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] };
     /**
      * Empties the cells (-1) and re-tiles the cells next to them, as paintTerrain does for painting: removing a lake cell turns its neighbours into shore. `terrain` names the rules used to re-tile (the terrain being removed). Same result as paintTerrain.
-     * @since unreleased
+     * @since 0.16.0
      */
     eraseTerrain(terrain: string, cells: ({ col: number; row: number } | [number, number])[]): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] };
     /**
      * Recomputes the tile of every cell that belongs to a terrain from the cells around it (after writing tiles with setTile or changing Tilemap.terrains). Cells that belong to no terrain are not touched. Throws when the map has no terrains.
-     * @since unreleased
+     * @since 0.16.0
      */
     retile(): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] };
     /**
      * The name of the terrain the tile at column col, row row belongs to (its tile index is one of the terrain's tiles), or null for an empty cell, a cell outside the map or a tile that is no terrain's.
-     * @since unreleased
+     * @since 0.16.0
      */
     terrainAt(col: number, row: number): string | null;
     /**
@@ -4338,97 +4338,97 @@ declare module "factoria" {
 
   /**
    * Controls a MusicPlayer component (entity.music): a song played as layers that fade with `intensity`, sections that change on the beat or the bar, stingers, crossfades between songs and beat events. The mixer does the playing and counts the musical time in audio frames, so a headless run puts beats, bars and section changes on the same frames every time. A change with a `quantize` waits for that boundary and lands on its exact frame; without `quantize` the player's own settings apply (MusicPlayer.quantize, layerQuantize). Events reach scripts one frame after they sound; `data.frame` is the audio frame they happened on. Example: `const m = theme.music; m.on("bar", () => ...); m.setIntensity(0.8); m.goToSection("battle", {quantize: "bar"})`.
-   * @since unreleased
+   * @since 0.16.0
    */
   export class MusicAPI {
     /**
      * Starts at once (a hard start: what played is cut after a short fade). A string is the song; `song` defaults to the component's, `section` to its startSection and `intensity` to its own. Sets playing to true. The song loads first when it is not loaded yet (the "ready" event says when it sounds).
-     * @since unreleased
+     * @since 0.16.0
      */
     play(options?: string | { song?: string; section?: string; intensity?: number }): void;
     /**
      * Fades the music out over `fade` seconds (default 0.3) once the `quantize` boundary comes (default none: now). The component's `playing` is false at once. Fires "ended" with stopped true.
-     * @since unreleased
+     * @since 0.16.0
      */
     stop(options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): void;
     /**
      * Sets MusicPlayer.intensity (0..1); the layers follow it from the `quantize` boundary on (default the component's layerQuantize), each fading over layerFade.
-     * @since unreleased
+     * @since 0.16.0
      */
     setIntensity(intensity: number, options?: { quantize?: "none" | "beat" | "bar" | "section" }): void;
     /**
      * Jumps to the first pass of a section on the `quantize` boundary (default the component's quantize) with an equal-power crossfade of `fade` seconds (default transitionFade). Throws for a section the song does not have, listing the ones it has. Before the song is loaded it only sets where it will start.
-     * @since unreleased
+     * @since 0.16.0
      */
     goToSection(section: string, options?: { quantize?: "none" | "beat" | "bar" | "section"; fade?: number }): void;
     /**
      * Plays a short piece over the music from the next boundary: an audio `clip` (starts on that audio frame) or a `section` of the playing song (all its layers, then `tail` seconds of what rings after it). A string is the clip. `duck` (0..1) dips the music while it plays: down in duckAttack seconds, held for duckHold (default the length of the clip or section), back in duckRelease. Fires "stinger".
-     * @since unreleased
+     * @since 0.16.0
      */
     playStinger(options: string | { clip?: string; section?: string; quantize?: "none" | "beat" | "bar" | "section"; volume?: number; tail?: number; bus?: string; duck?: number; duckAttack?: number; duckHold?: number; duckRelease?: number }): void;
     /**
      * Changes to another song on the `quantize` boundary of the one playing: the old fades out and the new fades in over `bars` bars of the old song (default crossfadeBars), the new one starting at `section` (default its beginning). Each song keeps its own tempo. Without music playing the song just starts. Fires "crossfade". Throws for a song that does not exist or is not a song.
-     * @since unreleased
+     * @since 0.16.0
      */
     crossfadeTo(song: string, options?: { section?: string; quantize?: "none" | "beat" | "bar" | "section"; bars?: number }): void;
     /**
      * Listens to an event of THIS entity's player; returns the unsubscribe function. world.on("music.beat", fn) hears every player. Besides id, song, frame (the audio frame) and time (seconds): ready has mode; beat has bar, beat, section, index (beats since play); bar has bar, section, count; section has section, pass, bar; loop has count; ended has stopped; stinger has kind ("clip" or "section") and section.
-     * @since unreleased
+     * @since 0.16.0
      */
     on(event: "ready" | "beat" | "bar" | "section" | "loop" | "ended" | "stinger" | "crossfade", fn: (data: { id: string; song: string; frame: number; time: number; [key: string]: any }, source: Entity | null) => void): () => void;
     /**
      * A snapshot of the player (what audio.music_state shows). `mode` is "live" or "stems" (how it was made); `stemGains` the gain each layer has now; `pending` the quantized changes waiting; `error` why it could not start.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly status: { exists: boolean; ready: boolean; playing: boolean; ended: boolean; song: string; mode: string; section: string; sections: string[]; bar: number; beat: number; positionSeconds: number; tempo: number; intensity: number; volume: number; bus: string; stems: string[]; stemGains: number[]; pending: number; heads: number; error: string };
     /**
      * True once the song is loaded and can sound.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly ready: boolean;
     /**
      * True while music sounds or a start is waiting for the song to load.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly playing: boolean;
     /**
      * The song that plays (or is loading).
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly song: string;
     /**
      * The section the playhead is in; empty before the song plays.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly section: string;
     /**
      * 1-based bar of the song at the playhead; 0 when nothing plays.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly bar: number;
     /**
      * 1-based beat of the bar at the playhead; 0 when nothing plays.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly beat: number;
     /**
      * Quarter notes per minute of the song that plays.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly tempo: number;
     /**
      * MusicPlayer.intensity: the value last set, not the layers' fades (status.stemGains).
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly intensity: number;
     /**
      * The section names of the song, in order; empty until it is loaded.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly sections: string[];
     /**
      * The MusicPlayer component view (song, mode, volume, bus, quantize...).
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly component: Components["MusicPlayer"];
   }
@@ -5713,7 +5713,7 @@ declare module "factoria" {
     solidTiles: any;
     /**
      * Autotile rules: an array of terrains that tilemap.paint_terrain (scripts: entity.tilemap.paintTerrain) paints, choosing for every cell the edge, corner or inside tile that fits the cells around it. A terrain is {"name": "grass", "mode": "blob47", "first": 0}. mode: "basic16" looks at the 4 neighbours (16 tiles, slot = N*1 + E*2 + S*4 + W*8) and "blob47" at the 8 (47 tiles; a diagonal counts only when both cells next to it are in the terrain; the slots are the 47 reduced masks N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128 in ascending order, `factoria call image.tileset.info` prints them). The tiles come as "first": the tileset index of slot 0, the rest follow; or "tiles": one entry per slot, each a tile index or an array of tile indices that are variations of that look (one is picked from the cell's column, row and the terrain's "seed", the same every time). A cell belongs to the terrain whose tiles contain its tile index, so two terrains cannot share a tile. Optional: "seed" (integer, default 0), "joins" (names of terrains whose cells count as neighbours, e.g. a path that meets the grass), "outside": "terrain" (the map edge counts as this terrain, so no border is drawn there; default "empty"). image.tileset.build writes the terrain of a tileset it bakes; tilemap.set_terrains sets them from a rules file. Empty = no rules. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.16.0
      */
     terrains: any;
     /**
@@ -5925,7 +5925,7 @@ declare module "factoria" {
     materialColors: any;
     /**
      * Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.16.0
      */
     lods: any;
   }
@@ -6048,62 +6048,62 @@ declare module "factoria" {
    * 3D inverse kinematics on the skinned model of the Animator on the same entity (docs/ANIMATION.md, "3D IK"). Every fixed step, after the Animator has posed the bones, the `solvers` adjust them and the model is drawn with the result: a hand that reaches a lever (twoBone, with a pole vector for the elbow), a head that looks at something within limits (lookAt), feet that stand on uneven ground with the pelvis lowered to fit (foot, one ray per foot through the physics world). Solvers apply in order. The bones are found by the canonical names of rig.bake (docs/RIGGING.md). Deterministic; the animated pose is never changed, the solvers start from it every step.
    * 
    * Category: 3D
-   * @since unreleased
+   * @since 0.16.0
    */
   export interface IK3DComponent {
     /**
      * false: the animated pose is drawn untouched.
-     * @since unreleased
+     * @since 0.16.0
      */
     enabled: boolean;
     /**
      * 0 to 1. 0 = the animated pose, 1 = the solved pose; multiplies the weight of every solver. Fade it in while a hand holds something, out when it lets go.
-     * @since unreleased
+     * @since 0.16.0
      */
     weight: number;
     /**
      * An array of solvers, applied in order. Every solver has "type", an optional "name", "weight" (0..1, default 1) and "enabled" (default true). A target is an entity id or name ("player"), a world position [x, y, z], or {"entity": "player", "offset": [0, 1.6, 0]} (the offset in world units). twoBone: {root, mid, end} bone names (or limb "arm"|"leg" with side "l"|"r"), target, optional pole (the elbow or knee bends towards it). lookAt: {bone, target, forward (the bone's axis that looks: "+z" by default), yawLimit (70), pitchLimit (45), turnSpeed (degrees per second, 360; 0 = snap)}. foot: {side "l"|"r" (or thigh, shin, foot), footHeight (height of the ankle above the sole; default = its rest height), alignToGround (true), maxFootAngle (30)}; all foot solvers act together on the lowest ground under them. Example: [{"type": "lookAt", "bone": "head", "target": "player"}, {"type": "foot", "side": "l"}, {"type": "foot", "side": "r"}]. Problems are logged once; `ik3d.check` lists all of them. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.16.0
      */
     solvers: any;
     /**
      * Foot placement: the bone moved vertically so the feet reach lower or higher ground ('root' = the hips of every rig.bake template).
-     * @since unreleased
+     * @since 0.16.0
      */
     pelvis: string;
     /**
      * Foot placement: world units above the animated ankle where the ground ray starts.
-     * @since unreleased
+     * @since 0.16.0
      */
     rayUp: number;
     /**
      * Foot placement: world units below the animated ankle the ray reaches. No hit = the foot is left as animated.
-     * @since unreleased
+     * @since 0.16.0
      */
     rayDown: number;
     /**
      * Foot placement: bitmask of the physics layers the ray hits (-1 = all). The colliders of this entity are ignored.
-     * @since unreleased
+     * @since 0.16.0
      */
     groundMask: number;
     /**
      * Foot placement: seconds the feet and the pelvis take to settle on a new ground height, so a step does not pop (0 = at once).
-     * @since unreleased
+     * @since 0.16.0
      */
     pelvisSmooth: number;
     /**
      * Foot placement: the most the pelvis goes down, in model units. A leg that cannot reach stretches straight.
-     * @since unreleased
+     * @since 0.16.0
      */
     maxPelvisDrop: number;
     /**
      * Foot placement: the most the pelvis goes up, in model units.
-     * @since unreleased
+     * @since 0.16.0
      */
     maxPelvisRise: number;
     /**
      * Runtime state: one object per solver, {name, type, active, ...}: twoBone adds reached and error (distance of the end to the target, model units), lookAt clamped, yaw and pitch (degrees turned), foot contact (0 in the air, 1 planted), lift (ground offset, model units), reached and error. A solver with problem:true did not parse. Read-only. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.16.0
      */
     readonly status: any;
   }
@@ -6713,7 +6713,7 @@ declare module "factoria" {
     clip: string;
     /**
      * Number of baked variants of `clip` (0 = just the clip). With 2 to 64 every play picks one of clip_01 ... clip_NN ("assets/sfx/step.wav" plays assets/sfx/step_03.wav; sfx.bake writes them for a sound patch with `variations`), at random but never the one that played last on this entity, and the same on every run with the same seed: it reads the world RNG without consuming it.
-     * @since unreleased
+     * @since 0.16.0
      */
     variants: number;
     /**
@@ -6749,112 +6749,112 @@ declare module "factoria" {
    * Plays a song document (*.song.json, docs/MUSIC.md) as adaptive music. `intensity` (0..1) brings the song's layers in and out with smooth fades; goToSection, stingers and crossfades to another song wait for the next beat, bar or section end (`quantize`); beats, bars and sections reach scripts as events (music.beat, music.bar, music.section ...). `mode` picks how the song sounds: live (rendered from the document when the player starts, the same bytes as music.preview) or stems (the files music.render wrote, for phones). The musical clock is the mixer's sample count, so a headless run gives the same beats on every machine. Script API: entity.music (docs/SCRIPTING.md); docs/MUSIC.md, "Playing a song in a game".
    * 
    * Category: Audio
-   * @since unreleased
+   * @since 0.16.0
    */
   export interface MusicPlayerComponent {
     /**
      * Project-relative path of the song document (*.song.json). Set it while playing to crossfade to the new song (crossfadeBars, quantize). (asset path: music)
-     * @since unreleased
+     * @since 0.16.0
      */
     song: string;
     /**
      * How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; it falls back to live, with a warning, when they are missing. auto: stems on phones and tablets that are not high-tier, on any low-tier device and on the web, live elsewhere (docs/MUSIC.md).
-     * @since unreleased
+     * @since 0.16.0
      */
     mode: "auto" | "live" | "stems";
     /**
      * Loudness of the player, 0 (silent) to 1 (full). Changes fade over 20 ms.
-     * @since unreleased
+     * @since 0.16.0
      */
     volume: number;
     /**
      * Mixer bus the music is summed into: "music" (default), "sfx", "ui" or a bus of the project (factoria.json audio.buses). Its volume, effects and ducking apply.
-     * @since unreleased
+     * @since 0.16.0
      */
     bus: string;
     /**
      * 0..1: how much of the song plays. Each layer of the song has a threshold (music.edit set_layers); a layer is silent below threshold - layerRange and full from its threshold. The first layer (threshold 0) always plays.
-     * @since unreleased
+     * @since 0.16.0
      */
     intensity: number;
     /**
      * Start playing when the entity spawns / the scene loads.
-     * @since unreleased
+     * @since 0.16.0
      */
     playOnStart: boolean;
     /**
      * true: stay in the song's loop section (the loop sections, repeats included) until a section change or stop; a song without a loop section restarts at its end. false: play through the outro to the end, then music.ended.
-     * @since unreleased
+     * @since 0.16.0
      */
     loop: boolean;
     /**
      * Name of the section to start at ("" = the beginning of the song). An unknown name logs an error that lists the song's sections and starts at the beginning.
-     * @since unreleased
+     * @since 0.16.0
      */
     startSection: string;
     /**
      * When a section change, stinger or crossfade lands unless the call says otherwise. none: at once. beat: on the next beat (a dotted quarter in 6/8, 9/8, 12/8). bar: on the next bar line. section: when the current section pass ends (the loop wrap counts as the end of the loop).
-     * @since unreleased
+     * @since 0.16.0
      */
     quantize: "none" | "beat" | "bar" | "section";
     /**
      * When a change of `intensity` starts its layer fades. none: at once.
-     * @since unreleased
+     * @since 0.16.0
      */
     layerQuantize: "none" | "beat" | "bar" | "section";
     /**
      * Seconds a layer takes to fade in or out when intensity changes.
-     * @since unreleased
+     * @since 0.16.0
      */
     layerFade: number;
     /**
      * How far below its threshold a layer starts to fade in (0.25: a layer with threshold 0.5 begins at 0.25 and is full at 0.5). 0 switches layers at their thresholds.
-     * @since unreleased
+     * @since 0.16.0
      */
     layerRange: number;
     /**
      * Seconds of the equal-power crossfade between the old and the new position at a section jump.
-     * @since unreleased
+     * @since 0.16.0
      */
     transitionFade: number;
     /**
      * Length of the crossfade to another song, in bars of the outgoing song (so it follows its tempo).
-     * @since unreleased
+     * @since 0.16.0
      */
     crossfadeBars: number;
     /**
      * Runtime state: true while the song plays (or waits for its first section to land). Set true to play, false to stop.
-     * @since unreleased
+     * @since 0.16.0
      */
     playing: boolean;
     /**
      * Runtime state: the song is rendered or loaded. False while a live render is still working (play waits for it).
-     * @since unreleased
+     * @since 0.16.0
      */
     ready: boolean;
     /**
      * Runtime state: name of the section being played ("" when stopped).
-     * @since unreleased
+     * @since 0.16.0
      */
     section: string;
     /**
      * Runtime state: bar of the song being played, 1-based (0 when stopped).
-     * @since unreleased
+     * @since 0.16.0
      */
     bar: number;
     /**
      * Runtime state: beat of the bar, 1-based (0 when stopped).
-     * @since unreleased
+     * @since 0.16.0
      */
     beat: number;
     /**
      * Runtime state: quarter notes per minute of the song being played (0 when stopped).
-     * @since unreleased
+     * @since 0.16.0
      */
     tempo: number;
     /**
      * Runtime state: "live" or "stems", what `mode` resolved to for the song being played.
-     * @since unreleased
+     * @since 0.16.0
      */
     activeMode: string;
   }
