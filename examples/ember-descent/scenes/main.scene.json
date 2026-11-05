@@ -1,0 +1,94 @@
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "gravity2D": [0.0, 0.0],
+    "gravity3D": [0.0, -9.81, 0.0]
+  },
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Camera": {
+          "projection": "orthographic",
+          "clearColor": [0.08, 0.09, 0.14, 1],
+          "primary": true
+        }
+      }
+    },
+    {
+      "id": "dungeon",
+      "name": "Dungeon",
+      "components": {
+        "Script": {
+          "path": "scripts/dungeon.js",
+          "props": {
+            "runSeed": 2026
+          }
+        }
+      }
+    },
+    {
+      "id": "hud",
+      "name": "HUD",
+      "components": {
+        "Transform": {
+          "position": [24.0, 20.0, 0.0]
+        },
+        "Text": {
+          "text": "",
+          "layer": 200,
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "help",
+      "name": "Help",
+      "components": {
+        "Transform": {
+          "position": [24.0, -14.0, 0.0]
+        },
+        "Text": {
+          "text": "Arrows/WASD move   tap beside the hero to step   R replays this dungeon   Space starts a new one",
+          "fontSize": 18.0,
+          "color": [0.62, 0.68, 0.8, 1.0],
+          "pivot": [0.0, 0.0],
+          "layer": 200,
+          "space": "screen",
+          "anchor": [0.0, 1.0]
+        }
+      }
+    },
+    {
+      "id": "banner_bg",
+      "name": "Banner background",
+      "active": false,
+      "components": {
+        "Shape2D": {
+          "size": [920.0, 170.0],
+          "color": [0.02, 0.03, 0.05, 0.8],
+          "layer": 150,
+          "space": "screen",
+          "anchor": [0.5, 0.5]
+        }
+      }
+    },
+    {
+      "id": "banner",
+      "name": "Banner",
+      "components": {
+        "Text": {
+          "text": "",
+          "fontSize": 44.0,
+          "color": [1.0, 0.9, 0.4, 1.0],
+          "align": "center",
+          "pivot": [0.5, 0.5],
+          "layer": 201,
+          "space": "screen",
+          "anchor": [0.5, 0.5]
+        }
+      }
+    }
+  ]
+}

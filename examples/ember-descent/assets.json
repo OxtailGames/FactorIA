@@ -1,0 +1,60 @@
+{
+  "format": "factoria.assets/1",
+  "assets": {
+    "assets/tiles.png": {
+      "sheet": {
+        "columns": 3,
+        "rows": 1,
+        "frameWidth": 32,
+        "frameHeight": 32,
+        "frames": 3,
+        "clips": [
+          {
+            "name": "tiles",
+            "firstFrame": 0,
+            "lastFrame": 2,
+            "fps": 1.0,
+            "loop": false
+          }
+        ]
+      },
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria assets.animate_svg",
+        "license": "CC0-1.0",
+        "notes": "3 frames of 32x32 baked from module 'art/tiles.sheet.js'.",
+        "date": "2026-11-05",
+        "recipe": {
+          "command": "assets.animate_svg",
+          "args": {
+            "path": "assets/tiles.png",
+            "fps": 1.0,
+            "loop": false,
+            "columns": 3,
+            "frameWidth": 32,
+            "frameHeight": 32,
+            "padding": 0,
+            "seed": 0,
+            "overwrite": true,
+            "source": "art/tiles.sheet.js",
+            "frames": 3,
+            "timeLimitMs": 2000,
+            "ai": false,
+            "author": "FactorIA",
+            "license": "CC0-1.0"
+          },
+          "inputs": [
+            {
+              "path": "art/tiles.sheet.js",
+              "sha256": "3fad38a52f3410e3450fa0b86d178a6ad91c55e37d8b26124c8b847fcde7a9d9"
+            }
+          ]
+        },
+        "author": "FactorIA",
+        "source": "art/tiles.sheet.js"
+      }
+    }
+  }
+}
