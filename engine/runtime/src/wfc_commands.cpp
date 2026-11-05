@@ -27,9 +27,9 @@ namespace {
 
 constexpr int kDefaultMaxAttempts = 10;
 constexpr int kDefaultConstraintAttempts = 50;                         // with constraints or reachability a refused grid is common: more attempts
-constexpr long long kDefaultMaxWork = 400'000'000;                     // units of solver work (wfc::Generator::step) over all attempts
+constexpr long long kDefaultMaxWork = 600'000'000;                     // units of work (wfc::GenStats::work) over all attempts: the cap a result depends on (about 16 s of Debug CPU)
 constexpr long long kMaxWorkLimit = 100'000'000'000;
-constexpr double kDefaultMaxSeconds = 20.0;                            // CPU seconds of the process
+constexpr double kDefaultMaxSeconds = 120.0;                           // CPU seconds of the process: a safety net far above what kDefaultMaxWork takes, even on a slow machine
 constexpr double kMaxSecondsLimit = 600.0;
 constexpr std::int64_t kStepWork = 1 << 16;                            // work per step() call: the caps are checked between calls
 constexpr std::size_t kReachPaths = 16;                                // paths the reachability report lists
@@ -463,6 +463,9 @@ Constraints parse_constraints(const Json& a, const ModelView& mv, int width, int
         const int index = y * width + x;
         auto it = cells.find(index);
         if (it == cells.end()) {
+            if (cells.size() >= wfc::kMaxCellRules)
+                bad_arg(pointer + ": more than " + std::to_string(wfc::kMaxCellRules) + " cells are fixed (the limit of one level; each costs work on every attempt)",
+                        "Fix only what the level needs (an entrance, an exit, a border or a small rect) and let the sample fill the rest.");
             cells[index] = Fixed{std::set<int>(refs.symbols.begin(), refs.symbols.end()), pointer, refs.label, border};
             return;
         }
@@ -532,13 +535,14 @@ Constraints parse_constraints(const Json& a, const ModelView& mv, int width, int
                         (other.empty() ? std::string() : " at " + other),
                     "Remove it from `forbidden` or fix the cell to another tile.");
         }
-        out.cellRules.push_back({x, y, allowed});
+        out.cellRules.push_back({x, y, allowed, kv.second.pointer});
     }
     out.fixedCells = int(cells.size());
     out.forbidden.assign(forbidden.begin(), forbidden.end());
 
     // Counts: `required` is a minimum of one, `counts` says min and max.
     long long sumMin = 0;
+    const long long cellsTotal = static_cast<long long>(width) * height;
     std::vector<std::pair<std::set<int>, std::string>> minSets;
     auto add_count = [&](const TileRefs& refs, long long mn, long long mx, const std::string& at) {
         std::vector<int> usable;
@@ -549,8 +553,9 @@ Constraints parse_constraints(const Json& a, const ModelView& mv, int width, int
                     "Remove it from `forbidden`, or from `required` / `counts`.");
         wfc::CountRule rule;
         rule.symbols = refs.symbols;
-        rule.min = int(mn);
-        rule.max = mx < 0 ? -1 : int(mx);
+        // Both fit the output (a minimum above it was refused by the caller); a maximum above it is the same as no maximum.
+        rule.min = int(std::min(mn, cellsTotal));
+        rule.max = mx < 0 ? -1 : int(std::min(mx, cellsTotal));
         rule.name = refs.label + " (" + at + ")";
         out.counts.push_back(rule);
         out.countLabels.push_back(refs.label);
@@ -559,7 +564,6 @@ Constraints parse_constraints(const Json& a, const ModelView& mv, int width, int
             minSets.push_back({std::set<int>(refs.symbols.begin(), refs.symbols.end()), at});
         }
     };
-    const long long cellsTotal = static_cast<long long>(width) * height;
     if (const Json* r = list_of("required"))
         for (std::size_t i = 0; i < r->size(); ++i) {
             const std::string at = base + "/required/" + std::to_string(i);
@@ -609,6 +613,14 @@ struct ReachSpec {
     std::vector<int> solid;                     // tile indices that block
     std::vector<std::pair<int, float>> costs;   // tile index -> cost override (< 0 blocks), sorted
 };
+
+// The cost of entering a tile index: solid tiles block (-1), everything else costs 1, and `costs` overrides either per tile index.
+float tile_cost(const ReachSpec& spec, int idx) {
+    float cost = std::find(spec.solid.begin(), spec.solid.end(), idx) != spec.solid.end() ? -1.0f : 1.0f;
+    auto o = std::lower_bound(spec.costs.begin(), spec.costs.end(), std::make_pair(idx, -std::numeric_limits<float>::infinity()));
+    if (o != spec.costs.end() && o->first == idx) cost = o->second;
+    return cost;
+}
 
 ReachSpec parse_reachability(const Json& a, const ModelView& mv, const SampleData& sample, const Tilemap* into, const Constraints& cons, int width, int height) {
     ReachSpec spec;
@@ -664,6 +676,7 @@ ReachSpec parse_reachability(const Json& a, const ModelView& mv, const SampleDat
     for (const Json& j : *solid) {
         long long v = 0;
         if (!whole_number(j, v)) bad_arg(base + "/solidTiles: tile numbers only, got " + describe_json_value(j));
+        if (v < -1 || v > std::numeric_limits<int>::max()) bad_arg(base + "/solidTiles: the tile number " + std::to_string(v) + " is out of range", "Tile numbers are 0 or more (-1 is the empty cell).");
         spec.solid.push_back(tile_index(int(v)));
     }
     if (r.contains("costs")) {
@@ -685,12 +698,12 @@ ReachSpec parse_reachability(const Json& a, const ModelView& mv, const SampleDat
 
     // A cell that is fixed to a blocking tile cannot be a start or a goal.
     if (!mv.tiled) {
-        std::set<int> solidSet(spec.solid.begin(), spec.solid.end());
+        // Blocked as nav.find_tile_path sees it: a solid tile is walkable again when `costs` gives it a cost.
         auto fixed_solid = [&](int x, int y) {
             for (const wfc::CellRule& rule : cons.cellRules) {
                 if (rule.x != x || rule.y != y) continue;
                 for (int s : rule.allowed)
-                    if (!solidSet.count(tile_index(mv.tile_of(s)))) return false;
+                    if (tile_cost(spec, tile_index(mv.tile_of(s))) >= 0.0f) return false;
                 return true;
             }
             return false;
@@ -714,11 +727,7 @@ NavTileGrid nav_grid_of(const ReachSpec& spec, int width, int height, const std:
     g.height = height;
     g.cost.resize(tiles.size());
     for (std::size_t i = 0; i < tiles.size(); ++i) {
-        const int idx = tile_index(tiles[i]);
-        float cost = std::find(spec.solid.begin(), spec.solid.end(), idx) != spec.solid.end() ? -1.0f : 1.0f;
-        auto o = std::lower_bound(spec.costs.begin(), spec.costs.end(), std::make_pair(idx, -std::numeric_limits<float>::infinity()));
-        if (o != spec.costs.end() && o->first == idx) cost = o->second;
-        g.cost[i] = cost;
+        g.cost[i] = tile_cost(spec, tile_index(tiles[i]));
     }
     return g;
 }
@@ -734,8 +743,12 @@ std::string cell_text(int x, int y) { return "(" + std::to_string(x) + ", " + st
 // Is the level playable: the start reaches every goal, and (allConnected) all walkable cells form one area. `tiles` is what the
 // level will hold (after re-tiling), `symbols` the generator's own cells. The walk follows nav.find_tile_path: 4-way or 8-way
 // without cutting corners, a cell with a negative cost blocks.
-ReachResult check_reachability(const ReachSpec& spec, int width, int height, const std::vector<int>& tiles, const std::vector<int>& symbols) {
+// `work` gets the deterministic cost: one unit per cell for the cost grid, one for the flood fill, one for the goal scan and
+// one per cell of the grid for each path searched (the search is bounded by the grid).
+ReachResult check_reachability(const ReachSpec& spec, int width, int height, const std::vector<int>& tiles, const std::vector<int>& symbols, std::int64_t& work) {
     ReachResult res;
+    const std::int64_t gridCells = std::int64_t(width) * height;
+    work += 2 * gridCells;
     const NavTileGrid grid = nav_grid_of(spec, width, height, tiles);
     const std::size_t total = grid.cost.size();
     auto at = [&](int x, int y) { return std::size_t(y) * std::size_t(width) + std::size_t(x); };
@@ -818,6 +831,7 @@ ReachResult check_reachability(const ReachSpec& spec, int width, int height, con
     // Goals: explicit cells first, then every cell holding a goal tile, top to bottom.
     std::vector<std::pair<int, int>> goals = spec.toCells;
     if (!spec.toSymbols.empty()) {
+        work += gridCells;
         std::set<int> want(spec.toSymbols.begin(), spec.toSymbols.end());
         for (int y = 0; y < height; ++y)
             for (int x = 0; x < width; ++x)
@@ -839,9 +853,13 @@ ReachResult check_reachability(const ReachSpec& spec, int width, int height, con
             continue;
         }
         if (paths.size() < kReachPaths) {
+            work += gridCells;
             const NavTilePath path = nav_find_tile_path(grid, spec.fromX, spec.fromY, gx, gy, nopt);
+            // The cost is a float sum: rounded, so the report does not differ in the last digit between compilers.
             if (path.found)
-                paths.push_back(Json::object({{"to", Json::array({gx, gy})}, {"steps", path.cells.empty() ? 0 : path.cells.size() - 1}, {"cost", path.cost}}));
+                paths.push_back(Json::object({{"to", Json::array({gx, gy})},
+                                              {"steps", path.cells.empty() ? 0 : path.cells.size() - 1},
+                                              {"cost", std::round(double(path.cost) * 1000.0) / 1000.0}}));
         }
     }
     report["goals"] = goals.size();
@@ -897,13 +915,14 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
          "block] (default: those of `into` or of the sample), costs:{tile: cost|null}, diagonals}. It uses the rules of nav.find_tile_path, on the finished "
          "level; a grid that fails restarts with the next derived seed, so the level you get is playable. The report lists walkable cells, the cells and "
          "areas that were cut off (a few rects) and the path length to each goal. Everything derives from `seed`, never the clock. "
-         "LIMITS OF TIME: `maxWork` (default 400000000 units over all attempts) and `maxSeconds` (default 20 CPU seconds, not wall clock) stop a level "
+         "LIMITS: `maxWork` (default 600000000 units of work over all attempts, counted the same on every machine: it is what decides whether a level is too big) "
+         "and `maxSeconds` (default 120, a safety net: CPU seconds of the whole process counting every thread; on the web build wall-clock seconds) stop a level "
          "that cannot be solved with a teaching error. Returns {model, width, height, seed, rows?, legend, "
          "counts: {glyph: cells}, into?, warnings?, sample: {source, width, height}, constraints?: {fixedCells, forbiddenTiles, counts: [{tile, found, min?, max?}], "
          "pinnedCells}, reachability?, stats: {attempts, contradictions, rejected, patterns, cells, observations, propagations, work, pinned, ms, memoryBytes, "
          "peakBytes}}. The level and the counters (attempts, work...) are the same on every machine; stats.ms (the time it took), memoryBytes and peakBytes (bytes: they depend on the compiler and standard library) are not part of the determinism promise. "
          "Limits: output sides up to 2048, sample up to 262144 cells, 20000 patterns, "
-         "about 256 MB of solver memory (the error says what to shrink). Example: tilemap.generate {\"sample\":[\"........\",\"..##....\",\"..##..#.\","
+         "about 256 MB of solver memory (checked first, before anything is built for the constraints; the error says what to shrink), 65536 fixed cells. Example: tilemap.generate {\"sample\":[\"........\",\"..##....\",\"..##..#.\","
          "\"......#.\",\"..#.....\",\"........\"],\"legend\":{\"#\":0},\"size\":[32,20],\"seed\":7,\"n\":3,\"symmetry\":8,"
          "\"constraints\":{\"border\":{\"tile\":\"#\"},\"fixed\":[{\"at\":[1,1],\"tile\":\".\"}]},\"reachability\":{\"from\":[1,1],\"allConnected\":true,\"solidTiles\":[0]}}",
          parse_schema(R"json({"type":"object","required":["size"],"properties":{
@@ -918,8 +937,8 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
                "periodic":{"type":"boolean","default":false,"description":"The output wraps around its edges (a tileable level). Also lets the sample wrap unless periodicInput is given."},
                "periodicInput":{"type":"boolean","description":"The sample wraps around its edges (patterns cross them). Default: the value of `periodic`."},
                "maxAttempts":{"type":"integer","default":10,"minimum":1,"maximum":1000,"description":"Attempts before giving up: a dead end (or a grid that breaks a constraint or is not reachable) restarts with the next derived seed. Default 10, 50 with constraints or reachability."},
-               "maxWork":{"type":"integer","default":400000000,"minimum":1,"maximum":100000000000,"description":"Cap on the solver's work over all attempts (stats.work of an earlier run shows what a level needs). Hit it and the call fails with how to shrink the level or raise the cap."},
-               "maxSeconds":{"type":"number","default":20,"exclusiveMinimum":0,"maximum":600,"description":"Cap on the CPU seconds (not wall clock) the generator may use over all attempts."},
+               "maxWork":{"type":"integer","default":600000000,"minimum":1,"maximum":100000000000,"description":"Cap on the work (stats.work of an earlier run shows what a level needs: pattern removals and the adjacency they touch, cells observed, the fixed cells and the reachability check) over all attempts. It counts the same on every machine, so a level either always fits or never does. Hit it and the call fails with how to shrink the level or raise the cap."},
+               "maxSeconds":{"type":"number","default":120,"exclusiveMinimum":0,"maximum":600,"description":"Safety net on the CPU seconds the process may spend on this call (all threads count; the web build counts wall-clock seconds). The cap a result depends on is maxWork: this one only stops a machine that is far slower than expected."},
                "constraints":{"type":"object","description":"Rules the level must follow. fixed: [{at:[x,y] | rect:[x,y,w,h], tile}] pins cells; border: {tile, thickness (default 1)}; forbidden: [tile]; required: [tile] (at least one each); counts: [{tile, min?, max?}]. A tile is a glyph of an ASCII sample, a tile number (-1 = empty) or a terrain name (tiled); a list = any of them. Contradictions are reported before generating, with the JSON pointer.","properties":{"fixed":{"type":"array","items":{"type":"object"}},"border":{"type":"object"},"forbidden":{"type":"array"},"required":{"type":"array"},"counts":{"type":"array","items":{"type":"object"}}}},
                "reachability":{"type":"object","description":"The level must be playable: {from:[x,y], to:[x,y] | [[x,y]...], toTiles:[tile] (every cell with one must be reachable), allConnected:true, solidTiles:[tile numbers that block] (default: Tilemap.solidTiles of `into`, then of the sample), costs:{tile:cost|null}, diagonals:bool}. Same walking rules as nav.find_tile_path. A grid that fails restarts with the next derived seed. The result's `reachability` reports unreachable cells and areas and the path lengths.","properties":{"from":{"type":"array","items":{"type":"integer"}},"to":{"type":"array"},"toTiles":{"type":["array","string","integer"]},"allConnected":{"type":"boolean"},"solidTiles":{"type":"array","items":{"type":"integer"}},"costs":{"type":"object"},"diagonals":{"type":"boolean"}}},
                "into":{"type":"string","description":"Id of an entity with a Tilemap to write the result into (its tiles, width and height are replaced; tileset, tileSize and solidTiles stay). RUNNING world only."},
@@ -953,11 +972,11 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
             long long maxWork = kDefaultMaxWork;
             if (a.contains("maxWork") && (!whole_number(a["maxWork"], maxWork) || maxWork < 1 || maxWork > kMaxWorkLimit))
                 bad_arg("'maxWork' must be a whole number between 1 and " + std::to_string(kMaxWorkLimit) + ", got " + describe_json_value(a["maxWork"]),
-                        "It caps the solver's work over all attempts (units: about one per cell collapsed or pattern removed; `stats.work` of an earlier run shows what a level needs). Default " + std::to_string(kDefaultMaxWork) + ".");
+                        "It caps the work over all attempts (units: about one step of the inner loops; `stats.work` of an earlier run shows what a level needs). Default " + std::to_string(kDefaultMaxWork) + ".");
             double maxSeconds = kDefaultMaxSeconds;
             if (a.contains("maxSeconds") && (!a["maxSeconds"].is_number() || a["maxSeconds"].get<double>() <= 0.0 || a["maxSeconds"].get<double>() > kMaxSecondsLimit))
                 bad_arg("'maxSeconds' must be a number of CPU seconds above 0 and up to " + std::to_string(int(kMaxSecondsLimit)) + ", got " + describe_json_value(a["maxSeconds"]),
-                        "It caps the CPU time (not the wall clock) the generator may use over all attempts. Default " + std::to_string(int(kDefaultMaxSeconds)) + ".");
+                        "It is a safety net on the CPU time of the process (all threads; wall clock on the web build). `maxWork` is the cap that decides. Default " + std::to_string(int(kDefaultMaxSeconds)) + ".");
             if (a.contains("maxSeconds")) maxSeconds = a["maxSeconds"].get<double>();
             const bool periodic = bool_arg(a, "periodic", false);
             const bool periodicInput = bool_arg(a, "periodicInput", periodic);
@@ -1081,6 +1100,11 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
                 symbolTile = built->tileValues;
             }
 
+            // ---- the size first: nothing below allocates per cell or per fixed cell before the memory estimate is known to fit
+            // (the reachability check holds a few grids of its own: tiles, costs, areas, a queue, about 32 bytes a cell)
+            const std::uint64_t reachBytes = a.contains("reachability") ? std::uint64_t(width) * std::uint64_t(height) * 32u : 0u;
+            if (auto fits = wfc::check_generator_memory(*patternModel, width, height, periodic, reachBytes); !fits.ok()) throw_error(fits.error());
+
             // ---- constraints and reachability (checked against the model before anything is generated)
             ModelView view;
             view.tiled = tiled;
@@ -1113,10 +1137,12 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
             go.forbidden = cons.forbidden;
             go.cellRules = cons.cellRules;
             go.counts = cons.counts;
+            go.maxWork = maxWork;
             Json reachReport;
             if (reach.enabled)
-                go.accept = [&](const std::vector<int>& symbols, std::string& why) {
-                    ReachResult r = check_reachability(reach, width, height, tiles_of(symbols), symbols);
+                go.accept = [&](const std::vector<int>& symbols, std::string& why, std::int64_t& work) {
+                    work += std::int64_t(width) * height;   // tiles_of
+                    ReachResult r = check_reachability(reach, width, height, tiles_of(symbols), symbols, work);
                     reachReport = r.report;
                     why = r.why;
                     return r.ok;
@@ -1125,29 +1151,28 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
             if (!gen.ok()) throw_error(gen.error());
             wfc::Generator& g = **gen;
 
-            // Stepped, not run(): the work and CPU caps are checked between steps so a level that cannot be solved ends with an
-            // error that says how to shrink it, instead of running for minutes.
+            // Stepped, not run(): the CPU safety cap is checked between steps. The cap a result depends on is `maxWork` (inside the
+            // generator): it counts deterministic units, so the same arguments end the same way on a fast and on a slow machine.
             const double cpuStart = process_cpu_seconds();
             wfc::GenStatus status = wfc::GenStatus::Running;
-            // A step never goes far past the cap: the last one is only as big as the work that is left.
-            std::int64_t done = 0;
-            while ((status = g.step(std::max<std::int64_t>(1, std::min<std::int64_t>(kStepWork, maxWork - done + 1)))) == wfc::GenStatus::Running) {
-                done = g.stats().work;
+            auto budget_error = [&](bool overWork, double cpu) {
                 const wfc::GenStats& so = g.stats();
-                const double cpu = process_cpu_seconds() - cpuStart;
-                const bool overWork = so.work > maxWork;
-                if (!overWork && cpu <= maxSeconds) continue;
                 const std::string size = std::to_string(width) + " x " + std::to_string(height) + " output, " + std::to_string(so.cells) + " solver cells, " +
                                          std::to_string(so.patterns) + " patterns" + (tiled ? "" : ", n " + std::to_string(n) + ", symmetry " + std::to_string(symmetry));
-                throw CommandError(
+                return CommandError(
                     "budget_exceeded",
                     "tilemap.generate stopped after " + std::to_string(so.attempts) + " attempt(s) (" + std::to_string(so.contradictions) + " dead ends, " + std::to_string(so.rejected) +
                         " refused): it used " + std::to_string(so.work) + " units of work (`maxWork` " + std::to_string(maxWork) + ") and " + one_decimal(cpu) +
-                        " CPU seconds (`maxSeconds` " + one_decimal(maxSeconds) + ") for a " + size + ".",
-                    std::string(overWork ? "The work cap was hit. " : "The CPU time cap was hit. ") +
+                        " CPU seconds (`maxSeconds` " + one_decimal(maxSeconds) + ", counting every thread of the process) for a " + size + ".",
+                    std::string(overWork ? "The work cap was hit. " : "The CPU time safety cap was hit (the machine is very slow or busy). ") +
                         "Make the level smaller (`size`), use a smaller `n` or `symmetry` 1 (fewer patterns), a simpler sample, or fewer constraints; "
                         "or raise `" + (overWork ? "maxWork" : "maxSeconds") + "` (up to " + (overWork ? std::to_string(kMaxWorkLimit) : std::to_string(int(kMaxSecondsLimit))) + ") if you accept the wait.");
+            };
+            while ((status = g.step(kStepWork)) == wfc::GenStatus::Running) {
+                const double cpu = process_cpu_seconds() - cpuStart;
+                if (cpu > maxSeconds) throw budget_error(false, cpu);
             }
+            if (status == wfc::GenStatus::Failed && g.failure().workLimit) throw budget_error(true, process_cpu_seconds() - cpuStart);
             if (status != wfc::GenStatus::Done) throw CommandError("generation_failed", g.failure_message(), g.failure_hint());
 
             // ---- the result as tiles and glyphs

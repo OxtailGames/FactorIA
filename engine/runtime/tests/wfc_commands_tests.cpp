@@ -2,6 +2,8 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -553,6 +555,79 @@ TEST_CASE("tilemap.generate: maxWork and maxSeconds stop a level with an error t
     auto ok = s.call("tilemap.generate", dungeon_call(R"("seed":1,"maxWork":100000000,"maxSeconds":60)"));
     CHECK_MESSAGE(ok.ok, error_text(ok));
     CHECK(ok.result["stats"]["work"].get<long long>() > 0);
+}
+
+TEST_CASE("tilemap.generate: the work cap is deterministic and a size or fixed rect that does not fit fails fast") {
+    Session s;
+    // The same arguments end the same way (the same units of work), whatever the speed of the machine.
+    auto a = s.call("tilemap.generate", dungeon_call(R"("seed":1,"size":[40,30],"maxWork":3000)"));
+    auto b = s.call("tilemap.generate", dungeon_call(R"("seed":1,"size":[40,30],"maxWork":3000)"));
+    REQUIRE_FALSE(a.ok);
+    CHECK(a.error["code"] == "budget_exceeded");
+    CHECK(error_text(a) == error_text(b));
+    CHECK(contains(error_text(a), "work cap"));
+
+    // 2048 x 2048 with a fixed rect of the whole level: the memory estimate comes before any per-cell work.
+    const auto t0 = std::chrono::steady_clock::now();
+    auto huge = s.call("tilemap.generate", dungeon_call(R"("size":[2048,2048],"seed":1,"constraints":{"fixed":[{"rect":[0,0,2048,2048],"tile":"."}]})"));
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    REQUIRE_FALSE(huge.ok);
+    CHECK_MESSAGE(contains(error_text(huge), "MB"), error_text(huge));
+    CHECK_MESSAGE(ms < 5000.0, "took " << ms << " ms");
+
+    // A level that fits in memory but fixes more cells than one level may: the limit names the pointer.
+    auto many = s.call("tilemap.generate", dungeon_call(R"("size":[270,270],"seed":1,"constraints":{"fixed":[{"rect":[0,0,270,270],"tile":"."}]})"));
+    REQUIRE_FALSE(many.ok);
+    CHECK_MESSAGE(contains(error_text(many), "/constraints/fixed/0"), error_text(many));
+    CHECK_MESSAGE(contains(error_text(many), "fixed"), error_text(many));
+}
+
+TEST_CASE("tilemap.generate constraints: numbers that do not fit an int are clamped or refused, not wrapped") {
+    Session s;
+    // A maximum of 2^32 is "no maximum": it must not wrap around to 0 and forbid the tile.
+    auto big = s.call("tilemap.generate", dungeon_call(R"("seed":1,"constraints":{"counts":[{"tile":"E","max":4294967296}]})"));
+    CHECK_MESSAGE(big.ok, error_text(big));
+    // A minimum above the output is refused.
+    auto minimum = s.call("tilemap.generate", dungeon_call(R"("seed":1,"constraints":{"counts":[{"tile":"E","min":4294967295}]})"));
+    REQUIRE_FALSE(minimum.ok);
+    CHECK_MESSAGE(contains(error_text(minimum), "/constraints/counts/0"), error_text(minimum));
+    auto minimum2 = s.call("tilemap.generate", dungeon_call(R"("seed":1,"constraints":{"counts":[{"tile":"E","min":4294967296}]})"));
+    REQUIRE_FALSE(minimum2.ok);
+    auto solid = s.call("tilemap.generate", dungeon_call(R"("seed":1,"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[4294967296]})"));
+    REQUIRE_FALSE(solid.ok);
+    CHECK_MESSAGE(contains(error_text(solid), "/reachability/solidTiles"), error_text(solid));
+}
+
+TEST_CASE("tilemap.generate constraints: contradictions name the rule, and `required` against `max: 0` is found before generating") {
+    Session s;
+    auto r = s.call("tilemap.generate", dungeon_call(R"("seed":1,"constraints":{"required":["$"],"counts":[{"tile":"$","max":0}]})"));
+    REQUIRE_FALSE(r.ok);
+    const std::string t = error_text(r);
+    const bool named = contains(t, "/constraints/required/0") || contains(t, "/constraints/counts/0");
+    CHECK_MESSAGE(named, t);
+    CHECK_MESSAGE(contains(t, "capped at 0"), t);
+
+    auto fixedForbidden = s.call("tilemap.generate", dungeon_call(R"("seed":1,"constraints":{"fixed":[{"at":[2,2],"tile":"E"}],"counts":[{"tile":"E","max":0}]})"));
+    REQUIRE_FALSE(fixedForbidden.ok);
+    CHECK_MESSAGE(contains(error_text(fixedForbidden), "/constraints/fixed/0"), error_text(fixedForbidden));
+}
+
+TEST_CASE("tilemap.generate reachability: a solid tile with a cost override is walkable, and path costs are rounded") {
+    Session s;
+    // The start is fixed to a wall: refused while the wall blocks...
+    auto blocked = s.call("tilemap.generate", dungeon_call(R"("seed":1,"constraints":{"fixed":[{"at":[1,1],"tile":"#"}]},"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[0]})"));
+    REQUIRE_FALSE(blocked.ok);
+    CHECK_MESSAGE(contains(error_text(blocked), "blocks the way"), error_text(blocked));
+    // ...and fine when `costs` makes the tile walkable, exactly as nav.find_tile_path reads the finished level.
+    auto walkable = s.call("tilemap.generate", dungeon_call(R"("seed":1,"constraints":{"fixed":[{"at":[1,1],"tile":"#"}]},"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[0],"costs":{"0":2.3333333}})"));
+    CHECK_MESSAGE(walkable.ok, error_text(walkable));
+    auto paths = s.call("tilemap.generate", dungeon_call(R"("seed":2,"constraints":{"required":["$"]},"reachability":{"from":[1,1],"toTiles":["$"],"solidTiles":[0],"costs":{"1":1.1111111}})"));
+    REQUIRE_MESSAGE(paths.ok, error_text(paths));
+    REQUIRE(paths.result["reachability"].contains("paths"));
+    for (const Json& p : paths.result["reachability"]["paths"]) {
+        const double cost = p["cost"].get<double>();
+        CHECK(cost == doctest::Approx(std::round(cost * 1000.0) / 1000.0).epsilon(1e-12));
+    }
 }
 
 TEST_CASE("tilemap.generate: model must be text, and n and symmetry are ignored by the tiled model") {

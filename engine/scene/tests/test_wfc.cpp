@@ -358,7 +358,7 @@ TEST_CASE("wfc: cell rules fix cells and the accept hook can refuse a finished g
     need.height = 14;
     need.seed = 2;
     need.maxAttempts = 400;
-    need.accept = [](const std::vector<int>& cells, std::string& why) {
+    need.accept = [](const std::vector<int>& cells, std::string& why, std::int64_t&) {
         int walls = 0;
         for (int c : cells) walls += c == 1;
         if (walls >= 30) return true;
@@ -380,7 +380,7 @@ TEST_CASE("wfc: cell rules fix cells and the accept hook can refuse a finished g
     never.width = 10;
     never.height = 10;
     never.maxAttempts = 3;
-    never.accept = [](const std::vector<int>&, std::string& why) {
+    never.accept = [](const std::vector<int>&, std::string& why, std::int64_t&) {
         why = "not enough treasure";
         return false;
     };
@@ -638,6 +638,7 @@ TEST_CASE("wfc constraints: contradictions are reported before generating") {
     auto model = overlapping(kRooms, 3, 1, false);
     auto refused = [&](wfc::GenerateOptions go, const char* part) {
         auto g = wfc::Generator::create(model, go);
+        INFO("expected: " << std::string(part));
         REQUIRE_FALSE(g.ok());
         const std::string text = g.error().message + " | " + g.error().hint;
         CHECK_MESSAGE(text.find(part) != std::string::npos, text);
@@ -656,13 +657,13 @@ TEST_CASE("wfc constraints: contradictions are reported before generating") {
         auto go = options_for(20, 14, 1);
         go.cellRules.push_back({0, 0, {1}});
         go.forbidden = {1};
-        refused(go, "only forbidden");
+        refused(go, "only barred tiles");
     }
     {
         auto go = options_for(20, 14, 1);
         go.cellRules.push_back({0, 0, {1}});
         go.cellRules.push_back({0, 0, {0}});
-        refused(go, "no symbol in common");
+        refused(go, "shares no tile");
     }
     {
         auto go = options_for(20, 14, 1);
@@ -677,6 +678,42 @@ TEST_CASE("wfc constraints: contradictions are reported before generating") {
         refused(go, "only 2 cells can hold it");
     }
     {
+        auto go = options_for(20, 14, 1);  // `required` against a `max: 0` of the same tile
+        go.counts.push_back({{1}, 1, -1, "/constraints/required/0"});
+        go.counts.push_back({{1}, 0, 0, "/constraints/counts/0"});
+        refused(go, "capped at 0 by Count rule 1 (/constraints/counts/0)");
+    }
+    {
+        auto go = options_for(20, 14, 1);  // a minimum above another rule's maximum over the same tiles
+        go.counts.push_back({{1}, 6, -1, "/constraints/counts/0"});
+        go.counts.push_back({{0, 1}, 0, 4, "/constraints/counts/1"});
+        refused(go, "allows at most 4");
+    }
+    {
+        // 'o' is shown only in the bottom-right corner of a window: in a level that does not wrap it can only be the last cell.
+        auto corner = overlapping({"...", "...", "..o"}, 2, 1, false);
+        auto go = options_for(10, 6, 1);
+        go.cellRules.push_back({0, 0, {1}, "/constraints/fixed/0"});
+        auto g = wfc::Generator::create(corner, go);
+        REQUIRE_FALSE(g.ok());
+        CHECK(g.error().message.find("no pattern of the model can put it there") != std::string::npos);
+        CHECK(g.error().message.find("/constraints/fixed/0") != std::string::npos);
+        go.cellRules[0].x = 9;
+        go.cellRules[0].y = 5;
+        CHECK(wfc::Generator::create(corner, go).ok());
+    }
+    {
+        // 'o' is only ever shown between two '#': forbidding '#' leaves no pattern that can hold it.
+        auto flanked = overlapping({"........", "..#o#...", "........"}, 2, 1, false);
+        auto go = options_for(10, 6, 1);
+        go.cellRules.push_back({4, 3, {2}, "/constraints/fixed/0"});
+        go.forbidden = {1};
+        auto g = wfc::Generator::create(flanked, go);
+        REQUIRE_FALSE(g.ok());
+        CHECK(g.error().message.find("also holds a forbidden tile") != std::string::npos);
+        CHECK(g.error().message.find("/constraints/fixed/0") != std::string::npos);
+    }
+    {
         auto go = options_for(20, 14, 1);  // the symbol exists in the grammar of the model but no pattern holds it
         auto m2 = std::make_shared<wfc::PatternModel>(*model);
         m2->symbolCount = 3;
@@ -685,4 +722,85 @@ TEST_CASE("wfc constraints: contradictions are reported before generating") {
         REQUIRE_FALSE(g.ok());
         CHECK(g.error().message.find("no pattern of the model holds it") != std::string::npos);
     }
+}
+
+// ------------------------------------------------------------------------------------------------ work cap and memory (M63.2 fixes)
+
+TEST_CASE("wfc work: maxWork ends a run at the same point however the steps are sized") {
+    auto model = overlapping(kMap16, 3, 1, true);
+    auto make = [&](std::int64_t maxWork) {
+        auto go = options_for(64, 64, 5, 10);
+        go.periodic = true;
+        go.maxWork = maxWork;
+        return make_generator(model, go);
+    };
+    // Completed runs: the same output and work with small and big steps.
+    auto whole = make(0);
+    REQUIRE(whole->run() == wfc::GenStatus::Done);
+    auto small = make(0);
+    while (small->step(7) == wfc::GenStatus::Running) {
+    }
+    CHECK(small->status() == wfc::GenStatus::Done);
+    CHECK(small->output() == whole->output());
+    CHECK(small->stats().work == whole->stats().work);
+    CHECK(whole->stats().work > 4096);
+
+    // A cap below what the level needs: the same failure whichever way it is stepped.
+    const std::int64_t cap = whole->stats().work / 2;
+    auto a = make(cap);
+    CHECK(a->run() == wfc::GenStatus::Failed);
+    auto b = make(cap);
+    while (b->step(1) == wfc::GenStatus::Running) {
+    }
+    CHECK(b->status() == wfc::GenStatus::Failed);
+    CHECK(a->failure().workLimit);
+    CHECK(b->failure().workLimit);
+    CHECK(a->stats().work == b->stats().work);
+    CHECK(a->stats().work > cap);
+    CHECK(a->failure_message().find("work limit") != std::string::npos);
+    CHECK(a->failure_hint().find("work limit") != std::string::npos);
+
+    // A cap that is enough does not change the result.
+    auto enough = make(whole->stats().work);
+    REQUIRE(enough->run() == wfc::GenStatus::Done);
+    CHECK(enough->output() == whole->output());
+}
+
+TEST_CASE("wfc work: accept's own cost counts toward maxWork") {
+    auto model = overlapping(kRooms, 3, 1, false);
+    auto go = options_for(20, 14, 1, 1000);
+    go.maxWork = 100000;
+    int calls = 0;
+    go.accept = [&](const std::vector<int>&, std::string& why, std::int64_t& work) {
+        ++calls;
+        work += 50000;   // an expensive check
+        why = "never good enough";
+        return false;
+    };
+    auto g = make_generator(model, go);
+    CHECK(g->run() == wfc::GenStatus::Failed);
+    CHECK(g->failure().workLimit);
+    CHECK(calls >= 1);
+    CHECK(calls < 10);   // the cap stopped the retries long before maxAttempts
+}
+
+TEST_CASE("wfc memory: the estimate saturates and is checked before anything is allocated") {
+    auto model = overlapping(kMap16, 3, 1, true);
+    const std::uint64_t huge = wfc::estimate_generator_memory(*model, 2000000000, 2000000000, true);
+    CHECK(huge > wfc::kWfcMemoryBudget);
+    CHECK(huge >= wfc::estimate_generator_memory(*model, 2048, 2048, true));
+    auto checked = wfc::check_generator_memory(*model, 2048, 2048, false);
+    REQUIRE_FALSE(checked.ok());
+    CHECK(checked.error().message.find("MB") != std::string::npos);
+    CHECK(checked.error().hint.find(" x ") != std::string::npos);
+    CHECK(wfc::check_generator_memory(*model, 64, 64, true).ok());
+    // The extra the caller holds counts.
+    CHECK_FALSE(wfc::check_generator_memory(*model, 64, 64, true, wfc::kWfcMemoryBudget).ok());
+
+    // A huge number of fixed cells is refused by create() fast, without a per-cell map.
+    auto go = options_for(256, 256, 1);
+    for (int i = 0; i < 70000; ++i) go.cellRules.push_back({i % 256, (i / 256) % 256, {0}});
+    auto g = wfc::Generator::create(model, go);
+    REQUIRE_FALSE(g.ok());
+    CHECK(g.error().message.find("cells are fixed") != std::string::npos);
 }
