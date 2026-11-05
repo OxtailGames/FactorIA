@@ -913,8 +913,14 @@ void register_builtin_components(TypeRegistry& r) {
                "`lit` itself to cast. Default false.");
 
     r.add<ParticleEmitter>("ParticleEmitter",
-                           "Emits short-lived particles (smoke, sparks, explosions). Particles interpolate size and color "
-                           "over their lifetime.",
+                           "Emits short-lived particles (smoke, sparks, explosions, fire, trails). Particles interpolate size and color "
+                           "over their lifetime, or follow a colour gradient and curves for size, speed and alpha; they can turn and spin, "
+                           "feel drag and turbulence, be born on a shape (circle, box, cone, edge, a 3D mesh surface), play a flipbook, leave "
+                           "ribbon trails, bounce on a plane or a Tilemap, and spawn sub-emitters when they are born, die or hit something. "
+                           "Pixel mode draws hard-edged squares in the project palette. The simulation is deterministic (the same seed gives "
+                           "the same particles) and capped at 10000 live particles per emitter; docs/PARTICLES.md has the budgets and "
+                           "worked examples (hit spark, smoke puff, pixel-art fire). Every field added after startColor/endColor has a "
+                           "default that changes nothing, so an older emitter looks the same.",
                            "2D")
         .field("emitting", &ParticleEmitter::emitting, "Continuously emit while true. Set false to stop spawning (live particles finish).")
         .field("rate", &ParticleEmitter::rate, "Particles emitted per second while emitting.").range(0, 100000)
@@ -953,7 +959,142 @@ void register_builtin_components(TypeRegistry& r) {
                "rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole "
                "screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps "
                "HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes "
-               "nothing. Default false.");
+               "nothing. Default false.")
+        // ---- over life ----
+        .field("colorGradient", &ParticleEmitter::colorGradient,
+               "Colour over the particle's life, alpha included: a list of [position, colour] keys, position 0 = born, 1 = dies, blended "
+               "linearly: [[0, \"#ffffff\"], [0.4, \"#ffcc33\"], [1, \"#ff220000\"]] (a colour is \"#rrggbb\", \"#rrggbbaa\", a name or "
+               "[r, g, b, a]). At most 16 keys. [] (default) = startColor -> endColor. A form that does not parse is reported "
+               "with the right form, and the emitter falls back to startColor -> endColor.")
+        .field("sizeCurve", &ParticleEmitter::sizeCurve,
+               "Multiplies the size over life: [[0, 0.2], [0.2, 1], [1, 0]] pops in and shrinks away. Keys are [position, value]; "
+               "{\"keys\": [...], \"interp\": \"smooth\"} eases between them (interp: linear, smooth, step); a plain number is a "
+               "constant. It multiplies startSize -> endSize, so [] (default) leaves the size as it was.")
+        .field("speedCurve", &ParticleEmitter::speedCurve,
+               "Multiplies how fast a particle flies over its life, in the same form as sizeCurve: [[0, 1], [1, 0]] slows it to a stop. "
+               "The particle's velocity is not changed, only the distance it covers per second, so gravity and drag still act on "
+               "the real velocity. [] (default) = 1.")
+        .field("alphaCurve", &ParticleEmitter::alphaCurve,
+               "Multiplies the alpha over life, in the same form as sizeCurve: [[0, 0], [0.1, 1], [1, 0]] fades in and out whatever "
+               "the colours are. [] (default) = 1.")
+        .field("sizeVariance", &ParticleEmitter::sizeVariance,
+               "Random +- fraction of the size, chosen once per particle (0.3 = between 70% and 130%). Default 0.").range(0, 1)
+        // ---- flipbook ----
+        .field("flipbookColumns", &ParticleEmitter::flipbookColumns,
+               "Flipbook: how many columns of frames the texture holds (1 = the texture is one picture). Frames are numbered along the "
+               "rows from the top-left.").range(1, 64)
+        .field("flipbookRows", &ParticleEmitter::flipbookRows, "Flipbook: how many rows of frames the texture holds (1 = one row).").range(1, 64)
+        .field("flipbookFrames", &ParticleEmitter::flipbookFrames,
+               "Flipbook: how many of the columns * rows cells are frames (the last cells of a sheet may be empty). 0 (default) = all of "
+               "them.").range(0, 4096)
+        .field("flipbookFps", &ParticleEmitter::flipbookFps,
+               "Flipbook: frames per second, looping from the first frame (or the random start). 0 (default) = the frames play once "
+               "over the particle's life, so a 16-frame explosion sheet ends with the particle.").range(0, 240)
+        .field("flipbookRandomStart", &ParticleEmitter::flipbookRandomStart,
+               "Flipbook: each particle starts at a random frame. With flipbookFps 0 it then keeps that one frame (variety in a puff "
+               "of smoke); with fps it plays on from there.")
+        // ---- motion ----
+        .field("startRotation", &ParticleEmitter::startRotation,
+               "[min, max] degrees a particle starts turned by, random in between ([0, 360] = any way up). Counter-clockwise on "
+               "screen, like Transform.rotation. Default [0, 0]. Billboards of is3D emitters turn in the screen plane.")
+        .field("spin", &ParticleEmitter::spin,
+               "[min, max] degrees per second a particle turns, random in between ([-90, 90] turns either way). Default [0, 0].")
+        .field("alignToVelocity", &ParticleEmitter::alignToVelocity,
+               "true: the particle's +x axis points where it flies (streaks, arrows, sparks stretch along their path); startRotation and "
+               "spin turn it on top of that. Default false.")
+        .field("drag", &ParticleEmitter::drag,
+               "How fast the velocity fades, per second: velocity is divided by 1 + drag * dt each step (0 = none, 2 = loses most of its "
+               "speed in a second). Default 0.").range(0, 1000)
+        .field("noiseStrength", &ParticleEmitter::noiseStrength,
+               "Turbulence: acceleration (world units/s^2) from a smooth random field that depends on where the particle is, so "
+               "neighbours drift together (smoke, embers). Seeded: the same seed gives the same wind on every platform. 0 (default) = off.")
+        .field("noiseScale", &ParticleEmitter::noiseScale,
+               "Turbulence: the size of one eddy, in world units. Larger = broader, lazier swirls. Default 64.").range(0.001f, 100000)
+        .field("noiseSpeed", &ParticleEmitter::noiseSpeed,
+               "Turbulence: how fast the field changes, in eddies per second (0 = frozen field). Default 0.5.")
+        .field("inheritVelocity", &ParticleEmitter::inheritVelocity,
+               "Fraction of the emitter's own velocity (how fast its position moves) added to every new particle, so a moving "
+               "emitter throws what it emits forward (1 = the particle starts as fast as the emitter). worldSpace emitters only; a "
+               "teleport counts as one very fast frame. Default 0.")
+        // ---- emission shape ----
+        .enum_field("shape", &ParticleEmitter::shape, {"point", "circle", "box", "cone", "edge", "mesh"},
+                    "Where particles are born, relative to the entity's Transform (rotation and scale apply). point (default): at "
+                    "the position. circle: a disc of radius shapeSize.x (a sphere when is3D). box: a rectangle shapeSize.x * shapeSize.y "
+                    "(a box with .z when is3D). cone: a base of radius shapeSize.x across the emission direction, which spreads by "
+                    "`spread` (see shapeDirection). edge: a line of length shapeSize.x along local x. mesh (3D): the surface of the mesh "
+                    "named by shapeMesh, chosen by area; the emitter's Transform places and scales the mesh.")
+        .field("shapeSize", &ParticleEmitter::shapeSize,
+               "Size of the emission shape in world units: circle radius = x; box = [width, height, depth] (depth only when is3D); "
+               "edge length = x; cone base radius = x. Default [32, 32, 32].")
+        .enum_field("shapeFrom", &ParticleEmitter::shapeFrom, {"volume", "edge"},
+                    "volume (default): anywhere inside the shape, evenly. edge: only on its outline (the circle's rim, the box's "
+                    "perimeter or faces, the cone base's rim, the edges of the mesh triangles).")
+        .enum_field("shapeDirection", &ParticleEmitter::shapeDirection, {"direction", "outward"},
+                    "direction (default): particles fly along `direction` +- `spread`, wherever on the shape they are born. outward: "
+                    "away from the shape (a circle or box: from its centre; mesh: along the surface normal; cone: fanning out across "
+                    "the spread; edge and point: no change), +- `spread`.")
+        .asset_field("shapeMesh", &ParticleEmitter::shapeMesh, "mesh",
+                     "shape \"mesh\" only: the mesh whose surface particles are born on: a primitive name (\"sphere\", \"cube\", ...), a "
+                     ".gltf/.glb path or a procedural \"mesh:N\" id. A mesh that cannot be read logs why once and the particles are born at "
+                     "the point.")
+        // ---- trails ----
+        .enum_field("trail", &ParticleEmitter::trail, {"none", "particle", "emitter"},
+                    "none (default). particle: each particle drags a ribbon of the path it flew, trailTime seconds long (at most 32 points) "
+                    "and gone when the particle dies. emitter: one ribbon behind the emitter itself while it is emitting (a sword swing, "
+                    "a comet; worldSpace only).")
+        .field("trailTime", &ParticleEmitter::trailTime, "How many seconds of path a trail keeps. Default 0.5.").range(0.001f, 60)
+        .field("trailWidth", &ParticleEmitter::trailWidth,
+               "Width of the ribbon at its head, in world units (design pixels on screen). Default 4. A ribbon is camera-facing in 3D.").range(0, 100000)
+        .field("trailWidthCurve", &ParticleEmitter::trailWidthCurve,
+               "Multiplies trailWidth along the ribbon, position 0 = the head, 1 = the oldest point: [[0, 1], [1, 0]] (also what [] "
+               "means) tapers to a point; [[0, 1], [1, 1]] keeps it as wide.")
+        .field("trailGradient", &ParticleEmitter::trailGradient,
+               "Colour along the ribbon, position 0 = the head, 1 = the oldest point, in the form of colorGradient. [] (default) = "
+               "the particle's own colour fading to transparent at the tail. The particle's alphaCurve and the entity's tint "
+               "multiply it.")
+        // ---- sub-emitters ----
+        .field("subEmitters", &ParticleEmitter::subEmitters,
+               "Particles that spawn other particles. An object with the events \"birth\", \"death\" and \"collision\", each a "
+               "sub-emitter {\"count\": 6, \"emitter\": {...ParticleEmitter fields...}} or a list of them. Instead of \"emitter\" a "
+               "sub-emitter can name \"prefab\": \"prefabs/spark.prefab.json\" (the first ParticleEmitter in it) or \"entity\": \"<id>\" "
+               "(that entity's ParticleEmitter, followed live). Also \"inherit\" (fraction of the parent's velocity the children start "
+               "with, default 0) and \"chance\" (0..1, default 1). The children are born where the parent was, live in the parent's "
+               "space, and ignore their own rate, burst and emitting. A collision child's direction is relative to the surface "
+               "(90 = along the normal). Limits: 2 levels deep, 32 particles per event, 8 sub-emitters per emitter, 256 sub-emitter "
+               "particles per step, and each sub-emitter's own maxParticles; what does not fit is not born. Default {}.")
+        // ---- collision ----
+        .enum_field("collision", &ParticleEmitter::collision, {"none", "plane", "tilemap"},
+                    "What particles bounce on. none (default). plane: the plane collisionPlane. tilemap: the solidTiles of a Tilemap "
+                    "(collisionTilemap), 2D. worldSpace emitters only. A particle that starts behind a surface passes through it.")
+        .field("collisionPlane", &ParticleEmitter::collisionPlane,
+               "collision \"plane\": [nx, ny, nz, d] = the plane dot(n, p) = d; particles stay on the side n points to. [0, 1, 0, 0] "
+               "is the floor y = 0, [0, 1, 0, -120] a floor at y = -120.")
+        .field("collisionTilemap", &ParticleEmitter::collisionTilemap,
+               "collision \"tilemap\": the entity of the Tilemap whose solidTiles stop the particles. None = the first active "
+               "Tilemap in the scene that has solidTiles.")
+        .field("collisionBounce", &ParticleEmitter::collisionBounce,
+               "Fraction of the speed into the surface that comes back out: 0 = sticks, 0.5 = default, 1 = a perfect bounce.").range(0, 2)
+        .field("collisionFriction", &ParticleEmitter::collisionFriction,
+               "Fraction of the speed along the surface lost on every hit: 0 (default) = slides on, 1 = stops dead.").range(0, 1)
+        .field("collisionLifetimeLoss", &ParticleEmitter::collisionLifetimeLoss,
+               "Fraction of its whole lifetime a particle loses on every hit (0.5: two hits kill it). Default 0. A particle resting "
+               "on the surface is not hitting it again.").range(0, 1)
+        .field("collisionKill", &ParticleEmitter::collisionKill,
+               "true: a particle dies on its first hit (rain splashes through the \"collision\" sub-emitter, sparks that burn out on "
+               "the floor). Default false.")
+        // ---- pixel mode ----
+        .field("pixelMode", &ParticleEmitter::pixelMode,
+               "true: particles are hard-edged squares whose position and size snap to a grid of pixelSize world units, and whose "
+               "colours are the nearest entries of the palette (no soft blending, no texture): fire and sparks for pixel art. Default false.")
+        .field("pixelSize", &ParticleEmitter::pixelSize,
+               "Pixel mode: the size of one pixel in world units (design pixels on screen). Match the pixel size of the art (a 4x "
+               "scaled game: 4). Default 1.").range(0.001f, 1000)
+        .field("palette", &ParticleEmitter::palette,
+               "Pixel mode: the colours to snap to, [\"#1a1c2c\", \"#b13e53\", \"#ffcd75\"]; the alpha of a particle is kept. [] (default) "
+               "= the project's palette (assets.json style.palette); with neither, colours are only snapped in alpha steps.")
+        .field("seed", &ParticleEmitter::seed,
+               "0 (default): the random run is derived from the entity's stable id. Another number gives another run, and the same number "
+               "always the same one, on every platform. Read when the emitter first appears.");
 
     // --------------------------------------------------------------- 3D ---
     r.add<MeshRenderer>("MeshRenderer",

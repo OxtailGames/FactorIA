@@ -12,7 +12,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [IK2D](components/2d.md#ik2d): Inverse kinematics for a chain of Bone2D entities: put it on the LAST bone (the hand, the foot) and name a `target`; every fixed step, after the animators have posed the bones and before the frame is drawn, the bones from this one up through its parents are turned so the tip of this bone reaches the target entity's position, within each bone's minAngle / maxAngle. _Since 0.7.0._
 - [Light2D](components/2d.md#light2d): A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. _Since 0.2.0._
 - [Parallax](components/2d.md#parallax): Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. _Since 0.2.0._
-- [ParticleEmitter](components/2d.md#particleemitter): Emits short-lived particles (smoke, sparks, explosions).
+- [ParticleEmitter](components/2d.md#particleemitter): Emits short-lived particles (smoke, sparks, explosions, fire, trails).
 - [Shape2D](components/2d.md#shape2d): Untextured 2D primitive for prototypes, UI panels and debug visuals.
 - [Sprite](components/2d.md#sprite): Draws a textured (or solid color) quad.
 - [SpriteAnimator](components/2d.md#spriteanimator): Flipbook animation over a grid sprite sheet.
