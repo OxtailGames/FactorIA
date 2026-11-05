@@ -56,10 +56,11 @@ void Editor::ai_review_request(const std::string& kind, int count, const std::st
         return;
     }
     ai::AiConfig cfg;
-    {
+    if (auto resolved = ai_project_config(true)) {
+        cfg = std::move(*resolved);
+    } else {  // an invalid project settings file: the run itself reports it
         std::lock_guard<std::mutex> lock(aiMu_);
-        cfg = aiConfig_;
-        if (cfg.providers.empty()) cfg = ai::default_config();
+        cfg = aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
     }
     const ai::RoleConfig rc = cfg.effective_role(role);  // off: the Orchestrator's provider and model
     AiChat& chat = chat_.add(static_cast<i64>(std::time(nullptr)));  // its own tab: the orchestrator's chat is not touched
@@ -196,7 +197,10 @@ void Editor::ai_review_tick() {
 void Editor::draw_ai_review_row(bool gameRuns) {
     const bool busy = ai_run_count() >= ai_max_runs() || aiReview_.active;
     bool artOff = false, gameOff = false;  // the critic / reviewer role is turned off: the review runs on the Orchestrator's model
-    {
+    if (auto resolved = ai_project_config()) {
+        artOff = !resolved->role_enabled(ai::kRoleArtCritic);
+        gameOff = !resolved->role_enabled(ai::kRoleReviewer);
+    } else {
         std::lock_guard<std::mutex> lock(aiMu_);
         artOff = !aiConfig_.role_enabled(ai::kRoleArtCritic);
         gameOff = !aiConfig_.role_enabled(ai::kRoleReviewer);
@@ -257,7 +261,9 @@ void Editor::draw_ai_review_row(bool gameRuns) {
         const bool art = aiReviewAsk_ == "art";
         const std::string role = ai::review_role_for_kind(aiReviewAsk_);
         ai::RoleConfig rc;
-        {
+        if (auto resolved = ai_project_config()) {
+            rc = resolved->effective_role(role);
+        } else {
             std::lock_guard<std::mutex> lock(aiMu_);
             rc = (aiConfig_.providers.empty() ? ai::default_config() : aiConfig_).effective_role(role);
         }

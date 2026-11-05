@@ -9,6 +9,7 @@
 #include "fa/ai/detect.h"
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/progress_file.h"
+#include "fa/ai/project_settings.h"
 #include "fa/ai/review.h"
 #include "fa/ai/session.h"
 #include "fa/core/strings.h"
@@ -20,10 +21,31 @@ namespace fsys = std::filesystem;
 
 namespace {
 
-ai::AiConfig load_config_or_throw() {
-    auto cfg = ai::load_config();
+// The AI config the command runs with: ai.json, and the settings of `projectDir` (<project>/.factoria/ai/settings.json) when it is
+// a project. "" = no project: the user file alone.
+ai::AiConfig load_config_or_throw(const std::string& projectDir = {}) {
+    auto cfg = ai::load_resolved_config(projectDir);
     if (!cfg.ok()) throw CliError("AI configuration is invalid: " + cfg.error().message, cfg.error().hint);
     return *cfg;
+}
+
+// The project a command that takes --project (or none) looks at: the flag, else the current folder when it is a project.
+std::string ambient_project_dir(const Context& ctx) {
+    std::string projectDir = ctx.args.str("project");
+    if (projectDir.empty() && fsys::exists(fsys::path(kProjectFileName))) projectDir = fsys::current_path().string();
+    return projectDir.empty() ? projectDir : absolute_path(projectDir);
+}
+
+// One line about the project's AI settings for `ai doctor`: "" when the project has none.
+std::string project_settings_line(const std::string& projectDir) {
+    if (projectDir.empty()) return {};
+    auto resolved = ai::resolve_ai_config(projectDir);
+    if (!resolved.ok() || !resolved->fileExists) return {};
+    std::string out = "Project AI settings: " + resolved->projectFile;
+    if (resolved->applied) return out + " (applied)\n";
+    out += " (NOT applied: it was not saved on this computer; the project runs with your settings until you accept it in the editor's AI settings). It would change:\n";
+    for (const auto& c : resolved->pending) out += "  " + c.text() + "\n";
+    return out;
 }
 
 Json roles_json(const ai::AiConfig& cfg) {
@@ -76,26 +98,32 @@ Command make_ai_command() {
                     {"project", "DIR", "Project folder whose extensions and Claude Code deny rules to check (default: the current folder when it is a project)."}};
     doctor.examples = {"factoria ai doctor", "factoria ai doctor --json", "factoria ai doctor --project examples/pong"};
     doctor.run = [](Context& ctx) {
-        ai::AiConfig cfg = load_config_or_throw();
-        std::string projectDir = ctx.args.str("project");
-        if (projectDir.empty() && fsys::exists(fsys::path(kProjectFileName))) projectDir = fsys::current_path().string();
+        const std::string projectDir = ambient_project_dir(ctx);
+        ai::AiConfig cfg = load_config_or_throw(projectDir);
         if (ctx.args.has("json")) {
             Json rep = providers_report(cfg, true);
             rep["extensions"] = ai::extensions_report(cfg, ai::make_extension_context(cfg, projectDir, ai::system_env()));
+            if (auto resolved = ai::resolve_ai_config(projectDir); !projectDir.empty() && resolved.ok() && resolved->fileExists) {
+                rep["projectSettings"] = Json::object({{"file", resolved->projectFile},
+                                                       {"applied", resolved->applied},
+                                                       {"pendingTrust", resolved->pendingTrust},
+                                                       {"overrides", resolved->overrides}});
+            }
             print_json(ctx.out, rep);
             return 0;
         }
-        ctx.out << ai::format_doctor_report(cfg, ai::detect_providers(cfg), ai::system_env(), projectDir);
+        ctx.out << ai::format_doctor_report(cfg, ai::detect_providers(cfg), ai::system_env(), projectDir) << project_settings_line(projectDir);
         return 0;
     };
 
     Command providers;
     providers.name = "providers";
     providers.summary = "List the configured providers, their availability and the role mapping.";
-    providers.flags = {{"json", "", "Machine-readable output."}};
+    providers.flags = {{"json", "", "Machine-readable output."},
+                       {"project", "DIR", "Project folder whose AI settings apply (default: the current folder when it is a project)."}};
     providers.examples = {"factoria ai providers --json"};
     providers.run = [](Context& ctx) {
-        ai::AiConfig cfg = load_config_or_throw();
+        ai::AiConfig cfg = load_config_or_throw(ambient_project_dir(ctx));
         Json rep = providers_report(cfg, false);
         if (ctx.args.has("json")) {
             print_json(ctx.out, rep);
@@ -114,10 +142,11 @@ Command make_ai_command() {
     Command config;
     config.name = "config";
     config.summary = "Show where the AI config lives, the effective settings (keys redacted) and an example.";
-    config.flags = {{"json", "", "Machine-readable output."}};
+    config.flags = {{"json", "", "Machine-readable output."},
+                    {"project", "DIR", "Project folder whose AI settings apply (default: the current folder when it is a project)."}};
     config.examples = {"factoria ai config"};
     config.run = [](Context& ctx) {
-        ai::AiConfig cfg = load_config_or_throw();
+        ai::AiConfig cfg = load_config_or_throw(ambient_project_dir(ctx));
         std::string path = ai::default_config_path();
         std::error_code ec;
         bool exists = fsys::exists(path, ec);
@@ -188,15 +217,7 @@ Command make_ai_command() {
         if (role != ai::kRoleOrchestrator && !ai::is_delegable_role(role))
             throw UsageError("Unknown role '" + role + "'.",
                              "Valid roles: orchestrator, worker, fast, artist, audio (reviews: 'factoria ai review').");
-        ai::AiConfig cfg = load_config_or_throw();
-        if (!cfg.role_enabled(role)) throw UsageError(ai::role_off_message(role) + ".", ai::role_off_hint(role));
-        std::string provider = a.str("provider");
-        if (!provider.empty() && !cfg.provider(provider)) {
-            std::vector<std::string> names;
-            for (const auto& [n, _] : cfg.providers) names.push_back(n);
-            throw UsageError("Unknown provider '" + provider + "'.", fa::did_you_mean(provider, names));
-        }
-
+        // The project first: its AI settings (.factoria/ai/settings.json) are part of the config this run uses.
         std::string dir;
         if (!projectArg.empty()) {
             std::string abs = absolute_path(projectArg);
@@ -206,6 +227,15 @@ Command make_ai_command() {
         } else {
             dir = resolve_project_dir(ctx, 99);
         }
+        ai::AiConfig cfg = load_config_or_throw(dir);
+        if (!cfg.role_enabled(role)) throw UsageError(ai::role_off_message(role) + ".", ai::role_off_hint(role));
+        std::string provider = a.str("provider");
+        if (!provider.empty() && !cfg.provider(provider)) {
+            std::vector<std::string> names;
+            for (const auto& [n, _] : cfg.providers) names.push_back(n);
+            throw UsageError("Unknown provider '" + provider + "'.", fa::did_you_mean(provider, names));
+        }
+
 
         SessionOptions so;
         so.gfx = Gfx::Auto;

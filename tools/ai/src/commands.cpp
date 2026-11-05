@@ -13,6 +13,7 @@
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/mcp_client.h"
 #include "fa/ai/plugin_install.h"
+#include "fa/ai/project_settings.h"
 #include "fa/ai/review.h"
 #include "fa/ai/savers.h"
 #include "fa/ai/skills.h"
@@ -83,13 +84,15 @@ Json review_json(const Review& r, bool withText) {
 
 void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
     auto opts = std::make_shared<AiCommandOptions>(std::move(options));
-    auto load = [opts]() -> Result<AiConfig> {
-        if (opts->loadConfig) return opts->loadConfig();
-        return load_config();
-    };
     auto project_dir = [opts]() -> std::string {
         if (opts->projectDir) return opts->projectDir();
         return fs::project_root().string();
+    };
+    // The config of the open project: ai.json with the project's own settings applied (project_settings.h). A project without
+    // a settings file gets exactly load_config().
+    auto load = [opts, project_dir]() -> Result<AiConfig> {
+        if (opts->loadConfig) return opts->loadConfig();
+        return load_resolved_config(project_dir());
     };
 
     {
@@ -423,8 +426,9 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "dryRun":{"type":"boolean","description":"Report the commands and whether each is needed; install nothing."}},
             "additionalProperties":false})");
         info.readOnly = false;
-        registry.add(std::move(info), [load](const Json& args) -> Json {
-            auto cfg = load();
+        registry.add(std::move(info), [opts](const Json& args) -> Json {
+            // It writes the entry into ai.json: it starts from the user's file, not from what this project switched on or off.
+            auto cfg = opts->loadConfig ? opts->loadConfig() : load_config();
             if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
             PluginInstallRequest req;
             if (const std::string preset = str(args, "preset"); !preset.empty()) {
