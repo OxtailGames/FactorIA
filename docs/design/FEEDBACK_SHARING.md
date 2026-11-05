@@ -79,9 +79,31 @@ what was removed, so the preview can show it.
   occurrence on the server, and the ranking counts at most 3 per installation. Each item stores `project`, the key of its
   project, when it is queued; sending, waiting and dropping decide by that key, so a change of the default does not touch the
   items of a project with its own mode. A change of one project's mode moves its items (ask: queued back to waiting; never:
-  dropped and the entries marked `skipped`; always: waiting queued); the sender re-reads the settings before each batch. Items
-  without `project` (older versions) wait until the user decides. Known limit: a project edited by hand from `always` to `ask` in
-  the settings file keeps its queued items; only the commands and the editor move them.
+  dropped and the entries marked `skipped`; always: waiting queued, also the ones that waited under the default: whoever
+  chooses `always` for a project or for the default answers yes for what waits there). Removing a project's own choice
+  (`Follow default`, `--clear`) is not a yes: what waited stays waiting even when the default is `always`, and the CLI and the
+  editor say so. Queueing again (`share_queue`) never releases an item that waits, with or without `project`: only the user
+  does (`share_confirm`, or choosing `always`). Items without `project` (older versions) wait until the user decides.
+  Each queued item records `confirmedBy`: `always` (the mode was `always`, or a person chose `always`) or `user` (a person
+  confirmed that item). Before every send the sender checks it against the settings as they are then: an `always` item goes
+  out only while its project's mode is still `always`, otherwise it goes back to waiting (this covers a settings file edited
+  by hand, or by another process, after the item was queued); a `user` item goes out under `ask` and `always`. An older
+  queued item without the field reads as `always`. A batch whose request is already in flight cannot be called back: choosing
+  `never` stops everything that was not sent, and the editor and the CLI say that an upload already in progress finishes.
+- **Keys fail closed.** A stored key is looked up exactly; if it is not there, the project folder is compared (the same
+  file on disk, `std::filesystem::equivalent`) with every stored key that exists, so another spelling of the folder (another
+  case on a volume that ignores it, NFC against NFD on macOS, a symlink) still finds its choice; the most restrictive match
+  counts. A project folder that cannot be resolved (permissions, a broken volume) reads as `ask`, never as the default
+  (`feedback.share_status` says `source: unresolved`). The key of a path is worked out once per call.
+- **Lock**: every read-modify-write of the settings and the outbox (a flush's save, `set_share_mode`,
+  `set_project_share_mode`, queueing, confirming, dropping, sign-in and sign-out, creating the installation id) runs under
+  `feedback-share.lock` in the config folder, a file made with an exclusive create (`O_EXCL` on POSIX, `CREATE_NEW` on
+  Windows) so the editor, the CLI and the MCP server cannot undo each other's changes. Readers do not take it (files are
+  replaced atomically). A lock file older than 10 s was left by a process that died and is taken over; a busy lock is waited
+  for at most 12 s and then the change fails with a message (nothing is changed), so nothing blocks for good. The network
+  request of a flush runs outside the lock: afterwards the flush reads the files again under the lock and applies only its own
+  results, so a mode changed meanwhile is not undone. Paths in `share_status` and the outbox's `file` are UTF-8 (an outbox
+  an older version wrote on Windows in the system code page is read as it is).
 - **Commands** (registered with the other feedback commands; none changes the mode):
   - `feedback.report` gains `share` and `reviewed`. With mode `always` the entry is sanitized and queued at once and the
     queue is flushed in the background; with `ask` it is queued as pending confirmation; with `unset` the result says

@@ -82,7 +82,12 @@ void Editor::share_choose_mode(ShareMode mode) {
     switch (mode) {
         case ShareMode::Always: notify("Feedback sharing: always. Entries with a share text go to the engine developers as they are written.", 0); break;
         case ShareMode::Ask: notify("Feedback sharing: you are asked before anything is sent (Send feedback in the Engine Feedback panel).", 0); break;
-        case ShareMode::Never: notify("Feedback sharing is off. Nothing leaves this computer.", 0); break;
+        case ShareMode::Never:
+            // A batch whose request is already on its way cannot be called back; the next one is not made.
+            notify(std::string("Feedback sharing is off. Nothing more leaves this computer.") +
+                       (share_.flushRunning ? " A batch that is already being uploaded finishes." : ""),
+                   0);
+            break;
         default: break;
     }
     // Send feedback was pressed while the mode was unset: the window opens now that a person chose.
@@ -103,8 +108,18 @@ void Editor::share_choose_project_mode(std::optional<ShareMode> mode) {
     share_.flushAt = -100;
     share_.settingsPolled = -10;
     const std::string name = fs::filename(projectDir_);
-    if (!mode) notify("Feedback sharing for " + name + " follows your default again.", 0);
-    else if (*mode == ShareMode::Never) notify("Feedback sharing is off for " + name + ". Nothing of this project leaves this computer.", 0);
+    const std::string running = share_.flushRunning ? " A batch that is already being uploaded finishes." : "";
+    if (!mode) {
+        std::string text = "Feedback sharing for " + name + " follows your default again.";
+        // Removing the choice is not a yes: what waited for an answer while the project asked keeps waiting.
+        const std::size_t waiting = engine_ ? share_waiting(share_env(), fs::join(projectDir_, engine_->project().feedbackFile)).size() : 0;
+        if (waiting > 0 && share_.mode == ShareMode::Always)
+            text += " " + std::to_string(waiting) + (waiting == 1 ? " entry still waits" : " entries still wait") +
+                    " for your confirmation (Send feedback); " + (waiting == 1 ? "it is" : "they are") + " not sent until you say yes.";
+        else if (share_.mode == ShareMode::Never) text += " Nothing more leaves this computer." + running;
+        notify(text, 0);
+    }
+    else if (*mode == ShareMode::Never) notify("Feedback sharing is off for " + name + ". Nothing more of this project leaves this computer." + running, 0);
     else if (*mode == ShareMode::Ask) notify("Feedback sharing for " + name + ": you are asked before anything is sent.", 0);
     else notify("Feedback sharing for " + name + ": always.", 0);
     const bool after = share_.sendAfterConsent;
@@ -446,8 +461,9 @@ void Editor::feedback_share_tick() {
         }
     }
 
-    // ask: the entries that wait for the person's answer (the Send feedback window lists them).
-    if (s.mode == ShareMode::Ask) {
+    // ask (and always, for entries that were queued before it): the entries that wait for the person's answer (the Send feedback
+    // window lists them). `always` never answers yes for an item that waits.
+    if (s.mode == ShareMode::Ask || s.mode == ShareMode::Always) {
         s.waiting = file.empty() ? std::vector<OutboxItem>{} : share_waiting(env, file);  // this project's entries only
         int fresh = 0;
         for (const OutboxItem& it : s.waiting)
