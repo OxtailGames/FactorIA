@@ -1,5 +1,5 @@
 // The JavaScript of assets.animate_svg: a project module (an `.anim.js`) whose default export is
-// `frame({t, frame, frames, fps, progress, params, rng}) => string`, the SVG of that frame.
+// `frame({t, frame, frames, fps, progress, params, rng, ramp, rampAt, layer}) => string`, the SVG of that frame.
 //
 // It runs in a QuickJS runtime of its own, made for the call and thrown away after it, with
 //   - no engine bindings: nothing but the language itself (no `factoria`, no DOM, no Node, no timers, no files);
@@ -114,6 +114,23 @@ constexpr const char* kPrelude = R"JS((function (native) {
         let h = 2166136261 ^ (args.seed | 0);
         for (const ch of String(key)) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); }
         return makeRng(h);
+      };
+      // the colours of the `ramp` argument (dark to bright): rampAt(u) is the one at u in 0..1, blended between neighbours
+      args.rampAt = (u) => {
+        const r = args.ramp;
+        if (!Array.isArray(r) || r.length === 0)
+          throw new Error("rampAt needs a ramp: bake with assets.animate_svg {\"ramp\": [\"#1b1034\", \"#c4382a\", \"#ffd36b\"]} (colours from dark to bright)");
+        const x = Math.min(1, Math.max(0, +u || 0)) * (r.length - 1);
+        const i = Math.min(r.length - 2, Math.floor(x));
+        if (r.length === 1) return r[0];
+        const f = x - i;
+        const channel = (hex, at) => parseInt(hex.slice(at, at + 2), 16);
+        let out = "#";
+        for (const at of [1, 3, 5]) {
+          const v = Math.round(channel(r[i], at) + (channel(r[i + 1], at) - channel(r[i], at)) * f);
+          out += (v < 16 ? "0" : "") + v.toString(16);
+        }
+        return out;
       };
       return fn(args);
     },
@@ -490,6 +507,8 @@ std::string AnimModule::draw(const AnimFrame& f) {
     Json args = Json::object({{"t", f.t}, {"frame", f.frame}, {"frames", f.frames}, {"fps", f.fps}, {"progress", f.progress},
                               {"sheetFrame", f.sheetFrame}, {"seed", f.baseSeed}, {"width", f.width}, {"height", f.height}, {"params", f.params}});
     if (!f.clip.empty()) args["clip"] = f.clip;
+    if (!f.layer.empty()) args["layer"] = f.layer;
+    if (!f.ramp.empty()) args["ramp"] = Json(f.ramp);
     const std::string text = args.dump();
     I.arm();
     JSValue arg = JS_ParseJSON(I.ctx, text.c_str(), text.size(), "<frame argument>");

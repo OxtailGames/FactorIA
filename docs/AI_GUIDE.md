@@ -1433,6 +1433,11 @@ assets_animate_svg {"path":"assets/art/coin_spin.png","source":"art/coin_spin.an
   cell edge, a loop that jumps). An error names `art/coin_spin.anim.js:LINE:COL` and the frame; the module sees only the
   language (no engine API, no DOM, no files), so take data from `params`. `clips` makes `idle` and `run` from one module; `pivot`,
   `padding`, `palette` (snap to the game's colours) and `style` (the painterly look of `assets_rasterize_svg`) are arguments.
+- **Recolour and layers.** `ramp` (2 to 32 colours from dark to bright, or an image document with `ramps`) reaches the module as
+  `ramp` and `rampAt(u)`, so one effect is recoloured by baking again with another `ramp`; `rampMap: true` recolours the finished
+  frames by brightness (for a SMIL SVG or a module that draws in greys). `layers: ["back","front","light"]` bakes one sheet per layer
+  (`hit_back.png`, `hit_front.png`, `hit_light.png`) from the same module, which receives `layer`: put `back` at a lower
+  `Sprite.layer` than the character, `front` at a higher one and `light` with `Sprite.blend` `additive`, all with the same clip.
 - **SMIL.** If you already have an animated SVG (`<animate>`, `<animateTransform>`, `<animateMotion>`), give it as `svg` (or as a
   project `.svg` in `source`): it is sampled at each frame; what cannot be sampled (click events, CSS animations) is a warning.
 - **Provenance** is recorded as AI-made unless you pass `ai: false`, with a `recipe` (the module and its imports, hashed) that
