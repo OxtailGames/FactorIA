@@ -61,6 +61,8 @@ void sprite_animator_fire_events(World& world, Entity e, SpriteAnimator& a, cons
 // `feel`, a `clip` the sheet of `texture` does not have (checked only when `sheet` is not null), a wrong action.
 std::vector<ClipIssue> check_sprite_events(const Json& events, const std::string& pointer,
                                            const std::shared_ptr<const assets::Sheet>& sheet);
+// The same for one entry of the list, `pointer` being the entry's own.
+std::vector<ClipIssue> check_sprite_event(const Json& event, const std::string& pointer, const std::shared_ptr<const assets::Sheet>& sheet);
 
 // The pixel rectangle of grid index `frame` in a texture of texW x texH pixels (top-left origin, like Sprite.region).
 Rect sprite_frame_rect(const SpriteAnimPlan& plan, int frame, int texW, int texH);

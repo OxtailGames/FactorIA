@@ -369,3 +369,19 @@ TEST_CASE("feel.spawn and feel.sound: queued for the frame, a spawn appears at t
     g.call("feel.sound", R"({"path":"audio/hit.wav","volume":0.5})");
     CHECK(g.state()["queued"]["sounds"] == 1);
 }
+
+TEST_CASE("feel.spawn: the lifetime runs on the game clock, so a hit-stop holds it") {
+    Game g("spawn_hitstop");
+    g.p.write("prefabs/spark.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"spark","components":{"Transform":{}}}})");
+    g.e.step(1);
+    g.call("feel.spawn", R"({"entity":"crate","prefab":"prefabs/spark.prefab.json","lifetime":0.3})");
+    g.e.step(1);
+    REQUIRE(g.num("world.find('spark') ? 1 : 0") == 1);
+    g.run("time.hitStop(0.2)");
+    g.e.step(24);  // 0.4 s of real time, 0.2 s of it frozen: the spawn has lived 0.2 s of its 0.3 s
+    CHECK(g.num("time.hitStopRemaining") == 0);
+    CHECK(g.num("world.find('spark') ? 1 : 0") == 1);
+    g.e.step(12);  // 0.2 s more
+    CHECK(g.num("world.find('spark') ? 1 : 0") == 0);
+    CHECK(g.state()["queued"]["spawnLifetimes"] == 0);
+}

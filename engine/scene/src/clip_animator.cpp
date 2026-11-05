@@ -1,4 +1,5 @@
 #include "clip_animator.h"
+#include "fa/scene/anim_clip.h"
 #include "fa/scene/feel.h"
 
 #include <algorithm>
@@ -495,8 +496,10 @@ void fire_clip_events(World& w, Entity e, const Animator& a, const ClipAsset& as
     for (const ClipEvent& ev : asset.events)
         if (ev.t > from && ev.t <= to) hits.push_back({ev.t, &ev, nullptr});
     if (a.events.is_array()) {
-        for (const Json& ev : a.events) {
-            if (!ev.is_object() || jstr(ev, "clip") != clip) continue;
+        for (std::size_t index = 0; index < a.events.size(); ++index) {
+            const Json& ev = a.events[index];
+            if (!inline_event_usable(w, e, false, index, ev)) continue;  // a wrong JSON type: said once, skipped
+            if (jstr(ev, "clip") != clip) continue;
             const float t = jnum(ev, "time", 0.0f);
             if (t > from && t <= to) hits.push_back({t, nullptr, &ev});
         }

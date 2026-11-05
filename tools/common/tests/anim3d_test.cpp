@@ -357,6 +357,25 @@ TEST_CASE("anim3d edit commands move, remove and ease keys, edit events and clip
     p.ok("anim3d.set_event", {{"path", "anim/a.anim.json"}, {"event", {{"t", 0.5}, {"name", "footstep"}}}, {"t", 0.3}, {"name", "step"}});
     CHECK(p.clip("anim/a.anim.json")["events"][1]["name"] == "step");
     CHECK(p.clip("anim/a.anim.json")["events"][1]["data"]["foot"] == "left");
+    // feel actions on an event: a valid one is stored, a typo teaches the right name, on add and on set
+    p.ok("anim3d.add_event", {{"path", "anim/a.anim.json"}, {"t", 0.2}, {"feel", {{"action", "hitStop"}, {"duration", 0.05}}}});
+    {
+        const Json evs = p.clip("anim/a.anim.json")["events"];
+        bool found = false;
+        for (const Json& e : evs)
+            if (e.contains("feel") && e["feel"].value("action", "") == "hitStop") found = true;
+        CHECK(found);
+    }
+    const std::string addTypo = p.error_text("anim3d.add_event", {{"path", "anim/a.anim.json"}, {"t", 0.25}, {"feel", {{"action", "hitStp"}}}});
+    CHECK(contains(addTypo, "hitStop"));
+    CHECK(contains(addTypo, "Did you mean"));
+    p.ok("anim3d.set_event", {{"path", "anim/a.anim.json"}, {"event", {{"t", 0.2}}}, {"feel", Json::array({{{"action", "shake"}, {"amount", 0.3}}})}});
+    const std::string setTypo = p.error_text("anim3d.set_event", {{"path", "anim/a.anim.json"}, {"event", {{"t", 0.2}}}, {"feel", {{"action", "shak"}}}});
+    CHECK(contains(setTypo, "shake"));
+    CHECK(contains(setTypo, "Did you mean"));
+    p.ok("anim3d.remove_event", {{"path", "anim/a.anim.json"}, {"event", 1}});  // the hit-stop event is no longer needed
+    doc = p.clip("anim/a.anim.json");
+    REQUIRE(doc["events"].size() == 2);
     CHECK(contains(p.error_text("anim3d.remove_event", {{"path", "anim/a.anim.json"}, {"event", 5}}), "no event 5"));
     const Json gone = p.ok("anim3d.remove_event", {{"path", "anim/a.anim.json"}, {"event", 0}});
     CHECK(gone["removed"]["name"] == "swish");

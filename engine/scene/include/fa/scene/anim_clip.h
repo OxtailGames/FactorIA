@@ -110,6 +110,18 @@ void clear_anim_clip_cache();
 // Animator's inline `events`, the SpriteAnimator's `events` and `validate`.
 bool read_event_feel(const Json& event, const std::string& pointer, std::vector<Json>& out, std::vector<ClipIssue>& issues);
 
+// Problems of one inline event of `Animator.events` ({clip, time, name?, feel?}), or of the whole list, with the JSON pointer of
+// each: not an object, no `clip`, a `clip` or `name` that is not a non-empty string, a `time` that is not a number from 0, a
+// wrong action, an event with neither `name` nor `feel`. What `validate` reports and what the runtime guard below logs.
+std::vector<ClipIssue> check_animator_event(const Json& event, const std::string& pointer);
+std::vector<ClipIssue> check_animator_events(const Json& events, const std::string& pointer);
+
+// The guard of the frame loop for the inline `events` lists of the Animator (`sprite` false) and the SpriteAnimator (`sprite`
+// true): true when every field the player reads from `event` has the right JSON type. Otherwise it says so ONCE per scene in
+// the log (the component, the pointer "events/<index>/<field>", the fix) and returns false: the caller skips that event, so a
+// hand-edited scene never throws inside the frame loop. Cheap when the event is fine (type tests only).
+bool inline_event_usable(World& w, Entity e, bool sprite, std::size_t index, const Json& event);
+
 // Reads one event object of a clip file (`pointer` = "/events/3"): t, name, data and feel, with the same checks for the 2D and the
 // 3D clip files. `duration` bounds t when `durationKnown`. Problems go to `issues`; returns false when there is one.
 bool read_clip_event(const Json& event, const std::string& pointer, float duration, bool durationKnown, ClipEvent& out,

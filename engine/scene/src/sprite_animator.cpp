@@ -122,13 +122,15 @@ void sprite_animator_fire_events(World& world, Entity e, SpriteAnimator& a, cons
     const int first = std::max(a.eventStep + 1, last - kMaxSpriteEventSteps + 1);
     for (int step = first; step <= last; ++step) {
         const int frame = sprite_anim_frame(plan, step);
-        for (const Json& ev : a.events) {
-            if (!ev.is_object()) continue;
+        for (std::size_t index = 0; index < a.events.size(); ++index) {
+            const Json& ev = a.events[index];
+            if (!inline_event_usable(world, e, true, index, ev)) continue;  // a wrong JSON type: said once, skipped
             const auto fit = ev.find("frame");
-            if (fit == ev.end() || !fit->is_number() || fit->get<double>() != frame) continue;
+            if (fit == ev.end() || fit->get<double>() != frame) continue;
             const auto cit = ev.find("clip");
-            if (cit != ev.end() && (!cit->is_string() || cit->get<std::string>() != a.clip)) continue;
-            const std::string name = ev.value("name", std::string());
+            if (cit != ev.end() && cit->get<std::string>() != a.clip) continue;
+            const auto nit = ev.find("name");
+            const std::string name = nit != ev.end() ? nit->get<std::string>() : std::string();
             if (!name.empty()) {
                 Json data = Json::object();
                 if (const auto dit = ev.find("data"); dit != ev.end() && dit->is_object()) data = *dit;
@@ -145,6 +147,39 @@ void sprite_animator_fire_events(World& world, Entity e, SpriteAnimator& a, cons
     a.eventStep = last;
 }
 
+std::vector<ClipIssue> check_sprite_event(const Json& ev, const std::string& ep, const std::shared_ptr<const assets::Sheet>& sheet) {
+    std::vector<ClipIssue> issues;
+    if (!ev.is_object()) {
+        issues.push_back({ep, "a frame event is an object, got " + describe_json_value(ev),
+                          "Write {\"frame\": 9, \"name\": \"hit\"} or {\"frame\": 9, \"feel\": {\"action\": \"shake\"}}."});
+        return issues;
+    }
+    const std::vector<std::string> allowed = {"frame", "clip", "name", "data", "feel"};
+    for (auto it = ev.begin(); it != ev.end(); ++it)
+        if (std::find(allowed.begin(), allowed.end(), it.key()) == allowed.end())
+            issues.push_back({ep + "/" + it.key(), "unknown key '" + it.key() + "'", did_you_mean(it.key(), allowed)});
+    const auto fit = ev.find("frame");
+    if (fit == ev.end() || !fit->is_number_integer() || fit->get<std::int64_t>() < 0)
+        issues.push_back({ep + "/frame", fit == ev.end() ? "a frame event needs `frame`" : "frame must be a whole number from 0, got " + describe_json_value(*fit),
+                          "The grid frame that triggers it, numbered row-major from the top-left like firstFrame and lastFrame."});
+    if (const auto cit = ev.find("clip"); cit != ev.end()) {
+        if (!cit->is_string() || cit->get<std::string>().empty()) {
+            issues.push_back({ep + "/clip", "clip must be the name of a clip of the sheet, got " + describe_json_value(*cit), "Leave `clip` out to fire in every clip."});
+        } else if (sheet && !sheet->find(cit->get<std::string>())) {
+            issues.push_back({ep + "/clip", "the sheet has no clip '" + cit->get<std::string>() + "'", did_you_mean(cit->get<std::string>(), sheet->clip_names())});
+        }
+    }
+    if (const auto nit = ev.find("name"); nit != ev.end() && (!nit->is_string() || nit->get<std::string>().empty()))
+        issues.push_back({ep + "/name", "name must be a non-empty string, got " + describe_json_value(*nit), "The game event world.on(name, fn) listens to."});
+    if (const auto dit = ev.find("data"); dit != ev.end() && !dit->is_object())
+        issues.push_back({ep + "/data", "data must be an object, got " + describe_json_value(*dit), "Write {\"hand\": \"left\"}."});
+    std::vector<Json> feel;
+    read_event_feel(ev, ep, feel, issues);
+    if (!ev.contains("name") && !ev.contains("feel"))
+        issues.push_back({ep, "a frame event needs `name` or `feel`", "`name` sends a game event; `feel` runs game feel actions (docs/GAME_FEEL.md)."});
+    return issues;
+}
+
 std::vector<ClipIssue> check_sprite_events(const Json& events, const std::string& pointer, const std::shared_ptr<const assets::Sheet>& sheet) {
     std::vector<ClipIssue> issues;
     if (!events.is_array()) {
@@ -152,37 +187,9 @@ std::vector<ClipIssue> check_sprite_events(const Json& events, const std::string
                           "Write [{\"frame\": 9, \"feel\": {\"action\": \"hitStop\", \"duration\": 0.06}}]."});
         return issues;
     }
-    const std::vector<std::string> allowed = {"frame", "clip", "name", "data", "feel"};
     for (std::size_t i = 0; i < events.size(); ++i) {
-        const Json& ev = events[i];
-        const std::string ep = pointer + "/" + std::to_string(i);
-        if (!ev.is_object()) {
-            issues.push_back({ep, "a frame event is an object, got " + describe_json_value(ev),
-                              "Write {\"frame\": 9, \"name\": \"hit\"} or {\"frame\": 9, \"feel\": {\"action\": \"shake\"}}."});
-            continue;
-        }
-        for (auto it = ev.begin(); it != ev.end(); ++it)
-            if (std::find(allowed.begin(), allowed.end(), it.key()) == allowed.end())
-                issues.push_back({ep + "/" + it.key(), "unknown key '" + it.key() + "'", did_you_mean(it.key(), allowed)});
-        const auto fit = ev.find("frame");
-        if (fit == ev.end() || !fit->is_number_integer() || fit->get<std::int64_t>() < 0)
-            issues.push_back({ep + "/frame", fit == ev.end() ? "a frame event needs `frame`" : "frame must be a whole number from 0, got " + describe_json_value(*fit),
-                              "The grid frame that triggers it, numbered row-major from the top-left like firstFrame and lastFrame."});
-        if (const auto cit = ev.find("clip"); cit != ev.end()) {
-            if (!cit->is_string() || cit->get<std::string>().empty()) {
-                issues.push_back({ep + "/clip", "clip must be the name of a clip of the sheet, got " + describe_json_value(*cit), "Leave `clip` out to fire in every clip."});
-            } else if (sheet && !sheet->find(cit->get<std::string>())) {
-                issues.push_back({ep + "/clip", "the sheet has no clip '" + cit->get<std::string>() + "'", did_you_mean(cit->get<std::string>(), sheet->clip_names())});
-            }
-        }
-        if (const auto nit = ev.find("name"); nit != ev.end() && (!nit->is_string() || nit->get<std::string>().empty()))
-            issues.push_back({ep + "/name", "name must be a non-empty string, got " + describe_json_value(*nit), "The game event world.on(name, fn) listens to."});
-        if (const auto dit = ev.find("data"); dit != ev.end() && !dit->is_object())
-            issues.push_back({ep + "/data", "data must be an object, got " + describe_json_value(*dit), "Write {\"hand\": \"left\"}."});
-        std::vector<Json> feel;
-        read_event_feel(ev, ep, feel, issues);
-        if (!ev.contains("name") && !ev.contains("feel"))
-            issues.push_back({ep, "a frame event needs `name` or `feel`", "`name` sends a game event; `feel` runs game feel actions (docs/GAME_FEEL.md)."});
+        std::vector<ClipIssue> one = check_sprite_event(events[i], pointer + "/" + std::to_string(i), sheet);
+        issues.insert(issues.end(), one.begin(), one.end());
     }
     return issues;
 }

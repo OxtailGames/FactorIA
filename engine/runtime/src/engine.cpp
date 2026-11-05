@@ -482,8 +482,9 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         apply_localization();  // keys of entities scripts spawned or edited this frame
     }
     // Shake, flash and squash follow real time times the player's time.scale: they keep moving through a hit-stop. Before
-    // drawing, so the poses the renderer reads belong to this frame.
-    feel_update(world, dt * scripts.user_time_scale());
+    // drawing, so the poses the renderer reads belong to this frame. The lifetimes of spawned effects run on the game clock
+    // (`time_scale()`: a hit-stop or a pause holds them).
+    feel_update(world, dt * scripts.user_time_scale(), dt * scripts.time_scale());
     render(dt);
     {
         ProfSystemScope prof(ProfSystem::EndOfFrame);

@@ -349,10 +349,19 @@ Result<void> feel_knockback(World& w, Entity e, const KnockbackOptions& o) {
 Result<void> feel_spawn(World& w, Entity e, const SpawnOptions& o) {
     if (!e.is_null() && !w.alive(e)) return bad_entity("spawn", e, w);
     if (auto r = check_options(o); !r.ok()) return r;
+    FeelState& fs = w.feel();
+    if (fs.spawns.size() >= kMaxQueuedSpawns) {
+        // A loop or a very short clip event cannot fill the scene with effects in one frame: the rest of this frame's spawns are dropped.
+        const std::string text = std::format("more than {} spawn actions in one frame: the extra ones are dropped. A clip event that fires on every "
+                                             "step, or a script that calls feel.spawn in a loop, makes this (hint: fire it less often, or give the effect a `lifetime`)",
+                                             kMaxQueuedSpawns);
+        if (fs.warnedClipActions.size() < 64 && fs.warnedClipActions.insert(text).second) FA_WARN("feel", "{}", text);
+        return {};
+    }
     FeelSpawn sp;
     sp.options = o;
     sp.position = e.is_null() ? o.offset : w.world_position(e) + (o.local ? local_to_world(w, e, o.offset) : o.offset);
-    w.feel().spawns.push_back(std::move(sp));
+    fs.spawns.push_back(std::move(sp));
     return {};
 }
 
@@ -586,7 +595,8 @@ std::vector<Json> feel_event_actions(const Json& event) {
 
 void feel_run_clip_actions(World& w, Entity player, const std::vector<Json>& actions, std::string_view where) {
     for (const Json& a : actions) {
-        const bool shake = a.is_object() && a.value("action", std::string()) == "shake";
+        const auto kind = a.is_object() ? a.find("action") : a.end();
+        const bool shake = a.is_object() && kind != a.end() && kind->is_string() && kind->get<std::string>() == "shake";
         // The camera that plays the clip shakes itself; any other entity's clip shakes the main camera.
         const Entity target = shake && !w.has<Camera>(player) ? kNullEntity : player;
         Result<void> r = feel_apply_action(w, target, a);
@@ -662,10 +672,10 @@ void run_spawns(World& w, float dt) {
 
 }  // namespace
 
-void feel_update(World& w, double clockDtD) {
+void feel_update(World& w, double clockDtD, double gameDtD) {
     FeelState& fs = w.feel();
     const float dt = static_cast<float>(std::max(0.0, clockDtD));
-    if (!fs.spawns.empty() || !fs.lifetimes.empty()) run_spawns(w, dt);
+    if (!fs.spawns.empty() || !fs.lifetimes.empty()) run_spawns(w, static_cast<float>(std::max(0.0, gameDtD)));
     if (fs.entities.empty()) {
         fs.poseCount = 0;
         return;

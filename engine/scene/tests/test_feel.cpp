@@ -28,7 +28,7 @@ struct Fixture {
     void frame(double dt = 1.0 / 60.0) {
         feel_begin_frame(w, dt, false);
         feel_fixed_update(w, dt * (w.feel().hit_stop_factor()));
-        feel_update(w, dt);
+        feel_update(w, dt, dt * w.feel().hit_stop_factor());
     }
 };
 

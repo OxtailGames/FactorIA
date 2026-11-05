@@ -94,7 +94,7 @@ struct SpawnOptions {
     std::string prefab;       // project-relative path of the prefab (required)
     Vec3 offset{0, 0, 0};     // added to the world position of the entity the action belongs to
     bool local = false;       // true: `offset` is in the entity's own space (a mirrored sprite flips x)
-    float lifetime = 0.0f;    // seconds on the game clock after which the spawned entity is destroyed; 0 = the prefab ends itself
+    float lifetime = 0.0f;    // seconds of game time (a hit-stop or a pause holds it) after which the spawned entity is destroyed; 0 = the prefab ends itself
 };
 
 // Plays a sound once. The sound goes to a queue that Audio::update drains (the audio module sits above this one).
@@ -224,7 +224,7 @@ Result<void> feel_flash(World& w, Entity e, const FlashOptions& o);
 Result<void> feel_knockback(World& w, Entity e, const KnockbackOptions& o);
 Result<void> feel_squash(World& w, Entity e, const SquashOptions& o);
 // Queues the spawn of `o.prefab` at `e`'s position (+ offset), or at `o.offset` when `e` is null; feel_update instantiates it. The prefab path is checked when it
-// is instantiated (a missing file is logged once), not here.
+// is instantiated (a missing file is logged once), not here. At most kMaxQueuedSpawns per frame (the rest are dropped, with one warning per scene).
 Result<void> feel_spawn(World& w, Entity e, const SpawnOptions& o);
 // Queues a sound for Audio::update. `source` is the entity the action belongs to (null = none).
 Result<void> feel_sound(World& w, Entity source, const SoundOptions& o);
@@ -232,6 +232,8 @@ Result<void> feel_sound(World& w, Entity source, const SoundOptions& o);
 // that nobody drains, e.g. a headless test without audio, does not grow without limit: the oldest are dropped).
 std::vector<FeelSound> feel_take_sounds(World& w);
 inline constexpr std::size_t kMaxQueuedSounds = 64;
+// At most this many `spawn` actions wait for one feel_update; the extra ones of that frame are dropped (and said once per scene).
+inline constexpr std::size_t kMaxQueuedSpawns = 64;
 // Stops everything of `e` (null = every effect of the world, hit-stops included). Flash, squash and shake end at once.
 void feel_cancel(World& w, Entity e);
 
@@ -262,7 +264,9 @@ float feel_default_shake_offset(const World& w, Entity camera);
 // Start of a frame, real seconds: runs the hit-stop timers and receives the system's "reduce motion".
 void feel_begin_frame(World& w, double realDt, bool systemReduceMotion);
 // Once per frame before drawing: `clockDt` = real seconds times `time.scale` (shake, flash, squash); recomputes the poses.
-void feel_update(World& w, double clockDt);
+// `gameDt` = real seconds times the effective game scale (`time.scale` AND the hit-stop): the clock the lifetimes of spawned
+// effects run on, so a hit-stop or a pause holds them.
+void feel_update(World& w, double clockDt, double gameDt);
 // Once per FIXED step that advances the game (not while hit-stop freezes it); `dt` = fixed step times the effective scale.
 void feel_fixed_update(World& w, double dt);
 
