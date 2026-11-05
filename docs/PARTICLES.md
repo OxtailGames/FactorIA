@@ -287,7 +287,7 @@ a light becomes; defaults to the type and index), an `at` (seconds after the sta
 | `emitter` | `emitter` (the fields of a `ParticleEmitter`, a patch over its defaults), `duration`, `offset` | A child entity with that `ParticleEmitter`, made at `at`. Its `burst` fires once. A `rate` runs for `duration` seconds, then the emitter stops emitting and its particles finish. With no `duration` only the burst happens. |
 | `light` | `light` (fields of a `Light2D`), `is3D` (a 3D `Light` instead), `duration` (required), `fade` (a curve, position 0 to 1, that multiplies the intensity; default a straight fade out), `offset` | A child light that fades out over `duration` and is then removed. |
 | `sound` | `clip`, `volume`, `pitch`, `bus` | Plays the clip once on the mixer bus (`sfx` by default) at `at`. |
-| `command` | `command`, `args` | Calls one command once at `at`, for example `feel.shake {"amount":0.5,"duration":0.3}` or `feel.hitStop {"duration":0.06}` from the game feel API. Only `feel.*` and `audio.*` commands are allowed: an effect cannot write files or destroy entities. A command that fails (it does not exist in this game, or its arguments are wrong) is logged once with the reason; the rest of the effect plays. |
+| `command` | `command`, `args` | Calls one command once at `at`, for example `feel.shake {"amount":0.5,"duration":0.3}` or `feel.hitStop {"duration":0.06}` from the game feel API. Only these commands are allowed, by exact name: `feel.shake`, `feel.hitStop`, `feel.flash`, `feel.knockback`, `feel.squash`, `feel.spawn`, `feel.sound`, `audio.bus`, `audio.snapshot` and `audio.music`. Any other name (`audio.bake`, `audio.create`, `feel.settings`, `feel.cancel`, ...) is an error at the pointer `/parts/N/command` with "did you mean", and the runtime checks the name again before it calls the command: an effect cannot write files or change settings. `feel.spawn` instantiates a prefab from the project: give it `"lifetime"` (seconds), or the prefab has to end itself, because the spawned entity does not belong to the effect and a prefab that never ends stays in the scene. A command that fails (it does not exist in this game, or its arguments are wrong) is logged once with the reason; the rest of the effect plays. |
 
 Emitters and lights of an effect are children of the effect's entity, so they follow its position and rotation. `vfx.play` `scale` sets the scale of that entity: the offsets of the parts and the spawn shape of an emitter that is not in `worldSpace` grow with it, but the sizes written in the file (`startSize`, a light's `radius`) do not, so scale an effect by writing a bigger one. An effect has at most 8 emitters and 8 commands. Anything else is an
 error that names the file, the JSON pointer and the fix, with "did you mean" for keys and values:
@@ -306,9 +306,19 @@ ends it: by default the parts that did not start never do, lights end and emitte
 
 ### Budgets and hot reload
 
-At most 64 effects play at once: a play past that is dropped (`vfx.play` returns `null` as the id, and it is logged once). An autoDestroy effect leaves
-when its emitters have no particles left (a headless run has no renderer to empty them, so after 30 seconds of game time it
-leaves anyway). A document is read once and shared by every effect that plays it. When the file changes on disk, the next play reads the new version; effects already
+At most 64 effects play at once: a play past that is dropped (`vfx.play` returns `null` as the id, and it is logged once). An effect
+counts from `vfx.play` until it has ended and its emitters have been removed, so a burst of plays frees the budget a moment after
+the effects end; the system keeps that count, it does not scan the effects on every play.
+
+**When an effect's entities go.** When an effect ends (its last part ended, or the file's `duration` was reached, whichever the
+file says; `vfx.stop`; or a `loop` starts again) its lights are removed and its emitters stop emitting. Each emitter's entity then
+stays for the longest its particles can live and is removed by the effect system itself: `lifetime * (1 + lifetimeVariance)`,
+plus `trailTime` when the emitter has a trail, plus, for its sub-emitters, the longest chain of the same (a sub-emitter that
+cannot be read counts 30 s) and 0.1 s of slack. The emitters of an effect do not use their own `autoDestroy`. The wait is counted in game
+seconds, not by looking at the particles, so the entities that exist are the same in a windowed game, a headless test and a
+server: nothing depends on a renderer or a GPU. A looping effect does not pile up: at every restart the previous loop's lights go and its emitters
+stop and drain, so a loop keeps at most the emitters of the loops whose particles are still alive. An autoDestroy effect's own
+entity goes with its last emitter. A document is read once and shared by every effect that plays it. When the file changes on disk, the next play reads the new version; effects already
 playing finish the version they started with. A file that has become invalid is an error for the next play (`vfx.play` fails with its pointer; a placed `Vfx` logs it once and does not play), fix it and play again. The runtime state of a `Vfx` (`playing`, `time`, the child entities) is not saved: a scene saved while an effect plays
 starts it again from the beginning, and the entities `vfx.play` makes are never saved with the scene.
 

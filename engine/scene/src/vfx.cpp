@@ -1,6 +1,7 @@
 #include "fa/scene/vfx.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <format>
 #include <map>
@@ -226,14 +227,12 @@ void parse_part(Parser& p, const Json& j, std::size_t index, VfxDoc& doc, std::s
                 break;
             }
             part.command = it->get<std::string>();
-            bool allowed = false;
-            for (const std::string& pre : vfx_command_prefixes()) allowed = allowed || starts_with(part.command, pre);
-            if (!allowed)
+            if (!vfx_command_allowed(part.command))
                 p.err(ptr + "/command", "an effect may not call '" + part.command + "'",
-                      "An effect calls the game feel and audio commands only (names starting " + join(vfx_command_prefixes(), ", ") +
-                          "), so a file you did not write cannot change or delete your project.");
+                      did_you_mean(part.command, vfx_allowed_commands()) +
+                          " An effect calls only the game feel effects and the mixer's playback commands, so a file you did not write cannot write files or change settings.");
             if (auto a = j.find("args"); a != j.end()) {
-                if (!a->is_object()) p.err(ptr + "/args", "args must be an object of the command's arguments, got " + describe_json_value(*a), "Example: \"args\": {\"strength\": 0.5}.");
+                if (!a->is_object()) p.err(ptr + "/args", "args must be an object of the command's arguments, got " + describe_json_value(*a), "Example: \"args\": {\"amount\": 0.5}.");
                 else part.args = *a;
             }
             break;
@@ -244,9 +243,15 @@ void parse_part(Parser& p, const Json& j, std::size_t index, VfxDoc& doc, std::s
 
 }  // namespace
 
-const std::vector<std::string>& vfx_command_prefixes() {
-    static const std::vector<std::string> p = {"feel.", "audio."};
-    return p;
+const std::vector<std::string>& vfx_allowed_commands() {
+    static const std::vector<std::string> names = {"feel.shake", "feel.hitStop", "feel.flash", "feel.knockback", "feel.squash",
+                                                   "feel.spawn", "feel.sound",   "audio.bus",   "audio.snapshot", "audio.music"};
+    return names;
+}
+
+bool vfx_command_allowed(std::string_view command) {
+    const auto& names = vfx_allowed_commands();
+    return std::find(names.begin(), names.end(), command) != names.end();
 }
 
 Result<std::shared_ptr<const VfxDoc>> parse_vfx(const Json& json, std::string_view fileView, std::vector<VfxIssue>* issuesOut) {
@@ -410,18 +415,95 @@ void warn_once(const std::string& key, const std::string& text) {
 
 bool usable(const World& w, Entity e) { return !e.is_null() && w.alive(e) && !w.pending_destroy(e); }
 
-void end_children(World& w, Vfx& v, bool destroyAll) {
-    const VfxDoc* doc = v.rt.doc.get();
-    for (const VfxChild& c : v.rt.children) {
+// ---- how long an emitter's entity stays after it stopped emitting ----
+// The renderer steps the particles, and only a windowed game has one. So the entity of a stopped emitter is removed by this system, a
+// fixed number of game seconds later: the most its particles can live (lifetime plus its variance, plus the trail they leave), plus,
+// for each sub-emitter level, the same again (a particle's death can start the next one). The same on every machine, with or
+// without a GPU.
+
+double lifespan(const ParticleEmitter& em) {
+    const double life = double(std::max(em.lifetime, 0.0f)) * (1.0 + double(std::clamp(em.lifetimeVariance, 0.0f, 1.0f)));
+    return life + (em.trail != ParticleTrail::None ? double(std::max(em.trailTime, 0.0f)) : 0.0);
+}
+
+double drain_bound(const World& w, const ParticleEmitter& em, int depth) {
+    double deepest = 0.0;
+    const Json& spec = em.subEmitters;
+    if (depth < kParticleSubDepth && spec.is_object()) {
+        for (auto ev = spec.begin(); ev != spec.end(); ++ev) {
+            std::vector<const Json*> links;
+            if (ev.value().is_object()) links.push_back(&ev.value());
+            else if (ev.value().is_array()) for (const Json& l : ev.value()) links.push_back(&l);
+            for (const Json* l : links) {
+                if (!l->is_object()) continue;
+                double sub = kVfxMaxDuration;  // a sub-emitter that cannot be read now (it is tried again while the effect plays)
+                ParticleEmitter child;
+                bool have = false;
+                if (auto it = l->find("emitter"); it != l->end()) {
+                    have = bool(object_patch_from_json(type_of_component<ParticleEmitter>(), &child, *it));
+                } else if (auto pf = l->find("prefab"); pf != l->end() && pf->is_string()) {
+                    if (auto r = load_prefab_particle_emitter(pf->get<std::string>())) {
+                        child = std::move(*r);
+                        have = true;
+                    }
+                } else if (auto en = l->find("entity"); en != l->end() && en->is_string()) {
+                    const Entity target = w.find_by_id(en->get<std::string>());
+                    if (!target.is_null())
+                        if (const ParticleEmitter* other = w.get<ParticleEmitter>(target)) {
+                            child = *other;
+                            have = true;
+                        }
+                }
+                if (have) sub = drain_bound(w, child, depth + 1);
+                deepest = std::max(deepest, sub);
+            }
+        }
+    }
+    return lifespan(em) + deepest;
+}
+
+// The emitter of a child stops emitting; from now its entity waits for its particles to be gone, then is removed.
+void stop_emitter(World& w, VfxChild& c) {
+    if (auto* pe = w.get<ParticleEmitter>(c.entity)) pe->emitting = false;
+    if (c.drainLeft < 0.0f) c.drainLeft = c.drainFor;
+}
+
+// The play ends (it finished, was stopped, restarts, or the effect changed): its lights go, its emitters stop emitting and are
+// kept in the list, detached (part -1), until their particles have drained.
+void end_children(World& w, Vfx& v) {
+    auto& list = v.rt.children;
+    std::size_t keep = 0;
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        VfxChild c = list[i];
         if (!usable(w, c.entity)) continue;
-        const bool emitter = doc && c.part >= 0 && std::size_t(c.part) < doc->parts.size() && doc->parts[std::size_t(c.part)].kind == VfxPartKind::Emitter;
-        if (emitter && !destroyAll) {
-            if (auto* pe = w.get<ParticleEmitter>(c.entity)) pe->emitting = false;  // its particles finish
+        if (c.part < 0 || w.get<ParticleEmitter>(c.entity)) {
+            stop_emitter(w, c);
+            c.part = -1;
+            list[keep++] = c;
         } else {
             w.destroy(c.entity);
         }
     }
-    v.rt.children.clear();
+    list.resize(keep);
+}
+
+// Removes the emitters whose particles have had the time to die. `dt`: game seconds since the last call.
+void drain_children(World& w, Vfx& v, float dt) {
+    auto& list = v.rt.children;
+    std::size_t keep = 0;
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        VfxChild c = list[i];
+        if (!usable(w, c.entity)) continue;
+        if (c.drainLeft >= 0.0f) {
+            c.drainLeft -= dt;
+            if (c.drainLeft <= 0.0f) {
+                w.destroy(c.entity);
+                continue;
+            }
+        }
+        list[keep++] = c;
+    }
+    list.resize(keep);
 }
 
 void start_part(World& w, Entity e, Vfx& v, std::size_t index, const VfxHost& host) {
@@ -439,9 +521,12 @@ void start_part(World& w, Entity e, Vfx& v, std::size_t index, const VfxHost& ho
             Entity c = child();
             auto& pe = w.add<ParticleEmitter>(c);
             (void)object_patch_from_json(type_of_component<ParticleEmitter>(), &pe, part.emitter);
-            pe.autoDestroy = true;
+            pe.autoDestroy = false;  // this system removes it, at the same game time on every machine (drain_bound)
             pe.emitting = part.duration > 0.0;
-            v.rt.children.push_back({c, std::int32_t(index), 1.0f});
+            VfxChild vc{c, std::int32_t(index), 1.0f};
+            vc.drainFor = float(drain_bound(w, pe, 0) + kVfxDrainSlack);
+            if (!pe.emitting) vc.drainLeft = vc.drainFor;  // a burst only: it stopped emitting before it began
+            v.rt.children.push_back(vc);
             break;
         }
         case VfxPartKind::Light: {
@@ -483,6 +568,10 @@ void animate_children(World& w, Vfx& v) {
     for (std::size_t i = 0; i < list.size(); ++i) {
         VfxChild c = list[i];
         if (!usable(w, c.entity)) continue;
+        if (c.part < 0 || std::size_t(c.part) >= doc.parts.size()) {  // an emitter of an earlier play: it only drains
+            list[keep++] = c;
+            continue;
+        }
         const VfxPart& part = doc.parts[std::size_t(c.part)];
         if (part.kind == VfxPartKind::Light) {
             const double t = part.duration > 0.0 ? (double(v.time) - part.at) / part.duration : 1.0;
@@ -494,8 +583,7 @@ void animate_children(World& w, Vfx& v) {
             if (auto* l2 = w.get<Light2D>(c.entity)) l2->intensity = c.baseIntensity * k;
             else if (auto* l3 = w.get<Light>(c.entity)) l3->intensity = c.baseIntensity * k;
         } else if (part.kind == VfxPartKind::Emitter) {
-            if (double(v.time) >= part.at + part.duration)
-                if (auto* pe = w.get<ParticleEmitter>(c.entity)) pe->emitting = false;
+            if (double(v.time) >= part.at + part.duration) stop_emitter(w, c);
         }
         list[keep++] = c;
     }
@@ -506,22 +594,15 @@ void restart(Vfx& v) {
     v.time = 0.0f;
     v.rt.started = 0;
     v.rt.finished = false;
-    v.rt.linger = 0.0f;
 }
 
 }  // namespace
 
-int vfx_playing_count(const World& world) {
-    int n = 0;
-    for (Entity e : world.entities_with(&World::type_of<Vfx>())) {
-        const Vfx* v = world.get<Vfx>(e);
-        if (v && !v->rt.finished && (v->playing || (v->autoplay && !v->rt.seen))) ++n;
-    }
-    return n;
-}
+int vfx_playing_count(const World& world) { return world.vfx_live(); }
 
 void update_vfx(World& world, float dt, const VfxHost& host) {
     const std::vector<Entity> all = world.entities_with(&World::type_of<Vfx>());
+    int live = 0;  // effects that play or still hold child entities: the budget of vfx_play
     for (Entity e : all) {
         if (!usable(world, e)) continue;
         Vfx* vp = world.get<Vfx>(e);
@@ -535,7 +616,7 @@ void update_vfx(World& world, float dt, const VfxHost& host) {
         // A new `effect`, or a replay of one that ended: read the document (the file may have changed on disk).
         if (!rt.tried || v.effect != rt.loadedEffect || (v.playing && rt.finished)) {
             const bool changed = rt.tried && v.effect != rt.loadedEffect;
-            if (changed || rt.finished) end_children(world, v, false);
+            if (changed || rt.finished) end_children(world, v);
             rt.tried = true;
             rt.loadedEffect = v.effect;
             rt.doc.reset();
@@ -571,6 +652,9 @@ void update_vfx(World& world, float dt, const VfxHost& host) {
             animate_children(world, v);
             const double end = v.loop ? std::max(doc.duration, kVfxMinLoop) : doc.duration;
             if (double(v.time) >= end && rt.started == (doc.parts.size() >= 32 ? ~0u : (1u << doc.parts.size()) - 1u)) {
+                // The effect is over, whatever its parts were still doing (an explicit file `duration` can be shorter than a
+                // part): lights end and emitters stop emitting, then drain.
+                end_children(world, v);
                 if (v.loop) {
                     restart(v);
                 } else {
@@ -579,14 +663,12 @@ void update_vfx(World& world, float dt, const VfxHost& host) {
                 }
             }
         }
-        if (rt.finished && v.autoDestroy) {
-            animate_children(world, v);
-            // Emitters destroy themselves once their particles are gone; without a renderer nobody steps them, so after
-            // kVfxMaxLinger sim seconds the entity and its children go anyway.
-            rt.linger += dt;
-            if ((rt.children.empty() || rt.linger >= float(kVfxMaxLinger)) && !world.pending_destroy(e)) world.destroy(e);
-        }
+        // The emitters of an ended play leave when their particles have had the time to die, with or without a renderer.
+        if (!rt.children.empty()) drain_children(world, v, dt);
+        if (rt.finished && v.autoDestroy && rt.children.empty() && !world.pending_destroy(e)) world.destroy(e);
+        else if (v.playing || !rt.children.empty()) ++live;
     }
+    world.set_vfx_live(live);
 }
 
 Result<Entity> vfx_play(World& world, std::string_view effect, const VfxPlayOptions& o) {
@@ -611,6 +693,7 @@ Result<Entity> vfx_play(World& world, std::string_view effect, const VfxPlayOpti
         t->rotation = {0, 0, o.rotation};
         t->scale = {o.scale, o.scale, o.scale};
     }
+    world.set_vfx_live(world.vfx_live() + 1);
     auto& v = world.add<Vfx>(e);
     v.effect = std::string(effect);
     v.autoplay = true;
@@ -628,7 +711,7 @@ void vfx_stop(World& world, Entity e, bool immediate) {
         world.destroy(e);
         return;
     }
-    end_children(world, *v, false);
+    end_children(world, *v);
     v->playing = false;
     v->loop = false;
     v->rt.seen = true;

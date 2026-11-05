@@ -797,10 +797,13 @@ struct Video : UiBox {
 struct VfxDoc;  // an effect document (vfx.h)
 
 // A child entity a Vfx made (an emitter or a light): which part of the document it came from, and the intensity a light started with.
+// `part` is -1 once the play that made it has ended: an emitter then only waits for its particles to drain (see drainLeft).
 struct VfxChild {
     Entity entity = kNullEntity;
     std::int32_t part = 0;
     float baseIntensity = 1.0f;
+    float drainFor = 0.0f;    // emitter: seconds after it stops emitting until its last particle is certainly gone (vfx.cpp, drain_bound)
+    float drainLeft = -1.0f;  // emitter: < 0 while it emits; from the moment it stops, counts down drainFor in game seconds; at 0 it is removed
 };
 
 // What the effect system (vfx.h) keeps per Vfx at run time. Never serialized. Copying it gives an EMPTY state (the children belong to
@@ -819,7 +822,6 @@ struct VfxRuntime {
     std::string loadedEffect;           // the `effect` the document was loaded for (a different `effect` starts over)
     bool tried = false;                 // loadedEffect was tried (a file that failed is not read again every step)
     bool seen = false;                  // the system has looked at this Vfx (autoplay applied)
-    float linger = 0.0f;                // seconds since the effect ended (autoDestroy waits for the emitters, up to kVfxMaxLinger)
     bool finished = false;              // the effect ran to its end (or was stopped): `playing` set true again restarts it
     std::uint32_t started = 0;          // bit i: part i has started
     std::vector<VfxChild> children;     // the emitters and lights this play made

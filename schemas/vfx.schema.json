@@ -46,7 +46,7 @@
               "sound",
               "command"
             ],
-            "description": "What the part is. emitter: a ParticleEmitter child entity. light: a Light2D (or Light with is3D) that fades out. sound: a one-shot clip. command: a call to a game feel (feel.*) or audio (audio.*) command."
+            "description": "What the part is. emitter: a ParticleEmitter child entity. light: a Light2D (or Light with is3D) that fades out. sound: a one-shot clip. command: a call to one of the allowed game feel or audio playback commands (feel.shake, feel.hitStop, feel.flash, feel.knockback, feel.squash, feel.spawn, feel.sound, audio.bus, audio.snapshot, audio.music)."
           },
           "name": {
             "type": "string",
@@ -121,11 +121,11 @@
           },
           "command": {
             "type": "string",
-            "description": "command parts, required: the command to call. Only game feel (feel.*) and audio (audio.*) commands are allowed, so an effect file cannot change or delete your project."
+            "description": "command parts, required: the command to call, by its exact name: feel.shake, feel.hitStop, feel.flash, feel.knockback, feel.squash, feel.spawn, feel.sound, audio.bus, audio.snapshot or audio.music. Any other command is an error, so an effect file cannot write files or change settings (audio.bake, audio.create, feel.settings and the rest are refused)."
           },
           "args": {
             "type": "object",
-            "description": "command parts: the arguments of the command, e.g. {\"strength\": 0.5}."
+            "description": "command parts: the arguments of the command, e.g. {\"amount\": 0.5}."
           }
         },
         "additionalProperties": false

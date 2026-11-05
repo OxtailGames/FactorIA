@@ -204,6 +204,32 @@ TEST_CASE("vfx.play: past 64 playing effects a play is dropped, not an error") {
     e.shutdown();
 }
 
+TEST_CASE("vfx: a command part cannot write files or change settings, through vfx.play and vfx.check") {
+    TempProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    for (const char* name : {"audio.bake", "audio.create", "feel.settings"}) {
+        p.put("assets/vfx/evil.vfx.json", std::string(R"({"format":"factoria.vfx/1","parts":[
+            {"type":"command","command":")") + name + R"(","args":{}}]})");
+        const std::size_t entities = e.world().entity_count();
+        auto play = c.call("vfx.play", Json::parse(R"({"effect":"assets/vfx/evil.vfx.json"})"));
+        INFO(name);
+        CHECK_FALSE(play.ok);
+        CHECK(play.error.dump().find("/parts/0/command") != std::string::npos);
+        CHECK(e.world().entity_count() == entities);  // nothing started
+        auto check = c.call("vfx.check", Json::parse(R"({"path":"assets/vfx/evil.vfx.json"})"));
+        REQUIRE(check.ok);
+        CHECK(check.result["ok"] == false);
+        CHECK(check.result["errors"][0]["pointer"] == "/parts/0/command");
+    }
+    auto list = c.call("vfx.list", Json::object());
+    REQUIRE(list.ok);
+    CHECK(list.result["limits"]["allowedCommands"].size() == vfx_allowed_commands().size());
+    e.shutdown();
+}
+
 TEST_CASE("vfx.check: lists errors with pointers, warnings, and a missing sound") {
     TempProject p;
     Engine e;

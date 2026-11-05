@@ -62,6 +62,10 @@ void register_vfx_commands(Engine&, Engine::Impl& I) {
         return I.audio.play(clip, pp) != 0;
     };
     I.vfxHost.call = [&I](const std::string& command, const Json& args) -> std::string {
+        // The parser refused every other name already; checked again here so no path to this function (a document built in code)
+        // can run a command that writes files or changes settings.
+        if (!vfx_command_allowed(command))
+            return "an effect may not call '" + command + "' (allowed: " + join(vfx_allowed_commands(), ", ") + ")";
         if (!I.commands.has(command))
             return "there is no command '" + command + "'";
         const CommandResult r = I.commands.call(command, args);
@@ -76,7 +80,8 @@ void register_vfx_commands(Engine&, Engine::Impl& I) {
            "Makes an entity with a Vfx component (autoDestroy on) that plays the effect: its emitters and light flash become children "
            "of it, its sounds and commands (a camera shake, a hit-stop...) fire at their times. Without `entity` the effect is in "
            "world space at `position`; with `entity` it is that entity's child at the local `position`, so it follows it. The file is "
-           "read and checked now: an invalid one is an error naming the JSON pointer. At most 64 effects play at once: past that the "
+           "read and checked now: an invalid one is an error naming the JSON pointer. At most 64 effects play at once (an ended effect counts "
+           "until its emitters' particles are gone): past that the "
            "call returns {\"id\": null, \"dropped\": true} (logged once). The effect advances with the game clock (game.step, "
            "time.scale), so the same calls at the same steps give the same result. Example: "
            "vfx.play {\"effect\":\"assets/vfx/hit.vfx.json\",\"position\":[120,64]}",
@@ -141,7 +146,7 @@ void register_vfx_commands(Engine&, Engine::Impl& I) {
                                                {"duration", std::round(double(v->duration) * 1000.0) / 1000.0}, {"loop", v->loop}, {"speed", v->speed}}));
               }
               Json limits = Json::object({{"parts", kVfxMaxParts}, {"emitters", kVfxMaxEmitters}, {"commands", kVfxMaxCommands},
-                                          {"durationSeconds", kVfxMaxDuration}, {"commandPrefixes", vfx_command_prefixes()}});
+                                          {"durationSeconds", kVfxMaxDuration}, {"allowedCommands", vfx_allowed_commands()}});
               return Json::object({{"playing", list}, {"count", list.size()}, {"max", kVfxMaxPlaying}, {"limits", limits}});
           });
 
