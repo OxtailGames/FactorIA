@@ -619,6 +619,66 @@
         "Fixed in M45 (0.11.0): the warning now says to remove the glyph or move a shared legend into a `legendFrom` file, whose unused entries are not warned about."
       ],
       "engineIssue": "M45"
+    },
+    {
+      "id": "FB-0028",
+      "date": "2026-11-05",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "assets",
+      "severity": "minor",
+      "title": "animate_svg layers need a hand-written prefab to play together",
+      "missing": "assets.animate_svg with layers bakes back, front and light sheets, but the three entities that play them in step (same SpriteAnimator clip, back below the hero, front above it, light additive) have to be written by hand as a prefab; the result only describes them in nextSteps text. Every layered effect repeats the same three-child prefab.",
+      "workaround": "Wrote prefabs/coin_sparkle.prefab.json by hand from the nextSteps text.",
+      "workaroundFiles": [
+        "prefabs/coin_sparkle.prefab.json"
+      ],
+      "suggestion": "A prefab option on assets.animate_svg ({prefab: 'prefabs/coin_sparkle.prefab.json', layerOrder: {...}}) that writes the parent with the three children, the sheet clip, and the blend, so the effect is one call.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0029",
+      "date": "2026-11-05",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "assets",
+      "severity": "nice-to-have",
+      "title": "animate_svg does not warn that the sheet size is not a multiple of 4",
+      "missing": "assets.animate_svg 96 px frames with padding 1 gave a 294x294 sheet; only project.validate (later) warns that GPU compression needs sizes that are multiples of 4 on mobile platforms. The bake result gives no hint, so the sheet is baked twice.",
+      "workaround": "Re-baked with padding 2 (a 300x300 sheet) after validate warned.",
+      "suggestion": "Warn in the animate_svg result (and say which padding or cell size gives a multiple of 4) when the project targets a mobile platform.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0030",
+      "date": "2026-11-05",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "Test game object cannot read a project JSON file",
+      "missing": "factoria:test game has loadJson (scenes only) but no way to read a project data file such as assets.json or an anim clip; a test of a baked effect's recipe or a clip's events has to go through fa.call('fs.read') and JSON.parse.",
+      "workaround": "JSON.parse(fa.call('fs.read', {path}).content) in tests/feel.test.js.",
+      "workaroundFiles": [
+        "tests/feel.test.js"
+      ],
+      "suggestion": "game.readJson(path) in factoria:test, or document fs.read in the testing section of docs/SCRIPTING.md.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

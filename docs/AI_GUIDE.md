@@ -1868,6 +1868,11 @@ time.hitStop(0.07);                                 // real seconds; UI and audi
 and reduced effects are honoured by the engine (`feel.reduceMotion`, `feel.reducedEffects`); tools and tests use the
 `feel.*` commands (`feel.state` shows what is running).
 
+An effect you draw (a hit spark, a pickup, a fire) is made in a loop: draft with `assets_animate_svg` (a `ramp` from the style's
+palette, `layers` back/front/light), film it at the size it is drawn at (`assets_contact_sheet` with `sizes`, `allFrames` and the
+greyscale row), judge readability, anticipation, impact, recovery and palette, change one thing and bake again:
+`docs_read {"name":"effects"}` has the loop and three worked examples with the real calls.
+
 The same effects, plus `spawn` (a prefab, with a `lifetime`) and `sound`, are JSON actions that an animation event can carry, so a
 hit lands on the frame the sword does: `{ "t": 0.3, "feel": [{ "action": "hitStop", "duration": 0.06 }, { "action": "sound", "path":
 "audio/hit.wav" }] }` in a clip file (2D or 3D), in `Animator.events` (`{clip, time, feel}`) or in `SpriteAnimator.events`
@@ -2068,6 +2073,7 @@ the game must show itself to them. Keep these in place as the game grows:
 - `factoria docs read scripting` (MCP `docs_read {"name":"scripting"}`): the full JavaScript API, tools and tests.
 - `factoria api --md` and `factoria commands` (MCP `docs_components` and `docs_commands`): generated references for this build.
 - `factoria docs read game-feel` (MCP `docs_read {"name":"game-feel"}`): camera shake, hit-stop, flash, knockback and squash and stretch, their clocks and accessibility.
+- `factoria docs read effects` (MCP `docs_read {"name":"effects"}`): the draft, film, look, refine loop for hit sparks, pickups and fires, with three worked examples.
 - `factoria docs read animation` (MCP `docs_read {"name":"animation"}`): the Animator component (clips, cross-fades, events, state machine) and `tween` / `ease`.
 - `factoria docs read extending` (MCP `docs_read {"name":"extending"}`): how to add project tools, native plugins (C/C++ for one game) and engine commands.
 - `factoria docs read cli` (MCP `docs_read {"name":"cli"}`): every command and flag.

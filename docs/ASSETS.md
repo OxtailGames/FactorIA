@@ -493,6 +493,9 @@ counts from the BOTTOM-left, so the animator uses `[x, 1 - y]`. It does so only 
 (`Sprite.pivot` still `[0.5, 0.5]`) and `SpriteAnimator.sheetPivot` is true; a sprite that sets another pivot keeps it. The
 sheet's pivot is applied when the sprite is drawn and measured, it is not written into `Sprite.pivot`.
 
+The loop around it (draft, film at the game's size with `assets.contact_sheet`, look, refine) and three worked effects are in
+[EFFECTS.md](EFFECTS.md).
+
 ### Checking a sheet: assets.preview_sheet
 
 `assets.preview_sheet {"path":"assets/art/coin_spin.png"}` draws the sheet as a labelled grid (a temporary picture, returned as

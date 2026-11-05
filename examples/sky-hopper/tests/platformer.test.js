@@ -102,7 +102,7 @@ test("coyote time: can jump shortly after leaving a ledge", () => {
   expect(vy).toBeGreaterThan(300);
 });
 
-test("collecting a coin removes it, counts it and bursts particles", () => {
+test("collecting a coin removes it, counts it and plays the sparkle (tests/feel.test.js checks its layers)", () => {
   const p = load();
   const coin = game.find("coin_1");
   expect(coin).not.toBeNull();
