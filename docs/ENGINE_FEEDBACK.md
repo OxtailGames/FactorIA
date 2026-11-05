@@ -10,13 +10,55 @@ Immediately, whenever the engine lacked a feature, had a bug, gave a misleading 
 or missing, AND you built a workaround or dropped the feature. Do not wait until the end of the task.
 Duplicates are harmless: a report similar to an open entry is merged into it.
 
+Before you write a gap down, look for it: `factoria docs search "<the thing>"`, `components.list`, the API reference. An entry that says
+the engine lacks something it has is refused (next section) or rejected later, so it costs time for nobody's benefit. The example
+below is invented: "No fluid simulation" is NOT a report to file, only an illustration of the shape of one.
+
+## The check before filing
+
+`feedback.report` (MCP, CLI, `factoria feedback add`) and the editor's Add feedback window run a check first: does the
+engine already have what the report says is missing? The words of the report are compared with the names the engine publishes (the
+reflected components and their fields, the commands, the scripting API). The report is REFUSED when its own words tie the claim to
+an existing name: a lead like "no", "missing", "add", "lacks", "without", "needs", "does not have" right before it, or "does not
+exist" / "is missing" right after it; the name is an identifier (`Collider2D.oneWay`) or a field written as words ("one-way" is
+`oneWay`) of a component the report names, or distinctive on its own; and nothing in the report says the thing exists but
+misbehaves. The refusal teaches: what exists, its doc string, where it is documented, and what to do if it does not work.
+
+- **Not working as documented is a bug, and a bug is accepted.** Say what you tried and what happened ("I set `Collider2D.oneWay`
+  to true on the platform and a body still collides from below"): words like "ignored", "has no effect", "does not work", "I set"
+  switch the check off, and the report goes in as any other.
+- **An extra option on an existing component is accepted**: "Collider2D has no bounce curve" names a field that is not there, so
+  nothing is refused. When in doubt the check accepts.
+- `feedback.check` (CLI `factoria feedback check --title T --missing TEXT`) runs the check without filing: `{exists, matches[], related[]}`,
+  with the related docs to read. With `entries: true` (CLI `--entries`) it checks the open entries of the project, and with `reject: true`
+  (`--reject`) it also rejects the ones that fail. `factoria validate` warns about each open entry that fails it.
+
+## Rejected entries
+
+An open entry that fails the check is not a gap. It gets the status `rejected`, with who decided and why:
+
+- `status: "rejected"`, `statusReason`: plain text, one line, at most 500 characters (what exists and where it is documented, or why
+  it is not an engine gap) and `statusBy`: `engine` (the check, when the editor opens the project or after `factoria feedback check --entries
+  --reject`), `user` (a person picked it in the editor, which asks for the reason) or `developer` (the engine developers rejected the
+  report you shared: see Sharing). A rejection always has a reason; `feedback.update` with `status: "rejected"` and no
+  `statusReason` is an error.
+- A rejected entry is closed: it moves to `ENGINE_FEEDBACK.archive.json` like any other. The editor's Engine Feedback panel lists it when
+  you tick **closed**, with the status and a `*` marker; hover the status for who decided and why. Its window shows the reason.
+- A person who disagrees reopens it (status `open`): the entry then carries `claimCheck: "dismissed"` and the engine never rejects it again.
+- Do not confuse it with `shared.status: "rejected"`: that one says the feedback SERVER refused the text of a report (privacy or format
+  check, docs/design/FEEDBACK_SHARING.md). A report the engine developers refused is `shared.status: "declined"`.
+- Delete: `feedback.delete` (CLI `factoria feedback discard <id>`; the editor's Delete button asks first). It removes a closed entry (from the
+  file or the archive) or an open entry the engine developers refused. An open entry that is somebody's question for the engine
+  developers is refused with the reason. Ids are never reused (`nextId` in both files), and what was already sent stays with the
+  engine developers. The entry also leaves the outbox.
+
 ## How
 
 | Way | Use |
 |---|---|
 | Command `feedback.report` (MCP tool `feedback_report`, CLI `factoria call feedback.report '{...}'`) | Preferred: assigns id and date, merges duplicates |
 | `feedback.share_preview`, `feedback.share_status`, `feedback.share`, `feedback.check_fixed` | Sharing with the engine developer (see Sharing) |
-| `feedback.list`, `feedback.update` | Inspect entries; engine developers change `status` / `engineIssue` |
+| `feedback.list`, `feedback.update`, `feedback.check`, `feedback.delete` | Inspect entries; engine developers change `status` / `engineIssue` (`rejected` needs `statusReason`); check a claim; delete a closed entry |
 | `feedback.archive` (CLI `factoria feedback archive`) | Move the closed entries to the archive (see Archive) |
 | Edit the JSON | Allowed; keep it valid against `schemas/engine-feedback.schema.json` |
 
@@ -24,11 +66,11 @@ Duplicates are harmless: a report similar to an open entry is merged into it.
 {
   "category": "physics",
   "severity": "major",
-  "title": "No one-way platforms",
-  "missing": "Collider2D has no one-way option, so the player cannot jump up through platforms.",
-  "workaround": "scripts/one_way.js disables the platform collider while the player moves upward.",
-  "workaroundFiles": ["scripts/one_way.js"],
-  "suggestion": "Add Collider2D.oneWay (bool) with a configurable direction.",
+  "title": "No fluid simulation",
+  "missing": "There is no liquid solver, so water cannot flow around bodies and fill a container.",
+  "workaround": "scripts/water.js moves sprites to fake a water surface.",
+  "workaroundFiles": ["scripts/water.js"],
+  "suggestion": "Add a particle-based Fluid2D component.",
   "effort": "small"
 }
 ```
@@ -43,7 +85,8 @@ Duplicates are harmless: a report similar to an open entry is merged into it.
 - `missing`, `workaround`: required. `workaroundFiles`, `suggestion`, `effort` (small/medium/large), `distinctFrom` (ids never merged with),
   `reporter` ({kind, agent, model}): optional.
 - Maintained automatically: `id` (FB-0001...), `date` (UTC), `occurrences`, `notes` (one line per merged
-  report: `date: workaround`), `status` (open, fixed-in-engine, wont-fix, duplicate), `engineIssue`.
+  report: `date: workaround`), `status` (open, fixed-in-engine, wont-fix, duplicate, rejected), `engineIssue`, and for a closed entry `statusReason` / `statusBy`
+  (see Rejected entries).
 
 ## Deduplication
 
@@ -56,7 +99,7 @@ is raised if the new report is more severe, and the longer `suggestion` wins. Th
 ## Archive
 
 `ENGINE_FEEDBACK.json` keeps what is still open. Every entry whose `status` is not `open` (`fixed-in-engine`,
-`wont-fix`, `duplicate`) moves to `ENGINE_FEEDBACK.archive.json` next to it, in the same format. This happens when the
+`wont-fix`, `duplicate`, `rejected`) moves to `ENGINE_FEEDBACK.archive.json` next to it, in the same format. This happens when the
 editor opens the project and when you run the command `feedback.archive` (MCP `feedback_archive`, CLI
 `factoria feedback archive [project]`); running it again moves nothing. The archive is written before the feedback
 file, so an interruption can leave an entry in both files but never loses one. Both files are left out of exports.
@@ -81,17 +124,17 @@ developer so the gaps of every game reach the roadmap. The rest of the entry (`t
 files) stays in your project's file and is never sent.
 
 `share` is `{title (8-120 characters), missing (20-1500), suggestion? (up to 1500), workaround? (up to 1500)}`. Write the gap
-the way it would be true in any game: "Collider2D has no one-way option, so a body cannot pass up through a platform and
-land on it." Not: "the player of Lantern Keep cannot jump through the crypt platforms in scripts/jump.js". Use engine names
+the way it would be true in any game: "There is no liquid solver, so water cannot flow around bodies and fill a
+container." Not: "the player of Lantern Keep cannot jump through the crypt platforms in scripts/jump.js". Use engine names
 (components, fields, commands, the scripting API) and nothing from the game. `reviewed: true` says that you checked against
 the docs that the gap is real and about the engine, not a mistake in the game.
 
 ```json
-{"category": "physics", "severity": "major", "title": "No one-way platforms",
- "missing": "Collider2D has no one-way option", "workaround": "scripts/one_way.js disables the collider going up",
- "share": {"title": "No one-way platforms",
-           "missing": "Collider2D has no one-way option, so a body cannot pass up through a platform and land on it.",
-           "suggestion": "Add Collider2D.oneWay (bool)."},
+{"category": "physics", "severity": "major", "title": "No fluid simulation",
+ "missing": "There is no liquid solver", "workaround": "scripts/water.js moves sprites to fake a water surface",
+ "share": {"title": "No fluid simulation",
+           "missing": "There is no liquid solver, so water cannot flow around bodies and fill a container.",
+           "suggestion": "Add a particle-based Fluid2D component."},
  "reviewed": true}
 ```
 
@@ -153,12 +196,22 @@ lives in `feedback-sharing.json` and the outbox in `feedback-outbox.json`, both 
 Sending never makes a command fail and never waits long: with `always`, `feedback.report` makes one short attempt (3 s) and
 otherwise leaves the entry in the outbox, retried after 1 minute, 10 minutes, 1 hour and then once a day while the server
 is unreachable or busy (a `429` waits for its `Retry-After`). The server may refuse an entry (`shared.status: "rejected"`
-with its reason) or ban an installation; neither is retried. `shared.status` is `pending`, `sent`, `rejected` or `skipped`.
+with its reason) or ban an installation; neither is retried. `shared.status` is `pending`, `sent`, `rejected`, `skipped` or `declined` (the engine developers rejected the report).
 Hitting a gap again after it was sent (the entry is merged and its `occurrences` go up) sends it once more, so the
 developer sees it matters to you; `shared.occurrences` counts the sends, and after 3 nothing more goes (the developer's
 ranking counts at most 3 per installation).
 `feedback.share` (AI) sends what is due and allowed by the mode; `factoria feedback share` (person) sends now, ignoring the
 waiting times.
+
+### The engine developers' answer
+
+The engine developers may reject a report you shared (it claims a gap the engine does not have, or it is not about the engine) and say
+why. Your installation asks the server about this on its own, about every 30 minutes while sharing is on (Always or Ask): `POST
+/v1/verdicts` with the `shareId`s of the entries of THIS file that were sent, authenticated by the installation header; the server only
+answers for reports of that installation. A rejected report becomes `status: "rejected"`, `statusBy: "developer"`, `statusReason` = their
+reason (shown as it is, 500 characters at most), and `shared.status: "declined"`; it moves to the archive and is not sent again. If the
+engine developers take the rejection back the entry is sent and open again. `factoria feedback share --verdicts` asks at once. A server
+that does not know verdicts yet (older) answers 404 and nothing changes. You can delete a declined entry (see Rejected entries).
 
 ### Review with AI
 
@@ -216,3 +269,29 @@ contains another needs four shared significant words). The report prints, under 
 similarity of each entry to the group (`Merged`), so a triage can check the merges. When two entries are different gaps
 that read alike, list the id in `distinctFrom` on either one (`"distinctFrom": ["FB-0011"]`; `"<project>/FB-0011"` for an
 entry of another project's file): `collect` never puts them in one group.
+
+## Triage loop (engine developers, usually an AI in this repository)
+
+The engine-developer side reads what installations sent and answers each report. Nothing here asks a question: every command takes
+its arguments, exits 0 when everything was done and 1 when a `shareId` is not on the server, and `--json` prints the result.
+
+1. **Pull**: `factoria feedback pull` (an incremental pull; `--full` now and then). New reports go to the inbox, one
+   `ENGINE_FEEDBACK.json` per installation. Every new report is also run through the check of `feedback add`: the ones that claim a gap the
+   engine already has carry a `suggestedRejection` with a ready reason, and the command lists them ("SUGGESTED rejections").
+2. **Check** the suggestions yourself: read the reason, open the doc it names, and decide per report. `factoria feedback check --title T --missing
+   TEXT` runs the check on any text; `factoria docs search` finds the docs. The check is conservative, but a report that says the thing exists
+   and misbehaves is a BUG: keep it (a bug is worth more than a missing feature).
+3. **Reject or keep.**
+   - `factoria feedback reject --suggested` rejects every suggested report with its ready reason; add shareIds to narrow it
+     (`reject --suggested r_8f3k2m`), `--reason TEXT` to replace the ready reason.
+   - `factoria feedback reject r_8f3k2m r_9abcde --reason "Collider2D.oneWay exists (docs/COMPONENTS.md). File a bug if it fails."`: the same
+     reason for each; `--file batch.json` takes `[{"shareId": "r_8f3k2m", "reason": "..."}]`, one reason each.
+   - `factoria feedback reject --quarantined --reason TEXT` tells the installations of the quarantined (junk) reports why (only the text you write is sent).
+   - `factoria feedback keep r_8f3k2m` drops a wrong suggestion (without shareIds: all); nothing is sent.
+4. **Unreject** a mistake: `factoria feedback unreject r_8f3k2m`: the installation's next check turns the entry back into a sent, open one.
+5. **Collect** what is left: `factoria feedback collect <inbox> --out roadmap.md`.
+
+A reason is plain text, 1 to 500 characters, whitespace collapsed, and it is shown verbatim to the person who sent the report, so write
+only about that report: what the engine has and where it is documented (a component, a field, a command, a doc page), or why it is not an engine
+gap. Never mention other installations, other users or anything from the inbox that is not in the report itself. Start from the ready
+reason of the suggestion. The server keeps the verdict; the person sees it the next time the editor asks, and can delete the entry.

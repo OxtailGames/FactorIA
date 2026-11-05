@@ -113,7 +113,7 @@ Result<FixedAddResult> add_fixed_to_file(const std::string& path, const Feedback
     const auto& cats = feedback_categories();
     if (std::find(cats.begin(), cats.end(), fix.category) == cats.end())
         return make_error("'" + fix.category + "' is not a feedback category.", did_you_mean(fix.category, cats));
-    if (fix.titles.empty()) return make_error("A fix needs at least one title.", "Pass --title \"No one-way platforms\" (repeat it for other wordings of the same gap).");
+    if (fix.titles.empty()) return make_error("A fix needs at least one title.", "Pass --title \"No fluid simulation\" (repeat it for other wordings of the same gap).");
     if (!looks_like_version(fix.fixedIn))
         return make_error("'" + fix.fixedIn + "' is not an engine version.", "Pass the version that ships the fix, like --version 0.11.0.");
 

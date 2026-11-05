@@ -595,10 +595,10 @@ struct CliShare {
     }
     std::string file(const std::string& proj) { return proj + "/ENGINE_FEEDBACK.json"; }
 };
-const char* kShareFlags[] = {"--category", "physics", "--severity", "major", "--title", "No one-way platforms",
-                             "--missing", "Collider2D has no one-way option", "--workaround", "a script toggles the collider",
-                             "--share-title", "No one-way platforms",
-                             "--share-missing", "Collider2D has no one-way option, so a body cannot pass up through a platform.",
+const char* kShareFlags[] = {"--category", "physics", "--severity", "major", "--title", "No cloth simulation",
+                             "--missing", "Nothing simulates cloth that drapes over bodies", "--workaround", "a script bends sprites by hand",
+                             "--share-title", "No cloth simulation",
+                             "--share-missing", "There is no cloth solver, so fabric cannot drape over bodies and fold.",
                              "--reviewed"};
 std::vector<std::string> add_args(const std::string& proj) {
     std::vector<std::string> a = {"feedback", "add", proj};
@@ -614,7 +614,7 @@ TEST_CASE("feedback add: --share-* and --reviewed are stored; with sharing unset
     CHECK_MESSAGE(r.code == 0, r.err);
     CHECK(r.out.find("factoria feedback sharing") != std::string::npos);
     auto doc = fa::Json::parse(std::ifstream(s.file(proj)));
-    CHECK(doc["entries"][0]["share"]["title"] == "No one-way platforms");
+    CHECK(doc["entries"][0]["share"]["title"] == "No cloth simulation");
     CHECK(doc["entries"][0]["reviewed"] == true);
     CHECK(s.requests.empty());
     CHECK(fa::load_share_settings(s.env).mode == fa::ShareMode::Unset);
@@ -658,7 +658,7 @@ TEST_CASE("feedback share: --preview sends nothing; always sends; ask asks first
     SUBCASE("preview") {
         auto pv = run({"feedback", "share", proj, "--preview"});
         CHECK(pv.code == 0);
-        CHECK(pv.out.find("No one-way platforms") != std::string::npos);
+        CHECK(pv.out.find("No cloth simulation") != std::string::npos);
         CHECK(s.requests.empty());
         auto json = run({"feedback", "share", proj, "--preview", "--json"});
         CHECK(fa::Json::parse(json.out)["entries"][0]["ok"] == true);

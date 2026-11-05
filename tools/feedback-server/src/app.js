@@ -14,7 +14,10 @@ import { ApiError, base64url, base64urlDecode, errorResponse, json, nextMidnight
 export const FORMAT = "factoria.feedback-share/1";
 export const MAX_ENTRIES = 20;
 export const MAX_BODY_BYTES = 64 * 1024;
-export const DEFAULT_LIMITS = { install: 30, ip: 100, global: 20000, auth: 20 };
+export const DEFAULT_LIMITS = { install: 30, ip: 100, global: 20000, auth: 20, verdicts: 240 };
+export const MAX_VERDICT_IDS = 100;
+export const MAX_REJECTIONS = 50;
+export const REASON_MAX = 500;
 const MERGE_WINDOW = 500;
 const STATS_DAYS = 7;
 const STATS_TTL_MS = 35 * 24 * 3600 * 1000;
@@ -60,6 +63,11 @@ function bearer(request) {
     if (header === null) return null;
     const m = /^Bearer\s+(\S+)\s*$/i.exec(header);
     return m ? m[1] : "";
+}
+
+/** A reason as stored and shown: control characters and runs of whitespace become one space, trimmed. */
+export function cleanReason(text) {
+    return String(text).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits } = {}) {
@@ -212,6 +220,37 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
         return json(200, { ok: true, results });
     }
 
+
+    // ---- POST /v1/verdicts -----------------------------------------------------------------------------------
+    // The installation asks what became of ITS OWN reports: the answer only has reports whose installKey is the one derived
+    // from the X-Factoria-Install header, so a shareId of another installation (or a made-up one) gets no answer at all.
+
+    async function postVerdicts(request) {
+        const s = secret();
+        const ms = clock();
+        const day = utcDay(ms);
+        const installId = request.headers.get("x-factoria-install");
+        if (!installId || !UUID_V4.test(installId)) {
+            throw new ApiError(400, "missing_install", installId ? "X-Factoria-Install is not a UUID v4." : "The X-Factoria-Install header is missing.", "Send the installation id (a random UUID v4) in X-Factoria-Install; the engine creates it on the first send.");
+        }
+        const install = await keys.installKey(s, installId.toLowerCase());
+        const body = parseJson(await readBody(request, 16 * 1024), "POST /v1/verdicts");
+        if (!Array.isArray(body.shareIds) || body.shareIds.length === 0 || body.shareIds.length > MAX_VERDICT_IDS || !body.shareIds.every((id) => typeof id === "string" && SHARE_ID.test(id))) {
+            throw new ApiError(400, "invalid_request", `shareIds must be an array of 1 to ${MAX_VERDICT_IDS} report ids such as r_8f3k2m.`, "Send the shareId values this installation received when it sent its reports.");
+        }
+        const counter = `vq:${day}:${install}`;
+        const used = (await store.getCounters([counter], ms))[counter];
+        if (used >= caps.verdicts) {
+            throw new ApiError(429, "rate_limited", `This installation already asked for verdicts ${caps.verdicts} times today.`, "Try again after midnight UTC (Retry-After seconds).", { "retry-after": String(retryAfter(ms)) });
+        }
+        await store.commit({ counters: [{ key: counter, by: 1, expiresAt: nextMidnight(ms) }], now: ms });
+        const rows = await store.getVerdicts(install, [...new Set(body.shareIds)]);
+        const verdicts = rows.map((r) => r.verdict
+            ? { shareId: r.shareId, status: "rejected", reason: r.reason || "", at: r.at || null }
+            : { shareId: r.shareId, status: "received" });
+        return json(200, { ok: true, verdicts });
+    }
+
     // ---- POST /v1/auth/github --------------------------------------------------------------------------------
 
     async function postAuthGithub(request) {
@@ -298,6 +337,7 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
             engineVersion: r.engineVersion, platform: r.platform, category: r.category, severity: r.severity,
             effort: r.effort, title: r.title, missing: r.missing, suggestion: r.suggestion, workaround: r.workaround,
             reporterKind: r.reporterKind, reviewed: r.reviewed,
+            verdict: r.verdict || null, verdictReason: r.verdict ? r.verdictReason || "" : null,
         }));
         const next = rows.length > 0 ? encodeCursor(rows[rows.length - 1].seq) : since || null;
         return json(200, { ok: true, reports, next });
@@ -335,6 +375,67 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
         const body = parseJson(await readBody(request, 16 * 1024), "POST /v1/admin/unban");
         const { kind, key } = banTarget(body);
         return json(200, { ok: true, removed: await store.removeBan(kind, key) });
+    }
+
+
+    function shareIdOf(value, what) {
+        if (typeof value !== "string" || !SHARE_ID.test(value)) {
+            throw new ApiError(400, "invalid_request", `${what} must be a shareId such as r_8f3k2m.`, "Copy it from `feedback pull` or GET /v1/admin/reports.");
+        }
+        return value;
+    }
+
+    /** POST /v1/admin/reject: {shareId, reason} or {rejections: [{shareId, reason}]}. A report that does not exist is listed in notFound. */
+    async function adminReject(request) {
+        const body = parseJson(await readBody(request, 64 * 1024), "POST /v1/admin/reject");
+        let list;
+        if (body.rejections !== undefined) {
+            if (!Array.isArray(body.rejections) || body.rejections.length === 0 || body.rejections.length > MAX_REJECTIONS) {
+                throw new ApiError(400, "invalid_request", `rejections must be an array of 1 to ${MAX_REJECTIONS} objects {shareId, reason}.`, "Split a bigger batch into several requests.");
+            }
+            list = body.rejections;
+        } else {
+            list = [body];
+        }
+        const items = list.map((r, i) => {
+            const where = body.rejections !== undefined ? `rejections[${i}]` : "the request";
+            if (!r || typeof r !== "object") throw new ApiError(400, "invalid_request", `${where} must be an object {shareId, reason}.`, "Send {\"shareId\": \"r_8f3k2m\", \"reason\": \"The engine already has this: see docs/...\"}.");
+            const shareId = shareIdOf(r.shareId, `${where}.shareId`);
+            if (typeof r.reason !== "string") throw new ApiError(400, "invalid_request", `${where}.reason must be a text.`, "Say why the report is not accepted: the person who sent it reads it in the editor.");
+            const reason = cleanReason(r.reason);
+            if (reason === "") throw new ApiError(400, "invalid_request", `${where}.reason is empty.`, "Say why the report is not accepted: the person who sent it reads it in the editor.");
+            if ([...reason].length > REASON_MAX) throw new ApiError(400, "invalid_request", `${where}.reason has ${[...reason].length} characters; the limit is ${REASON_MAX}.`, "Shorten it: say what exists and where it is documented, in one or two sentences.");
+            return { shareId, reason };
+        });
+        const at = new Date(clock()).toISOString();
+        const rejected = [];
+        const notFound = [];
+        for (const it of items) {
+            if (await store.setVerdict(it.shareId, { verdict: "rejected", reason: it.reason, at })) rejected.push(it.shareId);
+            else notFound.push(it.shareId);
+        }
+        return json(200, { ok: true, rejected, notFound });
+    }
+
+    /** POST /v1/admin/unreject: {shareId} or {shareIds: []}: the installation sees the report as received again. */
+    async function adminUnreject(request) {
+        const body = parseJson(await readBody(request, 16 * 1024), "POST /v1/admin/unreject");
+        let ids;
+        if (body.shareIds !== undefined) {
+            if (!Array.isArray(body.shareIds) || body.shareIds.length === 0 || body.shareIds.length > MAX_REJECTIONS) {
+                throw new ApiError(400, "invalid_request", `shareIds must be an array of 1 to ${MAX_REJECTIONS} report ids.`, "Split a bigger batch into several requests.");
+            }
+            ids = body.shareIds.map((id, i) => shareIdOf(id, `shareIds[${i}]`));
+        } else {
+            ids = [shareIdOf(body.shareId, "shareId")];
+        }
+        const restored = [];
+        const notFound = [];
+        for (const id of ids) {
+            if (await store.setVerdict(id, { verdict: null, reason: null, at: null })) restored.push(id);
+            else notFound.push(id);
+        }
+        return json(200, { ok: true, restored, notFound });
     }
 
     async function adminStats() {
@@ -378,16 +479,20 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
             allow("POST");
             return postReports(request);
         }
+        if (path === "/v1/verdicts") {
+            allow("POST");
+            return postVerdicts(request);
+        }
         if (path === "/v1/auth/github") {
             allow("POST");
             return postAuthGithub(request);
         }
         if (path.startsWith("/v1/admin/")) {
             const rest = path.slice("/v1/admin/".length);
-            const known = ["reports", "ban", "unban", "bans", "stats"];
+            const known = ["reports", "ban", "unban", "bans", "stats", "reject", "unreject"];
             const m = /^reports\/([^/]+)$/.exec(rest);
             if (!known.includes(rest) && !m) {
-                throw new ApiError(404, "not_found", `${path} is not an endpoint.`, "Admin endpoints: reports, ban, unban, bans, stats, reports/<shareId>.");
+                throw new ApiError(404, "not_found", `${path} is not an endpoint.`, "Admin endpoints: reports, ban, unban, bans, stats, reject, unreject, reports/<shareId>.");
             }
             await requireAdmin(request);
             if (m) {
@@ -405,11 +510,13 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
             if (rest === "reports") { allow("GET"); return adminReports(url); }
             if (rest === "ban") { allow("POST"); return adminBan(request); }
             if (rest === "unban") { allow("POST"); return adminUnban(request); }
+            if (rest === "reject") { allow("POST"); return adminReject(request); }
+            if (rest === "unreject") { allow("POST"); return adminUnreject(request); }
             if (rest === "bans") { allow("GET"); return json(200, { ok: true, bans: await store.listBans() }); }
             allow("GET");
             return adminStats();
         }
-        throw new ApiError(404, "not_found", `${path} is not an endpoint.`, "Endpoints: GET /, POST /v1/reports, POST /v1/auth/github, /v1/admin/*. See docs/design/FEEDBACK_SHARING.md.");
+        throw new ApiError(404, "not_found", `${path} is not an endpoint.`, "Endpoints: GET /, POST /v1/reports, POST /v1/verdicts, POST /v1/auth/github, /v1/admin/*. See docs/design/FEEDBACK_SHARING.md.");
     }
 
     return {

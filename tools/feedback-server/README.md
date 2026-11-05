@@ -61,6 +61,7 @@ ignored), then `npx wrangler d1 migrations apply factoria-feedback --local` and 
 | `src/keys.js` | `installKey`, `reporterKey`, `ipKey`, credential format and check |
 | `src/store_d1.js`, `src/store_memory.js` | The storage interface: D1 (production) and memory (tests) |
 | `migrations/0001_init.sql` | Schema: reports (pull order `seq`), bans, expiring counters |
+| `migrations/0002_verdicts.sql` | The developer's verdict on a report: `verdict`, `verdict_reason`, `verdict_at` (`deploy.sh` applies it) |
 | `scripts/deploy.mjs` | The deploy steps behind `deploy.sh` / `deploy.ps1` |
 
 ## API summary
@@ -72,7 +73,10 @@ Every answer is JSON, `{ok: true, ...}` or `{ok: false, error: {code, message, h
 | `GET /` | Plain privacy page: what is stored, what never is, the rules for reports, no warranty, how to stop sending |
 | `POST /v1/reports` | Up to 20 entries, 64 KB. Header `X-Factoria-Install` (UUID v4), optional `Authorization: Bearer <credential>`. Per entry: `accepted`, `merged` or `rejected` (`invalid_field`, `too_short`, `too_long`, `not_text`, `personal_data`). Errors: `400` (`missing_install`, `invalid_json`, `invalid_format`, `invalid_request`, `too_many_entries`), `401 invalid_credential`, `403 banned`, `413 too_large`, `429 rate_limited` + `Retry-After` |
 | `POST /v1/auth/github` | `{githubToken}` -> `{credential, login}`; calls `api.github.com/user` once, stores nothing about the account. `401 invalid_github_token`, `502 github_unavailable`, `429` after 20 sign-ins per network per day |
-| `GET /v1/admin/reports?since=&limit=` | Reports in arrival order and an opaque `next` cursor; a cursor always returns the same page |
+| `POST /v1/verdicts` | `{shareIds: [<=100]}` with the `X-Factoria-Install` header -> `{verdicts: [{shareId, status: "rejected", reason, at} or {shareId, status: "received"}]}`. Only for reports of that installation: an id of another installation, or one that does not exist, gets no entry (the answers are the same). The engine asks for the ids of its own sent entries and shows the reason in the editor. `429` after 240 questions per installation per day. A server without this endpoint answers `404` and the engine goes on without verdicts |
+| `GET /v1/admin/reports?since=&limit=` | Reports in arrival order and an opaque `next` cursor; a cursor always returns the same page. Each report has `verdict` (`null` or `"rejected"`) and `verdictReason` |
+| `POST /v1/admin/reject` | `{shareId, reason}` or `{rejections: [{shareId, reason}] (<=50)}`: the report is not accepted and the installation that sent it reads `reason` (plain text, whitespace collapsed, at most 500 characters). Answers `{rejected: [...], notFound: [...]}` |
+| `POST /v1/admin/unreject` | `{shareId}` or `{shareIds: [<=50]}`: take the rejection back; the installation sees the report as received again. Answers `{restored: [...], notFound: [...]}` |
 | `POST /v1/admin/ban`, `POST /v1/admin/unban`, `GET /v1/admin/bans` | Refuse / allow an `installKey` or `reporterKey` (`purge` deletes its reports) |
 | `DELETE /v1/admin/reports/<shareId>` | Delete one report |
 | `GET /v1/admin/stats` | Totals and the last 7 days: accepted, merged, rejected (by code), rate-limit hits, banned |

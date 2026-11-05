@@ -314,25 +314,29 @@ image (`"temporary": true`, a `game.screenshot` without `path`) is deleted once 
 
 ## Feedback and docs
 
-### `factoria feedback init|add|list|update|validate|collect|sharing|share|signin|signout|pull|quarantine|ban|unban|bans|delete|stats|fixed`
+### `factoria feedback init|add|list|update|check|discard|validate|collect|sharing|share|signin|signout|pull|reject|unreject|keep|quarantine|ban|unban|bans|delete|stats|fixed`
 ```
-factoria feedback add --category physics --severity major --title "No one-way platforms" \
-    --missing "Collider2D has no one-way option" --workaround "scripts/one_way.js" --files scripts/one_way.js
+factoria feedback add --category physics --severity major --title "No fluid simulation" \
+    --missing "There is no liquid solver" --workaround "scripts/water.js" --files scripts/water.js
 factoria feedback add --json '{"category":"docs","severity":"minor","title":"...","missing":"...","workaround":"..."}'
 factoria feedback list --status open
 factoria feedback update games/my-game FB-001 --status fixed-in-engine --engine-issue abc123 [--note TEXT] [--json]
+factoria feedback check --title "No fluid simulation" --missing "There is no liquid solver"   # the check `add` runs; exit 1 = the engine has it
+factoria feedback check --entries [--reject]    # the open entries that claim something the engine has (--reject closes them as rejected)
+factoria feedback update FB-001 --status rejected --reason "Collider2D.oneWay exists (docs/COMPONENTS.md)"   # rejected needs --reason
+factoria feedback discard FB-004                # delete a closed entry (file or archive); ids are never reused
 factoria feedback validate
 factoria feedback collect games/ examples/ --out roadmap.md      # .json => JSON; --include-closed
 factoria feedback add ... --share-title T --share-missing TEXT [--share-suggestion TEXT] [--share-workaround TEXT] --reviewed
 factoria feedback sharing [always|ask|never]    # a person chooses whether feedback goes to the engine developer; no argument = status
-factoria feedback share [project] [--preview] [--yes] [--json]   # show what would be sent / send the outbox now
+factoria feedback share [project] [--preview | --verdicts] [--yes] [--json]   # show what would be sent / send the outbox now / ask the verdicts
 factoria feedback signin github                 # optional identity (device flow); `signout` forgets it
 ```
 `sharing`, `share`, `signin` and `signout` send generic, engine-terms-only copies of your feedback (`share`) to the engine
 developer. Only you change the mode: no engine command does. See [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md), "Sharing with
 the engine developer".
 
-`add` merges into a similar open entry (occurrences++). `update [project] <id>` triages an entry: `--status open|fixed-in-engine|wont-fix|duplicate`, `--engine-issue REF`, `--note TEXT` (appended to `notes`). `collect` groups reports of the same gap across projects even
+`add` first runs the check (does the engine already have what the report says is missing?) and refuses a report that names an existing component, field or command as missing, with what exists and where it is documented (docs/ENGINE_FEEDBACK.md, "The check before filing"); it then merges into a similar open entry (occurrences++). `update [project] <id>` triages an entry: `--status open|fixed-in-engine|wont-fix|duplicate|rejected`, `--reason TEXT` (required for `rejected`: plain text, up to 500 characters), `--engine-issue REF`, `--note TEXT` (appended to `notes`). `collect` groups reports of the same gap across projects even
 when the titles differ ("Bug:" prefixes, plurals, stop words and synonyms such as stub/placeholder are ignored; a
 short title contained in a longer one counts; same-category or similar-suggestion entries score higher, and a
 cluster may span categories). The score of a group is `sum over projects of severity weight x trust x min(occurrences, 3)`
@@ -343,6 +347,9 @@ The engine developer's side of feedback sharing (needs `feedback-admin.json` nex
 `tools/feedback-server/deploy.sh`; routine in [EXTENDING.md](EXTENDING.md), section F.1):
 ```
 factoria feedback pull [--out DIR] [--full] [--classify | --no-classify] [--json]
+factoria feedback reject <shareId>... --reason TEXT | --file batch.json | --suggested [shareId...] | --quarantined --reason TEXT [--json]
+factoria feedback unreject <shareId>... | --file batch.json [--json]
+factoria feedback keep [<shareId>...]
 factoria feedback quarantine [list | restore <shareId> | clear] [--out DIR]
 factoria feedback ban <installKey|reporterKey|shareId> [--install | --reporter] [--purge] [--reason TEXT]
 factoria feedback unban <key> [--install | --reporter]
@@ -359,6 +366,10 @@ place and only raises the count). With a usable `fast` AI role each new report i
 (`--no-classify` skips it, `--classify` fails without an AI); junk goes to the quarantine. `ban` needs `--install` or
 `--reporter` unless the key is a `shareId` or an inbox folder. `fixed add` records which release fixed a gap in
 `feedback/fixed.json`; `feedback update <inbox project> <id> --status fixed-in-engine` prints the matching `fixed add`.
+`pull` also runs the check on every new report and lists the ones that claim a gap the engine already has as SUGGESTED rejections,
+each with a ready reason. `reject` answers reports with a reason the installation shows to its person (never asks anything; exit 1
+when a shareId is not on the server), `unreject` takes it back, `keep` drops a wrong suggestion. The loop is in
+[ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md), "Triage loop".
 Server errors (wrong token, rate limit, unreachable, not the feedback server) are explained with what to do.
 
 ### `factoria docs [name] | list | read <name> | search <query...>`

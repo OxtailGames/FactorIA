@@ -110,15 +110,16 @@ Result<std::vector<McpPromptMessage>> default_mcp_prompt_messages(std::string_vi
         std::string summary = arg_of(arguments, "summary");
         text =
 "Record an engine gap with the feedback_report tool." + (summary.empty() ? std::string() : "\nWhat I noticed: " + summary) + "\n\n"
-"1. Call feedback_list {\"status\":\"open\"} to see whether a similar gap is already recorded (similar reports are merged, so it is fine if it is).\n"
-"2. Call feedback_report with:\n"
+"1. Check that the engine really lacks it. Models often report as missing something that exists: search the docs (docs_search for the thing, docs_components for the fields of the component you mean) or call feedback_check {title, missing, suggestion}. If it exists but does not work as documented, report a BUG that says what you set, what you expected and what happened. feedback_report refuses a report whose missing thing exists, and tells you where it is documented.\n"
+"2. Call feedback_list {\"status\":\"open\"} to see whether a similar gap is already recorded (similar reports are merged, so it is fine if it is).\n"
+"3. Call feedback_report with:\n"
 "   - category: rendering-2d, rendering-3d, physics, audio, input, ui, scripting, scene, assets, animation, tooling, ai-integration, docs, platform, performance, networking or other\n"
 "   - severity: blocker (could not build it), major (big/fragile workaround), minor (small workaround), nice-to-have\n"
-"   - title: short noun phrase, e.g. \"No one-way platforms\"\n"
+"   - title: short noun phrase naming the gap (an invented example of the shape: \"No fluid simulation\")\n"
 "   - missing: what exactly the engine lacked and what you were trying to do\n"
 "   - workaround: what you did instead, and workaroundFiles listing the files\n"
 "   - suggestion: the concrete engine change (component field, command, API) that would remove the workaround\n"
-"3. Confirm the returned id, then continue with your task.";
+"4. Confirm the returned id, then continue with your task.";
     } else {
         std::vector<std::string> names;
         for (const auto& p : default_mcp_prompts()) names.push_back(p.name);

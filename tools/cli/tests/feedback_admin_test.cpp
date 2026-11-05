@@ -56,6 +56,7 @@ struct FakeServer {
     std::vector<ai::HttpRequest> requests;
     std::map<std::string, ai::HttpResponse> fixed;  // "METHOD path-prefix" -> canned answer, wins over the logic below
     Json bans = Json::array();
+    std::map<std::string, std::string> verdicts;  // shareId -> reason, from /v1/admin/reject
 
     ai::HttpResponse json(int status, const Json& body) {
         ai::HttpResponse r;
@@ -80,6 +81,37 @@ struct FakeServer {
                 last = i + 1;
             }
             return json(200, Json::object({{"ok", true}, {"reports", page}, {"next", last == 0 ? Json(nullptr) : Json("c" + std::to_string(last))}}));
+        }
+        if (path == "/v1/admin/reject" || path == "/v1/admin/unreject") {
+            const bool reject = path == "/v1/admin/reject";
+            const Json body = Json::parse(req.body);
+            auto known = [&](const std::string& id) {
+                for (const Json& r : reports)
+                    if (r.value("shareId", std::string()) == id) return true;
+                return false;
+            };
+            Json done = Json::array(), missing = Json::array();
+            if (reject) {
+                for (const Json& r : body["rejections"]) {
+                    const std::string id = r.value("shareId", std::string());
+                    if (known(id)) {
+                        verdicts[id] = r.value("reason", std::string());
+                        done.push_back(id);
+                    } else {
+                        missing.push_back(id);
+                    }
+                }
+            } else {
+                for (const Json& id : body["shareIds"]) {
+                    if (known(id.get<std::string>())) {
+                        verdicts.erase(id.get<std::string>());
+                        done.push_back(id);
+                    } else {
+                        missing.push_back(id);
+                    }
+                }
+            }
+            return json(200, Json::object({{"ok", true}, {reject ? "rejected" : "restored", done}, {"notFound", missing}}));
         }
         if (path == "/v1/admin/bans") return json(200, Json::object({{"ok", true}, {"bans", bans}}));
         if (path == "/v1/admin/ban") return json(200, Json::object({{"ok", true}, {"banned", Json::object({{"kind", "install"}, {"key", "x"}})}, {"purged", 2}}));
@@ -701,4 +733,118 @@ TEST_CASE("feedback fixed: add and list through the CLI, and the offer after `up
 
     Json local = Json::object({{"title", "t"}, {"category", "physics"}});
     CHECK(fixed_add_offer(local).empty());
+}
+
+// ------------------------------------------------------------------------------------------------ triage: reject, unreject, keep
+
+namespace {
+// A report that claims something the engine has ("Collider2D.oneWay") and one that is a real gap.
+Json claimed_report(const std::string& shareId) {
+    Json r = report(shareId, kKeyA, "No one-way platforms");
+    r["missing"] = "Collider2D has no one-way option, so a body cannot pass up through a platform and land on it.";
+    return r;
+}
+Json gap_report(const std::string& shareId) {
+    Json r = report(shareId, kKeyA, "No cloth simulation");
+    r["missing"] = "There is no cloth solver, so fabric cannot drape over bodies and fold.";
+    return r;
+}
+}  // namespace
+
+TEST_CASE("feedback pull: a report that claims what the engine has is a suggested rejection with a ready reason; nothing is rejected by it") {
+    Fixture f;
+    f.server.reports = {claimed_report("r_1"), gap_report("r_2")};
+    auto p = f.pull({"--no-classify"});
+    CHECK_MESSAGE(p.code == 0, p.err);
+    CHECK(p.out.find("SUGGESTED") != std::string::npos);
+    CHECK(p.out.find("Collider2D.oneWay") != std::string::npos);
+    CHECK(p.out.find("feedback reject --suggested") != std::string::npos);
+    const Json e = f.entries_of(kKeyA);
+    REQUIRE(e.size() == 2);
+    CHECK(e[0]["status"] == "open");
+    CHECK(e[0].contains("suggestedRejection"));
+    CHECK(e[0]["suggestedRejection"]["reason"].get<std::string>().find("Collider2D.oneWay") != std::string::npos);
+    CHECK_FALSE(e[1].contains("suggestedRejection"));
+    for (const auto& rq : f.server.requests) CHECK(rq.url.find("/v1/admin/reject") == std::string::npos);  // pull never rejects
+}
+
+TEST_CASE("feedback reject --suggested sends the ready reasons, closes the local entries, and --json is machine-readable") {
+    Fixture f;
+    f.server.reports = {claimed_report("r_1"), gap_report("r_2")};
+    REQUIRE(f.pull({"--no-classify"}).code == 0);
+    auto r = run({"feedback", "reject", "--suggested", "--out", f.inbox, "--json"});
+    CHECK_MESSAGE(r.code == 0, r.err);
+    const Json j = Json::parse(r.out);
+    CHECK(j["rejected"] == Json::parse(R"(["r_1"])"));
+    CHECK(j["notFound"].empty());
+    CHECK(j["localMarked"] == 1);
+    REQUIRE(f.server.verdicts.count("r_1") == 1);
+    CHECK(f.server.verdicts["r_1"].find("Collider2D.oneWay") != std::string::npos);
+    CHECK(f.server.verdicts.count("r_2") == 0);
+    // the local copy is closed as rejected by the developer (the archive step moves it later), the other one stays open
+    const Json all = f.entries_of(kKeyA);
+    REQUIRE(all.size() == 2);
+    CHECK(all[0]["remote"]["shareId"] == "r_1");
+    CHECK(all[0]["status"] == "rejected");
+    CHECK(all[0]["statusBy"] == "developer");
+    CHECK(all[0]["statusReason"].get<std::string>().find("Collider2D.oneWay") != std::string::npos);
+    CHECK(all[1]["status"] == "open");
+    // nothing more is suggested
+    CHECK(run({"feedback", "reject", "--suggested", "--out", f.inbox}).out.find("No suggested rejections") != std::string::npos);
+}
+
+TEST_CASE("feedback reject: shareIds with --reason, a JSON batch file, --quarantined; never a prompt, and a wrong reason teaches") {
+    Fixture f;
+    f.server.reports = {claimed_report("r_1"), gap_report("r_2"), gap_report("r_3")};
+    REQUIRE(f.pull({"--no-classify"}).code == 0);
+
+    auto none = run({"feedback", "reject", "r_2", "--out", f.inbox});
+    CHECK(none.code == 2);  // usage: the reason is missing
+    CHECK(none.err.find("--reason") != std::string::npos);
+    CHECK(f.server.verdicts.empty());
+
+    auto empty = run({"feedback", "reject", "r_2", "--reason", "   ", "--out", f.inbox});
+    CHECK(empty.code == 2);
+    auto longReason = run({"feedback", "reject", "r_2", "--reason", std::string(600, 'x'), "--out", f.inbox});
+    CHECK(longReason.code == 2);
+    CHECK(longReason.err.find("500") != std::string::npos);
+
+    auto one = run({"feedback", "reject", "r_2", "--reason", "Tilemap\n has it.\t See docs.", "--out", f.inbox, "--json"});
+    CHECK_MESSAGE(one.code == 0, one.err);
+    CHECK(f.server.verdicts["r_2"] == "Tilemap has it. See docs.");  // control characters become one space
+
+    spit(stdfs::path(f.dir) / "batch.json", R"([{"shareId":"r_1","reason":"Collider2D.oneWay exists."},{"shareId":"r_3","reason":"Not an engine gap."}])");
+    auto batch = run({"feedback", "reject", "--file", (f.dir / "batch.json").string(), "--out", f.inbox, "--json"});
+    CHECK_MESSAGE(batch.code == 0, batch.err);
+    CHECK(f.server.verdicts["r_1"] == "Collider2D.oneWay exists.");
+    CHECK(f.server.verdicts["r_3"] == "Not an engine gap.");
+
+    auto missing = run({"feedback", "reject", "r_404", "--reason", "No such report.", "--out", f.inbox, "--json"});
+    CHECK(missing.code == 1);
+    CHECK(Json::parse(missing.out)["notFound"] == Json::parse(R"(["r_404"])"));
+
+    auto bad = run({"feedback", "reject", "r 1", "--reason", "x", "--out", f.inbox});
+    CHECK(bad.code == 2);
+}
+
+TEST_CASE("feedback unreject takes a rejection back on the server and in the inbox; keep drops a suggestion") {
+    Fixture f;
+    f.server.reports = {claimed_report("r_1"), claimed_report("r_2")};
+    REQUIRE(f.pull({"--no-classify"}).code == 0);
+    auto kept = run({"feedback", "keep", "r_2", "--out", f.inbox, "--json"});
+    CHECK(kept.code == 0);
+    CHECK(Json::parse(kept.out)["kept"] == 1);
+    CHECK(run({"feedback", "reject", "--suggested", "--out", f.inbox, "--json"}).code == 0);
+    CHECK(f.server.verdicts.count("r_1") == 1);
+    CHECK(f.server.verdicts.count("r_2") == 0);  // kept: never offered
+
+    auto back = run({"feedback", "unreject", "r_1", "--out", f.inbox, "--json"});
+    CHECK_MESSAGE(back.code == 0, back.err);
+    CHECK(f.server.verdicts.empty());
+    bool reopened = false;
+    for (const Json& e : f.entries_of(kKeyA))
+        if (e["remote"]["shareId"] == "r_1" && e["status"] == "open") reopened = true;
+    CHECK(reopened);
+    CHECK(run({"feedback", "unreject", "r_404", "--out", f.inbox}).code == 1);
+    CHECK(run({"feedback", "unreject", "--out", f.inbox}).code == 2);
 }

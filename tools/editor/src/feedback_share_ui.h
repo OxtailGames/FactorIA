@@ -9,6 +9,7 @@
 #pragma once
 
 #include <atomic>
+#include <map>
 #include <mutex>
 #include <set>
 #include <string>
@@ -27,6 +28,7 @@ struct ShareAutotestNet {
     std::vector<std::string> urls;          // "POST https://..." in the order they were made
     std::vector<std::string> reportBodies;  // the bodies of POST /v1/reports
     std::atomic<bool> authorize{false};     // the person approved the code on github.com
+    std::map<std::string, std::string> verdicts;  // shareId -> reason: the reports the engine developers rejected (POST /v1/verdicts)
     std::atomic<bool> failReports{false};   // the report server is down
     std::atomic<int> uuids{0};
 };
@@ -120,12 +122,18 @@ struct ShareUi {
     bool flushNew = false;
     std::thread aiThread;
     std::atomic<bool> aiRunning{false};
+    // The engine developers' answers (verdicts): asked on the first tick and about every 30 minutes, on a thread of their own.
+    std::thread verdictThread;
+    std::atomic<bool> verdictRunning{false};
+    double verdictAt = -1e9;           // editor time of the last question
+    bool verdictNew = false;           // under mu: a thread finished
+    VerdictResult verdictResult;       // under mu
 
     ~ShareUi() { join_all(); }
     // Stops what can be stopped and waits for the threads (the sign-in polls for the code until its flag is set).
     void join_all() {
         signInCancel = true;
-        for (std::thread* t : {&signInThread, &flushThread, &aiThread})
+        for (std::thread* t : {&signInThread, &flushThread, &aiThread, &verdictThread})
             if (t->joinable()) t->join();
     }
 };

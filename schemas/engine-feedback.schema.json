@@ -23,6 +23,11 @@
       "type": "string",
       "description": "Engine version the project was made with, e.g. \"0.1.0\"."
     },
+    "nextId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The number the next new id gets at least. Written when an entry is deleted, so its id is not given again."
+    },
     "entries": {
       "type": "array",
       "description": "Feedback entries, oldest first. Ids are FB-0001, FB-0002, ... and never reused.",
@@ -40,8 +45,8 @@
       "description": "blocker: the game (or a requested feature) could not be built at all. major: needed a large or fragile workaround. minor: small workaround. nice-to-have: would be more convenient."
     },
     "status": {
-      "enum": ["open", "fixed-in-engine", "wont-fix", "duplicate"],
-      "description": "Lifecycle: open (default), fixed-in-engine, wont-fix, duplicate."
+      "enum": ["open", "fixed-in-engine", "wont-fix", "duplicate", "rejected"],
+      "description": "Lifecycle: open (default), fixed-in-engine, wont-fix, duplicate, rejected (the entry claims a gap the engine does not have: see statusReason). Entries that are not open move to the archive file."
     },
     "reporter": {
       "type": "object",
@@ -75,7 +80,7 @@
         "title": {
           "type": "string",
           "minLength": 3,
-          "description": "Short noun phrase naming the gap, e.g. \"No one-way platforms\". Reuse the same wording for the same gap so entries can be grouped."
+          "description": "Short noun phrase naming the gap, e.g. \"No fluid simulation\" (an invented example). Reuse the same wording for the same gap so entries can be grouped."
         },
         "missing": {
           "type": "string",
@@ -116,6 +121,29 @@
           "items": { "type": "string" }
         },
         "status": { "$ref": "#/$defs/status" },
+        "statusReason": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Why the status is what it is: required with rejected (what exists, where it is documented), optional with wont-fix and duplicate. Plain text, shown to the person in the editor. Removed when the entry is opened again."
+        },
+        "statusBy": {
+          "enum": ["engine", "user", "developer"],
+          "description": "Who set a closed status: engine (the check found that the claimed gap already exists), user (a person or the AI of the project), developer (the engine developer rejected the shared report)."
+        },
+        "claimCheck": {
+          "enum": ["dismissed"],
+          "description": "dismissed: a person reopened an entry the engine had rejected, so the engine never rejects it again."
+        },
+        "suggestedRejection": {
+          "type": "object",
+          "description": "On entries pulled from the feedback server (engine developer only): `factoria feedback pull` found that the report calls missing something the engine already has, and suggests rejecting it with this reason. Confirm with `factoria feedback reject --suggested`, or drop it with `factoria feedback keep`.",
+          "required": ["reason"],
+          "additionalProperties": false,
+          "properties": {
+            "reason": { "type": "string", "maxLength": 500, "description": "The ready reason: what exists and where it is documented." },
+            "date": { "type": "string", "description": "When the check ran (YYYY-MM-DD)." }
+          }
+        },
         "engineIssue": {
           "type": "string",
           "description": "Link or id of the engine issue/PR that tracks or fixed this entry."
@@ -142,11 +170,11 @@
           "required": ["status"],
           "additionalProperties": false,
           "properties": {
-            "status": { "enum": ["pending", "sent", "rejected", "skipped"], "description": "pending: waiting in the outbox (or for the user's confirmation); sent: the server accepted it; rejected: the server or the sanitizer refused it (see reason); skipped: sharing is off." },
+            "status": { "enum": ["pending", "sent", "rejected", "skipped", "declined"], "description": "pending: waiting in the outbox (or for the user's confirmation); sent: the server accepted it; rejected: the server or the sanitizer refused to receive it (see reason); skipped: sharing is off; declined: the server received it and the engine developer rejected the report afterwards (the reason is the developer's, and the entry's status is rejected)." },
             "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "UTC date of the last change, YYYY-MM-DD." },
             "shareId": { "type": "string", "description": "Id the server gave the report." },
             "occurrences": { "type": "integer", "minimum": 1, "description": "How many times the entry was sent (each send is one occurrence on the server). An entry hit again after it was sent goes again, up to 3, the most the developer's ranking counts." },
-            "reason": { "type": "string", "description": "Why it was rejected or skipped." }
+            "reason": { "type": "string", "description": "Why it was rejected, declined or skipped." }
           }
         },
         "remote": {

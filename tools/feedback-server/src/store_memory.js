@@ -15,6 +15,9 @@
 //                                     counters: [{key, by, expiresAt}]; expired counters are dropped
 //   listReports(afterSeq, limit)      -> reports with seq > afterSeq in seq order, each with its `seq`
 //   deleteReport(shareId)             -> true when it existed
+//   setVerdict(shareId, {verdict, reason, at})
+//                                     -> true when the report exists; verdict "rejected" (with reason and at) or null (cleared)
+//   getVerdicts(installKey, shareIds) -> [{shareId, verdict, reason, at}] of the reports OF THAT installation among shareIds
 //   totals()                          -> {reports, installations, occurrences}
 
 export class MemoryStore {
@@ -99,6 +102,24 @@ export class MemoryStore {
 
     async deleteReport(shareId) {
         return this.reports.delete(shareId);
+    }
+
+    async setVerdict(shareId, { verdict, reason, at }) {
+        const r = this.reports.get(shareId);
+        if (!r) return false;
+        r.verdict = verdict || null;
+        r.verdictReason = verdict ? reason : null;
+        r.verdictAt = verdict ? at : null;
+        return true;
+    }
+
+    async getVerdicts(installKey, shareIds) {
+        const out = [];
+        for (const id of shareIds) {
+            const r = this.reports.get(id);
+            if (r && r.installKey === installKey) out.push({ shareId: id, verdict: r.verdict || null, reason: r.verdictReason || null, at: r.verdictAt || null });
+        }
+        return out;
     }
 
     async totals() {

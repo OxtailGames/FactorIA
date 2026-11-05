@@ -117,9 +117,9 @@ Headers: `X-Factoria-Install: <uuid v4>` (required), `Authorization: Bearer <cre
   "platform": "macos",
   "entries": [
     {"localId": "FB-0003", "category": "physics", "severity": "major", "effort": "small",
-     "title": "No one-way platforms",
-     "missing": "Collider2D has no one-way option, so a body cannot pass up through a platform and land on it.",
-     "suggestion": "Add Collider2D.oneWay (bool) with a direction.",
+     "title": "No fluid simulation",
+     "missing": "There is no liquid solver, so water cannot flow around bodies and fill a container.",
+     "suggestion": "Add a particle-based Fluid2D component.",
      "workaround": "A script disables the collider while the body moves up.",
      "reporterKind": "ai", "reviewed": true}
   ]
@@ -161,6 +161,22 @@ base64url(HMAC(HMAC_SECRET, payload))`; the server checks it on every report. Th
 - `POST /v1/admin/unban {installKey? | reporterKey?}`, `GET /v1/admin/bans`.
 - `DELETE /v1/admin/reports/<shareId>`.
 - `GET /v1/admin/stats`: counts of reports, installations, rejections and rate-limit hits of the last days.
+- `POST /v1/admin/reject {rejections: [{shareId, reason}]}` (reason: plain text, 1 to 500 characters, whitespace collapsed) and `POST
+  /v1/admin/unreject {shareIds}`: the verdict of the engine developers on a stored report (migration `0002_verdicts.sql`: `verdict`,
+  `verdict_reason`, `verdict_at` on `reports`). Answer `{ok, rejected | restored: [shareId], notFound: [shareId]}`. The report stays
+  stored; `GET /v1/admin/reports` carries `verdict` and `verdictReason` for the ones that have one.
+
+### `POST /v1/verdicts`
+
+An installation asks what was decided about ITS reports. Header `X-Factoria-Install` as for reports; body `{format, shareIds: [..<=100]}`.
+Answer `{ok, verdicts: [{shareId, status: "rejected" | "received", reason?, at?}]}`: one item per shareId that is a report of the
+installation that sent the header. A shareId of another installation, or one that does not exist, gets NO item (the two cases look the same, so
+nothing about other installations leaks). `rejected` carries the reason; `received` says the report is stored with no verdict. Capped at 240
+requests per installation per day (`429` with `Retry-After`; the editor asks about every 30 minutes). An older server answers 404: the
+client treats it as "no verdicts here" and changes nothing; an older client never calls it. The client (`share_sync_verdicts`) turns `rejected` into `shared.status: "declined"` plus the entry status
+`rejected` (`statusBy: "developer"`, `statusReason` = the reason as sanitized plain text of at most 500 characters), and a `received` for a
+declined entry (the rejection was taken back) into `sent` and open again. Do not confuse `shared.status: "rejected"` (the server refused the
+text of a report when it was sent) with `declined` (the engine developers rejected a report that was accepted).
 
 ### `GET /`
 
@@ -203,8 +219,8 @@ Reads `feedback-admin.json` (`{endpoint, adminToken}`).
 
 ```json
 {"format": "factoria.feedback-fixed/1",
- "fixes": [{"category": "physics", "titles": ["No one-way platforms"], "fixedIn": "0.11.0",
-            "note": "Collider2D.oneWay"}]}
+ "fixes": [{"category": "physics", "titles": ["No fluid simulation"], "fixedIn": "0.11.0",
+            "note": "Fluid2D"}]}
 ```
 
 ## Editor

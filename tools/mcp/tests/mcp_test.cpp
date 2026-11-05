@@ -322,8 +322,8 @@ TEST_CASE("mcp: tool calls through the real tooling commands") {
     CHECK(w["isError"] == false);
     Json rd = f.call("fs_read", {{"path", "../escape"}})["result"];
     CHECK(rd["isError"] == true);
-    Json fb = f.call("feedback_report", {{"category", "physics"}, {"severity", "major"}, {"title", "No one-way platforms"},
-                                         {"missing", "needed one-way"}, {"workaround", "script"}})["result"];
+    Json fb = f.call("feedback_report", {{"category", "physics"}, {"severity", "major"}, {"title", "No cloth simulation"},
+                                         {"missing", "needed a cloth solver"}, {"workaround", "script"}})["result"];
     CHECK(fb["isError"] == false);
     CHECK(fb["structuredContent"]["id"] == "FB-0001");
     // project.export is a registered tooling command, so it is an MCP tool (an unknown platform is a tool error).

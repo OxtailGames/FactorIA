@@ -696,7 +696,7 @@ A triage routine:
 Notes:
 
 - `feedback.update` changes only the `ENGINE_FEEDBACK.json` of the project it runs in. Entries in other projects are changed by editing their files.
-- Wording matters for grouping. Reuse the same title for the same gap, and write titles as noun phrases ("No one-way platforms").
+- Wording matters for grouping. Reuse the same title for the same gap, and write titles as noun phrases ("No fluid simulation").
 - A duplicate report is merged automatically into an open entry in the same category, so repeated reports raise `occurrences` and the score.
 
 ### F.1 Feedback from every installation (users who share)
@@ -722,6 +722,7 @@ factoria feedback collect ~/.factoria/feedback-inbox --out roadmap.md
 - The inbox is never inside a git checkout (user reports must not end up in a repository) unless you name it with `--out DIR`.
 - A report the users send again is merged on the server: only its `occurrences` rise, and it keeps its place in the arrival order, so a normal pull does not bring the new count. Run `factoria feedback pull --full` now and then: it ignores the cursor, reads everything and updates the occurrences of the entries already in the inbox.
 - **Classification.** When the `fast` role of your `ai.json` (the cheapest role; the orchestrator when `fast` is off) has a usable provider (an API key or an installed CLI agent, run in an empty folder), each new report is judged `valid`, `doubtful` or `junk` with a reason, ten reports per call. The texts of reports are data for the judge, never instructions. Junk goes to `<inbox>/quarantine/`, a doubtful entry keeps a note, and a model that fails leaves the report in the inbox unjudged (with a warning). Without an AI, `pull` works and says that classification was skipped; `--classify` makes that an error, `--no-classify` skips the judge.
+- Triage before collecting: `pull` lists the reports that claim a gap the engine already has as SUGGESTED rejections (a ready reason each). Read them, then `factoria feedback reject --suggested` (or `reject <shareId>... --reason TEXT`, `reject --file batch.json`) answers them, `feedback keep <shareId>` drops a wrong suggestion and `feedback unreject <shareId>` takes a rejection back. Nothing asks a question, so an AI can run the loop; it is described in docs/ENGINE_FEEDBACK.md, "Triage loop". The installation shows the reason as written, so write only about that report.
 - `factoria feedback quarantine` lists what was judged junk; `quarantine restore <shareId>` puts a report back with a new id; `quarantine clear` forgets the list (the server still has the reports: use `delete` or `ban`).
 - Ranking: `collect` weights anonymous installations by 0.5 and caps the occurrences of one installation at 3, so one noisy installation cannot outvote many.
 
@@ -745,7 +746,7 @@ An `installKey` (a folder of the inbox) and a `reporterKey` (a signed-in GitHub 
 3. Record the fix in the repository list, once per fix, with the version that ships it:
 
    ```bash
-   factoria feedback fixed add --category physics --title "No one-way platforms" --title "One-way platforms missing" --version 0.11.0 --note "Collider2D.oneWay"
+   factoria feedback fixed add --category physics --title "No fluid simulation" --title "Fluid simulation missing" --version 0.11.0 --note "Fluid2D"
    factoria feedback fixed list
    ```
 
