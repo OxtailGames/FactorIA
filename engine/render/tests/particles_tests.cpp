@@ -183,3 +183,38 @@ TEST_CASE("particles: a bad curve is logged once and the emitter still draws") {
         if (l.message.find("sizeCurve") != std::string::npos) ++logged;
     CHECK(logged == 1);
 }
+
+TEST_CASE("particles: 10000 trailed particles draw, and reset_particles makes the next run start the same") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    CleanEmitters clean;
+    auto build = [](World& w) {
+        camera(w);
+        Entity e = make(w, "swarm");
+        auto& p = w.add<ParticleEmitter>(e);
+        p.rate = 0; p.burst = 10000; p.maxParticles = 10000; p.seed = 5; p.lifetime = 3.0f; p.speed = 60; p.spread = 180; p.startSize = 3;
+        p.trail = ParticleTrail::Particle; p.trailTime = 0.5f; p.trailWidth = 2;
+    };
+    auto run = [&](World& w) {
+        Image last;
+        for (int i = 0; i < 20; ++i) last = g.render(w, 1.0f / 60.0f);
+        return last;
+    };
+    World w1;
+    build(w1);
+    const Image a = run(w1);
+    CHECK(g.renderer.stats().particles == kParticleHardCap);
+    // A scene loaded again (Play, then Stop): the emitter of the same id starts from its seed, not where the last run was.
+    g.renderer.reset_particles();
+    World w2;
+    build(w2);
+    const Image b = run(w2);
+    ImageDiff d = diff_images(a, b, 1.0f / 255.0f);
+    CHECK(d.meanError < 0.0005);
+    CHECK(lit_pixels(a) > 400);
+    // Without the reset the second run goes on from the state the first left behind.
+    World w3;
+    build(w3);
+    const Image c = run(w3);
+    CHECK(diff_images(a, c, 1.0f / 255.0f).meanError > d.meanError);
+}

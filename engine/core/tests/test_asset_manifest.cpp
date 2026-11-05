@@ -140,3 +140,20 @@ TEST_CASE("asset manifest: a second write of the same size right after a read is
     (void)assets::manifest();
     CHECK(fs::disk_reads() == reads);
 }
+
+TEST_CASE("asset manifest: manifest_version changes when the file is read again, style_palette copies only the palette") {
+    TempProject p;
+    const std::uint64_t none = assets::manifest_version();
+    CHECK(assets::manifest_version() == none);  // nothing changed: the same number
+    CHECK(assets::style_palette().is_null());
+    REQUIRE(assets::update_manifest([](Json& doc) { doc["style"] = {{"palette", Json::array({"#112233", "#ffffff"})}}; }).ok());
+    const std::uint64_t first = assets::manifest_version();
+    CHECK(first != none);
+    CHECK(assets::manifest_version() == first);
+    const Json palette = assets::style_palette();
+    REQUIRE(palette.is_array());
+    CHECK(palette.size() == 2);
+    REQUIRE(assets::update_manifest([](Json& doc) { doc["style"]["palette"] = "palettes/night.png"; }).ok());
+    CHECK(assets::manifest_version() != first);
+    CHECK(assets::style_palette() == Json("palettes/night.png"));
+}

@@ -305,6 +305,10 @@ public:
     // The shader dialect of this renderer's backend (see ShaderCompiler); "" before init().
     std::string shader_dialect() const;
     void clear_asset_cache();
+    // Forgets every emitter's particles and its random sequence, so the emitters of the world that is loaded next start from nothing: the start
+    // burst and the `seed` behave the same on every run. The engine calls it on every scene load (so also when the editor starts and stops
+    // Play); a program that swaps the world itself calls it too. Queued emit_burst() calls are dropped with it.
+    void reset_particles();
     Json asset_report() const;  // loaded assets + failures (missing files with hints)
     std::uint64_t texture_bytes() const;  // GPU memory of the loaded textures
 

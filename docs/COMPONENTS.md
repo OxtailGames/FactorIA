@@ -336,7 +336,7 @@ Emits short-lived particles (smoke, sparks, explosions, fire, trails). Particles
 | `collisionPlane` | vec4 | `[0.0,1.0,0.0,0.0]` | collision "plane": [nx, ny, nz, d] = the plane dot(n, p) = d; particles stay on the side n points to. [0, 1, 0, 0] is the floor y = 0, [0, 1, 0, -120] a floor at y = -120. (not released yet, on main after 0.16.1) |
 | `collisionTilemap` | entity |  | collision "tilemap": the entity of the Tilemap whose solidTiles stop the particles. None = the first active Tilemap in the scene that has solidTiles. (not released yet, on main after 0.16.1) |
 | `collisionBounce` | float | `0.5` | Fraction of the speed into the surface that comes back out: 0 = sticks, 0.5 = default, 1 = a perfect bounce. Range 0.0..2.0. (not released yet, on main after 0.16.1) |
-| `collisionFriction` | float | `0.0` | Fraction of the speed along the surface lost on every hit: 0 (default) = slides on, 1 = stops dead. Range 0.0..1.0. (not released yet, on main after 0.16.1) |
+| `collisionFriction` | float | `0.0` | Fraction of the speed along the surface lost on every hit: 0 (default) = slides on, 1 = stops dead. A particle that slides or rests on the surface loses speed per second instead (the same at any frame rate): 1 slows it to a tenth in half a second. Range 0.0..1.0. (not released yet, on main after 0.16.1) |
 | `collisionLifetimeLoss` | float | `0.0` | Fraction of its whole lifetime a particle loses on every hit (0.5: two hits kill it). Default 0. A particle resting on the surface is not hitting it again. Range 0.0..1.0. (not released yet, on main after 0.16.1) |
 | `collisionKill` | bool | `false` | true: a particle dies on its first hit (rain splashes through the "collision" sub-emitter, sparks that burn out on the floor). Default false. (not released yet, on main after 0.16.1) |
 | `pixelMode` | bool | `false` | true: particles are hard-edged squares whose position and size snap to a grid of pixelSize world units, and whose colours are the nearest entries of the palette (no soft blending, no texture): fire and sparks for pixel art. Default false. (not released yet, on main after 0.16.1) |
@@ -13451,7 +13451,7 @@ declare module "factoria" {
      */
     collisionBounce: number;
     /**
-     * Fraction of the speed along the surface lost on every hit: 0 (default) = slides on, 1 = stops dead.
+     * Fraction of the speed along the surface lost on every hit: 0 (default) = slides on, 1 = stops dead. A particle that slides or rests on the surface loses speed per second instead (the same at any frame rate): 1 slows it to a tenth in half a second.
      * @since unreleased
      */
     collisionFriction: number;

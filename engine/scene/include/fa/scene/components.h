@@ -444,7 +444,7 @@ struct ParticleEmitter {
     Vec4 collisionPlane{0.0f, 1.0f, 0.0f, 0.0f};  // [nx, ny, nz, d]: the plane dot(n, p) = d; particles stay on the side n points to
     Entity collisionTilemap = kNullEntity;  // the Tilemap whose solidTiles stop the particles; none = the first Tilemap with solid tiles
     float collisionBounce = 0.5f;           // fraction of the speed along the surface normal that is kept, reversed
-    float collisionFriction = 0.0f;         // fraction of the speed along the surface lost on every hit
+    float collisionFriction = 0.0f;         // fraction of the sliding speed lost on every hit (per second while resting)
     float collisionLifetimeLoss = 0.0f;     // fraction of its full lifetime a particle loses on every hit
     bool collisionKill = false;             // a particle dies on its first hit
     // Pixel mode
