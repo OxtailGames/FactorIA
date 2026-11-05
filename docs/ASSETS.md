@@ -446,6 +446,30 @@ animation (`cycleSeconds * fps` frames).
   `accumulate`. Numbers, lengths, colours (in RGB) and any value that is the same text around numbers (path data of the same
   structure, `points`, `viewBox`) are interpolated; any other value changes at its key time. Not sampled, each a warning that
   names the element: event begins (`click`...), CSS animations, `<style>` rules and `restart`/`min`/`max`.
+- **Colours of the effect: `ramp` and `rampAt`.** `ramp` is the effect's colours from dark to bright: a list of 2 to 32
+  `"#rrggbb"`, or the project path of an image document (`*.image.json`) that declares `ramps` (the ramps of `image.palette`;
+  `rampIndex` picks one, 0 is the first). The module receives `ramp` (the list) and `rampAt(u)`, the colour at `u` from 0
+  (dark) to 1 (bright), blended between neighbours, as `"#rrggbb"`. A flame that draws `fill="${rampAt(0.85)}"` is recoloured
+  as ice by baking again with another `ramp`, without touching the code:
+  `assets.animate_svg {"path":"assets/art/flame.png","source":"art/flame.anim.js","frames":8,"fps":12,"ramp":["#0b1d3a","#2a6fd6","#bfeaff"],"overwrite":true}`.
+  `rampAt` without a `ramp` is an error that says so, and a `ramp` the module never reads is a warning (the colours would
+  have no effect). `rampMap: true` recolours the finished frames instead: the darkest pixel takes the first colour of the ramp,
+  the brightest the last (by luminance, alpha kept). That is the way for a SMIL SVG (which has no code to read `ramp`; a
+  `ramp` without `rampMap` is an error there) and for a module that draws in greys. The order of the passes is rasterize,
+  `rampMap`, then `palette` snapping. The recipe records `ramp` (and `rampIndex`, `rampMap`), and an image document counts as an
+  input, so `assets.regenerate` and `project.validate` see a changed ramp as a stale sheet.
+- **Back, front and light layers.** An effect often goes behind the character, in front of it and glows. `layers` (module only)
+  is a list from `back`, `front` and `light`, in any order. The module is called once per layer and frame with `layer` set to
+  the name and returns the SVG of that layer (an empty `<svg/>` is a layer that is idle in that frame; a layer that draws
+  nothing in any frame is a warning). Each layer is its own sheet next to `path`: `assets/art/hit.png` gives
+  `hit_back.png`, `hit_front.png` and `hit_light.png`, each with its `sheet` entry (same `columns`, `rows`, cell size, `padding`,
+  `pivot`, clips, frames and `fps`), so the layers stay in step when each plays on its own entity. Every layer of a frame
+  draws from the same random stream, so a shape drawn in two layers lines up. Play them as three entities at the same place:
+  `back` with a lower `Sprite.layer` than the character, `front` with a higher one and `light` with `Sprite.blend` set to
+  `additive` (its colours add to what is under it: draw soft bright glows on it) and a `SpriteAnimator` with the same clip
+  on each. The result's `layers` lists `{layer, path, use}`, `path` is the first layer's sheet, and the image is the layers
+  stacked on a dark ground (the light added), so one look shows the whole effect. `ramp` and `rampMap` apply to every layer.
+
 - **Warnings.** Frames that draw nothing (the shapes sit outside the viewBox, or the module returned an empty drawing), shapes
   touching the edge of the cell (they may be cut off: draw smaller, enlarge the frame, or add `padding`), a loop whose last
   frame jumps from the first (a pop when it repeats) or repeats it (a stop for one frame), SMIL that is not sampled, features
