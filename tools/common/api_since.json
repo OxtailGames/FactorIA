@@ -1181,11 +1181,14 @@
     "vector.to_rig": "0.16.0",
     "vector.transform": "0.16.0",
     "vector.ungroup": "0.16.0",
+    "vfx.budget": "unreleased",
     "vfx.check": "unreleased",
     "vfx.create": "unreleased",
     "vfx.edit": "unreleased",
+    "vfx.filmstrip": "unreleased",
     "vfx.list": "unreleased",
     "vfx.play": "unreleased",
+    "vfx.review": "unreleased",
     "vfx.stop": "unreleased"
   },
   "script": {

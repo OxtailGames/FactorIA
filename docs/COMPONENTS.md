@@ -7475,6 +7475,21 @@ Moves the children of each picked <g> out into the group's parent, at the group'
 
 ## game
 
+### `vfx.budget`
+
+Not released yet (on main after 0.16.1).
+
+What an effect document costs on a phone: live particles and the screen they cover, with the fixes.
+
+Plays the document in a scratch world with the same timeline and particle sim a game runs (no renderer, no sound, the game is not touched, the same document and seed always give the same numbers) and returns {peakParticles, peakAt, peakOverdraw, peakOverdrawAt, meanOverdraw, settledAt, perEmitter: [{part, name, peakParticles, peakAt, peakOverdraw, maxParticles, capped}], timeline: [{t, particles, overdraw}], findings: [{kind, pointer, message, hint, fix: {command, args}}], notes, limits, ok}. `overdraw` is the sum of the particles' quads in screens (1.0 = as much quad area as the view has; stacked soft sprites are what a phone's GPU pays for). `findings` are what is over the `preset`'s budget (phone: 300 live particles, 1.5 screens, 5 emitters; desktop: 2000, 4.0, 8): each names the JSON pointer and carries a vfx.edit call that brings the effect inside it. The numbers are the particles the sim keeps alive: a camera that does not see them, ribbon trails and glow passes are not counted, and a 3D emitter's overdraw is not measured (`notes` says so). Example: vfx.budget {"path":"assets/vfx/hit.vfx.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project path of the effect document, e.g. "assets/vfx/hit.vfx.json". |
+| `preset` | string ["phone","desktop"] | no | Whose budget the findings use. Default "phone". |
+| `seed` | integer | no | Seed of the particle sim: a different seed is a different (equally valid) roll of the random spread. Default 1. |
+| `view` | array | no | [width, height] of the view in design pixels that overdraw is measured against. Default: the project's design size. |
+
 ### `vfx.check`
 
 Not released yet (on main after 0.16.1).
@@ -7522,6 +7537,26 @@ Edits `*.vfx.json` the way a hand edit would, but checked: the document is parse
 
 ## game
 
+### `vfx.filmstrip` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once.
+
+Plays the effect at `position` (default: the world point in the middle of the view, which is only meaningful in a 2D game: in a 3D game give `position`), steps the game and captures `region` at each step into one labelled grid PNG (label "f3 +100" = picture 3, 100 ms after the effect started), then removes the effect. THE GAME ADVANCES: the clock, the physics and the scripts run for the frames the strip takes (about 3 s at most by default), so film on a stage scene or a paused moment; the camera and the backdrop are the ones the game has, which is what the effect must read against. The first picture is the frame after the effect started. By default the strip covers the effect's length (from vfx.budget, at most 3 s) in `frames` pictures; `everyFrames` sets the game frames between two pictures instead. The view is `size` design pixels around the effect, `region` [x, y, width, height] overrides it, and `zoom` magnifies (default: a sheet about 1600 px wide). At most 64 pictures, a sheet at most 8192 px a side. Needs graphics. Without `path` the picture is temporary (the MCP server shows it then deletes the file). Result: {width, height, effect, duration, frames: [{index, frame, t}], columns, rows, tileWidth, tileHeight, zoom, region, $image}. vfx.review gives the picture to a vision model with the budget numbers. Example: vfx.filmstrip {"effect":"assets/vfx/hit.vfx.json","position":[640,360],"frames":12}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `effect` | string | yes | Project path of the effect document, e.g. "assets/vfx/hit.vfx.json". |
+| `position` | array | no | [x, y] or [x, y, z]: where the effect plays, in world units. Default: the world point in the middle of the view (2D); a 3D game must give it. |
+| `frames` | integer | no | Pictures in the strip. Default 12. |
+| `everyFrames` | integer | no | Game frames between two pictures. Default: the effect's length (at most 3 s) divided over `frames`. |
+| `size` | number | no | Side, in design pixels, of the square around the effect that is filmed (ignored with `region`). Default 256. |
+| `region` | array | no | [x, y, width, height] in design pixels (origin top-left of the view). |
+| `zoom` | number | no | Magnification of the region (default: a sheet about 1600 px wide). |
+| `columns` | integer | no | Pictures per row (default: nearly square). |
+| `path` | string | no | Keep the PNG here (project-relative or absolute). |
+
 ### `vfx.list`
 
 Not released yet (on main after 0.16.1).
@@ -7547,6 +7582,23 @@ Makes an entity with a Vfx component (autoDestroy on) that plays the effect: its
 | `scale` | number | no | Scale of the effect's entity: the offsets of its parts and the spawn shape of its emitters grow with it; the sizes written in the file (particle size, light radius) do not. 1 = as written. Default 1. |
 | `speed` | number | no | Speed of the timeline: 2 plays the parts' times twice as fast. The particles keep their own speed. Default 1. |
 | `loop` | boolean | no | Start again at the end until vfx.stop. Default false. |
+
+### `vfx.review` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+A cheap one-shot vision review of an effect: its filmstrip graded for readability, timing, palette and overdraw, with vfx.edit fixes.
+
+The last look of the make, film, grade, fix loop for effects (docs/PARTICLES.md "Reviewing an effect"). It runs vfx.budget on the document and vfx.filmstrip on the running game (so THE GAME ADVANCES by about the length of the effect, at most 3 s, and the game must have graphics), then sends a vision model the filmstrip, the budget numbers and the document with a checklist: readability at game size, timing, palette, overdraw. It uses the model of the "fast" role of ai.json (the orchestrator when fast is off), so the model must accept pictures; with no provider, no key or a text-only model the error says what to set up (docs/AI_PROVIDERS.md) and you carry on with vfx.budget and vfx.filmstrip, which you can read yourself. One model call per review: call it once vfx.check passes and vfx.budget has no finding, not after every edit. Result: {verdict: good | fix | redo (never `good` while vfx.budget has a finding), summary, checklist: [{item, grade, note}], fixes: [{what, where, command}], budget: {peakParticles, peakOverdraw, findings, ...}, filmstrip: {frames, columns, rows, tileWidth, tileHeight, zoom, region}, role, provider, model, warnings, nextSteps}. A fix names a command, usually a vfx.edit call; one that names something this engine does not have is listed in `warnings`. The document is not changed. Pass `picturePath` to keep the filmstrip PNG. Example: {"effect":"assets/vfx/hit.vfx.json","position":[640,360],"focus":"does it read on the dark floor?"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `effect` | string | yes | Project path of the effect document, e.g. "assets/vfx/hit.vfx.json". |
+| `position` | array | no | [x, y] or [x, y, z]: where in the game the effect is filmed, in world units (as vfx.filmstrip). Default: the middle of the view. |
+| `preset` | string ["phone","desktop"] | no | Whose budget the review uses (as vfx.budget). Default phone. |
+| `frames` | integer | no | Pictures in the filmstrip (as vfx.filmstrip). Default 12. |
+| `focus` | string | no | What you want judged ("does it read on the dark floor?", "is the hit too long?"). Optional. |
+| `picturePath` | string | no | Keep the filmstrip PNG here (project-relative or absolute). Without it the picture is deleted after the review. |
 
 ### `vfx.stop` (modifies state)
 
