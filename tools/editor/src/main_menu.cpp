@@ -106,6 +106,8 @@ menu::MainMenu Editor::build_main_menu(bool native) {
                         "The live audio.log: every sound played, with its bus, volume, source entity and whether the clip loaded"));
     view.push_back(with(toggle("Profiler", showProfiler_), "menu:profiler",
                         "Where the time goes while the game plays: milliseconds per engine system and per script behaviour class, GPU time, memory"));
+    view.push_back(with(toggle("Level generator", showLevelGen_), "menu:levelgen",
+                        "Make a level from a sample you drew: pick a seed, regenerate, preview it and keep the one you like"));
     view.push_back(with(toggle("Animation", showAnimation_), "menu:animation",
                         "The clips of the selected entity's Animator: dopesheet and curves, scrubbing, record mode, event markers and the onion skin"));
     view.push_back(with(toggle("Image", showImage_), "menu:image",

@@ -596,6 +596,13 @@ bool Editor::boot(const std::string& dirIn) {
     layoutBuilt_ = false;
     profView_.reset();
     reset_audio_log(audioLog_);  // a new engine has a new play log that starts at seq 1
+    levelGen_.clear();           // its job belonged to the old engine
+    levelGenOpt_.sampleEntity.clear();
+    levelGenOpt_.sampleFile.clear();
+    levelGenMessage_.clear();
+    levelGenSelId_.clear();
+    levelGenSelTilemap_ = false;
+    levelGenSolid_.clear();
     bootError_.clear();
     projectDir_.clear();
     projectName_.clear();
@@ -1322,7 +1329,7 @@ void Editor::open_screenshots_folder() {
 // The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
 int Editor::panels_mask() const {
     const bool flags[] = {showViewport_, showHierarchy_, showInspector_, showConsole_,  showProject_,  showAi_,
-                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_, showImage_, showVector_, showSound_, showMusic_, showModeler_};
+                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_, showImage_, showVector_, showSound_, showMusic_, showModeler_, showLevelGen_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1331,7 +1338,7 @@ int Editor::panels_mask() const {
 
 void Editor::set_panels_mask(int mask) {
     bool* flags[] = {&showViewport_, &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,  &showAi_,
-                     &showFeedback_, &showAudio_,     &showProfiler_,  &showAnimation_, &showBoneTools_, &showImage_, &showVector_, &showSound_, &showMusic_, &showModeler_};
+                     &showFeedback_, &showAudio_,     &showProfiler_,  &showAnimation_, &showBoneTools_, &showImage_, &showVector_, &showSound_, &showMusic_, &showModeler_, &showLevelGen_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1473,6 +1480,8 @@ void Editor::build_ui() {
         }
         if (showAudio_) draw_audio_panel();
         if (showProfiler_) draw_profiler_panel();
+        if (showLevelGen_) draw_level_gen_panel();
+        else if (levelGen_.running()) levelGen_.cancel(level_gen_caller());   // closing the window stops a running generation
         if (showAnimation_) draw_animation_panel();
         else if (anim_.posed) anim_unpose();  // the panel was closed: the entity goes back to its rest values
         if (showAnimation_ && anim3d_.mode3d && anim3d_.showSheets) draw_anim3d_sheets();

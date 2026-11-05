@@ -64,6 +64,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"M3", "Music panel: a song opened, a note drawn, moved and deleted on the piano roll, a drum hit, a section repeat and a mute in the mixer, Undo/Redo through the editor's stack, played with a moving playhead, the intensity buttons fading a layer, a looped section, Save bakes the mix and the stems"},
     {"N3", "Model panel: a model document opened as its operation tree and a live view of the mesh, a node picked to highlight its part, a slider clicked (one model.edit), Undo/Redo through the editor's stack, a node added, switched off and removed, the view orbited, the 1.8 m figure and Check, Save bakes the .glb"},
     {"O3", "Animation panel, 3D clips: a generated walk opened on a rigged model, a bone picked in the list and in the view, the rotation gizmo dragged (one key, one undo step), an IK handle dragged, a key moved and deleted in the dopesheet, Mirror pose, the filmstrip sheet, Undo/Redo through the editor's stack"},
+    {"P3", "Level generator window: a drawn level as the sample, Generate, Next / Previous seed (the same seed gives the same level), Keep builds it in the scene as one undo step, Save writes a level file"},
 };
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).
