@@ -1,0 +1,241 @@
+{
+  "format": "factoria.model/1",
+  "doc": "A pile of six logs, 1 m long: where fuel is cut.",
+  "nodes": [
+    {
+      "op": "cylinder",
+      "id": "log_0",
+      "part": "logs",
+      "radius": 0.14,
+      "height": 1.0,
+      "segments": 10,
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "position": [
+        -0.3,
+        0.14,
+        0
+      ],
+      "color": "#7a4a28"
+    },
+    {
+      "op": "cylinder",
+      "id": "cut_0",
+      "part": "cuts",
+      "radius": 0.125,
+      "height": 0.02,
+      "segments": 10,
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "position": [
+        -0.3,
+        0.14,
+        0.505
+      ],
+      "color": "#e8b060"
+    },
+    {
+      "op": "cylinder",
+      "id": "log_1",
+      "part": "logs",
+      "radius": 0.14,
+      "height": 1.0,
+      "segments": 10,
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "position": [
+        0.0,
+        0.14,
+        0
+      ],
+      "color": "#7a4a28"
+    },
+    {
+      "op": "cylinder",
+      "id": "cut_1",
+      "part": "cuts",
+      "radius": 0.125,
+      "height": 0.02,
+      "segments": 10,
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "position": [
+        0.0,
+        0.14,
+        0.505
+      ],
+      "color": "#e8b060"
+    },
+    {
+      "op": "cylinder",
+      "id": "log_2",
+      "part": "logs",
+      "radius": 0.14,
+      "height": 1.0,
+      "segments": 10,
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "position": [
+        0.3,
+        0.14,
+        0
+      ],
+      "color": "#b27a45"
+    },
+    {
+      "op": "cylinder",
+      "id": "cut_2",
+      "part": "cuts",
+      "radius": 0.125,
+      "height": 0.02,
+      "segments": 10,
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "position": [
+        0.3,
+        0.14,
+        0.505
+      ],
+      "color": "#e8b060"
+    },
+    {
+      "op": "cylinder",
+      "id": "log_3",
+      "part": "logs",
+      "radius": 0.14,
+      "height": 1.0,
+      "segments": 10,
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "position": [
+        -0.15,
+        0.4,
+        0
+      ],
+      "color": "#7a4a28"
+    },
+    {
+      "op": "cylinder",
+      "id": "cut_3",
+      "part": "cuts",
+      "radius": 0.125,
+      "height": 0.02,
+      "segments": 10,
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "position": [
+        -0.15,
+        0.4,
+        0.505
+      ],
+      "color": "#e8b060"
+    },
+    {
+      "op": "cylinder",
+      "id": "log_4",
+      "part": "logs",
+      "radius": 0.14,
+      "height": 1.0,
+      "segments": 10,
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "position": [
+        0.15,
+        0.4,
+        0
+      ],
+      "color": "#7a4a28"
+    },
+    {
+      "op": "cylinder",
+      "id": "cut_4",
+      "part": "cuts",
+      "radius": 0.125,
+      "height": 0.02,
+      "segments": 10,
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "position": [
+        0.15,
+        0.4,
+        0.505
+      ],
+      "color": "#e8b060"
+    },
+    {
+      "op": "cylinder",
+      "id": "log_5",
+      "part": "logs",
+      "radius": 0.14,
+      "height": 1.0,
+      "segments": 10,
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "position": [
+        0.0,
+        0.64,
+        0
+      ],
+      "color": "#b27a45"
+    },
+    {
+      "op": "cylinder",
+      "id": "cut_5",
+      "part": "cuts",
+      "radius": 0.125,
+      "height": 0.02,
+      "segments": 10,
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "position": [
+        0.0,
+        0.64,
+        0.505
+      ],
+      "color": "#e8b060"
+    }
+  ],
+  "gameReady": {
+    "origin": "bottom_center",
+    "merge": true,
+    "collider": {
+      "shape": "box"
+    }
+  }
+}

@@ -26,6 +26,8 @@ std::uint64_t request_hash(const AssetRequest& req) {
     h.update(req.voice);
     if (req.seed) h.update(std::to_string(*req.seed));
     for (const ReferenceImage& r : req.references) h.update(r.bytes);
+    h.update(req.editImage);
+    h.update(req.editMask);
     return std::stoull(h.finish_hex().substr(0, 16), nullptr, 16);
 }
 
@@ -236,6 +238,29 @@ std::string fake_model(std::uint64_t seed) {
     return gltf.dump();
 }
 
+// An inpainting: the picture with the pattern drawn only where the mask says (partly where it is grey), so what is not selected is
+// the picture it was.
+Result<Image> fake_inpaint(const AssetRequest& req, std::uint64_t seed) {
+    auto base = decode_image(reinterpret_cast<const std::uint8_t*>(req.editImage.data()), req.editImage.size());
+    if (!base) return make_error("The picture to repaint is not a PNG: " + base.error().message);
+    auto mask = decode_image(reinterpret_cast<const std::uint8_t*>(req.editMask.data()), req.editMask.size());
+    if (!mask) return make_error("The inpaint mask is not a PNG: " + mask.error().message);
+    if (mask->width != base->width || mask->height != base->height)
+        return make_error("The inpaint mask is " + std::to_string(mask->width) + "x" + std::to_string(mask->height) + " and the picture " +
+                          std::to_string(base->width) + "x" + std::to_string(base->height), "They must have the same size.");
+    AssetRequest plain = req;
+    plain.width = base->width;
+    plain.height = base->height;
+    plain.transparent = false;
+    const Image paint = fake_image(plain, seed);
+    Image out = *base;
+    for (std::size_t i = 0; i < static_cast<std::size_t>(out.width) * out.height; ++i) {
+        const int cover = mask->rgba[i * 4];
+        for (int c = 0; c < 4; ++c) out.rgba[i * 4 + c] = static_cast<std::uint8_t>((base->rgba[i * 4 + c] * (255 - cover) + paint.rgba[i * 4 + c] * cover + 127) / 255);
+    }
+    return out;
+}
+
 }  // namespace
 
 Result<AssetResult> fake_asset(const AssetRequest& req) {
@@ -246,6 +271,13 @@ Result<AssetResult> fake_asset(const AssetRequest& req) {
     if (req.kind == MediaKind::Voice) out.voice = req.voice;
     switch (req.kind) {
         case MediaKind::Image: {
+            if (!req.editImage.empty() && !req.editMask.empty()) {
+                auto repainted = fake_inpaint(req, seed);
+                if (!repainted) return repainted.error();
+                const std::vector<std::uint8_t> png = encode_png(*repainted);
+                out.bytes.assign(png.begin(), png.end());
+                break;
+            }
             const std::vector<std::uint8_t> png = encode_png(fake_image(req, seed));
             out.bytes.assign(png.begin(), png.end());
             break;

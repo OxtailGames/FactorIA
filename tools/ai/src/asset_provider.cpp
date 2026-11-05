@@ -142,6 +142,20 @@ Result<AssetResult> generate_asset(const ProviderConfig& provider, const AssetRe
     }
 }
 
+bool asset_can_inpaint(const ProviderConfig& p) {
+    switch (p.kind) {
+        case ProviderKind::OpenAICompatible:
+        case ProviderKind::Fake: return true;
+        case ProviderKind::AssetCommand: {
+            auto has = [&](const char* token) {
+                return std::any_of(p.argv.begin(), p.argv.end(), [&](const std::string& a) { return a.find(token) != std::string::npos; });
+            };
+            return has("{input}") && has("{mask}");
+        }
+        default: return false;
+    }
+}
+
 std::string asset_default_model(const ProviderConfig& provider, MediaKind kind) {
     switch (provider.kind) {
         case ProviderKind::OpenAICompatible: return kind == MediaKind::Image ? "gpt-image-1" : kind == MediaKind::Voice ? "gpt-4o-mini-tts" : "";

@@ -55,11 +55,17 @@
 #include "ai_chat.h"
 #include "ai_runs.h"
 #include "ai_usage.h"
+#include "anim3d_ui.h"
 #include "anim_ui.h"
 #include "editor_tools.h"
 #include "export_job.h"
 #include "feedback_share_ui.h"
 #include "gizmo_model.h"
+#include "image_ui.h"
+#include "vector_ui.h"
+#include "sound_ui.h"
+#include "modeler_ui.h"
+#include "music_ui.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
 #include "inspector_model.h"
@@ -328,6 +334,175 @@ public:
     bool anim_recording() const { return anim_.recording && showAnimation_; }
     AnimUi anim_;
     bool lastEditRecorded_ = false;  // the last edit_command wrote a clip key instead of a field
+    // Animation panel, 3D mode (anim3d_panel.cpp; the "3D bone clips" button of the Animation panel, or a double click on a 3D *.anim.json in the Project
+    // panel): a factoria.anim3d/1 clip of a rigged model as a dopesheet, a viewport that shows the skinned model posed by the playhead, a bone list, the
+    // bone tools (a rotation gizmo, IK handles, mirror pose) and the generators. The rules are in anim3d_model.h: every edit is the anim3d.* / ik3d.key
+    // call an AI would make, and its undo is an entry of the editor's stack (`{"$clip3d": {path, clip}}`: the arguments of anim3d.restore).
+    bool draw_animation_mode_row();                         // the 2D | 3D switch; true when the 3D mode is on
+    void anim3d_prepare_window();                           // before Begin: the first time the 3D mode shows, the panel leaves its dock and grows
+    void draw_animation_panel_3d();
+    void draw_anim3d_sheets();                              // the filmstrip and the weights picture, in their own window
+    void anim3d_toolbar();
+    void anim3d_bone_list();
+    void anim3d_viewport();
+    void anim3d_dopesheet();
+    void anim3d_inspector();
+    void anim3d_scan_lists();
+    Anim3DModel& anim3d_ensure_model();
+    bool open_anim3d_clip(const std::string& rel, const std::string& rig = {});   // false and a toast when it does not load
+    void anim3d_commit(const Anim3DEdit& edit);             // the undo entry of an edit, a toast for an error
+    void anim3d_apply_undo(const Json& entry, bool forward);
+    void anim3d_release_textures();
+    void anim3d_load_sheet(Anim3DUi::Sheet& sheet, const std::string& what, const Json& result);
+    void anim3d_show_filmstrip();
+    void anim3d_show_weights();
+    double anim3d_snap(double t) const;
+    Vec2 anim3d_time_point(double t) const;                 // the ruler at time t (the autotest scrubs by it)
+    Anim3DUi anim3d_;
+    // Image panel (image_panel.cpp, image_canvas.cpp; View > Image, or a double click on a *.image.json in the Project panel): the layered
+    // image document as a canvas with brushes, selections and a transform, a layer list with an inspector, adjustments and effects, a
+    // palette bar and a frame strip. The rules are in image_model.h: every edit it keeps is an image.* command, so the Console and the
+    // AI make the same calls, and its undo steps are entries of the same stack as the scene's (`{"$image": {"step": id}}`).
+    ImageModel& image_ensure_model();                      // makes the panel's model on first use
+    void draw_image_panel();
+    void draw_image_toolbar(ImageModel& m);
+    void draw_image_tools(ImageModel& m);
+    void draw_image_options(ImageModel& m);
+    void draw_image_canvas(ImageModel& m, ImVec2 size);
+    void draw_image_palette(ImageModel& m);
+    void draw_image_frames(ImageModel& m);
+    void draw_image_side(ImageModel& m);
+    void draw_image_terrain(ImageModel& m);                // terrain paint preview of a tileset document (image_canvas.cpp)
+    void draw_image_layers(ImageModel& m);
+    void draw_image_provider(ImageModel& m);               // Inpaint selection... / Generate layer... (image_provider_panel.cpp)
+    void image_provider_refresh();
+    void image_provider_start(ImageModel& m);
+    void image_provider_poll(ImageModel& m);
+    void draw_image_layer_inspector(ImageModel& m);
+    void draw_image_operations(ImageModel& m, const ImageLayer& layer, bool effect);
+    void image_canvas_input(ImageModel& m, bool hovered, bool editable);
+    void image_draw_selection(ImageModel& m, ImDrawList* dl);
+    void image_draw_transform(ImageModel& m, ImDrawList* dl, bool editable);
+    void image_update_textures(ImageModel& m);
+    void image_fit();
+    ImVec2 image_to_screen(float x, float y) const;
+    ImVec2 image_from_screen(ImVec2 p) const;
+    bool open_image_document(const std::string& rel);     // opens (or switches to) the document in the panel; false and a toast on failure
+    void image_edited(const ImageEditOutcome& out);       // after an edit: the undo entry, the Project panel, a toast for an error
+    void image_apply_undo(const Json& entry, bool forward);
+    void image_collect_steps();                           // drops the undo steps no stack entry points to
+    void image_close_document();
+    void image_release_textures();
+    void image_save();
+    Vec2 image_screen_pos(float x, float y) const { auto p = image_to_screen(x, y); return Vec2{p.x, p.y}; }   // the autotest drives the canvas
+    ImageUi image_;
+    bool showImage_ = false;
+    // Vector panel (vector_panel.cpp, vector_canvas.cpp; View > Vector, or a double click on a *.svg in the Project panel): an SVG as a
+    // canvas with a pen, node editing, shape tools and boolean buttons, a layer list (the groups and elements of the SVG) and an
+    // inspector. The rules are in vector_model.h: every edit it keeps is a vector.* command, so the Console and an AI make the same
+    // edit, and each edit is ONE entry of the editor's undo stack. The svg layers of an image document open here too.
+    VectorModel& vector_ensure_model();                    // makes the panel's model on first use
+    void draw_vector_panel();
+    void draw_vector_toolbar(VectorModel& m);
+    void draw_vector_tools(VectorModel& m);
+    void draw_vector_actions(VectorModel& m);
+    void draw_vector_canvas(VectorModel& m, ImVec2 size);
+    void draw_vector_side(VectorModel& m);
+    void draw_vector_layers(VectorModel& m);
+    void draw_vector_inspector(VectorModel& m);
+    void draw_vector_shape_params(VectorModel& m, const VecItem& item);
+    void vector_canvas_input(VectorModel& m, bool hovered, bool editable);
+    void vector_draw_overlay(VectorModel& m, ImDrawList* dl);
+    void vector_update_texture(VectorModel& m);
+    void vector_fit();
+    ImVec2 vector_to_screen(VecPoint p) const;
+    VecPoint vector_from_screen(ImVec2 p) const;
+    bool open_vector_document(const std::string& rel);                              // a *.svg file; false and a toast on failure
+    bool open_vector_layer(const std::string& documentRel, const std::string& layer);   // an svg layer of an image document
+    void vector_edited(const VectorEditOutcome& out);     // after an edit: the undo entry, a toast for an error
+    void vector_apply_undo(const Json& entry, bool forward);
+    void vector_collect_steps();                          // drops the undo steps no stack entry points to
+    void vector_close_document();
+    void vector_release_textures();
+    void vector_save();
+    Vec2 vector_screen_pos(double x, double y) const { auto p = vector_to_screen(VecPoint{x, y}); return Vec2{p.x, p.y}; }   // the autotest drives the canvas
+    VectorUi vector_;
+    bool showVector_ = false;
+    // Sound panel (sound_panel.cpp; View > Sound, or a double click on a *.sfx.json, *.audio.json, .wav or .ogg in the Project panel): a sound
+    // patch, an audio document or a plain sound file as a waveform and spectrogram with measurements, macro knobs, an inspector, the step chain
+    // of a document with draggable loop points, variants and an A/B at the same loudness. The rules are in sound_model.h: every edit it keeps
+    // is a command call (sfx.tweak, sfx.edit, audio.edit, ...), so the Console and an AI make the same edit.
+    SoundModel& sound_ensure_model();                      // makes the panel's model and player on first use
+    void draw_sound_panel();
+    void draw_sound_toolbar(SoundModel& m);
+    void draw_sound_transport(SoundModel& m);
+    void draw_sound_wave(SoundModel& m);
+    void draw_sound_spectrogram(const SoundRender& r);
+    void draw_sound_measures(SoundModel& m);
+    void draw_sound_macros(SoundModel& m);
+    void draw_sound_fields(SoundModel& m, const std::string& pointer, bool top);
+    void draw_sound_json_field(SoundModel& m, const SoundField& f, float width);
+    void draw_sound_chain(SoundModel& m);
+    void draw_sound_step_fields(SoundModel& m, const SoundChainStep& s);
+    void draw_sound_ab(SoundModel& m);
+    void draw_sound_variants(SoundModel& m);
+    void draw_sound_presets(SoundModel& m);
+    void sound_play_clip(SoundRenderPtr clip, double gainDb, int heard, const std::string& name);
+    void sound_toggle_play();
+    void sound_play_slot(int which);                      // 1 = A, 2 = B
+    bool open_sound_document(const std::string& rel);     // *.sfx.json, *.audio.json, .wav, .ogg; false and a toast on failure
+    void sound_edited(const SoundEditOutcome& out);       // after an edit: the undo entry, a toast for an error
+    void sound_apply_undo(const Json& entry, bool forward);
+    void sound_collect_steps();                           // drops the undo steps no stack entry points to
+    void sound_close_document();
+    void sound_release_textures();
+    void sound_save();
+    Vec2 sound_screen_pos(double seconds, double yFraction) const;   // the autotest drives the waveform
+    SoundUi sound_;
+    bool showSound_ = false;
+    // Music panel (music_panel.cpp, music_mixer_panel.cpp; View > Music, or a double click on a *.song.json in the Project panel): a song as a
+    // piano roll, a drum grid, an arrangement and a mixer, played by the same transport a game's entity.music uses (an intensity slider fades
+    // the layers, a section can be looped). The rules are in music_model.h: every edit it keeps is a command call (music.edit, music.arpeggio,
+    // music.bassline, music.drums), so the Console and an AI make the same edit; Save bakes (music.render).
+    MusicModel& music_ensure_model();                      // makes the panel's model and preview on first use
+    void draw_music_panel();
+    void draw_music_toolbar(MusicModel& m);
+    void draw_music_transport(MusicModel& m);
+    void draw_music_roll(MusicModel& m);
+    void draw_music_drums(MusicModel& m);
+    void draw_music_arrangement(MusicModel& m);
+    void draw_music_mixer(MusicModel& m);
+    void music_play(int section, bool loop);               // -1: from the start of the song
+    void music_toggle_play();
+    bool open_music_document(const std::string& rel);      // *.song.json; false and a toast on failure
+    void music_edited(const MusicEditOutcome& out);        // after an edit: the undo entry, a toast for an error
+    void music_apply_undo(const Json& entry, bool forward);
+    void music_collect_steps();                            // drops the undo steps no stack entry points to
+    void music_close_document();
+    void music_save();
+    Vec2 music_screen_pos(std::int64_t tick, int pitch) const;                  // the autotest drives the piano roll
+    Vec2 music_drum_cell_pos(const std::string& lane, int step) const;          // ...and the drum grid
+    MusicUi music_;
+    bool showMusic_ = false;
+    // Model panel (modeler_panel.cpp; View > Model, or a double click on a *.model.json in the Project panel): a model document as its operation
+    // tree, the picked node's parameters as sliders and a live view of the mesh it evaluates to, with the picked part highlighted. The rules are
+    // in modeler_model.h: every edit it keeps is a model.edit call, so the Console and an AI make the same edit; Save bakes (model.bake).
+    ModelerModel& modeler_ensure_model();                   // makes the panel's model on first use
+    void draw_modeler_panel();
+    void draw_modeler_toolbar(ModelerModel& m);
+    void draw_modeler_tree(ModelerModel& m);
+    void draw_modeler_viewport(ModelerModel& m);
+    void draw_modeler_params(ModelerModel& m);
+    bool open_model_document(const std::string& rel);       // *.model.json; false and a toast on failure
+    void modeler_edited(const ModelerEditOutcome& out);     // after an edit: the undo entry, a toast for an error
+    void modeler_apply_undo(const Json& entry, bool forward);
+    void modeler_collect_steps();                           // drops the undo steps no stack entry points to
+    void modeler_close_document();
+    void modeler_release_textures();
+    void modeler_save();
+    Vec2 modeler_screen_pos(float fx, float fy) const;      // the autotest drives the viewport: a point as fractions of the picture
+    ModelerUi modeler_;
+    bool showModeler_ = false;
     // Bone tools (bone_tools.cpp; View > Bone tools): draw a bone chain by clicking, bind a sprite to bones, the weight colours of
     // the selected bone and a brush to paint them, IK targets as handles. They call bones.create, skin.bind, skin.auto_weights,
     // skin.set_weights and scene.set_component through edit_command.
@@ -934,6 +1109,11 @@ public:
     };
     std::deque<AtStep> atSteps_;
     int atStepAt_ = 0;
+    // A step aims at a widget that is drawn but scrolled out of its window (a small screen): at_widget names it here, at_track
+    // scrolls its window to it, and the step runs again once it is shown. A second miss on the same widget is a failure.
+    bool atInStep_ = false;
+    bool atStepRetry_ = false;
+    std::string atScrollTo_;
     std::vector<std::function<void()>> atPostFrame_;       // run once after the UI was drawn (swapchain read-back)
     Image atShotBefore_;
     std::uint64_t atAudioAfter_ = 0;
@@ -993,6 +1173,17 @@ extern Editor* g_editor;
 inline ImVec2 fit_work_area(ImVec2 wanted) {
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     return ImVec2(std::min(wanted.x, vp->WorkSize.x * 0.96f), std::min(wanted.y, vp->WorkSize.y * 0.96f));
+}
+// The first place of a large panel that floats the first time it opens (Image, Sound, Music, Modeler): `pos` (from the
+// work area's corner) and `wanted`, the size made to fit the work area and the place moved up and left so the whole
+// window is on screen, its right-hand inspector included, on a small display (the macOS CI runner's is 1024 x 642).
+inline void first_floating_window(ImVec2 pos, ImVec2 wanted) {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const ImVec2 size = fit_work_area(wanted);
+    const float x = std::max(0.0f, std::min(pos.x, vp->WorkSize.x - size.x));
+    const float y = std::max(0.0f, std::min(pos.y, vp->WorkSize.y - size.y));
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + x, vp->WorkPos.y + y), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(size, ImGuiCond_FirstUseEver);
 }
 // Status colours of the Export and Platform settings windows.
 inline const ImVec4 kStatusReady(0.5f, 0.9f, 0.55f, 1), kStatusFailed(1, 0.45f, 0.4f, 1), kStatusWarn(1, 0.8f, 0.35f, 1);

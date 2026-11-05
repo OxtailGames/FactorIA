@@ -282,3 +282,116 @@ describe("shockwave (a sheet made with assets.animate_svg, played by clip name)"
     fx.destroy();
   });
 });
+
+// The adaptive score (docs/MUSIC.md "Playing a song in a game"): the "score" entity's MusicPlayer plays assets/music/score.song.json and
+// scripts/game.js drives it. On the null device the mixer moves exactly the time the game clock gives it, so these steps are exact.
+describe("adaptive score", () => {
+  const music = () => game.find("score").music;
+  const crowd = (n) => {
+    for (let i = 0; i < n; i++) world.spawnPrefab("prefabs/chaser.prefab.json", { position: vec3(520 - 30 * i, 250, 0) });
+  };
+
+  // Keeps the wave going with nothing on the field: one enemy still to spawn that never spawns.
+  const hold = (m) => {
+    clearEnemies();
+    m.pending = ["chaser"];
+    m.spawnTimer = 9999;
+  };
+
+  test("the song plays from the first frame, in its calm section, with only the base layer", () => {
+    loadGame();
+    mgr().timer = 999;
+    game.step(30);
+    const s = music().status;
+    expect(s.error).toBe("");
+    expect(s.playing).toBe(true);
+    expect(s.section).toBe("calm");
+    expect(s.sections).toEqual(["intro", "calm", "battle", "outro"]);
+    expect(s.stemGains.length).toBe(3);
+    expect(s.stemGains[0]).toBeGreaterThan(0.9); // pad and bass
+    expect(s.stemGains[1]).toBeLessThan(0.1);    // drums
+    expect(s.stemGains[2]).toBeLessThan(0.1);    // arpeggio
+  });
+
+  test("the intensity follows the danger: more on the field, more of the song; it drops when the wave is cleared", () => {
+    loadGame();
+    const m = mgr();
+    player().behaviour.invuln = 9999; // the crowd must not kill the player while the music is measured
+    m.timer = 0;
+    game.step(2);
+    expect(m.state).toBe("fighting");
+    hold(m);
+    crowd(2);
+    game.step(40); // the layers follow on the next beat (0.45 s)
+    const few = music().status.intensity;
+    expect(few).toBeGreaterThan(0.3);
+    expect(few).toBeLessThan(0.65); // the drums are in, the arpeggio is not
+    game.step(120);
+    expect(music().status.stemGains[1]).toBeGreaterThan(0.9);
+    expect(music().status.stemGains[2]).toBeLessThan(0.1);
+
+    crowd(12);
+    game.step(2);
+    expect(music().intensity).toBeGreaterThan(0.65); // what the script asked for, at once (status.intensity is the one the layers follow, a beat later)
+    game.step(38);
+    expect(music().status.intensity).toBeGreaterThan(0.65);
+    expect(music().status.intensity).toBeGreaterThan(few);
+    game.step(120);
+    expect(music().status.stemGains[2]).toBeGreaterThan(0.9); // the whole song
+
+    m.pending = [];
+    clearEnemies();
+    m.timer = 9999; // no next wave while the music is measured
+    game.step(40);
+    expect(m.state).toBe("intermission");
+    expect(music().status.intensity).toBeLessThan(0.1);
+    game.step(150);
+    expect(music().status.stemGains[1]).toBeLessThan(0.1);
+    expect(music().status.stemGains[2]).toBeLessThan(0.1);
+  });
+
+  test("a wave changes the section to battle on the bar line and the clear brings calm back", () => {
+    loadGame();
+    const m = mgr();
+    player().behaviour.invuln = 9999;
+    game.step(30);
+    expect(music().status.section).toBe("calm");
+    m.timer = 0;
+    game.step(2);
+    hold(m);
+    crowd(2);
+    game.step(160); // a bar of 4/4 at 132 bpm is 1.8 s
+    expect(music().status.section).toBe("battle");
+    m.pending = [];
+    clearEnemies();
+    m.timer = 9999;
+    game.step(160);
+    expect(m.state).toBe("intermission");
+    expect(music().status.section).toBe("calm");
+  });
+
+  test("a wave and a hit are stingers over the music", () => {
+    loadGame();
+    const m = mgr();
+    const kinds = [];
+    const off = music().on("stinger", (d) => kinds.push(d.kind));
+    m.timer = 0;
+    game.step(60); // the wave horn lands on the next beat (0.45 s)
+    expect(kinds).toEqual(["clip"]);
+    player().behaviour.hurt(1); // emits player_hit
+    game.step(10);
+    expect(kinds.length).toBe(2);
+    off();
+  });
+
+  test("dying fades the score out", () => {
+    loadGame();
+    mgr().timer = 999;
+    game.step(30);
+    expect(music().status.playing).toBe(true);
+    player().behaviour.hp = 0;
+    game.step(2);
+    expect(mgr().state).toBe("over");
+    expect(music().status.playing).toBe(false);
+  });
+});

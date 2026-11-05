@@ -16,6 +16,7 @@
 #include "fa/core/strings.h"
 #include "fa/tooling/ai_disclosure.h"
 #include "fa/tooling/palette.h"
+#include "fa/tooling/style_guide.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -129,30 +130,19 @@ void require_free(const std::string& path, bool overwrite) {
 
 // ---- Style ------------------------------------------------------------------------------------------------------------
 
-// assets.json "style": the house style that keeps generated images consistent.
-struct Style {
-    std::string prompt;
-    std::vector<std::string> references;
-    std::optional<Palette> palette;
-};
+// assets.json "style": the house style that keeps generated images consistent. The parser is the shared one of the tools
+// (fa/tooling/style_guide.h), which also reads the measurable rules that assets.check_art and project.validate check.
+using Style = StyleGuide;
 
 Style load_style() {
-    Style s;
-    const Json manifest = assets::manifest();
-    const Json* style = child(manifest, "style");
-    if (!style || !style->is_object()) return s;
-    s.prompt = str(*style, "prompt");
-    s.references = string_list(*style, "references");
-    if (const Json* spec = child(*style, "palette")) {
-        auto palette = load_palette(*spec);
-        if (!palette) {
-            throw CommandError("invalid_style", "assets.json style.palette: " + palette.error().message,
-                               (palette.error().hint.empty() ? "" : palette.error().hint + " ") +
-                                   "Pass style:false to skip the house style for this call.");
-        }
-        s.palette = std::move(*palette);
+    StyleParse parsed = load_style_guide();
+    if (!parsed.problems.empty()) {
+        const StyleProblem& p = parsed.problems.front();
+        std::string more = parsed.problems.size() > 1 ? std::format(" ({} more problems in style; project.validate lists them.)", parsed.problems.size() - 1) : "";
+        throw CommandError("invalid_style", std::format("assets.json {}: {}{}", p.pointer.empty() ? "/style" : p.pointer, p.message, more),
+                           (p.hint.empty() ? "" : p.hint + " ") + "Pass style:false to skip the house style for this call.");
     }
-    return s;
+    return std::move(parsed.guide);
 }
 
 // The reference paths as project-relative normalized paths, each once.
@@ -670,5 +660,24 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
         "AI_CONTENT_DISCLOSURE.md. Example: {}",
         Json::parse(R"({"type":"object","properties":{},"additionalProperties":false})"), true, disclosure);
 }
+
+namespace asset_support {
+
+ProjectScope::ProjectScope(const std::string& dir) : previous(fs::project_root()), changed(std::filesystem::path(dir) != previous) {
+    if (changed) fs::set_project_root(dir);
+}
+ProjectScope::~ProjectScope() {
+    if (changed) fs::set_project_root(previous);
+}
+StyleGuide load_house_style() { return load_style(); }
+std::vector<ReferenceImage> load_reference_images(const std::vector<std::string>& paths) { return load_references(paths); }
+std::vector<std::string> normalized_unique_paths(const std::vector<std::string>& raw) { return unique_paths(raw); }
+Json image_provenance(const Json& args, const ProviderConfig& provider, const AssetResult& made, const std::string& prompt,
+                      const std::vector<std::string>& references, const std::string& notes) {
+    return generated_provenance(args, provider, made, MediaKind::Image, prompt, references, notes);
+}
+void record_provenance(const std::string& path, const Json& provenance) { record(path, provenance); }
+
+}  // namespace asset_support
 
 }  // namespace fa::ai

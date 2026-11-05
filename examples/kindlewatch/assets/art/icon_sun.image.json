@@ -1,0 +1,135 @@
+{
+  "format": "factoria.image/1",
+  "width": 16,
+  "height": 16,
+  "description": "Dawn marker: a small sun at the end of the night bar.",
+  "palette": [
+    {
+      "name": "ink",
+      "color": "#0d1020"
+    },
+    {
+      "name": "navy",
+      "color": "#1b2340"
+    },
+    {
+      "name": "slate",
+      "color": "#2d3a5e"
+    },
+    {
+      "name": "steel",
+      "color": "#46628a"
+    },
+    {
+      "name": "sky",
+      "color": "#7d9fc0"
+    },
+    {
+      "name": "dkgreen",
+      "color": "#1c2e1f"
+    },
+    {
+      "name": "green",
+      "color": "#2f5230"
+    },
+    {
+      "name": "grass",
+      "color": "#5a8a3c"
+    },
+    {
+      "name": "lime",
+      "color": "#9bbf5a"
+    },
+    {
+      "name": "dkbrown",
+      "color": "#4a2c1c"
+    },
+    {
+      "name": "brown",
+      "color": "#7a4a28"
+    },
+    {
+      "name": "tan",
+      "color": "#b27a45"
+    },
+    {
+      "name": "warm",
+      "color": "#e8b060"
+    },
+    {
+      "name": "orange",
+      "color": "#d9501c"
+    },
+    {
+      "name": "yellow",
+      "color": "#f2a230"
+    },
+    {
+      "name": "core",
+      "color": "#fbe8a0"
+    },
+    {
+      "name": "bone",
+      "color": "#e8e4d8"
+    },
+    {
+      "name": "dkred",
+      "color": "#8a2a2a"
+    },
+    {
+      "name": "pink",
+      "color": "#d96060"
+    }
+  ],
+  "ramps": [
+    [
+      "dkgreen",
+      "green",
+      "grass",
+      "lime"
+    ],
+    [
+      "dkbrown",
+      "brown",
+      "tan",
+      "warm"
+    ],
+    [
+      "ink",
+      "navy",
+      "slate",
+      "steel",
+      "sky"
+    ],
+    [
+      "dkred",
+      "orange",
+      "yellow",
+      "core"
+    ]
+  ],
+  "layers": [
+    {
+      "kind": "indexed",
+      "name": "sun",
+      "rows": [
+        ".......ee.......",
+        ".....00ee00.....",
+        "....0dddddd0....",
+        "...0deeeeeed0...",
+        "..0deeeeeeeed0..",
+        ".0deeeffffeeed0.",
+        ".0deeffffffeed0.",
+        "eedeeffffffeedee",
+        "eedeeffffffeedee",
+        ".0deeffffffeed0.",
+        ".0deeeffffeeed0.",
+        "..0deeeeeeeed0..",
+        "...0deeeeeed0...",
+        "....0dddddd0....",
+        ".....00ee00.....",
+        ".......ee......."
+      ]
+    }
+  ]
+}

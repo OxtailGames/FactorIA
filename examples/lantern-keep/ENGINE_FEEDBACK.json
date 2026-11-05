@@ -1226,6 +1226,31 @@
         "Fixed in 7b57f09 (M24.16): `Panel.uniformSize` gives every autoSize Button, Toggle and Slider inside the panel the size of the largest one, width and height separately, on every layout; widgets without autoSize keep their size. Lantern Keep's level select sets it on select_worlds and drops its label measure."
       ],
       "engineIssue": "#113"
+    },
+    {
+      "id": "FB-0048",
+      "date": "2026-11-03",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-m53p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "assets",
+      "severity": "nice-to-have",
+      "title": "image.create cannot name the PNG the document bakes to",
+      "missing": "The document format has an `output` field, but image.create has no `output` argument, so a document made to replace an existing PNG (enemy.png, spikes.png) has to be created next to it as assets/enemy.image.json; a project that keeps its sources under assets/src cannot do it in one call.",
+      "workaround": "The two pixel-art documents sit next to their PNGs, as in gem-roller.",
+      "workaroundFiles": [
+        "assets/enemy.image.json",
+        "assets/spikes.image.json"
+      ],
+      "suggestion": "Accept `output` in image.create.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open",
+      "notes": [
+        "2026-11-03: found while redrawing enemy.png and spikes.png as pixel-art documents with image.draw and image.pixel."
+      ]
     }
   ]
 }

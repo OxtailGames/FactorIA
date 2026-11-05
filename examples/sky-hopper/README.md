@@ -1,8 +1,9 @@
 # Sky Hopper
 
 A FactorIA 2D platformer: run, jump (variable height, coyote time, jump buffering), collect coins, stomp
-crawlers, reach the flag. Two hand-made levels, then a generated one, then a win screen. Placeholder sprites and
-sounds in `assets/`.
+crawlers, reach the flag. Two hand-made levels, then a generated one, then a win screen. The coin and the flag are vector art drawn
+with the `vector.*` commands (the Vector panel's commands, `assets/src/svg/props`); the other sprites and the sounds are
+placeholders in `assets/`.
 
 ```bash
 factoria validate

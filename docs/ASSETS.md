@@ -10,7 +10,11 @@ call (MCP tool, `factoria call`, editor console):
 4. **Make** them offline, with no provider and no key: `assets.generate_texture` (materials), `assets.rasterize_svg`
    (pictures written as SVG), `assets.animate_svg` (animations written as code, baked into a sprite sheet),
    `assets.bake_sheet` (an entity the engine draws, baked into a sprite sheet), `assets.synth_sound`,
-   `assets.generate_loop`, `assets.draw_icon`.
+   `assets.generate_loop`, `assets.draw_icon`. Pictures made of layers (a gradient, a texture, an SVG, text and a
+   provider's picture, with blend modes and masks) are written as a `*.image.json` document and baked to a PNG:
+   [IMAGES.md](IMAGES.md).
+   A 3D model (primitives, groups and transforms, with named parts and materials) is written as a `*.model.json`
+   document and baked to a `.glb`: [MODELING.md](MODELING.md).
 
 Whatever the way, `assets.json` at the project root records where each asset came from (provenance) and how the engine
 and `factoria export` treat it (import settings).
@@ -39,7 +43,7 @@ The file is optional; the assets.* commands create and update it. Schema: `schem
 - `assets` is keyed by the project-relative path. An entry has `import` (settings that override `defaults`),
   `provenance`, `sheet` (sprite-sheet layout) and `analysis` (measurements the tools cache; do not edit).
 - `defaults` holds import settings per kind (`texture`, `audio`); each setting is listed below with its default.
-- `style` is the house style of generated images.
+- `style` is the house style: how images are generated and the rules art is measured against (see "House style").
 - Exports ship the import settings and leave `provenance` and `style` at home.
 
 ## Generating assets
@@ -85,13 +89,23 @@ a warning), `overwrite` and `author` (the credit in the provenance; default `fac
 
 ### House style
 
-Consistent art comes from saying the same things every time, so assets.json keeps them in `style`:
+Consistent art comes from saying the same things every time, so assets.json keeps them in `style`. The first three
+settings steer the generation of images; the others are rules that `assets.check_art` and `factoria validate` measure
+(M51):
 
 ```json
 "style": {
   "prompt": "16-bit pixel art, black outline, flat colours",
   "references": ["assets/style/hero.png"],
-  "palette": ["#1a1c2c", "#5d275d", "#b13e53", "#ef7d57"]
+  "palette": ["#1a1c2c", "#5d275d", "#b13e53", "#ef7d57"],
+  "outline": {"color": "#1a1c2c", "width": 1},
+  "lightDirection": "upper-left",
+  "texelsPerUnit": 16,
+  "pixelArt": true,
+  "value": {"min": 0.1, "max": 0.95},
+  "saturation": {"min": 0.3, "max": 0.9},
+  "audio": {"loudnessLufs": {"music": -18, "sfx": -14, "ui": -20}, "toleranceLu": 3},
+  "ignore": ["assets/ui/", "assets/fx/spark.png"]
 }
 ```
 
@@ -103,8 +117,42 @@ Consistent art comes from saying the same things every time, so assets.json keep
 - `palette` locks the colours: after the picture is resized, every pixel takes the nearest colour of the palette (alpha is
   kept). It is a list of colours (`"#rrggbb"`, or a colour name), or the path of an image whose distinct colours are the
   palette (at most 256; more is an error that is raised before the provider is called). This is the right tool for pixel
-  art and a poor one for painted art.
-- `style: false` in a call skips all three for that call.
+  art and a poor one for painted art. It is also a rule: the share of pixels that are far from every palette colour.
+- `style: false` in a call skips the prompt, the references and the palette lock for that call.
+- `vector.style` applies `outline` and `palette` to an SVG you wrote (a stroke on every filled shape, colours snapped to the palette):
+  [VECTOR.md](VECTOR.md).
+- `outline` is `{"color", "width"}`: the colour of the line around a sprite's silhouette and its thickness in texture
+  pixels (default 1, 0.5 to 64). `color` is required.
+- `lightDirection` is where the light comes from, as a name (`right`, `upper-right`, `top`, `upper-left`, `left`,
+  `lower-left`, `bottom`, `lower-right`; also `top-left`, `up`, `down` and so on) or as degrees **towards the light, counter-clockwise from the right**: 0 is right, 90 is
+  top, 135 is upper-left, 180 is left, 270 is bottom. A name that is not one is an error with the closest name.
+- `texelsPerUnit` is how many texture pixels a world unit holds (0.01 to 4096): a 16 x 16 sprite drawn 1 x 1 units
+  large has 16. It is read from the scenes (Sprite size, the scale of the entity and its parents, a sheet frame or a
+  region), so it only judges textures a Sprite draws.
+- `pixelArt` is `true` when the art is pixel art: no soft edges (partly transparent pixels), few colours, and a palette
+  that is matched strictly.
+- `value` and `saturation` are `{"min", "max"}` in 0 to 1 (either end may be left out; min must not be above max).
+  `value` is the HSV brightness of the darkest and the lightest pixels (the 1st and the 99th percentile of the visible
+  pixels, so a stray pixel does not count); `saturation` is the mean HSV saturation of the visible pixels.
+- `audio` is `{"loudnessLufs": {"<bus>": <LUFS>}, "toleranceLu"}`: the integrated loudness each mixer bus aims at (-70
+  to 0) and how far a sound may be from it (0.5 to 24 LU, default 3); a bus named `default` covers the buses not listed.
+  `assets.check_mix` is the reader that compares sounds with it.
+- `ignore` is a list of project-relative files, and folders (end the path with `/`), that the style rules skip: UI,
+  effects and art that is meant to differ. `assets.check_art` still measures them; it just does not judge them against
+  the style rules, and `factoria validate` stays silent about them.
+
+Only the rules you write are checked: a style without `outline` never complains about outlines. A mistake in `style` is
+an error that names the JSON pointer and the fix (`/style/outline/width: style.outline.width is 90, outside 0.5 to 64`,
+an unknown key comes with the closest known one). Every reader (the generation commands, `assets.check_art`,
+`factoria validate`) parses `style` with the same code (`load_style_guide`, fa/tooling/style_guide.h), so they always agree.
+
+`factoria validate` adds a warning for each rule that a texture drawn by a `Sprite` **clearly** breaks (the `fail` verdict
+of `assets.check_art`, below), for example `assets/hero.png: Breaks the style rule 'texelsPerUnit' (assets.json style): The scenes
+draw this texture at 32 texture pixels per world unit ...`. The warning names the rule and the numbers, and the hint names
+the fix and `style.ignore`. A `warn` verdict is only in `assets.check_art`, so validate never nags about borderline
+art. A rule that cannot be judged for a picture is skipped: no silhouette (an opaque tile), no clear light (a flat picture),
+no scene drawing the texture (`texelsPerUnit`). The measurements of a picture do not depend on the style and are cached by the SHA-256 of the file in
+`.factoria/art-cache/` (ignored by git; deleting it is safe), so validating a project measures each picture once.
 
 ### Sprite sheets
 
@@ -150,6 +198,51 @@ A `.ogg` path writes Ogg Vorbis (`quality` 0 to 1). Set `loop` on the `AudioSour
 is the engine's own (no ffmpeg or oggenc needed): Vorbis I, long blocks only, mono or stereo, deterministic. The Ogg is much smaller than
 the 16-bit WAV; the encoder is simple and not tuned for high-quality music.
 
+### Hear what you made: assets.spectrogram and assets.check_mix
+
+An AI cannot listen, so two read-only commands turn a sound into something it can look at and check. Both decode the sound
+themselves (no external program), are deterministic, and reuse the sound's fresh `analysis` record for its integrated
+loudness (they never write `assets.json`; run `assets.analyze_audio` once to keep the records).
+
+`assets.spectrogram {"path": "assets/sfx/jump.wav"}` returns a picture like `assets.preview_sheet` does (a temporary
+screenshot; `out` keeps the PNG at a project path; `width` 400 to 2400, `height` 280 to 1600). Top: the waveform (the mid
+channel, or one lane per channel with `channels: "each"`), where red columns are samples at full scale. Middle: the
+spectrogram, a short-time Fourier transform of the mid channel on a logarithmic axis from 20 Hz to 20 kHz, brighter =
+louder, with the dB scale on the right (the range is in the result). Bottom: the loudness curve, momentary (400 ms, blue)
+and short-term (3 s, orange), the integrated value dashed and the loudest momentary value marked. A sound the project plays
+looping (an `AudioSource` with `loop`, `SceneSettings.music`, `audio.music`, `audio.play(path, {loop: true})`, or `loop: true`
+in the call) gets the loop seam marked with magenta dashed lines and its numbers in the title. The result has
+`integratedLufs`, `truePeakDb`, `samplePeakDb`, `momentaryMaxLufs`, `shortTermMaxLufs`, `clippedSamples`, `dominantBand`
+(the loudest octave band) and `loopSeam`.
+
+`assets.check_mix {}` measures every sound of the project together (the set `assets.analyze_audio` uses without `path`),
+or `paths`, as the player hears them: with the gain import `normalize` applies. Every finding is
+`{sound, rule, value, threshold, unit, verdict (ok | warn | fail), message, hint, bus?, detail?}`; the findings that pass
+are left out unless `includeOk: true`. The result also has a `summary`, one row of numbers per sound and `nextSteps`.
+
+| Rule | What it measures | warn / fail |
+|---|---|---|
+| `loudness_target` | Loudness as played against the target of the sound's bus. | beyond the tolerance / twice it |
+| `loudness_spread` | With no target: distance from the median of the sounds of the same bus. | beyond 6 LU / 12 LU |
+| `music_masking` | The octave bands where an effect has its main energy (within 6 dB of its loudest band) against the loudest music in those bands. `value` is how far the effect is over the music in its loudest band. | music as loud or louder in that band, or in half the main bands / music 6 dB louder |
+| `click_start`, `click_end` | The first / last sample, or a jump of the first / last step far above the sound's usual step (dBFS). Not for looping sounds. | above -40 dBFS / above -26 dBFS |
+| `loop_seam_jump`, `loop_seam_slope` | For looping sounds: the step from the last sample to the first, and the change of slope across it, as multiples of the sound's usual step and curvature. | 5 / 10, and 8 / 16 |
+| `clipping` | Samples at full scale in runs of two or more (a flattened wave), counted. | any / 32 or 1 in 2000 |
+| `true_peak` | The peak between samples (4 times oversampled), as played. | above -1 dBTP / above 0 |
+
+Where the bus comes from: an `AudioSource` plays on `sfx`; `SceneSettings.music` and `audio.music("path")` in a script
+play on `music` (looping); `audio.play("path", {bus, loop})` with a literal path plays on its `bus` (default `sfx`); a bus of
+`factoria.json` `audio.buses` counts as the bus it is under. A sound that none of them names with a literal path is on the
+"unknown bus": play it in one of those ways, so the check can place it. It is not told apart from music by its name or length.
+Masking compares the long-term level of each octave band (31 Hz to 16 kHz) of the effect, over the part that is not
+silent, with that of the music, both as played; it does not know the volumes a script gives the voices.
+
+Loudness targets, in the order they are looked for: the `targets` argument (`{"music": -16, "sfx": {"lufs": -14,
+"toleranceLu": 2}, "default": -16}`; a number uses a tolerance of 3 LU), then `style.audio.loudnessLufs` (one per
+bus, `default` for the rest) and `style.audio.toleranceLu` in `assets.json`, then the spread rule. The hints are concrete: a `targetLufs` to
+set under the sound's `import`, a fade length in samples, `assets.generate_loop` for a seamless loop, ducking the music
+bus for a masked effect, a level to cut for a true peak.
+
 ### Sound effects without a provider or a kit: assets.synth_sound
 
 Free CC0 kits (for example Kenney's audio packs) have impacts, interface sounds and jingles, brought in with
@@ -168,6 +261,11 @@ assets.synth_sound {"path":"assets/audio/dog_bark.wav","preset":"bark","seed":3}
 `overwrite` replaces an existing file. The provenance in `assets.json` is origin `original`, `ai` false, license CC0, with
 the preset and the seed. These are synthesizer sounds: fine for a game's feedback, not a replacement for recorded or
 composed audio.
+
+Each preset is a sound patch (`*.sfx.json`, docs/SOUND.md) that ships in the engine: `sfx.preset {"name":"bark"}` returns it,
+`sfx.preset {"name":"bark","path":"assets/audio/bark.sfx.json"}` writes it, and `sfx.render {"path":"assets/audio/bark.sfx.json"}`
+renders your edited version (layers, envelopes, pitch sweeps, filters, FM, effects), with the loudness numbers and a spectrogram.
+Use `assets.synth_sound` for a preset as it is, and a patch when you want to design the sound.
 
 ### Materials without a provider: assets.generate_texture
 
@@ -217,6 +315,9 @@ an anti-aliased PNG at `path` on the CPU (nanosvg, vendored in `external/nanosvg
 assets.rasterize_svg {"path":"assets/art/crest.png","width":256,"svg":"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='M50 6 L90 22 V52 C90 76 70 90 50 96 C30 90 10 76 10 52 V22 Z' fill='#8b1e1e' stroke='#e8c66a' stroke-width='4'/><circle cx='50' cy='48' r='14' fill='#e8c66a'/></svg>"}
 ```
 
+- **Editing it afterwards.** The `vector.*` commands edit the SVG file (or an svg layer of an image document) instead of making you
+  rewrite it: path booleans, offset and inset, stroke to outline, simplify and smooth, align, distribute, repeat and the
+  `style` of `assets.json` (see "House style": outline width and colour, palette snapping), each returning a preview picture ([VECTOR.md](VECTOR.md)).
 - **Size.** The SVG is fitted inside `width` x `height`, aspect kept and centred; with only one of them the other follows
   the SVG's proportions; with neither, the size the SVG declares. Up to 4096. `background` puts it over a colour
   (transparent by default).
@@ -383,6 +484,139 @@ centre of its ink moves by more than 30% of the frame) and a looping clip whose 
 The result also has `frames` (for each shown frame: `empty` and the `bbox` of its ink in frame pixels) and `nextSteps`.
 The Project panel plays the same clips (see [EDITOR.md](EDITOR.md)).
 
+### Judging a set of assets: assets.contact_sheet
+
+`assets.contact_sheet {"paths":["assets/hero.png","assets/slime.png"],"sizes":[32,64]}` draws the pictures side by side at the
+size the player sees them, over a light background, a dark one and the clear colour of the first primary camera of the main
+scene, plus a last row in greyscale (`greyscale: false` leaves it out). Each column is labelled with the file name and its size
+in the font that comes with the engine. It is the way to see what disappears: an outline that vanishes when small, a shape that
+merges with one background, two sprites with the same value in greyscale. The result is a picture returned as `$image` (like
+`assets.preview_sheet`); nothing is written unless you pass `path`, and an existing file is then not replaced without
+`overwrite: true`. The same inputs give the same picture (CPU only, except models).
+
+- `sizes` are pixels of the longest side as the player sees it (Sprite.size on screen times the render scale); each picture is
+  drawn once per size, shrunk with averaging or grown with hard pixels. Without `sizes` a picture is drawn at its native size
+  (at most 512).
+- `backgrounds` (1 to 6 colours, such as `"#3a7d44"`) replaces the default rows; the camera colour is then not added.
+- `columns` (default 8) sets the cells per line; the picture grows downwards and is capped at 2048 pixels (a warning says so).
+  More than 160 cells is an error.
+- A PNG, JPG, BMP or TGA is drawn as it is. A sprite sheet (a `sheet` entry in assets.json) shows its first frame, or every
+  frame with `allFrames: true`.
+- A `.glb` is drawn as a thumbnail by the renderer (studio light, turned three quarters, transparent around it). That needs a
+  graphics device: without one the command fails with `no_gpu`, and you can leave the models out. A model in the real scene,
+  with its lighting, is `assets.preview_in_scene`.
+
+The result has `warnings`, `nextSteps` (they name `assets.preview_in_scene`, `game.screenshot` and `assets.preview_sheet`) and
+`backgrounds`, `rows`, `cells`, `picture` (width, height, scale) and `written` (with `path`).
+
+### A new asset in a real scene: assets.preview_in_scene
+
+`assets.preview_in_scene {"path":"assets/hero.png","scene":"scenes/level1.scene.json","at":[0,0]}` places a PNG as a `Sprite`
+(or a `.glb` as a `MeshRenderer`) in a copy of the scene running in a second, headless engine, and returns screenshots at phone
+(540x1170) and desktop (1280x720) resolutions, as one picture with the screens side by side and labelled (the MCP result
+carries a single image). `resolutions` takes `"phone"`, `"tablet"` (1024x768), `"desktop"` or `"WxH"`, up to four. The scene
+file is never changed and no temporary entity is left: the asset exists only in that second engine. It needs a renderer; headless
+without a graphics device it fails with `no_gpu` and says to use `assets.contact_sheet` or `game.screenshot`.
+
+- Position: `at` ([x, y] or [x, y, z]) or `entity` (an entity of the scene). With `entity`, `placement: "beside"` (default)
+  puts the asset to the right of it (the gap is a rough estimate from the entity's `Sprite` or `Shape2D` size, else 64 units)
+  and `"replace"` puts it at the entity's position with that entity hidden in the picture. `offset` ([x, y]) moves it from there.
+  With neither, it goes to the middle of the view.
+- `size`: for a sprite a number (longest side) or [width, height] in world units, default its size in pixels; for a model its
+  largest dimension in meters, default its own size.
+- `steps` (default 2) is how many frames the scene runs before the asset is placed, so scripts and spawners have started.
+- `center: true` (2D scenes) moves the camera onto the asset so it is in view at every resolution; a camera script can move it
+  back. Without it an asset outside the view is a warning that says where it would land.
+- The size of the screens comes from the resolution you ask for, not from the project's design resolution.
+
+The result has `asset`, `scene`, `screens`, `sceneFileChanged: false`, `warnings` and `nextSteps`.
+### Checking art: assets.check_art
+
+`assets.check_art {"path":"assets/hero.png"}` (or `{"paths":[...]}`, up to 12 pictures, checked one by one and as a set) looks
+at a picture the way the game shows it and returns a temporary annotated picture (`$image`) plus numbers. It reads the
+project and writes only the temporary picture (and the cache `.factoria/art-cache/`), and it is deterministic. Every rule in the
+result has a `value`, a `threshold` (the limit of `ok`), usually a `failThreshold` (the limit of `warn`), a `verdict` (`ok`,
+`warn` or `fail`), a `message` with the numbers of this picture and, unless `ok`, a `hint` that names a real command or setting.
+The asset's verdict, the result's and the `counts` are the worst of their rules.
+
+Arguments:
+
+- `backgrounds`: what the picture is drawn over, a list of colours (`"#203040"`, a name, `[r, g, b]`) and project image
+  paths (an image stands for its dark, middle and light parts). Without it: the clear colour and the large background sprites (covering at
+  least half of the view, on a lower layer) of the scenes that draw the picture, else a light and a dark default.
+  `assets[].backgrounds.source` says which: `explicit`, `scenes` or `default`.
+- `onScreenPx`: the longer side of the sprite on screen, in screen pixels (a number or up to 4). Without it the size comes from
+  the scenes (Sprite size, the scale of the entity and its parents, the camera's `orthoSize`) on two reference screens: a phone, 844 x 390
+  points, and a desktop monitor, 1920 x 1080 (turned for a `portrait` project), with the design resolution of
+  `factoria.json` `display` fitted inside (`fit`). A picture no scene draws is not judged for readability (a `note` says so).
+- `style: false`: skip the rules of `style` (below).
+
+The rules (default thresholds; `style` rules override only what they set):
+
+| Rule | What it measures | ok | warn |
+|---|---|---|---|
+| `contrast` | per background: the WCAG contrast ratio of the silhouette edge pixels (over the background) | at least 3:1 | at least 1.5:1 |
+| `readability.size` | per screen: the longer side of the sprite on screen | 16 px or more | 8 px or more |
+| `readability.silhouette` | share of the silhouette still there after shrinking to the on-screen size | 85% | 60% |
+| `readability.edge` | thickness of the outline line on screen (only when the picture has one) | 0.7 px | 0.4 px |
+| `fringe.partial` | share of the partly transparent edge pixels that are darker or lighter than every opaque pixel they touch | at most 10% | at most 30% |
+| `fringe.bleed` | share of the transparent pixels next to the shape that hold a far colour, for a picture drawn with a smooth filter | at most 20% (warn above) | |
+| `outline.color` | share of the edge pixels near the colour of `style.outline` (RGB distance up to 48) | 80% | 50% |
+| `outline.width` | median thickness of the outline against `style.outline.width` | within 1 px | within 2 px |
+| `value.min`, `value.max` | the darkest and the lightest pixels against `style.value` | inside, or up to 0.05 beyond | up to 0.15 beyond |
+| `saturation.min`, `saturation.max` | mean saturation against `style.saturation` | inside, or up to 0.05 beyond | up to 0.15 beyond |
+| `lightDirection` | which way the shading gets brighter against `style.lightDirection` | within 45 degrees | within 90 degrees |
+| `pixelArt.edges` | share of partly transparent pixels (`style.pixelArt`) | at most 1% | at most 5% |
+| `pixelArt.colours` | distinct colours (`style.pixelArt`) | at most 64 | at most 256 |
+| `palette.offShare` | share of pixels farther than 40 (2 for pixel art) from every colour of `style.palette` | at most 20% (0.1% pixel art) | at most 50% (2%) |
+| `texelsPerUnit` | texture pixels per world unit, median of the scenes' uses, against `style.texelsPerUnit` | within 15% | within 35% |
+
+Anything beyond the `warn` limit is `fail`. Style rules need the rule to be set in `style` (and `style.ignore` removes the
+file); a rule the picture cannot answer is left out of the result (no silhouette, a light with no clear lean,
+`texelsPerUnit` of a texture no scene draws). `fringe.bleed` does not mean the file is wrong:
+a picture with black transparent pixels is normal, and it only shows as a dark line when the sprite is drawn with the smooth filter (set
+`Sprite.pixelArt` true for pixel art). The edge pixels of a picture are those with alpha of at least 128 next to a pixel under 128. A sprite
+sheet is measured in its cells, so the light does not mix frames.
+
+With `paths` the result also has `set.rules`: `set.density` (the pixel density of the scenes' uses differs by more than 15%
+between two pictures, warn above 50%), `set.pixelSize` (pixel art drawn with different pixel sizes), `set.outlineColour` and
+`set.outlineWidth` (pictures with an outline that differ: the colour by more than 48, warn; the thickness by 1 px), and `set.paletteSpread` (the share of
+pixels with a colour that no other picture has, within 24: ok up to 60%, warn up to 90%). Set rules are `warn` at most
+(except density and the spread, which can be `fail`).
+
+The picture has one row per asset, with numbered tiles listed in `assets[].tiles`: the picture on a checkerboard, its value
+(greyscale on grey: is the shape readable without colour?), the picture over each background, and the picture at each
+on-screen size (shrunk, then magnified by whole steps so you see what a player sees). The result has `assets[]` (`palette`
+with the commonest colours, `measure`, `backgrounds`, `onScreen`, `scenes`, `rules`, `tiles`, `notes`), `set`, `style` (whether
+rules were applied, and any `problems` found in `style`), `picture` and `nextSteps`. The rules are the very ones
+`factoria validate` uses for the style, so a fix that clears one clears the other.
+
+sky-hopper adopts it as the example: its `assets.json` `style` sets `texelsPerUnit` 1, `saturation` 0.3 to 0.9 and `ignore`s the two sheets that are baked at twice the size (`assets/crawler_sheet.png`,
+`assets/parts_atlas.png`). Its art was not repainted, and `factoria validate` is clean.
+
+### Reviewing art: assets.review
+
+`assets.review {"path":"assets/hero.png","focus":"does the outline match the references?"}` (or `{"paths":[...]}`, up to 4 pictures
+as a set) is the optional last look of the loop *make, preview, check, fix*: one call to a vision model, made by the AI that is
+building the game (the user-only art critics of `ai.review` are a different, costlier thing). It is **grounded**: it first runs
+`assets.check_art` on the same pictures, then sends the model the check's numbers (every rule with value, threshold, verdict and
+hint), the `style` of `assets.json` as written, the `style.references` images (the first 3 that exist), the pictures (a file over
+1 MB is shrunk to 1024 px on its long side) and the annotated picture of the check. The model is asked what numbers cannot say:
+does it match the references and the style, does it read at its on-screen size, does it suit its use, are there artifacts.
+
+Result: `verdict` (`good`, `fix` or `redo`; never `good` while the check has a `fail`), `summary`, `fixes` (each `{what, where,
+command}`: the problem and the change, the picture and the part of it, and the command or `assets.json` setting to use), `checkArt`
+(the check's verdict, counts, per-asset measures and rules), `role`, `provider`, `model`, `warnings` (a style reference that could
+not be sent, a fix that names a command this engine does not have, a `good` overruled by the check) and `nextSteps`. It writes
+nothing to the project.
+
+It needs a model that accepts pictures. It uses the "fast" role of `ai.json` (the orchestrator when fast is off), because it is a
+cheap one-shot question and the "artist" role is usually an image generator, not a viewer. API providers get the pictures as image
+blocks (Anthropic) or `image_url` data URLs (OpenAI-compatible: OpenAI, Gemini, Ollama...); a CLI agent gets them inline or as
+files in its empty work folder; a provider that only makes assets is refused. With no provider, no key or a text-only model it fails
+with `no_model` or `review_failed` and a hint, and the loop goes on with `assets.check_art` alone. Call it once the check shows no
+`fail`, not after every edit: each call is a paid request.
+
 ### The game icon without a provider: assets.draw_icon
 
 A game made without an image provider still gets a real icon. `assets.draw_icon` draws one from a short description,
@@ -446,7 +680,9 @@ factoria call assets.draw_capsules '{"keyArt":"store/keyart.png","focus":[0.5,0.
 ## Recipes: make an asset again
 
 The offline makers (`assets.rasterize_svg`, `assets.draw_icon`, `assets.draw_capsules`, `assets.generate_texture`,
-`assets.synth_sound`, `assets.generate_loop`, `assets.pack_atlas` and `assets.slice_sheet`) write a `recipe` inside the
+`assets.synth_sound`, `assets.generate_loop`, `music.preview`, `music.render`, `assets.pack_atlas`, `assets.slice_sheet` and `image.bake`, which draws a
+layered `*.image.json`, see [IMAGES.md](IMAGES.md), and `model.bake`, which builds a `*.model.json` into a `.glb`, see
+[MODELING.md](MODELING.md)) write a `recipe` inside the
 asset's `provenance`:
 
 ```json
@@ -459,6 +695,10 @@ asset's `provenance`:
 `args` are the arguments that give the same bytes again: paths normalised and relative to the project, the seed written out
 even when you left it at its default, a font named as the engine resolved it. `inputs` are the project files the command
 read, each with the sha256 it had. Files that are only given inline (`svg` text, a built-in font) are inside `args`.
+A recipe may also carry `context`: a setting that is not a file but changes the bytes. `music.preview` and `music.render` write
+`context.styleMusicLufs` (the style guide's music loudness, or null) when the song's master loudness follows the style, and the asset is
+stale when `style.audio.loudnessLufs.music` changes. `music.render` makes a group (the whole song and its stems) with one recipe; regenerating any
+of them renders the group once (docs/MUSIC.md, "Rendering a song for a game").
 
 - `assets.regenerate {"path": "assets/art/coin.png"}` runs the recipe again through the command registry with
   `overwrite: true` and reports per file `pixels changed`, `bytes changed (same pixels)`, `unchanged` or `created`, the
@@ -627,6 +867,7 @@ entry's `import` (one sound); the entry wins:
 | `stream` | `auto`, `always`, `never` | `auto` | Decode the sound a little at a time while it plays instead of whole when it loads. |
 | `normalize` | `true`, `false` | `false` | Play the sound at `targetLufs` so tracks and effects from different sources are equally loud. |
 | `targetLufs` | -60 to 0 | `-16` | The loudness `normalize` aims at (integrated LUFS). Music and voice: -16. Effects: -18 to -12. |
+| `loopStart`, `loopEnd` | seconds, 0 or more; `loopEnd` after `loopStart` | none | Where a looping sound wraps: from `loopEnd` playback jumps back to `loopStart`, so what comes before `loopStart` plays once. Without them the whole sound loops. A sound with loop points is decoded whole, never streamed. The `loop` step of an audio document writes them (docs/SOUND.md, "Audio documents"). |
 | `convert` | `none`, `qoa` | `none` | Export setting: ship WAV files as QOA (about 5 times smaller, cheap to decode). |
 
 ```json
@@ -689,7 +930,11 @@ the page it came from as `sourceUrl` so the credits keep it. The websites the AI
 ```
 assets.import {"source":"C:/art/hero.aseprite","license":"CC-BY 4.0","author":"Ana Lopez"}
 assets.import {"source":"C:/art/crate.obj","path":"assets/models/crate/","license":"CC0"}
+assets.import {"source":"C:/music/tune.mid","license":"CC0"}
 ```
+
+A `.mid` or `.midi` becomes a song document (`assets/music/tune.song.json`), not a copy of the file: `music.import_midi` has the same import with its options
+(`quantize`, `soundfont`) and docs/MUSIC.md, "MIDI", has the rules.
 
 | Argument | Meaning |
 |---|---|
@@ -698,7 +943,7 @@ assets.import {"source":"C:/art/crate.obj","path":"assets/models/crate/","licens
 | `license`, `author` | Recorded in the provenance. Pass them for anything you did not make: the credits and the store disclosures read `assets.json`. |
 | `sourceUrl` | The page the file came from. It replaces the local path in `provenance.source`. |
 | `ai` | `true` when an AI made it. Left out when you do not know. |
-| `columns` | Aseprite only: frames per row of the sheet. |
+| `columns` | Aseprite only: cells per row of the sheet. |
 | `overwrite` | Replace files that already exist. Without it an existing file is an error that says so. |
 
 The result lists the files written, the provenance recorded, importer details, warnings (what could not be carried over)
@@ -711,8 +956,8 @@ and next steps with the component settings to use. Each written file gets an `as
 | `.wav` `.ogg` `.mp3` | Copied into `assets/audio/`. |
 | `.ttf` `.otf` | Copied into `assets/fonts/`. A game that shows Chinese, Japanese, Korean or Arabic ships such a font (see [TEXT.md](TEXT.md)). |
 | `.glb` `.gltf` | Copied into `assets/models/`, with the `.bin` buffers and images its `uri`s point at (the `.glb` carries its own data; only external files count), keeping their relative paths next to the model (`Textures/colormap.png` lands in `assets/models/Textures/`). Each copied file gets a provenance record. A missing buffer is an error, a missing image a warning. A file with the same name that is already there and identical is shared; a DIFFERENT image is kept, and the result warns (kits often ship different `colormap.png` files under one name), while a DIFFERENT buffer is an `exists` error (a model cannot load another one's geometry): import each kit into its own folder with `path` (`"assets/models/town/"`) or pass `overwrite`. `factoria validate` reports a model whose texture or buffer is missing. |
-| `.aseprite` `.ase` | A PNG sprite sheet plus its `sheet` entry (see below). |
-| `.psd` | A PNG of the merged image. |
+| `.aseprite` `.ase` | An image document (`<name>.image.json`) with the file's layers, cels, frames and tags, a cel PNG per layer and frame in `<name>.layers/`, and the sprite sheet baked from it with its `sheet` clips; `flat: true` makes only the PNG sheet (see Aseprite below). |
+| `.psd` | A layered image document (`<name>.image.json`) with one PNG per layer in `<name>.layers/`, and the PNG baked from it (see PSD below). A file whose layers cannot be read imports its merged image as a PNG. |
 | `.obj` (+ `.mtl`, textures) | A `.gltf` with its data embedded, plus the textures next to it. |
 | `.fbx` | A `.glb`, converted by FBX2glTF or Blender (see below). |
 | `.mpg` `.mpeg` | Copied into `assets/video/` after the engine opened it (it must be MPEG-1 video; the size, length and frame rate are in `details`). |
@@ -727,11 +972,25 @@ Models do not have to be files: a script can build a mesh at run time with `mesh
 
 ### Aseprite
 
-Every frame is drawn with its visible layers (layer and cel opacity, linked cels, RGBA, grayscale and indexed color with
-the palette and the transparent index) and laid out in a grid, left to right and top to bottom. By default the grid is
-`ceil(sqrt(frames))` columns wide; `columns` changes it. The `sheet` entry in `assets.json` records
-`columns, rows, frameWidth, frameHeight, frames` and one clip per Aseprite tag (`name, firstFrame, lastFrame, fps, loop`).
-A clip's `fps` is the average of its frames' durations (`1000 * frames / milliseconds`, two decimals).
+The file becomes an **image document** ([IMAGES.md](IMAGES.md), "Frames and tags"): `<name>.image.json` with the layers
+(visibility, opacity, blend mode: normal, multiply, screen, overlay, darken, lighten, color dodge, color burn, hard light,
+soft light, difference, exclusion, hue, saturation, color, luminosity, add and subtract), the cels of every frame (a linked cel is
+a `link`, a layer that does not change needs no cel), the frame durations and the tags with their direction and repeat count.
+Each cel's picture is `<name>.layers/<layer>-<frame>.png`; groups are flattened into their layers. An indexed file keeps its
+palette (an indexed document) when it has at most 81 distinct opaque colours; otherwise its layers are pixels layers and the
+result says why. The sprite sheet is then BAKED from the document like any other image document: the frames in a grid, left to
+right and top to bottom, `ceil(sqrt(cells))` columns wide by default (`columns` changes it), and the `sheet` entry in `assets.json`
+records `columns, rows, frameWidth, frameHeight, frames` and one clip per tag (`name, firstFrame, lastFrame, fps, loop`).
+A clip's `fps` is `1000 * frames / milliseconds` (the same for every frame when their durations match). A tag that plays in
+reverse or ping-pong, repeats, or has frames of different durations gets extra cells at the end of the sheet that spell its
+order out, so the clip plays as the file says with no `SpriteAnimator.mode`; `repeat: N` makes the clip non-looping. A file with
+one frame and no tags is a document that bakes a plain PNG.
+
+You then edit the animation with `image.pixel`, `image.draw`, `image.edit` and `image.paint` (`frame`) and `image.frame.*` /
+`image.tag.*`; the PNG and its clips follow (and a change of the document makes the PNG stale, like any baked picture).
+`flat: true` keeps the earlier import: one PNG sheet with the frames in order (no extra cells, no document); there a reverse or
+ping-pong tag is a forward clip (set `SpriteAnimator.mode` to play it that way), a repeat count is ignored, and blend modes are
+drawn as normal.
 
 To play a clip, use the next steps of the result:
 
@@ -742,15 +1001,29 @@ To play a clip, use the next steps of the result:
 
 Leave the Sprite's `region` and `size` empty: SpriteAnimator sets the region, and the frame size is the sprite size.
 
-What is not carried over, with a warning each time: tags that play in reverse or ping-pong (the clip plays forward,
-because the sheet keeps no direction; set `SpriteAnimator.mode` to `reverse` or `pingpong`), layers with a blend mode other than normal (drawn as normal) and tilemap
-layers. Slices and user data are ignored. A damaged file is an error that names what is wrong ("frame 3 is cut short").
+What is not carried over, with a warning each time: layers with the divide blend mode (drawn as normal), blend modes of a group, tilemap
+layers, reference layers and layers with no pixels in any frame (left out), a tag that plays ping-pong in reverse (a document tag
+plays ping-pong forward), and the z-index of cels. Slices and user data are ignored. A damaged file is an error that names
+what is wrong ("frame 3 is cut short").
+With `flat: true` the sheet has no extra cells: tags that play in reverse or ping-pong are forward clips, a repeat count is
+ignored and blend modes other than normal are drawn as normal; each says so.
 
 ### PSD
 
-The merged image saved in the file (8 and 16 bit RGB) becomes a PNG, with a warning that the layers were
-flattened. If it cannot be read the error says how to save it again (Maximize PSD Compatibility) or to export a PNG.
-Export layers one by one from Photoshop (File > Export > Layers to Files) when you need them separately.
+A PSD (8 or 16 bit, RGB or grayscale) imports as a **layered image document** ([IMAGES.md](IMAGES.md)): `assets/<name>.image.json`
+with every layer as a `pixels` layer, one PNG per layer in `assets/<name>.layers/`, and `assets/<name>.png` baked from the document
+(the path `assets.import` reports is that PNG, as before). Kept: layer names (the unicode name), position, opacity, visibility,
+clipping, groups (as `group` layers) and these blend modes: normal, multiply, screen, overlay, darken, lighten, color dodge,
+color burn, hard light, soft light, difference, exclusion, linear dodge (add), subtract, hue, saturation, color, luminosity. A layer
+mask is baked into the layer's alpha (a disabled mask is ignored). Warned about and approximated: other blend modes (linear burn,
+vivid and linear light...) and pass-through groups (image groups are isolated). Skipped with a warning: layers with no pixels
+(adjustment layers, empty layers). Layer styles, vector masks, smart-object filters and the fill opacity are not read.
+
+Edit the result with `image.layer.set`, `image.edit` and `image.paint`. If the layers cannot be read (a cut-short file, CMYK,
+indexed or 32 bit colour) the merged image saved in the file becomes the PNG, with a warning that says why the layers were flattened
+(for a damaged one: re-save it; for the mode: Image > Mode > RGB Color, 8 Bits/Channel). If that cannot be read either the error says
+how to save it again (Maximize PSD Compatibility) or to export a PNG. Importing again needs `overwrite`, which replaces the document,
+the layer PNGs and the PNG.
 
 ### OBJ
 
@@ -898,6 +1171,11 @@ with warnings still runs and exports):
   draws nothing. A flat one-color image is left alone (a placeholder rectangle).
 - **Recipes.** A made asset whose recipe inputs changed since it was made (stale), and a recipe whose input no longer exists
   (see "Recipes: make an asset again"); the hint holds the `assets.regenerate` call.
+- **Image documents.** A `*.image.json` that does not load is an error with the JSON pointer and the fix; one never baked, or
+  whose PNG `assets.json` does not record as its bake, is a warning with the `image.bake` call ([IMAGES.md](IMAGES.md)).
+- **Model documents.** A `*.model.json` that does not load is an error per issue, each with its JSON pointer and the fix;
+  one never baked, or whose `.glb` `assets.json` does not record as its bake, is a warning with the `model.bake` call
+  ([MODELING.md](MODELING.md)).
 - **Weight.** One shipped file over 20 MB, with a hint by kind (convert audio to OGG, compress a texture). The total of
   the shipped files against the limit of each store the game targets: Google Play's 500 MB for the base module of an app
   (`android`), and for `ios` 200 MB, above which an iPhone asks the player before downloading over cellular data, and 4 GB,
@@ -916,6 +1194,9 @@ with warnings still runs and exports):
 - **Atlas groups.** A texture in an `atlas` group used by a component that cannot draw from an atlas (a `Tilemap`
   tileset, a `MeshRenderer` texture): the exported game would show the whole atlas image there. Remove the texture from
   the group, or use a copy of it.
+- **House style.** When `assets.json` `style` sets a rule (see "House style"), a Sprite texture that clearly breaks it (the
+  `fail` verdict of `assets.check_art`): `Breaks the style rule '<rule>' ...`, with the numbers and the fix. Files in `style.ignore`
+  are skipped; rules that are not set are never checked.
 
 The shipped files are the ones the export includes ([EXPORTING.md](EXPORTING.md), "What is shipped").
 

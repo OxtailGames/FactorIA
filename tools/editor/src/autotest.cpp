@@ -106,6 +106,7 @@ void Editor::save_screenshot_now(const std::string& path) {
 }
 
 void Editor::inject_mouse(int type, Vec2 logicalPos, int button) {
+    if (atStepRetry_) return;  // this step aims at a widget still to scroll into view: it runs again once it is shown
     sapp_event ev{};
     ev.type = sapp_event_type(type);
     ev.mouse_x = logicalPos.x * dpi_;
@@ -121,7 +122,10 @@ static bool centre_shown(Vec2 c) {
     if (!ImGui::IsItemVisible()) return false;
     const ImGuiWindow* window = ImGui::GetCurrentWindow();
     if (window->PopupId == GImGui->LastItemData.ID) return true;  // an open BeginMenu(): the item is in the parent window
-    return window->ClipRect.Contains(ImVec2(c.x, c.y));
+    // A window larger than the display has a clip rectangle past its edge: the point must be on the display too.
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const ImRect display(vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y));
+    return window->ClipRect.Contains(ImVec2(c.x, c.y)) && display.Contains(ImVec2(c.x, c.y));
 }
 
 void Editor::at_track(const std::string& name, bool enabled) {
@@ -132,6 +136,9 @@ void Editor::at_track(const std::string& name, bool enabled) {
     atWidgetFrame_[name] = uiFrame_;
     atWidgetEnabled_[name] = enabled;
     atWidgetShown_[name] = centre_shown(centre);  // false when a scrolling area (or a collapsed section) hides it
+    // The script waits for this widget (at_widget): scroll its window (and the windows around it) until it is in view, as a
+    // person on a small screen would.
+    if (!atWidgetShown_[name] && name == atScrollTo_) ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleCenterX | ImGuiScrollFlags_KeepVisibleCenterY);
 }
 
 void Editor::at_track_at(const std::string& name, Vec2 centre, bool enabled) {
@@ -140,6 +147,9 @@ void Editor::at_track_at(const std::string& name, Vec2 centre, bool enabled) {
     atWidgetFrame_[name] = uiFrame_;
     atWidgetEnabled_[name] = enabled;
     atWidgetShown_[name] = centre_shown(centre);
+    if (!atWidgetShown_[name] && name == atScrollTo_)
+        ImGui::ScrollToRect(ImGui::GetCurrentWindow(), ImRect(centre.x - 1, centre.y - 1, centre.x + 1, centre.y + 1),
+                            ImGuiScrollFlags_KeepVisibleCenterX | ImGuiScrollFlags_KeepVisibleCenterY);
 }
 
 bool Editor::at_enabled(const std::string& name) const {
@@ -167,7 +177,12 @@ Vec2 Editor::at_widget(const std::string& name) {
         return kNowhere;
     }
     if (!at_shown(name)) {
-        at_check(false, "widget '" + name + "' is inside the visible part of its window (scroll it into view first)");
+        if (atInStep_ && atScrollTo_ != name) {  // drawn but scrolled out: scroll to it, then the step runs again
+            atScrollTo_ = name;
+            atStepRetry_ = true;
+            return kNowhere;
+        }
+        at_check(false, "widget '" + name + "' is inside the visible part of its window (scrolling its window did not bring it in)");
         return kNowhere;
     }
     return it->second;

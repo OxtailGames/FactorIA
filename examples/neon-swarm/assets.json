@@ -84,6 +84,162 @@
         },
         "source": "art/shockwave.anim.js"
       }
+    },
+    "assets/sfx/explode.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/sfx/explode.sfx.json, 0.50 s, seed 0",
+        "date": "2026-11-03",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/sfx/explode.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/sfx/explode.sfx.json",
+              "sha256": "c0ee6b33ab85e0dc97736e87f28bb6340dc2252b8c673bdff7e277e699232685"
+            }
+          ]
+        }
+      }
+    },
+    "assets/sfx/gameover.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/sfx/gameover.sfx.json, 0.90 s, seed 0",
+        "date": "2026-11-03",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/sfx/gameover.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/sfx/gameover.sfx.json",
+              "sha256": "39330ea11aa35b2618741f83af47402da7b2c08c35a606bcf5e4f0b1fa35a7d6"
+            }
+          ]
+        }
+      }
+    },
+    "assets/sfx/hit.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/sfx/hit.sfx.json, 0.10 s, seed 0",
+        "date": "2026-11-03",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/sfx/hit.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/sfx/hit.sfx.json",
+              "sha256": "81738680298784b105346a2d859ccca4931431a43e95103aa7f5519fc46fea86"
+            }
+          ]
+        }
+      }
+    },
+    "assets/sfx/hurt.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/sfx/hurt.sfx.json, 0.35 s, seed 0",
+        "date": "2026-11-03",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/sfx/hurt.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/sfx/hurt.sfx.json",
+              "sha256": "9be72c4ac2e57af2f174524e82c6f52aa1e35db65831d0271e9e70be3999e174"
+            }
+          ]
+        }
+      }
+    },
+    "assets/sfx/shoot.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/sfx/shoot.sfx.json, 0.12 s, seed 0",
+        "date": "2026-11-03",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/sfx/shoot.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/sfx/shoot.sfx.json",
+              "sha256": "2504c5b00c60fdf80340387d0faa2242cf7d6d1afa93d64ba41248d9b26cd837"
+            }
+          ]
+        }
+      }
+    },
+    "assets/sfx/wave.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria sfx.render",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "sound patch assets/sfx/wave.sfx.json, 0.45 s, seed 0",
+        "date": "2026-11-03",
+        "recipe": {
+          "command": "sfx.render",
+          "args": {
+            "path": "assets/sfx/wave.sfx.json",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/sfx/wave.sfx.json",
+              "sha256": "b3af558a28bb3b7b0c221c5b9af7172ffe4c3f15a67a8688b9900a83753b02ae"
+            }
+          ]
+        }
+      }
     }
   }
 }

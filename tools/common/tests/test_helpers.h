@@ -38,6 +38,16 @@ inline std::string read_all(const std::filesystem::path& p) {
     return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
+// A text file of the repository (docs/*.md) with "\r\n" read as "\n": git checks Markdown out with CRLF on Windows.
+inline std::string read_text(const std::filesystem::path& p) {
+    std::string text = read_all(p);
+    std::string out;
+    out.reserve(text.size());
+    for (char ch : text)
+        if (ch != '\r') out += ch;
+    return out;
+}
+
 inline void write_all(const std::filesystem::path& p, const std::string& s) {
     std::filesystem::create_directories(p.parent_path());
     std::ofstream(p, std::ios::binary) << s;

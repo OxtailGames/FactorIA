@@ -885,6 +885,20 @@ void register_builtin_components(TypeRegistry& r) {
         .field("solidTiles", &Tilemap::solidTiles,
                "List of plain tile indices (no flip flags) that block movement; static colliders are generated for them. A "
                "flipped or rotated copy of a solid tile is still solid. Empty = nothing collides.")
+        .field("terrains", &Tilemap::terrains,
+               "Autotile rules: an array of terrains that tilemap.paint_terrain (scripts: entity.tilemap.paintTerrain) paints, "
+               "choosing for every cell the edge, corner or inside tile that fits the cells around it. A terrain is "
+               "{\"name\": \"grass\", \"mode\": \"blob47\", \"first\": 0}. mode: \"basic16\" looks at the 4 neighbours "
+               "(16 tiles, slot = N*1 + E*2 + S*4 + W*8) and \"blob47\" at the 8 (47 tiles; a diagonal counts only when both "
+               "cells next to it are in the terrain; the slots are the 47 reduced masks N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128 "
+               "in ascending order, `factoria call image.tileset.info` prints them). The tiles come as \"first\": the tileset "
+               "index of slot 0, the rest follow; or \"tiles\": one entry per slot, each a tile index or an array of tile "
+               "indices that are variations of that look (one is picked from the cell's column, row and the terrain's \"seed\", "
+               "the same every time). A cell belongs to the terrain whose tiles contain its tile index, so two terrains cannot "
+               "share a tile. Optional: \"seed\" (integer, default 0), \"joins\" (names of terrains whose cells count as "
+               "neighbours, e.g. a path that meets the grass), \"outside\": \"terrain\" (the map edge counts as this terrain, "
+               "so no border is drawn there; default \"empty\"). image.tileset.build writes the terrain of a tileset it bakes; "
+               "tilemap.set_terrains sets them from a rules file. Empty = no rules.")
         .field("color", &Tilemap::color, "Tint multiplied with the tileset.")
         .field("layer", &Tilemap::layer, "Draw order. Defaults below sprites (-10).")
         .field("lit", &Tilemap::lit,
@@ -985,7 +999,14 @@ void register_builtin_components(TypeRegistry& r) {
                "`color` still multiplies the result, so `color` stays the tint of the whole model. Materials not named keep "
                "their own colour. Names come from the model (the sub-mesh keeps its material name from import); `factoria "
                "validate` checks them and suggests the right one for a typo. Ignored by built-in shapes. Entities that differ "
-               "only in materialColors are drawn in separate batches.");
+               "only in materialColors are drawn in separate batches.")
+        .field("lods", &MeshRenderer::lods,
+               "Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: "
+               "[{\"mesh\": \"assets/models/lamp.lod1.glb\", \"distance\": 12}, {\"mesh\": \"assets/models/lamp.lod2.glb\", \"distance\": 30}]. "
+               "From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; "
+               "farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a "
+               "model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is "
+               "ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show.");
 
     r.add<Light>("Light",
                  "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "
@@ -1016,11 +1037,13 @@ void register_builtin_components(TypeRegistry& r) {
                "at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported), "
                "or, for 2D clips, the fields rest where they were before the first clip drove them.")
         .field("clips", &Animator::clips,
-               "Keyframed 2D clips, an object name -> project-relative *.anim.json path, such as "
-               "{\"walk\": \"anim/hero_walk.anim.json\", \"idle\": \"anim/hero_idle.anim.json\"} (docs/ANIMATION.md, "
-               "\"2D clips\"). Used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a glTF): "
-               "`clip`, `states` and play() then name these. A clip animates fields of this entity and its descendants "
-               "(found by EntityInfo name); those fields are a runtime pose that scene.save does not write.")
+               "Clip files, an object name -> project-relative *.anim.json path, such as "
+               "{\"walk\": \"anim/hero_walk.anim.json\", \"idle\": \"anim/hero_idle.anim.json\"}. Two kinds (docs/ANIMATION.md). "
+               "2D clips (\"2D clips\") are used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a "
+               "glTF): they animate fields of this entity and its descendants (found by EntityInfo name), a runtime pose that "
+               "scene.save does not write. 3D bone clips (format factoria.anim3d/1, \"3D bone clips\") are used when the Animator "
+               "plays a skinned glTF (a rig.bake .glb): they pose its bones, and sit next to the model's own animations. "
+               "`clip`, `states` and play() name these either way.")
         .field("speed", &Animator::speed, "Playback speed multiplier: 1 = authored speed, 2 = twice as fast, 0 = frozen.").range(0, 100)
         .field("loop", &Animator::loop,
                "true = start over when the clip ends. false = stop on the last pose and send the `anim.finished` event.")
@@ -1055,6 +1078,45 @@ void register_builtin_components(TypeRegistry& r) {
                "state of `states`). Updated as transitions fire.")
         .field("time", &Animator::time, "Runtime state: seconds into the current clip. Assigning it seeks (no events fire).").runtime_only()
         .field("values", &Animator::values, "Runtime state: current value of every state machine parameter.").runtime_only();
+
+    r.add<IK3D>("IK3D",
+                "3D inverse kinematics on the skinned model of the Animator on the same entity (docs/ANIMATION.md, \"3D IK\"). Every "
+                "fixed step, after the Animator has posed the bones, the `solvers` adjust them and the model is drawn with the result: "
+                "a hand that reaches a lever (twoBone, with a pole vector for the elbow), a head that looks at something within limits "
+                "(lookAt), feet that stand on uneven ground with the pelvis lowered to fit (foot, one ray per foot through the physics "
+                "world). Solvers apply in order. The bones are found by the canonical names of rig.bake (docs/RIGGING.md). "
+                "Deterministic; the animated pose is never changed, the solvers start from it every step.",
+                "3D")
+        .field("enabled", &IK3D::enabled, "false: the animated pose is drawn untouched.")
+        .field("weight", &IK3D::weight,
+               "0 to 1. 0 = the animated pose, 1 = the solved pose; multiplies the weight of every solver. Fade it in while a hand "
+               "holds something, out when it lets go.").range(0, 1)
+        .field("solvers", &IK3D::solvers,
+               "An array of solvers, applied in order. Every solver has \"type\", an optional \"name\", \"weight\" (0..1, default 1) and "
+               "\"enabled\" (default true). A target is an entity id or name (\"player\"), a world position [x, y, z], or "
+               "{\"entity\": \"player\", \"offset\": [0, 1.6, 0]} (the offset in world units). "
+               "twoBone: {root, mid, end} bone names (or limb \"arm\"|\"leg\" with side \"l\"|\"r\"), target, optional pole (the "
+               "elbow or knee bends towards it). lookAt: {bone, target, forward (the bone's axis that looks: \"+z\" by default), "
+               "yawLimit (70), pitchLimit (45), turnSpeed (degrees per second, 360; 0 = snap)}. foot: {side \"l\"|\"r\" (or thigh, shin, "
+               "foot), footHeight (height of the ankle above the sole; default = its rest height), alignToGround (true), "
+               "maxFootAngle (30)}; all foot solvers act together on the lowest ground under them. Example: "
+               "[{\"type\": \"lookAt\", \"bone\": \"head\", \"target\": \"player\"}, {\"type\": \"foot\", \"side\": \"l\"}, "
+               "{\"type\": \"foot\", \"side\": \"r\"}]. Problems are logged once; `ik3d.check` lists all of them.")
+        .field("pelvis", &IK3D::pelvis,
+               "Foot placement: the bone moved vertically so the feet reach lower or higher ground ('root' = the hips of every "
+               "rig.bake template).")
+        .field("rayUp", &IK3D::rayUp, "Foot placement: world units above the animated ankle where the ground ray starts.").range(0, 100)
+        .field("rayDown", &IK3D::rayDown, "Foot placement: world units below the animated ankle the ray reaches. No hit = the foot is left as animated.").range(0, 100)
+        .field("groundMask", &IK3D::groundMask,
+               "Foot placement: bitmask of the physics layers the ray hits (-1 = all). The colliders of this entity are ignored.")
+        .field("pelvisSmooth", &IK3D::pelvisSmooth,
+               "Foot placement: seconds the feet and the pelvis take to settle on a new ground height, so a step does not pop (0 = at once).").range(0, 5)
+        .field("maxPelvisDrop", &IK3D::maxPelvisDrop, "Foot placement: the most the pelvis goes down, in model units. A leg that cannot reach stretches straight.").range(0, 10)
+        .field("maxPelvisRise", &IK3D::maxPelvisRise, "Foot placement: the most the pelvis goes up, in model units.").range(0, 10)
+        .field("status", &IK3D::status,
+               "Runtime state: one object per solver, {name, type, active, ...}: twoBone adds reached and error (distance of the end "
+               "to the target, model units), lookAt clamped, yaw and pitch (degrees turned), foot contact (0 in the air, 1 planted), "
+               "lift (ground offset, model units), reached and error. A solver with problem:true did not parse.").runtime_only().read_only();
 
     // ---------------------------------------------------------- Physics ---
     r.add<RigidBody2D>("RigidBody2D",
@@ -1426,6 +1488,8 @@ void register_builtin_components(TypeRegistry& r) {
                        "from a script to trigger it.",
                        "Audio")
         .asset_field("clip", &AudioSource::clip, "audio", "Project-relative path of the sound (.wav, .ogg, .mp3 or .qoa).")
+        .field("variants", &AudioSource::variants,
+               "Number of baked variants of `clip` (0 = just the clip). With 2 to 64 every play picks one of clip_01 ... clip_NN (\"assets/sfx/step.wav\" plays assets/sfx/step_03.wav; sfx.bake writes them for a sound patch with `variations`), at random but never the one that played last on this entity, and the same on every run with the same seed: it reads the world RNG without consuming it.").range(0, 64)
         .field("volume", &AudioSource::volume, "Loudness multiplier, 0 (silent) to 1 (full).").range(0, 1)
         .field("pitch", &AudioSource::pitch, "Playback speed multiplier; 2 = one octave higher and twice as fast.").range(0.05f, 8)
         .field("loop", &AudioSource::loop, "Restart the clip when it ends.")
@@ -1433,6 +1497,42 @@ void register_builtin_components(TypeRegistry& r) {
         .field("playing", &AudioSource::playing, "Runtime state: true while a voice is playing. Set true to play, false to stop.").runtime_only()
         .field("spatial", &AudioSource::spatial, "true = pan and attenuate relative to the AudioListener; false = plain stereo (music, UI).")
         .field("range", &AudioSource::range, "Spatial only: distance in world units where the volume reaches 0.").range(0, 1000000);
+
+    r.add<MusicPlayer>(
+          "MusicPlayer",
+          "Plays a song document (*.song.json, docs/MUSIC.md) as adaptive music. `intensity` (0..1) brings the song's layers in and out with "
+          "smooth fades; goToSection, stingers and crossfades to another song wait for the next beat, bar or section end (`quantize`); beats, "
+          "bars and sections reach scripts as events (music.beat, music.bar, music.section ...). `mode` picks how the song sounds: live "
+          "(rendered from the document when the player starts, the same bytes as music.preview) or stems (the files music.render wrote, for "
+          "phones). The musical clock is the mixer's sample count, so a headless run gives the same beats on every machine. Script API: "
+          "entity.music (docs/SCRIPTING.md); docs/MUSIC.md, \"Playing a song in a game\".",
+          "Audio")
+        .asset_field("song", &MusicPlayer::song, "music", "Project-relative path of the song document (*.song.json). Set it while playing to crossfade to the new song (crossfadeBars, quantize).")
+        .enum_field("mode", &MusicPlayer::mode, {"auto", "live", "stems"},
+                    "How the song is played. live: the mixer renders the song's layers from the document when the player starts (no extra files, costs a few seconds of CPU once and the memory of the PCM). "
+                    "stems: plays the stem files music.render wrote (assets.json import.music), which start at once and cost no synthesis; it falls back to live, with a warning, when they are missing. "
+                    "auto: stems on phones and tablets that are not high-tier, on any low-tier device and on the web, live elsewhere (docs/MUSIC.md).")
+        .field("volume", &MusicPlayer::volume, "Loudness of the player, 0 (silent) to 1 (full). Changes fade over 20 ms.").range(0, 1)
+        .field("bus", &MusicPlayer::bus, "Mixer bus the music is summed into: \"music\" (default), \"sfx\", \"ui\" or a bus of the project (factoria.json audio.buses). Its volume, effects and ducking apply.")
+        .field("intensity", &MusicPlayer::intensity, "0..1: how much of the song plays. Each layer of the song has a threshold (music.edit set_layers); a layer is silent below threshold - layerRange and full from its threshold. The first layer (threshold 0) always plays.").range(0, 1)
+        .field("playOnStart", &MusicPlayer::playOnStart, "Start playing when the entity spawns / the scene loads.")
+        .field("loop", &MusicPlayer::loop, "true: stay in the song's loop section (the loop sections, repeats included) until a section change or stop; a song without a loop section restarts at its end. false: play through the outro to the end, then music.ended.")
+        .field("startSection", &MusicPlayer::startSection, "Name of the section to start at (\"\" = the beginning of the song). An unknown name logs an error that lists the song's sections and starts at the beginning.")
+        .enum_field("quantize", &MusicPlayer::quantize, {"none", "beat", "bar", "section"},
+                    "When a section change, stinger or crossfade lands unless the call says otherwise. none: at once. beat: on the next beat (a dotted quarter in 6/8, 9/8, 12/8). bar: on the next bar line. section: when the current section pass ends (the loop wrap counts as the end of the loop).")
+        .enum_field("layerQuantize", &MusicPlayer::layerQuantize, {"none", "beat", "bar", "section"},
+                    "When a change of `intensity` starts its layer fades. none: at once.")
+        .field("layerFade", &MusicPlayer::layerFade, "Seconds a layer takes to fade in or out when intensity changes.").range(0, 30)
+        .field("layerRange", &MusicPlayer::layerRange, "How far below its threshold a layer starts to fade in (0.25: a layer with threshold 0.5 begins at 0.25 and is full at 0.5). 0 switches layers at their thresholds.").range(0, 1)
+        .field("transitionFade", &MusicPlayer::transitionFade, "Seconds of the equal-power crossfade between the old and the new position at a section jump.").range(0, 5)
+        .field("crossfadeBars", &MusicPlayer::crossfadeBars, "Length of the crossfade to another song, in bars of the outgoing song (so it follows its tempo).").range(0, 64)
+        .field("playing", &MusicPlayer::playing, "Runtime state: true while the song plays (or waits for its first section to land). Set true to play, false to stop.").runtime_only()
+        .field("ready", &MusicPlayer::ready, "Runtime state: the song is rendered or loaded. False while a live render is still working (play waits for it).").runtime_only()
+        .field("section", &MusicPlayer::section, "Runtime state: name of the section being played (\"\" when stopped).").runtime_only()
+        .field("bar", &MusicPlayer::bar, "Runtime state: bar of the song being played, 1-based (0 when stopped).").runtime_only()
+        .field("beat", &MusicPlayer::beat, "Runtime state: beat of the bar, 1-based (0 when stopped).").runtime_only()
+        .field("tempo", &MusicPlayer::tempo, "Runtime state: quarter notes per minute of the song being played (0 when stopped).").runtime_only()
+        .field("activeMode", &MusicPlayer::activeMode, "Runtime state: \"live\" or \"stems\", what `mode` resolved to for the song being played.").runtime_only();
 
     r.add<AudioListener>("AudioListener",
                          "The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the first camera drawn is used (the primary camera with the lowest depth: player one's in a split screen).",

@@ -365,3 +365,18 @@ TEST_CASE("pricing and cost estimates") {
     CHECK(estimate_cost(u, builtin_pricing("claude-haiku-5-5")) == doctest::Approx(0.1 + 0.05 + 0.01));
     CHECK(estimate_cost(u, builtin_pricing("gpt-whatever")) == 0.0);
 }
+
+TEST_CASE("anthropic request: pictures attached to the user message come first, the question after them") {
+    ChatRequest r = base_request("claude-sonnet-5-5", "low");
+    r.messages.clear();
+    r.messages.push_back(Message::user("Review this.", {{"image/png", "QUJD"}, {"image/jpeg", "REVG"}}));
+    Json body = anthropic::build_request(r);
+    const Json& c = body["messages"][0]["content"];
+    REQUIRE(c.size() == 3);
+    CHECK(c[0]["type"] == "image");
+    CHECK(c[0]["source"]["type"] == "base64");
+    CHECK(c[0]["source"]["media_type"] == "image/png");
+    CHECK(c[1]["source"]["media_type"] == "image/jpeg");
+    CHECK(c[2]["type"] == "text");
+    CHECK(c[2]["text"] == "Review this.");
+}

@@ -1,6 +1,7 @@
 // POSIX crash handler (Linux, macOS): see fa/core/crash.h. Android and iOS have no backtrace() here and keep their own
 // crash logs, so installing fails there.
 #include "crash_internal.h"
+#include "fa/core/crash.h"
 
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
@@ -15,9 +16,17 @@ bool platform_install(const std::filesystem::path&, std::string& error) {
 }
 }  // namespace fa::crash_detail
 
+namespace fa {
+void watch_thread_stack() {}
+std::string watched_thread_stack() { return "no stack: threads' stacks are not read on this platform (Android, iOS, the web)\n"; }
+std::string current_thread_stack() { return "no stack: stacks are not read on this platform (Android, iOS, the web)\n"; }
+void report_runtime_checks_without_dialogs() {}
+}  // namespace fa
+
 #else
 
 #include <execinfo.h>
+#include <pthread.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <time.h>
@@ -25,7 +34,11 @@ bool platform_install(const std::filesystem::path&, std::string& error) {
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
+#include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <thread>
 
 namespace fa::crash_detail {
 namespace {
@@ -181,5 +194,84 @@ bool platform_install(const std::filesystem::path& dir, std::string& error) {
 }
 
 }  // namespace fa::crash_detail
+
+// ---- the stack of a running thread (fa/core/crash.h: watch_thread_stack, watched_thread_stack, current_thread_stack) ----
+//
+// The watched thread is asked with a signal: its handler takes the backtrace on that thread (backtrace() walks only its
+// own thread) into static storage, and the caller names the frames afterwards.
+
+namespace fa {
+namespace {
+
+constexpr int kProbeSignal = SIGUSR2;
+
+pthread_t g_watched;
+std::atomic<bool> g_hasWatched{false};
+void* g_probeFrames[crash_detail::kMaxFrames];
+std::atomic<int> g_probeCount{-1};
+std::mutex g_probeMutex;  // one question at a time
+
+void on_probe(int) {
+    const int saved = errno;
+    g_probeCount.store(backtrace(g_probeFrames, crash_detail::kMaxFrames), std::memory_order_release);
+    errno = saved;
+}
+
+std::string name_frames(void* const* frames, int count) {
+    std::string out;
+    char** names = backtrace_symbols(frames, count);
+    for (int i = 0; i < count; ++i) {
+        out += "#" + std::to_string(i) + "  ";
+        out += names ? names[i] : "?";
+        out += '\n';
+    }
+    std::free(names);
+    return out;
+}
+
+}  // namespace
+
+void watch_thread_stack() {
+    static std::once_flag installed;
+    std::call_once(installed, [] {
+        void* warmUp[1];
+        backtrace(warmUp, 1);  // the first call may allocate (it loads the unwinder): now, not in the handler
+        struct sigaction action{};
+        action.sa_handler = on_probe;
+        sigemptyset(&action.sa_mask);
+        action.sa_flags = SA_RESTART;  // the watched thread's blocking calls go on after the handler
+        sigaction(kProbeSignal, &action, nullptr);  // kept installed: a late answer must never meet the default action
+    });
+    g_watched = pthread_self();
+    g_hasWatched.store(true, std::memory_order_release);
+}
+
+std::string watched_thread_stack() {
+    if (!g_hasWatched.load(std::memory_order_acquire))
+        return "no stack: no thread is watched (call fa::watch_thread_stack() on it first)\n";
+    if (pthread_equal(pthread_self(), g_watched)) return current_thread_stack();
+    std::lock_guard<std::mutex> lock(g_probeMutex);
+    g_probeCount.store(-1, std::memory_order_release);
+    if (pthread_kill(g_watched, kProbeSignal) != 0) return "no stack: the watched thread has ended\n";
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (g_probeCount.load(std::memory_order_acquire) < 0) {
+        if (std::chrono::steady_clock::now() > until)
+            return "no stack: the watched thread did not answer within 2 s (it blocks SIGUSR2, or is stopped in the kernel)\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    const int count = g_probeCount.load(std::memory_order_acquire);
+    // Not the handler itself (frame 0); the next frame is the signal trampoline, then the call the thread was in.
+    return count > 1 ? name_frames(g_probeFrames + 1, count - 1) : std::string("no stack\n");
+}
+
+std::string current_thread_stack() {
+    void* frames[crash_detail::kMaxFrames + 1];
+    const int count = backtrace(frames, crash_detail::kMaxFrames + 1);
+    return count > 1 ? name_frames(frames + 1, count - 1) : std::string("no stack\n");
+}
+
+void report_runtime_checks_without_dialogs() {}  // POSIX runtimes print a failed check and abort: no dialog to avoid
+
+}  // namespace fa
 
 #endif

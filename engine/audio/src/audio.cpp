@@ -5,6 +5,7 @@
 // allocation except when the recorder grows. Clips are decoded OUTSIDE the lock; a streamed clip is decoded inside it,
 // a few thousand frames at a time, into buffers its voice allocated when it started.
 #include "fa/audio/audio.h"
+#include "fa/audio/sfx.h"
 
 #include <algorithm>
 #include <atomic>
@@ -16,10 +17,12 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <thread>
 
 #include "audio_decoder.h"
 #include "bus_fx.h"
 #include "fa/audio/analysis.h"
+#include "fa/audio/music_transport.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
@@ -93,6 +96,9 @@ struct Clip {
     int srcChannels = 0;
     int srcRate = 0;
     float gain = 1.0f;         // loudness normalization (the `normalize` import setting)
+    // Loop points (the `loopStart` / `loopEnd` import settings, in seconds): a looping voice plays loopStart..loopEnd over and over
+    // after the first pass. In 44100 Hz frames; loopEnd 0 = no loop points (the whole clip loops).
+    std::size_t loopStart = 0, loopEnd = 0;
 };
 
 // A voice fed by the game instead of reading a clip: a video's sound (open_pcm_voice / push_pcm). Interleaved stereo float
@@ -122,6 +128,7 @@ struct Voice {
     bool notify = false;   // its end goes to Impl::ended (PlayParams::notifyEnd)
     std::string path;      // the clip (or the video file) it plays
     std::string source;    // the entity id of the AudioSource / Video that started it
+    long delay = 0;        // output frames of silence left before it sounds (PlayParams::delayFrames)
     bool dead = false;
     std::unique_ptr<Stream> stream;  // set for a streamed clip: `pos` then counts frames of the whole timeline
     std::unique_ptr<PcmFeed> pcm;    // set for a voice the game feeds (no clip)
@@ -144,6 +151,8 @@ struct EntityAudio {
     VoiceId voice = 0;
     bool started = false;
     std::uint64_t seen = 0;
+    int lastVariant = 0;       // AudioSource.variants: the variant played last (1-based), never picked twice in a row
+    std::uint32_t plays = 0;   // how many plays picked a variant: part of the pick's seed
 };
 
 // Import settings come from a file people edit: read them without assuming their types.
@@ -173,6 +182,56 @@ void write_le16(std::vector<std::uint8_t>& b, std::uint16_t v) {
 void write_le32(std::vector<std::uint8_t>& b, std::uint32_t v) {
     for (int i = 0; i < 4; ++i) b.push_back(std::uint8_t((v >> (8 * i)) & 0xff));
 }
+
+// ---- adaptive music (MusicPlayer components): the mixer's side of one player -------------------------------------------------------
+constexpr std::size_t kMusicCacheBytes = std::size_t(128) << 20;  // sources nobody plays are dropped above this
+
+// A song being rendered or read. A windowed player runs it on a worker thread; the null device (tests, headless) and the web run it
+// right in the call, so a headless run is deterministic and has the music from the frame it asked.
+struct MusicLoad {
+    std::string key, path, note;
+    MusicMode mode = MusicMode::Live;
+    MusicStemPlan plan;
+    std::thread worker;
+    std::atomic<bool> done{false};
+    std::shared_ptr<MusicSource> source;
+    std::string error;
+    void run() {
+        auto r = music_load_source(path, mode, plan, &note);
+        if (r) source = std::move(*r);
+        else error = r.error().to_string();
+        done = true;
+    }
+};
+
+struct MusicRt {
+    Entity e;
+    std::string id;
+    const World* world = nullptr;
+    std::unique_ptr<MusicTransport> tr = std::make_unique<MusicTransport>();
+    std::string song;                         // the song asked for (normalized path; "" = none)
+    std::shared_ptr<const MusicSource> src;   // its source (null while it loads, or when it failed)
+    std::shared_ptr<const MusicSource> sent;  // the source the transport was last given
+    std::string waitKey;                      // the load src is waiting for
+    std::string error;                        // why the song could not play
+    std::string busName = "music";
+    int bus = BusMusic;
+    float volume = -1.0f, intensity = -1.0f;
+    bool loop = true, playing = false, stopIssued = false, first = true;
+    float layerFade = -1.0f, layerRange = -1.0f;
+    struct Entry {                            // how the source that arrives enters the transport
+        bool set = false, hard = false;
+        std::string section;
+        std::optional<MusicQuantize> quantize;
+        float bars = -1.0f;
+        bool lenient = false;                 // a reload or a device change: a section the new source lacks starts it at the beginning
+    } entry;
+    std::uint64_t seen = 0;
+    bool announcedReady = false;
+    bool reload = false;                      // its song changed on disk: fetch it again and crossfade to it
+    std::uint64_t epoch = 0;                  // the Impl::musicEpoch its mode was resolved at
+    MusicMode resolved = MusicMode::Live;     // the mode of the source it asked for
+};
 
 }  // namespace
 
@@ -227,6 +286,33 @@ struct Audio::Impl {
     std::uint64_t stamp = 0;
     std::string sceneMusic;
     float sceneMusicVolume = -1.0f;
+
+
+    // adaptive music (MusicPlayer components): the players are touched by the game thread and by the mixer, under `mu`; the rest
+    // of the state (sources, loads) by the game thread alone.
+    std::map<std::uint64_t, std::unique_ptr<MusicRt>> musicEnts;
+    std::vector<std::unique_ptr<MusicRt>> musicOrphans;   // players whose entity is gone: they fade out (or a new player adopts them)
+    std::map<std::string, std::shared_ptr<const MusicSource>> musicCache;   // by "song|mode"
+    std::map<std::string, std::shared_ptr<MusicLoad>> musicLoads;
+    std::map<std::string, std::string> musicErrors;       // why a load failed, by key
+    std::vector<std::shared_ptr<MusicLoad>> musicStale;   // loads of a song that changed while they ran: joined, then dropped
+    MusicDeviceProfile musicDevice;
+    std::uint64_t musicEpoch = 1;                         // raised when the device profile changes (players re-resolve `auto`)
+    std::uint64_t mixedTotal = 0;
+    std::vector<MusicEvent> musicScratch;
+    std::vector<GameEvent> musicOut;
+
+    MusicRt* music_find(const World& world, Entity e);
+    MusicRt& music_get(World& world, Entity e);
+    void music_request(MusicRt& rt, const MusicPlayer& mp);
+    void music_poll();
+    void music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& rt);
+    void music_update(World& world);
+    void music_resolve(MusicRt& rt);
+    void music_orphan(MusicRt* rt);
+    void music_events(World& world, MusicRt& rt);
+    void music_shutdown();
+    void music_invalidate(const std::string& song);
 
     // play log (game thread)
     const World* clockWorld = nullptr;
@@ -371,7 +457,10 @@ struct Audio::Impl {
         clip->srcChannels = decoder->channels();
         clip->srcRate = decoder->rate();
         const double toMixRate = double(kRate) / double(decoder->rate());
-        const bool streams = clip_streams(mode, mode == "auto" ? double(decoder->frames()) / double(decoder->rate()) : 0.0);
+        const double loopStartSeconds = setting_number(settings, "loopStart", 0.0), loopEndSeconds = setting_number(settings, "loopEnd", 0.0);
+        const bool loopPoints = loopEndSeconds > loopStartSeconds && loopStartSeconds >= 0.0;
+        // Loop points need the whole clip in memory (a streamed clip rewinds to its start): they win over `stream`.
+        const bool streams = !loopPoints && clip_streams(mode, mode == "auto" ? double(decoder->frames()) / double(decoder->rate()) : 0.0);
         if (streams && decoder->frames() > 0) {
             clip->encoded = bytes;
             clip->ext = ext;
@@ -393,6 +482,16 @@ struct Audio::Impl {
         if (clip->frames == 0) {
             *err = "Audio clip '" + path + "' contains no audio samples";
             return nullptr;
+        }
+        if (loopPoints) {
+            const std::size_t ls = std::size_t(std::llround(loopStartSeconds * double(kRate))), le = std::min(clip->frames, std::size_t(std::llround(loopEndSeconds * double(kRate))));
+            if (le > ls + 1) {
+                clip->loopStart = ls;
+                clip->loopEnd = le;
+            } else {
+                FA_WARN("audio", "'{}': loopStart {} and loopEnd {} leave nothing to loop inside the {:.3f} s clip, so the whole clip loops", clip->path, loopStartSeconds, loopEndSeconds,
+                        double(clip->frames) / double(kRate));
+            }
         }
         normalize(*clip, settings, *bytes, ext);
         return clip;
@@ -483,6 +582,7 @@ struct Audio::Impl {
         }
         v.bus = b;
         v.notify = p.notifyEnd;
+        v.delay = long(std::max<std::int64_t>(p.delayFrames, 0));
         if (v.clip) v.path = v.clip->path;
         voices.push_back(std::move(v));
         return voices.back().id;
@@ -699,19 +799,27 @@ struct Audio::Impl {
             const float gl = std::min(1.0f, std::cos(theta) * 1.41421356f);
             const float gr = std::min(1.0f, std::sin(theta) * 1.41421356f);
             const float base = c.gain;  // the bus and master volumes are applied to the sum of the bus
-            for (int f = 0; f < frames; ++f) {
+            int first = 0;
+            if (v.delay > 0) {  // a voice that waits for its beat: silent, not advancing
+                first = int(std::min<long>(v.delay, frames));
+                v.delay -= first;
+            }
+            for (int f = first; f < frames; ++f) {
                 float l, r;
                 if (stream) {
                     if (!stream->at(v.pos, l, r)) { v.dead = true; break; }
                 } else {
-                    if (v.pos >= n) {
-                        if (v.loop) v.pos = std::fmod(v.pos, n);
-                        else { v.dead = true; break; }
+                    // With loop points the first pass runs to loopEnd and every later one wraps inside loopStart..loopEnd.
+                    const double loopEnd = c.loopEnd > 0 ? double(c.loopEnd) : n, loopStart = double(c.loopStart);
+                    if (v.pos >= loopEnd) {
+                        if (v.loop) v.pos = loopStart + std::fmod(v.pos - loopStart, loopEnd - loopStart);
+                        else if (v.pos >= n) { v.dead = true; break; }
                     }
                     std::size_t i0 = std::size_t(v.pos);
                     if (i0 >= c.frames) i0 = c.frames - 1;
                     std::size_t i1 = i0 + 1;
-                    if (i1 >= c.frames) i1 = v.loop ? 0 : i0;
+                    if (v.loop && i1 >= std::size_t(loopEnd)) i1 = c.loopStart;
+                    else if (i1 >= c.frames) i1 = i0;
                     const float t = float(v.pos - double(i0));
                     const float* d = c.data.data();
                     l = d[2 * i0] + (d[2 * i1] - d[2 * i0]) * t;
@@ -730,6 +838,19 @@ struct Audio::Impl {
                     }
                 }
             }
+        }
+
+        mixedTotal += std::uint64_t(frames);
+        if (!paused) {
+            auto mix_player = [&](MusicRt& rt) {
+                float* const dst = busBuf[std::size_t(rt.bus)].data();
+                const bool was = rt.tr->active();
+                rt.tr->set_rate_ratio(rateRatio);
+                rt.tr->mix(dst, frames);
+                if (was || rt.tr->active()) used[std::size_t(rt.bus)] = 1;
+            };
+            for (auto& rt : musicOrphans) mix_player(*rt);
+            for (auto& [key, rt] : musicEnts) mix_player(*rt);
         }
         for (const Voice& v : voices)
             if (v.dead) note_ended_locked(v);
@@ -898,6 +1019,7 @@ void Audio::shutdown() {
 #else
     if (impl_->device) saudio_shutdown();  // joins the audio thread before we touch state
 #endif
+    impl_->music_shutdown();
     std::lock_guard<std::mutex> lk(impl_->mu);
     impl_->voices.clear();
     impl_->clips.clear();
@@ -952,6 +1074,18 @@ void Audio::push_pcm(VoiceId voice, const float* stereo, std::size_t frames) {
     }
 }
 
+double Audio::pcm_queued_frames(VoiceId voice) const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    const Voice* v = impl_->find_voice(voice);
+    if (!v || !v->pcm) return 0.0;
+    return std::max(0.0, double(v->pcm->frames()) - v->pcm->pos);
+}
+
+bool Audio::has_device() const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    return impl_->device;
+}
+
 void Audio::clear_pcm(VoiceId voice) {
     std::lock_guard<std::mutex> lk(impl_->mu);
     Voice* v = impl_->find_voice(voice);
@@ -990,6 +1124,9 @@ void Audio::stop_all() {
     impl_->musicPath.clear();
     impl_->musicPersist = false;
     impl_->layers.clear();
+    // The MusicPlayer components' music too: it fades out over 50 ms and the components read the end (playing = false).
+    for (auto& [bits, rt] : impl_->musicEnts) rt->tr->stop(MusicQuantize::None, 0.05f);
+    for (auto& rt : impl_->musicOrphans) rt->tr->stop(MusicQuantize::None, 0.05f);
 }
 
 void Audio::on_scene_load() {
@@ -1270,6 +1407,13 @@ void Audio::set_buses(const std::vector<AudioBusDef>& defs) {
         else im.set_duck_locked(fx, -1, DuckSettings{});
     }
     im.build_mix_order();
+    // Music players follow their bus by name; one whose bus is gone plays on "music".
+    auto follow = [&](MusicRt& rt) {
+        const int b = im.bus_index(rt.busName);
+        rt.bus = b < 0 ? int(BusMusic) : b;
+    };
+    for (auto& [bits, rt] : im.musicEnts) follow(*rt);
+    for (auto& rt : im.musicOrphans) follow(*rt);
     // Voices on a bus that no longer exists go to sfx.
     for (Voice& v : im.voices) {
         if (v.bus < kFirstProjectBus) continue;
@@ -1658,6 +1802,700 @@ void Audio::reload_clip(std::string_view pathIn) {
             if (v.pos >= double(clip->frames)) v.pos = v.loop ? std::fmod(v.pos, double(clip->frames)) : double(clip->frames);
         }
     }
+    // A song played from its rendered stems has them cached: a stem file that changed is a song that changed.
+    std::vector<std::string> songs;
+    for (const auto& [key, src] : impl_->musicCache)
+        if (key.size() > 6 && key.compare(key.size() - 6, 6, "|stems") == 0) songs.push_back(key.substr(0, key.size() - 6));
+    for (const std::string& song : songs) {
+        const MusicStemPlan plan = music_stem_plan_of(song);
+        bool uses = plan.mixPath == path;
+        for (const MusicStemFile& f : plan.files) uses = uses || f.path == path;
+        if (uses) impl_->music_invalidate(song);
+    }
+}
+
+void Audio::reload_song(std::string_view songPath) {
+    const std::string song = fs::normalize(songPath);
+    if (song.empty()) return;
+    impl_->music_invalidate(song);
+}
+
+// ============================================================ adaptive music ==
+
+namespace {
+
+std::string music_cache_key(const std::string& song, MusicMode mode) { return song + (mode == MusicMode::Stems ? "|stems" : "|live"); }
+
+float music_unit(float v) { return std::isfinite(v) ? clamp(v, 0.0f, 1.0f) : 0.0f; }
+
+const char* const kNoPlayer = "the entity has no MusicPlayer component";
+
+}  // namespace
+
+MusicRt* Audio::Impl::music_find(const World& world, Entity e) {
+    auto it = musicEnts.find(e.bits());
+    if (it == musicEnts.end() || it->second->world != &world || it->second->id != world.id_of(e)) return nullptr;
+    return it->second.get();
+}
+
+MusicRt& Audio::Impl::music_get(World& world, Entity e) {
+    if (MusicRt* rt = music_find(world, e)) return *rt;
+    auto old = musicEnts.find(e.bits());
+    if (old != musicEnts.end()) music_orphan(old->second.get());  // a slot reused after World::clear(), or another world
+    auto rt = std::make_unique<MusicRt>();
+    rt->e = e;
+    rt->id = world.id_of(e);
+    rt->world = &world;
+    rt->seen = stamp;
+    MusicRt& ref = *rt;
+    std::lock_guard<std::mutex> lk(mu);
+    musicEnts[e.bits()] = std::move(rt);
+    return ref;
+}
+
+// The player of a gone entity keeps sounding in `musicOrphans` (a player of the next scene with the same song adopts it; update() fades
+// the rest out).
+void Audio::Impl::music_orphan(MusicRt* rt) {
+    std::lock_guard<std::mutex> lk(mu);
+    auto it = musicEnts.find(rt->e.bits());
+    if (it == musicEnts.end() || it->second.get() != rt) return;
+    musicOrphans.push_back(std::move(it->second));
+    musicEnts.erase(it);
+}
+
+// Finds the source of rt.song for the mode its component asks: the cache, a load in flight, or a new load (on the game thread when the
+// output is the null device or the web, so a headless run has the music at once; on a worker otherwise).
+void Audio::Impl::music_request(MusicRt& rt, const MusicPlayer& mp) {
+    rt.src.reset();
+    rt.error.clear();
+    rt.waitKey.clear();
+    rt.announcedReady = false;
+    if (rt.song.empty()) return;
+    MusicStemPlan plan = music_stem_plan_of(rt.song);
+    std::string why;
+    const MusicMode mode = music_resolve_mode(mp.mode, musicDevice, !plan.files.empty(), &why);
+    if (mp.mode == MusicMode::Stems && plan.files.empty())
+        FA_WARN("audio", "MusicPlayer on '{}': mode is \"stems\" but '{}' has no stem files in assets.json; playing it live "
+                         "(hint: run music.render on the song, or set mode to \"auto\" or \"live\")", rt.id, rt.song);
+    const std::string key = music_cache_key(rt.song, mode);
+    rt.waitKey = key;
+    rt.resolved = mode;
+    rt.epoch = musicEpoch;
+    if (musicCache.find(key) == musicCache.end() && musicLoads.find(key) == musicLoads.end()) {
+        auto load = std::make_shared<MusicLoad>();
+        load->key = key;
+        load->path = rt.song;
+        load->mode = mode;
+        load->plan = std::move(plan);
+        musicLoads[key] = load;
+        musicErrors.erase(key);
+#if defined(__EMSCRIPTEN__)
+        const bool async = false;
+#else
+        const bool async = device && !autoAdvance;
+#endif
+        if (async) load->worker = std::thread([load] { load->run(); });
+        else load->run();
+    }
+    music_poll();
+    music_resolve(rt);
+}
+
+// Moves the loads that finished into the cache; drops the sources nobody plays when the cache is over its size.
+void Audio::Impl::music_poll() {
+    for (auto it = musicStale.begin(); it != musicStale.end();) {
+        if (!(*it)->done) {
+            ++it;
+            continue;
+        }
+        if ((*it)->worker.joinable()) (*it)->worker.join();
+        it = musicStale.erase(it);
+    }
+    for (auto it = musicLoads.begin(); it != musicLoads.end();) {
+        MusicLoad& l = *it->second;
+        if (!l.done) {
+            ++it;
+            continue;
+        }
+        if (l.worker.joinable()) l.worker.join();
+        if (l.source) {
+            if (!l.note.empty()) FA_WARN("audio", "song '{}' plays live instead of from its stems: {}", l.path, l.note);
+            musicCache[l.key] = l.source;
+            std::size_t total = 0;
+            for (auto& [k, v] : musicCache) total += v->bytes();
+            for (auto c = musicCache.begin(); total > kMusicCacheBytes && c != musicCache.end();) {
+                if (c->first != l.key && c->second.use_count() == 1) {
+                    total -= c->second->bytes();
+                    c = musicCache.erase(c);
+                } else {
+                    ++c;
+                }
+            }
+        } else {
+            musicErrors[l.key] = l.error;
+            FA_ERROR("audio", "the song '{}' cannot be played: {}", l.path, l.error);
+        }
+        it = musicLoads.erase(it);
+    }
+}
+
+void Audio::Impl::music_resolve(MusicRt& rt) {
+    if (rt.waitKey.empty()) return;
+    auto c = musicCache.find(rt.waitKey);
+    if (c != musicCache.end()) {
+        rt.src = c->second;
+        rt.waitKey.clear();
+    } else if (musicLoads.find(rt.waitKey) == musicLoads.end()) {
+        auto err = musicErrors.find(rt.waitKey);
+        rt.error = err != musicErrors.end() ? err->second : std::string("the song could not be loaded");
+        rt.waitKey.clear();
+    }
+}
+
+void Audio::Impl::music_events(World& world, MusicRt& rt) {
+    musicScratch.clear();
+    {
+        std::lock_guard<std::mutex> lk(mu);
+        rt.tr->take_events(musicScratch);
+    }
+    for (const MusicEvent& ev : musicScratch) {
+        const MusicMap* map = ev.src ? &ev.src->map : nullptr;
+        auto section = [&](int i) { return map && i >= 0 && std::size_t(i) < map->sections.size() ? map->sections[std::size_t(i)].name : std::string(); };
+        Json d = Json::object({{"id", rt.id}, {"song", ev.src ? ev.src->path : rt.song}, {"frame", ev.frame},
+                               {"time", double(ev.frame) / double(std::max(deviceRate, 1))}});
+        const char* name = "music.beat";
+        switch (ev.kind) {
+            case MusicEventKind::Beat:
+                name = "music.beat";
+                d["bar"] = ev.a;
+                d["beat"] = ev.b;
+                d["section"] = section(ev.c);
+                d["index"] = ev.d;
+                break;
+            case MusicEventKind::Bar:
+                name = "music.bar";
+                d["bar"] = ev.a;
+                d["section"] = section(ev.b);
+                d["count"] = ev.c;
+                break;
+            case MusicEventKind::Section:
+                name = "music.section";
+                d["section"] = section(ev.a);
+                d["pass"] = ev.b;
+                d["bar"] = ev.c;
+                break;
+            case MusicEventKind::Loop:
+                name = "music.loop";
+                d["count"] = ev.a;
+                break;
+            case MusicEventKind::Ended:
+                name = "music.ended";
+                d["stopped"] = ev.a == 1;
+                break;
+            case MusicEventKind::Stinger:
+                name = "music.stinger";
+                d["kind"] = ev.a == 0 ? "clip" : "section";
+                d["section"] = ev.a == 0 ? Json(nullptr) : Json(section(ev.b));
+                break;
+            case MusicEventKind::Crossfade:
+                name = "music.crossfade";
+                break;
+        }
+        world.events().game.push_back(GameEvent{name, std::move(d), rt.e});
+    }
+    musicScratch.clear();
+    std::lock_guard<std::mutex> lk(mu);
+    rt.tr->prune_sources();
+}
+
+// One MusicPlayer component against its player in the mixer: starts, stops, changes of song, volume, bus and intensity.
+void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& rt) {
+    (void)e;
+    const std::string want = mp.song.empty() ? std::string() : fs::normalize(mp.song);
+    bool adopted = false;
+    if (rt.first) {
+        rt.first = false;
+        if (!want.empty() && mp.playOnStart) {
+            for (auto o = musicOrphans.begin(); o != musicOrphans.end(); ++o) {
+                MusicRt& old = **o;
+                if (old.song != want || !old.src || old.sent != old.src || old.stopIssued || !old.tr->playing()) continue;
+                {
+                    std::lock_guard<std::mutex> lk(mu);
+                    rt.tr = std::move(old.tr);
+                    rt.busName = old.busName;
+                    rt.bus = old.bus;
+                    musicOrphans.erase(o);
+                }
+                // `old` is gone: what is left to do uses the player that took its place.
+                break;
+            }
+            adopted = rt.tr->playing() && !rt.tr->ended();
+        }
+        if (adopted) {
+            rt.song = want;
+            rt.playing = true;
+            mp.playing = true;
+            // The source the adopted transport plays: ask the cache (it still holds it) so rt.src matches what is sounding.
+            rt.waitKey.clear();
+            std::string why;
+            const MusicStemPlan plan = music_stem_plan_of(want);
+            const MusicMode mode = music_resolve_mode(mp.mode, musicDevice, !plan.files.empty(), &why);
+            auto c = musicCache.find(music_cache_key(want, mode));
+            if (c != musicCache.end()) {
+                rt.src = c->second;
+                rt.sent = c->second;
+                rt.resolved = mode;
+                rt.epoch = musicEpoch;
+            } else {
+                adopted = false;
+                std::lock_guard<std::mutex> lk(mu);
+                rt.tr->stop(MusicQuantize::None, 0.05f);
+            }
+        } else if (mp.playOnStart && !mp.playing) {
+            mp.playing = true;
+        }
+    }
+    MusicTransport& tr = *rt.tr;
+
+    if (mp.bus != rt.busName) {
+        std::lock_guard<std::mutex> lk(mu);
+        int b = bus_index(mp.bus);
+        if (b < 0) {
+            FA_ERROR("audio", "MusicPlayer on '{}': unknown audio bus '{}'. {} (using 'music')", rt.id, mp.bus,
+                     did_you_mean(mp.bus, bus_names_locked(false)));
+            b = BusMusic;
+        }
+        rt.busName = mp.bus;
+        rt.bus = b;
+    }
+
+    if (want != rt.song) {
+        rt.song = want;
+        if (want.empty()) {
+            rt.src.reset();
+            rt.waitKey.clear();
+            rt.error.clear();
+            if (rt.sent) {
+                std::lock_guard<std::mutex> lk(mu);
+                tr.stop(MusicQuantize::None, 0.3f);
+            }
+            rt.sent.reset();
+        } else {
+            music_request(rt, mp);
+        }
+    } else if (!rt.waitKey.empty()) {
+        music_poll();
+        music_resolve(rt);
+    }
+    // Its song changed on disk, or the device it runs on is another one now and `auto` picks another mode: fetch the source again and
+    // crossfade to it at the beat, in the section that sounds (a section the new version lacks starts it at the beginning).
+    if (!rt.song.empty()) {
+        bool refetch = rt.reload;
+        if (!refetch && rt.epoch != musicEpoch && rt.src) {
+            rt.epoch = musicEpoch;
+            if (mp.mode == MusicMode::Auto) {
+                const MusicStemPlan plan = music_stem_plan_of(rt.song);
+                refetch = music_resolve_mode(mp.mode, musicDevice, !plan.files.empty()) != rt.resolved;
+            }
+        }
+        if (refetch) {
+            rt.reload = false;
+            std::string current;
+            if (mp.playing && rt.sent) {
+                std::lock_guard<std::mutex> lk(mu);
+                if (tr.playing()) current = tr.status().section;
+            }
+            if (!current.empty()) {
+                rt.entry = MusicRt::Entry{};
+                rt.entry.set = true;
+                rt.entry.section = current;
+                rt.entry.quantize = MusicQuantize::Beat;
+                rt.entry.bars = 0.5f;
+                rt.entry.lenient = true;
+            }
+            music_request(rt, mp);
+        }
+    }
+    if (rt.src && !rt.announcedReady) {
+        rt.announcedReady = true;
+        world.events().game.push_back(GameEvent{"music.ready", Json::object({{"id", rt.id}, {"song", rt.song}, {"mode", rt.src->mode}}), rt.e});
+    }
+
+    // playing -> not playing
+    if (mp.playing != rt.playing) {
+        if (!mp.playing && !rt.stopIssued) {
+            std::lock_guard<std::mutex> lk(mu);
+            tr.stop(MusicQuantize::None, 0.3f);
+        }
+        if (!mp.playing) rt.sent.reset();
+        rt.stopIssued = !mp.playing;
+        rt.playing = mp.playing;
+    }
+
+    // hand the source to the transport
+    if (mp.playing && rt.src && rt.sent != rt.src) {
+        const MusicMap& map = rt.src->map;
+        const std::string& wanted = rt.entry.section.empty() ? mp.startSection : rt.entry.section;
+        int section = -1;
+        if (!wanted.empty()) {
+            section = map.section_index(wanted);
+            if (section < 0 && !rt.entry.lenient)
+                FA_ERROR("audio", "MusicPlayer on '{}': song '{}' has no section '{}'. {} (starting at the beginning)", rt.id, rt.song, wanted,
+                         did_you_mean(wanted, map.section_names()));
+        }
+        const MusicQuantize q = rt.entry.quantize.value_or(mp.quantize);
+        std::string err;
+        bool ok;
+        {
+            std::lock_guard<std::mutex> lk(mu);
+            if (tr.playing() && !rt.entry.hard) {
+                const float bars = rt.entry.bars >= 0.0f ? rt.entry.bars : mp.crossfadeBars;
+                const MusicSource* from = tr.source();
+                const float seconds = float(double(bars) * from->map.barFrames / double(kMusicRate));
+                ok = tr.crossfade_to(rt.src, section, q, seconds, &err);
+            } else {
+                ok = tr.start(rt.src, section, music_unit(mp.intensity), &err);
+            }
+        }
+        rt.entry = MusicRt::Entry{};
+        if (ok) {
+            rt.sent = rt.src;
+            rt.intensity = music_unit(mp.intensity);
+            rt.error.clear();
+        } else {
+            rt.error = err;
+            FA_ERROR("audio", "MusicPlayer on '{}' cannot play '{}': {}", rt.id, rt.song, err);
+            mp.playing = false;
+            rt.playing = false;
+        }
+    }
+
+    // a song that played through to its end
+    if (mp.playing && rt.sent && tr.ended()) {
+        mp.playing = false;
+        rt.playing = false;
+        rt.sent.reset();
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(mu);
+        const float vol = clamp(std::isfinite(mp.volume) ? mp.volume : 0.0f, 0.0f, 4.0f);
+        if (vol != rt.volume) {
+            tr.set_volume(vol, rt.volume < 0.0f ? 0.0f : 0.05f);
+            rt.volume = vol;
+        }
+        if (mp.loop != rt.loop) {
+            tr.set_loop(mp.loop);
+            rt.loop = mp.loop;
+        }
+        if (mp.layerFade != rt.layerFade || mp.layerRange != rt.layerRange) {
+            tr.set_layer_fade(std::max(mp.layerFade, 0.0f), std::max(mp.layerRange, 0.0f));
+            rt.layerFade = mp.layerFade;
+            rt.layerRange = mp.layerRange;
+        }
+        const float inten = music_unit(mp.intensity);
+        if (rt.sent && inten != rt.intensity) {
+            tr.set_intensity(inten, mp.layerQuantize);
+            rt.intensity = inten;
+        }
+        // runtime fields
+        const MusicStatus st = tr.status();
+        mp.ready = rt.src != nullptr;
+        mp.section = st.section;
+        mp.bar = st.playing ? st.bar : 0;
+        mp.beat = st.playing ? st.beat : 0;
+        mp.tempo = st.playing ? float(st.tempo) : 0.0f;
+        mp.activeMode = st.playing ? st.mode : (rt.src ? rt.src->mode : std::string());
+    }
+    music_events(world, rt);
+}
+
+void Audio::Impl::music_update(World& world) {
+    // Players whose entity (or component) is gone, or that belong to another world, play on as orphans.
+    {
+        std::vector<MusicRt*> gone;
+        for (auto& [bits, rt] : musicEnts)
+            if (rt->world != &world || !world.alive(rt->e) || world.id_of(rt->e) != rt->id || !world.get<MusicPlayer>(rt->e)) gone.push_back(rt.get());
+        for (MusicRt* rt : gone) music_orphan(rt);
+    }
+    for (Entity e : world.entities_with(&World::type_of<MusicPlayer>())) {
+        if (!world.alive(e)) continue;
+        MusicPlayer* mp = world.get<MusicPlayer>(e);
+        if (!mp) continue;
+        MusicRt& rt = music_get(world, e);
+        rt.seen = stamp;
+        if (!world.active_in_hierarchy(e)) {
+            if (rt.playing || mp->playing) {
+                if (!rt.stopIssued) {
+                    std::lock_guard<std::mutex> lk(mu);
+                    rt.tr->stop(MusicQuantize::None, 0.3f);
+                }
+                mp->playing = false;
+                rt.playing = false;
+                rt.stopIssued = true;
+                rt.sent.reset();
+            }
+            rt.first = false;
+            continue;
+        }
+        music_drive(world, e, *mp, rt);
+    }
+    // What nobody adopted fades out and goes.
+    std::lock_guard<std::mutex> lk(mu);
+    for (auto it = musicOrphans.begin(); it != musicOrphans.end();) {
+        MusicRt& o = **it;
+        if (!o.stopIssued) {
+            o.tr->stop(MusicQuantize::None, 0.5f);
+            o.stopIssued = true;
+        }
+        musicScratch.clear();
+        o.tr->take_events(musicScratch);  // its entity is gone: nobody listens
+        musicScratch.clear();
+        o.tr->prune_sources();
+        if (!o.tr->active()) it = musicOrphans.erase(it);
+        else ++it;
+    }
+}
+
+void Audio::Impl::music_shutdown() {
+    for (auto& [k, l] : musicLoads)
+        if (l->worker.joinable()) l->worker.join();
+    for (auto& l : musicStale)
+        if (l->worker.joinable()) l->worker.join();
+    std::lock_guard<std::mutex> lk(mu);
+    musicLoads.clear();
+    musicStale.clear();
+    musicCache.clear();
+    musicErrors.clear();
+    musicEnts.clear();
+    musicOrphans.clear();
+}
+
+void Audio::set_music_device(const MusicDeviceProfile& device) {
+    Impl& im = *impl_;
+    const MusicDeviceProfile& old = im.musicDevice;
+    if (old.formFactor != device.formFactor || old.tier != device.tier || old.web != device.web) ++im.musicEpoch;
+    im.musicDevice = device;
+}
+
+// The song changed on disk: what was rendered of it is stale. The loads that run are given up, the cached sources dropped, and every
+// player of the song fetches it again and crossfades into the new render (music_drive).
+void Audio::Impl::music_invalidate(const std::string& song) {
+    for (const char* mode : {"|live", "|stems"}) {
+        const std::string key = song + mode;
+        auto load = musicLoads.find(key);
+        if (load != musicLoads.end()) {
+            musicStale.push_back(std::move(load->second));
+            musicLoads.erase(load);
+        }
+        musicCache.erase(key);
+        musicErrors.erase(key);
+    }
+    for (auto& [bits, rt] : musicEnts)
+        if (rt->song == song) rt->reload = true;
+}
+
+std::uint64_t Audio::mixed_frames() const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    return impl_->mixedTotal;
+}
+
+namespace {
+Error no_player_error(const char* call) {
+    return Error{std::string(call) + ": " + kNoPlayer, "Add a MusicPlayer component to the entity (factoria add-component, or the scene JSON \"MusicPlayer\": {\"song\": \"music/theme.song.json\"})."};
+}
+// A song path that names no file fails now, in the call, instead of later in the load.
+Result<void> need_song_file(const char* call, std::string_view song) {
+    if (song.empty() || fs::exists(song)) return {};
+    return make_error(std::string(call) + ": the song '" + std::string(song) + "' does not exist",
+                      "Use the path of a *.song.json in the project, relative to its root, e.g. 'music/theme.song.json'.");
+}
+}  // namespace
+
+Result<void> Audio::music_play(World& world, Entity e, std::string_view song, std::string_view section, float intensity) {
+    Impl& im = *impl_;
+    MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
+    if (!mp) return no_player_error("music.play");
+    if (song.empty() && mp->song.empty())
+        return make_error("music.play: there is no song to play", "Pass one, music.play('music/theme.song.json'), or set MusicPlayer.song.");
+    if (auto ok = need_song_file("music.play", song); !ok) return ok;
+    MusicRt& rt = im.music_get(world, e);
+    const bool same = song.empty() || fs::normalize(song) == fs::normalize(mp->song);
+    if (same && !section.empty() && rt.src && rt.src->map.section_index(section) < 0)
+        return make_error("music.play: song '" + rt.song + "' has no section '" + std::string(section) + "'. " + did_you_mean(section, rt.src->map.section_names()),
+                          "Pick one of the song's sections.");
+    const bool already = mp->playing && same && section.empty() && rt.sent && rt.sent == rt.src;
+    if (!song.empty()) mp->song = std::string(song);
+    if (intensity >= 0.0f) mp->intensity = music_unit(intensity);
+    if (already) return {};
+    mp->playing = true;
+    rt.entry = MusicRt::Entry{};
+    rt.entry.hard = true;
+    rt.entry.section = std::string(section);
+    rt.sent.reset();
+    return {};
+}
+
+void Audio::music_stop(World& world, Entity e, MusicQuantize quantize, float fadeSeconds) {
+    Impl& im = *impl_;
+    MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
+    if (!mp) return;
+    mp->playing = false;
+    MusicRt* rt = im.music_find(world, e);
+    if (!rt) return;
+    {
+        std::lock_guard<std::mutex> lk(im.mu);
+        rt->tr->stop(quantize, fadeSeconds < 0.0f ? 0.3f : fadeSeconds);
+    }
+    rt->sent.reset();
+    rt->stopIssued = true;
+    rt->playing = false;
+}
+
+void Audio::music_set_intensity(World& world, Entity e, float intensity, std::optional<MusicQuantize> quantize) {
+    Impl& im = *impl_;
+    MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
+    if (!mp) return;
+    mp->intensity = music_unit(intensity);
+    MusicRt* rt = im.music_find(world, e);
+    if (!quantize || !rt || !rt->sent) return;
+    std::lock_guard<std::mutex> lk(im.mu);
+    rt->tr->set_intensity(mp->intensity, *quantize);
+    rt->intensity = mp->intensity;
+}
+
+Result<void> Audio::music_go_to_section(World& world, Entity e, std::string_view section, std::optional<MusicQuantize> quantize, float fadeSeconds) {
+    Impl& im = *impl_;
+    MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
+    if (!mp) return no_player_error("music.goToSection");
+    MusicRt& rt = im.music_get(world, e);
+    const MusicSource* playing = rt.tr->source();
+    const MusicSource* known = playing ? playing : rt.src.get();
+    if (known) {
+        if (known->map.section_index(section) < 0)
+            return make_error("music.goToSection: song '" + known->path + "' has no section '" + std::string(section) + "'. " +
+                                  did_you_mean(section, known->map.section_names()),
+                              "Pick one of the song's sections (MusicAPI.sections lists them).");
+    }
+    if (!playing || !rt.sent) {  // not started: only where it will start
+        mp->startSection = std::string(section);
+        rt.entry.section = std::string(section);
+        return {};
+    }
+    std::string err;
+    std::lock_guard<std::mutex> lk(im.mu);
+    const int index = playing->map.section_index(section);
+    if (!rt.tr->go_to_section(index, quantize.value_or(mp->quantize), fadeSeconds < 0.0f ? mp->transitionFade : fadeSeconds, &err))
+        return make_error("music.goToSection: " + err, "Check music.status for the song that plays.");
+    return {};
+}
+
+Result<void> Audio::music_play_stinger(World& world, Entity e, const MusicStingerSpec& spec) {
+    Impl& im = *impl_;
+    MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
+    if (!mp) return no_player_error("music.playStinger");
+    if (spec.clip.empty() == spec.section.empty())
+        return make_error("music.playStinger: give exactly one of \"clip\" (an audio file) and \"section\" (a section of the song)",
+                          "For example playStinger({clip: 'sfx/hit.wav', quantize: 'beat'}) or playStinger({section: 'victory'}).");
+    MusicRt& rt = im.music_get(world, e);
+    const MusicSource* playing = rt.tr->source();
+    if (!playing || !rt.sent)
+        return make_error("music.playStinger: nothing is playing, a stinger plays over the music",
+                          "Start the music first (music.play), and wait for the 'music.ready' event when the song loads.");
+    const MusicQuantize q = spec.quantize.value_or(mp->quantize);
+    const float volume = std::isfinite(spec.volume) ? clamp(spec.volume, 0.0f, 4.0f) : 1.0f;
+    if (!spec.section.empty()) {
+        const int index = playing->map.section_index(spec.section);
+        if (index < 0)
+            return make_error("music.playStinger: song '" + playing->path + "' has no section '" + spec.section + "'. " +
+                                  did_you_mean(spec.section, playing->map.section_names()),
+                              "Pick one of the song's sections.");
+        const MusicSpan& span = playing->map.spans[std::size_t(playing->map.sections[std::size_t(index)].firstSpan)];
+        const float tail = std::max(spec.tail, 0.0f);
+        const float length = float((span.end - span.start) / double(kMusicRate)) + tail;
+        std::string err;
+        std::lock_guard<std::mutex> lk(im.mu);
+        if (!rt.tr->play_section_stinger(index, q, volume, tail, &err)) return make_error("music.playStinger: " + err, "");
+        if (spec.duck > 0.0f)
+            rt.tr->duck(q, clamp(spec.duck, 0.0f, 1.0f), spec.duckAttack, spec.duckHold < 0.0f ? length : spec.duckHold, spec.duckRelease);
+        return {};
+    }
+    // A clip: loaded and opened outside the lock; its voice then starts on the boundary's frame.
+    auto clip = im.get_clip(spec.clip);
+    if (!clip) return make_error("music.playStinger: the clip '" + spec.clip + "' could not be loaded", "The error above says why; check the path (assets.list).");
+    std::string err;
+    auto stream = Impl::open_stream(*clip, false, &err);
+    if (!err.empty()) return make_error("music.playStinger: " + err, "");
+    PlayParams p;
+    p.volume = volume;
+    p.bus = spec.bus.empty() ? rt.busName : spec.bus;
+    const float length = float(double(clip->frames) / double(kRate));
+    VoiceId id = 0;
+    {
+        std::lock_guard<std::mutex> lk(im.mu);
+        p.delayFrames = rt.tr->schedule_clip_stinger(q);
+        id = im.add_voice_locked(clip, p, std::move(stream));
+        if (spec.duck > 0.0f)
+            rt.tr->duck(q, clamp(spec.duck, 0.0f, 1.0f), spec.duckAttack, spec.duckHold < 0.0f ? length : spec.duckHold, spec.duckRelease);
+    }
+    im.log_play(spec.clip, p, false, rt.id, true, {}, id);
+    return {};
+}
+
+Result<void> Audio::music_crossfade_to(World& world, Entity e, std::string_view song, std::string_view section, std::optional<MusicQuantize> quantize,
+                                       float bars) {
+    Impl& im = *impl_;
+    MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
+    if (!mp) return no_player_error("music.crossfadeTo");
+    if (song.empty())
+        return make_error("music.crossfadeTo: no song given", "Pass the asset path of a *.song.json, music.crossfadeTo('music/battle.song.json').");
+    if (auto ok = need_song_file("music.crossfadeTo", song); !ok) return ok;
+    MusicRt& rt = im.music_get(world, e);
+    mp->song = std::string(song);
+    mp->playing = true;
+    rt.entry = MusicRt::Entry{};
+    rt.entry.section = std::string(section);
+    rt.entry.quantize = quantize;
+    rt.entry.bars = bars;
+    if (fs::normalize(song) == rt.song) rt.sent.reset();  // the same song again: a crossfade to its start (or section)
+    return {};
+}
+
+MusicStatus Audio::music_status(World& world, Entity e) const {
+    Impl& im = *impl_;
+    MusicRt* rt = im.music_find(world, e);
+    if (!rt) return MusicStatus{};
+    std::lock_guard<std::mutex> lk(im.mu);
+    MusicStatus st = rt->tr->status();
+    st.exists = true;
+    st.ready = rt->src != nullptr;
+    if (rt->src) st.sections = rt->src->map.section_names();
+    st.bus = rt->busName;
+    st.error = rt->error;
+    if (st.song.empty()) st.song = rt->song;
+    return st;
+}
+
+Json Audio::music_players() const {
+    Impl& im = *impl_;
+    std::lock_guard<std::mutex> lk(im.mu);
+    Json out = Json::array();
+    auto add = [&](const MusicRt& rt, bool orphan) {
+        MusicStatus st = rt.tr->status();
+        st.exists = true;
+        st.ready = rt.src != nullptr;
+        if (rt.src) st.sections = rt.src->map.section_names();
+        st.bus = rt.busName;
+        st.error = rt.error;
+        if (st.song.empty()) st.song = rt.song;
+        Json j = st.to_json();
+        j["entity"] = rt.id;
+        j["orphan"] = orphan;
+        out.push_back(std::move(j));
+    };
+    for (const auto& [bits, rt] : im.musicEnts) add(*rt, false);
+    for (const auto& rt : im.musicOrphans) add(*rt, true);
+    return out;
 }
 
 // ============================================================ world driving ==
@@ -1768,7 +2606,20 @@ void Audio::update(World& world, float dt) {
                 p.pitch = src->pitch;
                 p.pan = pan;
                 p.loop = src->loop;
-                ea.voice = im.start(src->clip, p, ea.id);
+                std::string clip = src->clip;
+                if (src->variants >= 2) {
+                    // The world RNG's state (not a draw: gameplay's random numbers are untouched), the entity's id and the play
+                    // count seed a private generator, so a run with the same seed hears the same takes.
+                    std::uint64_t h = 1469598103934665603ull;
+                    for (char c : ea.id) h = (h ^ std::uint8_t(c)) * 1099511628211ull;
+                    Rng pick(world.rng().state() ^ h ^ (std::uint64_t(++ea.plays) * 0x9E3779B97F4A7C15ull));
+                    const int count = std::min<int>(src->variants, 64);
+                    int variant = ea.lastVariant >= 1 && ea.lastVariant <= count ? pick.range_int(1, count - 1) : pick.range_int(1, count);
+                    if (ea.lastVariant >= 1 && ea.lastVariant <= count && variant >= ea.lastVariant) ++variant;
+                    ea.lastVariant = variant;
+                    clip = sfx_variant_path(src->clip, variant, count);
+                }
+                ea.voice = im.start(clip, p, ea.id);
                 ea.clip = src->clip;
                 if (ea.voice == 0) src->playing = false;  // load failed (already logged)
             }
@@ -1852,6 +2703,9 @@ void Audio::update(World& world, float dt) {
             ++it;
         }
     }
+
+    // ---- MusicPlayer components
+    im.music_update(world);
 
     // ---- scene music (only reacts to changes, so scripts may still call play_music themselves)
     const SceneSettings& ss = world.settings();

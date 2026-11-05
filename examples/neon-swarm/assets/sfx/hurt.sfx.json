@@ -1,0 +1,58 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "A low growl: a saw with a slow wobble in its pitch and a fast rattle in its volume.",
+  "length": 0.35,
+  "layers": [
+    {
+      "pitch": {
+        "freq": 95,
+        "sweep": {
+          "to": 70
+        },
+        "vibrato": {
+          "rate": 5,
+          "depth": 85
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "saw"
+        },
+        {
+          "wave": "noise",
+          "color": "brown",
+          "gain": 0.7
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 1600
+      },
+      "tremolo": {
+        "rate": 28,
+        "depth": 0.6
+      },
+      "amp": {
+        "attack": 0.08,
+        "decay": 0.3189,
+        "sustain": 0,
+        "curve": 0.6
+      }
+    }
+  ],
+  "master": {
+    "effects": [
+      {
+        "type": "distortion",
+        "mode": "soft",
+        "drive": 1.6
+      }
+    ],
+    "normalize": {
+      "mode": "lufs",
+      "target": -12,
+      "ceilingDb": -2
+    }
+  },
+  "sampleRate": 22050
+}

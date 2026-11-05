@@ -47,4 +47,29 @@ Result<void> install_crash_reporter(const CrashReporterOptions& options);
 // start-up to tell "the previous run crashed" once, not on every later start (a `.reported` file in `dir` remembers).
 std::filesystem::path take_previous_crash_report(const std::filesystem::path& dir);
 
+// ---- the stack of a running thread: for a watchdog that finds a thread stuck ---------------------------------------
+
+// Remembers the calling thread as the one watched_thread_stack() reads (one per process; a later call replaces it). The
+// thread must outlive every later watched_thread_stack() call: watch the main thread. Needs no install_crash_reporter.
+void watch_thread_stack();
+
+// The stack of the watched thread as it is now, innermost frame first, one "#n  ..." line per frame (Windows:
+// "module!function + 0x..  (file:line)  [address]"; POSIX: what backtrace_symbols() names). Called from another thread,
+// e.g. a watchdog before it ends a frozen process, so the report says which call never returned. Windows x64: the thread
+// is suspended while its stack is unwound. Linux, macOS: the thread is asked with SIGUSR2 and has 2 s to answer. Without
+// a watched thread, or where stacks are not read (Android, iOS, the web, 32-bit Windows), one line saying why.
+std::string watched_thread_stack();
+
+// The calling thread's stack, in the same form (this function's own frame left out).
+std::string current_thread_stack();
+
+// For a process nobody watches (a test run, an autotest): a failed C runtime check (an MSVC Debug assertion such as
+// "vector subscript out of range", abort()) prints its message and the stack to stderr and ends the process with code 3,
+// instead of a modal dialog that freezes the run until someone clicks it. An unhandled exception (access violation,
+// stack overflow) likewise prints its name, the faulting address and the stack, and ends the process with the exception
+// code, where Windows would otherwise end it silently. Windows only; elsewhere the runtime already prints and aborts, and
+// this does nothing. Never call it in a program a person debugs (the dialog's Retry is how they break into the
+// debugger), nor together with install_crash_reporter: it replaces the reporter's exception filter.
+void report_runtime_checks_without_dialogs();
+
 }  // namespace fa

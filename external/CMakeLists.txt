@@ -19,8 +19,21 @@ target_include_directories(fa_ext_drlibs SYSTEM INTERFACE ${FA_EXT}/dr_libs)
 add_library(fa_ext_nanosvg INTERFACE)
 target_include_directories(fa_ext_nanosvg SYSTEM INTERFACE ${FA_EXT}/nanosvg)
 
+# Clipper2 (polygon booleans and offsetting; fa_tooling only). Doubles, no Z coordinate; the library throws on bad input and
+# every call in tools/common/src/vector_clip.cpp catches it.
+add_library(fa_ext_clipper2 STATIC
+    ${FA_EXT}/clipper2/src/clipper.engine.cpp
+    ${FA_EXT}/clipper2/src/clipper.offset.cpp
+    ${FA_EXT}/clipper2/src/clipper.rectclip.cpp
+    ${FA_EXT}/clipper2/src/clipper.triangulation.cpp)
+target_include_directories(fa_ext_clipper2 SYSTEM PUBLIC ${FA_EXT}/clipper2/include)
+set_target_properties(fa_ext_clipper2 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
 add_library(fa_ext_qoa INTERFACE)
 target_include_directories(fa_ext_qoa SYSTEM INTERFACE ${FA_EXT}/qoa)
+
+add_library(fa_ext_tinysoundfont INTERFACE)
+target_include_directories(fa_ext_tinysoundfont SYSTEM INTERFACE ${FA_EXT}/tinysoundfont)
 
 add_library(fa_ext_plmpeg INTERFACE)
 target_include_directories(fa_ext_plmpeg SYSTEM INTERFACE ${FA_EXT}/pl_mpeg)
@@ -70,6 +83,60 @@ if(FA_PLATFORM STREQUAL "web")
     # SIMD in the whole module. The scalar path runs in every browser; it gives the same simulation, a little slower.
     target_compile_definitions(fa_ext_box2d PRIVATE BOX2D_DISABLE_SIMD)
 endif()
+
+# ---- Manifold (solid booleans for model documents) ---------------------------------------------------------
+# Manifold v3.5.4 core (Apache-2.0): robust union, difference and intersection of closed triangle meshes (fa_scene, model_boolean.cpp).
+# Built serial (MANIFOLD_PAR=-1: no TBB, no threads), without its CrossSection (Clipper2) and without bindings or tests: only
+# src/*.cpp and include/manifold as released. It reports problems through a status, and the few internal asserts throw: the wrapper
+# catches them (the Web build already uses WebAssembly exceptions, see cmake/FactoriaPlatform.cmake).
+file(GLOB FA_MANIFOLD_SOURCES ${FA_EXT}/manifold/src/*.cpp)
+add_library(fa_ext_manifold STATIC ${FA_MANIFOLD_SOURCES})
+target_include_directories(fa_ext_manifold SYSTEM PUBLIC ${FA_EXT}/manifold/include)
+target_include_directories(fa_ext_manifold PRIVATE ${FA_EXT}/manifold/src)
+target_compile_definitions(fa_ext_manifold PUBLIC MANIFOLD_PAR=-1)
+set_target_properties(fa_ext_manifold PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+target_link_libraries(fa_ext_manifold PUBLIC Threads::Threads)
+if(MSVC)
+    target_compile_definitions(fa_ext_manifold PRIVATE NOMINMAX)
+    target_compile_options(fa_ext_manifold PRIVATE /bigobj)
+else()
+    # A Debug build of the engine keeps this library optimized: unoptimized, a boolean of two small solids takes seconds.
+    target_compile_options(fa_ext_manifold PRIVATE $<$<CONFIG:Debug>:-O2>)
+endif()
+
+# ---- xatlas (UV unwrapping and chart packing for model documents) ---------------------------------------------
+# xatlas (MIT, jpcy/xatlas): automatic UV parameterization and chart packing (fa_scene, model_uv_*.cpp). xatlas.cpp and xatlas.h
+# are upstream's, unmodified; xatlas_fa.cpp (ours) includes xatlas.cpp with sinf, cosf, acosf and atan2f swapped for fa::det's so the
+# UVs are the same on every platform. Single-threaded (XA_MULTITHREADED=0: no std::thread, so the Web and Android builds need no
+# threads), no debug asserts or print hooks.
+add_library(fa_ext_xatlas STATIC ${FA_EXT}/xatlas/xatlas_fa.cpp)
+target_include_directories(fa_ext_xatlas SYSTEM PUBLIC ${FA_EXT}/xatlas)
+target_include_directories(fa_ext_xatlas PRIVATE ${FA_EXT}/xatlas ${CMAKE_SOURCE_DIR}/engine/core/include)
+target_compile_definitions(fa_ext_xatlas PRIVATE XA_MULTITHREADED=0 XA_DEBUG=0)
+set_target_properties(fa_ext_xatlas PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+if(MSVC)
+    target_compile_definitions(fa_ext_xatlas PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    target_compile_options(fa_ext_xatlas PRIVATE /bigobj)
+else()
+    # A Debug build of the engine keeps this library optimized: the packer rasterizes every chart, unoptimized it is far too slow.
+    target_compile_options(fa_ext_xatlas PRIVATE $<$<CONFIG:Debug>:-O2>)
+endif()
+
+# ---- meshoptimizer (mesh simplification for LODs and collider hulls) ---------------------------------------
+# meshoptimizer v1.3 (MIT): src/*.cpp as released (fa_scene, model_game_ready.cpp). No threads, no dependencies.
+file(GLOB FA_MESHOPT_SOURCES ${FA_EXT}/meshoptimizer/src/*.cpp)
+add_library(fa_ext_meshoptimizer STATIC ${FA_MESHOPT_SOURCES})
+target_include_directories(fa_ext_meshoptimizer SYSTEM PUBLIC ${FA_EXT}/meshoptimizer/src)
+set_target_properties(fa_ext_meshoptimizer PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+if(NOT MSVC)
+    target_compile_options(fa_ext_meshoptimizer PRIVATE $<$<CONFIG:Debug>:-O2>)
+endif()
+
+# ---- V-HACD (convex decomposition of colliders) -----------------------------------------------------------
+# V-HACD v4.1.0 (BSD-3-Clause) is one header; its implementation is compiled in fa_scene (vhacd_impl.cpp). The engine runs it
+# synchronously (m_asyncACD = false), where it starts no thread.
+add_library(fa_ext_vhacd INTERFACE)
+target_include_directories(fa_ext_vhacd SYSTEM INTERFACE ${FA_EXT}/vhacd/include)
 
 # ---- Dear ImGui (editor + debug UI) ----------------------------------------
 add_library(fa_ext_imgui STATIC
@@ -149,7 +216,7 @@ target_include_directories(fa_ext_sheenbidi SYSTEM PUBLIC ${FA_EXT}/sheenbidi/He
 target_include_directories(fa_ext_sheenbidi PRIVATE ${FA_EXT}/sheenbidi/Source)
 target_compile_definitions(fa_ext_sheenbidi PRIVATE SB_CONFIG_UNITY)
 
-foreach(t fa_ext_quickjs fa_ext_box2d fa_ext_imgui fa_ext_basisu_transcoder fa_ext_basisu_encoder fa_ext_harfbuzz fa_ext_harfbuzz_subset fa_ext_sheenbidi)
+foreach(t fa_ext_quickjs fa_ext_box2d fa_ext_imgui fa_ext_basisu_transcoder fa_ext_basisu_encoder fa_ext_harfbuzz fa_ext_harfbuzz_subset fa_ext_sheenbidi fa_ext_manifold fa_ext_xatlas fa_ext_meshoptimizer)
     if(NOT TARGET ${t})
         continue()
     endif()

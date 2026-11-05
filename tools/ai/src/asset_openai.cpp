@@ -1,9 +1,11 @@
 // Images and voice from the OpenAI API (and servers that copy it).
-//   images:  POST {baseUrl}/images/generations, and POST {baseUrl}/images/edits with reference images (multipart/form-data)
+//   images:  POST {baseUrl}/images/generations, and POST {baseUrl}/images/edits with reference images or a picture and its mask
+//            to repaint (multipart/form-data; the transparent part of the mask is repainted)
 //            https://developers.openai.com/api/docs/guides/image-generation
 //   voice:   POST {baseUrl}/audio/speech
 //            https://developers.openai.com/api/docs/guides/text-to-speech
 #include "asset_providers.h"
+#include "fa/core/image.h"
 #include "fa/core/strings.h"
 #include "util.h"
 
@@ -43,13 +45,27 @@ private:
     std::string boundary_, body_;
 };
 
+// OpenAI's edit mask is a PNG whose TRANSPARENT pixels are the ones to repaint; ours is grey with white = repaint.
+Result<std::string> openai_edit_mask(const std::string& grey) {
+    auto img = decode_image(reinterpret_cast<const std::uint8_t*>(grey.data()), grey.size());
+    if (!img) return make_error("The inpaint mask is not a PNG: " + img.error().message, "It is a grey PNG the size of the picture.");
+    for (std::size_t i = 0; i < static_cast<std::size_t>(img->width) * img->height; ++i) {
+        const std::uint8_t cover = img->rgba[i * 4];
+        img->rgba[i * 4] = img->rgba[i * 4 + 1] = img->rgba[i * 4 + 2] = 0;
+        img->rgba[i * 4 + 3] = static_cast<std::uint8_t>(255 - cover);
+    }
+    const std::vector<std::uint8_t> png = encode_png(*img);
+    return std::string(png.begin(), png.end());
+}
+
 Result<AssetResult> image(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt, const CancelFlag* cancel,
                           const std::string& key) {
     const std::string model = req.model.empty() ? kImageModel : req.model;
     HttpRequest hr;
     hr.headers.emplace_back("Authorization", "Bearer " + key);
     for (const auto& kv : cfg.headers) hr.headers.push_back(kv);
-    if (req.references.empty()) {
+    const bool inpaint = !req.editImage.empty();
+    if (req.references.empty() && !inpaint) {
         hr.url = trim_slashes(cfg.baseUrl) + "/images/generations";
         hr.headers.emplace_back("Content-Type", "application/json");
         Json body = Json::object({{"model", model}, {"prompt", req.prompt}, {"n", 1}, {"size", image_size(req)}, {"output_format", "png"}});
@@ -64,6 +80,13 @@ Result<AssetResult> image(const ProviderConfig& cfg, const AssetRequest& req, co
             }
         }
         Multipart form("factoria-form-boundary-9d41c7e2");
+        // the picture to repaint comes first: the first image is the one the mask belongs to
+        if (inpaint) {
+            auto mask = openai_edit_mask(req.editMask);
+            if (!mask) return mask.error();
+            form.file("image[]", "picture.png", "image/png", req.editImage);
+            form.file("mask", "mask.png", "image/png", *mask);
+        }
         for (const ReferenceImage& r : req.references) form.file("image[]", r.name, r.mediaType, r.bytes);
         form.field("model", model);
         form.field("prompt", req.prompt);

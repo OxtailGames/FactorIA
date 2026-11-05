@@ -15,6 +15,7 @@
 #include "recent_projects.h"
 #include "editor_internal.h"
 #include "fa/core/build_info.h"
+#include "fa/core/crash.h"
 #include "fa/core/fs.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
@@ -288,6 +289,10 @@ void Editor::on_init() {
         const char* show = std::getenv("FA_EDITOR_AUTOTEST_SHOW");
         ui::prepare_backbuffer_readback(show && *show && std::string(show) != "0");
         namespace stdfs = std::filesystem;
+        // Nobody watches an autotest: a failed MSVC Debug check prints and ends it instead of a dialog that waits for a
+        // click, and the watchdog can name the call the UI thread is stuck in.
+        report_runtime_checks_without_dialogs();
+        watch_thread_stack();
         atWatchdog_ = std::thread([this] {
             std::uint64_t last = atHeartbeat_.load();
             auto changed = std::chrono::steady_clock::now();
@@ -299,7 +304,9 @@ void Editor::on_init() {
                     changed = std::chrono::steady_clock::now();
                 } else if (std::chrono::steady_clock::now() - changed > std::chrono::seconds(60)) {
                     std::fprintf(stderr, "autotest watchdog: the editor drew no frame for 60 s (a UI or GPU call is stuck): ending the process "
-                                         "so the window does not stay frozen\n");
+                                         "so the window does not stay frozen\nthe UI thread's stack (innermost first):\n%s",
+                                 watched_thread_stack().c_str());
+                    std::fflush(stderr);
                     std::_Exit(86);
                 }
             }
@@ -325,11 +332,11 @@ void Editor::on_init() {
         {
             auto net = std::make_shared<ShareAutotestNet>();
             atShareNet_ = net;
-            const stdfs::path dir = base / "share_config";
-            fs::remove_tree(dir, ec);
-            stdfs::create_directories(dir, ec);
+            const stdfs::path shareDir = base / "share_config";
+            fs::remove_tree(shareDir, ec);
+            stdfs::create_directories(shareDir, ec);
             ShareEnv env;
-            const std::string cfg = (dir / "ai.json").string();  // the config folder is its parent
+            const std::string cfg = (shareDir / "ai.json").string();  // the config folder is its parent
             env.env = [cfg](const std::string& n) { return n == "FACTORIA_AI_CONFIG" ? cfg : std::string(); };
             env.now = [] { return std::int64_t(1760000000); };
             env.sleep = [](double) { std::this_thread::sleep_for(std::chrono::milliseconds(10)); };
@@ -546,6 +553,16 @@ bool Editor::boot(const std::string& dirIn) {
             if (p.tex.view || p.tex.image) ui::destroy_texture(p.tex.image, p.tex.view);
         }
         iconPreviews_.clear();
+        image_release_textures();
+        vector_release_textures();
+        sound_release_textures();
+        anim3d_release_textures();
+        anim3d_.model.reset();
+        modeler_release_textures();
+        modeler_.model.reset();  // (its evaluation worker is joined here)
+        sound_.player.reset();   // before the engine: it owns a voice of the mixer
+        music_.preview.reset();  // ...and so does the Music panel's preview
+        music_.model.reset();    // (its render worker is joined here)
         engine_->shutdown();
         engine_.reset();
     } else if (gfxUp_) {
@@ -955,6 +972,8 @@ void Editor::restore_scene(const Json& snapshot) {
 bool Editor::command_edits_scene(const std::string& name, const Json& args) const {
     if (name == "prefab.save" || name == "scene.format" || name == "scene.ascii_edit" || name == "fs.delete") return false;  // files only
     if (name.rfind("anim.", 0) == 0 && name != "anim.pose" && name != "anim.check" && name != "anim.filmstrip") return false;  // clip files only
+    if (name.rfind("image.", 0) == 0) return false;  // image documents are files; the Image panel keeps its own undo steps
+    if (name.rfind("vector.", 0) == 0) return false;  // drawings are files; the Vector panel keeps its own undo steps
     if (name == "scene.import_ascii" && args.is_object() && args.contains("path")) return false;  // file mode: the world is not touched
     return true;
 }
@@ -965,7 +984,7 @@ void Editor::after_command(const std::string& name, const Json& args, const Comm
     if (name.rfind("anim.", 0) == 0 && command_edits_scene(name, args) == false && name != "anim.check" && name != "anim.filmstrip") anim_.dirtyPose = true;
     // Commands that write or delete project files: the Project panel reads the folder again (it never walks the disk per frame).
     if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly)
-        for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "scene.save", "scene.format", "scene.import_ascii",
+        for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "image.", "vector.", "sfx.", "audio.", "scene.save", "scene.format", "scene.import_ascii",
                                    "scene.ascii_edit"})
             if (name.rfind(prefix, 0) == 0) { project_files_changed(); break; }
     // A file-mode import (scene.import_ascii with `path`, or scene.ascii_edit rebuilding its level) returns `path` and, unless
@@ -1141,6 +1160,48 @@ void Editor::undo() {
         anim_apply_clip_undo(entry, false);
         return;
     }
+    if (undo_.back().is_object() && undo_.back().contains("$clip3d")) {  // a step of a 3D clip file (anim3d_panel.cpp)
+        Json entry = std::move(undo_.back());
+        undo_.pop_back();
+        lastEditKey_.clear();
+        anim3d_apply_undo(entry, false);
+        return;
+    }
+    if (undo_.back().is_object() && undo_.back().contains("$image")) {  // a step of an image document (image_panel.cpp)
+        Json entry = std::move(undo_.back());
+        undo_.pop_back();
+        lastEditKey_.clear();
+        image_apply_undo(entry, false);
+        return;
+    }
+    if (undo_.back().is_object() && undo_.back().contains("$vector")) {  // a step of a drawing (vector_panel.cpp)
+        Json entry = std::move(undo_.back());
+        undo_.pop_back();
+        lastEditKey_.clear();
+        vector_apply_undo(entry, false);
+        return;
+    }
+    if (undo_.back().is_object() && undo_.back().contains("$sound")) {  // a step of a sound (sound_panel.cpp)
+        Json entry = std::move(undo_.back());
+        undo_.pop_back();
+        lastEditKey_.clear();
+        sound_apply_undo(entry, false);
+        return;
+    }
+    if (undo_.back().is_object() && undo_.back().contains("$music")) {  // a step of a song (music_panel.cpp)
+        Json entry = std::move(undo_.back());
+        undo_.pop_back();
+        lastEditKey_.clear();
+        music_apply_undo(entry, false);
+        return;
+    }
+    if (undo_.back().is_object() && undo_.back().contains("$modeler")) {  // a step of a model (modeler_panel.cpp)
+        Json entry = std::move(undo_.back());
+        undo_.pop_back();
+        lastEditKey_.clear();
+        modeler_apply_undo(entry, false);
+        return;
+    }
     redo_.push_back(save_scene(world()));
     Json s = std::move(undo_.back());
     undo_.pop_back();
@@ -1156,6 +1217,48 @@ void Editor::redo() {
         redo_.pop_back();
         lastEditKey_.clear();
         anim_apply_clip_undo(entry, true);
+        return;
+    }
+    if (redo_.back().is_object() && redo_.back().contains("$clip3d")) {
+        Json entry = std::move(redo_.back());
+        redo_.pop_back();
+        lastEditKey_.clear();
+        anim3d_apply_undo(entry, true);
+        return;
+    }
+    if (redo_.back().is_object() && redo_.back().contains("$image")) {
+        Json entry = std::move(redo_.back());
+        redo_.pop_back();
+        lastEditKey_.clear();
+        image_apply_undo(entry, true);
+        return;
+    }
+    if (redo_.back().is_object() && redo_.back().contains("$vector")) {
+        Json entry = std::move(redo_.back());
+        redo_.pop_back();
+        lastEditKey_.clear();
+        vector_apply_undo(entry, true);
+        return;
+    }
+    if (redo_.back().is_object() && redo_.back().contains("$sound")) {
+        Json entry = std::move(redo_.back());
+        redo_.pop_back();
+        lastEditKey_.clear();
+        sound_apply_undo(entry, true);
+        return;
+    }
+    if (redo_.back().is_object() && redo_.back().contains("$music")) {
+        Json entry = std::move(redo_.back());
+        redo_.pop_back();
+        lastEditKey_.clear();
+        music_apply_undo(entry, true);
+        return;
+    }
+    if (redo_.back().is_object() && redo_.back().contains("$modeler")) {
+        Json entry = std::move(redo_.back());
+        redo_.pop_back();
+        lastEditKey_.clear();
+        modeler_apply_undo(entry, true);
         return;
     }
     undo_.push_back(save_scene(world()));
@@ -1201,7 +1304,7 @@ void Editor::open_screenshots_folder() {
 // The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
 int Editor::panels_mask() const {
     const bool flags[] = {showViewport_, showHierarchy_, showInspector_, showConsole_,  showProject_,  showAi_,
-                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_};
+                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_, showImage_, showVector_, showSound_, showMusic_, showModeler_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1210,7 +1313,7 @@ int Editor::panels_mask() const {
 
 void Editor::set_panels_mask(int mask) {
     bool* flags[] = {&showViewport_, &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,  &showAi_,
-                     &showFeedback_, &showAudio_,     &showProfiler_,  &showAnimation_, &showBoneTools_};
+                     &showFeedback_, &showAudio_,     &showProfiler_,  &showAnimation_, &showBoneTools_, &showImage_, &showVector_, &showSound_, &showMusic_, &showModeler_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1279,7 +1382,14 @@ void Editor::build_ui() {
         // With the system menu bar (macOS) Cmd+S, Z and Shift+Z are key equivalents of its Save, Undo and Redo items: the menu takes
         // the key, and handling it here too would act twice.
         const bool ctrl = io.KeyCtrl && !nativeMenu_;
-        if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) save_scene_now();
+        if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+            if (showImage_ && image_.focused) image_save();   // the Image panel has the keyboard: it saves its document, not the scene
+            else if (showVector_ && vector_.focused) vector_save();
+            else if (showSound_ && sound_.focused) sound_save();
+            else if (showMusic_ && music_.focused) music_save();
+            else if (showModeler_ && modeler_.focused) modeler_save();
+            else save_scene_now();
+        }
         if (ctrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)) undo();
         if ((ctrl && ImGui::IsKeyPressed(ImGuiKey_Y, false)) || (ctrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false))) redo();
         if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) { if (play_ == PlayState::Edit) play(); else stop(); }
@@ -1344,6 +1454,14 @@ void Editor::build_ui() {
         if (showProfiler_) draw_profiler_panel();
         if (showAnimation_) draw_animation_panel();
         else if (anim_.posed) anim_unpose();  // the panel was closed: the entity goes back to its rest values
+        if (showAnimation_ && anim3d_.mode3d && anim3d_.showSheets) draw_anim3d_sheets();
+        if (showImage_) draw_image_panel();
+        if (showVector_) draw_vector_panel();
+        if (showSound_) draw_sound_panel();
+        else if (sound_.player && sound_.player->playing()) sound_.player->stop();
+        if (showMusic_) draw_music_panel();
+        else if (music_.preview && music_.preview->playing()) music_.preview->stop();
+        if (showModeler_) draw_modeler_panel();
         if (showBoneTools_) draw_bone_tools_panel();
         else if (bone_.tool != BoneTool::Off) bone_cancel_chain(), bone_.tool = BoneTool::Off;
         if (pendingFocus_) {
