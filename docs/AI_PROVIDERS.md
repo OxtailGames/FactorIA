@@ -156,6 +156,110 @@ the websites the AI should look at when it searches for assets (see [Asset sourc
 `"extensions"` section loads plugins, skills and hooks into the CLI agents (see [Extensions](#extensions)). The
 editor's **AI settings** window edits all four ([below](#the-ai-settings-window)), so none has to be written by hand.
 
+### Per project
+
+A project can change some of these settings for itself, in `<project>/.factoria/ai/settings.json` (schema
+`schemas/ai-project-settings.schema.json`). The file lives inside `.factoria/`, which a game project keeps out of git: it is your choice
+for this project (a project that needs no sub-agents, a cheaper model for a prototype), not part of the game. It is optional; a project
+without it behaves exactly as before and nothing is written to it.
+
+```json
+{
+  "roles": { "artist": { "enabled": false }, "worker": { "model": "claude-haiku-5-5" } },
+  "limits": { "maxCostUsd": 2 },
+  "mcpServers": { "scenario": false },
+  "extensions": { "skills": { "gdd": false } }
+}
+```
+
+Every key is optional and is resolved **key by key, and role by role**: engine defaults, then your `ai.json`, then the project's file. A
+role the file names changes only the fields it lists (`{"roles": {"worker": {"model": "x"}}}` keeps the worker's provider, effort and
+limits), except that a `provider` different from the inherited one brings its own model and effort unless the file gives them too (the
+model of the old provider means nothing on the new one). What the file may hold:
+
+| Key | What it does |
+|---|---|
+| `roles.<role>` | `enabled`, `provider`, `model`, `effort`, `maxTokens`, `maxContextTokens`, `toolGroups` (see [Roles](#roles)); a role absent from the file keeps your value |
+| `limits` | `maxTurns`, `maxCostUsd`, `maxTotalTokens`, `stuckAfterSeconds`, `maxConcurrentRuns`, key by key |
+| `assets.<kind>` | `provider`, `model`, `voice` of one kind of asset (`image`, `sound`, `music`, `voice`, `model3d`); the file must name the provider when your `ai.json` has no route for that kind. It cannot remove a route |
+| `assetSources` | a category (`images`, `models`, `audio`, `fonts`, `other`) given here **replaces** that category of `ai.json`; `onlyListed` replaces yours |
+| `savers` | `loopGuard`, `loopGuardJudge`, `learnedToolGroups`, `projectFacts`, key by key (the learned tool groups and saved facts of a project go on working: they stay in `.factoria/ai/savers.json`) |
+| `mcpServers` | `true` or `false` per **name** of a tool server of your `ai.json`: `{"scenario": false}` turns Scenario off in this project |
+| `extensions` | `true` or `false` per name of one of your plugins, skills or hooks, by kind: `{"plugins": {"notes": false}}`. The project's own extensions stay in `.factoria/extensions.json` ([trust](#trusting-a-projects-extensions)) |
+
+**A project file can only name, never define.** It may name a provider, tool server or extension your `ai.json` defines; a command, an
+address (`url`, `baseUrl`), `headers`, `env`, `apiKey`, `apiKeyEnv`, `argv`, `path` or any other key that would make something run or
+send data somewhere is an error, and the error says so and says where it belongs (`~/.factoria/ai.json`, **AI settings > Providers /
+Tool servers / Extensions**), for example:
+
+```
+.../settings.json: /mcpServers/scenario/url: 'url' is not allowed in a project's AI settings file: a project may only NAME the providers,
+tool servers and extensions you defined, never define one (...). Put it in ~/.factoria/ai.json (AI settings > Tool servers); here, name it
+instead, for example {"mcpServers": {"scenario": false}}
+```
+
+A provider, server, role, asset kind, extension or key that does not exist is an error with the JSON pointer and a "Did you mean"
+(`/roles/worker/provider: no provider named 'claud-code' in your AI settings. Did you mean 'claude-code'?`). So a copied project can never
+run a program or spend a key you did not choose. A file you have not accepted yet has **no effect, not even failing**: when it is also
+invalid (a provider you do not have, a key a project may not hold, not JSON), the project runs with your settings as if the file were not
+there, and the problem is shown instead of thrown: `factoria ai doctor` (`projectSettings.invalidError` with `--json`), `ai providers`
+and `ai config` print it, it is a warning of the resolved config, and the resolver's `invalidError` carries it for the editor. A file you
+accepted that becomes invalid (for example you removed the provider it names from your `ai.json`) is an error in every place that reads
+it (`factoria ai run`, the editor's runs, `factoria ai doctor`), since you had agreed to it.
+
+**Trust.** A file you did not save on this computer (it came inside a copied, unzipped or pulled project) applies only after you accept
+it once: until then the project behaves as if the file were not there and `factoria ai doctor` lists what the file would change. The acceptance is the hash of the file in `ai-trust.json` next to your `ai.json` (readable only by you,
+the same file as the [extensions' trust](#trusting-a-projects-extensions), in its own `aiSettings` record) and stops counting as soon as the
+file changes (a line-ending change does not count); reading never writes `ai-trust.json`, only accepting does. `accept_project_settings` accepts a file as it is
+(the call the editor makes when you accept; it refuses an invalid file), and the engine's own writer (`save_project_settings`) records the acceptance of what it saves only when its caller asks
+for it (`recordTrust`, for code that saves what you just chose on this computer). No command or tool can accept a file: an AI cannot trust
+what it has just written.
+
+**Where a value comes from.** The resolver (`fa::ai::resolve_ai_config`, `fa/ai/project_settings.h`) returns the resolved config and,
+for every value, `default`, `you` (your `ai.json`) or `project`, plus what an unaccepted file would change, for the windows and commands that show it. The writer (`save_project_settings`) keeps only the values that differ from what the
+project would inherit, removes a key that equals the inherited value, and removes the file when nothing is left; `reset_project_setting`
+takes one override out ("/roles/artist/enabled", or a whole branch). None of them writes your `ai.json`.
+
+Everything that runs inside a project uses the resolved config: `factoria ai run`, `ai review`, the `ai.*` commands (including the asset
+commands and `skills.*`), and the editor's chats and reviews. The project is the one given with `--project DIR` (or as the positional
+argument of `ai run` / `ai review`), else the project that contains the current folder (`factoria.json` in it or a parent), the same rule
+as every other command; `factoria ai doctor`, `ai providers` and `ai config` take `--project DIR` too. `ai doctor` prints the project's
+file and, for an accepted one, the values it sets (`/roles/artist/enabled = false`); for one that is not accepted, what it would change;
+and for an invalid one, what is wrong (`projectSettings` in `--json`). A CLI orchestrator (Claude Code, Codex) uses the project that
+`factoria mcp` serves (`--project`, or the project containing its folder): `ai_run` and `agent_delegate` use that project's roles, and a
+role the project turned off is refused with `role_off`, which says that the project's AI settings did it, the file, the pointer
+(`/roles/artist/enabled`) and how to change it.
+
+**Commands.** `ai.settings.get {scope}` and `ai.settings.set {scope, pointer, value}` (MCP: `ai_settings_get`, `ai_settings_set`) read and
+write these settings by JSON pointer (`/roles/artist/enabled`, `/limits/maxCostUsd`, `/mcpServers/scenario`, ...):
+
+* `get` with scope `resolved` (default) lists every value the project runs with and its `source`: `project`, `you` or `default`;
+  `project` returns the project's raw file (`overrides`) with `pendingTrust`, `pending` and `invalidError` when they apply; `user` shows
+  your `ai.json` view (`you` or `default`).
+* `set` writes one value. Scope `project` writes the project's file, scope `user` your `ai.json` defaults. `value` null removes the
+  setting (the project's override, so the value goes back to yours; or the key of `ai.json`, so it goes back to the engine's). It checks
+  what the file rules check: a pointer that is not a setting is `unknown_pointer` with a "Did you mean" (also when `value` is null: a typo
+  is never "already the default"), a key that would define a provider, server or extension, or hold a command, address or key, is
+  `rejected_key` (with where it belongs), a name you do not have or a wrong value is refused before anything is written.
+* **`set` never accepts a project file.** The file it writes is NOT applied until you accept it in the editor (AI settings, with the project
+  open): the result says `needsAcceptance: true` and `applied: false`, with a hint, and `runsWith` is what the project still runs with.
+  Setting a value never writes `ai-trust.json`: changing a file you had accepted makes the whole file wait again (the record still holds
+  the old content). Removing a value (null) from an accepted file leaves it accepted: the file only got smaller, so its record is updated
+  to the new content. Removing a value from a file nobody accepted leaves it waiting. When the last value goes, the file is deleted and its
+  record forgotten.
+* **Scope `user` is the user's own call.** `ai.settings.set` with scope `user` is refused with `user_only` when an AI is behind the call, and
+  the error says to ask you to change it in the editor's AI settings window (Your defaults). Three ways in are closed: MCP clients
+  (`ai_settings_set`, every client including the editor's endpoint), the built-in agent (and its delegates), and the CLI agents (Claude
+  Code, Codex) when they run `factoria call ai.settings.set` from their shell: factoria starts them with `FACTORIA_CALLER=agent` in the
+  environment, and any `factoria` that sees the variable treats every command it runs as an AI's (a value it does not know counts as
+  `agent`, never as you; a value you set yourself in the environment is kept; the editor window itself is unaffected). Run by you, in a
+  shell without that variable, `factoria call ai.settings.set` may (the editor's console has no `ai.*` commands). What this does NOT do:
+  an agent that can edit files can still edit `~/.factoria/ai.json` by hand, and this is a refusal of the command, not a sandbox.
+  `ai.settings.get` is open to everyone. What a scope `user` call changed is in
+  its result: `changed: [{pointer, from, to}]` (a new provider for a role also drops its model, so the model shows up too).
+  In the editor, a change a command makes to your `ai.json` or to the project's file reloads the AI settings window, the Roles window and
+  the provider list on the next frame, so a Save there never writes over it.
+
 ## Roles
 
 The editor shows the roles in three groups with readable names; the `ai.json` keys are the ones in code font.
@@ -175,6 +279,7 @@ already use instead of falling back to an Anthropic API key: `artist` and `audio
 `artCritic` and `reviewer` the one of `orchestrator`, with the model of the Anthropic default (as a tier: `opus`,
 `sonnet`, `haiku`, for the CLI providers). So a file with only `orchestrator` / `worker` / `fast` on `claude-code` keeps
 all seven roles on Claude Code, and old files keep working. Saving from the Roles window writes only the roles you set.
+A project can change a role for itself without touching your file: see [Per project](#per-project).
 
 Each role is `{provider, model, effort?, maxTokens?, maxContextTokens?, enabled?, toolGroups?}`. `effort` is one of
 `low|medium|high|xhigh|max` and is always sent explicitly to Anthropic. For
@@ -195,7 +300,8 @@ there, and `"enabled": false` on it is an error); every other role can.
   has no `agent_delegate` tool (nor `ai_run`, for a CLI orchestrator) and does everything itself. A delegation that asks
   for a role that is off (`agent_delegate`, `ai.run` / `ai_run`) fails with the error `role_off`, which says what is off
   and where to turn it on, so the orchestrator then does the task itself; `factoria ai run --role <role>` refuses it the
-  same way.
+  same way. When the role was turned off by the project's own AI settings ([Per project](#per-project)), the refusal names the file and
+  the pointer and says how to change it instead of pointing at `ai.json`.
 * **`artCritic`, `reviewer` off:** the review buttons (and `factoria ai review`) still work, but the review runs on the
   orchestrator's provider, model, effort and limits instead of the role's own. It keeps the read-only critic prompt and
   tools. The button tooltip and the confirmation say so.
@@ -602,8 +708,41 @@ of asset is assigned to.
 Save rewrites only `assets`, `assetSources` and the provider fields these need (`apiKey`; `type`, `command` and `argv` of an
 `asset-command` provider). Providers, roles, limits and every other key of the file stay as they are, and a file that is not valid
 JSON is left alone (the window says so instead of overwriting it). Then it reloads the file: the next asset the AI makes and the
-next message use the new settings; nothing else needs a restart. The window always edits the user's `ai.json` (the one in
-`FACTORIA_AI_CONFIG`, if set), never a file of the game project.
+next message use the new settings; nothing else needs a restart. Without a project open the window edits the user's `ai.json` (the one in
+`FACTORIA_AI_CONFIG`, if set), as described above. With a project open it edits that project's AI settings, see the next section.
+
+### This project's settings in the window
+
+With a project open the window (and the Roles window) is titled **AI settings - This project: <name>** and edits the project's file,
+`<project>/.factoria/ai/settings.json` ([Per project](#per-project)); without one it is titled **AI settings - Your defaults** and edits
+`ai.json`. What changes with a project open:
+
+* **Where each value comes from.** The Roles table has a **From** column and the Assets tab one per row and per category: **This
+  project** (the file sets it), **Your defaults** (it comes from your `ai.json`) or **Built in** (neither sets it). A role that follows
+  another one the project changes (an Artist with no provider of its own, following the Worker) says **This project** too, with no Reset:
+  reset the role it follows.
+* **Save** writes the project's file, only with what differs from your defaults (the writer of [Per project](#per-project)), records that
+  you saved it on this computer (so it applies at once) and invalidates what the editor cached, so the next message and the next asset use
+  it. It never writes `ai.json`, except for what a project file cannot hold: an API key or the program of an `asset-command` provider
+  typed in the Assets tab always goes to `ai.json`. The Roles tab shows where the file is.
+* **Reset** (on a row marked This project) takes that one value out of the project's file: the row shows your default again. **Reset tab
+  to my defaults** does it for the whole tab (the roles; the asset routes and sites). Both write the file at once, they do not wait for Save.
+* **Save as my defaults** writes the values in the window to your `ai.json` (a role that follows another is not written as its own),
+  and the project's file then keeps only what still differs from them. Every project that does not change those values, and every new
+  project, starts from them.
+* **A project file you have not accepted** (it came with a copied, unzipped or pulled project): the window says so at the top and lists
+  what it would change. **Accept** is the call `accept_project_settings`; **Ignore** leaves the file alone and works with your settings
+  (**Review it** brings the list back); **Delete the file** asks first ("Delete the project's AI settings file?"), then removes the file and
+  forgets that you accepted it. While the box is shown, Save and the resets are disabled, since the project behaves as without the file;
+  after Ignore they work again, and Save then replaces the file with what you chose: it asks first ("Replace the project's AI settings
+  file?": Save replaces the AI settings file that came with the project) and keeps the file it replaced as
+  `<project>/.factoria/ai/settings.replaced.json` (the last one; nothing reads it). A file that cannot be accepted (invalid)
+  shows `invalidError` and no Accept, only Ignore and Delete. A file you had accepted that no longer resolves is shown with its error and
+  Delete. Warnings of the resolution are listed under it (five at most; `factoria ai doctor` has them all).
+* **Switching project** reloads the roles and the asset settings the window shows (and drops a pending Ignore and unsaved edits).
+* **Not per project.** The Tools, Extensions and Token savers parts of the window stay your own (`ai.json`), and say so: a project's file
+  can switch them on and off by name, which the window does not edit (write them in the file, [Per project](#per-project)). The `limits` of the file have no window either.
+  An asset kind a project sets to **None** while your defaults have a route is refused with a hint, since a project file cannot remove a route.
 
 The **External tools** tab (between Roles and Assets) sets up the `mcpServers` of [External tools](#external-tools-mcp-servers):
 
@@ -1032,6 +1171,8 @@ What a whole game cost, what drives it and how to see it: [AI_COSTS.md](AI_COSTS
 * External tool servers (`mcpServers`) are read from your user-level `ai.json` only, and the same rules hold for their keys:
   environment variable first, owner-only file, never in a log, a command result or an argument list
   ([External tools](#external-tools-mcp-servers) says what each provider does).
+* A project's own AI settings (`.factoria/ai/settings.json`) can only name providers and tool servers your `ai.json` defines, never
+  define one, and a file that arrived with a copied project applies only after you accept it ([Per project](#per-project)).
 * What is sent to providers: your task, the system prompt, project file
   names, `factoria.json`, feedback titles and the results of tools the model
   calls (which can include file contents and screenshots). Use a local

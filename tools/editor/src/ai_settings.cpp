@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cfloat>
 
+#include "ai_project_edit.h"
 #include "editor_internal.h"
 #include "fa/ai/assets.h"
 #include "fa/core/strings.h"
@@ -73,14 +74,17 @@ void Editor::ai_settings_load(const ai::AiConfig& cfg, bool keepAssets, bool kee
     if (!keepTools && old.tools.tests) old.tools.tests->cancel = true;
     d = AiSettingsDraft{};
     d.loaded = true;
+    d.project = projectDir_;
     d.tools.servers = cfg.toolServers;
     ai_extensions_load(cfg);
     d.path = cfg.sourcePath.empty() ? ai::default_config_path() : cfg.sourcePath;
+    // The asset routes and sites are the open project's (its resolved config); the providers, servers and extensions are the user's.
+    const ai::AiConfig effective = ai_window_config();
     for (ai::MediaKind k : ai::kMediaKinds) {
-        const auto it = cfg.assets.find(ai::media_kind_name(k));
-        d.routes[ai::media_kind_name(k)] = it == cfg.assets.end() ? ai::AssetRoute{} : it->second;
+        const auto it = effective.assets.find(ai::media_kind_name(k));
+        d.routes[ai::media_kind_name(k)] = it == effective.assets.end() ? ai::AssetRoute{} : it->second;
     }
-    d.sources = cfg.assetSources;
+    d.sources = effective.assetSources;
     for (const auto& [name, p] : cfg.providers) {
         if (p.kind != ai::ProviderKind::AssetCommand) continue;
         d.command[name] = p.command;
@@ -177,16 +181,81 @@ bool Editor::ai_settings_dirty(const ai::AiConfig& cfg) const {
     return false;
 }
 
+// Save (asDefaults false) and Save as my defaults of the Assets tab. Without a project both write ai.json. With one, Save writes the
+// project's file: the routes and sites that differ from ai.json (the keys and programs of the providers still go to ai.json, a
+// project's file cannot hold them); Save as my defaults writes the whole draft to ai.json and keeps the project's file in step.
+void Editor::ai_settings_save_assets(bool asDefaults) {
+    AiSettingsDraft& d = aiSettings_;
+    d.saveError.clear();
+    const ai::AiConfig cfg = ai_window_config();
+    auto built = ai_settings_build(cfg);
+    if (!built) {
+        d.saveError = built.error().to_string();
+        return;
+    }
+    const bool project = ai_project_open();
+    // Before anything is written (the providers' fields go to ai.json first): Save over an ignored file asks, Replace presses Save again.
+    if (project && !asDefaults && !ai_project_replace_allowed("assets")) return;
+    const ai::AiConfig user = ai_user_config();
+    const ai::AiConfig wanted = ai_apply_edits(cfg, nullptr, &d.routes, &d.sources);
+    ai::AssetSettings forUser = *built;
+    if (project && !asDefaults) {  // only the providers' own fields: the user's routes and sites stay as they are
+        forUser.routes = user.assets;
+        forUser.sources = user.assetSources;
+    }
+    const bool touchesUser = !project || asDefaults || !built->providers.empty();
+    if (touchesUser) {
+        if (auto saved = ai::save_asset_settings(forUser, d.path); !saved) {
+            d.saveError = saved.error().to_string();
+            return;
+        }
+        if (auto loaded = ai_user_config_reload(); !loaded) {
+            d.saveError = "Saved, but ai.json no longer loads: " + loaded.error().to_string();
+            return;
+        }
+    }
+    if (project && asDefaults) {
+        if (auto kept = ai_project_after_defaults(wanted); !kept) {
+            d.saveError = kept.error().to_string();
+            return;
+        }
+    } else if (project) {
+        const AiProjectUi& now = ai_project_refresh();
+        if (!now.have) {
+            d.saveError = "This project's AI settings file cannot be used yet: fix or delete it first.";
+            return;
+        }
+        auto overrides = ai_project_overrides_for(now.resolved, nullptr, &d.routes, &d.sources);
+        if (!overrides) {
+            d.saveError = overrides.error().to_string();
+            return;
+        }
+        if (auto saved = ai_project_save(*overrides); !saved) {
+            d.saveError = saved.error().to_string();
+            return;
+        }
+    }
+    ai_settings_load(ai_user_config(), false, true);  // also forgets the typed keys
+    notify(project && !asDefaults ? "AI settings saved for this project. The next asset the AI makes uses them."
+                                  : "AI settings saved. The next asset the AI makes uses them.");
+    if (!aiDetecting_.load()) ai_refresh_providers();  // the Roles window and the panel see the new providers too
+}
+
 void Editor::draw_ai_settings_window() {
     if (!showAiSettings_) return;
     AiSettingsDraft& d = aiSettings_;
-    ai::AiConfig cfg;
+    ai::AiConfig user;  // ai.json as loaded: the providers, tool servers and extensions the tabs define
     {
         std::lock_guard<std::mutex> lock(aiMu_);
-        cfg = aiConfig_;
+        user = aiConfig_;
     }
     const bool detected = aiDetected_.load();
-    if (detected && !d.loaded) ai_settings_load(cfg);
+    if (detected && d.loaded && d.project != projectDir_) {  // another project (or none): the window shows that project's values
+        aiRolesOpen_ = true;
+        ai_settings_discard();
+    }
+    if (detected && !d.loaded) ai_settings_load(user);
+    const bool projectMode = ai_project_open();
 
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowSize(fit_work_area(ImVec2(940, 720)), ImGuiCond_FirstUseEver);
@@ -197,7 +266,9 @@ void Editor::draw_ai_settings_window() {
         aiSettingsFocus_ = false;
     }
     bool open = true;
-    const bool visible = ImGui::Begin("AI settings###AiSettings", &open, ImGuiWindowFlags_NoDocking);
+    d.title = ai_settings_title(projectMode, projectName_);
+    const std::string title = d.title + "###AiSettings";
+    const bool visible = ImGui::Begin(title.c_str(), &open, ImGuiWindowFlags_NoDocking);
     if (!open) {
         showAiSettings_ = false;
         ai_settings_discard();  // a typed key does not outlive the window
@@ -229,6 +300,10 @@ void Editor::draw_ai_settings_window() {
         ImGui::TextWrapped("Fix the file first (or delete it); saving here would not be able to keep what is in it.");
     }
 
+    draw_ai_project_banner();  // Accept and Delete change what the tabs below show: read the config after it
+    // What the Roles and Assets tabs edit: the project's resolved config (the project's file on top of ai.json) with a project open.
+    const ai::AiConfig cfg = ai_window_config();
+
     if (!ImGui::BeginTabBar("##aisettingstabs")) {
         ImGui::PopTextWrapPos();
         ImGui::End();
@@ -253,14 +328,16 @@ void Editor::draw_ai_settings_window() {
     at_track("aiset:tab:tools");
     ImGui::SetItemTooltip("Services and programs the AI may use when they help: image generators such as Scenario, or tools of your own (MCP servers).");
     if (toolsShown) {
-        draw_ai_tools_tab(cfg, cfgErr.empty());
+        if (projectMode) ImGui::TextDisabled("These are your own tool servers (ai.json), the same in every project: a project's file can only switch one on or off by name.");
+        draw_ai_tools_tab(user, cfgErr.empty());
         ImGui::EndTabItem();
     }
     const bool extShown = ImGui::BeginTabItem("Extensions", nullptr, wantTab == 4 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
     at_track("aiset:tab:extensions");
     ImGui::SetItemTooltip("Plugins, skills and hooks the AI agents load (Claude Code takes all three, the API providers the hooks): your own, and the ones this project brings. A project's plugins and hooks run only after you trust the project.");
     if (extShown) {
-        draw_ai_extensions_tab(cfg, cfgErr.empty());
+        if (projectMode) ImGui::TextDisabled("Your own extensions and savers (ai.json) are the same in every project; the project's extensions are the ones marked project below.");
+        draw_ai_extensions_tab(user, cfgErr.empty());
         ImGui::EndTabItem();
     }
     const bool assetsShown = ImGui::BeginTabItem("Assets", nullptr, wantTab == 2 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
@@ -273,24 +350,38 @@ void Editor::draw_ai_settings_window() {
         return;
     }
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("Saved in %s, your own file outside any project. Only the asset parts are rewritten: your providers, roles and limits stay.",
-                       d.path.c_str());
+    if (projectMode) {
+        ImGui::TextWrapped("Save writes the routes and sites of this project into %s (not part of the game): only what differs from your defaults. "
+                           "An API key or the program of your own asset provider always goes to your ai.json (%s), as does Save as my defaults.",
+                           ai_project_settings_path().c_str(), d.path.c_str());
+    } else {
+        ImGui::TextWrapped("Saved in %s, your own file outside any project. Only the asset parts are rewritten: your providers, roles and limits stay.",
+                           d.path.c_str());
+    }
     ImGui::PopStyleColor();
 
-    const float footerH = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 3.0f + ImGui::GetTextLineHeightWithSpacing() * 2.0f;
-    ImGui::BeginChild("##aisettingsbody", ImVec2(0, -footerH));
+    const bool locked = projectMode && ai_project_locked();
+    std::optional<ai::ResolvedAiConfig> res;
+    if (projectMode) {
+        if (const AiProjectUi& proj = ai_project_refresh(); proj.have) res = proj.resolved;
+    }
+    const float footerRows = projectMode ? 2.0f : 1.0f;  // the buttons wrap in a narrow window: room for a second row
+    const float footerH = (ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y) * footerRows + ImGui::GetStyle().ItemSpacing.y * 2.0f +
+                          ImGui::GetTextLineHeightWithSpacing() * 2.0f;
+    ImGui::BeginChild("##aisettingsbody", ImVec2(0, -footerH), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
 
     // ------------------------------------------------------------------------------------------------ Asset generation
     ImGui::SeparatorText("Asset generation");
     ImGui::TextDisabled("Which service makes each kind of asset the AI asks for. With None, the AI makes it procedurally\n"
                         "(generated textures, SVG, synthesised sound) and tells you so.");
     std::set<std::string> usedProviders;  // the providers some route names: their key / program rows follow the table
-    if (ImGui::BeginTable("##assetroutes", 5, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
+    if (ImGui::BeginTable("##assetroutes", res ? 6 : 5, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
         const float em = ImGui::GetFontSize();
         ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthFixed, em * 5.5f);
         ImGui::TableSetupColumn("Provider", ImGuiTableColumnFlags_WidthFixed, em * 14.0f);
         ImGui::TableSetupColumn("Model", ImGuiTableColumnFlags_WidthFixed, em * 13.0f);
         ImGui::TableSetupColumn("Voice", ImGuiTableColumnFlags_WidthFixed, em * 11.0f);
+        if (res) ImGui::TableSetupColumn("From", ImGuiTableColumnFlags_WidthFixed, em * 12.0f);
         ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableHeadersRow();
         for (ai::MediaKind kind : ai::kMediaKinds) {
@@ -346,6 +437,32 @@ void Editor::draw_ai_settings_window() {
                 at_track("aiset:voice");
                 ImGui::SetItemTooltip("The voice. ElevenLabs needs a voice id from your voice library on elevenlabs.io.\n"
                                       "OpenAI uses a voice name (alloy, nova, ...), alloy when empty.");
+            }
+            if (res) {
+                ImGui::TableNextColumn();
+                ImGui::AlignTextToFramePadding();
+                const ai::SettingSource source = ai_group_source(*res, "/assets/" + kname);
+                if (source == ai::SettingSource::Project) {
+                    ImGui::TextColored(kProjectBlue, "%s", ai_source_label(source));
+                    ImGui::SameLine();
+                    ImGui::BeginDisabled(locked);
+                    if (ImGui::SmallButton("Reset")) {
+                        if (auto done = ai_project_reset("/assets/" + kname); !done) {
+                            d.saveError = done.error().to_string();
+                        } else {
+                            const ai::AiConfig now = ai_window_config();  // this row only: the others keep their unsaved edits
+                            const auto back = now.assets.find(kname);
+                            route = back == now.assets.end() ? ai::AssetRoute{} : back->second;
+                        }
+                    }
+                    at_track("aiset:reset:" + kname, !locked);
+                    ImGui::SetItemTooltip("Reset to my defaults: %s goes back to what your ai.json gives it.", kind_title(kind));
+                    ImGui::EndDisabled();
+                } else {
+                    ImGui::TextDisabled("%s", ai_source_label(source));
+                    ImGui::SetItemTooltip("%s", source == ai::SettingSource::You ? "From your ai.json."
+                                                                                : "Nothing is set: made procedurally.");
+                }
             }
             ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();
@@ -449,12 +566,45 @@ void Editor::draw_ai_settings_window() {
     }
 
     // ------------------------------------------------------------------------------------------------ Asset sources
+    // "This project" + Reset, or where the value comes from, after a sources row (only with a project open).
+    const auto source_tag = [&](const std::string& pointer, const std::string& id, bool sameLine = true) {
+        if (!res) return;
+        const ai::SettingSource source = ai_group_source(*res, pointer);
+        if (sameLine) ImGui::SameLine();
+        if (source == ai::SettingSource::Project) {
+            ImGui::TextColored(kProjectBlue, "%s", ai_source_label(source));
+            ImGui::SameLine();
+            ImGui::PushID(id.c_str());
+            ImGui::BeginDisabled(locked);
+            if (ImGui::SmallButton("Reset")) {
+                if (auto done = ai_project_reset(pointer); !done) {
+                    d.saveError = done.error().to_string();
+                } else {
+                    const ai::AiConfig now = ai_window_config();  // this row only
+                    if (pointer == "/assetSources/onlyListed") {
+                        d.sources.onlyListed = now.assetSources.onlyListed;
+                    } else {
+                        for (ai::SiteCategory c : ai::kSiteCategories) {
+                            if (pointer == std::string("/assetSources/") + ai::site_category_key(c)) d.sources.list(c) = now.assetSources.list(c);
+                        }
+                    }
+                }
+            }
+            at_track(id, !locked);
+            ImGui::SetItemTooltip("Reset to my defaults: this goes back to what your ai.json says.");
+            ImGui::EndDisabled();
+            ImGui::PopID();
+        } else if (sameLine) {
+            ImGui::TextDisabled("%s", ai_source_label(source));
+        }
+    };
     ImGui::Spacing();
     ImGui::SeparatorText("Asset sources");
     ImGui::TextWrapped("Websites the AI should look at when it searches for images, models, sounds or fonts. It takes them from these pages "
                        "and writes down each asset's source and license.");
     ImGui::Checkbox("Use only these sites", &d.sources.onlyListed);
     at_track("aiset:only-listed");
+    source_tag("/assetSources/onlyListed", "aiset:reset:only-listed");
     ImGui::SetItemTooltip("On: the AI searches and fetches ONLY the listed sites, never the open internet. Claude Code is held to it\n"
                           "(WebFetch of other sites is denied and WebSearch is off); for the other providers it is an instruction.\n"
                           "Off: it looks at the listed sites first and may search the internet too, as it does without a list.");
@@ -469,7 +619,14 @@ void Editor::draw_ai_settings_window() {
         std::vector<ai::AssetSite>& sites = d.sources.list(c);
         const std::string title = std::string(ai::site_category_title(c)) + (sites.empty() ? "" : "  (" + std::to_string(sites.size()) + ")");
         ImGui::PushID(ai::site_category_key(c));
-        if (ImGui::CollapsingHeader((title + "###cat").c_str(), sites.empty() ? 0 : ImGuiTreeNodeFlags_DefaultOpen)) {
+        const std::string catPointer = std::string("/assetSources/") + ai::site_category_key(c);
+        const bool fromProject = res && ai_group_source(*res, catPointer) == ai::SettingSource::Project;
+        const bool catOpen = ImGui::CollapsingHeader((title + (fromProject ? "  - this project" : "") + "###cat").c_str(),
+                                                     sites.empty() && !fromProject ? 0 : ImGuiTreeNodeFlags_DefaultOpen);
+        if (catOpen) {
+            if (fromProject) {  // the header is as wide as the window: the tag and Reset go on the first line inside
+                source_tag(catPointer, "aiset:reset:" + std::string(ai::site_category_key(c)), false);
+            }
             int remove = -1;
             for (std::size_t i = 0; i < sites.size(); ++i) {
                 ImGui::PushID(static_cast<int>(i));
@@ -533,33 +690,50 @@ void Editor::draw_ai_settings_window() {
     } else {
         ImGui::TextDisabled("Saved. The next asset the AI makes uses these settings.");
     }
-    ImGui::BeginDisabled(!cfgErr.empty());
-    if (ImGui::Button("Save")) {
-        d.saveError.clear();
-        auto built = ai_settings_build(cfg);
-        if (!built) {
-            d.saveError = built.error().to_string();
-        } else if (auto saved = ai::save_asset_settings(*built, d.path); !saved) {
-            d.saveError = saved.error().to_string();
-        } else {
-            auto loaded = ai::load_config(d.path);
-            {
-                std::lock_guard<std::mutex> lock(aiMu_);
-                if (loaded) aiConfig_ = *loaded;
-                aiConfigError_ = loaded ? std::string() : loaded.error().to_string();
-            }
-            if (loaded) {
-                ai_settings_load(*loaded, false, true);  // also forgets the typed keys
-                notify("AI settings saved. The next asset the AI makes uses them.");
-            } else {
-                d.saveError = "Saved, but ai.json no longer loads: " + loaded.error().to_string();
-            }
-            if (!aiDetecting_.load()) ai_refresh_providers();  // the Roles window and the panel see the new providers too
-        }
-    }
+    const bool canSave = cfgErr.empty() && !locked;
+    ImGui::BeginDisabled(!canSave);
+    const bool saveRetried = projectMode && ai_project_save_retry("assets");  // the user confirmed replacing the ignored file
+    if (ImGui::Button("Save") || saveRetried) ai_settings_save_assets(false);
     ImGui::EndDisabled();
-    at_track("aiset:save", cfgErr.empty());
-    ImGui::SameLine();
+    at_track("aiset:save", canSave);
+    ImGui::SetItemTooltip("%s", projectMode ? "Save these routes and sites for this project only. The next asset the AI makes uses them."
+                                            : "Save these routes and sites in your ai.json. The next asset the AI makes uses them.");
+    if (locked && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Accept or ignore the project's settings file at the top of this window first.");
+    }
+    if (projectMode) {
+        fit_same_line("Reset tab to my defaults");
+        const bool canReset = canSave && res && (ai_group_source(*res, "/assets") == ai::SettingSource::Project ||
+                                                 ai_group_source(*res, "/assetSources") == ai::SettingSource::Project);
+        ImGui::BeginDisabled(!canReset);
+        if (ImGui::Button("Reset tab to my defaults")) {
+            auto done = ai_project_reset("/assets");
+            if (done) done = ai_project_reset("/assetSources");
+            if (!done) {
+                d.saveError = done.error().to_string();
+            } else {
+                const ai::AiConfig now = ai_window_config();  // typed keys and programs stay: only routes and sites go back
+                for (ai::MediaKind k : ai::kMediaKinds) {
+                    const auto it = now.assets.find(ai::media_kind_name(k));
+                    d.routes[ai::media_kind_name(k)] = it == now.assets.end() ? ai::AssetRoute{} : it->second;
+                }
+                d.sources = now.assetSources;
+                d.saveError.clear();
+                notify("The asset settings of this project are back to your defaults.");
+            }
+        }
+        ImGui::EndDisabled();
+        at_track("aiset:reset-tab", canReset);
+        ImGui::SetItemTooltip("Remove every asset route and site of this project: they come from your ai.json again (the roles stay as they are).");
+        fit_same_line("Save as my defaults");
+        ImGui::BeginDisabled(!cfgErr.empty());
+        if (ImGui::Button("Save as my defaults")) ai_settings_save_assets(true);
+        ImGui::EndDisabled();
+        at_track("aiset:save-defaults", cfgErr.empty());
+        ImGui::SetItemTooltip("Write these routes and sites into your ai.json (%s), so every project that does not change them, and every new\n"
+                              "project, starts from them. This project keeps only what still differs.", d.path.c_str());
+    }
+    fit_same_line("Close");
     if (ImGui::Button("Close")) {
         showAiSettings_ = false;
         ai_settings_discard();

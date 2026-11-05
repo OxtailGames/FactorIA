@@ -66,6 +66,8 @@ public:
     std::atomic<bool> running{false};    // the agent thread is going
     std::atomic<bool> detached{false};   // the orchestrator's turn ended while a delegated worker still runs
     std::atomic<long long> startMs{0}, lastActivityMs{0};  // steady-clock milliseconds
+    // limits.stuckAfterSeconds this run started with (the project's AI settings may change it); -1 = the editor's own config.
+    std::atomic<int> stuckAfterSeconds{-1};
     // True from the run's start to its end, whatever the agent thread does in between.
     bool active() const { return running.load() || detached.load(); }
     // Sets `cancel` and records why (a cause key of ai::cancel_cause_text(): user_stop, watchdog_process_gone...). The first

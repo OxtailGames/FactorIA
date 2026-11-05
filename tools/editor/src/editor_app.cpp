@@ -141,7 +141,7 @@ CommandResult MainThreadQueue::call(const std::string& name, const Json& args, c
     {
         std::lock_guard<std::mutex> lock(mu_);
         if (closed_) return fail("editor main thread is not accepting commands");
-        jobs_.push_back(Job{name, tag, args, promise, abandoned});
+        jobs_.push_back(Job{name, tag, args, command_caller(), promise, abandoned});
     }
     for (;;) {
         if (fut.wait_for(std::chrono::milliseconds(25)) == std::future_status::ready) return fut.get();
@@ -174,7 +174,11 @@ int MainThreadQueue::pump(const std::function<std::optional<CommandResult>(const
         if (j.abandoned && j.abandoned->load()) continue;  // its run was stopped while it waited: nobody wants the answer
         current_ = j.promise;
         currentTag_ = j.tag;
-        std::optional<CommandResult> r = run(j.name, j.args);
+        std::optional<CommandResult> r;
+        {
+            CommandCallerScope caller(j.caller);  // a command an AI queued is still an AI's on the main thread
+            r = run(j.name, j.args);
+        }
         const bool taken = !current_;
         current_.reset();
         currentTag_.clear();
@@ -651,6 +655,9 @@ bool Editor::boot(const std::string& dirIn) {
         while (projectDir_.size() > 1 && (projectDir_.back() == '/' || projectDir_.back() == '\\')) projectDir_.pop_back();
         fs::set_project_root(projectDir_);
         projectName_ = engine_->project().name;
+        ai_project_invalidate();  // the next message and the AI windows use this project's AI settings, not the last project's
+        aiRolesOpen_ = true;
+        ai_settings_discard();
         // Closed engine feedback moves to ENGINE_FEEDBACK.archive.json so the file only holds what is still open.
         if (const std::string fbPath = fs::join(projectDir_, engine_->project().feedbackFile); fs::exists(engine_->project().feedbackFile)) {
             // First, the gaps this engine version fixed are closed (the list embedded in the binary), then archived below.
@@ -927,6 +934,7 @@ void Editor::on_frame(double dt) {
     }
     dpi_ = sapp_dpi_scale();
     if (autotest_) autotest_pre_frame();
+    ai_settings_changed_elsewhere();
     if (engine_) {
         // The Win32 message loop only runs between frames: a long AI command inside this frame makes Windows treat the
         // window as hung. So queued commands share a ~10 ms budget per frame, and the two known long ones are sliced.
