@@ -109,7 +109,7 @@ FactorIA 0.16.0 (M51-M60) puts the art, audio and 3D tools inside the engine, ma
 - **Fixed:** the Music panel's intensity buttons start a new line when the transport does not leave room for them, instead of running off a narrow panel.
 - **Fixed:** the Image, Sound, Music and Modeler panels open the first time as floating windows that fit the screen: on a display smaller than about 1100 x 780 their right-hand inspector (layers, adjustments, instruments) used to be off screen.
 - **For engine developers:** an editor autotest step on a widget that is drawn but scrolled out of its window scrolls it into view and runs again on the next frame, so the sections pass in a small window (CI's macOS window is 1024 x 642; `FA_EDITOR_AUTOTEST_SIZE=1024x642` reproduces it).
-- **For engine developers:** `scripts/ci-docker.sh` gives each checkout and git worktree its own build-tree volumes (`factoria-ci-linux-<hash>`, `factoria-ci-windows-<hash>`); one tree shared by two worktrees linked objects of the other branch.
+- **For engine developers:** `scripts/ci-docker.sh` gives each checkout and git worktree its own build-tree volumes (`factoria-ci-linux-<hash>`, `factoria-ci-windows-<hash>`); one tree shared by two worktrees linked objects of the other branch. `scripts/ci-local.sh macos` configures `build/macos-release` as CI does (tests on, native architecture), so a release package built in the same checkout no longer leaves it running stale test binaries.
 
 ## 0.15.0
 

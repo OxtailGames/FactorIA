@@ -220,7 +220,10 @@ job_web() {
 job_macos() {
     note "macos"
     [ "$HOST" = "Darwin" ] || { record macos SKIP "needs a Mac (run this script on macOS)"; return; }
-    if run_logged "$LOGDIR/macos.log" bash -c "$(declare -f install_shaders); cmake --preset macos-release && cmake --build --preset macos-release -j $JOBS && install_shaders build/macos-release && FA_REQUIRE_SHDC=1 ctest --preset macos-release -j $JOBS"; then
+    # The CI job's configuration: a release package built here (release.yml's macOS steps) leaves build/macos-release
+    # universal, with FA_BUILD_TESTS=OFF and the release URLs in its cache, and ctest would then run stale test binaries.
+    local ci_cache="-DFA_BUILD_TESTS=ON -UCMAKE_OSX_ARCHITECTURES -UFA_UPDATE_REPO -UFA_FEEDBACK_URL -UFA_FEEDBACK_GITHUB_CLIENT_ID"
+    if run_logged "$LOGDIR/macos.log" bash -c "$(declare -f install_shaders); cmake --preset macos-release $ci_cache && cmake --build --preset macos-release -j $JOBS && install_shaders build/macos-release && FA_REQUIRE_SHDC=1 ctest --preset macos-release -j $JOBS"; then
         record macos PASS "build + ctest"
     else
         record macos FAIL "see $LOGDIR/macos.log"
