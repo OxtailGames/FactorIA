@@ -104,8 +104,8 @@ quality; the report itself is not in the repository). Every gap was checked agai
   while implementing M9"). Q-01 (the project's age, one maintainer) and Q-08 (a strength) are not engine work.
 - Everything else, and the points of the report's per-store table that no id covers, is grouped in M10-M23 below, in
   the report's order of priority: what blocks any store release first.
-  Roblox is out of scope (end of the list). None of these gaps came from the four example games, which are jam-sized and
-  never needed menus, localization or stores; M21 adds a complete reference game to close that blind spot.
+  None of these gaps came from the four example games, which are jam-sized and never needed menus, localization or
+  stores; M21 adds a complete reference game to close that blind spot.
 
 Triage 2026-10-19 of the 45 entries of Lantern Keep, the M21 reference game, against `04e751b` (each checked in the code
 and in a scratch project with `factoria test` and `factoria call`): LK/FB-0032 was already fixed (`ui.measureText` is
@@ -1741,8 +1741,172 @@ A complete game whose every picture, model, sound and song is made with the comm
 no imported asset. It measures what the AI reaches with these tools against the reference games that used providers,
 records every gap in its `ENGINE_FEEDBACK.json`, and a triage milestone turns them into packages, as after M21-M32.
 
-## Out of scope: Roblox
+## M61. Roles and AI settings per project (L; 4 packages) — the user, 2026-11-05
 
-Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,
-MarketplaceService); exporting to it would take a JavaScript-to-Luau transpiler and a converter from scenes to `.rbxlx`,
-which is a different product. Not planned.
+Asked by the user: the choice of roles is made for each project, not once for every project, and the same goes for
+every other setting that belongs to a project. Today everything the AI settings window edits lives in the user's
+`ai.json` (only extensions have a project file, `.factoria/extensions.json`), so turning the artist off for a
+small puzzle game turns it off for the 3D game next to it too.
+
+What stays the user's, on purpose: providers (commands, addresses, headers, keys), the definitions of `mcpServers` and
+their keys, `defaultProvider`, `inheritUserPlugins`, `~/.factoria/export.json` (SDK paths, keystore passwords), the
+editor's layout and recent projects, and `~/.factoria/skills` (projects already have `skills/`). Export and publish
+settings are already per project (`factoria.json`).
+
+- M61.1 (M) A project settings file, `<project>/.factoria/ai/settings.json` (inside `.factoria/`, which game projects
+  keep out of git: it is this user's choice for this project, not part of the game). It holds `roles` (enabled,
+  provider, model, effort, maxTokens, maxContextTokens, toolGroups), `limits`, `assets` (the provider per kind of
+  asset, model, voice), `assetSources`, the `savers` switches, and which of the user's `mcpServers` and extensions are
+  on for this project. The user's `ai.json` values for the same keys become the defaults every project starts from.
+  Resolution, key by key and role by role: engine defaults, then `ai.json`, then the project file. The project file
+  may only NAME providers and servers the user's `ai.json` defines: never a command, address, header, environment or
+  key, so a copied project cannot run a program or spend a key (the error says which key is not allowed and where it
+  belongs). A project file the user did not save on this computer (it came inside a copied or unzipped project) is
+  shown and must be accepted once, with the same trust as a project's extensions (`ai-trust.json`). Schema
+  `schemas/ai-project-settings.schema.json`; errors name the JSON pointer and the fix. A project without the file
+  behaves exactly as today; nothing is rewritten.
+- M61.2 (M) Editor: with a project open, the AI settings window and the Roles window edit THAT project (the title says
+  "This project: <name>"). Each row says whether its value is the project's or comes from your defaults, with
+  **Reset to my defaults** per row and per tab, and **Save as my defaults** writes the current values into `ai.json`
+  for new projects. Without a project open the window edits the defaults. Switching project reloads the roles, limits
+  and asset settings the next message uses. Autotest section: two projects with different roles; switching shows and
+  uses each project's roles.
+- M61.3 (S) Commands and CLI: `ai.settings.get {scope: "resolved" | "project" | "user"}` (each resolved value with
+  where it came from: `project`, `you`, `default`) and `ai.settings.set {scope, pointer, value}`; `factoria ai run`,
+  `ai review` and `ai doctor` resolve the project they run in (`doctor` lists the project's overrides); the MCP
+  server a CLI orchestrator (Claude Code, Codex) uses resolves the roles of the project it serves, so `ai_run` and
+  `agent_delegate` honour that project's roles that are off.
+- M61.4 (S) Feedback sharing per project: `feedback-sharing.json`'s `mode` is the default and a project can set its
+  own (`never` for a game under NDA, `always` for one the user wants to share); the editor's consent asks once per
+  project when the project's mode is `ask`. Docs: AI_PROVIDERS.md (Config file, Roles, The AI settings window),
+  EDITOR.md, ENGINE_FEEDBACK.md; CHANGELOG.
+
+## M62-M64: ideas taken from outside projects (planned 2026-11-05)
+
+From the user's bookmarks (2026-11-05). Rule for these three: an outside project is only a reference for HOW something
+is done. FactorIA builds its own version; no code, effect, asset or shader of the outside project is copied or bundled,
+and nothing is shipped "in case a game uses it" (a repository can disappear or change its licence). What enters the
+engine is a capability that helps make games: commands, a script API, a generator, an AI loop, and a few worked
+examples written for the docs. Each milestone names its reference so a worker can read it, not copy it.
+
+## M62. Game feel and effects drawn as code (L; 4 packages)
+
+Reference: pixelfx (github.com/patch-gg/pixelfx): every hit is acted (wind-up, freeze on contact, the target rocking
+back, recovery), effects take a palette ramp, and its skill draws, renders, looks and refines. Today the engine has no
+camera shake, hit-stop or flash: Kindlewatch wrote its own shake (`examples/kindlewatch/scripts/camera.js`).
+
+- M62.1 (M) Game feel API: camera shake (trauma that decays, per camera, seeded by the engine's RNG, 2D and 3D),
+  hit-stop (`time.hitStop(seconds, {scale})`: the game freezes or slows for a moment while the UI and audio go on),
+  flash (an entity drawn in one colour for a moment, sprites and meshes), knockback (an impulse with a short loss of
+  control) and squash and stretch. Script API, commands to try them from the AI, typings. All of them follow
+  `game.accessibility.reduceMotion` / `reducedEffects` (docs/MENUS.md). Kindlewatch drops its own shake.
+- M62.2 (M) Hits with timing: the clip events of `Animator`, `SpriteAnimator` and the M42 timeline can carry game-feel
+  actions (`hitStop`, `shake`, `flash`, `push`, spawn an effect, play a sound), so an attack's anticipation, impact and
+  recovery are data the AI writes and tunes, not code spread over behaviours. Check first what the clip events already
+  allow and extend them rather than adding a format.
+- M62.3 (M) Effects as code with a palette: the code-drawn animations of M41 (`assets.animate_svg`) take a palette ramp
+  (dark to bright) so one effect is recoloured without touching its code, a back and a front layer (behind and in
+  front of the character) and an additive light pass; the baked sheet keeps its pivot and timing. Check what M41 and
+  the indexed images of M53 already give and fill only the gaps.
+- M62.4 (S) The AI's loop for effects: the artist's guidance draws a draft, renders a filmstrip at the game's size,
+  looks at it and refines (readability at game size, anticipation, impact and recovery, palette), with three or four
+  worked examples written by us in docs (an impact, a pickup, a fire loop): no effect library. An example game adopts
+  M62.1-M62.3 and records the gaps in its `ENGINE_FEEDBACK.json`.
+
+## M63. Level generation from an example (L; 4 packages)
+
+Reference: WaveFunctionCollapse (github.com/mxgmn/WaveFunctionCollapse), a published algorithm: levels that only
+contain the NxN patterns of a small example, filled cell by cell from the one with the fewest options. And a puzzle
+generator that searches the board to guarantee it can be solved from any start. Today AI_GUIDE.md tells the AI not to
+write a level generator script, and there is nothing in its place for roguelikes and replayable levels.
+
+- M63.1 (L) `tilemap.generate {sample, size, seed, model, n, symmetry, periodic}`: FactorIA's own C++ implementation,
+  written from the published algorithm. `overlapping` learns the NxN patterns of a sample (a Tilemap or an ASCII level
+  of `scene.import_ascii`); `tiled` uses adjacency rules (the tileset's terrain rules of M53.4). Deterministic: the
+  same sample and seed give the same level on every platform (engine RNG, no `rand()`). A contradiction restarts up to a
+  limit, and the error teaches: where it failed, and what to try (a bigger sample, a smaller `n`, fewer constraints).
+- M63.2 (M) Constraints and playability: fixed cells (entrance, exit, borders), required and forbidden tiles, min and
+  max counts (chests, enemies), and a check that the level can be played: reachability from start to exit and to every
+  required cell with the walkable rules of the Tilemap (`nav.findTilePath`), retried or repaired until it holds; the
+  result reports the path length and any unreachable area.
+- M63.3 (M) At run time: the same generator from scripts (`tilemap.generate(...)`, a per-run seed from `rng.create`),
+  spread over frames within a budget so a phone does not stall; the markers of the sample (spawn points, coins, enemies)
+  become entities the way `scene.import_ascii` places them.
+- M63.4 (S) Editor and docs: a preview to regenerate with other seeds and keep one; AI_GUIDE.md says when to generate and
+  when to write the ASCII level by hand; an example game (a roguelike floor or a replayable puzzle) uses it and
+  records the gaps.
+
+## M64. Richer particles, effect documents and a particle editor (L; 4 packages)
+
+Reference: effekseer-vfx-skill (a coding agent builds game effects, films them and a second agent grades the
+filmstrip). Effekseer itself is not integrated. Today `ParticleEmitter` has one start and one end colour and size, no
+curves, no animated textures, no turbulence and no sub-emitters, and the particle editor is still open from M20.
+
+- M64.1 (L) `ParticleEmitter`: colour gradients with several keys, curves over life for size, speed and alpha, flipbook
+  textures (a sprite sheet per particle, random start frame), rotation and spin, drag, noise and turbulence, emission
+  shapes (point, circle, box, cone, edge, a mesh's surface in 3D), inherited velocity, trails, sub-emitters on birth,
+  death and collision, collision with a plane and with a Tilemap, and a pixel mode (positions on the pixel grid,
+  colours from the style palette). Seeded and deterministic; the current fields keep their meaning. GL, D3D11, Metal and
+  the web.
+- M64.2 (M) Effect documents, `*.vfx.json`: several emitters plus a light flash, a shake, a hit-stop and a sound (M62)
+  as one effect, played with `vfx.play` and placed like a prefab.
+- M64.3 (M) Editor: a Particle panel with a live preview, gradient and curve editors and a time scrubber, over the same
+  commands and undo; autotest section.
+- M64.4 (M) The review loop: `vfx.filmstrip` (M51) and the art critic grading an effect's filmstrip against a checklist
+  (readability, timing, palette, overdraw) with concrete fixes; a budget check (particles alive, overdraw) for phones.
+  Docs (ANIMATION.md or a new VFX.md) and an example game that remakes its effects with it.
+
+## M65. Efficiency feedback: how game-making AIs could work cheaper (L; 4 packages) — the user, 2026-11-05
+
+Today ENGINE_FEEDBACK holds what the engine lacks or gets wrong. The AI that makes a game also knows where its own work
+went: a system it understood only after forty steps, a doc it read five times, a command it called ten times where one
+call with an extra option would do. That is worth reporting too ("with a guide for X, or if Y worked like this, this game
+would have taken N fewer steps, M fewer minutes, K fewer tokens"), but only when it is measured and worth its fix. A
+report that asks to rebuild a system to save a few minutes or tokens is refused: an engine change goes on the ROADMAP
+only when the reports that ask for it add up to thousands of dollars or tens of hours across games.
+
+Rules every package keeps:
+- **Measured, not guessed.** The engine computes the numbers from the transcripts (`.factoria/ai/sessions`); the AI points
+  at the span where the waste happened. Built-in agent: steps, tokens and cost per step. Claude Code and Codex: steps, tool
+  calls and minutes (the `t` and `ms` fields), with tokens estimated from bytes as `ai.session_timeline` does, and said so.
+- **The fix is part of the report, and its cost decides.** The cheapest fix that removes the waste wins: a doc section or
+  topic guide, then an example, a command option, a new command, and last an engine change.
+- **A guide is not free either.** Text loaded on every step (AGENTS.md, the system prompt) costs tokens on every step of
+  every run, so a fix of that kind must save more than it adds; most go to on-demand topic guides (skills) instead.
+- **Only what helps other games.** A lesson true only for this game is a project fact (`savers.projectFacts`,
+  AGENTS.md "Project facts"), not engine feedback. Model choice, effort and limits are the user's settings: the
+  retrospective can suggest them to the user (M61), never file them.
+
+- M65.1 (M) The entry kind `efficiency` in `ENGINE_FEEDBACK.json` (schema, `feedback.report`, `feedback add --kind`),
+  next to the gap/bug entries and with the same category list. Extra fields: `waste` (what took the time, in engine
+  terms), `evidence` (`[{session, fromStep, toStep}]` spans; the engine measures them and stores `measured` {steps,
+  toolCalls, minutes, tokens, costUsd, estimated}), `fixType` (doc, guide, example, commandOption, newCommand,
+  engineChange), `expectedSaving` (the share of the measured span the fix removes, with one line of why) and
+  `appliesTo` (every game, a genre, a feature). The report gate refuses, with a teaching reason: no evidence or a span
+  that does not exist; a saving under the threshold of its fix type (one table in ENGINE_FEEDBACK.md: for example a doc
+  or guide from 10 minutes or 100k tokens per game where it applies, a command option or command from 30 minutes or 500k
+  tokens and `appliesTo` wider than one feature, an engine change from 1 hour or $5 per game and only as a candidate for
+  triage); a "missing guide" for a doc that `docs.search` finds with the report's own words (then it is a
+  findability report: say which words you searched, and the fix is the doc's title and keywords); and anything on the
+  rules above. Deduplication merges efficiency entries by fix, adding the measured numbers. Doctest cases for the gate.
+- M65.2 (M) `ai.retrospective {sessions?, since?}`: a mechanical pass over a project's transcripts (no model) that finds
+  the usual waste and measures it: the same command failing with the same code, the same doc or file read again and
+  again, tool results over a size budget, long edit-run-check loops on one system, many screenshots in a row, long gaps
+  waiting on a tool, workarounds already recorded in ENGINE_FEEDBACK. It returns candidates with their numbers and the
+  fix type each suggests. The fast role then turns at most three candidates that pass the gate into entries (one short
+  call, its cost added to the run and shown); the rest is dropped, and project-only lessons become project-fact
+  proposals. It runs on demand (`factoria ai retrospective`, a button in the Feedback panel) and, when the project's
+  setting is on (M61, `savers.retrospective`), after a run longer than a threshold (default 150 steps or $3), at most
+  once per run and never inside another retrospective. Efficiency entries show their saving in the Feedback panel.
+  Autotest section.
+- M65.3 (S) The developer side: `share` carries the measured numbers and the fix type (engine terms only, never the
+  game's names, as for gaps). `factoria feedback pull` and `collect` rank efficiency entries by the total saving across
+  installations (per game times reports) next to their fix cost, with a verdict per entry: "doc now", "command: worth
+  it", or "engine change: below threshold (N of the $1000 / 20 hours it needs)" with a ready reason for
+  `feedback reject`. An entry fixed in the engine records the version, and the next retrospectives of games that use it
+  compare the same pattern before and after, so a fix that saved nothing is visible.
+- M65.4 (S) Docs and the loop: ENGINE_FEEDBACK.md "Efficiency feedback" (when to file, the threshold table, three good
+  reports and three refused ones: "rewrite the scene format to save 2k tokens", "use a cheaper model", "a guide for X"
+  when the guide exists and was found); the rule in AI_GUIDE.md and the AGENTS.md template (one line, the rest on
+  demand); AI_COSTS.md links it. Run the retrospective over the transcripts of a reference game built with the engine
+  (M60 or a new short one) and file what passes, so the first entries are real.
