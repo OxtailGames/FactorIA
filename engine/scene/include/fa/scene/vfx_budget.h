@@ -3,6 +3,9 @@
 // and the screen they cover at every step. The numbers depend only on the document, the seed and the view size: the same call gives
 // the same result on every machine.
 //
+// Overdraw is the quad area of 2D and screen-space emitters, whose sizes are design pixels; a 3D emitter's size is in world units and
+// the camera decides what it covers, so its particles count but its overdraw is not measured (the result says so in `notes`).
+//
 // It measures the particles the sim keeps alive. The renderer may drop some further (a camera that does not see them) or draw more
 // (ribbon trails, a glow pass), so read the numbers as the cost of the effect on the screen it is played in, not as a frame time.
 #pragma once
@@ -37,7 +40,7 @@ struct VfxEmitterBudget {
     std::string name;
     int peakParticles = 0;       // most live particles at one step (its sub-emitters' particles included)
     double peakAt = 0.0;         // seconds into the effect
-    double peakOverdraw = 0.0;   // largest quad area of this emitter at one step, in screens
+    double peakOverdraw = 0.0;   // largest quad area of this emitter at one step, in screens (0 for a 3D emitter: not measured)
     int maxParticles = 0;        // the emitter's own cap (maxParticles, at most kParticleHardCap)
     float startSize = 0.0f;      // as written, for the size findings
     bool capped = false;         // reached its cap: the effect asked for more particles than it may hold
@@ -76,6 +79,7 @@ struct VfxBudget {
     std::vector<VfxEmitterBudget> perEmitter;
     std::vector<VfxSample> timeline;  // at most 24 samples: the largest particle count and overdraw of each slice of the effect
     std::vector<VfxBudgetFinding> findings;
+    std::vector<std::string> notes;   // what the numbers leave out (a 3D emitter's overdraw: its size is in world units, the camera decides what it covers)
 };
 
 // Plays `doc` from its start until it is over and its particles are gone (at most kVfxMaxDuration + 30 s of effect time) and returns

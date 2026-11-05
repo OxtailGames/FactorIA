@@ -80,6 +80,7 @@ Json budget_json(const VfxBudget& b) {
                          {"perEmitter", per},
                          {"timeline", line},
                          {"findings", findings},
+                         {"notes", b.notes},
                          {"ok", b.findings.empty()}});
 }
 
@@ -230,12 +231,12 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
            "Plays the document in a scratch world with the same timeline and particle sim a game runs (no renderer, no sound, the game is "
            "not touched, the same document and seed always give the same numbers) and returns {peakParticles, peakAt, peakOverdraw, "
            "peakOverdrawAt, meanOverdraw, settledAt, perEmitter: [{part, name, peakParticles, peakAt, peakOverdraw, maxParticles, "
-           "capped}], timeline: [{t, particles, overdraw}], findings: [{kind, pointer, message, hint, fix: {command, args}}], limits, "
+           "capped}], timeline: [{t, particles, overdraw}], findings: [{kind, pointer, message, hint, fix: {command, args}}], notes, limits, "
            "ok}. `overdraw` is the sum of the particles' quads in screens (1.0 = as much quad area as the view has; stacked soft "
            "sprites are what a phone's GPU pays for). `findings` are what is over the `preset`'s budget (phone: 300 live particles, "
            "1.5 screens, 5 emitters; desktop: 2000, 4.0, 8): each names the JSON pointer and carries a vfx.edit call that brings "
            "the effect inside it. The numbers are the particles the sim keeps alive: a camera that does not see them, ribbon trails "
-           "and glow passes are not counted. Example: vfx.budget {\"path\":\"assets/vfx/hit.vfx.json\"}",
+           "and glow passes are not counted, and a 3D emitter's overdraw is not measured (`notes` says so). Example: vfx.budget {\"path\":\"assets/vfx/hit.vfx.json\"}",
            parse_schema(R"({"type":"object","additionalProperties":false,"required":["path"],"properties":{
                "path":{"type":"string","description":"Project path of the effect document, e.g. \"assets/vfx/hit.vfx.json\"."},
                "preset":{"type":"string","enum":["phone","desktop"],"default":"phone","description":"Whose budget the findings use."},
@@ -270,7 +271,8 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"vfx.filmstrip", "Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once.",
-           "Plays the effect at `position` (default: the middle of the view), steps the game and captures `region` at each step into one "
+           "Plays the effect at `position` (default: the world point in the middle of the view, which is only meaningful in a 2D game: in a 3D game "
+           "give `position`), steps the game and captures `region` at each step into one "
            "labelled grid PNG (label \"f3 +100\" = picture 3, 100 ms after the effect started), then removes the effect. THE GAME "
            "ADVANCES: the clock, the physics and the scripts run for the frames the strip takes (about 3 s at most by default), so film "
            "on a stage scene or a paused moment; the camera and the backdrop are the ones the game has, which is what the effect "
@@ -284,7 +286,7 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
            "vfx.filmstrip {\"effect\":\"assets/vfx/hit.vfx.json\",\"position\":[640,360],\"frames\":12}",
            parse_schema(R"({"type":"object","additionalProperties":false,"required":["effect"],"properties":{
                "effect":{"type":"string","description":"Project path of the effect document, e.g. \"assets/vfx/hit.vfx.json\"."},
-               "position":{"type":"array","items":{"type":"number"},"description":"[x, y] or [x, y, z]: where the effect plays, in world units. Default: the world point in the middle of the view."},
+               "position":{"type":"array","items":{"type":"number"},"description":"[x, y] or [x, y, z]: where the effect plays, in world units. Default: the world point in the middle of the view (2D); a 3D game must give it."},
                "frames":{"type":"integer","minimum":2,"maximum":64,"default":12,"description":"Pictures in the strip."},
                "everyFrames":{"type":"integer","minimum":1,"maximum":600,"description":"Game frames between two pictures. Default: the effect's length (at most 3 s) divided over `frames`."},
                "size":{"type":"number","minimum":16,"maximum":4096,"default":256,"description":"Side, in design pixels, of the square around the effect that is filmed (ignored with `region`)."},

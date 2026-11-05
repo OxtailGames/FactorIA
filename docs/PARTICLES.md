@@ -336,6 +336,33 @@ reflected fields of `ParticleEmitter` and editors for gradients and curves. Its 
 particles). It draws dots and glows, not the final render: ribbon trails and textures are not drawn, additive blending shows as normal, and sounds and commands are
 only markers on the timeline.
 
+### Reviewing an effect: `vfx.budget`, `vfx.filmstrip` and `vfx.review`
+
+Three commands check an effect before it ships. All three read the file on disk (`path` or `effect`, like `vfx.check`).
+
+- `vfx.budget {"path", "preset"?, "seed"?, "view"?}` plays the document in a scratch world, headless, with the same emitter simulation a game runs
+  (no renderer needed), and reports the peak of particles alive, the peak of overdraw (the area of every particle's quad divided by the
+  area of the view: 1.0 is one screenful of particles on top of each other), the emitter count, a timeline of at most 24 samples, and
+  `findings` against the limits of a `preset`: `phone` (300 particles, 1.5 screens of overdraw, 5 emitters) or `desktop` (2000, 4.0, 8). Each finding
+  has the JSON `pointer`, a `message`, a `hint` and a `fix` that is a `vfx.edit` call. The measure is approximate: it does not count
+  ribbon trails or the glow of bloom, and a 3D emitter (`is3D`) counts its particles but not its overdraw, because that depends on
+  the camera (the result says so in `notes`).
+- `vfx.filmstrip {"effect", "position"?, "frames"?, "everyFrames"?, "size"?, "region"?, "zoom"?, "columns"?, "path"?}` plays the effect in the
+  running game and captures a contact sheet of `frames` pictures (2 to 64, default 12) spread over the effect's life (or every `everyFrames`
+  frames), each labelled with its frame number and time (`f3 +250ms`). It needs a renderer; without one it fails and points at `vfx.budget`
+  and `vfx.check`. **It steps the game** to get the frames (the strip covers the effect's length, at most 3 s by default), so the scene
+  moves on, and it plays the effect at `position` (default: the world point in the middle of the view, which is only the right place in a 2D game: **in a
+  3D game give `position`**). The effect it made is always removed afterwards. The picture is a `$image` (a temporary file, or `path`).
+- `vfx.review {"effect", "position"?, "preset"?, "frames"?, "focus"?, "picturePath"?}` is the art critic. It runs `vfx.budget` and `vfx.filmstrip`, shows the
+  strip, the document and the budget to the vision model of the `fast` role (docs/AI_PROVIDERS.md; without one it fails with `no_model` and nothing
+  is played) and returns `verdict` (`good`, `fix` or `redo`), a short `summary`, a `checklist` (readability, timing, palette,
+  overdraw, each with a `grade` and a `note`) and `fixes`, each a `what`, a `where` (JSON pointer) and a `command` (usually a `vfx.edit` call). A
+  `good` from the model becomes `fix` when the budget has findings. One call costs one model call: use it once the file passes `vfx.check`
+  and `vfx.budget`, not after every edit. A command in `fixes` that does not exist is reported as a warning.
+
+The loop for a good effect: `vfx.create`, edit, `vfx.check`, `vfx.budget` (phone preset when the game ships on phones),
+`vfx.filmstrip` and look at the picture yourself, then `vfx.review` once, apply its `fixes` with `vfx.edit`, and look at the strip again.
+
 ## Problems the engine reports
 
 `factoria validate` and scene loading report, with the file and JSON pointer: curves, gradients and palettes that do not parse

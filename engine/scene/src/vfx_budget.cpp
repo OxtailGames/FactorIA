@@ -93,6 +93,7 @@ VfxBudget vfx_measure(const VfxDoc& doc, const VfxBudgetOptions& options) {
 
     std::map<std::uint64_t, ParticleSim> sims;
     std::map<int, VfxEmitterBudget> byPart;
+    std::map<int, bool> is3d;
     std::map<std::uint64_t, int> partOf;  // an emitter's part is -1 once the effect ended and it only drains: remember the first one
     std::vector<VfxSample> raw;
     double overdrawSum = 0.0;
@@ -120,8 +121,14 @@ VfxBudget vfx_measure(const VfxDoc& doc, const VfxBudgetOptions& options) {
             env.is3D = em.is3D;
             sim.step(em, env, float(kStep));
             const int n = int(sim.particles.size());
-            const double a = quad_area(sim, em);
+            const double a = em.is3D ? 0.0 : quad_area(sim, em);
             VfxEmitterBudget& b = byPart[part];
+            if (em.is3D && !is3d.count(part)) {
+                is3d[part] = true;
+                const std::string who = part >= 0 && part < int(doc.parts.size()) && !doc.parts[std::size_t(part)].name.empty()
+                                            ? "'" + doc.parts[std::size_t(part)].name + "'" : "emitter " + std::to_string(part);
+                out.notes.push_back(std::format("{} is a 3D emitter: its particles are counted, but its overdraw is not measured (its size is in world units; the camera decides how much screen it covers).", who));
+            }
             b.part = part;
             if (b.name.empty() && part >= 0 && part < int(doc.parts.size())) b.name = doc.parts[std::size_t(part)].name;
             b.maxParticles = std::min(em.maxParticles, kParticleHardCap);

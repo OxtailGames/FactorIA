@@ -113,3 +113,14 @@ TEST_CASE("vfx_budget_limits: phone is the default") {
     CHECK(vfx_budget_limits("desktop").maxParticles > vfx_budget_limits("phone").maxParticles);
     CHECK(vfx_budget_limits("anything").name == "phone");
 }
+
+TEST_CASE("vfx_measure: a 3D emitter counts its particles and says its overdraw is not measured") {
+    const auto d = doc_of(R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"sparks","emitter":{"is3D":true,"burst":40,"lifetime":0.5,"startSize":500,"endSize":500}}]})");
+    const VfxBudget b = vfx_measure(*d);
+    CHECK(b.peakParticles == 40);
+    CHECK(b.peakOverdraw == 0.0);
+    REQUIRE(b.notes.size() == 1);
+    CHECK(b.notes[0].find("sparks") != std::string::npos);
+    CHECK(b.notes[0].find("3D") != std::string::npos);
+    CHECK(b.findings.empty());
+}

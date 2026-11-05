@@ -374,9 +374,12 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`input.record`](commands/game.md#inputrecord-modifies-state): Record the input the game receives as an input replay (start / stop). _Since 0.3.0._
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
+- [`vfx.budget`](commands/game.md#vfxbudget): What an effect document costs on a phone: live particles and the screen they cover, with the fixes. _Not released yet._
 - [`vfx.check`](commands/game.md#vfxcheck): Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix. _Not released yet._
+- [`vfx.filmstrip`](commands/game.md#vfxfilmstrip-modifies-state): Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once. _Not released yet._
 - [`vfx.list`](commands/game.md#vfxlist): The effects that play now, and the limits of an effect. _Not released yet._
 - [`vfx.play`](commands/game.md#vfxplay-modifies-state): Play an effect document (*.vfx.json) at a position, or on an entity. _Not released yet._
+- [`vfx.review`](commands/game.md#vfxreview-modifies-state): A cheap one-shot vision review of an effect: its filmstrip graded for readability, timing, palette and overdraw, with vfx.edit fixes. _Not released yet._
 - [`vfx.stop`](commands/game.md#vfxstop-modifies-state): End an effect started by vfx.play (or a Vfx entity). _Not released yet._
 
 ### [i18n](commands/i18n.md)
