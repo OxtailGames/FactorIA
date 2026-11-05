@@ -2,6 +2,7 @@
 #include <doctest.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <map>

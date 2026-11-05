@@ -22,6 +22,7 @@ CommandResult fail(std::string code, std::string message, std::string hint = {})
 }
 
 thread_local CommandProgressSink t_progress_sink;
+thread_local CommandCaller t_caller = CommandCaller::User;
 
 }  // namespace
 
@@ -30,6 +31,23 @@ CommandProgressScope::CommandProgressScope(CommandProgressSink sink) : previous_
 }
 
 CommandProgressScope::~CommandProgressScope() { t_progress_sink = std::move(previous_); }
+
+CommandCallerScope::CommandCallerScope(CommandCaller caller) : previous_(t_caller) {
+    if (previous_ == CommandCaller::User) t_caller = caller;  // never loosened: an agent inside an MCP call stays refused
+}
+
+CommandCallerScope::~CommandCallerScope() { t_caller = previous_; }
+
+CommandCaller command_caller() { return t_caller; }
+
+const char* command_caller_name(CommandCaller caller) {
+    switch (caller) {
+        case CommandCaller::User: return "the user";
+        case CommandCaller::Agent: return "an AI agent";
+        case CommandCaller::Mcp: return "an MCP client";
+    }
+    return "the user";
+}
 
 bool command_progress_active() { return static_cast<bool>(t_progress_sink); }
 
