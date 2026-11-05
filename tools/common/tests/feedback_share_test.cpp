@@ -2031,6 +2031,11 @@ TEST_CASE("share lock: skip, drop, confirm and discard with the lock busy fail w
     CHECK(load_feedback(t.fileA).value()["entries"].size() == 1);  // the entry is still in the file
     CHECK(t.box().items.size() == 1);
 
+    // An entry with nothing in the outbox is discarded without the lock (a read-only config folder, a busy lock).
+    CHECK(share_discard(t.s.env, t.fileA, {"FB-9999"}).ok());
+    CHECK(share_discard(t.s.env, t.fileB, {"FB-0001"}).ok());
+    CHECK(testing::read_all(t.box().path) == outboxBefore);
+
     // With the lock free every one of them works.
     std::filesystem::remove(lockPath, ec);
     CHECK(share_confirm(t.s.env, {key}).value_or(-1) == 1);

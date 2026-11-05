@@ -1572,15 +1572,21 @@ Json share_report_summary(const ShareEnv& env, const std::string& feedbackFile, 
 // ------------------------------------------------------------------------------------------------------- verdicts, discard
 
 Result<void> share_discard(const ShareEnv& env, const std::string& feedbackFile, const std::vector<std::string>& ids) {
+    KeyCacheScope keys;
+    const std::string fileKey = share_project_key(feedbackFile);
+    auto matches = [&](const OutboxItem& it) { return item_file_key(it) == fileKey && contains(ids, it.localId); };
+    // Deleting an entry that is not in the outbox (the usual case: a closed entry of a user who never shares) needs no lock,
+    // so it works with a read-only config folder and never waits on another process's lock. An entry that is not queued
+    // now cannot be queued after its deletion (share_queue reads the entry from the file), so the unlocked look is safe.
+    {
+        const Outbox peek = load_outbox(env);
+        if (std::none_of(peek.items.begin(), peek.items.end(), matches)) return {};
+    }
     ShareLock lock(env);
     if (!lock.held()) return lock_error(lock);
-    KeyCacheScope keys;
     Outbox box = load_outbox(env);
     const std::size_t before = box.items.size();
-    const std::string fileKey = share_project_key(feedbackFile);
-    box.items.erase(std::remove_if(box.items.begin(), box.items.end(),
-                                   [&](const OutboxItem& it) { return item_file_key(it) == fileKey && contains(ids, it.localId); }),
-                    box.items.end());
+    box.items.erase(std::remove_if(box.items.begin(), box.items.end(), matches), box.items.end());
     if (box.items.size() != before)
         if (auto sv = save_outbox(env, box); !sv.ok()) return sv;
     return {};
