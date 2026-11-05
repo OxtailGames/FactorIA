@@ -464,3 +464,93 @@ TEST_CASE("wfc: 64 x 64 from a 16 x 16 sample with n = 3 is quick") {
     CHECK_MESSAGE(ms < 60000.0, "took " << ms << " ms");
 #endif
 }
+
+// ------------------------------------------------------------------------------------------------ constraints (M63.2)
+
+namespace {
+
+wfc::GenerateOptions options_for(int w, int h, std::uint64_t seed, int maxAttempts = 10) {
+    wfc::GenerateOptions go;
+    go.width = w;
+    go.height = h;
+    go.seed = seed;
+    go.maxAttempts = maxAttempts;
+    return go;
+}
+
+std::unique_ptr<wfc::Generator> make_generator(std::shared_ptr<const wfc::PatternModel> model, wfc::GenerateOptions go) {
+    auto g = wfc::Generator::create(std::move(model), std::move(go));
+    REQUIRE_MESSAGE(g.ok(), (g.ok() ? std::string() : g.error().to_string()));
+    return std::move(*g);
+}
+
+}  // namespace
+
+TEST_CASE("wfc: the entropy heap stays within 4 entries per cell and the memory estimate covers what was held") {
+    // A sample with many different patterns, so every observation changes many cells and leaves stale heap entries behind.
+    Rows noisy;
+    std::uint32_t state = 12345;
+    for (int y = 0; y < 40; ++y) {
+        std::string row;
+        for (int x = 0; x < 40; ++x) {
+            state = state * 1664525u + 1013904223u;
+            row += char('a' + int((state >> 24) % 5u));
+        }
+        noisy.push_back(row);
+    }
+    auto model = overlapping(noisy, 3, 1, true);
+    REQUIRE(model->pattern_count() > 300u);
+    auto go = options_for(40, 40, 3, 100);
+    go.periodic = true;
+    auto g = make_generator(model, go);
+    g->run();
+    const wfc::GenStats& st = g->stats();
+    CHECK(st.heapPeak > 0u);
+    CHECK(st.heapPeak <= 4u * std::size_t(st.cells));
+    CHECK(st.peakBytes > 0u);
+    CHECK(st.peakBytes <= st.memoryBytes);
+    CHECK(st.work > 0);
+
+    // A regular sample on a bigger grid leaves many stale entries: the heap is rebuilt instead of growing, and the estimate holds.
+    auto m16 = overlapping(kMap16, 3, 1, true);
+    auto big = options_for(96, 96, 4, 20);
+    big.periodic = true;
+    auto g16 = make_generator(m16, big);
+    REQUIRE_MESSAGE(g16->run() == wfc::GenStatus::Done, g16->failure_message());
+    CHECK(g16->stats().heapRebuilds > 0);
+    CHECK(g16->stats().heapPeak <= 4u * std::size_t(g16->stats().cells));
+    CHECK(g16->stats().peakBytes <= g16->stats().memoryBytes);
+
+    // The sample's model is part of the estimate: a bigger model costs more for the same output size.
+    auto small = overlapping(kRooms, 3, 1, false);
+    CHECK(wfc::estimate_generator_memory(*model, 40, 40, true) > wfc::estimate_generator_memory(*small, 40, 40, true));
+}
+
+TEST_CASE("wfc: weights above 2^32 and an oversized tiled adjacency table are refused with a teaching error") {
+    auto message = [](const Error& e) { return e.message + " | " + e.hint; };
+    auto terrains = grass_water();
+    auto heavy = wfc::build_terrain_model(terrains, {{0, 4000000000u}, {1, 4000000000u}});
+    REQUIRE_FALSE(heavy.ok());
+    CHECK(message(heavy.error()).find("weights add up") != std::string::npos);
+
+    // A hand-made model whose weights overflow is refused when the generator is created.
+    auto model = std::make_shared<wfc::PatternModel>(*overlapping(kRooms, 3, 1, false));
+    model->weights[0] = 0xFFFFFFFFu;
+    auto g = wfc::Generator::create(model, options_for(10, 10, 1));
+    REQUIRE_FALSE(g.ok());
+    CHECK(message(g.error()).find("weights add up") != std::string::npos);
+    model->weights[0] = 0;
+    auto zero = wfc::Generator::create(model, options_for(10, 10, 1));
+    REQUIRE_FALSE(zero.ok());
+    CHECK(message(zero.error()).find("weight 0") != std::string::npos);
+
+    // The tiled model has the same adjacency limit as the overlapping one: 20000 tiles of a terrain are far over it.
+    Terrain wide;
+    wide.name = "wide";
+    wide.mode = AutotileMode::Basic16;
+    wide.slots.assign(autotile_masks(wide.mode).size(), {});
+    for (int i = 0; i < 12000; ++i) wide.slots[std::size_t(i) % wide.slots.size()].push_back(i);
+    auto big = wfc::build_terrain_model({wide}, {});
+    REQUIRE_FALSE(big.ok());
+    CHECK(message(big.error()).find("adjacency table") != std::string::npos);
+}

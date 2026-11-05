@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdio>
 #include <map>
+#include <string>
 
 #include "fa/core/math.h"
 
@@ -36,6 +37,11 @@ std::string mb(std::size_t bytes) {
     char buf[32];
     std::snprintf(buf, sizeof buf, "%.0f", v < 1.0 ? 1.0 : v);
     return std::string(buf) + " MB";
+}
+
+Error compat_table_error(std::size_t patterns, const char* who) {
+    return Error{std::string(who) + " has " + std::to_string(patterns) + " patterns and their adjacency table would hold more than " + std::to_string(kMaxCompatEntries) + " entries",
+                 "Use a smaller or less uniform sample, a bigger n (patterns constrain each other more), or symmetry 1; for the tiled model, fewer tiles per terrain."};
 }
 
 // ------------------------------------------------------------------------------------------------ pattern transforms
@@ -109,7 +115,7 @@ Result<std::shared_ptr<PatternModel>> build_overlapping_model(const Sample& samp
     const std::size_t nn = std::size_t(n) * std::size_t(n);
 
     // 1. The patterns, numbered in the order they are first met (rows top to bottom, windows left to right, variants in a fixed order).
-    std::map<Pat, std::size_t> index;
+    std::map<Pat, std::size_t> patternIndex;
     std::vector<Pat> patterns;
     std::vector<std::uint32_t>& weights = model->weights;
     const int xEnd = options.periodicInput ? sample.width : sample.width - n + 1;
@@ -121,13 +127,13 @@ Result<std::shared_ptr<PatternModel>> build_overlapping_model(const Sample& samp
                 for (int dx = 0; dx < n; ++dx)
                     window[std::size_t(dy * n + dx)] = sample.cells[std::size_t((y + dy) % sample.height) * std::size_t(sample.width) + std::size_t((x + dx) % sample.width)];
             for (Pat& v : variants(window, n, options.symmetry)) {
-                auto it = index.find(v);
-                if (it == index.end()) {
+                auto it = patternIndex.find(v);
+                if (it == patternIndex.end()) {
                     if (patterns.size() >= kMaxPatterns)
                         return make_error("The sample has more than " + std::to_string(kMaxPatterns) + " distinct " + std::to_string(n) + " x " + std::to_string(n) +
                                               " patterns, more than the generator handles",
                                           "Use a smaller or more regular sample, a smaller n, or a lower symmetry (symmetry 1 keeps only the patterns the sample shows).");
-                    it = index.emplace(v, patterns.size()).first;
+                    it = patternIndex.emplace(v, patterns.size()).first;
                     patterns.push_back(v);
                     weights.push_back(0);
                 }
@@ -135,6 +141,11 @@ Result<std::shared_ptr<PatternModel>> build_overlapping_model(const Sample& samp
             }
         }
     const std::size_t count = patterns.size();
+    std::uint64_t totalWeight = 0;
+    for (std::uint32_t w : weights) totalWeight += w;
+    if (totalWeight > kMaxTotalWeight)
+        return make_error("The pattern counts add up to " + std::to_string(totalWeight) + ", more than the " + std::to_string(kMaxTotalWeight) + " the weighted choice can draw from",
+                          "Use a smaller sample or a lower symmetry.");
     model->symbols.reserve(count * nn);
     for (const Pat& p : patterns) model->symbols.insert(model->symbols.end(), p.begin(), p.end());
 
@@ -168,10 +179,7 @@ Result<std::shared_ptr<PatternModel>> build_overlapping_model(const Sample& samp
                 entries += it->second.size();
             }
         }
-        if (entries > kMaxCompatEntries)
-            return make_error("The sample has " + std::to_string(count) + " patterns and their adjacency table would hold more than " + std::to_string(kMaxCompatEntries) +
-                                  " entries",
-                              "Use a smaller or less uniform sample, a bigger n (patterns constrain each other more), or symmetry 1.");
+        if (entries > kMaxCompatEntries) return compat_table_error(count, "The sample");
         for (std::size_t p = 0; p < count; ++p)
             if (match[p]) model->compat[d][p] = *match[p];
     }
@@ -224,18 +232,29 @@ Result<TerrainModel> build_terrain_model(const std::vector<Terrain>& terrains, c
     auto bit = [&](const P& p, int d) { return (p.mask & kBit[d]) != 0; };
 
     const std::size_t count = pats.size();
+    std::uint64_t totalWeight = 0;
     for (const P& p : pats) {
         auto it = weightOf.find(p.value);
-        m.weights.push_back(it == weightOf.end() ? 1u : std::max<std::uint32_t>(1u, it->second));
+        const std::uint32_t w = it == weightOf.end() ? 1u : std::max<std::uint32_t>(1u, it->second);
+        m.weights.push_back(w);
+        totalWeight += w;
         m.symbols.push_back(symbolOf[p.value]);
         out.patternTerrain.push_back(p.terrain < 0 ? std::string() : terrains[std::size_t(p.terrain)].name);
     }
+    if (totalWeight > kMaxTotalWeight)
+        return make_error("The tile weights add up to " + std::to_string(totalWeight) + " over the " + std::to_string(count) + " patterns, more than the " +
+                              std::to_string(kMaxTotalWeight) + " the weighted choice can draw from",
+                          "Use smaller weights.");
+    std::size_t entries = 0;
     for (int d = 0; d < kDirs; ++d) {
         m.compat[d].resize(count);
-        for (std::size_t p = 0; p < count; ++p)
+        for (std::size_t p = 0; p < count; ++p) {
             for (std::size_t q = 0; q < count; ++q)
                 if (bit(pats[p], d) == counts(pats[p].terrain, pats[q].terrain) && bit(pats[q], d ^ 2) == counts(pats[q].terrain, pats[p].terrain))
                     m.compat[d][p].push_back(std::uint16_t(q));
+            entries += m.compat[d][p].size();
+            if (entries > kMaxCompatEntries) return compat_table_error(count, "The terrain rules");
+        }
     }
     m.edgeOk.assign(count * kDirs, 1);
     for (std::size_t p = 0; p < count; ++p)
@@ -261,12 +280,32 @@ int wave_side(int output, int n, bool periodic) { return periodic ? output : out
 
 }  // namespace
 
+namespace {
+
+constexpr std::size_t kHeapEntryBytes = 24;      // sizeof(Impl::HeapEntry), checked by a static_assert below
+constexpr std::size_t kHeapEntriesPerCell = 4;   // the heap is rebuilt before it grows past this many entries per cell
+constexpr std::size_t kRemovedBytes = 8;         // sizeof(Impl::Removed)
+
+std::size_t model_bytes(const PatternModel& model) {
+    std::size_t entries = 0;
+    for (int d = 0; d < kDirs; ++d)
+        for (const auto& v : model.compat[d]) entries += v.size();
+    const std::size_t T = model.pattern_count();
+    return entries * sizeof(std::uint16_t) + T * kDirs * sizeof(std::vector<std::uint16_t>) + model.symbols.size() * sizeof(int) + T * sizeof(std::uint32_t) +
+           model.edgeOk.size();
+}
+
+}  // namespace
+
 std::size_t estimate_generator_memory(const PatternModel& model, int width, int height, bool periodic) {
     const std::size_t cells = std::size_t(std::max(1, wave_side(width, model.n, periodic))) * std::size_t(std::max(1, wave_side(height, model.n, periodic)));
     const std::size_t T = model.pattern_count();
     const std::size_t words = (T + 63) / 64;
-    // wave bits, four u16 support counters per pattern, and per cell: remaining, sums, noise, stamp, flags and a heap entry or two.
-    return cells * (words * 8 + T * kDirs * 2 + 4 + 8 + 8 + 4 + 4 + 1 + 2 * 24) + T * 16 + width * std::size_t(height) * 8;
+    // Per cell: the wave bits, four u16 support counters per pattern, remaining, the two sums, noise, stamp, a flag, a dirty entry and
+    // up to kHeapEntriesPerCell heap entries. The stack of pending removals holds a cell once per pattern at the very most (a pattern
+    // leaves a cell once), so its worst case is cells * T entries; its growth is capped there. Then the model and the output.
+    const std::size_t perCell = words * 8 + T * kDirs * 2 + 4 + 8 + 8 + 4 + 4 + 1 + 4 + kHeapEntriesPerCell * kHeapEntryBytes + T * kRemovedBytes;
+    return cells * perCell + T * 16 + model_bytes(model) + std::size_t(width) * std::size_t(height) * 8 + cells * 4;
 }
 
 struct Generator::Impl {
@@ -281,6 +320,7 @@ struct Generator::Impl {
     std::vector<std::uint16_t> supportInit;            // T * 4: the support counters of a fresh cell
     std::vector<std::uint32_t> special;                // patterns that cannot stand in the middle of the map or at an edge in some direction
     std::vector<std::vector<char>> ruleMask;           // per cell rule: allowed symbol flags
+    std::size_t stackCap = 0;                          // most entries the removal stack can ever hold
 
     // state of the attempt
     std::vector<std::uint64_t> wave;
@@ -296,6 +336,7 @@ struct Generator::Impl {
         std::uint32_t cell;
         std::uint32_t pattern;
     };
+    static_assert(sizeof(Removed) == kRemovedBytes, "estimate_generator_memory assumes the size of Removed");
     std::vector<Removed> stack;
     struct HeapEntry {
         std::int64_t key;
@@ -303,6 +344,7 @@ struct Generator::Impl {
         std::uint32_t cell;
         std::uint32_t stamp;
     };
+    static_assert(sizeof(HeapEntry) == kHeapEntryBytes, "estimate_generator_memory assumes the size of HeapEntry");
     std::vector<HeapEntry> heap;
     static bool heap_after(const HeapEntry& a, const HeapEntry& b) {  // "a comes after b": a min-heap on (key, noise, cell)
         if (a.key != b.key) return a.key > b.key;
@@ -340,6 +382,7 @@ struct Generator::Impl {
         const std::uint32_t before = remaining[cell]--;
         sumW[cell] -= model->weights[p];
         sumWL[cell] -= std::int64_t(model->weights[p]) * logw[p];
+        if (stack.size() == stack.capacity()) stack.reserve(std::min(stackCap, std::max<std::size_t>(1024, stack.capacity() * 2)));
         stack.push_back({std::uint32_t(cell), std::uint32_t(p)});
         touch(cell);
         if (before == 2) --undecided;
@@ -361,7 +404,26 @@ struct Generator::Impl {
         return true;
     }
 
-    void begin_attempt() {
+    // The wave cells that cover output cell (x, y) lose every pattern that puts a symbol outside `okSymbol` there.
+    void restrict_output_cell(int x, int y, const std::vector<char>& okSymbol) {
+        const int n = model->n;
+        for (int oy = 0; oy < n; ++oy)
+            for (int ox = 0; ox < n; ++ox) {
+                int cx = x - ox, cy = y - oy;
+                if (opt.periodic) {
+                    cx = ((cx % wc) + wc) % wc;
+                    cy = ((cy % hc) + hc) % hc;
+                } else if (cx < 0 || cy < 0 || cx >= wc || cy >= hc) {
+                    continue;
+                }
+                const std::size_t cell = std::size_t(cy) * std::size_t(wc) + std::size_t(cx);
+                for (std::size_t p = 0; p < T; ++p)
+                    if (present(cell, p) && !okSymbol[std::size_t(model->symbol_at(p, ox, oy))]) ban(cell, p);
+            }
+    }
+
+    // Starts an attempt; returns the work it took (units, see Generator::step).
+    std::int64_t begin_attempt() {
         ++attempt;
         ++stats.attempts;
         attemptRunning = true;
@@ -403,24 +465,12 @@ struct Generator::Impl {
                 }
             }
         // Cell rules: every wave cell that covers the output cell loses the patterns that put another symbol there.
-        const int n = model->n;
+        std::int64_t work = std::int64_t(cells);
         for (std::size_t r = 0; r < opt.cellRules.size() && !contradiction; ++r) {
-            const CellRule& rule = opt.cellRules[r];
-            const std::vector<char>& okSymbol = ruleMask[r];
-            for (int oy = 0; oy < n; ++oy)
-                for (int ox = 0; ox < n; ++ox) {
-                    int cx = rule.x - ox, cy = rule.y - oy;
-                    if (opt.periodic) {
-                        cx = ((cx % wc) + wc) % wc;
-                        cy = ((cy % hc) + hc) % hc;
-                    } else if (cx < 0 || cy < 0 || cx >= wc || cy >= hc) {
-                        continue;
-                    }
-                    const std::size_t cell = std::size_t(cy) * std::size_t(wc) + std::size_t(cx);
-                    for (std::size_t p = 0; p < T; ++p)
-                        if (present(cell, p) && !okSymbol[std::size_t(model->symbol_at(p, ox, oy))]) ban(cell, p);
-                }
+            restrict_output_cell(opt.cellRules[r].x, opt.cellRules[r].y, ruleMask[r]);
+            work += std::int64_t(model->n) * model->n;
         }
+        return work;
     }
 
     // Removes the support of one banned pattern from its neighbours; false when a cell ran out of patterns.
@@ -445,6 +495,19 @@ struct Generator::Impl {
         for (std::uint32_t c : dirty) {
             dirtyFlag[c] = 0;
             ++stamp[c];
+        }
+        // Stale entries pile up (every change of a cell leaves its old entry behind): when the heap could pass its allowance, keep
+        // only the entry each undecided cell still has valid. The order of a heap of distinct (key, noise, cell) triples does not
+        // depend on how it was built, so this changes no result.
+        if (heap.size() + dirty.size() > kHeapEntriesPerCell * cells) {
+            std::size_t kept = 0;
+            for (const HeapEntry& e : heap)
+                if (e.stamp == stamp[e.cell] && remaining[e.cell] > 1) heap[kept++] = e;
+            heap.resize(kept);
+            std::make_heap(heap.begin(), heap.end(), heap_after);
+            ++stats.heapRebuilds;
+        }
+        for (std::uint32_t c : dirty) {
             if (remaining[c] > 1) {
                 const std::int64_t entropy = log2_q20(sumW[c]) - sumWL[c] / std::int64_t(sumW[c]);
                 heap.push_back({entropy, noise[c], c, stamp[c]});
@@ -452,6 +515,7 @@ struct Generator::Impl {
             }
         }
         dirty.clear();
+        stats.heapPeak = std::max(stats.heapPeak, heap.size());
     }
 
     // The cell with the lowest entropy that is still undecided; false when every cell holds one pattern.
@@ -543,15 +607,20 @@ struct Generator::Impl {
         status = GenStatus::Done;
     }
 
+    std::size_t bytes_held() const {
+        return wave.capacity() * sizeof(std::uint64_t) + support.capacity() * sizeof(std::uint16_t) + remaining.capacity() * sizeof(std::uint32_t) +
+               sumW.capacity() * sizeof(std::uint64_t) + sumWL.capacity() * sizeof(std::int64_t) + noise.capacity() * sizeof(std::uint32_t) +
+               stamp.capacity() * sizeof(std::uint32_t) + dirtyFlag.capacity() + dirty.capacity() * sizeof(std::uint32_t) + stack.capacity() * sizeof(Removed) +
+               heap.capacity() * sizeof(HeapEntry) + output.capacity() * sizeof(int) + logw.capacity() * sizeof(std::int64_t) +
+               supportInit.capacity() * sizeof(std::uint16_t) + model_bytes(*model);
+    }
+
     GenStatus step(std::int64_t budget) {
         if (status != GenStatus::Running) return status;
         const auto t0 = std::chrono::steady_clock::now();
         std::int64_t work = 0;
         while (status == GenStatus::Running && work < budget) {
-            if (!attemptRunning) {
-                begin_attempt();
-                work += std::int64_t(cells);
-            }
+            if (!attemptRunning) work += begin_attempt();
             if (contradiction) {
                 fail_attempt(int(contradictionCell % std::uint32_t(wc)), int(contradictionCell / std::uint32_t(wc)), "contradiction", true);
                 continue;
@@ -570,6 +639,8 @@ struct Generator::Impl {
             observe(cell);
             ++work;
         }
+        stats.work += work;
+        stats.peakBytes = std::max(stats.peakBytes, bytes_held());
         stats.ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         return status;
     }
@@ -601,6 +672,16 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
             if (s < 0 || s >= model->symbolCount)
                 return make_error("Cell rule " + std::to_string(r) + " allows symbol " + std::to_string(s) + " but the model has symbols 0.." + std::to_string(model->symbolCount - 1));
     }
+    // ---- weights: a model whose weights cannot be drawn from is refused before anything runs
+    std::uint64_t totalWeight = 0;
+    for (std::uint32_t w : model->weights) {
+        if (w == 0) return make_error("The model has a pattern with weight 0", "Every pattern weighs at least 1.");
+        totalWeight += w;
+    }
+    if (totalWeight > kMaxTotalWeight)
+        return make_error("The pattern weights add up to " + std::to_string(totalWeight) + ", more than the " + std::to_string(kMaxTotalWeight) + " the weighted choice can draw from",
+                          "Use smaller weights or a smaller sample.");
+
     const std::size_t need = estimate_generator_memory(*model, options.width, options.height, options.periodic);
     if (need > kWfcMemoryBudget) {
         const std::size_t perCell = std::max<std::size_t>(1, need / (std::size_t(options.width) * std::size_t(options.height)));
@@ -638,6 +719,9 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
         for (int s : rule.allowed) ok[std::size_t(s)] = 1;
         I.ruleMask.push_back(std::move(ok));
     }
+    I.stackCap = I.cells * I.T;
+    I.heap.reserve(kHeapEntriesPerCell * I.cells);
+    I.dirty.reserve(I.cells);
     I.wave.resize(I.cells * I.words);
     I.support.resize(I.cells * I.T * kDirs);
     I.remaining.resize(I.cells);

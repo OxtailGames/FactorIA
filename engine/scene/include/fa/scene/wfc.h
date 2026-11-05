@@ -21,9 +21,13 @@
 // integer fixed point (a Q20 base-2 logarithm built from integer shifts, no <cmath>), every container that decides an order is
 // an ordered one, and ties are broken by a number drawn per cell at the start of the attempt, then by the cell index.
 //
-// MEMORY AND TIME. The solver keeps, per output cell, a bit per pattern and four 16-bit support counters per pattern;
-// estimate_generator_memory() says how many bytes that is before anything is allocated, and the commands refuse a request
-// above kWfcMemoryBudget with a message that says what to shrink.
+// MEMORY AND TIME. The solver keeps, per output cell, a bit per pattern and four 16-bit support counters per pattern, plus a
+// stack of pending removals (at most one per cell and pattern) and the entropy heap (at most 4 entries per cell: it is rebuilt
+// when stale entries would push it past that); estimate_generator_memory() adds the model's own tables and says how many bytes
+// that is before anything is allocated, and create() refuses a request above kWfcMemoryBudget with a message that says what to
+// shrink. GenStats::peakBytes is what the vectors really held at the end, always at most the estimate. `ms` in the stats is the
+// wall time and `memoryBytes` / `peakBytes` are byte counts of this compiler's containers: they differ between runs and machines and are NOT
+// part of the determinism promise; `work` and the other counters are.
 #pragma once
 
 #include <cstddef>
@@ -46,6 +50,7 @@ constexpr std::size_t kMaxSampleCells = 262144;             // 512 x 512
 constexpr int kMaxOutputSide = 2048;
 constexpr std::size_t kWfcMemoryBudget = 256u * 1024u * 1024u;  // bytes of solver state of one generation
 constexpr int kMaxAttempts = 1000;
+constexpr std::uint64_t kMaxTotalWeight = 0xFFFFFFFFull;      // the weights of a model add up to less than 2^32 (the weighted choice draws 32 bits)
 
 // Directions of the grid, in the order every per-direction array uses: +x (east), +y (south: rows grow downwards), -x, -y.
 // opposite(d) == d ^ 2.
@@ -86,7 +91,7 @@ struct OverlapOptions {
 
 // Learns the n x n patterns of the sample (and their rotations / mirrors for symmetry > 1) with their counts, and which of them
 // overlap consistently in each direction. Errors teach: an empty sample, n out of range, a sample smaller than n, more than
-// kMaxPatterns distinct patterns.
+// kMaxPatterns distinct patterns, an adjacency table above kMaxCompatEntries.
 Result<std::shared_ptr<PatternModel>> build_overlapping_model(const Sample& sample, const OverlapOptions& options);
 
 // The tiled model made from autotile rules: one pattern per (tile value, slot) of every terrain plus the empty cell. Two
@@ -94,7 +99,8 @@ Result<std::shared_ptr<PatternModel>> build_overlapping_model(const Sample& samp
 // neighbour of its terrain (or one that terrain joins), and a tile whose east bit is clear needs one that is not. The slot's
 // four orthogonal bits are the sockets; the diagonal bits of blob47 are not: run retile_terrain_grid() (fa/scene/autotile.h) on the result. The symbol of a pattern is
 // the index of its tile value in `tileValues`. `tileWeights` (tile value -> weight, optional) sets the weight of every
-// pattern of that tile value; a tile value not listed weighs 1.
+// pattern of that tile value; a tile value not listed weighs 1. The weights of all the patterns together must stay below 2^32
+// and the adjacency table below kMaxCompatEntries (the same limits as the overlapping model); an error says what to change.
 struct TerrainModel {
     std::shared_ptr<PatternModel> model;
     std::vector<int> tileValues;                 // symbol id -> tile value (-1 = empty is always symbol 0)
@@ -133,8 +139,12 @@ struct GenStats {
     std::int64_t propagations = 0;               // patterns removed from cells
     int patterns = 0;                            // patterns of the model
     int cells = 0;                               // cells of the solver (the pattern grid: smaller than the output for a non-periodic overlapping model)
-    double ms = 0.0;                             // wall time spent in step() (informational: not deterministic)
-    std::size_t memoryBytes = 0;                 // solver state
+    std::int64_t work = 0;                       // units of work done (see Generator::step): deterministic, unlike `ms`
+    double ms = 0.0;                             // wall time spent in step(): it differs between runs and machines and is NOT part of the determinism promise
+    std::size_t memoryBytes = 0;                 // estimate_generator_memory(): the solver state and the model, an upper bound
+    int heapRebuilds = 0;                        // times the entropy heap was rebuilt without its stale entries
+    std::size_t heapPeak = 0;                    // most entries the entropy heap held (at most 4 per cell)
+    std::size_t peakBytes = 0;                   // what the solver's vectors held at their largest (<= memoryBytes)
     std::uint64_t seedUsed = 0;                  // the derived seed of the attempt that is running or succeeded
     std::vector<int> symbolCounts;               // after Done: how many output cells hold each symbol
 };
@@ -147,7 +157,7 @@ struct GenFailure {
     std::string reason;                          // "contradiction" or what `accept` said
 };
 
-// Bytes of solver state for this model and size (what create() would allocate).
+// An upper bound of the bytes the model's tables and the solver state take for this model and size.
 std::size_t estimate_generator_memory(const PatternModel& model, int width, int height, bool periodic);
 
 // The seed of attempt `attempt` (0-based): the same on every platform.
@@ -159,12 +169,11 @@ public:
     Generator(const Generator&) = delete;
     Generator& operator=(const Generator&) = delete;
 
-    // Checks the options (size, periodic size against n, cell rules inside the grid with symbols the model has, memory budget)
-    // and prepares the first attempt. The model is kept alive by the generator.
+    // Checks the options (size, periodic size against n, cell rules inside the grid with symbols the model has, weights, memory budget) and prepares the first attempt. The model is kept alive by the generator.
     static Result<std::unique_ptr<Generator>> create(std::shared_ptr<const PatternModel> model, GenerateOptions options);
 
     // Does at most `workBudget` units of work (a unit is one pattern removed from a cell or one cell observed; starting an
-    // attempt counts one unit per cell) and returns where it stands. The budget may be overshot by one propagation front.
+    // attempt counts one unit per cell and one per cell rule and offset) and returns where it stands. The budget may be overshot by one propagation front.
     GenStatus step(std::int64_t workBudget);
     // step() until Done or Failed.
     GenStatus run();
