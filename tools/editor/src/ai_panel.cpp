@@ -29,6 +29,7 @@
 
 #include "editor_internal.h"
 #include "fa/ai/commands.h"
+#include "fa/ai/project_settings.h"
 #include "fa/mcp/server.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
@@ -401,10 +402,7 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry(AiRun& run) {
     // ai.run: a CLI orchestrator delegates with it over MCP. It runs on the caller's thread (an MCP connection), not
     // through the queue: the sub-agent's own commands come back through this proxy, so the main thread stays free.
     ai::AiCommandOptions ao;
-    ao.loadConfig = [this]() -> Result<ai::AiConfig> {
-        std::lock_guard<std::mutex> lock(aiMu_);
-        return aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
-    };
+    ao.loadConfig = [this]() -> Result<ai::AiConfig> { return ai_project_config(true); };
     ao.projectDir = [dir = projectDir_] { return dir; };
     ao.providerFactory = aiFactory_;
     ao.cancel = &r->cancel;
@@ -439,8 +437,91 @@ bool Editor::ai_running() const {
 }
 
 int Editor::ai_max_runs() {
-    std::lock_guard<std::mutex> lock(aiMu_);
-    return std::clamp(aiConfig_.limits.maxConcurrentRuns, 1, ai::kMaxConcurrentRunsCap);
+    int limit = 1;
+    if (!ai_with_project_config([&](const ai::AiConfig& cfg) { limit = cfg.limits.maxConcurrentRuns; })) {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        limit = aiConfig_.limits.maxConcurrentRuns;
+    }
+    return std::clamp(limit, 1, ai::kMaxConcurrentRunsCap);
+}
+
+// The project's config: the editor's in-memory ai.json with the project's settings file on top (ai::resolve_ai_config_over), so
+// the editor has one source for the user's side. A project without a settings file runs with aiConfig_ exactly as it is, passed
+// by reference (no copy: the panels ask every frame). With a file, the resolution is cached for a second (the panels share it) and
+// a run (`fresh`) resolves again. The existence of the file is checked at most once a second as well, not per frame and panel.
+bool Editor::ai_with_project_config(const std::function<void(const ai::AiConfig&)>& use, Error* error, bool fresh) {
+    const long long nowMs = now_ms();
+    std::string key;
+    bool hasFile = false;
+    std::shared_ptr<const ai::AiConfig> cached;  // a resolution from the last second
+    bool cacheHit = false;
+    Error cachedError;
+    {
+        std::lock_guard<std::mutex> lock(aiProjMu_);
+        if (!projectDir_.empty() && (fresh || aiProjFileDir_ != projectDir_ || nowMs - aiProjFileAtMs_ >= 1000)) {
+            std::error_code ec;  // never the throwing overload: this runs on the UI thread every frame
+            aiProjFileDir_ = projectDir_;
+            aiProjFileAtMs_ = nowMs;
+            aiProjHasFile_ = std::filesystem::is_regular_file(utf8_path(projectDir_) / ".factoria" / "ai" / "settings.json", ec);
+        }
+        hasFile = !projectDir_.empty() && aiProjHasFile_;
+        key = projectDir_;
+        if (hasFile && !fresh && aiProjKey_ == key && nowMs - aiProjAtMs_ < 1000) {
+            cacheHit = true;
+            cached = aiProjConfig_;
+            cachedError = aiProjError_;
+        }
+    }
+    if (cacheHit) {  // `use` runs without the cache lock: it may ask for the config again
+        if (!cached) {
+            if (error) *error = cachedError;
+            return false;
+        }
+        use(*cached);
+        return true;
+    }
+    if (!hasFile) {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        if (aiConfig_.providers.empty()) {
+            const ai::AiConfig defaults = ai::default_config();
+            use(defaults);
+        } else {
+            use(aiConfig_);
+        }
+        return true;
+    }
+    ai::AiConfig inherited;
+    {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        inherited = aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
+    }
+    auto resolved = ai::resolve_ai_config_over(key, inherited);
+    std::shared_ptr<const ai::AiConfig> config;
+    {
+        std::lock_guard<std::mutex> lock(aiProjMu_);
+        aiProjKey_ = key;
+        aiProjAtMs_ = nowMs;
+        if (resolved) {
+            aiProjConfig_ = std::make_shared<const ai::AiConfig>(std::move(resolved->config));
+            config = aiProjConfig_;
+        } else {
+            aiProjConfig_.reset();
+            aiProjError_ = resolved.error();
+        }
+    }
+    if (!config) {
+        if (error) *error = resolved.error();
+        return false;
+    }
+    use(*config);
+    return true;
+}
+
+Result<ai::AiConfig> Editor::ai_project_config(bool fresh) {
+    std::optional<ai::AiConfig> copy;
+    Error error;
+    if (!ai_with_project_config([&](const ai::AiConfig& cfg) { copy = cfg; }, &error, fresh)) return error;
+    return std::move(*copy);
 }
 
 // The chat tabs belong to the open project (<project>/.factoria/ai/chats): when the project changed (boot() stopped the
@@ -582,12 +663,22 @@ void Editor::ai_launch(AiRun& run, const std::string& prompt, const std::vector<
         return;
     }
     if (run.thread.joinable()) run.thread.join();
-    ai::AiConfig cfg;
-    {
-        std::lock_guard<std::mutex> lock(aiMu_);
-        cfg = aiConfig_;
-        if (cfg.providers.empty()) cfg = ai::default_config();
+    auto resolved = ai_project_config(true);
+    if (!resolved) {
+        // The project's AI settings file is invalid (or ai.json is): the run ends with the error that names the file, the JSON
+        // pointer and the fix, instead of running with settings the user did not mean.
+        ai::SessionResult res;
+        res.ok = false;
+        res.stopReason = "error";
+        res.error = resolved.error().message;
+        res.hint = resolved.error().hint;
+        run.running = true;
+        run.lastActivityMs = now_ms();
+        run.turn_ended(std::move(res));
+        return;
     }
+    ai::AiConfig cfg = std::move(*resolved);
+    run.stuckAfterSeconds = cfg.limits.stuckAfterSeconds;
     ai::SessionOptions opt;
     opt.projectDir = projectDir_;
     // The orchestrator hands the work to the other roles itself (the "AI roles" popup). A review (ai_review.cpp) runs a critic or
@@ -744,7 +835,8 @@ void Editor::ai_check_activity(AiRun& run) {
     }
     {
         std::lock_guard<std::mutex> lock(aiMu_);
-        if (aiConfig_.limits.stuckAfterSeconds > 0) stuckAfter = aiConfig_.limits.stuckAfterSeconds;
+        const int configured = run.stuckAfterSeconds.load() >= 0 ? run.stuckAfterSeconds.load() : aiConfig_.limits.stuckAfterSeconds;
+        if (configured > 0) stuckAfter = configured;
     }
     ai::ActivityInput in;
     in.runSeconds = static_cast<double>(nowM - run.startMs.load()) / 1000.0;
@@ -1384,8 +1476,9 @@ void Editor::draw_ai_panel() {
     const float noticeH = playNotice_.empty() ? 0.0f : ImGui::GetFrameHeightWithSpacing();
     // The run's status lines (below the transcript): the pulse, "worker still running", the stuck warning.
     const bool showDetached = isRunTab && run->detached.load();
-    const bool showStuck = isRunTab && cfg.limits.stuckAfterSeconds > 0 &&
-                           static_cast<double>(now_ms() - run->lastActivityMs.load()) / 1000.0 >= cfg.limits.stuckAfterSeconds &&
+    const int stuckSeconds = isRunTab && run->stuckAfterSeconds.load() >= 0 ? run->stuckAfterSeconds.load() : cfg.limits.stuckAfterSeconds;
+    const bool showStuck = isRunTab && stuckSeconds > 0 &&
+                           static_cast<double>(now_ms() - run->lastActivityMs.load()) / 1000.0 >= stuckSeconds &&
                            now_seconds() >= run->snoozeUntil;
     const float statusH = !isRunTab ? 0.0f : ImGui::GetFrameHeightWithSpacing() * (1.0f + (showDetached ? 2.0f : 0.0f) + (showStuck ? 2.0f : 0.0f));
     const float footer = stripH + noticeH + statusH + kGripH + ImGui::GetStyle().ItemSpacing.y + inputH +

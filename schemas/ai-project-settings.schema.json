@@ -1,0 +1,132 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FactorIA AI settings of one project (<project>/.factoria/ai/settings.json)",
+  "description": "What this project changes in your AI settings (~/.factoria/ai.json): which roles are on and which provider, model and effort they use, the limits of a run, the provider of each kind of asset, the sites to look at for assets, the token savers, and which of YOUR tool servers (mcpServers) and extensions are on for this project. Every key is optional; a key that is missing is inherited (engine defaults, then your ai.json, then this file). The file lives inside .factoria/, which a game project keeps out of git: it is your choice for this project, not part of the game. It can only NAME providers, tool servers and extensions your ai.json defines: a command, an address, a header, an environment variable or a key is an error here (put those in ~/.factoria/ai.json), so a copied project can never run a program or spend a key. A file that came with a copied or unzipped project (not saved on this computer by FactorIA) applies only after you accept it once in the editor; until then the project behaves as without it. The editor's AI settings window and `factoria ai doctor` show which values come from the project. See docs/AI_PROVIDERS.md, \"Per project\".",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "roles": {
+      "type": "object",
+      "description": "Per role, the fields this project changes; the other fields (and the other roles) keep what your ai.json says. Setting a provider that differs from the inherited one resets the role's model and effort to that provider's defaults unless this file gives them too. The orchestrator cannot be turned off.",
+      "properties": {
+        "orchestrator": { "$ref": "#/$defs/role" },
+        "worker": { "$ref": "#/$defs/role" },
+        "fast": { "$ref": "#/$defs/role" },
+        "artist": { "$ref": "#/$defs/role" },
+        "audio": { "$ref": "#/$defs/role" },
+        "artCritic": { "$ref": "#/$defs/role" },
+        "reviewer": { "$ref": "#/$defs/role" }
+      },
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "description": "Safety limits of one agent run in this project, key by key (the keys of ai.json's limits).",
+      "properties": {
+        "maxTurns": { "type": "integer", "minimum": 1 },
+        "maxCostUsd": { "type": "number", "minimum": 0, "description": "0 = unlimited." },
+        "maxTotalTokens": { "type": "integer", "minimum": 0, "description": "0 = unlimited." },
+        "stuckAfterSeconds": { "type": "integer", "minimum": 0, "description": "0 = never warn." },
+        "maxConcurrentRuns": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "assets": {
+      "type": "object",
+      "description": "Which provider generates each kind of asset in this project (the assets.generate_* commands), kind by kind. A kind the project names replaces that kind's route of ai.json field by field: a different provider resets model and voice unless they are given too. A project cannot remove a route.",
+      "properties": {
+        "image": { "$ref": "#/$defs/assetRoute" },
+        "sound": { "$ref": "#/$defs/assetRoute" },
+        "music": { "$ref": "#/$defs/assetRoute" },
+        "voice": { "$ref": "#/$defs/assetRoute" },
+        "model3d": { "$ref": "#/$defs/assetRoute" }
+      },
+      "additionalProperties": false
+    },
+    "assetSources": {
+      "type": "object",
+      "description": "Websites the AI should look at for this project's assets. A category listed here REPLACES the same category of ai.json (a list is one choice, not a set of keys); onlyListed replaces ai.json's onlyListed.",
+      "properties": {
+        "images": { "$ref": "#/$defs/siteList" },
+        "models": { "$ref": "#/$defs/siteList" },
+        "audio": { "$ref": "#/$defs/siteList" },
+        "fonts": { "$ref": "#/$defs/siteList" },
+        "other": { "$ref": "#/$defs/siteList" },
+        "onlyListed": { "type": "boolean", "description": "false: look at these sites first and search the internet too. true: ONLY these sites." }
+      },
+      "additionalProperties": false
+    },
+    "savers": {
+      "type": "object",
+      "description": "The engine's token savers for this project, switch by switch (the keys of ai.json's savers).",
+      "properties": {
+        "loopGuard": { "type": "boolean" },
+        "loopGuardJudge": { "type": "string", "description": "A role whose model writes the redirect; \"\" = the engine's fixed text." },
+        "learnedToolGroups": { "type": "boolean" },
+        "projectFacts": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "mcpServers": {
+      "type": "object",
+      "description": "Which of YOUR tool servers (the names under mcpServers in ~/.factoria/ai.json) are on for this project: {\"scenario\": false} turns Scenario off here. Only true or false per name: a project cannot define a server (a command, an address, a header, an environment or a key belongs in ~/.factoria/ai.json, AI settings > Tool servers).",
+      "additionalProperties": { "type": "boolean" }
+    },
+    "extensions": {
+      "type": "object",
+      "description": "Which of YOUR extensions (the names under extensions in ~/.factoria/ai.json) are on for this project, by kind: {\"plugins\": {\"notes\": false}, \"skills\": {\"gdd\": true}, \"hooks\": {\"log\": false}}. Only true or false per name. The extensions the project brings itself are in .factoria/extensions.json.",
+      "properties": {
+        "plugins": { "type": "object", "additionalProperties": { "type": "boolean" } },
+        "skills": { "type": "object", "additionalProperties": { "type": "boolean" } },
+        "hooks": { "type": "object", "additionalProperties": { "type": "boolean" } }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "role": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "description": "false turns the role off in this project: the orchestrator does that work itself (worker, fast, artist, audio), or a review runs on the orchestrator's provider and model (artCritic, reviewer). The orchestrator cannot be turned off." },
+        "provider": { "type": "string", "minLength": 1, "description": "The name of a provider your ai.json defines (or a built-in one such as anthropic or claude-code). Never its command, address or key." },
+        "model": { "type": "string", "minLength": 1, "description": "Model id." },
+        "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] },
+        "maxTokens": { "type": "integer", "minimum": 0, "description": "0 = no cap of this project's own (the provider's default)." },
+        "maxContextTokens": {
+          "type": "integer",
+          "anyOf": [{ "const": 0 }, { "minimum": 100000 }],
+          "description": "Most context a session keeps, in tokens (at least 100000), or 0 for the model's whole window."
+        },
+        "toolGroups": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Tool groups the built-in agent always gets in full (a category, a command name or \"all\"); [] loads none." }
+      },
+      "additionalProperties": false
+    },
+    "assetRoute": {
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string", "minLength": 1, "description": "The name of a provider your ai.json defines that can make this kind of asset. Required when ai.json has no route for the kind." },
+        "model": { "type": "string" },
+        "voice": { "type": "string", "description": "voice only: the voice to speak with." }
+      },
+      "additionalProperties": false
+    },
+    "siteList": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string", "minLength": 1 },
+          {
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+              "url": { "type": "string", "minLength": 1 },
+              "note": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  }
+}

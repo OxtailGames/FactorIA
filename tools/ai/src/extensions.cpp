@@ -544,6 +544,53 @@ Result<void> forget_project_trust(std::string_view trustPath, std::string_view p
     return write_trust(trustPath, std::move(root));
 }
 
+// --- trust of a project's AI settings file ---------------------------------------------------------------------------
+// ai-trust.json keeps one more record per project: "aiSettings": {<key>: {"hash": sha256 of .factoria/ai/settings.json}}. Apart
+// from "projects" so the extensions trust and this one never overwrite each other's record.
+
+std::string ai_settings_trust_key(std::string_view projectDir) {
+    std::string key = canonical_project_key(projectDir);
+#if defined(_WIN32) || defined(__APPLE__)
+    // These file systems compare names without regard to case: C:/Games/Pong and c:/games/pong are one project.
+    for (char& c : key) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+#endif
+    return key;
+}
+
+bool project_ai_settings_trusted(std::string_view trustPath, std::string_view projectDir, std::string_view hash, bool* dropped,
+                                 bool dropStale) {
+    if (dropped) *dropped = false;
+    if (hash.empty()) return false;
+    Json root = read_trust(trustPath);
+    auto section = root.find("aiSettings");
+    if (section == root.end() || !section->is_object()) return false;
+    const std::string key = ai_settings_trust_key(projectDir);
+    auto it = section->find(key);
+    if (it == section->end()) return false;
+    if (util::str(*it, "hash") == hash) return true;
+    if (dropped) *dropped = true;
+    if (!dropStale) return false;
+    section->erase(key);  // the file changed since the user accepted it: the acceptance is gone
+    (void)write_trust(trustPath, std::move(root));
+    return false;
+}
+
+Result<void> trust_project_ai_settings(std::string_view trustPath, std::string_view projectDir, std::string_view hash) {
+    if (hash.empty()) return err("This project has no AI settings file to trust", "Nothing to do: .factoria/ai/settings.json does not exist.");
+    Json root = read_trust(trustPath);
+    if (!root.contains("aiSettings") || !root["aiSettings"].is_object()) root["aiSettings"] = Json::object();
+    root["aiSettings"][ai_settings_trust_key(projectDir)] = Json::object({{"hash", std::string(hash)}});
+    return write_trust(trustPath, std::move(root));
+}
+
+Result<void> forget_project_ai_settings_trust(std::string_view trustPath, std::string_view projectDir) {
+    Json root = read_trust(trustPath);
+    auto section = root.find("aiSettings");
+    if (section == root.end() || !section->is_object()) return {};
+    if (section->erase(ai_settings_trust_key(projectDir)) == 0) return {};
+    return write_trust(trustPath, std::move(root));
+}
+
 // --- Claude Code's project settings ----------------------------------------------------------------------------------
 
 namespace {

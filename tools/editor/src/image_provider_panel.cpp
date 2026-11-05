@@ -26,8 +26,11 @@ void Editor::image_provider_refresh() {
     ImageUi& u = image_;
     if (u.providerChecked != ~std::uint64_t(0) && uiFrame_ - u.providerChecked < 30) return;
     u.providerChecked = uiFrame_;
+    // The project's AI settings may route images to another provider.
     ai::AiConfig cfg;
-    {
+    if (auto resolved = ai_project_config()) {
+        cfg = std::move(*resolved);
+    } else {  // an invalid project file: the runs report it; the panel shows the editor's own routes meanwhile
         std::lock_guard<std::mutex> lock(aiMu_);
         cfg = aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
     }
@@ -57,10 +60,7 @@ void Editor::image_provider_start(ImageModel& m) {
     args["path"] = m.path();
     ai::ImageEditEnv env;
     env.projectDir = projectDir_;
-    env.load = [this]() -> Result<ai::AiConfig> {
-        std::lock_guard<std::mutex> lock(aiMu_);
-        return aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
-    };
+    env.load = [this]() -> Result<ai::AiConfig> { return ai_project_config(true); };
     auto job = std::make_unique<ImageProviderJob>();
     try {
         job->plan = ai::plan_image_edit(env, inpaint, args);
