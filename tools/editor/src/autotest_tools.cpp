@@ -584,6 +584,9 @@ void Editor::at_build_tools_script() {
             anim_ = AnimUi{};
             bone_ = BoneUi{};
             showAnimation_ = showBoneTools_ = showImage_ = showVector_ = showSound_ = showMusic_ = showModeler_ = false;
+            particle_close_document();   // section P3: the Particles panel, its effect and its preview are not carried over
+            particle_ = ParticleUi{};
+            showParticle_ = false;
             sound_close_document();   // section K3: the Sound panel, its sound and its playback are not carried over
             sound_release_textures();
             if (sound_.player) sound_.player->stop();
@@ -7155,6 +7158,187 @@ void Editor::at_build_tools_script() {
             modeler_close_document();
             std::error_code ec;
             stdfs::remove_all(projectDir_ + "/" + dir, ec);
+            project_files_changed();
+        });
+    }
+
+    section("P3");
+    // The Particles panel (docs/EDITOR.md, "Particles panel"): New writes a starter effect and opens it, the preview plays it, the time scrubber
+    // is dragged (the same moment shows the same particles every time), a gradient key and a curve key are dragged (ONE vfx.edit and one undo step
+    // each), a part is added and removed, and Undo/Redo walk every step through the editor's stack back to the file as it was. Every wait counts
+    // frames or state.
+    {
+        struct Ps {
+            size_t undo = 0;
+            std::string original, afterGradient, afterCurve;
+            double len = 0, t1 = 0;
+            int count = 0;
+            float x0 = 0, y0 = 0;
+            Vec2 start{};
+        };
+        auto ps = std::make_shared<Ps>();
+        const std::string rel = "assets/vfx/effect.vfx.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        // Press at the widget's centre plus `from`, move in three steps by `by` and let go.
+        auto drag = [this, &step, ps](const std::string& name, Vec2 from, Vec2 by) {
+            step(2, [this, name, from, ps] {
+                const Vec2 c = at_widget(name);
+                ps->start = Vec2{c.x + from.x, c.y + from.y};
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, ps->start);
+            });
+            step(2, [this, ps] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, ps->start); });
+            for (int i = 1; i <= 3; ++i)
+                step(2, [this, ps, by, i] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{ps->start.x + by.x * float(i) / 3.0f, ps->start.y + by.y * float(i) / 3.0f}); });
+            step(4, [this, ps, by] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, Vec2{ps->start.x + by.x, ps->start.y + by.y}); });
+        };
+        auto read_text = [this](const std::string& r) {
+            std::ifstream in(projectDir_ + "/" + r, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+        auto file_json = [read_text, rel]() {
+            Json j = Json::parse(read_text(rel), nullptr, false);
+            return j.is_discarded() ? Json::object() : j;
+        };
+        auto emitter_of = [file_json]() {
+            const Json j = file_json();
+            return j.contains("parts") && j["parts"].is_array() && !j["parts"].empty() && j["parts"][0].contains("emitter") ? j["parts"][0]["emitter"] : Json::object();
+        };
+        auto parts_in_file = [file_json]() { const Json j = file_json(); return j.contains("parts") && j["parts"].is_array() ? j["parts"].size() : size_t(0); };
+        auto ready = [this] {
+            return particle_.model && particle_.model->is_open() && particle_.model->valid() && particle_.model->doc() && particle_.preview &&
+                   at_visible("pt:timeline") && at_visible("pt:canvas") && at_visible("pt:part:0") && particle_.canvasW > 100 && particle_.tlW > 100;
+        };
+        step(2, [this, ps, rel] {
+            std::error_code ec;
+            stdfs::remove(projectDir_ + "/" + rel, ec);   // a leftover of an earlier run
+            project_files_changed();
+            ps->undo = undo_depth();
+            showParticle_ = true;
+            focus_window("Particles");
+        });
+        wait_until([this] { return at_visible("pt:new") && at_visible("pt:open"); });
+        step(3, [this] { at_check(!particle_.model || !particle_.model->is_open(), "the Particles panel opens with no effect, offering New and the list of files"); });
+        click_widget("pt:new");
+        wait_until(ready);
+        step(3, [this, ps, rel, read_text] {
+            ps->original = read_text(rel);
+            at_check(!ps->original.empty(), "New wrote " + rel);
+            at_check(particle_.model->path() == rel && particle_.model->parts().size() == 1, "...and opened it with its one emitter part");
+            at_check(undo_depth() == ps->undo, "...which is not an undo step (a new file)");
+            at_check(particle_.preview->timeline_length() >= 0.25, "the timeline covers the burst and its particles' lives");
+            at_check(at_visible("pt:play") && at_visible("pt:restart") && at_visible("pt:add_emitter") && at_visible("pt:add_light") && at_visible("pt:add_sound") &&
+                         at_visible("pt:add_command"),
+                     "the toolbar and the add buttons are on screen");
+        });
+        wait_until([this] { return particle_.preview->live_particles() > 0; });
+        step(3, [this] { at_check(particle_.preview->live_particles() > 0 && particle_.playing, "the preview plays the burst: particles are alive"); });
+        snap("editor_particle_panel.png");
+
+        // ---- the time scrubber: Pause, drag the playhead, the same moment shows the same particles
+        click_widget("pt:play");
+        step(3, [this, ps] {
+            at_check(!particle_.playing, "Pause stopped the preview");
+            ps->len = particle_.preview->timeline_length();
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, particle_time_pos(ps->len * 0.25, 0.12));
+        });
+        step(2, [this, ps] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, particle_time_pos(ps->len * 0.25, 0.12)); });
+        step(3, [this, ps] {
+            const ParticlePreview& pv = *particle_.preview;
+            at_check(particle_.scrubbing && !particle_.playing, "pressing on the timeline picks up the playhead");
+            at_check(std::fabs(pv.time() - ps->len * 0.25) < 0.04, "...and puts it at the mouse: " + std::to_string(pv.time()) + " s of " + std::to_string(ps->len));
+            ps->t1 = pv.time();
+            ps->count = pv.live_particles();
+            ps->x0 = pv.dots().empty() ? 0.0f : pv.dots()[0].x;
+            ps->y0 = pv.dots().empty() ? 0.0f : pv.dots()[0].y;
+            at_check(ps->count > 0, "...where the burst is still alive");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, particle_time_pos(ps->len * 0.95, 0.12));
+        });
+        step(3, [this, ps] {
+            at_check(particle_.preview->time() > ps->len * 0.85, "dragging to the right end moved the playhead there");
+            at_check(particle_.preview->live_particles() == 0, "...where every particle is gone");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, particle_time_pos(ps->len * 0.25, 0.12));
+        });
+        step(3, [this, ps] {
+            const ParticlePreview& pv = *particle_.preview;
+            at_check(pv.time() == ps->t1, "dragging back to the same pixel gave the same time");
+            at_check(pv.live_particles() == ps->count && !pv.dots().empty() && std::fabs(pv.dots()[0].x - ps->x0) < 1e-4f && std::fabs(pv.dots()[0].y - ps->y0) < 1e-4f,
+                     "...and the same particles in the same places (a seeded, repeatable preview)");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, particle_time_pos(ps->len * 0.25, 0.12));
+        });
+        step(3, [this] { at_check(!particle_.scrubbing, "letting go dropped the playhead"); });
+        snap("editor_particle_scrub.png");
+
+        // ---- a gradient key dragged: one vfx.edit, one undo step
+        step(2, [this, ps] { ps->undo = undo_depth(); });
+        drag("pt:grad:colorGradient", Vec2{0, 0}, Vec2{40, 0});
+        step(3, [this, ps, emitter_of] {
+            const Json g = emitter_of().contains("colorGradient") ? emitter_of()["colorGradient"] : Json::array();
+            at_check(g.is_array() && g.size() == 3, "a click on the gradient bar added a key, and the document on disk has three");
+            at_check(g.is_array() && g.size() == 3 && g[1][0].get<double>() > 0.55, "...which the drag moved to the right: " + g.dump());
+            at_check(undo_depth() == ps->undo + 1, "...as ONE undo step");
+            ps->afterGradient = emitter_of().dump();
+        });
+
+        // ---- curve keys: one added by dragging out of a click, a second one by a click
+        drag("pt:curve:sizeCurve", Vec2{0, 0}, Vec2{50, -12});
+        step(3, [this, ps, emitter_of] {
+            const Json c = emitter_of().contains("sizeCurve") ? emitter_of()["sizeCurve"] : Json::array();
+            at_check(c.is_array() && c.size() == 1, "a click on the size curve added one key to the document");
+            at_check(c.is_array() && !c.empty() && c[0].is_array() && c[0][0].get<double>() > 0.55, "...which the drag moved to the right: " + c.dump());
+            at_check(undo_depth() == ps->undo + 2, "...as ONE more undo step");
+            ps->afterCurve = emitter_of().dump();
+        });
+        drag("pt:curve:sizeCurve", Vec2{-80, 0}, Vec2{0, 0});
+        step(3, [this, ps, emitter_of] {
+            const Json c = emitter_of().contains("sizeCurve") ? emitter_of()["sizeCurve"] : Json::array();
+            at_check(c.is_array() && c.size() == 2 && c[0][0].get<double>() < c[1][0].get<double>(), "a second click added a second key, in order");
+            at_check(undo_depth() == ps->undo + 3, "...as one undo step");
+        });
+
+        // ---- a part added and removed
+        click_widget("pt:add_light");
+        wait_until([this] { return particle_.model->parts().size() == 2 && at_visible("pt:part:1"); });
+        step(3, [this, ps, parts_in_file] {
+            at_check(parts_in_file() == 2 && particle_.model->parts()[1].type == "light", "+ Light wrote a light part to the document");
+            at_check(undo_depth() == ps->undo + 4 && particle_.selectedPart == 1, "...as one undo step, and selected it");
+            at_check(at_visible("pt:add_light_settings") || at_visible("insp:pt:/parts/1/at"), "...with its fields in the inspector");
+        });
+        click_widget("pt:part_remove");
+        wait_until([this] { return particle_.model->parts().size() == 1; });
+        step(3, [this, ps, parts_in_file] {
+            at_check(parts_in_file() == 1 && undo_depth() == ps->undo + 5, "Remove took the part out of the document as one undo step");
+        });
+
+        // ---- Undo and Redo through the editor's stack
+        for (int i = 0; i < 5; ++i) step(3, [this] { undo(); });
+        step(3, [this, ps, rel, read_text, emitter_of] {
+            at_check(undo_depth() == ps->undo, "five Undos used up the panel's steps");
+            at_check(read_text(rel) == ps->original, "...and the document is byte for byte what New wrote");
+            at_check(emitter_of().contains("colorGradient") && emitter_of()["colorGradient"].size() == 2 && !emitter_of().contains("sizeCurve"), "...with the two gradient keys and no size curve");
+        });
+        for (int i = 0; i < 4; ++i) step(3, [this] { redo(); });
+        step(3, [this, ps, emitter_of] {
+            at_check(undo_depth() == ps->undo + 4, "four Redos put the steps back");
+            at_check(emitter_of().dump() != ps->afterGradient && emitter_of().contains("sizeCurve") && emitter_of()["sizeCurve"].size() == 2, "...with both curve keys");
+        });
+        for (int i = 0; i < 4; ++i) step(3, [this] { undo(); });
+        step(3, [this, ps, rel, read_text] { at_check(read_text(rel) == ps->original, "four more Undos: the file is as New wrote it again"); });
+
+        step(2, [this, rel] {
+            showParticle_ = false;
+            particle_close_document();
+            std::error_code ec;
+            stdfs::remove(projectDir_ + "/" + rel, ec);
             project_files_changed();
         });
     }

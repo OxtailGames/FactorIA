@@ -117,7 +117,7 @@ FolderNode build_folder_tree(const ProjectListing& listing) {
 }
 
 const std::vector<std::string>& browser_type_filters() {
-    static const std::vector<std::string> v = {"all", "texture", "audio", "font", "mesh", "script", "scene", "prefab", "material"};
+    static const std::vector<std::string> v = {"all", "texture", "audio", "font", "mesh", "script", "scene", "prefab", "material", "vfx"};
     return v;
 }
 
@@ -165,6 +165,7 @@ std::string type_badge(std::string_view path, std::string_view type) {
     if (type == "scene") return "SCN";
     if (type == "prefab") return "PFB";
     if (type == "material") return "MAT";
+    if (type == "vfx") return "VFX";
     if (type == "script") return "JS";
     if (type == "mesh") return "3D";
     const auto dot = path.rfind('.');

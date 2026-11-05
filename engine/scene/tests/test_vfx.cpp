@@ -668,3 +668,31 @@ TEST_CASE("vfx: the runtime state is not saved, and a copy starts the effect aga
     CHECK_FALSE(saved.contains("duration"));
     CHECK(saved["effect"] == path);
 }
+
+TEST_CASE("vfx: VfxHost::load supplies the document instead of the file (the editor's preview plays an unsaved one)") {
+    World w;
+    Log log;
+    auto doc = parse_vfx(hit_effect(), "memory.vfx.json", nullptr);
+    REQUIRE(doc.ok());
+    int asked = 0;
+    VfxHost host = log.host();
+    host.load = [&](const std::string& effect) {
+        ++asked;
+        return effect == "memory.vfx.json" ? *doc : std::shared_ptr<const VfxDoc>();
+    };
+    SUBCASE("a name only the hook knows plays") {
+        Entity e = w.create("torch");
+        w.add<Vfx>(e).effect = "memory.vfx.json";
+        update_vfx(w, 0.05f, host);
+        CHECK(asked >= 1);
+        CHECK(w.get<Vfx>(e)->playing);
+        CHECK(children_named(w, e, "sparks") == 1);
+    }
+    SUBCASE("an empty answer is an unreadable document: it stops, as a missing file does") {
+        Entity e = w.create("torch");
+        w.add<Vfx>(e).effect = "other.vfx.json";
+        for (int i = 0; i < 3; ++i) update_vfx(w, 0.05f, host);
+        CHECK_FALSE(w.get<Vfx>(e)->playing);
+        CHECK(w.children(e).empty());
+    }
+}

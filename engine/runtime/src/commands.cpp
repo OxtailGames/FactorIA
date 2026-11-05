@@ -1544,7 +1544,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           [&engine, &I](const Json&) { return I.scripts.api_manifest(); });
 
     // ------------------------------------------------------------------- assets
-    I.commands.add({"assets.list", "List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, other (by file name).",
+    I.commands.add({"assets.list", "List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, vfx, other (by file name).",
            "Example: assets.list {\"folder\":\"assets\",\"extension\":\".png\"}",
            parse_schema(R"({"type":"object","properties":{
                "folder":{"type":"string","default":"assets","description":"Project-relative folder."},
