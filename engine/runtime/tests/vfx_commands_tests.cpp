@@ -91,7 +91,7 @@ TEST_CASE("vfx commands: documented, closed and registered") {
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
-    for (const char* name : {"vfx.play", "vfx.stop", "vfx.list", "vfx.check"}) {
+    for (const char* name : {"vfx.play", "vfx.stop", "vfx.list", "vfx.check", "vfx.budget", "vfx.filmstrip"}) {
         INFO(name);
         const CommandInfo* info = e.commands().info(name);
         REQUIRE(info != nullptr);
@@ -101,6 +101,8 @@ TEST_CASE("vfx commands: documented, closed and registered") {
             CHECK_MESSAGE(it.value().contains("description"), it.key());
     }
     CHECK(e.commands().info("vfx.check")->readOnly);
+    CHECK(e.commands().info("vfx.budget")->readOnly);
+    CHECK_FALSE(e.commands().info("vfx.filmstrip")->readOnly);  // it steps the game
     CHECK_FALSE(e.commands().info("vfx.play")->readOnly);
     e.shutdown();
 }
@@ -287,5 +289,84 @@ TEST_CASE("Vfx component: an effect placed in a scene plays at the start, and sc
     CHECK(bad.error["message"].get<std::string>().find("nope.vfx.json") != std::string::npos);
     auto wrong = c.call("script.eval", Json::parse(R"j({"code":"vfx.play(3)"})j"));
     REQUIRE_FALSE(wrong.ok);
+    e.shutdown();
+}
+
+TEST_CASE("vfx.budget: the numbers of an effect, repeatable, and findings with a fix for a phone") {
+    TempProject p;
+    p.put("assets/vfx/heavy.vfx.json", R"({"format":"factoria.vfx/1","parts":[
+        {"type":"emitter","name":"smoke","emitter":{"burst":900,"rate":0,"lifetime":1,"lifetimeVariance":0,"startSize":6,"endSize":6,"maxParticles":1000}}]})");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto a = c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/hit.vfx.json"})"));
+    REQUIRE_MESSAGE(a.ok, a.error.dump());
+    CHECK(a.result["preset"] == "phone");
+    CHECK(a.result["peakParticles"] == 8);
+    CHECK(a.result["ok"] == true);
+    CHECK(a.result["perEmitter"].size() == 1);
+    CHECK(a.result["perEmitter"][0]["name"] == "sparks");
+    CHECK(a.result["timeline"].size() >= 1);
+    auto again = c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/hit.vfx.json"})"));
+    CHECK(again.result == a.result);
+
+    auto h = c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/heavy.vfx.json"})"));
+    REQUIRE_MESSAGE(h.ok, h.error.dump());
+    CHECK(h.result["ok"] == false);
+    REQUIRE(h.result["findings"].size() >= 1);
+    const Json& f = h.result["findings"][0];
+    CHECK(f["kind"] == "particles");
+    CHECK(f["pointer"] == "/parts/0/emitter/maxParticles");
+    CHECK(f["fix"]["command"] == "vfx.edit");
+    CHECK(f["fix"]["args"]["path"] == "assets/vfx/heavy.vfx.json");
+    CHECK(c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/heavy.vfx.json","preset":"desktop"})")).result["ok"] == true);
+
+    // The game is untouched: nothing plays, no entity was made.
+    CHECK(c.call("vfx.list", Json::object()).result["count"] == 0);
+
+    // Errors teach.
+    auto bad = c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/nope.vfx.json"})"));
+    CHECK_FALSE(bad.ok);
+    auto preset = c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/hit.vfx.json","preset":"console"})"));
+    REQUIRE_FALSE(preset.ok);
+    CHECK(preset.error.dump().find("phone") != std::string::npos);
+    CHECK_FALSE(c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/hit.vfx.json","view":[0,720]})")).ok);
+    e.shutdown();
+}
+
+TEST_CASE("vfx.filmstrip films an effect, steps the game and leaves no effect behind") {
+    TempProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    const std::string png = (p.dir / "strip.png").generic_string();
+    const auto before = e.frame_index();
+    Json args = Json::parse(R"({"effect":"assets/vfx/hit.vfx.json","position":[40,20],"frames":4,"everyFrames":3})");
+    args["path"] = png;
+    auto r = c.call("vfx.filmstrip", args);
+    if (!r.ok) {
+        // No graphics on this machine: the error says what works without them.
+        CHECK(r.error.dump().find("vfx.budget") != std::string::npos);
+        CHECK(c.call("vfx.list", Json::object()).result["count"] == 0);
+        e.shutdown();
+        return;
+    }
+    CHECK(r.result["frames"].size() == 4);
+    CHECK(r.result["effect"] == "assets/vfx/hit.vfx.json");
+    CHECK(r.result["everyFrames"] == 3);
+    CHECK(stdfs::exists(png));
+    CHECK(r.result["width"].get<int>() > 0);
+    // The game advanced: 1 frame for the start, then 3 between the 4 pictures.
+    CHECK(e.frame_index() - before == 1 + 3 * 3);
+    CHECK(r.result["frames"][0]["t"].get<double>() < r.result["frames"][3]["t"].get<double>());
+    // The effect that was filmed is gone, whatever its length: only the scene's own torch plays.
+    for (const Json& fx : c.call("vfx.list", Json::object()).result["playing"]) CHECK(fx["effect"] == "assets/vfx/torch.vfx.json");
+    // Errors teach and do not step the game.
+    const auto frame = e.frame_index();
+    CHECK_FALSE(c.call("vfx.filmstrip", Json::parse(R"({"effect":"assets/vfx/nope.vfx.json"})")).ok);
+    CHECK_FALSE(c.call("vfx.filmstrip", Json::parse(R"({"effect":"assets/vfx/hit.vfx.json","frames":65})")).ok);
+    CHECK(e.frame_index() == frame);
     e.shutdown();
 }
