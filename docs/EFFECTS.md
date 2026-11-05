@@ -74,10 +74,10 @@ export default function frame({ layer, progress, rngFor, rampAt }) {
 
 ```
 assets.animate_svg {"path":"assets/fx/impact.png","source":"assets/src/anim/impact.anim.js","frames":6,"fps":24,"loop":false,"frameWidth":64,"padding":2,"layers":["back","front","light"],"ramp":["#3a0d0d","#c2412b","#ff9a3c","#fff2c2"]}
-assets.contact_sheet {"paths":["assets/fx/impact_back.png","assets/fx/impact_front.png"],"allFrames":true,"sizes":[48],"columns":6,"greyscale":true,"path":"tmp_impact.png","overwrite":true}
+assets.contact_sheet {"paths":["assets/fx/impact_back.png","assets/fx/impact_front.png"],"allFrames":true,"sizes":[48],"columns":6,"greyscale":true}
 ```
 
-What the first draft showed at 48 pixels, and what changed (this is the "look and refine" of the loop, not a polish pass): the
+An illustration of what the first draft of this effect can show at 48 pixels, and what changes (this is the "look and refine" of the loop, not a polish pass): the
 shards were 3 pixels thick and nearly gone on the light background (now 5); the ring was the same grey as the ground in the
 greyscale row (its colour moved from `rampAt(0.5)` to `rampAt(0.75)` and it starts at a radius of 16 instead of 10, so frame 0
 is a ring and not a dot); and the bake warned that shapes of the `front` layer touched the edge of the cell in frame 3 (the
@@ -106,10 +106,10 @@ and a soft glow added on top); the bake and the look:
 
 ```
 assets.animate_svg {"path":"assets/fx/coin_sparkle.png","source":"assets/src/anim/coin_sparkle.anim.js","frames":8,"fps":16,"loop":false,"frameWidth":96,"padding":2,"layers":["back","front","light"],"ramp":["#5a3a05","#c98a14","#f2c94c","#fff6c8"]}
-assets.contact_sheet {"paths":["assets/fx/coin_sparkle_back.png","assets/fx/coin_sparkle_front.png","assets/fx/coin_sparkle_light.png"],"allFrames":true,"sizes":[64],"columns":8,"path":"tmp_cs.png","overwrite":true}
+assets.contact_sheet {"paths":["assets/fx/coin_sparkle_back.png","assets/fx/coin_sparkle_front.png","assets/fx/coin_sparkle_light.png"],"allFrames":true,"sizes":[64],"columns":8}
 ```
 
-The first draft had a glow that started small and peaked in frame 4, glints too small to read at 64 pixels and a ring too pale on
+An illustration of a first draft: a glow that started small and peaked in frame 4, glints too small to read at 64 pixels and a ring too pale on
 the light background: the glow now starts at its biggest (the impact is frame 1), the glints are bigger and the ring is
 thicker. Frames at 16 fps with 8 frames last 0.5 s. `padding: 2` and `frameWidth: 96` give a 300 x 300 sheet, a multiple of
 4: `project.validate` warns about textures that cannot be GPU-compressed on a phone otherwise (a padding of 1 gave 294).
@@ -145,7 +145,7 @@ export default function frame({ progress, rampAt }) {
 
 ```
 assets.animate_svg {"path":"assets/fx/flame.png","source":"assets/src/anim/flame.anim.js","frames":8,"fps":12,"frameWidth":64,"padding":2,"pivot":[0.5,1],"ramp":["#4a1204","#d9480f","#ffa94d","#fff3bf"]}
-assets.contact_sheet {"paths":["assets/fx/flame.png"],"allFrames":true,"sizes":[48],"greyscale":true,"path":"tmp_flame.png","overwrite":true}
+assets.contact_sheet {"paths":["assets/fx/flame.png"],"allFrames":true,"sizes":[48],"greyscale":true}
 assets.preview_sheet {"path":"assets/fx/flame.png","onion":true}
 ```
 

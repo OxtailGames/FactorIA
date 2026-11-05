@@ -658,27 +658,6 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
-    },
-    {
-      "id": "FB-0030",
-      "date": "2026-11-05",
-      "reporter": {
-        "kind": "ai",
-        "agent": "claude-code",
-        "model": "claude-sonnet-5-5"
-      },
-      "category": "tooling",
-      "severity": "nice-to-have",
-      "title": "Test game object cannot read a project JSON file",
-      "missing": "factoria:test game has loadJson (scenes only) but no way to read a project data file such as assets.json or an anim clip; a test of a baked effect's recipe or a clip's events has to go through fa.call('fs.read') and JSON.parse.",
-      "workaround": "JSON.parse(fa.call('fs.read', {path}).content) in tests/feel.test.js.",
-      "workaroundFiles": [
-        "tests/feel.test.js"
-      ],
-      "suggestion": "game.readJson(path) in factoria:test, or document fs.read in the testing section of docs/SCRIPTING.md.",
-      "effort": "small",
-      "occurrences": 1,
-      "status": "open"
     }
   ]
 }
