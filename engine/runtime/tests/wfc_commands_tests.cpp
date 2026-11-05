@@ -219,13 +219,13 @@ TEST_CASE("tilemap.generate: errors teach") {
     REQUIRE_FALSE(model.ok);
     CHECK(contains(error_text(model), "overlapping"));
 
-    // n outside 2..5: the schema names the limit.
+    // n outside 2..5: the command names the limit (and only checks it for the overlapping model).
     auto small = s.call("tilemap.generate", ascii_call(R"("size":[8,8],"n":1)"));
     REQUIRE_FALSE(small.ok);
-    CHECK_MESSAGE((contains(error_text(small), "/n") && contains(error_text(small), "minimum 2")), error_text(small));
+    CHECK_MESSAGE((contains(error_text(small), "'n' is 1") && contains(error_text(small), "between 2 and 5")), error_text(small));
     auto large = s.call("tilemap.generate", ascii_call(R"("size":[8,8],"n":6)"));
     REQUIRE_FALSE(large.ok);
-    CHECK_MESSAGE((contains(error_text(large), "/n") && contains(error_text(large), "maximum 5")), error_text(large));
+    CHECK_MESSAGE((contains(error_text(large), "'n' is 6") && contains(error_text(large), "between 2 and 5")), error_text(large));
     auto sym = s.call("tilemap.generate", ascii_call(R"("size":[8,8],"symmetry":3)"));
     REQUIRE_FALSE(sym.ok);
     CHECK(contains(error_text(sym), "symmetry"));
@@ -293,4 +293,46 @@ TEST_CASE("tilemap.generate: periodic on and off give different windows at the e
     REQUIRE_MESSAGE(on.ok, error_text(on));
     CHECK(on.result["stats"]["cells"] == 400);
     CHECK(off.result["stats"]["cells"] == 18 * 18);
+}
+
+TEST_CASE("tilemap.generate: maxWork and maxSeconds stop a level with an error that says how to shrink it") {
+    Session s;
+    auto r = s.call("tilemap.generate", ascii_call(R"("size":[24,16],"seed":1,"maxWork":1)"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "budget_exceeded");
+    const std::string t = error_text(r);
+    CHECK_MESSAGE(contains(t, "maxWork"), t);
+    CHECK_MESSAGE(contains(t, "24 x 16"), t);
+    CHECK_MESSAGE(contains(t, "patterns"), t);
+    CHECK_MESSAGE(contains(t, "smaller"), t);
+    auto time = s.call("tilemap.generate", ascii_call(R"("size":[160,160],"seed":1,"maxSeconds":0.0000001)"));
+    REQUIRE_FALSE(time.ok);
+    CHECK_MESSAGE(contains(error_text(time), "maxSeconds"), error_text(time));
+    auto bad = s.call("tilemap.generate", ascii_call(R"("size":[24,16],"maxWork":0)"));
+    REQUIRE_FALSE(bad.ok);
+    CHECK(contains(error_text(bad), "maxWork"));
+    // Within the caps the same call works.
+    auto ok = s.call("tilemap.generate", ascii_call(R"("size":[24,16],"seed":1,"maxWork":100000000,"maxSeconds":60)"));
+    CHECK_MESSAGE(ok.ok, error_text(ok));
+    CHECK(ok.result["stats"]["work"].get<long long>() > 0);
+}
+
+TEST_CASE("tilemap.generate: model must be text, and n and symmetry are ignored by the tiled model") {
+    Session s;
+    auto bad = s.call("tilemap.generate", Json::parse(R"({"model":5,"size":[8,8]})"));
+    REQUIRE_FALSE(bad.ok);
+    CHECK(contains(error_text(bad), "model"));
+
+    // Out-of-range n and symmetry would be errors for the overlapping model; the tiled one does not read them.
+    auto ignored = s.call("tilemap.generate", Json::parse(R"({"model":"tiled","into":"terrain","size":[8,8],"n":99,"symmetry":3,"seed":2})"));
+    CHECK_MESSAGE(ignored.ok, error_text(ignored));
+    auto overlapping = s.call("tilemap.generate", ascii_call(R"("size":[8,8],"n":99)"));
+    CHECK_FALSE(overlapping.ok);
+
+    // A sample tile that is turned or flipped still counts as its tile of the rules (no "belongs to no terrain" warning).
+    auto flipped = s.call("tilemap.generate", Json::parse(R"({"model":"tiled","size":[6,6],"seed":1,
+        "terrains":[{"name":"grass","mode":"basic16","first":0}],
+        "sample":["aa","aa"],"legend":{"a":{"tile":3,"flipX":true}}})"));
+    REQUIRE_MESSAGE(flipped.ok, error_text(flipped));
+    CHECK_FALSE(flipped.result.contains("warnings"));
 }
