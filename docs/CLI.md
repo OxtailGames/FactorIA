@@ -328,8 +328,8 @@ factoria feedback discard FB-004                # delete a closed entry (file or
 factoria feedback validate
 factoria feedback collect games/ examples/ --out roadmap.md      # .json => JSON; --include-closed
 factoria feedback add ... --share-title T --share-missing TEXT [--share-suggestion TEXT] [--share-workaround TEXT] --reviewed
-factoria feedback sharing [always|ask|never|default] [--project DIR]    # a person chooses whether feedback goes to the engine developer (your default, or one project with --project); no argument = status
-factoria feedback share [project] [--preview | --verdicts] [--yes] [--json]   # show what would be sent / send the outbox now / ask the verdicts
+factoria feedback sharing [always|ask|never|default] [--project DIR] [--clear]    # a person chooses whether feedback goes to the engine developer (your default, or one project with --project: any folder inside it, the nearest factoria.json is used); no argument = status
+factoria feedback share [project] [--preview | --verdicts] [--yes] [--json]   # show what would be sent / send THIS project's outbox items now (--yes confirms only them) / ask the verdicts
 factoria feedback signin github                 # optional identity (device flow); `signout` forgets it
 ```
 `sharing`, `share`, `signin` and `signout` send generic, engine-terms-only copies of your feedback (`share`) to the engine

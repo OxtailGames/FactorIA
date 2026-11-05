@@ -113,26 +113,41 @@ std::string share_settings_path(const ShareEnv& env);
 ShareSettings load_share_settings(const ShareEnv& env);
 Result<void> save_share_settings(const ShareEnv& env, const ShareSettings& settings);
 // Only a person calls these (the CLI, the editor's Settings): there is no command for them.
-// Setting `never` also empties the outbox and marks its entries skipped.
+// Changes the default, and the outbox items of the projects that FOLLOW it (a project with its own mode keeps its items as
+// they are): `never` drops them and marks their entries skipped, `always` confirms the ones waiting for a yes, `ask` puts
+// the queued ones back to waiting. Items an older version queued without a project are left alone, except by `never`, which
+// drops them when their file's project has no mode of its own.
 Result<void> set_share_mode(const ShareEnv& env, ShareMode mode);
 
 // ---- per project. The choice lives in the user's feedback-sharing.json under `projects`, keyed by the project folder's
-// normalized absolute path, so a project that arrives copied or downloaded can never turn sharing on. Moving or renaming the
-// folder drops its choice back to the default.
-// The key of a project folder: absolute, symlinks resolved when the folder exists, forward slashes, no trailing slash, and
-// lower case where paths are case-insensitive (Windows; `caseInsensitive` is for tests).
+// normalized absolute path, so it is never read from the project: a project that arrives copied or downloaded does not
+// inherit the choice and follows the default (a copy is another path). Moving or renaming the folder drops its choice back
+// to the default.
+// The key of a project folder (or of any path): absolute, symlinks resolved when the folder exists, forward slashes, UTF-8
+// (also on Windows, where the file names are UTF-16), no trailing slash, and lower case (ASCII letters) where paths ignore
+// case: always on Windows, and on a volume that proves it (macOS' default) for a folder that exists. `caseInsensitive` is
+// for tests (the default function decides by the platform and, for an existing folder, by the volume).
 std::string share_project_key(const std::string& projectDir, bool caseInsensitive);
 std::string share_project_key(const std::string& projectDir);
+// True when both paths have the same key (a normalized comparison of files and folders).
+bool share_same_path(const std::string& a, const std::string& b);
+// The key of the outbox item of entry `localId` in `feedbackFile` (OutboxItem::key; what share_confirm and share_drop take).
+std::string share_item_key(const std::string& feedbackFile, const std::string& localId);
 // The project folder a feedback file belongs to: the nearest folder at or above it with a factoria.json, else its own folder.
 std::string share_project_dir_of_file(const std::string& feedbackFile);
 // The project's own mode, if it has one.
 std::optional<ShareMode> share_project_mode(const ShareSettings& settings, const std::string& projectDir);
 // The mode that applies to a project: its own, else the default. An empty `projectDir` = the default.
 ShareMode effective_share_mode(const ShareSettings& settings, const std::string& projectDir);
+// The same for a key kept in the outbox (share_project_key of the project, stored when the entry was queued). An empty key
+// (an item written by an older version, which did not know its project) is `ask`: it is never sent before the user says yes.
+ShareMode effective_share_mode_of_key(const ShareSettings& settings, const std::string& projectKey);
 // "project" or "default": where effective_share_mode got its answer.
 const char* effective_share_source(const ShareSettings& settings, const std::string& projectDir);
-// Sets (or, with nullopt, removes) the project's own mode. `never` also drops this project's outbox items and marks their
-// entries skipped; `always` confirms the ones that waited for a yes. Only a person calls it.
+// Sets (or, with nullopt, removes) the project's own mode, then applies the mode that now holds for the project to its outbox
+// items: `never` (also when it comes from the default after the project's choice was removed) drops them and marks their
+// entries skipped; `always` confirms the ones that waited for a yes; `ask` puts the queued ones back to waiting for a yes
+// (what was queued under `always` is not sent until the user confirms it). Only a person calls it.
 Result<void> set_project_share_mode(const ShareEnv& env, const std::string& projectDir, std::optional<ShareMode> mode);
 // The installation id, created and saved when there is none.
 Result<std::string> ensure_install_id(const ShareEnv& env);
@@ -201,8 +216,12 @@ Json build_share_payload(const ShareEnv& env, const std::vector<Json>& entries);
 enum class OutboxState { Queued, Waiting };  // Waiting: mode `ask`, the user has not confirmed it yet
 
 struct OutboxItem {
-    std::string key;      // file + "#" + localId: an entry is in the outbox once
+    std::string key;      // share_project_key(file) + "#" + localId: an entry is in the outbox once
     std::string file;     // the project's ENGINE_FEEDBACK.json (kept locally to write `shared` back; never sent)
+    // share_project_key of the project, stored when the entry was queued (written as "project"): the mode of the item is the
+    // one of this key, never one worked out again later. "" = an item an older version queued: it waits for the user's
+    // answer (state Waiting) whatever the mode.
+    std::string projectKey;
     std::string localId;  // FB-0003
     OutboxState state = OutboxState::Queued;
     Json entry;           // the sanitized entry, as sent
@@ -264,14 +283,17 @@ struct FlushResult {
     Json results = Json::array();  // [{id, status, shareId?, reason?}]
 };
 // Sends the due items the mode of their project allows (always: queued ones; ask: only confirmed ones, i.e. state Queued;
-// never or not set up: none, and they stay in the outbox). Never throws.
+// never or not set up: none, and they stay in the outbox). The modes are read again before each request, so one changed
+// meanwhile counts for the next one. Never throws.
 FlushResult share_flush(const ShareEnv& env, const FlushOptions& options = {});
 // True when share_flush would send something now.
 bool share_has_due(const ShareEnv& env, const std::string& file = {});
 
-// ask mode (the editor's confirmation, the CLI's `feedback share`): the entries waiting for the user's answer.
+// ask mode (the editor's confirmation, the CLI's `feedback share`): the entries waiting for the user's answer (of `file`
+// when given; empty = of every project).
 std::vector<OutboxItem> share_waiting(const ShareEnv& env, const std::string& file = {});
-// The user said yes to these keys (empty = all waiting): they become Queued. Returns how many.
+// The user said yes to these keys (empty = all waiting): they become Queued. Returns how many. An item whose project is
+// `never` is not confirmed. Callers that mean one project pass its keys (share_waiting(env, file)).
 int share_confirm(const ShareEnv& env, const std::vector<std::string>& keys = {});
 // The user said no: they leave the outbox and their entries are marked skipped. Returns how many.
 int share_drop(const ShareEnv& env, const std::vector<std::string>& keys = {});

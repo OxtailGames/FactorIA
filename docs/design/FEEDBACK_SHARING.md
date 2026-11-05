@@ -64,25 +64,34 @@ what was removed, so the preview can show it.
 ## Client (engine)
 
 - **Settings**, user level, next to the user `ai.json` (`~/.factoria/` or `%APPDATA%\factoria\`), in
-  `feedback-sharing.json`: `{mode: "unset" | "always" | "ask" | "never", installId (random UUID v4, created on the first
-  send), credential? (from GitHub sign-in), login? (shown in the editor)}`. The installation id is not tied to any
-  project.
+  `feedback-sharing.json`: `{mode: "unset" | "always" | "ask" | "never", projects?: {<project key>: "always" | "ask" |
+  "never"}, installId (random UUID v4, created on the first send), credential? (from GitHub sign-in), login? (shown in the
+  editor)}`. `mode` is the user's default; `projects` holds the choice of single projects. The effective mode of a project is its
+  own entry, else the default. The map lives in the user's file, never in the project, so a copied project does not inherit the
+  choice and follows the default. The key is the project folder's absolute path (symlinks resolved, UTF-8, forward slashes, no
+  trailing slash, lower-cased on Windows and on volumes that ignore case); duplicate keys resolve to the most restrictive mode
+  with a warning. The installation id is not tied to any project.
 - **Endpoint**: compiled in (`FA_FEEDBACK_URL`, CMake cache variable; empty = sharing unavailable, and every command
   says so with how to fix it). The user config may override it (`endpoint`) for tests and self-hosting.
 - **Outbox**: `feedback-outbox.json` in the same folder, the sanitized payloads waiting to be sent, retried with backoff
   (1 min, 10 min, 1 h, then once a day). An entry is in the outbox once. An entry merged again after it was sent (its
   `occurrences` went up) is queued once more, up to 3 sends (`shared.occurrences` counts them): each send is one more
-  occurrence on the server, and the ranking counts at most 3 per installation.
+  occurrence on the server, and the ranking counts at most 3 per installation. Each item stores `project`, the key of its
+  project, when it is queued; sending, waiting and dropping decide by that key, so a change of the default does not touch the
+  items of a project with its own mode. A change of one project's mode moves its items (ask: queued back to waiting; never:
+  dropped and the entries marked `skipped`; always: waiting queued); the sender re-reads the settings before each batch. Items
+  without `project` (older versions) wait until the user decides. Known limit: a project edited by hand from `always` to `ask` in
+  the settings file keeps its queued items; only the commands and the editor move them.
 - **Commands** (registered with the other feedback commands; none changes the mode):
   - `feedback.report` gains `share` and `reviewed`. With mode `always` the entry is sanitized and queued at once and the
     queue is flushed in the background; with `ask` it is queued as pending confirmation; with `unset` the result says
     that sharing is not set up and how the USER turns it on (editor, or `factoria feedback sharing always|ask|never`).
   - `feedback.share_preview {ids?}`: exactly what would be sent, with what the sanitizer removed.
-  - `feedback.share_status`: mode, endpoint, signed in or not, the outbox (pending, waiting for confirmation, failed with
-    reason).
+  - `feedback.share_status`: effective mode (with `default` and `project{mode, source}`), endpoint, signed in or not, the
+    outbox (pending, waiting for confirmation, blocked by a project's `never`, failed with reason).
   - `feedback.share {ids?}`: flush the outbox now (only entries the mode allows).
-- **CLI** (typed by a person): `factoria feedback sharing [always|ask|never]` (no argument prints the status),
-  `factoria feedback share [--preview]`, `factoria feedback signin github`, `factoria feedback signout`.
+- **CLI** (typed by a person): `factoria feedback sharing [always|ask|never|default] [--project <path>] [--clear]` (no argument
+  prints the status), `factoria feedback share [--preview]`, `factoria feedback signin github`, `factoria feedback signout`.
 - **GitHub sign-in** (optional, identity only): OAuth device flow with the public client id compiled in
   (`FA_FEEDBACK_GITHUB_CLIENT_ID`). The client gets a GitHub token, sends it once to `POST /v1/auth/github`, stores the
   returned credential and discards the GitHub token. No GitHub scope is requested (only the public profile).

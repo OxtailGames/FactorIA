@@ -309,7 +309,7 @@ SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::
                     if (rep.status == "queued" || rep.status == "waiting") {
                         r.status = "queued";
                         r.message.clear();
-                        keys.push_back(file + "#" + id);
+                        keys.push_back(share_item_key(file, id));
                     } else if (rep.status == "rejected") {
                         r.status = "rejected";
                         r.message = rep.reason;
