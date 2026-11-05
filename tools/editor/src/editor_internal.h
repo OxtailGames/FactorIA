@@ -32,6 +32,7 @@
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
 #include "fa/ai/plugin_install.h"
+#include "fa/ai/project_settings.h"
 #include "fa/ai/provider.h"
 #include "fa/ai/review.h"
 #include "fa/ai/skills.h"
@@ -278,9 +279,37 @@ public:
     void open_ai_settings(bool rolesTab = false);  // rolesTab: show the Roles tab (else the tab the window had)
     void draw_ai_settings_window();
     // Fills the draft from `cfg`. keepAssets / keepTools: carry that tab's unsaved edits over (a Save on the other tab).
+    // `cfg` is the user's config (ai.json as loaded): the tool servers, extensions and providers come from it; the asset routes and
+    // sites come from the open project's resolved config when a project is open (ai_window_config).
     void ai_settings_load(const ai::AiConfig& cfg, bool keepAssets = false, bool keepTools = false);
     Result<ai::AssetSettings> ai_settings_build(const ai::AiConfig& cfg) const;
     bool ai_settings_dirty(const ai::AiConfig& cfg) const;
+    // The AI settings of the open project (ai_project_ui.cpp; docs/EDITOR.md "AI settings", docs/AI_PROVIDERS.md "Per project"): with a
+    // project open the window edits <project>/.factoria/ai/settings.json (ai::resolve_ai_config_over says where each value comes
+    // from, ai_project_edit.h what to write); without one it edits ai.json. The editor is the only writer that records trust.
+    struct AiProjectUi {
+        bool have = false;                  // `resolved` is the resolution of `dir`
+        std::string dir;
+        ai::ResolvedAiConfig resolved;
+        std::optional<Error> error;         // the resolution failed: the project's file was accepted and is invalid now
+        long long atMs = 0;
+        std::string ignoredHash;            // the file the user chose to ignore (its hash): no banner, no effect, a Save replaces it
+        std::string actionError;            // why Accept / Reset / Save of the project's file failed
+    } aiProj_;
+    std::atomic<bool> aiProjStale_{true};   // the next ai_project_refresh() resolves again
+    void ai_project_invalidate();           // ANY thread: drop every cache of the project's resolution (a save, reset, accept, ai.json change, project switch)
+    const AiProjectUi& ai_project_refresh();  // main thread: the resolution of the open project (again when stale or older than a second)
+    ai::AiConfig ai_user_config();          // ai.json as the editor holds it (the engine's defaults when it was not read yet)
+    ai::AiConfig ai_window_config();        // what the AI settings window edits: the project's resolved config with a project open, else ai.json's
+    bool ai_project_open() const { return !projectDir_.empty(); }
+    bool ai_project_locked();               // a file that waits for Accept / Ignore, or one that cannot be read: nothing is saved or reset until then
+    void draw_ai_project_banner();          // the top of the window: where the values are edited, what waits for Accept, the file's problems
+    void ai_project_accept();
+    Result<void> ai_project_save(const Json& overrides);   // save_project_settings(..., recordTrust=true): what the user chose here
+    Result<void> ai_project_reset(const std::string& pointer);
+    Result<void> ai_project_after_defaults(const ai::AiConfig& wanted);  // after Save as my defaults: the project's file keeps only what still differs
+    Result<void> ai_user_config_reload();   // load ai.json again into aiConfig_ (and drop the caches)
+    std::string ai_project_settings_path() const;
     void draw_feedback_panel();
     void draw_feedback_add_window();            // the Add feedback modal of the panel
     // Feedback sharing (feedback_share_ui.cpp; docs/EDITOR.md, "Sharing feedback"). share_choose_mode is the only place that sets the
@@ -1011,6 +1040,8 @@ public:
     int aiSettingsTab_ = 0;         // tab to select next frame in the AI settings window: 0 none, 1 Roles, 2 Assets, 3 External tools, 4 Extensions
     struct AiSettingsDraft {                       // the AI settings window's working copy (dropped when it closes: a typed key must not linger)
         bool loaded = false;
+        std::string title;                         // the window's title as drawn last ("AI settings - This project: <name>")
+        std::string project;                       // the project the draft was loaded for ("" = your defaults): a switch reloads it
         std::string path;                          // the ai.json it saves into
         std::map<std::string, ai::AssetRoute> routes;  // by media kind name; provider "" = none (made procedurally)
         ai::AssetSources sources;
@@ -1079,7 +1110,8 @@ public:
     void ai_tool_form_open(int index);    // opens the form on server `index` (-1: a new one)
     Result<ai::ToolServer> ai_tool_form_build() const;  // the form as a server, validated like ai.json would
     void ai_tool_test(const ai::ToolServer& server);    // Test button: connects off the main thread, writes the draft's ToolTests
-    void ai_settings_discard();           // closes the draft (stops a running Test)
+    void ai_settings_discard();  // closes the draft (stops a running Test)
+    void ai_settings_save_assets(bool asDefaults);  // Save / Save as my defaults of the Assets tab
     void draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable);  // ai_extensions.cpp
     // The Add TokenEconomizer section of that tab (ai_economizer.cpp): a dry run of ai::plugin_install says what is installed, the button
     // asks first, the install runs on its own thread and the result lands in the draft. One job at a time.
@@ -1204,6 +1236,15 @@ public:
 
 // Helpers shared across panel files.
 extern Editor* g_editor;
+// Puts the next button on the line of the previous item when it fits in the window, else on a new line: a row of buttons that
+// wraps in a small window instead of running out of it. Call it right before the button, after the previous item.
+inline void fit_same_line(const char* nextLabel) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float w = ImGui::CalcTextSize(nextLabel, nullptr, true).x + st.FramePadding.x * 2;
+    const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    if (ImGui::GetItemRectMax().x + st.ItemSpacing.x + w <= right) ImGui::SameLine();
+}
+
 // The first size of a window that is centred on the main viewport: `wanted`, made smaller to fit its work area so the
 // window's own buttons (Save, Close...) are never off screen on a small display.
 inline ImVec2 fit_work_area(ImVec2 wanted) {
@@ -1223,6 +1264,7 @@ inline void first_floating_window(ImVec2 pos, ImVec2 wanted) {
 }
 // Status colours of the Export and Platform settings windows.
 inline const ImVec4 kStatusReady(0.5f, 0.9f, 0.55f, 1), kStatusFailed(1, 0.45f, 0.4f, 1), kStatusWarn(1, 0.8f, 0.35f, 1);
+inline const ImVec4 kProjectBlue(0.55f, 0.75f, 1.0f, 1.0f);  // "This project" in the AI settings rows
 // The window title: "FactorIA <version> — <project name>", or "FactorIA <version>" with no project open (the Open or
 // create a project dialog). `version` is the engine's, FA_ENGINE_VERSION: what `factoria version` prints.
 std::string editor_window_title(std::string_view version, std::string_view projectName);
