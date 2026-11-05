@@ -91,7 +91,7 @@ void register_feel_commands(Engine&, Engine::Impl& I) {
            parse_schema(R"({"type":"object","required":["entity"],"properties":{
                "entity":{"type":"string","description":"The entity (id or name)."},
                "direction":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":3,"default":[1,0],"description":"Which way, [x, y] or [x, y, z]; any length, it is normalised."},
-               "speed":{"type":"number","minimum":0,"maximum":1000,"default":6,"description":"World units per second added at once."},
+               "speed":{"type":"number","minimum":0,"description":"World units per second added at once. Default: 6 metres per second, which is 6 units for a 3D entity and 6 times physics.pixelsPerMeter (600 pixels per second at 100) for a 2D one."},
                "lockTime":{"type":"number","minimum":0,"maximum":30,"default":0.25,"description":"Seconds isKnockedBack stays true."},
                "decay":{"type":"number","minimum":0,"maximum":1000,"default":8,"description":"Entities without a dynamic body: the velocity falls by exp(-decay * dt) per second."}}})"),
            false, "feel"},

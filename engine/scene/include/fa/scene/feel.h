@@ -8,8 +8,9 @@
 // player's accessibility choices. Nothing here writes a Transform except knockback of an entity without a physics body.
 //
 // A VISUAL EFFECT NEVER CHANGES THE SCENE. Shake and squash are a "visual pose" added at DRAW time: World::drawn_matrix() is
-// the same chain as world_matrix() with each entity's pose multiplied in, and fa_render, the 2D bounds and the pointer
-// mapping use it. Physics, audio, scripts and saved scenes keep reading world_matrix() and the Transform fields, so
+// the same chain as world_matrix() with each entity's pose multiplied in, and only fa_render's drawing uses it (the camera's
+// shake offset and roll also go into OrthoView, the pointer mapping, so a click lands on what is drawn). Physics, audio, bounds,
+// UI hit-tests, scripts and saved scenes keep reading world_matrix() and the Transform fields, so
 // `entity.scale` is exactly what the script set, a follow camera does not chase its own shake, and squash can never leave a
 // scale behind.
 //
@@ -27,7 +28,6 @@
 #include <map>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include "fa/core/json.h"
@@ -43,6 +43,8 @@ inline constexpr float kReduceMotionShake = 0.25f;     // shake amount multiplie
 inline constexpr float kReduceMotionSquash = 0.25f;    // squash amount multiplier with reduce motion on
 inline constexpr float kReduceMotionHitStop = 0.5f;    // hit-stop duration multiplier with reduce motion on
 inline constexpr float kReducedEffectsFlash = 0.35f;   // largest flash strength with reduced effects on
+
+inline constexpr float kDefaultKnockbackSpeed = 6.0f;  // metres per second when `speed` is not given
 
 inline constexpr float kMaxHitStopSeconds = 5.0f;      // a longer freeze is almost always a mistake (a script that forgot a unit)
 
@@ -71,7 +73,10 @@ struct SquashOptions {
 
 struct KnockbackOptions {
     Vec3 direction{1, 0, 0};  // which way (any length; normalised). z is used by 3D bodies only
-    float speed = 6.0f;       // world units per second added to the velocity at once
+    // World units per second added to the velocity at once. Unset = kDefaultKnockbackSpeed metres per second: for an entity with
+    // a 3D body or mesh that many units, for every other (2D) one times FeelState::pixelsPerMeter, because a 2D world unit is a
+    // pixel and 6 pixels per second would not be seen. A speed you give is in world units, whatever the entity.
+    std::optional<float> speed;
     float lockTime = 0.25f;   // seconds `isKnockedBack` stays true (the loss of control)
     float decay = 8.0f;       // entities WITHOUT a dynamic body: the velocity falls by exp(-decay * dt) per second
 };
@@ -144,6 +149,8 @@ public:
     std::vector<FeelHitStop> hitStops;   // the running hit-stops (a few at most)
     std::uint32_t counter = 0;           // makes the seed of every shake different
     std::size_t poseCount = 0;           // records with hasPose: 0 = drawn_matrix is world_matrix
+    float pixelsPerMeter = 100.0f;       // factoria.json physics.pixelsPerMeter, pushed by the runtime: the 2D default of knockback
+    bool warnedNoCamera = false;         // a shake with no camera in the scene was ignored and said so (once per scene)
 
     // The player's choices; they survive World::clear() (they are not part of a scene). null = follow the system.
     std::optional<bool> reduceMotionSetting;

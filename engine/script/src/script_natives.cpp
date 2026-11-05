@@ -3447,7 +3447,8 @@ NATIVE(worldToScreen) {
         return array_of(ctx, {s.x, s.y});
     }
     const FallbackView fv = fallback_view(I, W, camera, nullptr);
-    return array_of(ctx, {fv.center.x + (p.x - fv.position.x) * fv.scale, fv.center.y - (p.y - fv.position.y) * fv.scale});
+    const Vec2 s = fv.to_screen(p);
+    return array_of(ctx, {s.x, s.y});
 }
 
 NATIVE(screenToWorld) {
@@ -3460,7 +3461,8 @@ NATIVE(screenToWorld) {
         return array_of(ctx, {w.x, w.y, w.z});
     }
     const FallbackView fv = fallback_view(I, W, camera, &sp);
-    return array_of(ctx, {fv.position.x + (sp.x - fv.center.x) / fv.scale, fv.position.y - (sp.y - fv.center.y) / fv.scale, depth});
+    const Vec3 wp = fv.to_world(sp, depth);
+    return array_of(ctx, {wp.x, wp.y, wp.z});
 }
 
 NATIVE(screenRay) {
@@ -3472,7 +3474,7 @@ NATIVE(screenRay) {
         r->screen_ray(sp, o, d, camera);
     } else {
         const FallbackView fv = fallback_view(I, W, camera, &sp);
-        o = {fv.position.x + (sp.x - fv.center.x) / fv.scale, fv.position.y - (sp.y - fv.center.y) / fv.scale, fv.position.z};
+        o = fv.to_world(sp, fv.position.z);
         d = kForward;
     }
     return array_of(ctx, {o.x, o.y, o.z, d.x, d.y, d.z});

@@ -1,7 +1,7 @@
 // Gameplay smoke tests of Kindlewatch: the title, moving and the animations, logs from the piles to the fire, the torch
 // against wolves and the alpha, the dawn, and the two ways of losing and the way of winning. The bot plays with a gamepad.
 import { test, describe, expect, game, beforeEach } from "factoria:test";
-import { scene, world } from "factoria";
+import { scene, world, fa } from "factoria";
 import { Bot } from "./helpers/bot.js";
 
 const GAME = "scenes/game.scene.json";
@@ -203,6 +203,25 @@ describe("the nights", () => {
     expect(flow().state).toBe("lost");
     game.step(90);
     expect(game.find("end_title").get("Text").key).toBe("game.lostHp");
+  });
+
+  test("a bite shakes the camera: a drawn pose is added, the Transform is not, and the shake dies out", () => {
+    start();
+    untilNight();
+    warden().hearts = 3;
+    warden().safe = 0;
+    const shaking = () => fa.call("feel.state", {}).entities.find((e) => e.shake);
+    expect(shaking()).toBeUndefined();
+    expect(warden().hurt([0, 0], 1)).toBe(true);
+    game.step(2);
+    const s = shaking();
+    expect(s).toBeDefined();
+    expect(s.shake.trauma).toBeGreaterThan(0.2);
+    // Only the drawn pose moves (the camera's Transform stays the follow script's), so the script never chases the shake.
+    expect(s.pose).toBeDefined();
+    expect(Math.hypot(...s.pose.position)).toBeGreaterThan(0);
+    game.step(60); // the shake lasts 0.3 s
+    expect(shaking()).toBeUndefined();
   });
 
   test("three nights held win the game; the main menu button goes back to the title", () => {

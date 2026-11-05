@@ -3,6 +3,8 @@
 
 #include <cmath>
 
+#include "fa/scene/bounds.h"
+#include "fa/scene/camera_query.h"
 #include "fa/scene/feel.h"
 #include "fa/scene/world.h"
 
@@ -242,4 +244,76 @@ TEST_CASE("feel_apply_action: data in, effects out, and the mistakes name the fi
     f.w.destroy(gone);
     f.w.flush();
     CHECK_FALSE(feel_apply_action(f.w, gone, Json::parse(R"({"action":"flash"})")).ok());
+}
+
+TEST_CASE("shake without a camera is ignored, not an error: damage code does not know which scene it runs in") {
+    World w;
+    ensure_builtin_components();
+    CHECK(feel_shake(w, kNullEntity, {0.5f}).ok());
+    CHECK(feel_shake(w, kNullEntity, {0.5f}).ok());  // the second one is silent, the first said so once
+    CHECK(w.feel().entities.empty());
+    CHECK(w.feel().warnedNoCamera);
+    CHECK(feel_apply_action(w, kNullEntity, Json::parse(R"({"action":"shake","amount":0.3})")).ok());
+    // A camera that is named but dead is still the caller's mistake.
+    Entity gone = w.create("gone", "gone");
+    w.destroy(gone);
+    w.flush();
+    CHECK_FALSE(feel_shake(w, gone, {0.5f}).ok());
+    w.clear();
+    CHECK_FALSE(w.feel().warnedNoCamera);  // a new scene warns again
+}
+
+TEST_CASE("knockback: the default speed is 6 m/s, which is 6 times pixelsPerMeter in 2D and 6 units for a 3D entity") {
+    Fixture f;
+    f.w.feel().pixelsPerMeter = 100.0f;
+    REQUIRE(feel_knockback(f.w, f.box, {{1, 0, 0}, std::nullopt, 0.2f, 0.0f}).ok());
+    CHECK(f.w.feel().find(f.box)->knock->velocity.x == doctest::Approx(600.0f));
+    Entity mesh = f.w.create("mesh", "mesh");
+    f.w.add<MeshRenderer>(mesh);
+    REQUIRE(feel_knockback(f.w, mesh, {{0, 0, 1}, std::nullopt, 0.2f, 0.0f}).ok());
+    CHECK(f.w.feel().find(mesh)->knock->velocity.z == doctest::Approx(6.0f));
+    // A speed you give is in world units, whatever the entity.
+    REQUIRE(feel_knockback(f.w, f.box, {{1, 0, 0}, 40.0f, 0.2f, 0.0f}).ok());
+    CHECK(f.w.feel().find(f.box)->knock->velocity.x == doctest::Approx(40.0f));
+    // As data: no "speed" key is the default, a wrong type is an error.
+    REQUIRE(feel_apply_action(f.w, f.box, Json::parse(R"({"action":"knockback","direction":[1,0]})")).ok());
+    CHECK(f.w.feel().find(f.box)->knock->velocity.x == doctest::Approx(600.0f));
+    CHECK_FALSE(feel_apply_action(f.w, f.box, Json::parse(R"({"action":"knockback","direction":[1,0],"speed":"fast"})")).ok());
+}
+
+TEST_CASE("gameplay never sees the pose, the pointer sees the shaken view") {
+    Fixture f;
+    ensure_builtin_components();
+    const VisualMeasure measure;
+    const Rect before = *entity_world_rect(f.w, f.box, measure);
+    REQUIRE(feel_squash(f.w, f.box, {0.5f, 0.3f}).ok());
+    f.frame();
+    REQUIRE(f.w.feel().pose_of(f.box));
+    const Rect during = *entity_world_rect(f.w, f.box, measure);  // entity.bounds(): the true rectangle
+    CHECK(during.x == doctest::Approx(before.x));
+    CHECK(during.w == doctest::Approx(before.w));
+    CHECK(during.h == doctest::Approx(before.h));
+    CHECK(visual_world_matrix(f.w, f.box).m[0] == f.w.world_matrix(f.box).m[0]);
+    CHECK(drawn_visual_matrix(f.w, f.box).m[0] != f.w.world_matrix(f.box).m[0]);  // drawing does see it
+
+    // A shaken orthographic camera: the screen point of the world origin moves with the offset and the roll, and the way back
+    // lands on the same world point.
+    const Vec2 design{320, 180};
+    REQUIRE(feel_shake(f.w, f.cam, {1.0f, 1.0f, 25.0f, 20.0f, 30.0f}).ok());
+    f.frame();
+    const OrthoView v = ortho_view(f.w, design, kNullEntity, nullptr);
+    const FeelPose* pose = f.w.feel().pose_of(f.cam);
+    REQUIRE(pose);
+    CHECK(v.position.x == doctest::Approx(pose->position.x));
+    CHECK(v.roll == doctest::Approx(radians(pose->rotation.z)));
+    CHECK(v.roll != 0.0f);
+    const Vec3 p{30.0f, -12.0f, 0.0f};
+    const Vec3 back = v.to_world(v.to_screen(p));
+    CHECK(back.x == doctest::Approx(p.x).epsilon(1e-4));
+    CHECK(back.y == doctest::Approx(p.y).epsilon(1e-4));
+    // The roll is in the answer: without it the same point lands elsewhere.
+    OrthoView flat = v;
+    flat.roll = 0.0f;
+    const Vec2 a = v.to_screen(p), b = flat.to_screen(p);
+    CHECK((std::fabs(a.x - b.x) + std::fabs(a.y - b.y)) > 1e-3f);
 }

@@ -165,12 +165,12 @@ bool axis_aligned(const Mat4& m) {
            std::fabs(m.at(1, 2)) < 1e-4f && std::fabs(m.at(2, 0)) < 1e-4f && std::fabs(m.at(2, 1)) < 1e-4f;
 }
 
-// The matrix a world-space visual is drawn with: its world matrix moved by Parallax.offset (screen space ignores it). A
+// The matrix a world-space visual is drawn with: its DRAWN matrix (game feel pose included) moved by Parallax.offset (screen space ignores it). A
 // screen-space visual is authored in UI units, so its matrix is scaled by the interface scale (ui_rect.h) here, before the
 // anchor point (not scaled) is added: sizes, offsets and glyphs all grow, the anchor stays.
 Mat4 draw_matrix(const World& world, Entity e, bool screen) {
     return screen ? Mat4::scale({ui_scale_clamped(world.ui_scale()), ui_scale_clamped(world.ui_scale()), 1.0f}) * world.drawn_matrix(e)
-                  : visual_world_matrix(world, e);
+                  : drawn_visual_matrix(world, e);
 }
 
 // The light frame of a lit quad: `right` and `up` are the directions the picture's right and top edges point to, in the

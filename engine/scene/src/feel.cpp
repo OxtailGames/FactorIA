@@ -5,6 +5,7 @@
 #include <cmath>
 #include <format>
 
+#include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/scene/camera_query.h"
 #include "fa/scene/components.h"
@@ -15,7 +16,7 @@ namespace fa {
 namespace {
 
 
-bool finite(float v) { return std::isfinite(v); }
+bool is_finite(float v) { return std::isfinite(v); }
 
 std::uint32_t hash32(std::uint32_t x) {
     x ^= x >> 16;
@@ -114,6 +115,7 @@ void FeelState::clear_scene() {
     hitStops.clear();
     counter = 0;
     poseCount = 0;
+    warnedNoCamera = false;
 }
 
 // ----------------------------------------------------------------------------------------------------- actions
@@ -127,24 +129,32 @@ float feel_default_shake_offset(const World& w, Entity camera) {
 Result<void> feel_shake(World& w, Entity camera, const ShakeOptions& o) {
     if (camera.is_null()) {
         const std::vector<Entity> cams = rendering_cameras(w);
-        if (cams.empty())
-            return make_error("shake: the scene has no active camera to shake",
-                              "Add an entity with a Camera component, or pass the entity to shake.");
+        if (cams.empty()) {
+            // Damage code calls camera.shake without knowing the scene: a scene with no camera (a menu, a loading screen) is not
+            // an error, there is just nothing to shake. One warning per scene, so the log tells where the shake went.
+            FeelState& st = w.feel();
+            if (!st.warnedNoCamera) {
+                st.warnedNoCamera = true;
+                FA_WARN("feel", "shake ignored: the scene has no active camera to shake. Hint: add an entity with a Camera component, "
+                                "or pass the camera entity to shake");
+            }
+            return {};
+        }
         camera = cams.front();
     }
     if (!w.alive(camera)) return bad_entity("shake", camera, w);
-    if (!finite(o.amount) || o.amount < 0.0f)
+    if (!is_finite(o.amount) || o.amount < 0.0f)
         return make_error(std::format("shake: amount must be a number from 0 to 1, got {}", o.amount),
                           "0.2 is a small bump, 0.5 a hit, 1 an explosion.");
-    if (!finite(o.duration) || o.duration <= 0.0f)
+    if (!is_finite(o.duration) || o.duration <= 0.0f)
         return make_error(std::format("shake: duration must be a number of seconds above 0, got {}", o.duration));
-    if (!finite(o.frequency) || o.frequency <= 0.0f)
+    if (!is_finite(o.frequency) || o.frequency <= 0.0f)
         return make_error(std::format("shake: frequency must be above 0, got {}", o.frequency), "Samples of noise per second; 25 is the default.");
-    if (!finite(o.maxOffset) || o.maxOffset < 0.0f)
+    if (!is_finite(o.maxOffset) || o.maxOffset < 0.0f)
         return make_error(std::format("shake: maxOffset must be 0 (the camera's default) or more, got {}", o.maxOffset));
-    if (!finite(o.maxAngle) || o.maxAngle < 0.0f)
+    if (!is_finite(o.maxAngle) || o.maxAngle < 0.0f)
         return make_error(std::format("shake: maxAngle must be 0 or more degrees, got {}", o.maxAngle));
-    if (!finite(o.cap) || o.cap <= 0.0f || o.cap > 1.0f)
+    if (!is_finite(o.cap) || o.cap <= 0.0f || o.cap > 1.0f)
         return make_error(std::format("shake: cap must be above 0 and at most 1, got {}", o.cap));
 
     FeelState& fs = w.feel();
@@ -171,13 +181,13 @@ Result<void> feel_shake(World& w, Entity camera, const ShakeOptions& o) {
 }
 
 Result<void> feel_hit_stop(World& w, const HitStopOptions& o) {
-    if (!finite(o.duration) || o.duration <= 0.0f)
+    if (!is_finite(o.duration) || o.duration <= 0.0f)
         return make_error(std::format("hitStop: duration must be a number of seconds above 0, got {}", o.duration),
                           "0.05 to 0.12 is a hit; the stop runs in real time.");
     if (o.duration > kMaxHitStopSeconds)
         return make_error(std::format("hitStop: {} seconds is longer than the {} s limit", o.duration, kMaxHitStopSeconds),
                           "The duration is in seconds, not milliseconds.");
-    if (!finite(o.scale) || o.scale < 0.0f || o.scale > 1.0f)
+    if (!is_finite(o.scale) || o.scale < 0.0f || o.scale > 1.0f)
         return make_error(std::format("hitStop: scale must be from 0 (frozen) to 1 (no effect), got {}", o.scale));
     FeelState& fs = w.feel();
     float duration = o.duration;
@@ -194,9 +204,9 @@ Result<void> feel_hit_stop(World& w, const HitStopOptions& o) {
 
 Result<void> feel_flash(World& w, Entity e, const FlashOptions& o) {
     if (!w.alive(e)) return bad_entity("flash", e, w);
-    if (!finite(o.duration) || o.duration <= 0.0f)
+    if (!is_finite(o.duration) || o.duration <= 0.0f)
         return make_error(std::format("flash: duration must be a number of seconds above 0, got {}", o.duration));
-    if (!finite(o.strength) || o.strength < 0.0f || o.strength > 1.0f)
+    if (!is_finite(o.strength) || o.strength < 0.0f || o.strength > 1.0f)
         return make_error(std::format("flash: strength must be from 0 to 1, got {}", o.strength));
     FeelState& fs = w.feel();
     FeelFlash f;
@@ -215,10 +225,10 @@ Result<void> feel_flash(World& w, Entity e, const FlashOptions& o) {
 
 Result<void> feel_squash(World& w, Entity e, const SquashOptions& o) {
     if (!w.alive(e)) return bad_entity("squash", e, w);
-    if (!finite(o.amount) || std::fabs(o.amount) > 1.5f)
+    if (!is_finite(o.amount) || std::fabs(o.amount) > 1.5f)
         return make_error(std::format("squash: amount must be from -1.5 to 1.5, got {}", o.amount),
                           "Positive squashes (wider, flatter), negative stretches; 0.3 is a clear landing.");
-    if (!finite(o.duration) || o.duration <= 0.0f)
+    if (!is_finite(o.duration) || o.duration <= 0.0f)
         return make_error(std::format("squash: duration must be a number of seconds above 0, got {}", o.duration));
     if (o.axis != 'x' && o.axis != 'y') return make_error("squash: axis must be \"x\" or \"y\"");
     FeelSquash s;
@@ -232,12 +242,13 @@ Result<void> feel_squash(World& w, Entity e, const SquashOptions& o) {
 
 Result<void> feel_knockback(World& w, Entity e, const KnockbackOptions& o) {
     if (!w.alive(e)) return bad_entity("knockback", e, w);
-    if (!finite(o.direction.x) || !finite(o.direction.y) || !finite(o.direction.z))
+    if (!is_finite(o.direction.x) || !is_finite(o.direction.y) || !is_finite(o.direction.z))
         return make_error("knockback: direction must be finite numbers");
-    if (!finite(o.speed) || o.speed < 0.0f) return make_error(std::format("knockback: speed must be 0 or more, got {}", o.speed));
-    if (!finite(o.lockTime) || o.lockTime < 0.0f)
+    if (o.speed && (!is_finite(*o.speed) || *o.speed < 0.0f))
+        return make_error(std::format("knockback: speed must be 0 or more, got {}", *o.speed));
+    if (!is_finite(o.lockTime) || o.lockTime < 0.0f)
         return make_error(std::format("knockback: lockTime must be 0 or more seconds, got {}", o.lockTime));
-    if (!finite(o.decay) || o.decay < 0.0f) return make_error(std::format("knockback: decay must be 0 or more, got {}", o.decay));
+    if (!is_finite(o.decay) || o.decay < 0.0f) return make_error(std::format("knockback: decay must be 0 or more, got {}", o.decay));
 
     RigidBody2D* rb2 = w.get<RigidBody2D>(e);
     RigidBody3D* rb3 = w.get<RigidBody3D>(e);
@@ -250,16 +261,19 @@ Result<void> feel_knockback(World& w, Entity e, const KnockbackOptions& o) {
         return make_error("knockback: direction has no length" + std::string(body2 ? " (a 2D body ignores z)" : ""),
                           "Pass the way to push, e.g. the vector from the attacker to the victim: [1, 0] pushes right.");
     d = d * (1.0f / len);
+    // The default is metres per second: units for a 3D entity, pixels (times pixelsPerMeter) for a 2D one.
+    const bool is3d = body3 || w.has<RigidBody3D>(e) || w.has<MeshRenderer>(e);
+    const float speed = o.speed ? *o.speed : kDefaultKnockbackSpeed * (is3d ? 1.0f : std::max(w.feel().pixelsPerMeter, 1.0f));
 
     if (body2) {
-        rb2->velocity = {rb2->velocity.x + d.x * o.speed, rb2->velocity.y + d.y * o.speed};
+        rb2->velocity = {rb2->velocity.x + d.x * speed, rb2->velocity.y + d.y * speed};
     } else if (body3) {
-        rb3->velocity = rb3->velocity + d * o.speed;
+        rb3->velocity = rb3->velocity + d * speed;
     }
     FeelEntity& rec = record_of(w, e);
     FeelKnock k = rec.knock ? *rec.knock : FeelKnock{};
     if (!body2 && !body3) {
-        k.velocity = d * o.speed;
+        k.velocity = d * speed;
         k.decay = o.decay;
     }
     k.lockRemaining = std::max(k.lockRemaining, o.lockTime);
@@ -302,6 +316,13 @@ struct Reader {
             error = std::format("{}: '{}' must be a number, got {}", action, key, describe_json_value(*it));
             return false;
         }
+        return true;
+    }
+    bool optional_number(const char* key, std::optional<float>& out) {
+        if (a.find(key) == a.end()) return true;
+        float v = 0.0f;
+        if (!number(key, v)) return false;
+        out = v;
         return true;
     }
     bool boolean(const char* key, bool& out) {
@@ -384,7 +405,7 @@ Result<void> feel_apply_action(World& w, Entity target, const Json& action) {
     if (name == "knockback") {
         KnockbackOptions o;
         if (!r.keys({"direction", "speed", "lockTime", "decay"}) || !r.vec("direction", o.direction) ||
-            !r.number("speed", o.speed) || !r.number("lockTime", o.lockTime) || !r.number("decay", o.decay))
+            !r.optional_number("speed", o.speed) || !r.number("lockTime", o.lockTime) || !r.number("decay", o.decay))
             return fail();
         return feel_knockback(w, target, o);
     }

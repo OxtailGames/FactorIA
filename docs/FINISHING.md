@@ -62,7 +62,7 @@ const DEFAULTS = {
   textScale: 1,          // ui.textScale, 1 to 2 in steps
   uiScale: null,         // ui.scale (the interface size); null: the factoria.json "ui": {"scale"}
   assist: { speed: 1, invincible: false },
-  shake: true, reducedEffects: false,
+  shake: true, reducedEffects: null,   // null: follows the system's reduce motion until the player chooses
 };
 ```
 

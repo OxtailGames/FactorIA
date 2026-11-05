@@ -265,14 +265,19 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
     return out;
 }
 
-Mat4 visual_world_matrix(const World& W, Entity e) {
-    Mat4 m = W.drawn_matrix(e);
+namespace {
+Mat4 with_parallax(const World& W, Entity e, Mat4 m) {
     if (const Parallax* p = W.get<Parallax>(e)) {
         m.at(3, 0) += p->offset.x;
         m.at(3, 1) += p->offset.y;
     }
     return m;
 }
+}  // namespace
+
+Mat4 visual_world_matrix(const World& W, Entity e) { return with_parallax(W, e, W.world_matrix(e)); }
+
+Mat4 drawn_visual_matrix(const World& W, Entity e) { return with_parallax(W, e, W.drawn_matrix(e)); }
 
 std::optional<Rect> entity_world_rect(const World& W, Entity e, const VisualMeasure& measure) {
     const std::vector<VisualFootprint> parts = visual_footprints(W, e, measure, false);
@@ -299,7 +304,7 @@ std::optional<Rect> entity_world_rect(const World& W, Entity e, const VisualMeas
 }
 
 Mat4 footprint_matrix(const World& w, Entity e, const VisualFootprint& part, Vec2 designSize) {
-    Mat4 m = part.space == RenderSpace::Screen ? w.drawn_matrix(e) : visual_world_matrix(w, e);  // world parts: moved by Parallax
+    Mat4 m = part.space == RenderSpace::Screen ? w.world_matrix(e) : visual_world_matrix(w, e);  // world parts: moved by Parallax
     if (part.space == RenderSpace::Screen) {
         const float k = ui_scale_clamped(w.ui_scale());
         m = Mat4::scale({k, k, 1.0f}) * m;
