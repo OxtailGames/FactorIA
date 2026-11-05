@@ -635,7 +635,11 @@ public:
     bool ai_chat_busy(const std::string& chatId) const { return ai_run_of(chatId) != nullptr; }
     bool ai_chat_running(const std::string& chatId) const;              // that chat's run is going (or waits for its worker)
     int ai_run_count() const { return static_cast<int>(aiRuns_.size()); }
-    int ai_max_runs();                                                  // limits.maxConcurrentRuns of ai.json
+    int ai_max_runs();                                                  // limits.maxConcurrentRuns of ai.json (and the project's)
+    // The config a run of the open project uses: the editor's own (ai.json as loaded, or what a test put there) with the project's
+    // AI settings (<project>/.factoria/ai/settings.json) applied when it has them and the user accepted them. Any thread. A project
+    // with a settings file is re-read at most once a second unless `fresh` (a run starting): the panels ask every frame.
+    Result<ai::AiConfig> ai_project_config(bool fresh = false);
     // What the Play button says while the assistant works: which chats.
     std::string ai_editing_note();
     int ai_last_revertable_run() const;                      // index of the active chat's newest Run item not reverted, or -1
@@ -933,6 +937,11 @@ public:
     MainThreadQueue queue_;
     std::mutex aiMu_;
     ai::AiConfig aiConfig_;
+    std::mutex aiProjMu_;                       // the last ai_project_config() of a project with a settings file
+    std::string aiProjKey_;
+    long long aiProjAtMs_ = 0;
+    std::optional<ai::AiConfig> aiProjConfig_;
+    Error aiProjError_;
     std::string aiConfigError_;
     std::vector<ai::ProviderStatus> aiStatus_;
     struct ProviderModels {  // what ai::list_models said about one available provider

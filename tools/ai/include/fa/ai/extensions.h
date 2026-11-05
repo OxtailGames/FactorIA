@@ -139,6 +139,18 @@ Result<void> trust_project_extensions(std::string_view trustPath, std::string_vi
                                       std::string_view claudeHash = {});
 Result<void> forget_project_trust(std::string_view trustPath, std::string_view projectDir);
 
+// The trust of a project's .factoria/ai/settings.json (project_settings.h) is kept in the same file, per project path and per
+// hash of that file, and is dropped when the file changes. Only the editor (and C++ callers) grant it, and the engine's own writer
+// records it for a file the user just saved on this computer: no command does.
+// The key of the project in the file: canonical_project_key, in lower case on Windows and macOS (names there ignore case).
+std::string ai_settings_trust_key(std::string_view projectDir);
+// True when the settings file with this `hash` ("" = no file: false) was accepted for `projectDir`. A record for another hash is
+// removed (`dropped` says it was there) unless `dropStale` is false.
+bool project_ai_settings_trusted(std::string_view trustPath, std::string_view projectDir, std::string_view hash,
+                                 bool* dropped = nullptr, bool dropStale = true);
+Result<void> trust_project_ai_settings(std::string_view trustPath, std::string_view projectDir, std::string_view hash);
+Result<void> forget_project_ai_settings_trust(std::string_view trustPath, std::string_view projectDir);
+
 // --- Claude Code deny rules --------------------------------------------------------------------------------------------
 // A rule in the project's .claude/settings.json or settings.local.json "permissions.deny" that names FactorIA's own tool server
 // (mcp__factoria, mcp__factoria__*, mcp__factoria__<tool>). Claude Code applies it over --allowedTools, so the AI loses

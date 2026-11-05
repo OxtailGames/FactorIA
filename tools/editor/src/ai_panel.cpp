@@ -29,6 +29,7 @@
 
 #include "editor_internal.h"
 #include "fa/ai/commands.h"
+#include "fa/ai/project_settings.h"
 #include "fa/mcp/server.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
@@ -401,10 +402,7 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry(AiRun& run) {
     // ai.run: a CLI orchestrator delegates with it over MCP. It runs on the caller's thread (an MCP connection), not
     // through the queue: the sub-agent's own commands come back through this proxy, so the main thread stays free.
     ai::AiCommandOptions ao;
-    ao.loadConfig = [this]() -> Result<ai::AiConfig> {
-        std::lock_guard<std::mutex> lock(aiMu_);
-        return aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
-    };
+    ao.loadConfig = [this]() -> Result<ai::AiConfig> { return ai_project_config(true); };
     ao.projectDir = [dir = projectDir_] { return dir; };
     ao.providerFactory = aiFactory_;
     ao.cancel = &r->cancel;
@@ -439,8 +437,39 @@ bool Editor::ai_running() const {
 }
 
 int Editor::ai_max_runs() {
+    auto cfg = ai_project_config();
+    if (cfg) return std::clamp(cfg->limits.maxConcurrentRuns, 1, ai::kMaxConcurrentRunsCap);
     std::lock_guard<std::mutex> lock(aiMu_);
     return std::clamp(aiConfig_.limits.maxConcurrentRuns, 1, ai::kMaxConcurrentRunsCap);
+}
+
+Result<ai::AiConfig> Editor::ai_project_config(bool fresh) {
+    ai::AiConfig user;
+    {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        user = aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
+    }
+    // A project without a settings file runs with the editor's config exactly as it is (nothing is read or rewritten).
+    if (projectDir_.empty() || !std::filesystem::exists(utf8_path(projectDir_) / ".factoria" / "ai" / "settings.json")) return user;
+    const std::string key = projectDir_ + "|" + user.sourcePath;
+    const long long nowMs = now_ms();
+    {
+        std::lock_guard<std::mutex> lock(aiProjMu_);
+        if (!fresh && aiProjKey_ == key && nowMs - aiProjAtMs_ < 1000) {
+            if (aiProjConfig_) return *aiProjConfig_;
+            return aiProjError_;
+        }
+    }
+    auto resolved = ai::load_resolved_config(projectDir_, user.sourcePath);
+    std::lock_guard<std::mutex> lock(aiProjMu_);
+    aiProjKey_ = key;
+    aiProjAtMs_ = nowMs;
+    if (resolved) aiProjConfig_ = *resolved;
+    else {
+        aiProjConfig_.reset();
+        aiProjError_ = resolved.error();
+    }
+    return resolved;
 }
 
 // The chat tabs belong to the open project (<project>/.factoria/ai/chats): when the project changed (boot() stopped the
@@ -582,12 +611,22 @@ void Editor::ai_launch(AiRun& run, const std::string& prompt, const std::vector<
         return;
     }
     if (run.thread.joinable()) run.thread.join();
-    ai::AiConfig cfg;
-    {
-        std::lock_guard<std::mutex> lock(aiMu_);
-        cfg = aiConfig_;
-        if (cfg.providers.empty()) cfg = ai::default_config();
+    auto resolved = ai_project_config(true);
+    if (!resolved) {
+        // The project's AI settings file is invalid (or ai.json is): the run ends with the error that names the file, the JSON
+        // pointer and the fix, instead of running with settings the user did not mean.
+        ai::SessionResult res;
+        res.ok = false;
+        res.stopReason = "error";
+        res.error = resolved.error().message;
+        res.hint = resolved.error().hint;
+        run.running = true;
+        run.lastActivityMs = now_ms();
+        run.turn_ended(std::move(res));
+        return;
     }
+    ai::AiConfig cfg = std::move(*resolved);
+    run.stuckAfterSeconds = cfg.limits.stuckAfterSeconds;
     ai::SessionOptions opt;
     opt.projectDir = projectDir_;
     // The orchestrator hands the work to the other roles itself (the "AI roles" popup). A review (ai_review.cpp) runs a critic or
@@ -744,7 +783,8 @@ void Editor::ai_check_activity(AiRun& run) {
     }
     {
         std::lock_guard<std::mutex> lock(aiMu_);
-        if (aiConfig_.limits.stuckAfterSeconds > 0) stuckAfter = aiConfig_.limits.stuckAfterSeconds;
+        const int configured = run.stuckAfterSeconds.load() >= 0 ? run.stuckAfterSeconds.load() : aiConfig_.limits.stuckAfterSeconds;
+        if (configured > 0) stuckAfter = configured;
     }
     ai::ActivityInput in;
     in.runSeconds = static_cast<double>(nowM - run.startMs.load()) / 1000.0;
@@ -1384,8 +1424,9 @@ void Editor::draw_ai_panel() {
     const float noticeH = playNotice_.empty() ? 0.0f : ImGui::GetFrameHeightWithSpacing();
     // The run's status lines (below the transcript): the pulse, "worker still running", the stuck warning.
     const bool showDetached = isRunTab && run->detached.load();
-    const bool showStuck = isRunTab && cfg.limits.stuckAfterSeconds > 0 &&
-                           static_cast<double>(now_ms() - run->lastActivityMs.load()) / 1000.0 >= cfg.limits.stuckAfterSeconds &&
+    const int stuckSeconds = isRunTab && run->stuckAfterSeconds.load() >= 0 ? run->stuckAfterSeconds.load() : cfg.limits.stuckAfterSeconds;
+    const bool showStuck = isRunTab && stuckSeconds > 0 &&
+                           static_cast<double>(now_ms() - run->lastActivityMs.load()) / 1000.0 >= stuckSeconds &&
                            now_seconds() >= run->snoozeUntil;
     const float statusH = !isRunTab ? 0.0f : ImGui::GetFrameHeightWithSpacing() * (1.0f + (showDetached ? 2.0f : 0.0f) + (showStuck ? 2.0f : 0.0f));
     const float footer = stripH + noticeH + statusH + kGripH + ImGui::GetStyle().ItemSpacing.y + inputH +
