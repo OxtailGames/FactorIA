@@ -989,25 +989,11 @@ bool Editor::draw_particle_curve_field(ParticleModel& m, const std::string& poin
     auto sy = [&](float v) { return y1 - (v - vmin) / (vmax - vmin) * (y1 - y0); };
     dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h), IM_COL32(24, 26, 32, 255), 3.0f);
     for (int i = 0; i <= 4; ++i) dl->AddLine(ImVec2(sx(float(i) / 4.0f), y0), ImVec2(sx(float(i) / 4.0f), y1), IM_COL32(44, 47, 58, 255));
-    // Horizontal grid lines at whole values; a wide range steps by 1, 2 or 5 x 10^n so the graph never draws more than
-    // about ten lines (a key of 1e9 must not loop a billion times, and above 2^24 a float `v += 1` never advances).
-    const double span = double(vhi) - double(vlo);
-    if (std::isfinite(span) && span >= 0.0) {
-        double step = 1.0;
-        if (span > 4.0) {
-            step = std::pow(10.0, std::floor(std::log10(span / 4.0)));
-            const double n = span / step;
-            if (n >= 20.0) step *= 5.0;
-            else if (n >= 10.0) step *= 2.0;
-        }
-        const double first = std::ceil(double(vlo) / step);
-        for (int i = 0; i < 16; ++i) {
-            const double vd = (first + double(i)) * step;
-            if (vd > double(vhi) + 1e-4 * step) break;
-            const float v = float(vd);
-            dl->AddLine(ImVec2(x0, sy(v)), ImVec2(x1, sy(v)), v == 0.0f || v == 1.0f ? IM_COL32(70, 76, 94, 255) : IM_COL32(44, 47, 58, 255));
-            dl->AddText(ImVec2(x0 + 2, sy(v) - 12), IM_COL32(110, 115, 135, 255), std::format("{:g}", v).c_str());
-        }
+    // Horizontal grid lines at whole values; a wide range steps by 1, 2 or 5 x 10^n (curve_grid_values), never more than
+    // kCurveGridMaxLines lines: a key of 1e9 must not loop a billion times.
+    for (const float v : curve_grid_values(vlo, vhi)) {
+        dl->AddLine(ImVec2(x0, sy(v)), ImVec2(x1, sy(v)), v == 0.0f || v == 1.0f ? IM_COL32(70, 76, 94, 255) : IM_COL32(44, 47, 58, 255));
+        dl->AddText(ImVec2(x0 + 2, sy(v) - 12), IM_COL32(110, 115, 135, 255), std::format("{:g}", v).c_str());
     }
     if (c.empty()) {
         dl->AddText(ImVec2(x0 + 24, (y0 + y1) * 0.5f - 6), IM_COL32(150, 155, 170, 255), "(empty: click to add a key)");

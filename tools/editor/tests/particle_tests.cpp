@@ -4,6 +4,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 #include "doctest.h"
 #include "fa/core/command.h"
@@ -81,6 +82,38 @@ TEST_CASE("particle curve helpers: a key goes where it was clicked, stays betwee
     curve_value_range(Curve{}, lo, hi);
     CHECK(lo == doctest::Approx(0.0f));
     CHECK(hi == doctest::Approx(1.0f));
+}
+
+TEST_CASE("particle curve grid: any range gets at most 16 ascending lines, however wide") {
+    auto check = [](float lo, float hi) {
+        const std::vector<float> g = curve_grid_values(lo, hi);
+        INFO("range " << lo << " .. " << hi);
+        CHECK(int(g.size()) <= kCurveGridMaxLines);
+        for (std::size_t i = 1; i < g.size(); ++i) CHECK(g[i] > g[i - 1]);
+        for (const float v : g) {
+            CHECK(v >= lo);
+            CHECK(v <= hi);
+        }
+        return g;
+    };
+    const std::vector<float> unit = check(0.0f, 1.0f);
+    REQUIRE(unit.size() == 2);  // 0 and 1
+    CHECK(unit[0] == 0.0f);
+    CHECK(unit[1] == 1.0f);
+    const std::vector<float> mixed = check(-3.0f, 7.0f);
+    CHECK(mixed.size() >= 2);
+    CHECK(std::find(mixed.begin(), mixed.end(), 0.0f) != mixed.end());
+    const std::vector<float> huge = check(0.0f, 1.0e9f);
+    CHECK(huge.size() >= 2);
+    CHECK(huge.front() == 0.0f);
+    CHECK(check(0.0f, 1073741824.0f).size() >= 2);  // a span of 2^30
+    CHECK(check(-1.0e9f, 1.0e9f).size() >= 2);
+    CHECK(check(5.0f, 5.0f) == std::vector<float>{5.0f});  // lo == hi on a whole value
+    CHECK(check(5.5f, 5.5f).empty());                      // lo == hi between two whole values
+    CHECK(check(16777216.0f, 16777216.0f).size() == 1);    // above 2^24 a float `v += 1` never advances
+    CHECK(curve_grid_values(1.0f, 0.0f).empty());
+    CHECK(curve_grid_values(0.0f, INFINITY).empty());
+    CHECK(curve_grid_values(NAN, 1.0f).empty());
 }
 
 TEST_CASE("particle gradient helpers: a new key has the colour the gradient already had there") {
