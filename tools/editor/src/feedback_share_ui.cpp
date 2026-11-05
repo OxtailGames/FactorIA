@@ -10,6 +10,7 @@
 
 #include "editor_internal.h"
 #include "fa/core/strings.h"
+#include "fa/tooling/feedback_check.h"
 
 namespace fa::editor {
 
@@ -100,6 +101,24 @@ void Editor::share_start_flush(bool force, std::uint64_t session) {
             s.flushNew = true;
         }
         s.flushRunning = false;
+    });
+}
+
+// The engine developers' answers to the reports this installation sent: a rejection comes back as the entry's status and reason.
+void Editor::share_start_verdicts(const std::string& feedbackFile) {
+    ShareUi& s = share_;
+    if (s.verdictRunning) return;
+    if (s.verdictThread.joinable()) s.verdictThread.join();
+    s.verdictRunning = true;
+    s.verdictAt = time_;
+    s.verdictThread = std::thread([&s, env = share_env(), feedbackFile] {
+        const VerdictResult r = share_sync_verdicts(env, feedbackFile, 15);
+        {
+            std::lock_guard<std::mutex> lock(s.mu);
+            s.verdictResult = r;
+            s.verdictNew = true;
+        }
+        s.verdictRunning = false;
     });
 }
 
@@ -233,6 +252,8 @@ void Editor::feedback_share_tick() {
     bool flushNewHere = false, flushForWindow = false, flushBusy = false;
     int flushSent = 0;
     std::string flushMessage;
+    VerdictResult verdicts;
+    bool verdictsNew = false;
     {  // what the threads handed over
         std::lock_guard<std::mutex> lock(s.mu);
         if (s.flushNew) {
@@ -250,6 +271,24 @@ void Editor::feedback_share_tick() {
             s.settingsPolled = -10;
         }
         answers.swap(s.aiDone);
+        if (s.verdictNew) {
+            s.verdictNew = false;
+            verdictsNew = true;
+            verdicts = s.verdictResult;
+        }
+    }
+    if (verdictsNew && (verdicts.declined > 0 || verdicts.restored > 0)) {
+        if (verdicts.declined > 0)
+            notify(std::to_string(verdicts.declined) + (verdicts.declined == 1 ? " feedback entry was" : " feedback entries were") +
+                       " rejected by the engine developers. Tick \"closed\" in Engine Feedback to read why.",
+                   1);
+        if (verdicts.restored > 0)
+            notify(std::to_string(verdicts.restored) + (verdicts.restored == 1 ? " rejected feedback entry is" : " rejected feedback entries are") +
+                       " open again: the engine developers took the rejection back.",
+                   0);
+        feedbackMtime_ = INT64_MIN;
+        feedbackPolled_ = -10;
+        s.docStamp = INT64_MIN;
     }
     if (flushNewHere) {
         if (flushSent > 0 && !flushForWindow)
@@ -307,6 +346,18 @@ void Editor::feedback_share_tick() {
             if (exists) {
                 if (auto r = load_feedback(file); r && r->contains("entries") && (*r)["entries"].is_array()) {
                     doc = *r;
+                    // An open entry that says the engine lacks something it has (the check before filing, run again here for the
+                    // ones written without it) is rejected with the reason; a person can reopen it, and then it stays open.
+                    if (auto rejected = reject_claimed_feedback_file(file, &engine_->commands()); rejected && !rejected->empty()) {
+                        if (auto again = load_feedback(file); again && again->contains("entries") && (*again)["entries"].is_array()) doc = *again;
+                        std::string ids;
+                        for (const std::string& id : *rejected) ids += (ids.empty() ? "" : ", ") + id;
+                        notify("Rejected " + ids + ": the engine already has what " + std::string(rejected->size() == 1 ? "it says" : "they say") +
+                                   " is missing. The reason is in the Engine Feedback panel (tick \"closed\").",
+                               1);
+                        feedbackMtime_ = INT64_MIN;
+                        feedbackPolled_ = -10;
+                    }
                     // Entries that are not open (fixed in the engine, won't fix, duplicate) go to the archive file next to this
                     // one as soon as they are seen: the panel and the Send window only deal with what is open.
                     bool anyClosed = false;
@@ -380,6 +431,12 @@ void Editor::feedback_share_tick() {
     // always / ask: send what is due (the confirmed ones, in ask mode), at most one flush every few seconds.
     if ((s.mode == ShareMode::Always || s.mode == ShareMode::Ask) && !s.flushRunning && time_ - s.flushAt > 5.0 && share_has_due(env))
         share_start_flush(false);
+
+    // always / ask: what the engine developers decided about the reports already sent (a rejection comes back with its reason),
+    // asked at the start and about every half hour, only when this project has a feedback file.
+    if (haveProject && (s.mode == ShareMode::Always || s.mode == ShareMode::Ask) && s.sharingAvailable && !s.verdictRunning && !s.flushRunning &&
+        time_ - s.verdictAt > 1800.0 && fs::exists(engine_->project().feedbackFile))
+        share_start_verdicts(file);
 }
 
 // What the consent dialog previews: the next report as the server would receive it, for the entries the Send feedback window would list.

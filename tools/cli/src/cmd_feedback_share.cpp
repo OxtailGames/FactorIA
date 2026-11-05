@@ -109,17 +109,19 @@ void add_feedback_share_commands(Command& group) {
     Command share;
     share.name = "share";
     share.summary = "Send the queued feedback to the engine developer now; with --preview, show exactly what would be sent.";
-    share.usage = "[project] [--preview] [--yes] [--json]";
+    share.usage = "[project] [--preview | --verdicts] [--yes] [--json]";
     share.maxPositional = 1;
     share.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                    {"preview", "", "Show what would be sent and what the sanitizer removed; send nothing."},
+                   {"verdicts", "", "Send nothing: ask the server what the engine developers decided about the reports already sent."},
                    {"yes", "", "With mode ask: confirm every waiting entry without asking."},
                    {"json", "", "Machine-readable output."}};
     share.details =
         "Queues the shareable entries of the project (open, with a `share`), then sends the outbox: one request of up to 20 entries "
         "at a time. With mode ask it first shows what waits and asks for your confirmation. Needs the mode always or ask "
-        "(`factoria feedback sharing`).";
-    share.examples = {"factoria feedback share --preview", "factoria feedback share", "factoria feedback share --yes"};
+        "(`factoria feedback sharing`). With --verdicts nothing is sent: it asks the server which of the reports you already sent the engine "
+        "developers rejected (command feedback.verdicts); a rejected entry is closed here with their reason, in plain text.";
+    share.examples = {"factoria feedback share --verdicts", "factoria feedback share --preview", "factoria feedback share", "factoria feedback share --yes"};
     share.run = [](Context& ctx) {
         const ShareEnv& env = share_env();
         const std::string dir = project_for_share(ctx);
@@ -128,6 +130,22 @@ void add_feedback_share_commands(Command& group) {
             file = feedback_path(dir);
             std::error_code ec;
             if (!fsys::exists(file, ec)) file.clear();
+        }
+        if (ctx.args.has("verdicts")) {
+            if (file.empty()) return report_failure(ctx, "No ENGINE_FEEDBACK.json to ask about.", "Run inside a project, or pass its folder.");
+            const VerdictResult v = share_sync_verdicts(env, file, 15.0);
+            if (ctx.args.has("json")) {
+                print_json(ctx.out, Json::object({{"outcome", v.outcome}, {"message", v.message}, {"checked", v.checked}, {"declined", v.declined},
+                                                  {"restored", v.restored}, {"changed", v.changed}}));
+            } else {
+                ctx.out << v.message << "\n";
+                if (!v.changed.empty()) {
+                    ctx.out << "Changed:";
+                    for (const std::string& id : v.changed) ctx.out << " " << id;
+                    ctx.out << "\n";
+                }
+            }
+            return v.outcome == "failed" || v.outcome == "unavailable" ? 1 : 0;
         }
         const EngineNames engine = collect_engine_names();
         if (ctx.args.has("preview")) {

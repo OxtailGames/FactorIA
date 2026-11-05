@@ -2,7 +2,7 @@
 // "feedback/fixed.json"). A game's open entry that matches a fix is closed with the version that fixed it.
 //
 //   {"format": "factoria.feedback-fixed/1",
-//    "fixes": [{"category": "physics", "titles": ["No one-way platforms"], "fixedIn": "0.11.0", "note": "Collider2D.oneWay"}]}
+//    "fixes": [{"category": "physics", "titles": ["No fluid simulation"], "fixedIn": "0.11.0", "note": "Fluid2D"}]}
 //
 // `factoria feedback fixed add|list` maintain the file. The file is embedded in the binary by the user-side sharing, so its
 // format is exactly the one above: do not add keys.

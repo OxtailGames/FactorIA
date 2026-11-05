@@ -20,6 +20,9 @@ turned sharing on. They tell the engine developer what to build next.</p>
 engine terms; plus the category, severity, effort estimate, the engine version and the platform (macOS, Windows, Linux,
 web).</li>
 <li>When it was received, and how many times the same installation reported the same gap.</li>
+<li>If the engine developer decides a report does not describe a real gap (the engine already has the feature, say), the
+short reason they wrote. Your engine asks for the reasons of the reports it sent and shows them to you; it can only ask
+about its own reports.</li>
 <li>A pseudonymous installation key: a keyed hash of a random id the engine created on your machine. It cannot be
 turned back into the id, and it is not tied to any game or project.</li>
 <li>If you signed in with GitHub (optional, only to be counted as a verified user): a pseudonymous key derived from your

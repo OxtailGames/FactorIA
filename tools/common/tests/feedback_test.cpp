@@ -390,7 +390,7 @@ TEST_CASE("feedback archive: files, commands, list and collect") {
         return reg.call("feedback.report", {{"category", cat}, {"severity", "major"}, {"title", title},
                                             {"missing", "Engine lacks " + title}, {"workaround", "Script for " + title}});
     };
-    REQUIRE(report("No one-way platforms", "physics").ok);
+    REQUIRE(report("No cloth simulation", "physics").ok);
     REQUIRE(report("No gamepad rumble", "input").ok);
     REQUIRE(reg.call("feedback.update", {{"id", "FB-0001"}, {"status", "fixed-in-engine"}}).ok);
 

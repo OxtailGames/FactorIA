@@ -365,6 +365,21 @@ void Editor::on_init() {
                                           : Json::object({{"error", "authorization_pending"}});
                 } else if (rq.url.ends_with("/v1/auth/github")) {
                     body = Json::object({{"ok", true}, {"credential", "autotest.credential"}, {"login", "octocat"}});
+                } else if (rq.url.ends_with("/v1/verdicts")) {
+                    // the engine developers' answers: a rejected report for each shareId the autotest listed in net->verdicts
+                    Json verdicts = Json::array();
+                    const Json asked = Json::parse(rq.body, nullptr, false);
+                    std::lock_guard<std::mutex> lock(net->mu);
+                    if (asked.is_object() && asked.contains("shareIds") && asked["shareIds"].is_array())
+                        for (const Json& id : asked["shareIds"]) {
+                            const std::string shareId = id.is_string() ? id.get<std::string>() : std::string();
+                            const auto found = net->verdicts.find(shareId);
+                            if (found != net->verdicts.end())
+                                verdicts.push_back(Json::object({{"shareId", shareId}, {"status", "rejected"}, {"reason", found->second}}));
+                            else
+                                verdicts.push_back(Json::object({{"shareId", shareId}, {"status", "received"}}));
+                        }
+                    body = Json::object({{"ok", true}, {"verdicts", verdicts}});
                 } else if (rq.url.ends_with("/v1/reports") && !net->failReports) {
                     Json results = Json::array();
                     const Json sent = Json::parse(rq.body, nullptr, false);
@@ -1449,7 +1464,10 @@ void Editor::build_ui() {
         if (showConsole_) draw_console();
         if (showProject_) draw_project_panel();
         if (showAi_) draw_ai_panel();
-        if (showFeedback_) draw_feedback_panel();
+        if (showFeedback_) {
+            draw_feedback_panel();
+            draw_feedback_windows();
+        }
         if (showAudio_) draw_audio_panel();
         if (showProfiler_) draw_profiler_panel();
         if (showAnimation_) draw_animation_panel();

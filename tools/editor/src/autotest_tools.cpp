@@ -4574,9 +4574,9 @@ void Editor::at_build_tools_script() {
             s.docStamp = INT64_MIN;
             s.tickAt = -10;
             const Json one = Json::object(
-                {{"title", "No one-way platforms"},
-                 {"missing", "Collider2D has no one-way option, so a body cannot pass up through a platform and land on it."},
-                 {"suggestion", "Add Collider2D.oneWay (bool)."}});
+                {{"title", "No ladder climbing"},
+                 {"missing", "Nothing lets a body climb a vertical surface: a player cannot go up a wall the way a ladder would allow."},
+                 {"suggestion", "Add a climbable surface type."}});
             const Json two = Json::object({{"title", "Pause cannot stop particles"},
                                            {"missing", "ParticleEmitter keeps emitting while the game is paused and there is no way to freeze it."}});
             add_entry("Jump-through platforms are impossible", "The player of SecretLevelName cannot jump up through its platforms.", one);
@@ -4596,7 +4596,7 @@ void Editor::at_build_tools_script() {
             at_check(at_visible("share:consent:always") && at_visible("share:consent:ask") && at_visible("share:consent:never") &&
                          at_visible("share:consent:later"),
                      "a project with feedback entries and no answer asks: Always, Ask me each time, Never and Decide later");
-            at_check(share_.consentEntries == 3 && share_.consentPreview.find("No one-way platforms") != std::string::npos &&
+            at_check(share_.consentEntries == 3 && share_.consentPreview.find("No ladder climbing") != std::string::npos &&
                          share_.consentPreview.find("Pause cannot stop particles") != std::string::npos,
                      "the dialog previews the next report: the texts of the three entries (the third one made from the entry)");
             at_check(share_.consentPreview.find("SecretLevelName") == std::string::npos &&
@@ -4668,7 +4668,7 @@ void Editor::at_build_tools_script() {
             at_check(reports() >= 1 && body.find("Pause cannot stop particles") != std::string::npos && body.find("FB-0002") != std::string::npos &&
                          body.find("FB-0003") != std::string::npos,
                      "Send sends the checked entries");
-            at_check(body.find("FB-0001") == std::string::npos && body.find("No one-way platforms") == std::string::npos &&
+            at_check(body.find("FB-0001") == std::string::npos && body.find("No ladder climbing") == std::string::npos &&
                          body.find("SecretLevelName") == std::string::npos && body.find("Edited the scene") == std::string::npos &&
                          body.find("Autotest Platformer") == std::string::npos,
                      "...and nothing of the unchecked one, the entries' own text or the project's name");
@@ -7406,6 +7406,244 @@ void Editor::at_build_tools_script() {
             stdfs::remove_all(projectDir_ + "/anim", ec);
             project_files_changed();
         });
+    }
+
+    section("E4");
+    // Rejected feedback (docs/EDITOR.md, "Rejected entries"): the engine rejects an entry that says the engine lacks what it has (with
+    // the reason), a double click opens an entry in its own window (movable, resizable, every field), the status combo asks why before
+    // an entry is rejected, "closed" lists the archive with the reason on the row, Copy puts the whole entry on the clipboard,
+    // Delete asks first and the id is not given again, and the engine developers' verdict (a rejected report, asked of the fake
+    // server) comes back as a rejected entry with their reason.
+    {
+        struct E4State {
+            std::string path, archive;
+            float doubleClickTime = 0.3f, singleClickDelay = 0.5f;
+            ImGuiID row = 0, sibling = 0;  // the dock row of the panel made taller for this section, and the one it took from
+            float grown = 0;
+        };
+        auto x = std::make_shared<E4State>();
+        // The bottom row of the dock gives the panel little room on a small display: it grows for this section (as in E2).
+        auto grow_panel_row = [x](bool grow) {
+            if (!grow) {
+                ImGuiDockNode* row = ImGui::DockBuilderGetNode(x->row);
+                ImGuiDockNode* sib = ImGui::DockBuilderGetNode(x->sibling);
+                if (row && sib) row->SizeRef.y -= x->grown, sib->SizeRef.y += x->grown;
+                x->grown = 0;
+                return;
+            }
+            const ImGuiWindow* w = panel_window("Engine Feedback");
+            ImGuiDockNode* row = w ? w->DockNode : nullptr;
+            while (row && row->ParentNode && row->ParentNode->SplitAxis != ImGuiAxis_Y) row = row->ParentNode;
+            if (!row || !row->ParentNode) return;
+            ImGuiDockNode* sib = row->ParentNode->ChildNodes[0] == row ? row->ParentNode->ChildNodes[1] : row->ParentNode->ChildNodes[0];
+            if (!sib) return;
+            x->grown = std::clamp(440.0f - row->Size.y, 0.0f, std::max(0.0f, sib->Size.y - 120.0f));
+            x->row = row->ID;
+            x->sibling = sib->ID;
+            row->SizeRef.y += x->grown;
+            sib->SizeRef.y -= x->grown;
+        };
+        auto any_entry = [x](const std::string& id) -> Json {
+            for (const std::string& file : {x->path, x->archive}) {
+                auto doc = load_feedback(file);
+                if (doc && doc->contains("entries"))
+                    for (const Json& e : (*doc)["entries"])
+                        if (e.value("id", std::string()) == id) return e;
+            }
+            return Json::object();
+        };
+        auto in_archive = [x](const std::string& id) {
+            auto doc = load_feedback(x->archive);
+            if (doc && doc->contains("entries"))
+                for (const Json& e : (*doc)["entries"])
+                    if (e.value("id", std::string()) == id) return true;
+            return false;
+        };
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        step(2, [this, x] {
+            x->path = projectDir_ + "/" + engine_->project().feedbackFile;
+            x->archive = projectDir_ + "/ENGINE_FEEDBACK.archive.json";
+            std::error_code ec;
+            stdfs::remove(x->path, ec);
+            stdfs::remove(x->archive, ec);
+            (void)set_share_mode(share_env(), ShareMode::Never);  // the harness; only a click sets the mode in the product
+            ShareUi& s = share_;
+            s.consentOpen = s.consentLater = s.settingsOpen = s.sendOpen = false;
+            s.mode = ShareMode::Never;
+            s.docFile.clear();
+            s.docStamp = INT64_MIN;
+            s.tickAt = -10;
+            {
+                std::lock_guard<std::mutex> lock(atShareNet_->mu);
+                atShareNet_->verdicts.clear();
+            }
+            for (const char* title : {"No one-way platforms", "Rope bridges are not supported", "Weather changes are missing", "Boats cannot float on water"}) {
+                FeedbackInput in;
+                in.category = feedback_categories().front();
+                in.severity = "minor";
+                in.title = title;
+                in.missing = std::string(title) == "No one-way platforms" ? "Collider2D has no one-way option, so a body cannot pass up through a platform and land on it."
+                                                                         : std::string(title) + " in this game.";
+                in.workaround = "Edited the scene file by hand.";
+                in.reporter = Json::object({{"kind", "human"}, {"agent", "factoria-editor"}});
+                auto r = add_feedback_entry_to_file(x->path, in, "Autotest Platformer");
+                at_check(r.ok(), std::string("entry added: ") + title);
+            }
+            fbSelected_.clear();
+            fbAddOpen_ = false;
+            fbShowClosed_ = false;
+            fbWindows_.clear();
+            fbAsk_ = FbAsk{};
+            feedbackMtime_ = INT64_MIN;
+            feedbackPolled_ = -10;
+            showFeedback_ = true;
+            focus_window("Engine Feedback");
+            x->doubleClickTime = ImGui::GetIO().MouseDoubleClickTime;
+            x->singleClickDelay = ImGui::GetIO().MouseSingleClickDelay;
+            ImGui::GetIO().MouseSingleClickDelay = 6.0f;  // (must stay above the double-click time)
+            ImGui::GetIO().MouseDoubleClickTime = 5.0f;   // two clicks a few frames apart are a double click, however slow the frames
+        });
+        step(2, [grow_panel_row] { grow_panel_row(true); });
+        // ---- the engine rejects an entry that says the engine lacks what it has
+        wait_until([in_archive] { return in_archive("FB-0001"); });
+        step(3, [this, any_entry] {
+            const Json e = any_entry("FB-0001");
+            at_check(e.value("status", std::string()) == "rejected" && e.value("statusBy", std::string()) == "engine" &&
+                         e.value("statusReason", std::string()).find("Collider2D.oneWay") != std::string::npos,
+                     "an open entry that says Collider2D has no one-way option is rejected by the engine, with the reason (" + e.value("statusReason", std::string()) + ")");
+            at_check(any_entry("FB-0004").value("status", std::string()) == "open" && !at_visible("feedback:row:FB-0001"),
+                     "...the others stay open, and the closed one is not in the table");
+        });
+        // ---- "closed" lists the archive; a row with a reason is marked
+        wait_until([this] { return at_visible("feedback:closed") && at_visible("feedback:row:FB-0004"); });
+        click("feedback:closed");
+        wait_until([this] { return at_visible("feedback:row:FB-0001"); });
+        step(3, [this] {
+            at_check(fbShowClosed_ && at_visible("feedback:status:FB-0001") && at_visible("feedback:row:FB-0004"),
+                     "closed lists the archived entries too, each with its status (a rejected one carries a marker and its reason in a tooltip)");
+            const Json* e = feedback_entry("FB-0001");
+            at_check(e && e->value("statusReason", std::string()).find("documented in") != std::string::npos,
+                     "the panel holds the archived entry with its statusReason");
+        });
+        click("feedback:closed");
+        wait_until([this] { return !at_visible("feedback:row:FB-0001") && at_shown("feedback:row:FB-0004"); });
+        step(3, [] {});
+        // ---- a double click opens the entry in a window
+        click("feedback:row:FB-0004");
+        click("feedback:row:FB-0004");
+        wait_until([this] { return at_visible("feedback:win:FB-0004"); });
+        step(3, [this] {
+            ImGuiWindow* w = ImGui::FindWindowByName("Feedback FB-0004###fbwin-FB-0004");
+            at_check(w && !(w->Flags & ImGuiWindowFlags_NoResize) && !(w->Flags & ImGuiWindowFlags_NoMove) && w->Size.x > 100,
+                     "a double click on a row opens that entry in a window that can be moved and resized");
+            at_check(fbWindows_.size() == 1 && at_visible("feedback:win:close") && at_visible("feedback:copy") && at_visible("feedback:status") &&
+                         at_visible("feedback:delete"),
+                     "...with the status, Copy, Delete and Close at its top");
+            at_check(!at_enabled("feedback:delete"), "Delete is disabled for an open entry");
+            if (w) {  // out of the table's way, whatever the display
+                ImGui::SetWindowPos(w, ImVec2(8, 28));
+                ImGui::SetWindowSize(w, ImVec2(480, 150));
+            }
+        });
+        snap("editor_feedback_window.png");
+        // ---- the status combo asks why before an entry is rejected
+        click("feedback:status");
+        wait_until([this] { return at_visible("feedback:status:item:rejected"); });
+        click("feedback:status:item:rejected");
+        wait_until([this] { return at_visible("feedback:reason:ok"); });
+        step(3, [this] {
+            at_check(fbAsk_.open && fbAsk_.id == "FB-0004" && at_visible("feedback:reason") && !at_enabled("feedback:reason:ok"),
+                     "choosing rejected asks for the reason, and OK waits for one");
+            fbAsk_.reason = "The engine has Tilemap and a Collider2D already; floating needs no new feature.";
+        });
+        snap("editor_feedback_reject.png");
+        wait_until([this] { return at_enabled("feedback:reason:ok"); });
+        click("feedback:reason:ok");
+        wait_until([in_archive] { return in_archive("FB-0004"); });
+        step(3, [this, any_entry] {
+            const Json e = any_entry("FB-0004");
+            at_check(e.value("status", std::string()) == "rejected" && e.value("statusBy", std::string()) == "user" &&
+                         e.value("statusReason", std::string()) == "The engine has Tilemap and a Collider2D already; floating needs no new feature.",
+                     "Reject stores the status, the reason and who decided; the entry moves to the archive");
+            at_check(!fbAsk_.open && at_visible("feedback:win:FB-0004") && at_visible("feedback:win:reason"),
+                     "...and its window stays, now showing the reason");
+        });
+        // ---- Copy: the whole entry on the clipboard
+        click("feedback:copy");
+        step(3, [this] {
+            const char* clip = ImGui::GetClipboardText();
+            const std::string text = clip ? clip : "";
+            at_check(text.find("\"id\": \"FB-0004\"") != std::string::npos && text.find("\"statusReason\"") != std::string::npos &&
+                         text.find("Boats cannot float on water") != std::string::npos && text.find("\"workaround\"") != std::string::npos,
+                     "Copy puts the whole entry (every field, as JSON) on the clipboard");
+        });
+        // ---- Delete asks first; the id is not used again
+        wait_until([this] { return at_enabled("feedback:delete"); });
+        click("feedback:delete");
+        wait_until([this] { return at_visible("feedback:delete:ok"); });
+        click("feedback:delete:cancel");
+        step(3, [this, any_entry] {
+            at_check(!fbAsk_.open && any_entry("FB-0004").value("id", std::string()) == "FB-0004", "Cancel keeps the entry");
+        });
+        click("feedback:delete");
+        wait_until([this] { return at_visible("feedback:delete:ok"); });
+        click("feedback:delete:ok");
+        wait_until([any_entry] { return any_entry("FB-0004").value("id", std::string()).empty(); });
+        step(3, [this, x] {
+            at_check(fbWindows_.empty() && fbSelected_ != "FB-0004", "Delete removes the entry from the archive and closes its window");
+            FeedbackInput in;
+            in.category = feedback_categories().front();
+            in.severity = "minor";
+            in.title = "Ocean currents are missing";
+            in.missing = "Nothing pushes a floating body along a river.";
+            in.workaround = "A script moves it.";
+            auto r = add_feedback_entry_to_file(x->path, in, "Autotest Platformer");
+            at_check(r.ok() && r->id == "FB-0005", "the deleted id is not given again (the next entry is " + (r.ok() ? r->id : r.error().message) + ")");
+        });
+        // ---- the engine developers' verdict comes back as a rejected entry
+        step(2, [this, x] {
+            write_entry_shared(x->path, "FB-0003", Json::object({{"status", "sent"}, {"shareId", "r_7"}, {"date", "2026-01-01"}}));
+            {
+                std::lock_guard<std::mutex> lock(atShareNet_->mu);
+                atShareNet_->verdicts["r_7"] = "Not a gap: weather is a particle effect plus a script, see the weather recipe.";
+            }
+            (void)set_share_mode(share_env(), ShareMode::Always);
+            share_.verdictAt = -1e9;  // ask now, not in half an hour
+            share_.docStamp = INT64_MIN;
+            share_.tickAt = -10;
+        });
+        wait_until([in_archive] { return in_archive("FB-0003"); });
+        step(3, [this, any_entry] {
+            const Json e = any_entry("FB-0003");
+            at_check(e.value("status", std::string()) == "rejected" && e.value("statusBy", std::string()) == "developer" &&
+                         e.value("statusReason", std::string()).find("Not a gap") != std::string::npos,
+                     "the engine developers' verdict is stored as a rejected entry with their reason (" + e.dump() + ")");
+            const ShareColumn c = share_column(e);
+            at_check(c.label == "declined" && c.tooltip.find("Not a gap") != std::string::npos,
+                     "...and its share column reads declined, with their reason on hover");
+            at_check(any_entry("FB-0002").value("status", std::string()) == "open", "an entry the developers said nothing about stays open");
+        });
+        // ---- leave the editor as the other sections expect it
+        step(2, [this, x] {
+            (void)set_share_mode(share_env(), ShareMode::Never);
+            share_.mode = ShareMode::Never;
+            fbShowClosed_ = false;
+            fbWindows_.clear();
+            fbAsk_ = FbAsk{};
+            ImGui::GetIO().MouseDoubleClickTime = x->doubleClickTime;
+            ImGui::GetIO().MouseSingleClickDelay = x->singleClickDelay;
+            std::error_code ec;
+            stdfs::remove(x->path, ec);
+            stdfs::remove(x->archive, ec);
+            feedbackMtime_ = INT64_MIN;
+            feedbackPolled_ = -10;
+        });
+        step(2, [grow_panel_row] { grow_panel_row(false); });
     }
 
     // ------------------------------------------------------------------------------------------------------ done

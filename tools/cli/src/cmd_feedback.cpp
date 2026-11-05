@@ -9,6 +9,7 @@
 #include "fa/runtime/project.h"
 #include "fa/tooling/docs.h"
 #include "fa/tooling/feedback.h"
+#include "fa/tooling/feedback_check.h"
 #include "fa/tooling/feedback_share.h"
 
 namespace fa::cli {
@@ -98,8 +99,8 @@ Command make_feedback_command() {
                                        {"share-workaround", "TEXT", "For sharing: the kind of workaround, without project details."},
                                        {"reviewed", "", "You checked against the docs that the gap is real and about the engine."},
                                        {"json", "JSON", "Entry as a JSON object instead of flags (same keys as the flags; `share` is {title, missing, suggestion?, workaround?}, `reviewed` a boolean)."}});
-    add.examples = {"factoria feedback add --category physics --severity major --title \"No one-way platforms\" \\\n"
-                    "    --missing \"Collider2D has no one-way option\" --workaround \"scripts/one_way.js toggles the collider\" --files scripts/one_way.js",
+    add.examples = {"factoria feedback add --category physics --severity major --title \"No fluid simulation\" \\\n"
+                    "    --missing \"There is no liquid solver\" --workaround \"scripts/water.js fakes a surface\" --files scripts/water.js",
                     "factoria feedback add --json '{\"category\":\"docs\",\"severity\":\"minor\",\"title\":\"...\",\"missing\":\"...\",\"workaround\":\"...\"}'"};
     add.run = [](Context& ctx) {
         const Args& a = ctx.args;
@@ -142,9 +143,23 @@ Command make_feedback_command() {
         if (a.has("agent")) rep["agent"] = a.str("agent");
         if (a.has("model")) rep["model"] = a.str("model");
         in.reporter = rep;
+        // The check before filing: a report that calls missing something the engine has is refused (docs/ENGINE_FEEDBACK.md).
+        ClaimInput claimIn{in.title, in.missing, in.suggestion};
+        if (!in.share.is_null()) {
+            claimIn.missing += ". " + in.share.value("missing", std::string());
+            claimIn.suggestion += ". " + in.share.value("suggestion", std::string());
+        }
+        const ClaimResult claim = check_feedback_claim(claimIn, nullptr, 3);
+        if (claim.refused()) return report_failure(ctx, claim.message(), claim.hint());
         auto r = add_feedback_entry_to_file(feedback_path(dir), in, project_name(dir));
         if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
         ctx.out << (r->reopened ? "Reopened (fixed before, reported again) " : r->merged ? "Merged into " : "Added ") << r->id << " (occurrences: " << r->occurrences << ")\n";
+        if (!claim.related.empty()) {
+            ctx.out << "Related documentation (if it already covers the gap, close the entry with `feedback update " << r->id
+                    << " --status rejected --reason TEXT`):\n";
+            for (const Json& d : claim.related)
+                ctx.out << "  " << d.value("path", std::string()) << ":" << d.value("line", 0) << "  " << d.value("heading", std::string()) << "\n";
+        }
         if (!r->shareProblem.empty()) ctx.out << "The share text was not stored: " << r->shareProblem << ".\n";
         else if (!in.share.is_null()) {
             const Json summary = share_report_summary(share_env(), feedback_path(dir), dir, r->id, nullptr, true);
@@ -156,7 +171,7 @@ Command make_feedback_command() {
     Command list = project_flag_cmd("list", "List entries.");
     list.usage = "[project] [--status S] [--category C] [--severity V] [--archive] [--json]";
     list.details = "The file holds what is still open; closed entries live in ENGINE_FEEDBACK.archive.json (see 'feedback archive').";
-    list.flags.insert(list.flags.end(), {{"status", "S", "open | fixed-in-engine | wont-fix | duplicate."},
+    list.flags.insert(list.flags.end(), {{"status", "S", "open | fixed-in-engine | wont-fix | duplicate | rejected."},
                                          {"category", "C", "Filter by category."},
                                          {"severity", "V", "Filter by severity."},
                                          {"archive", "", "Also list the archived (closed) entries."},
@@ -185,37 +200,42 @@ Command make_feedback_command() {
     };
 
     Command update = project_flag_cmd("update", "Change an entry's status and/or engine issue reference (triage).");
-    update.usage = "[project] <id> [--status S] [--note TEXT] [--engine-issue REF] [--json]";
+    update.usage = "[project] <id> [--status S] [--reason TEXT] [--note TEXT] [--engine-issue REF] [--json]";
     update.maxPositional = 2;
     update.details = "The project folder is optional: 'factoria feedback update <id> --status fixed-in-engine' works inside a project.";
-    update.flags.insert(update.flags.end(), {{"status", "S", "open | fixed-in-engine | wont-fix | duplicate."},
+    update.flags.insert(update.flags.end(), {{"status", "S", "open | fixed-in-engine | wont-fix | duplicate | rejected (the gap does not exist: --reason is required)."},
+                                             {"reason", "TEXT", "Why the entry got this status (statusReason): required for rejected, at most 500 characters."},
                                              {"note", "TEXT", "Triage note appended to the entry's notes."},
                                              {"engine-issue", "REF", "Engine issue/commit that handles it (stored as engineIssue)."},
                                              {"json", "", "Print the updated entry as JSON."}});
     update.examples = {"factoria feedback update games/my-game fb-001 --status fixed-in-engine --engine-issue \"abc123\"",
-                       "factoria feedback update fb-002 --status wont-fix --note \"by design\""};
+                       "factoria feedback update fb-002 --status wont-fix --note \"by design\"",
+                       "factoria feedback update fb-003 --status rejected --reason \"The engine has it: see docs/reference/components/physics.md\""};
     update.run = [](Context& ctx) {
         const Args& a = ctx.args;
         const auto& pos = a.positional();
         if (pos.empty()) throw UsageError("Missing entry id.", "Usage: factoria feedback update [project] <id> --status S");
         std::string id = pos.back();
         std::string dir = pos.size() > 1 ? absolute_path(pos[0]) : resolve_project_dir(ctx, 99);
-        if (!a.has("status") && !a.has("note") && !a.has("engine-issue"))
-            throw UsageError("Nothing to update.", "Pass --status, --note and/or --engine-issue.");
-        auto r = update_feedback_file(feedback_path(dir), id, a.str("status"), a.str("engine-issue"), a.str("note"));
+        if (!a.has("status") && !a.has("note") && !a.has("engine-issue") && !a.has("reason"))
+            throw UsageError("Nothing to update.", "Pass --status, --reason, --note and/or --engine-issue.");
+        auto r = update_feedback_file(feedback_path(dir), id, a.str("status"), a.str("engine-issue"), a.str("note"), a.str("reason"), "user");
         if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint.empty() ? "Create it with 'factoria feedback init'." : r.error().hint);
         if (a.has("json")) {
             print_json(ctx.out, *r);
             return 0;
         }
         ctx.out << "Updated " << id << ": status=" << r->value("status", std::string()) << "\n";
+        if (r->value("status", std::string()) == "rejected")
+            if (std::string offer = reject_offer(*r); !offer.empty())
+                ctx.out << "A pulled report: tell the installation why (it shows the reason in its editor; this only closes the local copy):\n  " << offer << "\n";
         if (r->value("status", std::string()) == "fixed-in-engine")
             if (std::string offer = fixed_add_offer(*r); !offer.empty())
                 ctx.out << "A pulled report: record the fix so every user's matching entry is closed when they update:\n  " << offer << "\n";
         return 0;
     };
 
-    Command archive = project_flag_cmd("archive", "Move closed entries (fixed-in-engine, wont-fix, duplicate) to ENGINE_FEEDBACK.archive.json.");
+    Command archive = project_flag_cmd("archive", "Move closed entries (fixed-in-engine, wont-fix, duplicate, rejected) to ENGINE_FEEDBACK.archive.json.");
     archive.usage = "[project] [--json]";
     archive.details = "ENGINE_FEEDBACK.json then only holds what is still open. Ids stay unique across both files, a new report that\n"
                       "matches an archived fixed-in-engine entry reopens it, and 'feedback collect' still counts the archive. The editor\n"
@@ -234,6 +254,94 @@ Command make_feedback_command() {
         if (r->moved == 0) ctx.out << "Nothing to archive: " << r->open << " open, " << r->archived << " archived.\n";
         else ctx.out << "Archived " << r->moved << " closed entr" << (r->moved == 1 ? "y" : "ies") << " to " << feedback_archive_path(path) << " ("
                      << r->open << " left open, " << r->archived << " archived).\n";
+        return 0;
+    };
+
+
+    Command check = project_flag_cmd("check", "Does the engine already have what a report says it lacks? (before filing, or for the open entries)");
+    check.usage = "[project] [--title T --missing TEXT [--suggestion TEXT]] [--entries [--reject]] [--json]";
+    check.details = "With --title and --missing: the check `feedback add` runs, on its own (exit 1 when the engine already has it, with what exists\n"
+                    "and where it is documented). With --entries: every OPEN entry of the project's ENGINE_FEEDBACK.json is checked; --reject also\n"
+                    "closes the ones that fail it as rejected, with the explanation as the reason. Same as the command feedback.check.";
+    check.flags.insert(check.flags.end(), {{"title", "T", "Title of the report to check."},
+                                           {"missing", "TEXT", "What the report says the engine lacks."},
+                                           {"suggestion", "TEXT", "The change the report asks for."},
+                                           {"entries", "", "Check the open entries of the project instead."},
+                                           {"reject", "", "With --entries: reject the entries that fail the check."},
+                                           {"json", "", "Machine-readable output."}});
+    check.examples = {"factoria feedback check --title \"No fluid simulation\" --missing \"There is no liquid solver\"",
+                      "factoria feedback check --entries --reject"};
+    check.run = [](Context& ctx) {
+        const Args& a = ctx.args;
+        if (a.has("entries")) {
+            const std::string path = feedback_path(resolve_project_dir(ctx, 0));
+            Json out = Json::object({{"file", path}, {"checked", 0}, {"refused", Json::array()}});
+            auto doc = load_feedback(path);
+            if (!doc.ok()) return report_failure(ctx, doc.error().message, doc.error().hint.empty() ? "Create it with 'factoria feedback init'." : doc.error().hint);
+            Json refused = Json::array();
+            int checked = 0;
+            for (const Json& e : (*doc)["entries"]) {
+                if (e.value("status", std::string("open")) != "open") continue;
+                ++checked;
+                const ClaimResult r = check_feedback_entry_claim(e);
+                if (r.refused()) refused.push_back(Json::object({{"id", e.value("id", std::string())}, {"title", e.value("title", std::string())}, {"reason", r.reason()}}));
+            }
+            std::vector<std::string> rejected;
+            if (a.has("reject") && !refused.empty()) {
+                auto rr = reject_claimed_feedback_file(path);
+                if (!rr.ok()) return report_failure(ctx, rr.error().message, rr.error().hint);
+                rejected = *rr;
+            }
+            out["checked"] = checked;
+            out["refused"] = refused;
+            out["rejected"] = rejected;
+            if (a.has("json")) {
+                print_json(ctx.out, out);
+                return refused.empty() ? 0 : 1;
+            }
+            ctx.out << "Checked " << checked << " open entr" << (checked == 1 ? "y" : "ies") << ": " << refused.size() << " claim" << (refused.size() == 1 ? "" : "s")
+                    << " something the engine already has.\n";
+            for (const Json& r : refused)
+                ctx.out << "  " << r.value("id", std::string()) << " " << r.value("title", std::string()) << "\n    " << r.value("reason", std::string()) << "\n";
+            if (!rejected.empty()) ctx.out << "Rejected: " << join(rejected, ", ") << ".\n";
+            else if (!refused.empty()) ctx.out << "Run again with --reject to close them as rejected.\n";
+            return refused.empty() ? 0 : 1;
+        }
+        if (!a.has("title") || !a.has("missing"))
+            throw UsageError("Give --title and --missing, or --entries.", "Usage: factoria feedback check --title T --missing TEXT");
+        const ClaimResult claim = check_feedback_claim({a.str("title"), a.str("missing"), a.str("suggestion")}, nullptr, 5);
+        if (a.has("json")) {
+            print_json(ctx.out, claim.to_json());
+            return claim.refused() ? 1 : 0;
+        }
+        if (claim.refused()) {
+            ctx.out << claim.message() << "\n" << claim.hint() << "\n";
+            return 1;
+        }
+        ctx.out << "Nothing in the report names something the engine has: it can be filed.\n";
+        for (const Json& d : claim.related) ctx.out << "  related: " << d.value("path", std::string()) << ":" << d.value("line", 0) << "  " << d.value("heading", std::string()) << "\n";
+        return 0;
+    };
+
+    Command discard = project_flag_cmd("discard", "Delete a closed entry (rejected, wont-fix, duplicate, fixed) from the file and its archive.");
+    discard.usage = "[project] <id> [--json]";
+    discard.maxPositional = 2;
+    discard.details = "Only a closed entry can go, or an open one the engine developer refused (rejected): an open entry is a question for the engine\n"
+                      "developers. The id is not given again. What was already sent to the engine developer stays with them. (`feedback delete`\n"
+                      "is the server-side delete of the engine developer.) Same as the command feedback.delete.";
+    discard.flags.push_back({"json", "", "Machine-readable output."});
+    discard.examples = {"factoria feedback discard FB-0004"};
+    discard.run = [](Context& ctx) {
+        const auto& pos = ctx.args.positional();
+        if (pos.empty()) throw UsageError("Missing entry id.", "Usage: factoria feedback discard [project] <id>");
+        const std::string id = pos.back();
+        const std::string dir = pos.size() > 1 ? absolute_path(pos[0]) : resolve_project_dir(ctx, 99);
+        const std::string path = feedback_path(dir);
+        auto r = delete_feedback_file(path, id);
+        if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
+        share_discard(share_env(), path, {id});
+        if (ctx.args.has("json")) print_json(ctx.out, Json::object({{"deleted", id}, {"title", r->value("title", std::string())}}));
+        else ctx.out << "Deleted " << id << ": " << r->value("title", std::string()) << "\n";
         return 0;
     };
 
@@ -297,7 +405,7 @@ Command make_feedback_command() {
         return 0;
     };
 
-    g.subs = {init, add, list, update, archive, validate, collect};
+    g.subs = {init, add, list, update, archive, check, discard, validate, collect};
     add_feedback_share_commands(g);
     for (auto& sub : make_feedback_admin_commands()) g.subs.push_back(std::move(sub));  // the engine developer's side
     return g;

@@ -7,7 +7,7 @@
 //                        new workaround goes to `notes`).
 //   archive_closed_feedback
 //                        move the entries that are not open (fixed-in-engine, wont-fix,
-//                        duplicate) to ENGINE_FEEDBACK.archive.json next to the file, so
+//                        duplicate, rejected) to ENGINE_FEEDBACK.archive.json next to the file, so
 //                        the file only holds what is still open. Ids stay unique across
 //                        both files; a new report that matches an archived
 //                        fixed-in-engine entry reopens it (a possible regression).
@@ -32,7 +32,15 @@ inline constexpr const char* kFeedbackFormat = "factoria.feedback/1";
 
 const std::vector<std::string>& feedback_categories();
 const std::vector<std::string>& feedback_severities();  // blocker, major, minor, nice-to-have
-const std::vector<std::string>& feedback_statuses();    // open, fixed-in-engine, wont-fix, duplicate
+const std::vector<std::string>& feedback_statuses();    // open, fixed-in-engine, wont-fix, duplicate, rejected
+// Who set a status: "engine" (the check found the gap already exists), "user" (a person, the default) or "developer" (the engine
+// developer rejected the shared report; the sharing tick writes it).
+const std::vector<std::string>& feedback_status_authors();
+// The longest `statusReason`, in characters.
+inline constexpr int kFeedbackReasonMax = 500;
+// A reason as it is stored and shown: control characters become spaces, runs of whitespace one space, trimmed, cut to
+// kFeedbackReasonMax characters (never in the middle of a UTF-8 sequence).
+std::string sanitize_status_reason(std::string_view reason);
 int feedback_severity_weight(std::string_view severity);  // blocker 8, major 4, minor 2, nice-to-have 1
 
 // Fresh document with no entries.
@@ -116,8 +124,20 @@ Json list_archived_feedback(const std::string& path, const FeedbackFilter& filte
 
 // Updates status, engineIssue and/or adds a note to entry `id` of the feedback file or, when it is not there, of its archive.
 // An archived entry set to "open" moves back to the file. Returns the updated entry.
+// `reason` is the entry's `statusReason`: REQUIRED when the status becomes "rejected" (why the gap is not one: shown to the person
+// in the editor), optional for the other closed statuses, and removed when the entry is opened again. `by` is who decides
+// (`statusBy`: see feedback_status_authors(); "" = user). A reopened entry that the engine rejected gets claimCheck "dismissed",
+// so the check never rejects it again.
 Result<Json> update_feedback_file(const std::string& path, std::string_view id, std::string_view status,
-                                  std::string_view engineIssue, std::string_view note = {});
+                                  std::string_view engineIssue, std::string_view note = {}, std::string_view reason = {},
+                                  std::string_view by = {});
+
+// Whether entry `e` may be deleted, and why not. Only a closed entry (any status but open) or an open one that the engine developer
+// refused (shared.status rejected or declined) can go: an open entry is somebody's open question for the engine developers.
+bool feedback_entry_deletable(const Json& entry, std::string* whyNot = nullptr);
+// Deletes entry `id` from the feedback file or its archive (a rejected entry lives in the archive). Its id is never given again
+// (the documents keep `nextId`). Nothing is written when the entry is not deletable. Returns the deleted entry.
+Result<Json> delete_feedback_file(const std::string& path, std::string_view id);
 
 struct FeedbackShareEdit {
     Json share;                    // null = leave `share` as it is; else {title, missing, suggestion?, workaround?}
@@ -132,7 +152,7 @@ Result<Json> set_feedback_share_file(const std::string& path, std::string_view i
 
 // Updates status and/or engineIssue of entry `id`. Returns the updated entry.
 Result<Json> update_feedback_entry(Json& doc, std::string_view id, std::string_view status,
-                                   std::string_view engineIssue);
+                                   std::string_view engineIssue, std::string_view reason = {}, std::string_view by = {});
 
 struct FeedbackReport {
     Json json;                 // see collect_feedback
@@ -153,9 +173,9 @@ struct CollectOptions {
 // verifiedInstallations = those with a verified entry; totalOccurrences is the uncapped sum.
 Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, const CollectOptions& opts = {});
 
-// Registers feedback.report, feedback.list, feedback.update, feedback.archive bound to <projectDir>/ENGINE_FEEDBACK.json
+// Registers feedback.report, feedback.list, feedback.update, feedback.delete, feedback.archive bound to <projectDir>/ENGINE_FEEDBACK.json
 // (or the project's `feedbackFile`), and the sharing commands feedback.share_preview, feedback.share_status, feedback.share and
-// feedback.check_fixed (fa/tooling/feedback_share.h, feedback_fixed.h).
+// feedback.check_fixed (fa/tooling/feedback_share.h, feedback_fixed.h), and feedback.check (fa/tooling/feedback_check.h).
 void register_feedback_commands(CommandRegistry& registry, const std::string& projectDir);
 
 }  // namespace fa

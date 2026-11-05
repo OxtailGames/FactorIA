@@ -43,6 +43,7 @@ inline constexpr int kShareTitleMin = 8, kShareTitleMax = 120;
 inline constexpr int kShareMissingMin = 20, kShareMissingMax = 1500;
 inline constexpr int kShareSuggestionMax = 1500, kShareWorkaroundMax = 1500;
 inline constexpr int kShareMaxEntriesPerRequest = 20;
+inline constexpr int kShareMaxVerdictIds = 100;  // shareIds in one POST /v1/verdicts
 inline constexpr int kShareMaxBodyBytes = 64 * 1024;
 // The most times one entry is sent: the developer's ranking counts min(occurrences, 3) per installation.
 inline constexpr int kMaxSharedOccurrences = 3;
@@ -265,6 +266,24 @@ Json share_status(const ShareEnv& env);
 // What `feedback.report` tells the reporter about the share of the entry it just recorded (see register in feedback.cpp).
 Json share_report_summary(const ShareEnv& env, const std::string& feedbackFile, const std::string& projectDir,
                           const std::string& entryId, const CommandRegistry* registry, bool shareGiven);
+
+// The entries of `feedbackFile` named by `ids` leave the outbox (the entry is being deleted): nothing is written to the file.
+void share_discard(const ShareEnv& env, const std::string& feedbackFile, const std::vector<std::string>& ids);
+
+struct VerdictResult {
+    int checked = 0;                  // shareIds asked about
+    int declined = 0;                 // entries the engine developer rejected since the last time: now rejected here
+    int restored = 0;                 // entries whose rejection was taken back: sent (and open) again
+    std::vector<std::string> changed; // their ids
+    std::string outcome;              // ok | idle | off | unavailable | unsupported | failed
+    std::string message;
+};
+// Asks the server (POST /v1/verdicts, authenticated by the installation header) what the engine developers decided about the
+// entries of `feedbackFile` (and its archive) that were sent, by their shareIds; only this installation's reports are answered.
+// A rejection becomes `shared.status` "declined" and the entry's status rejected (statusBy developer, statusReason = the
+// developer's reason); a rejection taken back puts the entry back to sent and open. A server without verdicts (404) changes
+// nothing. Never throws; the editor calls it on its sharing tick, and `factoria feedback share --verdicts`.
+VerdictResult share_sync_verdicts(const ShareEnv& env, const std::string& feedbackFile, double timeoutSec = 10.0);
 
 // Writes `shared` ({status, date, shareId?, reason?}) into entry `localId` of the feedback file (or its archive).
 // A null `shared` removes it.

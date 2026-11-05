@@ -80,6 +80,10 @@ ctest --test-dir build/dev --output-on-failure
   top. Translations are not embedded in the binary (AIs read English).
 - Record engine gaps you notice while building examples in the example's
   `ENGINE_FEEDBACK.json` — the same loop we ask game-making AIs to follow.
+- Feedback from installations (`factoria feedback pull`): triage it before you act on it. Reports that claim a gap the engine already
+  has (a component, field or command that exists) are rejected with a reason the sender reads in their editor, never built:
+  `feedback pull` lists them as suggested rejections, then `feedback reject --suggested` (or `reject <shareId>... --reason`,
+  `--file`), `feedback keep`, `feedback unreject`; nothing asks a question. The loop is in docs/ENGINE_FEEDBACK.md, "Triage loop".
 
 ## Models for agent work (every session on this project)
 
@@ -95,11 +99,22 @@ repository, not only the one where it was agreed:
   engine tools only). One work package per worker, each in its own git worktree
   or its own build dir (`build/agent-<name>`, `-j8`), with tests and docs. The
   worker knows the build command, the checks before reporting and the report
-  format, so the brief carries only the package. An L package (its size in the
-  ROADMAP) gets `effort: "high"` on the Agent call: design-heavy work gains from
-  more thinking, while S and M packages stay at medium, where time goes to builds
-  and tests. A package that needs the browser pane: general-purpose,
-  `model: "sonnet"`, `effort: "medium"` (`"high"` for an L package).
+  format, so the brief carries only the package. A package gets `effort: "high"`
+  on the Agent call when it is L (its size in the ROADMAP) or when it touches
+  code where CI finds what this host does not: `engine/core` public headers,
+  platform files (`_win32`, `_linux`, `_apple`, `_android`, `_web`, ...), render
+  code (GL and D3D11 paths, shaders), waits, timeouts, threads and file I/O
+  (Windows file rules), and the editor autotest. Other S and M packages stay at
+  medium, where time goes to builds and tests. A package that needs the browser
+  pane: general-purpose, `model: "sonnet"`, the same effort rule.
+- **Reviewer — `sonnet`, high effort.** Before a worker's package is merged into
+  the integration branch, a reviewer (`subagent_type: "reviewer"`,
+  `.claude/agents/reviewer.md`) reads its diff with fresh context, looking for
+  what this host does not exercise (the list in "Finishing a task") and for
+  bugs. Give it the branch and the base, not the worker's report or your own
+  view of the change. It only reports; the orchestrator decides and has the
+  worker (or a new one) fix what holds up. A preflight round costs hours, a
+  review minutes.
 - **Fast — `haiku`.** Small mechanical tasks (`subagent_type: "fast"`: haiku,
   max effort): code searches, regenerating docs/typings,
   ENGINE_FEEDBACK/ROADMAP bookkeeping, renames.
