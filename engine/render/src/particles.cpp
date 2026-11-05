@@ -5,8 +5,12 @@
 // frames, ribbons for trails, hard pixels in pixel mode. Nothing here is GPU specific.
 #include <algorithm>
 #include <cmath>
+#include <memory>
+#include <mutex>
 #include <unordered_map>
 
+#include "fa/core/asset_manifest.h"
+#include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
 #include "fa/scene/particles.h"
@@ -24,10 +28,13 @@ struct EmitterState {
     std::shared_ptr<const MeshSurface> mesh;
     std::string meshName;
     bool meshWarned = false;
-    // pixel mode: the palette in use (ParticleEmitter.palette), parsed from `paletteSrc`.
-    Json paletteSrc;
-    std::vector<Color> palette;
-    bool paletteValid = false;
+    // pixel mode: the palette of each group (ParticleEmitter.palette of the emitter, or of its sub-emitter), parsed from `src`.
+    struct GroupPalette {
+        Json src;
+        std::vector<Color> colors;
+        bool valid = false;
+    };
+    std::vector<GroupPalette> palettes;
 };
 
 std::unordered_map<std::uint64_t, EmitterState>& states() {
@@ -80,7 +87,8 @@ ParticleEnv make_env(World& world, Entity e, const ParticleEmitter& em, EmitterS
     env.emitter = world.world_matrix(e);
     env.is3D = em.is3D;
     env.screen = screen_space(em);
-    if (em.collision == ParticleCollision::Tilemap && em.worldSpace && !env.screen) env.tilemap = find_tilemap(world, em, env.tilemapWorld);
+    // The sim asks for the map of every group whose collision is "tilemap": the emitter's and its sub-emitters'.
+    env.findTilemap = [&world](const ParticleEmitter& c, Mat4& matrix) { return find_tilemap(world, c, matrix); };
     if (em.shape == ParticleShape::Mesh && !em.shapeMesh.empty()) {
         // A procedural "mesh:N" is asked every time (the store answers from its cache and notices a mesh.update); the others once.
         const bool procedural = em.shapeMesh.rfind("mesh:", 0) == 0;
@@ -113,49 +121,75 @@ void log_problems(World& world, Entity e, EmitterState& st) {
 
 // ---- pixel mode palettes ----
 
-// The project palette (assets.json style.palette: a list of colours, or an image whose colours are the palette).
-const std::vector<Color>& style_palette() {
-    static Json lastSrc;
-    static std::vector<Color> colors;
-    static bool have = false;
-    const Json m = assets::manifest();
-    const Json src = m.contains("style") && m["style"].is_object() && m["style"].contains("palette") ? m["style"]["palette"] : Json();
-    if (have && src == lastSrc) return colors;
-    have = true;
-    lastSrc = src;
-    colors.clear();
+// The project palette (assets.json style.palette: a list of colours, or an image whose colours are the palette). Rebuilt when the manifest
+// is read again or, for an image, when the image file changes; shared so a frame that holds it is not affected by a rebuild. The cache has a
+// lock: gather runs on the render thread but nothing says every renderer does.
+std::shared_ptr<const std::vector<Color>> style_palette() {
+    struct Cache {
+        std::mutex mutex;
+        std::uint64_t version = 0;
+        bool have = false;
+        std::string image;  // the palette image of the manifest, "" when the palette is a list
+        std::int64_t imageTime = -1;
+        std::string warned;  // "image|time" of the last unreadable image, so it is logged once
+        std::shared_ptr<const std::vector<Color>> colors;
+    };
+    static Cache* cache = new Cache();  // intentionally leaked, like the emitter states
+    std::lock_guard lock(cache->mutex);
+    const std::uint64_t version = assets::manifest_version();
+    if (cache->have && cache->version == version && (cache->image.empty() || fs::modified_time(cache->image) == cache->imageTime))
+        return cache->colors;
+    cache->have = true;
+    cache->version = version;
+    cache->image.clear();
+    cache->imageTime = -1;
+    auto colors = std::make_shared<std::vector<Color>>();
+    const Json src = assets::style_palette();
     if (src.is_array()) {
         for (const Json& v : src) {
             Color c;
-            if (json_to(v, c, nullptr)) colors.push_back(Color{c.r, c.g, c.b, 1.0f});
+            if (json_to(v, c, nullptr)) colors->push_back(Color{c.r, c.g, c.b, 1.0f});
         }
     } else if (src.is_string()) {
-        if (auto img = load_image(src.get<std::string>())) {
-            for (std::size_t i = 0; i + 3 < img->rgba.size() && colors.size() < 256; i += 4) {
+        cache->image = src.get<std::string>();
+        cache->imageTime = fs::modified_time(cache->image);
+        auto img = load_image(cache->image);
+        if (img) {
+            for (std::size_t i = 0; i + 3 < img->rgba.size() && colors->size() < 256; i += 4) {
                 if (img->rgba[i + 3] < 128) continue;
                 const Color c{img->rgba[i] / 255.0f, img->rgba[i + 1] / 255.0f, img->rgba[i + 2] / 255.0f, 1.0f};
-                if (std::none_of(colors.begin(), colors.end(), [&](const Color& o) { return o.r == c.r && o.g == c.g && o.b == c.b; }))
-                    colors.push_back(c);
+                if (std::none_of(colors->begin(), colors->end(), [&](const Color& o) { return o.r == c.r && o.g == c.g && o.b == c.b; }))
+                    colors->push_back(c);
+            }
+        } else {
+            const std::string tag = cache->image + "|" + std::to_string(cache->imageTime);
+            if (cache->warned != tag) {
+                cache->warned = tag;
+                FA_WARN("particles", "assets.json style.palette is the image '{}', which cannot be read, so pixel-mode particles without their own "
+                                     "palette use four levels per colour channel: {}",
+                        cache->image, img.error().to_string());
             }
         }
     }
-    return colors;
+    cache->colors = std::move(colors);
+    return cache->colors;
 }
 
-const std::vector<Color>& palette_of(const ParticleEmitter& em, EmitterState& st) {
-    if (em.palette.is_array() && !em.palette.empty()) {
-        if (!st.paletteValid || !(st.paletteSrc == em.palette)) {
-            st.paletteSrc = em.palette;
-            st.palette.clear();
-            for (const Json& v : em.palette) {
-                Color c;
-                if (json_to(v, c, nullptr)) st.palette.push_back(Color{c.r, c.g, c.b, 1.0f});
-            }
-            st.paletteValid = true;
+// The palette of the group `g` of an emitter that sets its own (ParticleEmitter.palette). Kept per group, since every sub-emitter has its
+// own field; parsed again only when the field is different from what was parsed.
+const std::vector<Color>& own_palette(EmitterState& st, int g, const Json& palette) {
+    if (int(st.palettes.size()) <= g) st.palettes.resize(std::size_t(g) + 1);
+    EmitterState::GroupPalette& gp = st.palettes[std::size_t(g)];
+    if (!gp.valid || !(gp.src == palette)) {
+        gp.src = palette;
+        gp.colors.clear();
+        for (const Json& v : palette) {
+            Color c;
+            if (json_to(v, c, nullptr)) gp.colors.push_back(Color{c.r, c.g, c.b, 1.0f});
         }
-        return st.palette;
+        gp.valid = true;
     }
-    return style_palette();
+    return gp.colors;
 }
 
 Color snap_to_palette(const std::vector<Color>& palette, Color c) {
@@ -227,6 +261,8 @@ void update_particles(World& world, float dt) {
 void gather_particles(World& world, Frame& f) {
     auto& all = states();
     static const std::vector<Color> kNoPalette;
+    // The project palette, read once per frame and only when an emitter in pixel mode without a palette of its own is drawn.
+    std::shared_ptr<const std::vector<Color>> frameStylePalette;
     world.each<ParticleEmitter>([&](Entity e, ParticleEmitter& em) {
         if (!entity_active(world, f, e)) return;
         auto it = all.find(e.bits());
@@ -317,15 +353,17 @@ void gather_particles(World& world, Frame& f) {
             if (c.trail == ParticleTrail::Particle) {
                 list.begin_item(c.layer, depth, white, SamplerKind::Linear, c.blend, clip);
                 for (const Particle& p : sim.particles) {
-                    if (p.group != g || p.trail.empty()) continue;
+                    const int points = sim.trail_size(p);
+                    if (p.group != g || points == 0) continue;
                     const float t = p.age / p.life;
                     pts.clear();
                     s.clear();
                     pts.push_back(to_draw(p.pos));
                     s.push_back(0.0f);
-                    for (std::size_t i = p.trail.size(); i-- > 0;) {
-                        pts.push_back(to_draw(p.trail[i].pos));
-                        s.push_back(std::clamp((now - p.trail[i].time) / std::max(1e-3f, c.trailTime), 0.0f, 1.0f));
+                    for (int i = 0; i < points; ++i) {  // newest first
+                        const ParticleTrailPoint& tp = sim.trail_point(p, i);
+                        pts.push_back(to_draw(tp.pos));
+                        s.push_back(std::clamp((now - tp.time) / std::max(1e-3f, c.trailTime), 0.0f, 1.0f));
                     }
                     const Color head = style.color.empty() ? lerp(c.startColor, c.endColor, t) : style.color.eval(t);
                     ribbon(c, style, head, style.alpha.eval_or(t, 1.0f), billboard);
@@ -343,7 +381,16 @@ void gather_particles(World& world, Frame& f) {
             const bool flipbook = !soft && !pixel && flipbook_frame_count(c) > 1;
             const float cw = flipbook ? float(tex->width) / float(std::max(1, c.flipbookColumns)) : 0.0f;
             const float ch = flipbook ? float(tex->height) / float(std::max(1, c.flipbookRows)) : 0.0f;
-            const std::vector<Color>& palette = pixel ? palette_of(c, st) : kNoPalette;
+            const std::vector<Color>* palettePtr = &kNoPalette;
+            if (pixel) {
+                if (c.palette.is_array() && !c.palette.empty()) {
+                    palettePtr = &own_palette(st, g, c.palette);
+                } else {
+                    if (!frameStylePalette) frameStylePalette = style_palette();
+                    palettePtr = frameStylePalette.get();
+                }
+            }
+            const std::vector<Color>& palette = *palettePtr;
             const float pxSize = std::max(1e-3f, c.pixelSize);
             const float mode = soft ? float(kModeSoft) : float(kModeTextured);
             const bool plain = !c.alignToVelocity && c.startRotation.x == 0.0f && c.startRotation.y == 0.0f && c.spin.x == 0.0f &&

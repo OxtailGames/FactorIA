@@ -1102,6 +1102,7 @@ Vec2 Renderer::design_to_framebuffer(Vec2 d, int fbW, int fbH, ScaleMode mode) c
 // ---------------------------------------------------------------------------
 // render_world
 // ---------------------------------------------------------------------------
+void Renderer::reset_particles() { clear_particles(); }
 render::Gpu* render::renderer_gpu(Renderer& r) { return r.impl_ ? &r.impl_->gpu : nullptr; }
 
 void Renderer::update(World& world, float dt) {

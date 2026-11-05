@@ -108,7 +108,13 @@ void check_sub_spec(std::vector<ParticleProblem>& out, const Json& spec, int dep
                     ParticleEmitter scratch;
                     if (auto r = object_patch_from_json(*ti, &scratch, e); !r)
                         out.push_back({true, pointer_of(lp, "emitter"), r.error().message, r.error().hint});
-                    else check_sub_spec(out, scratch.subEmitters, depth + 1, pointer_of(pointer_of(lp, "emitter"), "subEmitters"));
+                    else {
+                        if (e.is_object() && e.contains("worldSpace"))
+                            out.push_back({false, pointer_of(pointer_of(lp, "emitter"), "worldSpace"),
+                                           "a sub-emitter's worldSpace is ignored: its particles live in the space of the emitter that owns them",
+                                           "Remove worldSpace here and set it on the emitter that has the subEmitters."});
+                        check_sub_spec(out, scratch.subEmitters, depth + 1, pointer_of(pointer_of(lp, "emitter"), "subEmitters"));
+                    }
                 }
             }
             if (l->contains("prefab") && !(*l)["prefab"].is_string())
@@ -275,7 +281,7 @@ Vec3 particle_noise(Vec3 p, float t, float scale, float speed, std::uint32_t see
     if (!(scale > 0.0f)) return {};
     const float k = t * speed;
     const float inv = 1.0f / scale;
-    auto clampf = [](float v) { return std::clamp(v, -1.0e6f, 1.0e6f); };
+    auto clampf = [](float v) { return v == v ? std::clamp(v, -1.0e6f, 1.0e6f) : 0.0f; };  // a NaN position or time counts as 0
     const float qx = clampf(p.x * inv + k), qy = clampf(p.y * inv + k * 0.618f), qz = clampf(p.z * inv + k * 0.382f);
     const float fx = std::floor(qx), fy = std::floor(qy), fz = std::floor(qz);
     const std::int32_t ix = std::int32_t(fx), iy = std::int32_t(fy), iz = std::int32_t(fz);
@@ -340,28 +346,49 @@ ParticleSim::Place ParticleSim::root_place(const ParticleEnv& env) const {
     return pl;
 }
 
-void ParticleSim::begin(const ParticleEmitter& em, const ParticleEnv& env) {
+void ParticleSim::begin(const ParticleEmitter& em, const ParticleEnv& env, bool forceSync) {
     root_ = &em;
     env_ = &env;
     if (groups_.empty()) groups_.resize(1);
-    sync_sub_emitters(env);
+    sync_sub_emitters(env, forceSync);
     if (counts_.size() != groups_.size()) counts_.assign(groups_.size(), 0);
-    bool mesh = false, tilemap = false;
+    bool mesh = false;
     for (std::size_t g = 0; g < groups_.size(); ++g) {
         const ParticleEmitter& c = cfg(int(g));
-        groups_[g].style.refresh(c);
-        for (const std::string& p : groups_[g].style.news) note(g == 0 ? p : "in a sub-emitter: " + p);
+        Group& grp = groups_[g];
+        // The root's fields can change at any step (a script, the editor); a sub-emitter's only when it is copied from an entity.
+        if (g == 0 || grp.styleDirty) {
+            grp.style.refresh(c);
+            grp.styleDirty = false;
+            for (const std::string& p : grp.style.news) note(g == 0 ? p : "in a sub-emitter: " + p);
+        }
         mesh = mesh || (g == 0 && c.shape == ParticleShape::Mesh);
-        tilemap = tilemap || c.collision == ParticleCollision::Tilemap;
+        grp.tilemap = nullptr;
+        if (c.collision == ParticleCollision::Tilemap && root_->worldSpace && !env.screen) {
+            if (g == 0 && env.tilemap) {
+                grp.tilemap = env.tilemap;
+                grp.tilemapWorld = env.tilemapWorld;
+            } else if (env.findTilemap) {
+                grp.tilemap = env.findTilemap(c, grp.tilemapWorld);
+            }
+            if (grp.tilemap) refresh_solid(int(g));
+            else if (!grp.tilemapWarned) {
+                grp.tilemapWarned = true;
+                note(std::string(g == 0 ? "" : "in a sub-emitter: ") +
+                     "collision is \"tilemap\" but there is no Tilemap with solidTiles to bounce on (set collisionTilemap, or add solidTiles to a "
+                     "Tilemap), so particles pass through");
+            }
+        }
     }
-    if (mesh) refresh_cdf();
-    if (tilemap && env.tilemap) refresh_solid();
+    // Only an emitter that draws from a mesh asks for its surface to be read; rebuilt only when the surface is another one.
+    if (mesh && (env_->mesh != cdfSurface_ || (env_->mesh && cdfTriangles_ != env_->mesh->indices.size() / 3))) refresh_cdf();
 }
 
 void ParticleSim::refresh_cdf() {
     const MeshSurface* s = env_->mesh;
     cdfSurface_ = s;
     cdf_.clear();
+    cdfTriangles_ = s ? s->indices.size() / 3 : 0;
     if (!s) return;
     const std::size_t tris = s->indices.size() / 3;
     cdf_.reserve(tris);
@@ -376,46 +403,76 @@ void ParticleSim::refresh_cdf() {
     }
 }
 
-void ParticleSim::refresh_solid() {
-    const Tilemap& tm = *env_->tilemap;
-    if (!solidValid_ || !(solidSrc_ == tm.solidTiles)) {
-        solid_.clear();
+void ParticleSim::refresh_solid(int gi) {
+    Group& g = groups_[std::size_t(gi)];
+    const Tilemap& tm = *g.tilemap;
+    if (!g.solidValid || !(g.solidSrc == tm.solidTiles)) {
+        g.solid.clear();
         if (tm.solidTiles.is_array())
             for (const Json& v : tm.solidTiles)
-                if (v.is_number_integer()) solid_.push_back(int(v.get<std::int64_t>()));
-        std::sort(solid_.begin(), solid_.end());
-        solidSrc_ = tm.solidTiles;
-        solidValid_ = true;
+                if (v.is_number_integer()) g.solid.push_back(int(v.get<std::int64_t>()));
+        std::sort(g.solid.begin(), g.solid.end());
+        g.solidSrc = tm.solidTiles;
+        g.solidValid = true;
     }
-    tilemap_local_to_cell(tm, cellMap_);
-    tilemapSize_ = tilemap_size(tm);
-    tilemapInv_ = env_->tilemapWorld.inverse();
+    tilemap_local_to_cell(tm, g.cellMap);
+    g.tilemapSize = tilemap_size(tm);
+    g.tilemapInv = g.tilemapWorld.inverse();
 }
 
-bool ParticleSim::solid_cell(int col, int row) const {
-    if (solid_.empty()) return false;
-    const int idx = tile_index(tilemap_tile_at(*env_->tilemap, tilemapSize_, col, row));
-    return idx >= 0 && std::binary_search(solid_.begin(), solid_.end(), idx);
+bool ParticleSim::solid_cell(const Group& g, int col, int row) const {
+    if (g.solid.empty()) return false;
+    const int idx = tile_index(tilemap_tile_at(*g.tilemap, g.tilemapSize, col, row));
+    return idx >= 0 && std::binary_search(g.solid.begin(), g.solid.end(), idx);
 }
 
 // ------------------------------------------------------------- sub-emitters --
 
-void ParticleSim::sync_sub_emitters(const ParticleEnv& env) {
+void ParticleSim::sync_sub_emitters(const ParticleEnv& env, bool forceSync) {
     if (!(subSpecValid_ && subSpec_ == root_->subEmitters)) {
         groups_.resize(1);
         for (auto& list : groups_[0].on) list.clear();
+        retries_.clear();
         subSpec_ = root_->subEmitters;
         subSpecValid_ = true;
         const int keep = int(groups_.size());
+        for (Particle& p : particles)
+            if (p.group >= keep) release_trail(p);
         particles.erase(std::remove_if(particles.begin(), particles.end(), [&](const Particle& p) { return p.group >= keep; }), particles.end());
         build_links(0, subSpec_, 0, env);
         counts_.assign(groups_.size(), 0);
         for (const Particle& p : particles) ++counts_[p.group];
+        nextLinkSync_ = clock_ + kParticleLinkSync;
+    } else if (groups_.size() > 1 || !retries_.empty()) {
+        // The emitters an {"entity": id} link names are copied now and then (a copy of a whole emitter is not free), and a link that
+        // could not be built is tried again about once a second.
+        if (forceSync || clock_ >= nextLinkSync_) {
+            nextLinkSync_ = clock_ + kParticleLinkSync;
+            for (std::size_t g = 1; g < groups_.size(); ++g) {
+                if (groups_[g].entityId.empty() || !env.findEmitter) continue;
+                if (const ParticleEmitter* e = env.findEmitter(groups_[g].entityId)) {
+                    *groups_[g].emitter = *e;
+                    groups_[g].styleDirty = true;
+                }
+            }
+        }
+        retry_links(env);
     }
-    for (std::size_t g = 1; g < groups_.size(); ++g) {
-        if (groups_[g].entityId.empty() || !env.findEmitter) continue;
-        if (const ParticleEmitter* e = env.findEmitter(groups_[g].entityId)) *groups_[g].emitter = *e;
+}
+
+void ParticleSim::retry_links(const ParticleEnv& env) {
+    for (std::size_t i = 0; i < retries_.size();) {
+        if (clock_ < retries_[i].next) { ++i; continue; }
+        const Retry r = retries_[i];  // a copy: add_link may queue new retries
+        const LinkResult res = add_link(r.parent, r.kind, r.event, r.link, r.depth, env);
+        if (res == LinkResult::Retry) {
+            retries_[i].next = clock_ + kParticleLinkRetry;
+            ++i;
+        } else {
+            retries_.erase(retries_.begin() + std::ptrdiff_t(i));
+        }
     }
+    counts_.resize(groups_.size(), 0);
 }
 
 void ParticleSim::build_links(int g, const Json& spec, int depth, const ParticleEnv& env) {
@@ -429,7 +486,6 @@ void ParticleSim::build_links(int g, const Json& spec, int depth, const Particle
         return;
     }
     static const std::vector<std::string> events = {"birth", "death", "collision"};
-    static const std::vector<std::string> linkKeys(std::begin(kLinkKeys), std::end(kLinkKeys));
     for (auto it = spec.begin(); it != spec.end(); ++it) {
         const auto ev = std::find(events.begin(), events.end(), it.key());
         if (ev == events.end()) {
@@ -445,64 +501,84 @@ void ParticleSim::build_links(int g, const Json& spec, int depth, const Particle
             continue;
         }
         for (const Json* lp : links) {
-            const Json& l = *lp;
-            if (!l.is_object()) {
-                note("a '" + it.key() + "' sub-emitter must be an object, got " + describe_json_value(l));
-                continue;
+            const LinkResult res = add_link(g, kind, it.key(), *lp, depth, env);
+            if (res == LinkResult::Full) return;
+            if (res == LinkResult::Retry) {
+                Retry r;
+                r.parent = g;
+                r.kind = kind;
+                r.depth = depth;
+                r.link = *lp;
+                r.event = it.key();
+                r.next = clock_ + kParticleLinkRetry;
+                retries_.push_back(std::move(r));
             }
-            bool bad = false;
-            for (auto k = l.begin(); k != l.end(); ++k)
-                if (std::find(linkKeys.begin(), linkKeys.end(), k.key()) == linkKeys.end()) {
-                    note("unknown key '" + k.key() + "' in a '" + it.key() + "' sub-emitter: " + did_you_mean(k.key(), linkKeys));
-                    bad = true;
-                }
-            const int given = int(l.contains("emitter")) + int(l.contains("prefab")) + int(l.contains("entity"));
-            if (given != 1) {
-                note("a '" + it.key() + "' sub-emitter needs exactly one of \"emitter\", \"prefab\" and \"entity\"");
-                bad = true;
-            }
-            if (bad) continue;
-            if (int(groups_.size()) > kParticleSubGroups) {
-                note(std::format("at most {} sub-emitters are used; the others are ignored", kParticleSubGroups));
-                return;
-            }
-            Link link;
-            if (l.contains("count") && l["count"].is_number()) link.count = std::clamp(int(l["count"].get<double>()), 1, kParticleSubCount);
-            if (l.contains("chance") && l["chance"].is_number()) link.chance = std::clamp(float(l["chance"].get<double>()), 0.0f, 1.0f);
-            if (l.contains("inherit") && l["inherit"].is_number()) link.inherit = float(l["inherit"].get<double>());
-
-            Group ng;
-            ng.emitter = std::make_unique<ParticleEmitter>();
-            if (l.contains("emitter")) {
-                const TypeInfo* ti = emitter_type();
-                if (!ti) continue;
-                if (auto r = object_patch_from_json(*ti, ng.emitter.get(), l["emitter"]); !r) {
-                    note("sub-emitter '" + it.key() + "' emitter: " + r.error().to_string());
-                    continue;
-                }
-            } else if (l.contains("prefab")) {
-                if (!l["prefab"].is_string()) { note("a sub-emitter's \"prefab\" must be a path string"); continue; }
-                auto r = load_prefab_particle_emitter(l["prefab"].get<std::string>());
-                if (!r) { note(r.error().to_string()); continue; }
-                *ng.emitter = std::move(*r);
-            } else {
-                if (!l["entity"].is_string()) { note("a sub-emitter's \"entity\" must be an entity id string"); continue; }
-                ng.entityId = l["entity"].get<std::string>();
-                const ParticleEmitter* e = env.findEmitter ? env.findEmitter(ng.entityId) : nullptr;
-                if (!e) {
-                    note("sub-emitter entity '" + ng.entityId + "' has no ParticleEmitter (is the id right, and is the entity in the scene?)");
-                    continue;
-                }
-                *ng.emitter = *e;
-            }
-            groups_.push_back(std::move(ng));
-            const int idx = int(groups_.size()) - 1;
-            link.group = idx;
-            groups_[std::size_t(g)].on[kind].push_back(link);
-            const Json nested = groups_[std::size_t(idx)].emitter->subEmitters;  // a copy: groups_ may grow below
-            build_links(idx, nested, depth + 1, env);
         }
     }
+}
+
+ParticleSim::LinkResult ParticleSim::add_link(int g, int kind, const std::string& event, const Json& l, int depth, const ParticleEnv& env) {
+    static const std::vector<std::string> linkKeys(std::begin(kLinkKeys), std::end(kLinkKeys));
+    if (!l.is_object()) {
+        note("a '" + event + "' sub-emitter must be an object, got " + describe_json_value(l));
+        return LinkResult::Dropped;
+    }
+    bool bad = false;
+    for (auto k = l.begin(); k != l.end(); ++k)
+        if (std::find(linkKeys.begin(), linkKeys.end(), k.key()) == linkKeys.end()) {
+            note("unknown key '" + k.key() + "' in a '" + event + "' sub-emitter: " + did_you_mean(k.key(), linkKeys));
+            bad = true;
+        }
+    const int given = int(l.contains("emitter")) + int(l.contains("prefab")) + int(l.contains("entity"));
+    if (given != 1) {
+        note("a '" + event + "' sub-emitter needs exactly one of \"emitter\", \"prefab\" and \"entity\"");
+        bad = true;
+    }
+    if (bad) return LinkResult::Dropped;
+    if (int(groups_.size()) > kParticleSubGroups) {
+        note(std::format("at most {} sub-emitters are used; the others are ignored", kParticleSubGroups));
+        return LinkResult::Full;
+    }
+    Link link;
+    if (l.contains("count") && l["count"].is_number()) link.count = std::clamp(int(std::clamp(l["count"].get<double>(), 0.0, 1.0e6)), 1, kParticleSubCount);
+    if (l.contains("chance") && l["chance"].is_number()) link.chance = std::clamp(float(l["chance"].get<double>()), 0.0f, 1.0f);
+    if (l.contains("inherit") && l["inherit"].is_number()) link.inherit = float(l["inherit"].get<double>());
+
+    Group ng;
+    ng.emitter = std::make_unique<ParticleEmitter>();
+    if (l.contains("emitter")) {
+        const TypeInfo* ti = emitter_type();
+        if (!ti) return LinkResult::Dropped;
+        if (auto r = object_patch_from_json(*ti, ng.emitter.get(), l["emitter"]); !r) {
+            note("sub-emitter '" + event + "' emitter: " + r.error().to_string());
+            return LinkResult::Dropped;
+        }
+    } else if (l.contains("prefab")) {
+        if (!l["prefab"].is_string()) { note("a sub-emitter's \"prefab\" must be a path string"); return LinkResult::Dropped; }
+        auto r = load_prefab_particle_emitter(l["prefab"].get<std::string>());
+        if (!r) {
+            note(r.error().to_string() + " (the '" + event + "' sub-emitter is not born until the prefab can be read; it is tried again every second)");
+            return LinkResult::Retry;
+        }
+        *ng.emitter = std::move(*r);
+    } else {
+        if (!l["entity"].is_string()) { note("a sub-emitter's \"entity\" must be an entity id string"); return LinkResult::Dropped; }
+        ng.entityId = l["entity"].get<std::string>();
+        const ParticleEmitter* e = env.findEmitter ? env.findEmitter(ng.entityId) : nullptr;
+        if (!e) {
+            note("sub-emitter entity '" + ng.entityId + "' has no ParticleEmitter (is the id right, and is the entity in the scene?); the '" + event +
+                 "' sub-emitter is not born until it has one, and is tried again every second");
+            return LinkResult::Retry;
+        }
+        *ng.emitter = *e;
+    }
+    groups_.push_back(std::move(ng));
+    const int idx = int(groups_.size()) - 1;
+    link.group = idx;
+    groups_[std::size_t(g)].on[kind].push_back(link);
+    const Json nested = groups_[std::size_t(idx)].emitter->subEmitters;  // a copy: groups_ may grow below
+    build_links(idx, nested, depth + 1, env);
+    return LinkResult::Built;
 }
 
 void ParticleSim::fire(int g, int kind, Vec3 pos, Vec3 vel, Vec3 normal) {
@@ -638,11 +714,14 @@ void ParticleSim::sample_shape(const ParticleEmitter& c, const Place& place, Vec
     }
     case ParticleShape::Mesh: {
         const MeshSurface* s = env_->mesh;
-        if (!s || cdf_.empty() || !(cdf_.back() > 0.0f)) return;
+        if (!s || cdf_.empty() || !(cdf_.back() > 0.0f) || cdf_.size() * 3 > s->indices.size()) return;
         const float pick = next_unit(rng_) * cdf_.back();
         std::size_t t = std::size_t(std::lower_bound(cdf_.begin(), cdf_.end(), pick) - cdf_.begin());
         if (t >= cdf_.size()) t = cdf_.size() - 1;
-        const Vec3 a = s->positions[s->indices[t * 3]], b = s->positions[s->indices[t * 3 + 1]], d = s->positions[s->indices[t * 3 + 2]];
+        // The surface is data from a file: a triangle that points past the vertices (refresh_cdf gave it no area) is not sampled.
+        const std::uint32_t i0 = s->indices[t * 3], i1 = s->indices[t * 3 + 1], i2 = s->indices[t * 3 + 2];
+        if (i0 >= s->positions.size() || i1 >= s->positions.size() || i2 >= s->positions.size()) return;
+        const Vec3 a = s->positions[i0], b = s->positions[i1], d = s->positions[i2];
         Vec3 p;
         if (edge) {
             const int e = rng_.range_int(0, 2);
@@ -717,7 +796,14 @@ void ParticleSim::spawn_one(int g, const Place& place, Vec3 extraVel, bool child
     p.rotation = c.startRotation.y > c.startRotation.x ? rng_.range(c.startRotation.x, c.startRotation.y) : c.startRotation.x;
     p.spin = c.spin.y > c.spin.x ? rng_.range(c.spin.x, c.spin.y) : c.spin.x;
     if (c.flipbookRandomStart) p.random = rng_.next_float();
-    if (c.trail == ParticleTrail::Particle) p.trail.push_back({p.pos, float(clock_)});
+    if (c.trail == ParticleTrail::Particle) {
+        p.trailSlot = acquire_trail_slot();
+        if (p.trailSlot < 0)
+            note(std::format("the trails of this emitter use up their pool of {} points ({} trails of {} points): particles born while it is "
+                             "full have no trail",
+                             kParticleTrailBudget, kParticleTrailSlots, kParticleTrailPoints));
+        else record_trail(p, c);
+    }
     const Vec3 pos = p.pos, vel = p.vel;
     particles.push_back(std::move(p));
     ++counts_[std::size_t(g)];
@@ -726,7 +812,7 @@ void ParticleSim::spawn_one(int g, const Place& place, Vec3 extraVel, bool child
 }
 
 void ParticleSim::spawn(const ParticleEmitter& em, const ParticleEnv& env, int count) {
-    begin(em, env);
+    begin(em, env, true);
     subBudget_ = kParticleSubPerStep;
     const Place place = root_place(env);
     const Vec3 extra = em.worldSpace ? emitterVel_ * em.inheritVelocity : Vec3{};
@@ -740,17 +826,81 @@ void ParticleSim::flush(const ParticleEmitter& em, const ParticleEnv& env) {
     spawn(em, env, n);
 }
 
+// ------------------------------------------------------------------- trails --
+
+int ParticleSim::acquire_trail_slot() {
+    int slot;
+    if (!freeSlots_.empty()) {
+        slot = freeSlots_.back();
+        freeSlots_.pop_back();
+    } else {
+        const int used = int(trailPool_.size() / std::size_t(kParticleTrailPoints));
+        if (used >= kParticleTrailSlots) return -1;
+        slot = used;
+        trailPool_.resize(trailPool_.size() + std::size_t(kParticleTrailPoints));  // the vector grows geometrically: few allocations
+    }
+    ++trailsInUse_;
+    return slot;
+}
+
+void ParticleSim::release_trail(Particle& p) {
+    if (p.trailSlot < 0) return;
+    freeSlots_.push_back(p.trailSlot);
+    --trailsInUse_;
+    p.trailSlot = -1;
+    p.trailCount = 0;
+    p.trailHead = 0;
+}
+
+void ParticleSim::record_trail(Particle& p, const ParticleEmitter& c) {
+    if (p.trailSlot < 0) return;
+    constexpr int mask = kParticleTrailPoints - 1;
+    ParticleTrailPoint* pts = &trailPool_[std::size_t(p.trailSlot) * std::size_t(kParticleTrailPoints)];
+    const float now = float(clock_);
+    const float interval = std::max(0.001f, c.trailTime / float(kParticleTrailPoints));
+    int head = p.trailHead, count = p.trailCount;
+    if (count == 0 || now - pts[(head + mask) & mask].time >= interval) {
+        pts[head] = {p.pos, now};
+        head = (head + 1) & mask;
+        if (count < kParticleTrailPoints) ++count;
+    }
+    while (count > 0 && now - pts[(head - count) & mask].time > c.trailTime) --count;
+    p.trailHead = std::uint8_t(head);
+    p.trailCount = std::uint8_t(count);
+}
+
+const ParticleTrailPoint& ParticleSim::trail_point(const Particle& p, int i) const {
+    constexpr int mask = kParticleTrailPoints - 1;
+    return trailPool_[std::size_t(p.trailSlot) * std::size_t(kParticleTrailPoints) + std::size_t((int(p.trailHead) + mask - i) & mask)];
+}
+
+int ParticleSim::trail_quads() const {
+    int quads = int(emitterTrail.size());
+    for (const Particle& p : particles)
+        if (p.trailSlot >= 0 && p.trailCount > 1) quads += int(p.trailCount) - 1;
+    return quads;
+}
+
 // ----------------------------------------------------------------- motion --
+
+// Friction of a particle that rests or slides on a surface, per second: its sliding speed falls like e^(-this * collisionFriction * t).
+constexpr float kRestingFriction = 10.0f;
+constexpr float kPlaneSkin = 1e-3f;
 
 void ParticleSim::bounce(Particle& p, const ParticleEmitter& c, Vec3 normal, float dt) {
     const float vn = dot(p.vel, normal);
     const float impactSpeed = -vn;
-    if (vn < 0.0f) {
-        const Vec3 vt = p.vel - normal * vn;
-        p.vel = vt * (1.0f - std::clamp(c.collisionFriction, 0.0f, 1.0f)) + normal * (impactSpeed * std::max(0.0f, c.collisionBounce));
-    }
     const float resting = std::max(kMinImpactSpeed, 2.0f * length(c.gravity) * dt);
     const bool impact = c.collisionKill || impactSpeed > resting;
+    if (vn < 0.0f) {
+        const Vec3 vt = p.vel - normal * vn;
+        const float f = std::clamp(c.collisionFriction, 0.0f, 1.0f);
+        // A hit loses the fraction `collisionFriction` of the sliding speed at once. A particle that only rests or slides on the
+        // surface touches it every step, so it loses speed per second instead (scaled by dt): it slides the same at any frame rate.
+        const float x = kRestingFriction * f * dt;  // 1 / (1 + x + x^2 / 2) follows e^-x well enough at any frame rate
+        const Vec3 slide = impact ? vt * (1.0f - f) : vt * (1.0f / (1.0f + x + 0.5f * x * x));
+        p.vel = slide + normal * (impactSpeed * std::max(0.0f, c.collisionBounce));
+    }
     if (!impact) return;
     p.age += std::clamp(c.collisionLifetimeLoss, 0.0f, 1.0f) * p.life;
     if (c.collisionKill) p.age = p.life;
@@ -759,38 +909,45 @@ void ParticleSim::bounce(Particle& p, const ParticleEmitter& c, Vec3 normal, flo
 
 void ParticleSim::collide(Particle& p, const ParticleEmitter& c, Vec3 before, float dt) {
     if (c.collision == ParticleCollision::Plane) {
-        const Vec3 n = normalize(c.collisionPlane.xyz());
-        if (length_sq(n) <= 0.0f) return;
-        const float d = c.collisionPlane.w;
+        // dot(n, p) = d for the plane as written, whatever the length of [nx, ny, nz]: both sides are divided by it.
+        const Vec3 raw = c.collisionPlane.xyz();
+        const float len = length(raw);
+        if (!(len > kEpsilon)) return;
+        const Vec3 n = raw * (1.0f / len);
+        const float d = c.collisionPlane.w / len;
         const float sBefore = dot(n, before) - d, s = dot(n, p.pos) - d;
-        if (sBefore >= 0.0f && s < 0.0f) {
+        // A particle put back on the plane by the last hit sits at s = 0 up to rounding (a slanted plane has no exact answer):
+        // a hair of tolerance keeps it from slipping through on the next step.
+        if (sBefore >= -kPlaneSkin && s < 0.0f) {
             p.pos = p.pos - n * s;
             bounce(p, c, n, dt);
         }
         return;
     }
-    if (c.collision != ParticleCollision::Tilemap || !env_->tilemap || solid_.empty() || tilemapSize_.empty()) return;
-    const Tilemap& tm = *env_->tilemap;
-    const Vec3 a = tilemapInv_.transform_point(before), b = tilemapInv_.transform_point(p.pos);
+    const Group& grp = groups_[p.group];
+    if (c.collision != ParticleCollision::Tilemap || !grp.tilemap || grp.solid.empty() || grp.tilemapSize.empty()) return;
+    const Tilemap& tm = *grp.tilemap;
+    const Vec3 a = grp.tilemapInv.transform_point(before), b = grp.tilemapInv.transform_point(p.pos);
     int ca, ra, cb, rb;
     if (!tilemap_cell_at_local(tm, {a.x, a.y}, ca, ra) || !tilemap_cell_at_local(tm, {b.x, b.y}, cb, rb)) return;
-    if ((ca == cb && ra == rb) || !solid_cell(cb, rb) || solid_cell(ca, ra)) return;
+    if ((ca == cb && ra == rb) || !solid_cell(grp, cb, rb) || solid_cell(grp, ca, ra)) return;
     const int dc = cb - ca, dr = rb - ra;
     bool faceX = dc != 0 && dr == 0, faceY = dr != 0 && dc == 0;
     if (!faceX && !faceY) {
-        const bool sx = solid_cell(cb, ra), sy = solid_cell(ca, rb);
+        const bool sx = solid_cell(grp, cb, ra), sy = solid_cell(grp, ca, rb);
         if (sx && !sy) faceX = true;
         else if (sy && !sx) faceY = true;
         else faceX = faceY = true;  // a corner
     }
+    const float* cm = grp.cellMap;
     Vec2 n{0, 0};
-    if (faceX) n += Vec2{cellMap_[0], cellMap_[1]} * (dc > 0 ? -1.0f : 1.0f);
-    if (faceY) n += Vec2{cellMap_[2], cellMap_[3]} * (dr > 0 ? -1.0f : 1.0f);
-    if (faceX && !faceY && dc == 0) n = Vec2{cellMap_[0], cellMap_[1]} * -1.0f;
-    if (faceY && !faceX && dr == 0) n = Vec2{cellMap_[2], cellMap_[3]} * -1.0f;
+    if (faceX) n += Vec2{cm[0], cm[1]} * (dc > 0 ? -1.0f : 1.0f);
+    if (faceY) n += Vec2{cm[2], cm[3]} * (dr > 0 ? -1.0f : 1.0f);
+    if (faceX && !faceY && dc == 0) n = Vec2{cm[0], cm[1]} * -1.0f;
+    if (faceY && !faceX && dr == 0) n = Vec2{cm[2], cm[3]} * -1.0f;
     n = normalize(n);
     if (length_sq(n) <= 0.0f) return;
-    Vec3 nw = normalize(env_->tilemapWorld.transform_dir(Vec3{n.x, n.y, 0.0f}));
+    Vec3 nw = normalize(grp.tilemapWorld.transform_dir(Vec3{n.x, n.y, 0.0f}));
     nw.z = 0.0f;
     p.pos = before;  // back to the last free place
     bounce(p, c, nw, dt);
@@ -807,16 +964,21 @@ void ParticleSim::move(Particle& p, const ParticleEmitter& c, const ParticleStyl
     if (c.drag > 0.0f) p.vel = p.vel * (1.0f / (1.0f + c.drag * dt));
     p.rotation += p.spin * dt;
     const float mult = style.speed.eval_or(t, 1.0f);
-    const bool collides = c.collision != ParticleCollision::None && c.worldSpace && !env_->screen;
+    // A sub-emitter's particles live in the space of the emitter that owns them (they are born where the parent is and drawn the way
+    // the parent's are), so its own `worldSpace` does not count.
+    const bool collides = c.collision != ParticleCollision::None && root_->worldSpace && !env_->screen;
     if (!collides) {
         p.pos += p.vel * (mult * dt);
         return;
     }
     // Several short steps when the particle would cross a whole tile (or a thin plane) in one.
     int steps = 1;
-    if (c.collision == ParticleCollision::Tilemap && env_->tilemap) {
-        const float cell = std::max(1e-3f, 0.5f * std::min(env_->tilemap->tileSize.x, env_->tilemap->tileSize.y));
-        steps = std::clamp(int(std::ceil(length(p.vel) * std::fabs(mult) * dt / cell)), 1, 8);
+    const Group& grp = groups_[p.group];
+    if (c.collision == ParticleCollision::Tilemap && grp.tilemap) {
+        const float cell = std::max(1e-3f, 0.5f * std::min(grp.tilemap->tileSize.x, grp.tilemap->tileSize.y));
+        float n = std::ceil(length(p.vel) * std::fabs(mult) * dt / cell);
+        if (!(n >= 1.0f)) n = 1.0f;  // also a NaN
+        steps = int(std::min(n, 8.0f));  // clamped as a float: a huge speed must not overflow the int
     }
     const float sdt = dt / float(steps);
     for (int i = 0; i < steps && p.age < p.life; ++i) {
@@ -827,7 +989,7 @@ void ParticleSim::move(Particle& p, const ParticleEmitter& c, const ParticleStyl
 }
 
 void ParticleSim::step(const ParticleEmitter& em, const ParticleEnv& env, float dt) {
-    begin(em, env);
+    begin(em, env, !(dt > 0.0f));
     subBudget_ = kParticleSubPerStep;
     events_.clear();
     const Place place = root_place(env);
@@ -871,17 +1033,13 @@ void ParticleSim::step(const ParticleEmitter& em, const ParticleEnv& env, float 
             const ParticleEmitter& c = cfg(p.group);
             p.age += dt;
             move(p, c, groups_[p.group].style, dt);
-            if (c.trail == ParticleTrail::Particle) {
-                const float interval = std::max(0.001f, c.trailTime / float(kParticleTrailPoints));
-                if (p.trail.empty() || float(clock_) - p.trail.back().time >= interval) p.trail.push_back({p.pos, float(clock_)});
-                std::size_t drop = 0;
-                while (drop < p.trail.size() && float(clock_) - p.trail[drop].time > c.trailTime) ++drop;
-                if (p.trail.size() - drop > std::size_t(kParticleTrailPoints)) drop = p.trail.size() - std::size_t(kParticleTrailPoints);
-                if (drop > 0) p.trail.erase(p.trail.begin(), p.trail.begin() + std::ptrdiff_t(drop));
-            }
+            if (c.trail == ParticleTrail::Particle) record_trail(p, c);
         }
-        for (const Particle& p : particles)
-            if (p.age >= p.life && !groups_[p.group].on[1].empty()) events_.push_back({1, int(p.group), p.pos, p.vel, Vec3{}});
+        for (Particle& p : particles) {
+            if (p.age < p.life) continue;
+            if (!groups_[p.group].on[1].empty()) events_.push_back({1, int(p.group), p.pos, p.vel, Vec3{}});
+            release_trail(p);
+        }
         particles.erase(std::remove_if(particles.begin(), particles.end(), [](const Particle& p) { return p.age >= p.life; }), particles.end());
         std::fill(counts_.begin(), counts_.end(), 0);
         for (const Particle& p : particles) ++counts_[p.group];

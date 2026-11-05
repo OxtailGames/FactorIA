@@ -69,18 +69,23 @@ the angle at the rim.
 `collision` makes particles stop at something. It works for `worldSpace` emitters, not for `space: "screen"`.
 
 - `plane`: the plane `collisionPlane` = `[nx, ny, nz, d]`, the points where `dot(n, p) = d` (`[0, 1, 0, 0]` is the floor `y = 0`).
-  Particles stay on the side the normal points to.
+  Particles stay on the side the normal points to. The normal does not need to be a unit vector: `[0, 2, 0, -40]` is the floor
+  `y = -20`, the same plane as `[0, 1, 0, -20]`.
 - `tilemap`: the solid tiles (`Tilemap.solidTiles`) of the `collisionTilemap` entity, or the first active Tilemap that has solid tiles.
   Isometric maps work. Particles do not leave the map's cells: in 3D only x and y count.
 
 On every hit a particle keeps `collisionBounce` of its speed along the surface normal (reversed) and loses `collisionFriction` of
-its speed along the surface, loses `collisionLifetimeLoss` of its full lifetime, or dies with `collisionKill`. A particle that
-only rests on the surface is not a hit (it does not lose life or fire the `collision` sub-emitter again every frame).
+its speed along the surface at once, loses `collisionLifetimeLoss` of its full lifetime, or dies with `collisionKill`. A particle that
+only rests or slides on the surface is not a hit (it does not lose life or fire the `collision` sub-emitter again every frame);
+it loses sliding speed per second instead, about `e^(-10 * collisionFriction * t)`, so a pile of sparks slows down the same at 30
+and at 120 frames per second (`collisionFriction` 1 slows a sliding particle to a tenth in half a second).
 
 ## Trails
 
 `trail: "particle"` draws a ribbon behind every particle, following the path it flew for the last `trailTime` seconds (at most
-32 points per particle, so a long `trailTime` gets coarser, not heavier). `trail: "emitter"` draws one ribbon along the path the
+32 points per particle, so a long `trailTime` gets coarser, not heavier; all the trails of an emitter share a pool of 16 384 points,
+512 trails of 32, so a swarm of 10 000 trailed particles still draws at most 16 384 ribbon quads and the particles born while the
+pool is full have no trail, logged once). `trail: "emitter"` draws one ribbon along the path the
 emitter itself moved (a sword swing, a comet, a wake), only for `worldSpace`; it is drawn while the emitter is emitting and
 fades out after. `trailWidth` is the width of the head in world units (design pixels in screen space); `trailWidthCurve` multiplies it along the
 trail, `[0, 1]` = head to tail (empty: tapers to a point); `trailGradient` is the colour along the trail, same positions (empty: the particle's
@@ -96,7 +101,7 @@ colour, fading out toward the tail). The ribbon is drawn with the emitter's `lay
 
 Each event holds one link or an array of links `{"count": 4, "chance": 1, "inherit": 0.5, ...}` and **one** of: `"emitter": {...}`
 (the fields of a ParticleEmitter, the rest default), `"prefab": "prefabs/spark.prefab.json"` (the first ParticleEmitter in that
-prefab) or `"entity": "spark-source"` (the emitter of another entity, copied every step, so editing it changes the effect). `count`
+prefab) or `"entity": "spark-source"` (the emitter of another entity, copied about ten times a second, so editing it changes the effect within a tenth of a second). `count`
 particles are born at the parent's position when it is born, dies or hits something, each time with probability `chance`, and
 add `inherit` times the parent's velocity. A collision sub-emitter is turned so that its `direction` 90 is the surface normal
 (a spray of sparks leaves the wall, whichever wall it hit).
@@ -104,6 +109,11 @@ add `inherit` times the parent's velocity. A collision sub-emitter is turned so 
 A sub-emitter's particles use ITS fields (lifetime, speed, direction, spread, gravity, size, colour, texture, blend, layer, curves,
 trails, collision, pixel mode, its own `subEmitters`) and are simulated and drawn with the emitter that owns them. They
 ignore their own `rate`, `burst` and `emitting`, and are born where the parent is, so a sub-emitter has no `shape: "mesh"`.
+A sub-emitter lives in the space of the emitter that owns it: its own `worldSpace` is ignored (a warning says so). Its `collision`
+works like the parent's, `tilemap` included (the map is looked up once for the whole emitter; with none the children fall
+through and the engine logs it once). A `prefab` or `entity` link that cannot be had yet (the file is written later, the entity is not
+in the scene yet) is tried again once per second of simulated time, so it starts working when the thing appears; the log
+says what is being retried.
 
 ## Pixel mode
 
@@ -131,7 +141,8 @@ Particles must never become a performance problem:
 
 - an emitter keeps at most **10 000** live particles, sub-emitter particles included (`maxParticles` only lowers it, per emitter and
   per sub-emitter); whatever does not fit is not born. A `rate` of a million particles per second makes 10 000, not a freeze.
-- a trail keeps at most **32** points per particle.
+- a trail keeps at most **32** points per particle, and an emitter's trails share **16 384** points (512 trails), so its trails
+  draw at most 16 384 ribbon quads and use about 2 MB, whatever the particle count.
 - sub-emitters go **two levels** below the emitter (its children and their children; deeper ones are ignored with a warning),
   at most **32** particles per event, **8** sub-emitters per emitter and **256** sub-emitter particles per frame.
 - `renderStats.particles` (`play.report`, `game.state().renderStats`) is the number of live particles drawn in the frame. Keep it
@@ -228,5 +239,5 @@ Example `pixel-fire`:
 (error), a `subEmitters` with an unknown event or key, or none (or two) of `emitter`, `prefab` and `entity` (error), a zero
 `collisionPlane` normal (error), and settings that do nothing (warning): collision without `worldSpace` or on a screen-space
 emitter, a flipbook without a `texture`, `shape: "mesh"` without a `shapeMesh`, a `trail` of `"emitter"` without `worldSpace`, too many
-flipbook frames, sub-emitters nested too deep. What only shows at run time (a prefab that cannot be read, an
+flipbook frames, sub-emitters nested too deep, a sub-emitter that sets `worldSpace`. What only shows at run time (a prefab that cannot be read, an
 `"entity"` that has no emitter, a mesh that cannot be loaded) is logged once with the emitter's entity id.

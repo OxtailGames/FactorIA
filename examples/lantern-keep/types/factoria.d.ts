@@ -6019,7 +6019,7 @@ declare module "factoria" {
      */
     collisionBounce: number;
     /**
-     * Fraction of the speed along the surface lost on every hit: 0 (default) = slides on, 1 = stops dead.
+     * Fraction of the speed along the surface lost on every hit: 0 (default) = slides on, 1 = stops dead. A particle that slides or rests on the surface loses speed per second instead (the same at any frame rate): 1 slows it to a tenth in half a second.
      * @since unreleased
      */
     collisionFriction: number;

@@ -257,6 +257,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
     ui.reset();
     apply_localization();  // the first frame (and the first onStart) already read the current language
     scripts.on_scene_loaded();
+    if (renderer) renderer->reset_particles();  // emitters are kept by entity: the new scene's start from nothing, as on every Play (before the scripts, which may emit a burst)
     if (renderer) renderer->debug().clear();
     // The picture of the previous scene is outdated: the next screenshot / render_now must draw the new one, also when
     // no frame is stepped in between (game.load(...) then game.screenshot(...) in a test).

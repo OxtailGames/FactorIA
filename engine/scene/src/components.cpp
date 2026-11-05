@@ -1075,7 +1075,9 @@ void register_builtin_components(TypeRegistry& r) {
         .field("collisionBounce", &ParticleEmitter::collisionBounce,
                "Fraction of the speed into the surface that comes back out: 0 = sticks, 0.5 = default, 1 = a perfect bounce.").range(0, 2)
         .field("collisionFriction", &ParticleEmitter::collisionFriction,
-               "Fraction of the speed along the surface lost on every hit: 0 (default) = slides on, 1 = stops dead.").range(0, 1)
+               "Fraction of the speed along the surface lost on every hit: 0 (default) = slides on, 1 = stops dead. A particle that "
+               "slides or rests on the surface loses speed per second instead (the same at any frame rate): 1 slows it to a tenth in "
+               "half a second.").range(0, 1)
         .field("collisionLifetimeLoss", &ParticleEmitter::collisionLifetimeLoss,
                "Fraction of its whole lifetime a particle loses on every hit (0.5: two hits kill it). Default 0. A particle resting "
                "on the surface is not hitting it again.").range(0, 1)

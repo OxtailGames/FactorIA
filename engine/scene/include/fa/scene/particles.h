@@ -7,15 +7,19 @@
 //
 // Budgets (a phone must not pay for a mistake):
 //   * at most kParticleHardCap live particles per emitter, sub-emitter particles included (ParticleEmitter.maxParticles can only lower it);
-//   * a trail keeps at most kParticleTrailPoints points per particle;
+//   * a trail keeps at most kParticleTrailPoints points per particle, and all the trails of one emitter share a pool of
+//     kParticleTrailBudget points (so at most that many ribbon quads are drawn for it, 16384 = about 2 MB of vertices): a particle born
+//     when the pool is full draws no trail until a trailed particle dies. The pool is one array, not one vector per particle;
 //   * sub-emitters go kParticleSubDepth levels deep (an emitter, its children, their children), at most kParticleSubCount particles
 //     per event, at most kParticleSubGroups sub-emitters in total, and at most kParticleSubPerStep sub-emitter particles per step.
+//   * a prefab or entity sub-emitter that failed to build is tried again once per kParticleLinkRetry seconds of sim time.
 //   Whatever does not fit is not spawned.
 #pragma once
 
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <type_traits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -31,11 +35,16 @@
 namespace fa {
 
 inline constexpr int kParticleHardCap = 10000;
-inline constexpr int kParticleTrailPoints = 32;
+inline constexpr int kParticleTrailPoints = 32;  // a power of two: a trail is a ring of this many points
+inline constexpr int kParticleTrailBudget = 16384;  // trail points (ring slots * kParticleTrailPoints) one emitter may hold
+inline constexpr int kParticleTrailSlots = kParticleTrailBudget / kParticleTrailPoints;
+static_assert((kParticleTrailPoints & (kParticleTrailPoints - 1)) == 0, "a trail ring indexes with a mask");
 inline constexpr int kParticleSubDepth = 2;
 inline constexpr int kParticleSubCount = 32;
 inline constexpr int kParticleSubGroups = 8;
 inline constexpr int kParticleSubPerStep = 256;
+inline constexpr double kParticleLinkSync = 0.1;   // seconds of sim time between copies of the emitter an {"entity": id} sub-emitter names
+inline constexpr double kParticleLinkRetry = 1.0;  // seconds of sim time between tries to build a prefab or entity sub-emitter that failed
 
 // ------------------------------------------------------------------ checking --
 // One thing wrong (or useless) in an emitter's data: `pointer` is relative to the component ("/sizeCurve"), the same convention as
@@ -53,8 +62,8 @@ Result<ParticleEmitter> load_prefab_particle_emitter(const std::string& path);
 
 // ---------------------------------------------------------------- the parsed JSON --
 // The curves and gradients of an emitter, parsed from its Json fields. refresh() parses again only when a field changed (it compares
-// with a copy of what it parsed), so reading it every frame is cheap. A field that does not parse stays empty and is listed in `problems`
-// (`news` holds the ones not reported before).
+// with a copy of what it parsed: no allocation, and an empty field is one comparison), so reading it every frame is cheap. A field
+// that does not parse stays empty and is listed in `problems` (`news` holds the ones not reported before).
 struct ParticleStyle {
     Gradient color, trailColor;
     Curve size, speed, alpha, trailWidth;
@@ -84,6 +93,7 @@ struct ParticleTrailPoint {
     Vec3 pos;
     float time = 0.0f;  // the sim's clock when it was recorded
 };
+static_assert(sizeof(ParticleTrailPoint) == 16, "a trail point is 16 bytes: the pool of one emitter is at most 256 KB");
 
 struct Particle {
     Vec3 pos, vel;
@@ -93,16 +103,24 @@ struct Particle {
     float sizeScale = 1.0f;  // 1 +- sizeVariance
     float random = 0.0f;     // 0..1, fixed at birth (a flipbook's start frame)
     std::uint8_t group = 0;  // 0 = the emitter's own particles, else the sub-emitter it came from (ParticleSim::group)
-    std::vector<ParticleTrailPoint> trail;  // newest last; only for a group whose trail is "particle"
+    // The trail (a group whose trail is "particle"): a ring of kParticleTrailPoints points in the sim's pool, slot `trailSlot` (-1 = no
+    // trail: not asked for, or the pool was full). Read it with ParticleSim::trail_size / trail_point.
+    std::int32_t trailSlot = -1;
+    std::uint8_t trailHead = 0;   // where the next point is written
+    std::uint8_t trailCount = 0;  // points held
 };
+static_assert(std::is_trivially_copyable_v<Particle>, "a particle owns nothing: no allocation per particle");
 
 // What the sim needs to know about the world around the emitter for one step. Everything may stay empty.
 struct ParticleEnv {
     Mat4 emitter;                      // the emitter's world matrix
     bool is3D = false;                 // = em.is3D
     bool screen = false;               // a screen-space emitter: the sim runs +Y up on the screen position (see render particles.cpp)
-    const Tilemap* tilemap = nullptr;  // collision = tilemap
+    const Tilemap* tilemap = nullptr;  // collision = tilemap of the emitter itself (when null, findTilemap is asked)
     Mat4 tilemapWorld;                 // that tilemap's world matrix
+    // The Tilemap an emitter (the emitter itself or one of its sub-emitters) whose `collision` is "tilemap" bounces on, and its world
+    // matrix; null when there is none. Sub-emitters ask this too, so they bounce off the map like their parent.
+    std::function<const Tilemap*(const ParticleEmitter& emitter, Mat4& world)> findTilemap;
     const MeshSurface* mesh = nullptr; // shape = mesh
     // The ParticleEmitter of the entity with this id (a sub-emitter given as {"entity": id}); null when there is none.
     std::function<const ParticleEmitter*(std::string_view id)> findEmitter;
@@ -136,6 +154,16 @@ public:
     // Problems with the sub-emitter specification found since the last call (each only once), for the caller to log.
     std::vector<std::string> take_problems();
 
+    // The trail of a particle: `trail_size` points, `trail_point(p, 0)` the newest (where the particle was last recorded) and
+    // `trail_size(p) - 1` the oldest. 0 points for a particle without a trail.
+    int trail_size(const Particle& p) const { return p.trailSlot < 0 ? 0 : int(p.trailCount); }
+    const ParticleTrailPoint& trail_point(const Particle& p, int i) const;
+    // Ribbon quads the particle trails and the emitter trail make now (points - 1 per trail): never more than kParticleTrailBudget.
+    int trail_quads() const;
+    // Trail points the pool has allocated (grows up to kParticleTrailBudget, never shrinks) and the trails that hold a slot.
+    std::size_t trail_pool_points() const { return trailPool_.size(); }
+    int trails_in_use() const { return trailsInUse_; }
+
     bool empty() const { return particles.empty(); }
     // Live particles of a group (after the last step).
     int live(int group) const { return group >= 0 && group < int(counts_.size()) ? counts_[std::size_t(group)] : 0; }
@@ -151,7 +179,26 @@ private:
         std::unique_ptr<ParticleEmitter> emitter;  // null for group 0: the caller's emitter
         ParticleStyle style;
         std::vector<Link> on[3];  // sub-emitters of birth, death and collision
-        std::string entityId;     // {"entity": id}: copied from that emitter at every step
+        std::string entityId;     // {"entity": id}: copied from that emitter now and then (kParticleLinkSync)
+        bool styleDirty = true;   // the emitter changed since the style was parsed (a sub-emitter's own fields never change)
+        // Collision = tilemap: what the emitter bounces on (found again at every step), and the solid tiles read from it.
+        const Tilemap* tilemap = nullptr;
+        Mat4 tilemapWorld, tilemapInv;
+        Json solidSrc;
+        std::vector<int> solid;
+        bool solidValid = false;
+        float cellMap[4] = {0, 0, 0, 0};
+        TilemapSize tilemapSize;
+        bool tilemapWarned = false;
+    };
+    // A prefab or entity sub-emitter that could not be built: tried again once per second of the sim's clock.
+    struct Retry {
+        int parent = 0;
+        int kind = 0;
+        int depth = 0;
+        Json link;
+        std::string event;
+        double next = 0.0;
     };
     // Where a particle is born: the matrix and its parts the shape and direction are read from.
     struct Place {
@@ -167,14 +214,20 @@ private:
     };
 
     const ParticleEmitter& cfg(int g) const { return g == 0 ? *root_ : *groups_[std::size_t(g)].emitter; }
-    void begin(const ParticleEmitter& em, const ParticleEnv& env);
+    void begin(const ParticleEmitter& em, const ParticleEnv& env, bool forceSync);
     Place root_place(const ParticleEnv& env) const;
     bool can_spawn(int g) const;
     void spawn_one(int g, const Place& place, Vec3 extraVel, bool child);
     void fire(int g, int kind, Vec3 pos, Vec3 vel, Vec3 normal);
     void spawn_children(const Link& link, Vec3 pos, Vec3 vel, Vec3 normal, bool hasNormal);
-    void sync_sub_emitters(const ParticleEnv& env);
+    void sync_sub_emitters(const ParticleEnv& env, bool forceSync);
     void build_links(int g, const Json& spec, int depth, const ParticleEnv& env);
+    enum class LinkResult { Built, Dropped, Retry, Full };  // Retry: a prefab or entity that could not be had yet
+    LinkResult add_link(int g, int kind, const std::string& event, const Json& link, int depth, const ParticleEnv& env);
+    void retry_links(const ParticleEnv& env);
+    int acquire_trail_slot();
+    void release_trail(Particle& p);
+    void record_trail(Particle& p, const ParticleEmitter& c);
     void move(Particle& p, const ParticleEmitter& c, const ParticleStyle& style, float dt);
     void note(const std::string& problem);
     void collide(Particle& p, const ParticleEmitter& c, Vec3 before, float dt);
@@ -183,8 +236,8 @@ private:
     // 2 = `dir` is the exact direction.
     void sample_shape(const ParticleEmitter& c, const Place& place, Vec3& offset, int& dirMode, Vec3& dir);
     void refresh_cdf();
-    bool solid_cell(int col, int row) const;
-    void refresh_solid();
+    bool solid_cell(const Group& g, int col, int row) const;
+    void refresh_solid(int g);
 
     Rng rng_;
     bool seeded_ = false;
@@ -207,14 +260,14 @@ private:
     std::vector<std::string> problems_, reported_;
     std::vector<int> counts_;
     std::vector<Event> events_;
-    Json solidSrc_;
-    std::vector<int> solid_;
-    bool solidValid_ = false;
-    float cellMap_[4] = {0, 0, 0, 0};
-    Mat4 tilemapInv_;
-    TilemapSize tilemapSize_;
+    std::vector<Retry> retries_;
+    double nextLinkSync_ = 0.0;
+    std::vector<ParticleTrailPoint> trailPool_;  // kParticleTrailPoints per slot
+    std::vector<int> freeSlots_;
+    int trailsInUse_ = 0;
     // shape = mesh: the cumulative triangle areas of the surface sampled last.
     const MeshSurface* cdfSurface_ = nullptr;
+    std::size_t cdfTriangles_ = 0;
     std::vector<float> cdf_;
 };
 
