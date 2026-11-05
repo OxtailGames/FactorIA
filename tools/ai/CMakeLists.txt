@@ -4,29 +4,33 @@
 file(GLOB_RECURSE ai_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
 _fa_filter_platform_sources(ai_srcs ${ai_srcs})
 
-# The JSON Schema for ai.json is baked into the library (single source of
-# truth: schemas/ai-config.schema.json).
-set(FA_AI_SCHEMA_FILE ${FA_ROOT}/schemas/ai-config.schema.json)
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${FA_AI_SCHEMA_FILE})
-file(READ ${FA_AI_SCHEMA_FILE} FA_AI_SCHEMA_JSON)
-# MSVC caps one string literal at 16380 bytes (C2026): the schema goes in as adjacent raw literals of at most 8000
-# bytes, cut at line ends so that no piece splits a UTF-8 character.
-set(FA_AI_SCHEMA_PIECES "")
-set(_fa_rest "${FA_AI_SCHEMA_JSON}")
-string(LENGTH "${_fa_rest}" _fa_len)
-while(_fa_len GREATER 8000)
-    string(SUBSTRING "${_fa_rest}" 0 8000 _fa_head)
-    string(FIND "${_fa_head}" "\n" _fa_nl REVERSE)
-    if(_fa_nl LESS 0)
-        message(FATAL_ERROR "${FA_AI_SCHEMA_FILE} has a line longer than 8000 bytes; break it so the schema can be embedded")
-    endif()
-    math(EXPR _fa_cut "${_fa_nl} + 1")
-    string(SUBSTRING "${_fa_rest}" 0 ${_fa_cut} _fa_piece)
-    string(SUBSTRING "${_fa_rest}" ${_fa_cut} -1 _fa_rest)
-    string(APPEND FA_AI_SCHEMA_PIECES "R\"FAJSON(${_fa_piece})FAJSON\"\n           ")
+# The JSON Schemas of ai.json and of a project's AI settings are baked into the library (single source of truth:
+# schemas/ai-config.schema.json and schemas/ai-project-settings.schema.json).
+# MSVC caps one string literal at 16380 bytes (C2026): a schema goes in as adjacent raw literals of at most 8000 bytes, cut
+# at line ends so that no piece splits a UTF-8 character.
+function(_fa_ai_schema_pieces schemaFile outVar)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${schemaFile})
+    file(READ ${schemaFile} _fa_json)
+    set(_fa_pieces "")
+    set(_fa_rest "${_fa_json}")
     string(LENGTH "${_fa_rest}" _fa_len)
-endwhile()
-string(APPEND FA_AI_SCHEMA_PIECES "R\"FAJSON(${_fa_rest})FAJSON\"")
+    while(_fa_len GREATER 8000)
+        string(SUBSTRING "${_fa_rest}" 0 8000 _fa_head)
+        string(FIND "${_fa_head}" "\n" _fa_nl REVERSE)
+        if(_fa_nl LESS 0)
+            message(FATAL_ERROR "${schemaFile} has a line longer than 8000 bytes; break it so the schema can be embedded")
+        endif()
+        math(EXPR _fa_cut "${_fa_nl} + 1")
+        string(SUBSTRING "${_fa_rest}" 0 ${_fa_cut} _fa_piece)
+        string(SUBSTRING "${_fa_rest}" ${_fa_cut} -1 _fa_rest)
+        string(APPEND _fa_pieces "R\"FAJSON(${_fa_piece})FAJSON\"\n           ")
+        string(LENGTH "${_fa_rest}" _fa_len)
+    endwhile()
+    string(APPEND _fa_pieces "R\"FAJSON(${_fa_rest})FAJSON\"")
+    set(${outVar} "${_fa_pieces}" PARENT_SCOPE)
+endfunction()
+_fa_ai_schema_pieces(${FA_ROOT}/schemas/ai-config.schema.json FA_AI_SCHEMA_PIECES)
+_fa_ai_schema_pieces(${FA_ROOT}/schemas/ai-project-settings.schema.json FA_AI_PROJECT_SCHEMA_PIECES)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/src/config_schema.cpp.in
                ${CMAKE_CURRENT_BINARY_DIR}/generated/config_schema.cpp @ONLY)
 
