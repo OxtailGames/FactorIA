@@ -1026,8 +1026,10 @@ job.promise.then((r) => { if (scene.generation === gen) console.log("ready", r.p
 - `place` builds the Tilemap and the sample's markers (glyphs with a `prefab`) as entities, like `scene.import_ascii`;
   `into` writes only tiles into an existing Tilemap. They exclude each other.
 - Per frame: **tests, headless runs and replays do 500000 units of generator work**, so the frames it takes are the same
-  on every machine; **a game with a window** works until about 4 ms of the frame are used (the same budget as
-  `scene.preload`), so the game must not depend on how many frames it takes. One attempt starts and ends in one piece of
+  on every machine; **a game with a window** works until about 4 ms of the frame are used by each running generation (the same budget as
+  `scene.preload`; up to 8 generations can run at once, so up to about 32 ms of a frame: run one at a time), so the game
+  must not depend on how many frames it takes. `stats.ms` and `memoryBytes` of the result are informative and not
+  deterministic (they depend on the machine): a game must not compare them. One attempt starts and ends in one piece of
   work: a very big level (a side above about 500) can still make a frame long.
 - A generation belongs to the scene that started it: a scene load (a reload too) ends it with an error, places nothing
   and frees its memory. A script that awaits `promise` checks `scene.generation` before it uses the result.

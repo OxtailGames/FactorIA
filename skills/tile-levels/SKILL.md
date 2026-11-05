@@ -36,10 +36,10 @@ Guide section 9.8.
 
 A game that wants a new level on every run calls the script API `tilemap.generate({sample, size, seed: rng.create(runSeed).int(0, 2147483647), place: {...}})`.
 It returns a handle (`progress`, `done`, `error`, `result`, `promise`, `cancel()`), works a little every frame (about 4 ms
-with a window, so a phone does not stall) and gives the same level as the command for the same arguments. With `place`
+with a window per running generation, so a phone does not stall; run one at a time, up to 8 at once can use about 32 ms of a frame) and gives the same level as the command for the same arguments. With `place`
 it builds the Tilemap and turns the sample's markers (glyphs whose legend entry has a `prefab`: spawn points, coins,
 enemies) into entities, as `scene.import_ascii` does. It belongs to the scene that started it: a scene load rejects it,
-so check `scene.generation` before using the answer. Guide section 9.8, "A new level on every run".
+so check `scene.generation` before using the answer. `stats.ms` and `memoryBytes` of the result are informative, not deterministic: never compare them. Guide section 9.8, "A new level on every run".
 
 ## Camera and area limits
 
