@@ -172,6 +172,63 @@ bool is_uuid_v4(std::string_view t) {
     return v == '8' || v == '9' || v == 'a' || v == 'b';
 }
 
+namespace {
+constexpr bool kPathsCaseInsensitive =
+#if defined(_WIN32)
+    true;
+#else
+    false;
+#endif
+
+std::string key_from_generic(std::string p, bool caseInsensitive) {
+    if (caseInsensitive) std::replace(p.begin(), p.end(), '\\', '/');  // Windows: both separators
+    while (p.size() > 1 && p.back() == '/' && !(p.size() == 3 && p[1] == ':')) p.pop_back();
+    if (caseInsensitive) p = to_lower(p);
+    return p;
+}
+}  // namespace
+
+// A key read from the file: written by us (already normal) or typed by a person.
+static std::string share_project_key_text(const std::string& key) { return key_from_generic(key, kPathsCaseInsensitive); }
+
+std::string share_project_key(const std::string& projectDir, bool caseInsensitive) {
+    if (projectDir.empty()) return {};
+    std::error_code ec;
+    stdfs::path abs = stdfs::absolute(stdfs::path(projectDir), ec);
+    if (ec) abs = stdfs::path(projectDir);
+    stdfs::path canon = stdfs::weakly_canonical(abs, ec);
+    if (ec) canon = abs.lexically_normal();
+    return key_from_generic(canon.generic_string(), caseInsensitive);
+}
+
+std::string share_project_key(const std::string& projectDir) { return share_project_key(projectDir, kPathsCaseInsensitive); }
+
+std::string share_project_dir_of_file(const std::string& feedbackFile) {
+    if (feedbackFile.empty()) return {};
+    std::error_code ec;
+    stdfs::path dir = stdfs::absolute(stdfs::path(feedbackFile), ec).parent_path();
+    for (stdfs::path p = dir; !p.empty(); p = p.parent_path()) {
+        if (stdfs::exists(p / kProjectFileName, ec)) return p.string();
+        if (p == p.parent_path()) break;
+    }
+    return dir.string();
+}
+
+std::optional<ShareMode> share_project_mode(const ShareSettings& settings, const std::string& projectDir) {
+    if (projectDir.empty()) return std::nullopt;
+    const auto it = settings.projects.find(share_project_key(projectDir));
+    if (it == settings.projects.end()) return std::nullopt;
+    return it->second;
+}
+
+ShareMode effective_share_mode(const ShareSettings& settings, const std::string& projectDir) {
+    return share_project_mode(settings, projectDir).value_or(settings.mode);
+}
+
+const char* effective_share_source(const ShareSettings& settings, const std::string& projectDir) {
+    return share_project_mode(settings, projectDir) ? "project" : "default";
+}
+
 std::string share_settings_path(const ShareEnv& env) { return (stdfs::path(env.config_dir()) / kFeedbackSharingFile).string(); }
 
 ShareSettings load_share_settings(const ShareEnv& env) {
@@ -193,6 +250,17 @@ ShareSettings load_share_settings(const ShareEnv& env) {
     s.credential = tooling_detail::string_setting(s.raw, "credential", "");
     s.login = tooling_detail::string_setting(s.raw, "login", "");
     s.endpoint = tooling_detail::string_setting(s.raw, "endpoint", "");
+    if (s.raw.contains("projects") && s.raw["projects"].is_object()) {
+        for (auto it = s.raw["projects"].begin(); it != s.raw["projects"].end(); ++it) {
+            auto m = it.value().is_string() ? parse_share_mode(it.value().get<std::string>()) : std::nullopt;
+            if (!m || *m == ShareMode::Unset) {
+                if (s.warning.empty())
+                    s.warning = s.path + ": projects[\"" + it.key() + "\"] is not always, ask or never: that project follows the default mode.";
+                continue;
+            }
+            s.projects[share_project_key_text(it.key())] = *m;
+        }
+    }
     return s;
 }
 
@@ -207,6 +275,13 @@ Result<void> save_share_settings(const ShareEnv& env, const ShareSettings& setti
     put("credential", settings.credential);
     put("login", settings.login);
     put("endpoint", settings.endpoint);
+    if (settings.projects.empty()) {
+        doc.erase("projects");
+    } else {
+        Json projects = Json::object();
+        for (const auto& [key, mode] : settings.projects) projects[key] = share_mode_name(mode);
+        doc["projects"] = std::move(projects);
+    }
     const std::string path = share_settings_path(env);
     std::string err;
     if (!tooling_detail::write_file(path, dump_json(doc), &err))
@@ -442,6 +517,7 @@ Result<QueueResult> share_queue(const ShareEnv& env, const std::string& feedback
     if (!loaded.ok()) return loaded.error();
     Json doc = std::move(loaded.value());
     const ShareSettings settings = load_share_settings(env);
+    const ShareMode mode = effective_share_mode(settings, projectDir);
     const ProjectNames project = collect_project_names(projectDir);
     Outbox box = load_outbox(env);
     QueueResult result;
@@ -461,9 +537,9 @@ Result<QueueResult> share_queue(const ShareEnv& env, const std::string& feedback
             }
             continue;
         }
-        if (settings.mode == ShareMode::Unset || settings.mode == ShareMode::Never) {
-            ShareEntryReport r = report_for(id, "skipped", mode_off_reason(settings.mode));
-            if (settings.mode == ShareMode::Never) {
+        if (mode == ShareMode::Unset || mode == ShareMode::Never) {
+            ShareEntryReport r = report_for(id, "skipped", mode_off_reason(mode));
+            if (mode == ShareMode::Never) {
                 if (!(e.contains("shared") && e["shared"].value("status", std::string()) == "skipped"))
                     docChanged |= put_shared(e, shared_state(env, "skipped", "sharing is off"));
             }
@@ -503,8 +579,8 @@ Result<QueueResult> share_queue(const ShareEnv& env, const std::string& feedback
             item->file = feedbackFile;
             item->localId = id;
             item->queuedAt = now;
-            item->state = settings.mode == ShareMode::Ask ? OutboxState::Waiting : OutboxState::Queued;
-        } else if (settings.mode == ShareMode::Always) {
+            item->state = mode == ShareMode::Ask ? OutboxState::Waiting : OutboxState::Queued;
+        } else if (mode == ShareMode::Always) {
             item->state = OutboxState::Queued;
         }
         item->entry = r.entry;
@@ -527,7 +603,7 @@ Json share_preview(const ShareEnv& env, const std::string& feedbackFile, const s
                    const std::vector<std::string>& ids) {
     Json out = Json::object();
     const ShareSettings settings = load_share_settings(env);
-    out["mode"] = share_mode_name(settings.mode);
+    out["mode"] = share_mode_name(effective_share_mode(settings, projectDir));
     Json entries = Json::array();
     auto loaded = load_feedback(feedbackFile);
     if (loaded.ok() && loaded.value().contains("entries") && loaded.value()["entries"].is_array()) {
@@ -558,6 +634,8 @@ Json share_preview(const ShareEnv& env, const std::string& feedbackFile, const s
 
 namespace {
 
+bool mode_sends(ShareMode mode) { return mode == ShareMode::Always || mode == ShareMode::Ask; }
+
 bool item_matches(const OutboxItem& it, const FlushOptions& o) {
     if (!o.file.empty() && it.file != o.file) return false;
     if (!o.ids.empty() && !contains(o.ids, it.localId)) return false;
@@ -587,12 +665,13 @@ std::string server_message(const Json& body, const std::string& fallback) {
 
 bool share_has_due(const ShareEnv& env, const std::string& file) {
     const ShareSettings settings = load_share_settings(env);
-    if (settings.mode != ShareMode::Always && settings.mode != ShareMode::Ask) return false;
     if (share_endpoint(env, settings).empty()) return false;
     const Outbox box = load_outbox(env);
     const std::int64_t now = env.clock();
     for (const OutboxItem& it : box.items)
-        if (it.state == OutboxState::Queued && it.nextAttempt <= now && (file.empty() || it.file == file)) return true;
+        if (it.state == OutboxState::Queued && it.nextAttempt <= now && (file.empty() || it.file == file) &&
+            mode_sends(effective_share_mode(settings, share_project_dir_of_file(it.file))))
+            return true;
     return false;
 }
 
@@ -604,10 +683,25 @@ FlushResult share_flush(const ShareEnv& env, const FlushOptions& options) {
         res.message = message;
         return res;
     };
-    if (settings.mode != ShareMode::Always && settings.mode != ShareMode::Ask)
-        return finish("off", settings.mode == ShareMode::Never ? "Sharing is off (mode never): nothing is sent."
-                                                               : "Sharing is not set up: nothing is sent. The user turns it on in the "
-                                                                 "editor (Settings > Feedback) or with `factoria feedback sharing always|ask`.");
+    // The mode is the one of each item's project (its own choice, else the default).
+    std::map<std::string, ShareMode> modeOfFile;
+    auto mode_of = [&](const OutboxItem& it) {
+        auto found = modeOfFile.find(it.file);
+        if (found == modeOfFile.end())
+            found = modeOfFile.emplace(it.file, effective_share_mode(settings, share_project_dir_of_file(it.file))).first;
+        return found->second;
+    };
+    {
+        const ShareMode ref = options.file.empty() ? settings.mode
+                                                   : effective_share_mode(settings, share_project_dir_of_file(options.file));
+        bool any = mode_sends(ref);
+        for (const OutboxItem& it : load_outbox(env).items)
+            if (item_matches(it, options) && mode_sends(mode_of(it))) any = true;
+        if (!any)
+            return finish("off", ref == ShareMode::Never ? "Sharing is off (mode never): nothing is sent."
+                                                         : "Sharing is not set up: nothing is sent. The user turns it on in the "
+                                                           "editor (Settings > Feedback) or with `factoria feedback sharing always|ask`.");
+    }
     const std::string endpoint = share_endpoint(env, settings);
     if (endpoint.empty()) return finish("unavailable", share_unavailable_message());
 
@@ -621,6 +715,7 @@ FlushResult share_flush(const ShareEnv& env, const FlushOptions& options) {
         for (std::size_t i = 0; i < box.items.size() && batch.size() < std::size_t(kShareMaxEntriesPerRequest); ++i) {
             const OutboxItem& it = box.items[i];
             if (!item_matches(it, options)) continue;
+            if (!mode_sends(mode_of(it))) continue;  // never (or not set up) for its project: it stays in the outbox
             if (it.state == OutboxState::Waiting) continue;
             if (!options.force && it.nextAttempt > now) continue;
             const std::size_t size = it.entry.dump().size() + 2;
@@ -634,8 +729,11 @@ FlushResult share_flush(const ShareEnv& env, const FlushOptions& options) {
             bytes += size;
             batch.push_back(i);
         }
-        for (const OutboxItem& it : box.items)
-            if (item_matches(it, options) && it.state == OutboxState::Waiting && first) ++res.waiting;
+        for (const OutboxItem& it : box.items) {
+            if (!first || !item_matches(it, options)) continue;
+            if (!mode_sends(mode_of(it))) ++res.notAllowed;
+            else if (it.state == OutboxState::Waiting) ++res.waiting;
+        }
         first = false;
         if (batch.empty()) break;
 
@@ -753,6 +851,9 @@ FlushResult share_flush(const ShareEnv& env, const FlushOptions& options) {
         res.outcome = "idle";
         res.message = res.waiting ? std::to_string(res.waiting) + " entries wait for the user's confirmation; nothing else is due."
                                   : "Nothing is due: the outbox is empty or waiting for its next retry.";
+        if (res.notAllowed)
+            res.message += " " + std::to_string(res.notAllowed) + " stay in the outbox because their project's sharing mode is never "
+                           "(or not set up): they are not sent.";
     }
     if (res.requests > 0)
         if (auto s = save_outbox(env, box); !s.ok()) res.message += " (the outbox could not be saved: " + s.error().message + ")";
@@ -827,6 +928,33 @@ Result<void> set_share_mode(const ShareEnv& env, ShareMode mode) {
     return {};
 }
 
+Result<void> set_project_share_mode(const ShareEnv& env, const std::string& projectDir, std::optional<ShareMode> mode) {
+    if (projectDir.empty()) return make_error("No project folder.", "Run it inside a project or pass --project <dir>.");
+    if (mode && *mode == ShareMode::Unset) mode.reset();
+    ShareSettings s = load_share_settings(env);
+    const std::string key = share_project_key(projectDir);
+    if (mode) s.projects[key] = *mode;
+    else s.projects.erase(key);
+    if (auto r = save_share_settings(env, s); !r.ok()) return r;
+    if (!mode || *mode == ShareMode::Ask) return {};
+    Outbox box = load_outbox(env);
+    bool changed = false;
+    for (std::size_t i = box.items.size(); i-- > 0;) {
+        OutboxItem& it = box.items[i];
+        if (share_project_key(share_project_dir_of_file(it.file)) != key) continue;
+        if (*mode == ShareMode::Never) {
+            write_entry_shared(it.file, it.localId, shared_state(env, "skipped", "sharing is off for this project"));
+            box.items.erase(box.items.begin() + std::ptrdiff_t(i));
+            changed = true;
+        } else if (it.state == OutboxState::Waiting) {  // always: what waited for a yes is a yes
+            it.state = OutboxState::Queued;
+            changed = true;
+        }
+    }
+    if (changed) return save_outbox(env, box);
+    return {};
+}
+
 // ------------------------------------------------------------------------------------------------------- report summary
 
 namespace {
@@ -858,9 +986,12 @@ Json share_report_summary(const ShareEnv& env, const std::string& feedbackFile, 
         return done("none", "No `share` was recorded, so nothing will be shared.");
     }
     if (endpoint.empty()) return done("unavailable", share_unavailable_message());
-    if (settings.mode == ShareMode::Unset)
+    const ShareMode mode = effective_share_mode(settings, projectDir);
+    if (mode == ShareMode::Unset)
         return done("not_set_up", "Sharing with the engine developer is not set up, so nothing was sent. " + how_to_turn_on());
-    if (settings.mode == ShareMode::Never) return done("off", "Sharing is off (the user chose never), so nothing was sent.");
+    if (mode == ShareMode::Never)
+        return done("off", std::string("Sharing is off (the user chose never") +
+                               (share_project_mode(settings, projectDir) ? " for this project" : "") + "), so nothing was sent.");
     if (!entry_is_shareable(*entry)) {
         const std::string st = entry->contains("shared") ? (*entry)["shared"].value("status", std::string()) : std::string();
         return done(st.empty() ? "none" : st, st == "sent" ? "This entry was already sent." : "This entry is not shared.");
@@ -922,8 +1053,8 @@ VerdictResult share_sync_verdicts(const ShareEnv& env, const std::string& feedba
         return res;
     };
     const ShareSettings settings = load_share_settings(env);
-    if (settings.mode != ShareMode::Always && settings.mode != ShareMode::Ask)
-        return finish("off", "Sharing is not on: the engine developer's answers are not asked for.");
+    if (!mode_sends(effective_share_mode(settings, share_project_dir_of_file(feedbackFile))))
+        return finish("off", "Sharing is not on for this project: the engine developer's answers are not asked for.");
     const std::string endpoint = share_endpoint(env, settings);
     if (endpoint.empty()) return finish("unavailable", share_unavailable_message());
     // The shareIds of this file's own sent entries (also the archived ones): the server only answers for this installation's reports.
@@ -1032,23 +1163,38 @@ Json ids_schema() {
 
 }  // namespace
 
-Json share_status(const ShareEnv& env) {
+Json share_status(const ShareEnv& env, const std::string& projectDir) {
     const ShareSettings settings = load_share_settings(env);
     const std::string endpoint = share_endpoint(env, settings);
+    const ShareMode mode = effective_share_mode(settings, projectDir);
     Json out = Json::object();
-    out["mode"] = share_mode_name(settings.mode);
+    out["mode"] = share_mode_name(mode);
+    out["default"] = share_mode_name(settings.mode);
+    if (!projectDir.empty()) {
+        const auto own = share_project_mode(settings, projectDir);
+        Json p = Json::object();
+        p["dir"] = projectDir;
+        p["name"] = stdfs::path(projectDir).filename().string();
+        p["mode"] = own ? share_mode_name(*own) : "default";
+        p["source"] = own ? "project" : "default";
+        out["project"] = std::move(p);
+    }
     out["available"] = !endpoint.empty();
     out["endpoint"] = endpoint;
     out["signedIn"] = !settings.credential.empty();
     if (!settings.login.empty()) out["login"] = settings.login;
     if (!settings.warning.empty()) out["warning"] = settings.warning;
     if (endpoint.empty()) out["howToFix"] = share_unavailable_message();
-    if (settings.mode == ShareMode::Unset) out["howToTurnOn"] = how_to_turn_on();
+    if (mode == ShareMode::Unset) out["howToTurnOn"] = how_to_turn_on();
     const Outbox box = load_outbox(env);
     const std::int64_t now = env.clock();
-    int queued = 0, waiting = 0;
+    int queued = 0, waiting = 0, blocked = 0;
     Json failed = Json::array();
     for (const OutboxItem& it : box.items) {
+        if (!mode_sends(effective_share_mode(settings, share_project_dir_of_file(it.file)))) {
+            ++blocked;  // never (or not set up) for its project: it is not sent
+            continue;
+        }
         if (it.state == OutboxState::Waiting) {
             ++waiting;
             continue;
@@ -1060,7 +1206,9 @@ Json share_status(const ShareEnv& env) {
             failed.push_back(std::move(f));
         }
     }
-    out["outbox"] = Json::object({{"queued", queued}, {"waitingForConfirmation", waiting}, {"failed", failed}});
+    out["outbox"] = Json::object({{"queued", queued}, {"waitingForConfirmation", waiting}, {"blocked", blocked}, {"failed", failed}});
+    if (blocked)
+        out["outbox"]["blockedReason"] = "Items of a project whose sharing mode is never (or not set up) stay here and are not sent.";
     if (box.lastSend.is_object()) out["lastSend"] = box.lastSend;
     return out;
 }
@@ -1081,7 +1229,7 @@ void register_feedback_share_commands(CommandRegistry& registry, const std::stri
         info.inputSchema = ids_schema();
         registry.add(info, [&registry, projectDir](const Json& args) {
             const std::string file = feedback_file_for(projectDir);
-            if (!stdfs::exists(file)) return Json::object({{"mode", share_mode_name(load_share_settings(share_env()).mode)},
+            if (!stdfs::exists(file)) return Json::object({{"mode", share_mode_name(effective_share_mode(load_share_settings(share_env()), projectDir))},
                                                            {"entries", Json::array()}, {"note", "No ENGINE_FEEDBACK.json yet."}});
             return share_preview(share_env(), file, projectDir, collect_engine_names(&registry), ids_arg(args));
         });
@@ -1093,11 +1241,11 @@ void register_feedback_share_commands(CommandRegistry& registry, const std::stri
         info.readOnly = true;
         info.summary = "Sharing with the engine developer: the mode, the server, whether the user signed in, and the outbox.";
         info.description =
-            "Reports the mode the USER chose (unset, always, ask or never; no command changes it), whether this build has a feedback "
+            "Reports the mode that applies to this project (unset, always, ask or never): its own choice if the user made one, else the user's default (`default` and `project` say which; no command changes either). Also whether this build has a feedback "
             "server, whether the user signed in with GitHub, and the outbox: entries queued, waiting for the user's confirmation, "
             "and failed ones with their reason and when they are retried. Use it to tell the user why a report was not sent.";
         info.inputSchema = Json::object({{"type", "object"}, {"properties", Json::object()}});
-        registry.add(info, [](const Json&) { return share_status(share_env()); });
+        registry.add(info, [projectDir](const Json&) { return share_status(share_env(), projectDir); });
     }
     {
         CommandInfo info;
@@ -1138,8 +1286,9 @@ void register_feedback_share_commands(CommandRegistry& registry, const std::stri
             const std::string file = feedback_file_for(projectDir);
             const std::vector<std::string> ids = ids_arg(args);
             const ShareSettings settings = load_share_settings(env);
+            const ShareMode mode = effective_share_mode(settings, projectDir);
             Json out = Json::object();
-            if (settings.mode == ShareMode::Always || settings.mode == ShareMode::Ask) {
+            if (mode == ShareMode::Always || mode == ShareMode::Ask) {
                 if (stdfs::exists(file)) {
                     auto q = share_queue(env, file, projectDir, collect_engine_names(&registry), ids);
                     if (!q.ok()) throw CommandError("failed", q.error().message, q.error().hint);
@@ -1157,6 +1306,7 @@ void register_feedback_share_commands(CommandRegistry& registry, const std::stri
             }
             FlushOptions fo;
             fo.ids = ids;
+            fo.file = file;  // this project's items only: other projects have their own mode
             fo.timeoutSec = 5.0;
             fo.oneBatch = true;
             const FlushResult f = share_flush(env, fo);
@@ -1167,7 +1317,7 @@ void register_feedback_share_commands(CommandRegistry& registry, const std::stri
             out["refused"] = f.rejected;
             out["retryLater"] = f.retryLater;
             out["results"] = f.results;
-            if (f.outcome == "off" && settings.mode == ShareMode::Unset) out["howToTurnOn"] = how_to_turn_on();
+            if (f.outcome == "off" && mode == ShareMode::Unset) out["howToTurnOn"] = how_to_turn_on();
             return out;
         });
     }

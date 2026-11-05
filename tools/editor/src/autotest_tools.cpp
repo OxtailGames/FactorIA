@@ -4961,6 +4961,35 @@ void Editor::at_build_tools_script() {
                      "the Never radio button writes the mode and the outbox is empty");
             at_check(at_visible("feedback:send") && at_enabled("feedback:add") && !at_enabled("feedback:send"),
                      "with sharing off, Send feedback is disabled and Add feedback is not");
+        });
+        // ---- a mode for this project alone (feedback-sharing.json `projects`, never inside the project)
+        scroll_to("share:settings:project:always", "Feedback Settings###share-settings");
+        step(3, [this] {
+            at_check(at_visible("share:settings:project") && at_visible("share:settings:project:default") && at_visible("share:settings:project:always") &&
+                         at_visible("share:settings:project:ask") && at_visible("share:settings:project:never"),
+                     "Feedback Settings has \"This project\" with Follow default, Always, Ask and Never");
+        });
+        click("share:settings:project:always");
+        step(3, [this] {
+            const ShareSettings st = load_share_settings(share_env());
+            at_check(st.mode == ShareMode::Never && share_project_mode(st, projectDir_) == ShareMode::Always &&
+                         effective_share_mode(st, projectDir_) == ShareMode::Always,
+                     "the project's Always writes `projects` in the user's file and leaves the default (Never) alone");
+            at_check(share_.mode == ShareMode::Always && at_enabled("feedback:send"), "the project's mode is the one that applies: Send feedback is enabled again");
+            at_check(!stdfs::exists(projectDir_ + "/.factoria/feedback-sharing.json"), "nothing about the choice is written inside the project");
+        });
+        scroll_to("share:settings:project:never", "Feedback Settings###share-settings");
+        click("share:settings:project:never");
+        step(3, [this] {
+            at_check(effective_share_mode(load_share_settings(share_env()), projectDir_) == ShareMode::Never && !at_enabled("feedback:send"),
+                     "the project's Never disables Send feedback");
+        });
+        scroll_to("share:settings:project:default", "Feedback Settings###share-settings");
+        click("share:settings:project:default");
+        step(3, [this, grow_panel_row] {
+            const ShareSettings st = load_share_settings(share_env());
+            at_check(st.projects.empty() && !share_project_mode(st, projectDir_) && share_.mode == ShareMode::Never,
+                     "Follow default removes the project's choice: the default (Never) applies again");
             share_.settingsOpen = false;
             grow_panel_row(false);
         });

@@ -13,18 +13,25 @@ namespace fsys = std::filesystem;
 
 namespace {
 
-void print_status(Context& ctx) {
-    const Json s = share_status(share_env());
+void print_status(Context& ctx, const std::string& projectDir) {
+    const Json s = share_status(share_env(), projectDir);
     if (ctx.args.has("json")) {
         print_json(ctx.out, s);
         return;
     }
-    ctx.out << "Sharing feedback with the engine developer: " << s.value("mode", std::string("unset")) << "\n";
+    ctx.out << "Sharing feedback with the engine developer. Your default: " << s.value("default", std::string("unset")) << "\n";
+    if (s.contains("project")) {
+        const Json& p = s["project"];
+        ctx.out << "  This project (" << p.value("name", std::string()) << "): " << s.value("mode", std::string("unset")) << " ("
+                << (p.value("source", std::string()) == "project" ? "its own choice" : "follows your default") << ")\n";
+    }
     if (!s.value("available", false)) ctx.out << "  Not available: " << s.value("howToFix", std::string()) << "\n";
     else ctx.out << "  Server: " << s.value("endpoint", std::string()) << "\n";
     ctx.out << "  Signed in with GitHub: " << (s.value("signedIn", false) ? s.value("login", std::string("yes")) : std::string("no (anonymous)")) << "\n";
     const Json& box = s["outbox"];
     ctx.out << "  Outbox: " << box.value("queued", 0) << " queued, " << box.value("waitingForConfirmation", 0) << " waiting for your confirmation\n";
+    if (box.value("blocked", 0) > 0)
+        ctx.out << "    " << box.value("blocked", 0) << " not sent: their project's mode is never (or not set up)\n";
     for (const Json& f : box["failed"])
         ctx.out << "    " << f.value("id", std::string()) << ": " << f.value("error", std::string()) << " (attempt " << f.value("attempts", 0)
                 << ", retried in " << f.value("retryInSeconds", 0) << " s)\n";
@@ -69,10 +76,12 @@ void print_report(Context& ctx, const QueueResult* queued, const FlushResult* fl
 void add_feedback_share_commands(Command& group) {
     Command sharing;
     sharing.name = "sharing";
-    sharing.summary = "Choose whether feedback is shared with the engine developer (always, ask, never); without an argument, show the status.";
-    sharing.usage = "[always|ask|never] [--json]";
+    sharing.summary = "Choose whether feedback is shared with the engine developer (always, ask, never), for you or for one project; without an argument, show the status.";
+    sharing.usage = "[always|ask|never|default] [--project DIR] [--clear] [--json]";
     sharing.maxPositional = 1;
-    sharing.flags = {{"json", "", "Machine-readable status."}};
+    sharing.flags = {{"project", "DIR", "Set the mode of this project only (use . for the project you are in); `default` or --clear removes the project's own choice."},
+                     {"clear", "", "With --project: remove the project's own choice, so it follows your default again."},
+                     {"json", "", "Machine-readable status."}};
     sharing.details =
         "Entries of ENGINE_FEEDBACK.json that carry a `share` (a generic copy in engine terms only) can be sent to the engine "
         "developer so that the gaps of every game reach the roadmap. Nothing about your game is sent: no names, paths, file names or "
@@ -80,24 +89,55 @@ void add_feedback_share_commands(Command& group) {
         "  always  send new shareable entries as they are recorded\n"
         "  ask     queue them and send only what you confirm (`factoria feedback share`)\n"
         "  never   send nothing; the outbox is emptied\n"
-        "Only you can change this: no engine command does. See: factoria docs read engine-feedback";
-    sharing.examples = {"factoria feedback sharing", "factoria feedback sharing ask", "factoria feedback sharing never"};
+        "Only you can change this: no engine command does. See: factoria docs read engine-feedback\n"
+        "Your mode is the default for every project. With --project a project can have its own (never for a game under NDA, always for "
+        "one you want to share): it is kept in your own feedback-sharing.json, keyed by the project folder's path, never inside the "
+        "project, so a copied or downloaded project cannot turn sharing on; moving the folder drops it back to your default. "
+        "Without an argument the status shows your default and the effective mode of the project you are in, with its source.";
+    sharing.examples = {"factoria feedback sharing", "factoria feedback sharing ask", "factoria feedback sharing never",
+                        "factoria feedback sharing never --project .", "factoria feedback sharing default --project ../puzzle"};
     sharing.run = [](Context& ctx) {
-        if (ctx.args.positional().empty()) {
-            print_status(ctx);
+        const bool perProject = ctx.args.has("project");
+        const std::string projectDir = find_project_dir_or_empty(ctx, 1);  // position 0 is the mode word
+        if (ctx.args.positional().empty() && !ctx.args.has("clear")) {
+            print_status(ctx, projectDir);
             return 0;
         }
-        const std::string word = ctx.args.pos(0);
+        const std::string word = ctx.args.positional().empty() ? std::string("default") : ctx.args.pos(0);
+        if (word == "default" || ctx.args.has("clear")) {
+            if (!perProject) throw UsageError("`default` and --clear remove a project's own choice: say which project.", "Add --project <dir> (--project . for the project you are in).");
+            if (projectDir.empty()) return report_failure(ctx, "No project folder.", "Pass --project <dir>.");
+            auto r = set_project_share_mode(share_env(), projectDir, std::nullopt);
+            if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
+            if (ctx.args.has("json")) print_json(ctx.out, share_status(share_env(), projectDir));
+            else ctx.out << "This project follows your default again.\n";
+            return 0;
+        }
         auto mode = parse_share_mode(word);
         if (!mode || *mode == ShareMode::Unset)
-            throw UsageError("Unknown sharing mode '" + word + "'.", "Use always, ask or never. " + did_you_mean(word, std::vector<std::string>{"always", "ask", "never"}));
+            throw UsageError("Unknown sharing mode '" + word + "'.", "Use always, ask or never" + std::string(perProject ? " (or default)" : "") + ". " +
+                                                                        did_you_mean(word, std::vector<std::string>{"always", "ask", "never", "default"}));
+        if (perProject) {
+            if (projectDir.empty()) return report_failure(ctx, "No project folder.", "Pass --project <dir>.");
+            auto r = set_project_share_mode(share_env(), projectDir, *mode);
+            if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
+            if (ctx.args.has("json")) {
+                print_json(ctx.out, share_status(share_env(), projectDir));
+                return 0;
+            }
+            ctx.out << "Sharing for this project is now '" << share_mode_name(*mode) << "' (your default stays '"
+                    << share_mode_name(load_share_settings(share_env()).mode) << "').\n";
+            if (*mode == ShareMode::Never) ctx.out << "Nothing of this project is sent and its outbox items were dropped.\n";
+            ctx.out << "The choice belongs to this folder's path: moving the project drops it back to your default.\n";
+            return 0;
+        }
         auto r = set_share_mode(share_env(), *mode);
         if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
         if (ctx.args.has("json")) {
-            print_json(ctx.out, share_status(share_env()));
+            print_json(ctx.out, share_status(share_env(), projectDir));
             return 0;
         }
-        ctx.out << "Sharing is now '" << share_mode_name(*mode) << "'.\n";
+        ctx.out << "Your default sharing is now '" << share_mode_name(*mode) << "'.\n";
         if (*mode == ShareMode::Always) ctx.out << "New feedback with a `share` is sent as soon as it is recorded. Preview: factoria feedback share --preview\n";
         if (*mode == ShareMode::Ask) ctx.out << "New feedback with a `share` waits for you: run `factoria feedback share` to see it and confirm.\n";
         if (*mode == ShareMode::Never) ctx.out << "Nothing is sent and the outbox was emptied.\n";
@@ -166,10 +206,13 @@ void add_feedback_share_commands(Command& group) {
             return 0;
         }
         const ShareSettings settings = load_share_settings(env);
-        if (settings.mode != ShareMode::Always && settings.mode != ShareMode::Ask) {
-            const FlushResult off = share_flush(env);
+        const ShareMode mode = effective_share_mode(settings, dir);
+        if (mode != ShareMode::Always && mode != ShareMode::Ask) {
+            FlushOptions offOptions;
+            offOptions.file = file;
+            const FlushResult off = share_flush(env, offOptions);
             print_report(ctx, nullptr, &off, nullptr);
-            return settings.mode == ShareMode::Unset ? 1 : 0;
+            return mode == ShareMode::Unset ? 1 : 0;
         }
         if (share_endpoint(env, settings).empty()) return report_failure(ctx, share_unavailable_message());
         QueueResult queued;
@@ -178,7 +221,7 @@ void add_feedback_share_commands(Command& group) {
             if (!q.ok()) return report_failure(ctx, q.error().message, q.error().hint);
             queued = std::move(q.value());
         }
-        if (settings.mode == ShareMode::Ask) {
+        if (mode == ShareMode::Ask) {
             const std::vector<OutboxItem> waiting = share_waiting(env);
             if (waiting.empty()) {
                 ctx.out << "Nothing waits for your confirmation.\n";

@@ -2,6 +2,12 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- **Feedback sharing per project:** the mode in `feedback-sharing.json` is now your default, and a project can have its own (`never` for a game under NDA, `always` for one you want to share, `ask`, or follow the default). `factoria feedback sharing <mode> --project <dir>` sets it (`default` or `--clear` removes it); `factoria feedback sharing` shows your default and the project's effective mode with its source. The choice is kept in your own settings file under `projects`, keyed by the project folder's path, never inside the project, so a copied project cannot turn sharing on; moving the folder drops it back to the default. Queueing, sending, the outbox, `feedback.share_preview`, `feedback.share_status` (new `default`, `project`, `outbox.blocked`) and the answer of `feedback.report` use the project's mode, and a `never` project's queued items are not sent. Editor: Feedback Settings has **Default** and **This project: <name>** (Follow default / Always / Ask / Never). (docs/ENGINE_FEEDBACK.md, "One project can choose differently")
+
 ## 0.16.1
 
 FactorIA 0.16.1 makes engine feedback trustworthy: feedback that claims a gap the engine does not have is caught, rejected with a reason the person can read, and can be deleted. A weak model filed "No one-way platforms" although `Collider2D.oneWay` exists, because it copied the example in the `feedback.report` docs.

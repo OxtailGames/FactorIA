@@ -8,7 +8,9 @@
 //                      own names, control characters and runs of one character come out; a field under its minimum after
 //                      cleaning stops the entry. The preview shows its result.
 //   ShareSettings      <user config>/feedback-sharing.json: mode (unset | always | ask | never), installation id, GitHub
-//                      credential, endpoint override. Only a person changes the mode (CLI, editor): no command does.
+//                      credential, endpoint override, and `projects`: a mode per project folder that overrides `mode` for that
+//                      project (kept here, in the USER's file, never inside the project). Only a person changes a mode (CLI,
+//                      editor): no command does.
 //   Outbox             <user config>/feedback-outbox.json: sanitized entries waiting to go, retried with backoff.
 //   share_flush        one POST /v1/reports of up to 20 entries; every answer of the server is handled.
 //   github_sign_in     optional identity: the GitHub device flow, then the server swaps the GitHub token for a credential.
@@ -19,6 +21,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
@@ -94,7 +97,9 @@ const char* share_mode_name(ShareMode mode);                // "unset" | "always
 std::optional<ShareMode> parse_share_mode(std::string_view name);
 
 struct ShareSettings {
-    ShareMode mode = ShareMode::Unset;
+    ShareMode mode = ShareMode::Unset;  // the default: what every project without its own choice follows
+    // The projects that chose their own mode (always, ask or never), by share_project_key. Absent = follow `mode`.
+    std::map<std::string, ShareMode> projects;
     std::string installId;    // random UUID v4, created on the first send; tied to no project
     std::string credential;   // from the GitHub sign-in; "" = anonymous
     std::string login;        // GitHub login, shown to the user only
@@ -107,9 +112,28 @@ struct ShareSettings {
 std::string share_settings_path(const ShareEnv& env);
 ShareSettings load_share_settings(const ShareEnv& env);
 Result<void> save_share_settings(const ShareEnv& env, const ShareSettings& settings);
-// Only a person calls these two (the CLI, the editor's Settings): there is no command for them.
+// Only a person calls these (the CLI, the editor's Settings): there is no command for them.
 // Setting `never` also empties the outbox and marks its entries skipped.
 Result<void> set_share_mode(const ShareEnv& env, ShareMode mode);
+
+// ---- per project. The choice lives in the user's feedback-sharing.json under `projects`, keyed by the project folder's
+// normalized absolute path, so a project that arrives copied or downloaded can never turn sharing on. Moving or renaming the
+// folder drops its choice back to the default.
+// The key of a project folder: absolute, symlinks resolved when the folder exists, forward slashes, no trailing slash, and
+// lower case where paths are case-insensitive (Windows; `caseInsensitive` is for tests).
+std::string share_project_key(const std::string& projectDir, bool caseInsensitive);
+std::string share_project_key(const std::string& projectDir);
+// The project folder a feedback file belongs to: the nearest folder at or above it with a factoria.json, else its own folder.
+std::string share_project_dir_of_file(const std::string& feedbackFile);
+// The project's own mode, if it has one.
+std::optional<ShareMode> share_project_mode(const ShareSettings& settings, const std::string& projectDir);
+// The mode that applies to a project: its own, else the default. An empty `projectDir` = the default.
+ShareMode effective_share_mode(const ShareSettings& settings, const std::string& projectDir);
+// "project" or "default": where effective_share_mode got its answer.
+const char* effective_share_source(const ShareSettings& settings, const std::string& projectDir);
+// Sets (or, with nullopt, removes) the project's own mode. `never` also drops this project's outbox items and marks their
+// entries skipped; `always` confirms the ones that waited for a yes. Only a person calls it.
+Result<void> set_project_share_mode(const ShareEnv& env, const std::string& projectDir, std::optional<ShareMode> mode);
 // The installation id, created and saved when there is none.
 Result<std::string> ensure_install_id(const ShareEnv& env);
 // The endpoint in use: the user's override, else the compiled-in one, without a trailing "/". "" = sharing is unavailable.
@@ -232,13 +256,15 @@ struct FlushOptions {
     bool oneBatch = true;          // at most one request (the automatic flush); false = until nothing is due
 };
 struct FlushResult {
-    int sent = 0, merged = 0, rejected = 0, retryLater = 0, waiting = 0, notAllowed = 0;
+    int sent = 0, merged = 0, rejected = 0, retryLater = 0, waiting = 0;
+    int notAllowed = 0;  // due items left in the outbox because their project's mode is never (or not set up)
     int requests = 0;
     std::string outcome;  // idle | sent | failed | rate_limited | banned | unavailable | off
     std::string message;
     Json results = Json::array();  // [{id, status, shareId?, reason?}]
 };
-// Sends the due items the mode allows (always: queued ones; ask: only confirmed ones, i.e. state Queued). Never throws.
+// Sends the due items the mode of their project allows (always: queued ones; ask: only confirmed ones, i.e. state Queued;
+// never or not set up: none, and they stay in the outbox). Never throws.
 FlushResult share_flush(const ShareEnv& env, const FlushOptions& options = {});
 // True when share_flush would send something now.
 bool share_has_due(const ShareEnv& env, const std::string& file = {});
@@ -259,9 +285,11 @@ void share_skip(const ShareEnv& env, const std::string& feedbackFile, const std:
 // The preview: {mode, entries: [{id, ok, sent?, reason?, removed}], note}. Nothing is queued, sent or written.
 Json share_preview(const ShareEnv& env, const std::string& feedbackFile, const std::string& projectDir, const EngineNames& engine,
                    const std::vector<std::string>& ids = {});
-// {mode, available, endpoint, signedIn, login?, warning?, howToFix?, howToTurnOn?, outbox{queued, waitingForConfirmation,
-// failed[]}, lastSend?}.
-Json share_status(const ShareEnv& env);
+// {mode (the effective one for `projectDir`), default, project?{dir, name, mode (own, "default" = follows), source}, available,
+// endpoint, signedIn, login?, warning?, howToFix?, howToTurnOn?, outbox{queued, waitingForConfirmation, blocked,
+// failed[]}, lastSend?}. `blocked`: items whose project's mode is never or not set up (they are not sent). Without
+// `projectDir`, `mode` is the default.
+Json share_status(const ShareEnv& env, const std::string& projectDir = {});
 
 // What `feedback.report` tells the reporter about the share of the entry it just recorded (see register in feedback.cpp).
 Json share_report_summary(const ShareEnv& env, const std::string& feedbackFile, const std::string& projectDir,
