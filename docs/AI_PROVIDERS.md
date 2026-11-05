@@ -221,8 +221,30 @@ project would inherit, removes a key that equals the inherited value, and remove
 takes one override out ("/roles/artist/enabled", or a whole branch). None of them writes your `ai.json`.
 
 Everything that runs inside a project uses the resolved config: `factoria ai run`, `ai review`, the `ai.*` commands (including the asset
-commands and `skills.*`), and the editor's chats and reviews. `factoria ai doctor`, `ai providers` and `ai config` take `--project DIR`
-(default: the current folder when it is a project).
+commands and `skills.*`), and the editor's chats and reviews. The project is the one given with `--project DIR` (or as the positional
+argument of `ai run` / `ai review`), else the project that contains the current folder (`factoria.json` in it or a parent), the same rule
+as every other command; `factoria ai doctor`, `ai providers` and `ai config` take `--project DIR` too. `ai doctor` prints the project's
+file and, for an accepted one, the values it sets (`/roles/artist/enabled = false`); for one that is not accepted, what it would change;
+and for an invalid one, what is wrong (`projectSettings` in `--json`). A CLI orchestrator (Claude Code, Codex) uses the project that
+`factoria mcp` serves (`--project`, or the project containing its folder): `ai_run` and `agent_delegate` use that project's roles, and a
+role the project turned off is refused with `role_off`, which says that the project's AI settings did it, the file, the pointer
+(`/roles/artist/enabled`) and how to change it.
+
+**Commands.** `ai.settings.get {scope}` and `ai.settings.set {scope, pointer, value}` (MCP: `ai_settings_get`, `ai_settings_set`) read and
+write these settings by JSON pointer (`/roles/artist/enabled`, `/limits/maxCostUsd`, `/mcpServers/scenario`, ...):
+
+* `get` with scope `resolved` (default) lists every value the project runs with and its `source`: `project`, `you` or `default`;
+  `project` returns the project's raw file (`overrides`) with `pendingTrust`, `pending` and `invalidError` when they apply; `user` shows
+  your `ai.json` view (`you` or `default`).
+* `set` writes one value. Scope `project` writes the project's file, scope `user` your `ai.json` defaults. `value` null removes the
+  setting (the project's override, so the value goes back to yours; or the key of `ai.json`, so it goes back to the engine's). It checks
+  what the file rules check: a pointer that is not a setting is `unknown_pointer` with a "Did you mean", a key that would define a provider,
+  server or extension, or hold a command, address or key, is `rejected_key` (with where it belongs), a name you do not have or a wrong
+  value is refused before anything is written.
+* **`set` never accepts a project file.** The file it writes is NOT applied until you accept it in the editor (AI settings, with the project
+  open): the result says `needsAcceptance: true` and `applied: false`, with a hint, and `runsWith` is what the project still runs with.
+  Changing a file you had accepted makes the whole file wait again; removing a value (null) from an accepted file only makes it smaller and
+  it stays accepted. Scope `user` has nothing to accept: it is your own file. Neither scope writes `ai-trust.json` when it sets a value.
 
 ## Roles
 
@@ -264,7 +286,8 @@ there, and `"enabled": false` on it is an error); every other role can.
   has no `agent_delegate` tool (nor `ai_run`, for a CLI orchestrator) and does everything itself. A delegation that asks
   for a role that is off (`agent_delegate`, `ai.run` / `ai_run`) fails with the error `role_off`, which says what is off
   and where to turn it on, so the orchestrator then does the task itself; `factoria ai run --role <role>` refuses it the
-  same way.
+  same way. When the role was turned off by the project's own AI settings ([Per project](#per-project)), the refusal names the file and
+  the pointer and says how to change it instead of pointing at `ai.json`.
 * **`artCritic`, `reviewer` off:** the review buttons (and `factoria ai review`) still work, but the review runs on the
   orchestrator's provider, model, effort and limits instead of the role's own. It keeps the read-only critic prompt and
   tools. The button tooltip and the confirmation say so.

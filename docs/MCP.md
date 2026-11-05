@@ -70,7 +70,13 @@ that.)
 - **User-only commands**: `ai_plugin_install` (it installs a Claude Code plugin on the user's computer) is never listed or run by any MCP
   server, read-only or not: the user starts it from the editor's AI settings or the CLI (`docs/AI_PROVIDERS.md`, "Installing a plugin").
 - **Roles of `ai_run`**: `ai_run {role, task}` runs the `worker`, `fast`, `artist` or `audio` role (and `orchestrator`, the default of the
-  command). The art critics and the game reviewers are not available through it: the user asks for them.
+  command). The art critics and the game reviewers are not available through it: the user asks for them. The roles are those of the
+  project the server serves (`--project`, or the project containing its folder): its `.factoria/ai/settings.json` applies once the
+  user accepted it, and a role the project turned off is refused with `role_off`, naming the project setting and how to change it
+  (`ai_settings_set`, see below).
+- **AI settings**: `ai_settings_get {scope: resolved|project|user}` shows each setting with where it comes from (`project`, `you`,
+  `default`); `ai_settings_set {scope, pointer, value}` changes one. A project change is written but never accepted: it applies only
+  after the user accepts the file in the editor, and the result says `needsAcceptance` (`docs/AI_PROVIDERS.md`, "Per project").
 - **Instructions**: the server sends a short engine guide on `initialize`, including the rule to call
   `feedback_report` whenever the engine lacks something.
 
