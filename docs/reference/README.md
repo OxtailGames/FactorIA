@@ -473,6 +473,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`skin.set_weights`](commands/scene.md#skinset_weights-modifies-state): Paint the bone weights of chosen vertices: set, add or smooth. _Since 0.7.0._
 - [`tilemap.cell_at`](commands/scene.md#tilemapcell_at): The cell of a Tilemap under a world point (orthogonal squares or isometric diamonds). _Since 0.3.0._
 - [`tilemap.cell_to_world`](commands/scene.md#tilemapcell_to_world): The world position of the centre of a Tilemap cell (orthogonal squares or isometric diamonds). _Since 0.3.0._
+- [`tilemap.generate`](commands/scene.md#tilemapgenerate-modifies-state): Generate a level from an example with Wave Function Collapse: a grid that only contains the patterns of the sample. _Not released yet._
 - [`tilemap.paint_terrain`](commands/scene.md#tilemappaint_terrain-modifies-state): Paint (or erase) a terrain on a Tilemap's cells and re-tile the cells around them with its autotile rules. _Since 0.16.0._
 - [`tilemap.retile`](commands/scene.md#tilemapretile-modifies-state): Re-tile every terrain cell of a Tilemap from its neighbours. _Since 0.16.0._
 - [`tilemap.set_terrains`](commands/scene.md#tilemapset_terrains-modifies-state): Set a Tilemap's autotile rules from a list or a rules file (as image.tileset.build writes them). _Since 0.16.0._

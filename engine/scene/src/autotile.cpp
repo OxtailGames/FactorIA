@@ -450,4 +450,15 @@ Result<TerrainPaintResult> retile_terrains(Tilemap& tm) {
     return result;
 }
 
+void retile_terrain_grid(const std::vector<Terrain>& terrains, int width, int height, std::vector<int>& tiles) {
+    if (terrains.empty() || width <= 0 || height <= 0 || tiles.size() != std::size_t(width) * std::size_t(height)) return;
+    Tilemap tm;
+    set_tilemap_grid(tm, width, height, tiles);
+    Retiler r(tm, terrains);
+    for (int row = 0; row < height; ++row)
+        for (int col = 0; col < width; ++col) r.retile(col, row);
+    const TilemapGrid grid = tilemap_grid(tm);
+    tiles = grid.tiles;
+}
+
 }  // namespace fa

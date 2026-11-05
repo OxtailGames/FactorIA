@@ -183,6 +183,7 @@ UiSurfaceFn make_ui_surface_pointer(Engine::Impl& impl);  // surface_pointer.cpp
 void register_builtin_commands(Engine& engine, Engine::Impl& impl);
 void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
 void register_terrain_commands(Engine& engine, Engine::Impl& impl);  // terrain_commands.cpp: tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
+void register_wfc_commands(Engine& engine, Engine::Impl& impl);  // wfc_commands.cpp: tilemap.generate
 void register_scene_file_commands(Engine& engine, Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
 void register_play_session_commands(Engine& engine, Engine::Impl& impl);  // play_sessions.cpp: play.sessions, play.report
 void register_i18n_commands(Engine& engine, Engine::Impl& impl);  // localization.cpp: i18n.state, i18n.set_language
@@ -192,6 +193,23 @@ void register_anim_commands(Engine& engine, Engine::Impl& impl);  // anim_comman
 void register_music_commands(Engine& engine, Engine::Impl& impl);  // music_commands.cpp: audio.music_state, audio.music
 void register_mesh_commands(Engine& engine, Engine::Impl& impl);  // mesh_commands.cpp: mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
 void register_bones_commands(Engine& engine, Engine::Impl& impl);  // bones_commands.cpp: bones.create, skin.*
+
+// The grid of an ASCII level in the format of scene.import_ascii (`rows`, `legend`, `legendFrom`), read for a command that learns
+// from it (tilemap.generate). Checks it with the errors of scene.import_ascii (ragged rows, unknown glyphs with suggestions).
+// Throws CommandError. The legend need not define '.' and ' ' (empty tiles).
+struct AsciiSampleGlyph {
+    std::string glyph;                  // one character (UTF-8)
+    int tile = -1;                      // tile value (flags included), -1 = no tile
+    bool hasPrefab = false;             // the legend entry also spawns an object
+    Json legendEntry;                   // the entry as the (merged) legend wrote it; null for a default-empty glyph
+};
+struct AsciiSample {
+    int width = 0;
+    int height = 0;
+    std::vector<int> cells;             // row-major, row 0 = TOP: index into `glyphs`
+    std::vector<AsciiSampleGlyph> glyphs;  // in order of first appearance
+};
+AsciiSample read_ascii_sample(const Json& args);
 
 // Entity named by the string argument `key` (id or name). Throws CommandError("not_found") with a "did you mean".
 Entity need_entity(World& world, const Json& args, const char* key = "id");
