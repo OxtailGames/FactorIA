@@ -11,7 +11,7 @@
 //     know which model made it.
 //   * A Generator solves a grid of cells of a model. It is STEPPABLE: step(budget) does a bounded amount of work and can be
 //     called again next frame; run() steps to the end. A contradiction restarts with the next derived seed up to
-//     `maxAttempts`.
+//     `maxAttempts`, and `maxWork` ends a run that needs more work than the caller accepts (see MEMORY AND TIME).
 //   * GenerateOptions carries the hooks the constraint layer plugs into: `cellRules` (a cell may only hold some symbols; a fixed
 //     cell is a rule with one symbol) are applied at the start of every attempt, and `accept` is asked about every finished
 //     grid (minimum and maximum tile counts, reachability...) and may refuse it, which counts as a retry.
@@ -21,13 +21,21 @@
 // integer fixed point (a Q20 base-2 logarithm built from integer shifts, no <cmath>), every container that decides an order is
 // an ordered one, and ties are broken by a number drawn per cell at the start of the attempt, then by the cell index.
 //
-// MEMORY AND TIME. The solver keeps, per output cell, a bit per pattern and four 16-bit support counters per pattern, plus a
-// stack of pending removals (at most one per cell and pattern) and the entropy heap (at most 4 entries per cell: it is rebuilt
-// when stale entries would push it past that); estimate_generator_memory() adds the model's own tables and says how many bytes
-// that is before anything is allocated, and create() refuses a request above kWfcMemoryBudget with a message that says what to
-// shrink. GenStats::peakBytes is what the vectors really held at the end, always at most the estimate. `ms` in the stats is the
-// wall time and `memoryBytes` / `peakBytes` are byte counts of this compiler's containers: they differ between runs and machines and are NOT
-// part of the determinism promise; `work` and the other counters are.
+// MEMORY AND TIME. The solver keeps, per output cell, a bit per pattern, four 16-bit support counters per pattern, a bit per
+// pattern for the removals not yet propagated (and a queue of the cells that have some: each cell is queued once) and the entropy
+// heap (at most 4 entries per cell: it is rebuilt when stale entries would push it past that); estimate_generator_memory() adds
+// the model's own tables and says how many bytes that is before anything is allocated, and create() refuses a request above
+// kWfcMemoryBudget with a message that says what to shrink. Every one of those containers has a hard size, so GenStats::peakBytes
+// (what the vectors really held at the end) is always at most the estimate. `ms` in the stats is the wall time and `memoryBytes` /
+// `peakBytes` are byte counts of this compiler's containers: they differ between runs and machines and are NOT part of the
+// determinism promise; `work` and the other counters are.
+// WORK is the one deterministic measure of effort. A unit is about one step of an inner loop: one pattern removed from a cell and one
+// look at each neighbouring pattern it supported (so the adjacency lists of the model count), one heap entry per cell that changed,
+// one pattern per observed cell, the state reset of every cell when an attempt starts, one pattern tested against one cell for the edge and
+// forbidden patterns, n * n * patterns for every fixed cell, and what `accept` reports (one per cell it visits, per pass and per path
+// searched). GenerateOptions::maxWork caps the total over all attempts: the run fails with GenFailure::workLimit when the count passes
+// it, at the same point on every machine and however the calls to step() are sized. A time limit is only a safety net the caller adds
+// on top: a result must never depend on speed.
 //
 // CONSTRAINTS. `forbidden` symbols never appear (the patterns that contain them are removed), a CellRule fixes or restricts one
 // output cell, a CountRule says how many cells of some symbols the finished grid must hold (min / max): a grid that misses a
@@ -53,7 +61,8 @@ constexpr std::size_t kMaxPatterns = 20000;                 // distinct patterns
 constexpr std::size_t kMaxCompatEntries = 48'000'000;       // adjacency pairs of a model
 constexpr std::size_t kMaxSampleCells = 262144;             // 512 x 512
 constexpr int kMaxOutputSide = 2048;
-constexpr std::size_t kWfcMemoryBudget = 256u * 1024u * 1024u;  // bytes of solver state of one generation
+constexpr std::uint64_t kWfcMemoryBudget = 256ull * 1024ull * 1024ull;  // bytes of solver state of one generation
+constexpr std::size_t kMaxCellRules = 65536;                // fixed cells of one generation (each costs n * n * patterns work per attempt)
 constexpr int kMaxAttempts = 1000;
 constexpr std::uint64_t kMaxTotalWeight = 0xFFFFFFFFull;      // the weights of a model add up to less than 2^32 (the weighted choice draws 32 bits)
 
@@ -120,6 +129,7 @@ struct CellRule {
     int x = 0;
     int y = 0;
     std::vector<int> allowed;
+    std::string label;                           // where it came from, for messages ("/constraints/border"); empty = "cell rule <index>"
 };
 
 // The finished grid must hold between `min` and `max` cells whose symbol is one of `symbols`.
@@ -139,9 +149,12 @@ struct GenerateOptions {
     std::vector<CellRule> cellRules;
     std::vector<int> forbidden;                  // symbols no cell may hold
     std::vector<CountRule> counts;               // minimum / maximum cells per symbol group (checked on every finished grid)
+    // Total work (see MEMORY AND TIME) over all attempts after which the run fails with GenFailure::workLimit; 0 = no cap.
+    std::int64_t maxWork = 0;
     // Asked about every finished grid (width * height symbols). Return false to refuse it (with `why`): the generator retries
-    // with the next seed and, after maxAttempts, fails with the last reason. Must be deterministic.
-    std::function<bool(const std::vector<int>& cells, std::string& why)> accept;
+    // with the next seed and, after maxAttempts, fails with the last reason. Must be deterministic. Add to `work` the units the
+    // check cost (one per cell visited per pass and per path searched: width * height each), never its time: it counts toward maxWork.
+    std::function<bool(const std::vector<int>& cells, std::string& why, std::int64_t& work)> accept;
 };
 
 enum class GenStatus { Running, Done, Failed };
@@ -154,7 +167,7 @@ struct GenStats {
     std::int64_t propagations = 0;               // patterns removed from cells
     int patterns = 0;                            // patterns of the model
     int cells = 0;                               // cells of the solver (the pattern grid: smaller than the output for a non-periodic overlapping model)
-    std::int64_t work = 0;                       // units of work done (see Generator::step): deterministic, unlike `ms`
+    std::int64_t work = 0;                       // units of work done (see WORK above): deterministic, unlike `ms`
     int pinned = 0;                              // cells pinned to a tile a minimum count was missing (see CountRule)
     double ms = 0.0;                             // wall time spent in step(): it differs between runs and machines and is NOT part of the determinism promise
     std::size_t memoryBytes = 0;                 // estimate_generator_memory(): the solver state and the model, an upper bound
@@ -172,10 +185,18 @@ struct GenFailure {
     int y = -1;
     std::string reason;                          // "contradiction", the count that was missed, or what `accept` said
     int countRule = -1;                          // index into GenerateOptions::counts when a count was missed
+    int cellRule = -1;                           // index into GenerateOptions::cellRules of the fixed cell nearest to a contradiction (within n cells), else -1
+    bool workLimit = false;                      // the run stopped because GenerateOptions::maxWork was passed (no attempt failed)
 };
 
-// An upper bound of the bytes the model's tables and the solver state take for this model and size.
-std::size_t estimate_generator_memory(const PatternModel& model, int width, int height, bool periodic);
+// An upper bound of the bytes the model's tables and the solver state take for this model and size. 64-bit arithmetic that
+// saturates, so a huge request on a 32-bit target (wasm32) is a huge number, never a wrapped small one.
+std::uint64_t estimate_generator_memory(const PatternModel& model, int width, int height, bool periodic);
+
+// estimate_generator_memory() plus `extraBytes` (what the caller's own checks hold) against kWfcMemoryBudget: the byte count, or an
+// error that says how big a level fits. create() runs it before it allocates anything per cell; callers with a cheap way to know the
+// size (the command) run it first.
+Result<std::uint64_t> check_generator_memory(const PatternModel& model, int width, int height, bool periodic, std::uint64_t extraBytes = 0);
 
 // The seed of attempt `attempt` (0-based): the same on every platform.
 std::uint64_t derive_attempt_seed(std::uint64_t seed, int attempt);
@@ -186,12 +207,13 @@ public:
     Generator(const Generator&) = delete;
     Generator& operator=(const Generator&) = delete;
 
-    // Checks the options (size, periodic size against n, cell rules inside the grid with symbols the model has, constraints that
-    // contradict each other or the model, weights, memory budget) and prepares the first attempt. The model is kept alive by the generator.
+    // Checks the options (size and memory budget first, before anything is allocated per cell; periodic size against n, cell rules
+    // inside the grid with symbols the model has and a place in the model where they can stand, constraints that contradict each
+    // other, the fixed cells or the model, weights) and prepares the first attempt. The model is kept alive by the generator.
     static Result<std::unique_ptr<Generator>> create(std::shared_ptr<const PatternModel> model, GenerateOptions options);
 
-    // Does at most `workBudget` units of work (a unit is one pattern removed from a cell or one cell observed; starting an
-    // attempt counts one unit per cell and one per cell rule and offset) and returns where it stands. The budget may be overshot by one propagation front.
+    // Does at most `workBudget` units of work (see WORK above) and returns where it stands. The budget may be overshot by one step of the
+    // algorithm (all the removals pending in one cell, starting an attempt, finishing one with its `accept` check).
     GenStatus step(std::int64_t workBudget);
     // step() until Done or Failed.
     GenStatus run();
