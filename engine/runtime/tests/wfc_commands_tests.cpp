@@ -1,6 +1,7 @@
 // tilemap.generate: the command form of Wave Function Collapse (the algorithm is tested in engine/scene/tests/test_wfc.cpp).
 #include <doctest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -295,9 +296,246 @@ TEST_CASE("tilemap.generate: periodic on and off give different windows at the e
     CHECK(off.result["stats"]["cells"] == 18 * 18);
 }
 
+// ------------------------------------------------------------------------------------------------------------ M63.2: constraints and reachability
+namespace {
+
+// A small dungeon: '#' wall (tile 0, solid), '.' floor (tile 1), '$' treasure (tile 2, once, in the middle), 'E' enemy (tile 3).
+const char* kDungeon = R"(["################",
+  "#..............#",
+  "#..##......#...#",
+  "#..##...##.#...#",
+  "#......####....#",
+  "#..#...........#",
+  "#..#....$..##..#",
+  "#.......#..##..#",
+  "#...##..#......#",
+  "#...##....E....#",
+  "#..............#",
+  "################"])";
+const char* kDungeonLegend = R"({"#":0,".":1,"$":2,"E":3})";
+
+Json dungeon_call(const std::string& extra) {
+    return Json::parse(std::string(R"({"sample":)") + kDungeon + R"(,"legend":)" + kDungeonLegend + R"(,"n":3,"size":[24,16],"maxAttempts":100,)" + extra + "}");
+}
+
+std::vector<std::string> rows_of(const CommandResult& r) {
+    std::vector<std::string> out;
+    for (const Json& row : r.result["rows"]) out.push_back(row.get<std::string>());
+    return out;
+}
+
+int count_char(const std::vector<std::string>& rows, char c) {
+    int n = 0;
+    for (const std::string& row : rows) n += int(std::count(row.begin(), row.end(), c));
+    return n;
+}
+
+// The number of 4-connected areas of non-wall cells, counted here and not by the command.
+int open_areas(const std::vector<std::string>& rows) {
+    const int h = int(rows.size()), w = int(rows[0].size());
+    std::vector<char> seen(std::size_t(w * h), 0);
+    int areas = 0;
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            if (rows[std::size_t(y)][std::size_t(x)] == '#' || seen[std::size_t(y * w + x)]) continue;
+            ++areas;
+            std::vector<std::pair<int, int>> todo{{x, y}};
+            seen[std::size_t(y * w + x)] = 1;
+            while (!todo.empty()) {
+                auto [cx, cy] = todo.back();
+                todo.pop_back();
+                const int d[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+                for (auto& o : d) {
+                    const int nx = cx + o[0], ny = cy + o[1];
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h || rows[std::size_t(ny)][std::size_t(nx)] == '#' || seen[std::size_t(ny * w + nx)]) continue;
+                    seen[std::size_t(ny * w + nx)] = 1;
+                    todo.push_back({nx, ny});
+                }
+            }
+        }
+    return areas;
+}
+
+Json without_ms(Json result) {
+    result["stats"].erase("ms");
+    return result;
+}
+
+}  // namespace
+
+TEST_CASE("tilemap.generate constraints: fixed cells, border, forbidden, required and counts") {
+    Session s;
+    auto r = s.call("tilemap.generate",
+                    dungeon_call(R"("seed":3,"constraints":{
+        "border":{"tile":"#"},
+        "fixed":[{"at":[1,1],"tile":"."},{"at":[22,14],"tile":"."},{"rect":[10,7,3,2],"tile":[".","$"]}],
+        "forbidden":["E"],
+        "required":["$"],
+        "counts":[{"tile":"$","max":3}]})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    const auto rows = rows_of(r);
+    REQUIRE(rows.size() == 16);
+    for (int x = 0; x < 24; ++x) {
+        CHECK(rows[0][std::size_t(x)] == '#');
+        CHECK(rows[15][std::size_t(x)] == '#');
+    }
+    for (int y = 0; y < 16; ++y) {
+        CHECK(rows[std::size_t(y)][0] == '#');
+        CHECK(rows[std::size_t(y)][23] == '#');
+    }
+    CHECK(rows[1][1] == '.');
+    CHECK(rows[14][22] == '.');
+    for (int y = 7; y < 9; ++y)
+        for (int x = 10; x < 13; ++x) CHECK((rows[std::size_t(y)][std::size_t(x)] == '.' || rows[std::size_t(y)][std::size_t(x)] == '$'));
+    CHECK(count_char(rows, 'E') == 0);
+    CHECK(count_char(rows, '$') >= 1);
+    CHECK(count_char(rows, '$') <= 3);
+    REQUIRE(r.result.contains("constraints"));
+    CHECK(r.result["constraints"]["fixedCells"].get<int>() >= 2 * 24 + 2 * 14 + 2);
+    CHECK(r.result["constraints"]["counts"].size() == 2);
+    CHECK(r.result["constraints"]["counts"][0]["found"].get<int>() == count_char(rows, '$'));
+    CHECK(r.result["stats"].contains("work"));
+}
+
+TEST_CASE("tilemap.generate constraints: tile numbers, min and max counts, and a Tilemap sample") {
+    Session s;
+    auto r = s.call("tilemap.generate", dungeon_call(R"("seed":9,"constraints":{"counts":[{"tile":3,"min":2,"max":4},{"tile":0,"max":200}]})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    const auto rows = rows_of(r);
+    CHECK(count_char(rows, 'E') >= 2);
+    CHECK(count_char(rows, 'E') <= 4);
+    CHECK(count_char(rows, '#') <= 200);
+
+    // A Tilemap sample names its tiles by number; -1 is the empty cell.
+    auto tm = s.call("tilemap.generate", Json::parse(R"({"sample":"example","size":[20,12],"n":2,"seed":1,
+        "maxAttempts":100,"constraints":{"fixed":[{"at":[0,0],"tile":0},{"at":[5,5],"tile":1}],"counts":[{"tile":1,"min":10}]}})"));
+    REQUIRE_MESSAGE(tm.ok, error_text(tm));
+    CHECK(tm.result["constraints"]["counts"][0]["found"].get<int>() >= 10);
+}
+
+TEST_CASE("tilemap.generate constraints: contradictions are reported before generating, with JSON pointers") {
+    Session s;
+    auto fails = [&](const std::string& extra, const std::string& pointer, const std::string& text) {
+        auto r = s.call("tilemap.generate", dungeon_call(extra));
+        INFO(extra);
+        REQUIRE_FALSE(r.ok);
+        const std::string t = error_text(r);
+        CHECK_MESSAGE(contains(t, pointer), t);
+        CHECK_MESSAGE(contains(t, text), t);
+        CHECK_MESSAGE(contains(r.error.value("code", std::string()), "invalid_argument"), t);
+    };
+    fails(R"("constraints":{"required":["$"],"forbidden":["$"]})", "/constraints/required/0", "forbidden");
+    fails(R"("constraints":{"fixed":[{"at":[3,3],"tile":"E"}],"forbidden":["E"]})", "/constraints/fixed/0", "forbidden");
+    fails(R"("constraints":{"fixed":[{"at":[3,3],"tile":"#"},{"at":[3,3],"tile":"$"}]})", "/constraints/fixed/1", "no tile satisfies both");
+    fails(R"("constraints":{"fixed":[{"at":[24,3],"tile":"#"}]})", "/constraints/fixed/0/at/0", "x is 24");
+    fails(R"("constraints":{"fixed":[{"at":[3,16],"tile":"#"}]})", "/constraints/fixed/0/at/1", "y is 16");
+    fails(R"("constraints":{"counts":[{"tile":"$","min":4,"max":2}]})", "/constraints/counts/0", "greater than max");
+    fails(R"("constraints":{"counts":[{"tile":"$","min":999}]})", "/constraints/counts/0/min", "only 384");
+    fails(R"("constraints":{"counts":[{"tile":"Q","min":1}]})", "/constraints/counts/0/tile", "not in the sample");
+    fails(R"("constraints":{"counts":[{"tile":7,"min":1}]})", "/constraints/counts/0/tile", "never has it");
+    fails(R"("constraints":{"fixed":[{"at":[1,1],"tile":"#"}],"counts":[{"tile":"E","minn":1}]})", "/constraints/counts/0", "Did you mean");
+    fails(R"("constraints":{"forbiden":["E"]})", "/constraints", "forbidden");
+    fails(R"("constraints":{"counts":[{"tile":"#","min":300},{"tile":".","min":100}]})", "/constraints", "add up");
+    fails(R"("constraints":{"border":{"tile":"#","thickness":20}})", "/constraints/border/thickness", "between 1 and 16");
+    fails(R"("constraints":{"fixed":[{"at":[1,1]}]})", "/constraints/fixed/0", "tile");
+    // Reachability starting or ending on a cell fixed to a wall.
+    fails(R"("constraints":{"fixed":[{"at":[1,1],"tile":"#"}]},"reachability":{"from":[1,1],"to":[[5,5]],"solidTiles":[0]})", "/reachability/from", "blocks the way");
+    fails(R"("reachability":{"from":[1,1],"to":[[5,5]]},"legend":{"#":0,".":1,"$":2,"E":3})", "/reachability", "solidTiles");
+    fails(R"("reachability":{"to":[[5,5]],"solidTiles":[0]})", "/reachability", "need a start");
+    fails(R"("reachability":{"from":[1,99],"solidTiles":[0],"allConnected":true})", "/reachability/from/1", "y is 99");
+    fails(R"("reachability":{"from":[1,1],"to":[[5,5]],"solidTiles":[0],"extra":1})", "/reachability/extra", "unknown property");
+    // The failed calls changed nothing and generated nothing.
+    CHECK(s.map("terrain").width == 4);
+}
+
+TEST_CASE("tilemap.generate reachability: the entrance reaches the exit and the treasure, and the report matches nav.find_tile_path") {
+    Session s;
+    // The worked example of docs/AI_GUIDE.md: entrance top-left, exit bottom-right, a required treasure that must be reachable.
+    auto r = s.call("tilemap.generate",
+                    dungeon_call(R"("seed":5,"into":"terrain","rows":true,
+        "constraints":{"border":{"tile":"#"},"fixed":[{"at":[1,1],"tile":"."},{"at":[22,14],"tile":"."}],"required":["$"],"forbidden":["E"]},
+        "reachability":{"from":[1,1],"to":[[22,14]],"toTiles":["$"],"solidTiles":[0]})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    const auto rows = rows_of(r);
+    CHECK(count_char(rows, '$') >= 1);
+    const Json& rep = r.result["reachability"];
+    CHECK(rep["from"] == Json::parse("[1,1]"));
+    CHECK(rep["goals"].get<int>() == 1 + count_char(rows, '$'));
+    CHECK(rep["unreachable"]["cells"].get<long long>() == rep["walkableCells"].get<long long>() - rep["reachableCells"].get<long long>());
+    REQUIRE(rep["paths"].size() >= 1);
+    CHECK_FALSE(rep.contains("unreachableGoals"));
+
+    // The same path on the Tilemap that was written: nav.find_tile_path with the same rules finds it with the same length.
+    for (const Json& p : rep["paths"]) {
+        auto nav = s.call("nav.find_tile_path", Json{{"tilemap", "terrain"}, {"from", Json::array({1, 1})}, {"to", p["to"]}, {"costs", Json{{"0", nullptr}}}});
+        REQUIRE_MESSAGE(nav.ok, error_text(nav));
+        CHECK(nav.result["found"] == true);
+        CHECK(nav.result["cost"].get<double>() == doctest::Approx(p["cost"].get<double>()));
+        CHECK(nav.result["cells"].size() == p["steps"].get<std::size_t>() + 1);   // `length` is in world units, the cells are steps
+    }
+    // The cells that were cut off are walkable cells the start does not reach; none of the goals is among them.
+    CHECK(open_areas(rows) == 1 + int(rep["unreachable"]["areas"].get<int>()));
+}
+
+TEST_CASE("tilemap.generate reachability: an unreachable grid is retried with the next seed, deterministically") {
+    Session s;
+    // Look for a seed whose first grid has an enclosed pocket: asking for one connected area then needs a retry.
+    Json found;
+    for (int seed = 0; seed < 60 && found.is_null(); ++seed) {
+        auto r = s.call("tilemap.generate", dungeon_call(R"("seed":)" + std::to_string(seed) + R"(,"maxAttempts":200,"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[0]},
+            "constraints":{"fixed":[{"at":[1,1],"tile":"."}]})"));
+        REQUIRE_MESSAGE(r.ok, error_text(r));
+        if (r.result["stats"]["rejected"].get<int>() > 0) found = Json::object({{"seed", seed}, {"result", r.result}});
+    }
+    REQUIRE_MESSAGE(!found.is_null(), "no seed in 0..59 needed a retry: the sample or the generator changed");
+    const Json& res = found["result"];
+    CHECK(res["stats"]["attempts"].get<int>() > 1);
+    std::vector<std::string> rows;
+    for (const Json& row : res["rows"]) rows.push_back(row.get<std::string>());
+    CHECK(open_areas(rows) == 1);
+    CHECK(res["reachability"]["unreachable"]["areas"] == 0);
+
+    // The same call again: the same level and the same counters (ms is a timing, not part of the promise).
+    auto again = s.call("tilemap.generate", dungeon_call(R"("seed":)" + std::to_string(found["seed"].get<int>()) + R"(,"maxAttempts":200,"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[0]},
+            "constraints":{"fixed":[{"at":[1,1],"tile":"."}]})"));
+    REQUIRE(again.ok);
+    CHECK(without_ms(again.result) == without_ms(res));
+}
+
+TEST_CASE("tilemap.generate reachability: a level that can never be played fails with what was missing") {
+    Session s;
+    // Every tile blocks, so the start is always a wall: nothing can be reached.
+    auto r = s.call("tilemap.generate", dungeon_call(R"("seed":1,"maxAttempts":3,"reachability":{"from":[1,1],"to":[[5,5]],"solidTiles":[0,1,2,3]})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "generation_failed");
+    const std::string t = error_text(r);
+    CHECK_MESSAGE(contains(t, "3 attempts"), t);
+    CHECK_MESSAGE(contains(t, "blocked cell"), t);
+    CHECK_MESSAGE(contains(t, "maxAttempts"), t);
+
+    // A maximum of zero for a tile the output cannot avoid is found by the generator, not by waiting.
+    auto never = s.call("tilemap.generate", dungeon_call(R"("seed":1,"maxAttempts":3,"constraints":{"counts":[{"tile":"#","max":0}],"fixed":[{"at":[0,0],"tile":"#"}]})"));
+    REQUIRE_FALSE(never.ok);
+    CHECK_MESSAGE(contains(error_text(never), "#"), error_text(never));
+}
+
+TEST_CASE("tilemap.generate constraints: the same seed gives the same level, a constraint changes it") {
+    Session s;
+    const char* args = R"("seed":11,"constraints":{"border":{"tile":"#"},"fixed":[{"at":[1,1],"tile":"."}],"required":["$"],"counts":[{"tile":"E","max":2}]},
+        "reachability":{"from":[1,1],"toTiles":["$"],"solidTiles":[0]})";
+    auto a = s.call("tilemap.generate", dungeon_call(args));
+    auto b = s.call("tilemap.generate", dungeon_call(args));
+    REQUIRE_MESSAGE(a.ok, error_text(a));
+    REQUIRE(b.ok);
+    CHECK(without_ms(a.result) == without_ms(b.result));
+    auto plain = s.call("tilemap.generate", dungeon_call(R"("seed":11)"));
+    REQUIRE(plain.ok);
+    CHECK(plain.result["rows"] != a.result["rows"]);
+}
+
 TEST_CASE("tilemap.generate: maxWork and maxSeconds stop a level with an error that says how to shrink it") {
     Session s;
-    auto r = s.call("tilemap.generate", ascii_call(R"("size":[24,16],"seed":1,"maxWork":1)"));
+    auto r = s.call("tilemap.generate", dungeon_call(R"("seed":1,"maxWork":1)"));
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["code"] == "budget_exceeded");
     const std::string t = error_text(r);
@@ -305,14 +543,14 @@ TEST_CASE("tilemap.generate: maxWork and maxSeconds stop a level with an error t
     CHECK_MESSAGE(contains(t, "24 x 16"), t);
     CHECK_MESSAGE(contains(t, "patterns"), t);
     CHECK_MESSAGE(contains(t, "smaller"), t);
-    auto time = s.call("tilemap.generate", ascii_call(R"("size":[160,160],"seed":1,"maxSeconds":0.0000001)"));
+    auto time = s.call("tilemap.generate", dungeon_call(R"("seed":1,"size":[160,160],"maxSeconds":0.0000001)"));
     REQUIRE_FALSE(time.ok);
     CHECK_MESSAGE(contains(error_text(time), "maxSeconds"), error_text(time));
-    auto bad = s.call("tilemap.generate", ascii_call(R"("size":[24,16],"maxWork":0)"));
+    auto bad = s.call("tilemap.generate", dungeon_call(R"("maxWork":0)"));
     REQUIRE_FALSE(bad.ok);
     CHECK(contains(error_text(bad), "maxWork"));
     // Within the caps the same call works.
-    auto ok = s.call("tilemap.generate", ascii_call(R"("size":[24,16],"seed":1,"maxWork":100000000,"maxSeconds":60)"));
+    auto ok = s.call("tilemap.generate", dungeon_call(R"("seed":1,"maxWork":100000000,"maxSeconds":60)"));
     CHECK_MESSAGE(ok.ok, error_text(ok));
     CHECK(ok.result["stats"]["work"].get<long long>() > 0);
 }
