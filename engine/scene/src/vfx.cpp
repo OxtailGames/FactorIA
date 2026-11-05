@@ -230,7 +230,7 @@ void parse_part(Parser& p, const Json& j, std::size_t index, VfxDoc& doc, std::s
             if (!vfx_command_allowed(part.command))
                 p.err(ptr + "/command", "an effect may not call '" + part.command + "'",
                       did_you_mean(part.command, vfx_allowed_commands()) +
-                          " An effect calls only the game feel effects and the mixer's playback commands, so a file you did not write cannot write files or change settings.");
+                          " An effect calls only the game feel effects and the mixer's playback commands, so a file you did not write cannot write files, and the mixer commands change the runtime mix, never the player's saved settings.");
             if (auto a = j.find("args"); a != j.end()) {
                 if (!a->is_object()) p.err(ptr + "/args", "args must be an object of the command's arguments, got " + describe_json_value(*a), "Example: \"args\": {\"amount\": 0.5}.");
                 else part.args = *a;
