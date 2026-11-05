@@ -75,7 +75,7 @@ bool report_command_progress(std::string_view message);
 // with scope "user" changes the user's own defaults) asks command_caller(). The code that hands a call to the registry on an AI's
 // behalf installs a CommandCallerScope: the MCP server (every tools/call, so the editor's per-run endpoint and `factoria mcp`) and
 // the agent session (each tool call of the in-engine agents and their delegates). Callers that install nothing are the user's own
-// (`factoria call`, the editor's console, the AI settings window). The scope is per thread and only gets stricter: a scope inside
+// (`factoria call` run by the user, the editor's console, the AI settings window). The scope is per thread and only gets stricter: a scope inside
 // another one that is not User keeps the outer one. A handler that moves work to another thread (the editor's main-thread queue
 // does) hands command_caller() over and installs it there again.
 enum class CommandCaller { User, Agent, Mcp };
@@ -90,6 +90,28 @@ public:
 private:
     CommandCaller previous_;
 };
+
+// A process whose own caller is not the user: the CLI agents (Claude Code, Codex) factoria starts get FACTORIA_CALLER in their
+// environment (kCallerEnvVar), and a `factoria` they run (`factoria call ai.settings.set ...`) has no thread scope to read. While a
+// CommandCallerFloor lives, command_caller() is never below `floor` on ANY thread of the process. Like the scope it only gets
+// stricter: a floor inside another keeps the stricter one.
+inline constexpr const char* kCallerEnvVar = "FACTORIA_CALLER";
+
+class CommandCallerFloor {
+public:
+    explicit CommandCallerFloor(CommandCaller floor);
+    ~CommandCallerFloor();
+    CommandCallerFloor(const CommandCallerFloor&) = delete;
+    CommandCallerFloor& operator=(const CommandCallerFloor&) = delete;
+
+private:
+    CommandCaller previous_;
+};
+
+// What FACTORIA_CALLER says: nullopt when the variable is unset or empty; "mcp" is Mcp; ANY other value (agent, or one this
+// engine does not know) is Agent. Never User: a variable that is set can only restrict.
+std::optional<CommandCaller> command_caller_from_env_value(const char* value);
+std::optional<CommandCaller> command_caller_from_env();  // reads kCallerEnvVar
 
 CommandCaller command_caller();                         // the caller of the command running on this thread (User outside any scope)
 const char* command_caller_name(CommandCaller caller);  // "the user", "an AI agent", "an MCP client"

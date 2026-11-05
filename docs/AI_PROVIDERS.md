@@ -247,10 +247,15 @@ write these settings by JSON pointer (`/roles/artist/enabled`, `/limits/maxCostU
   the old content). Removing a value (null) from an accepted file leaves it accepted: the file only got smaller, so its record is updated
   to the new content. Removing a value from a file nobody accepted leaves it waiting. When the last value goes, the file is deleted and its
   record forgotten.
-* **Scope `user` is the user's own call.** An AI cannot change your defaults: through MCP (`ai_settings_set`, every client including the
-  editor's endpoint) and from the built-in agent (and its delegates), `ai.settings.set` with scope `user` is refused with
-  `user_only`, and the error says to ask you to change it in the editor's AI settings window (Your defaults). It stays available to
-  `factoria call ai.settings.set` (the editor's console has no `ai.*` commands). `ai.settings.get` is open to everyone. What a scope `user` call changed is in
+* **Scope `user` is the user's own call.** `ai.settings.set` with scope `user` is refused with `user_only` when an AI is behind the call, and
+  the error says to ask you to change it in the editor's AI settings window (Your defaults). Three ways in are closed: MCP clients
+  (`ai_settings_set`, every client including the editor's endpoint), the built-in agent (and its delegates), and the CLI agents (Claude
+  Code, Codex) when they run `factoria call ai.settings.set` from their shell: factoria starts them with `FACTORIA_CALLER=agent` in the
+  environment, and any `factoria` that sees the variable treats every command it runs as an AI's (a value it does not know counts as
+  `agent`, never as you; a value you set yourself in the environment is kept; the editor window itself is unaffected). Run by you, in a
+  shell without that variable, `factoria call ai.settings.set` may (the editor's console has no `ai.*` commands). What this does NOT do:
+  an agent that can edit files can still edit `~/.factoria/ai.json` by hand, and this is a refusal of the command, not a sandbox.
+  `ai.settings.get` is open to everyone. What a scope `user` call changed is in
   its result: `changed: [{pointer, from, to}]` (a new provider for a role also drops its model, so the model shows up too).
   In the editor, a change a command makes to your `ai.json` or to the project's file reloads the AI settings window, the Roles window and
   the provider list on the next frame, so a Save there never writes over it.

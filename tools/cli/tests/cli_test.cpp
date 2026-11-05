@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <set>
 #include <sstream>
@@ -861,6 +862,52 @@ struct EnvVar {
     }
 };
 }  // namespace
+
+TEST_CASE("call: a factoria started by an AI agent (FACTORIA_CALLER) cannot change the user's AI defaults") {
+    namespace stdfs = std::filesystem;
+    std::error_code ec;
+    stdfs::path root = stdfs::temp_directory_path() / ("fa_cli_caller_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    stdfs::create_directories(root / "home");
+    root = stdfs::canonical(root);
+    const stdfs::path project = root / "game";
+    auto made = run({"new", project.string(), "--template", "2d-empty", "--json"});
+    REQUIRE_MESSAGE(made.code == 0, made.err);
+    const stdfs::path aiJson = root / "home" / "ai.json";  // never the real ~/.factoria
+    const std::string original = R"({"limits":{"maxTurns":30}})";
+    std::ofstream(aiJson) << original;
+    auto file_text = [&] {
+        std::ifstream in(aiJson);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    EnvVar config("FACTORIA_AI_CONFIG", aiJson.string());
+    const std::string userArgs = R"({"scope":"user","pointer":"/limits/maxTurns","value":7})";
+    const std::string projectArgs = R"({"scope":"project","pointer":"/limits/maxTurns","value":5})";
+
+    SUBCASE("started by an agent: scope user is refused (user_only), the file is untouched, scope project still works") {
+        for (const char* value : {"agent", "some-value-this-engine-does-not-know"}) {  // anything set restricts: never the user's call
+            EnvVar caller("FACTORIA_CALLER", value);
+            auto refused = run({"call", "ai.settings.set", userArgs, "--project", project.string(), "--json"});
+            CHECK_MESSAGE(refused.code == 1, value);
+            auto j = fa::parse_json(refused.out, "call");
+            REQUIRE(j);
+            CHECK((*j)["error"]["code"] == "user_only");
+            CHECK(file_text() == original);
+            auto ok = run({"call", "ai.settings.set", projectArgs, "--project", project.string(), "--json"});
+            CHECK_MESSAGE(ok.code == 0, ok.out, ok.err);
+        }
+        EnvVar caller("FACTORIA_CALLER", "mcp");
+        auto refused = run({"call", "ai.settings.set", userArgs, "--project", project.string(), "--json"});
+        CHECK(refused.code == 1);
+        CHECK(file_text() == original);
+    }
+    SUBCASE("started by the user (no FACTORIA_CALLER): scope user writes the file") {
+        EnvVar caller("FACTORIA_CALLER", "");  // unset or empty: the user's own call
+        auto done = run({"call", "ai.settings.set", userArgs, "--project", project.string(), "--json"});
+        CHECK_MESSAGE(done.code == 0, done.out, done.err);
+        CHECK(file_text().find("7") != std::string::npos);
+    }
+    stdfs::remove_all(root, ec);
+}
 
 TEST_CASE("ai doctor and ai run use the AI settings of the project they run in") {
     namespace stdfs = std::filesystem;
