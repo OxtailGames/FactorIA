@@ -12,10 +12,10 @@
   "runners": {
     "windows-msvc-d3d11-warp": {
       "frames": 300,
-      "cpuMsAvg": 100.0,
-      "cpuMsP95": 250.0,
-      "cpuMsMax": 900.0,
-      "peakMemoryMB": 650.0,
+      "cpuMsAvg": 222.8,
+      "cpuMsP95": 274.2,
+      "cpuMsMax": 1946.3,
+      "peakMemoryMB": 464.6,
       "drawCalls": 75,
       "entities": 164,
       "graphics": "D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)"
