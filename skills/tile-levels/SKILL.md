@@ -41,6 +41,13 @@ it builds the Tilemap and turns the sample's markers (glyphs whose legend entry 
 enemies) into entities, as `scene.import_ascii` does. It belongs to the scene that started it: a scene load rejects it,
 so check `scene.generation` before using the answer. `stats.ms` and `memoryBytes` of the result are informative, not deterministic: never compare them. Guide section 9.8, "A new level on every run".
 
+Generate or hand-write? Write the ASCII by hand (`scene.import_ascii`, `scene.ascii_edit`) for a designed level: a tutorial, a puzzle with
+one answer, a boss arena, a game with a few levels. Generate when the game wants many levels or a new one each run and any playable level
+of the style will do: draw one small sample, add `constraints` and `reachability` for what makes a level bad, and look at a few seeds
+before you ship. In the editor, View > Level generator previews seeds (Next seed), keeps one in the scene or saves it as a level file.
+Leave one-of-a-kind markers (player, exit) out of the sample and place them on cells of the returned `rows`, and draw open areas, not rooms
+joined by one-cell corridors, when you ask for `reachability.allConnected`. Guide section 9.8, "Generate the level, or write its ASCII by hand?".
+
 ## Camera and area limits
 
 `entity.bounds()` is the world rectangle `{x, y, w, h}` (bottom-left corner and size) of a
