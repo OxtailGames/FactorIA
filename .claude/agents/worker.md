@@ -1,6 +1,6 @@
 ---
 name: worker
-description: FactorIA engine worker. Implements one work package (code, doctest cases, docs) in its own worktree and build dir, then reports back. Sonnet at medium effort (the orchestrator passes effort high for an L package) with only the tools engine work uses. For a package that needs the browser pane, use general-purpose (model sonnet, effort medium) instead.
+description: FactorIA engine worker. Implements one work package (code, doctest cases, docs) in its own worktree and build dir, then reports back. Sonnet at medium effort (the orchestrator passes effort high for an L package or one that touches core headers, platform, render, timing or file code, or the editor autotest) with only the tools engine work uses. For a package that needs the browser pane, use general-purpose (model sonnet, effort medium) instead.
 model: sonnet
 effort: medium
 tools: Bash, PowerShell, Read, Edit, Write, Grep, Glob, Monitor, TaskStop, WebFetch, WebSearch, ToolSearch
@@ -25,6 +25,11 @@ Before you report, check what reviews of earlier packages kept finding:
   checks that its scene is still the current one before it acts on the result.
 - Docs say what the code does. Read each sentence you wrote (docs, doc strings, CHANGELOG, comments) against the code,
   not against the brief: a fake ad that draws nothing is not "shown".
+- What this host does not run. Read your whole diff for MSVC and GCC warnings and missing includes, Windows file
+  rules (a file open elsewhere cannot be replaced or deleted, ~15 ms file times, case-insensitive paths, CRLF), waits
+  and budgets a loaded 4-vCPU CI VM misses, the GL and D3D11 paths of render code, and editor windows on a small
+  display (the macOS CI window is 1024x642: `FA_EDITOR_AUTOTEST_SIZE=1024x642`). Undefined behaviour counts even when
+  it works here: no indexing past a struct member, no reading an inactive union member.
 - Generated files. Docs reference and every example's typings are regenerated after the last API change, each typings
   file starts with "// Generated", and none contains a path of this machine.
 
