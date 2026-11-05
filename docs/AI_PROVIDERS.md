@@ -671,8 +671,38 @@ of asset is assigned to.
 Save rewrites only `assets`, `assetSources` and the provider fields these need (`apiKey`; `type`, `command` and `argv` of an
 `asset-command` provider). Providers, roles, limits and every other key of the file stay as they are, and a file that is not valid
 JSON is left alone (the window says so instead of overwriting it). Then it reloads the file: the next asset the AI makes and the
-next message use the new settings; nothing else needs a restart. The window always edits the user's `ai.json` (the one in
-`FACTORIA_AI_CONFIG`, if set), never a file of the game project.
+next message use the new settings; nothing else needs a restart. Without a project open the window edits the user's `ai.json` (the one in
+`FACTORIA_AI_CONFIG`, if set), as described above. With a project open it edits that project's AI settings, see the next section.
+
+### This project's settings in the window
+
+With a project open the window (and the Roles window) is titled **AI settings - This project: <name>** and edits the project's file,
+`<project>/.factoria/ai/settings.json` ([Per project](#per-project)); without one it is titled **AI settings - Your defaults** and edits
+`ai.json`. What changes with a project open:
+
+* **Where each value comes from.** The Roles table has a **From** column and the Assets tab one per row and per category: **This
+  project** (the file sets it), **Your defaults** (it comes from your `ai.json`) or **Built in** (neither sets it). A role that follows
+  another one the project changes (an Artist with no provider of its own, following the Worker) says **This project** too, with no Reset:
+  reset the role it follows.
+* **Save** writes the project's file, only with what differs from your defaults (the writer of [Per project](#per-project)), records that
+  you saved it on this computer (so it applies at once) and invalidates what the editor cached, so the next message and the next asset use
+  it. It never writes `ai.json`, except for what a project file cannot hold: an API key or the program of an `asset-command` provider
+  typed in the Assets tab always goes to `ai.json`. The Roles tab shows where the file is.
+* **Reset** (on a row marked This project) takes that one value out of the project's file: the row shows your default again. **Reset tab
+  to my defaults** does it for the whole tab (the roles; the asset routes and sites). Both write the file at once, they do not wait for Save.
+* **Save as my defaults** writes the values in the window to your `ai.json` (a role that follows another is not written as its own),
+  and the project's file then keeps only what still differs from them. Every project that does not change those values, and every new
+  project, starts from them.
+* **A project file you have not accepted** (it came with a copied, unzipped or pulled project): the window says so at the top and lists
+  what it would change. **Accept** is the call `accept_project_settings`; **Ignore** leaves the file alone and works with your settings
+  (**Review it** brings the list back); **Delete the file** removes it. While the box is shown, Save and the resets are disabled, since the
+  project behaves as without the file; after Ignore they work again, and Save then replaces the file with what you chose. A file that cannot be accepted (invalid)
+  shows `invalidError` and no Accept, only Ignore and Delete. A file you had accepted that no longer resolves is shown with its error and
+  Delete. Warnings of the resolution are listed under it (five at most; `factoria ai doctor` has them all).
+* **Switching project** reloads the roles and the asset settings the window shows (and drops a pending Ignore and unsaved edits).
+* **Not per project.** The Tools, Extensions and Token savers parts of the window stay your own (`ai.json`), and say so: a project's file
+  can switch them on and off by name, which the window does not edit (write them in the file, [Per project](#per-project)). The `limits` of the file have no window either.
+  An asset kind a project sets to **None** while your defaults have a route is refused with a hint, since a project file cannot remove a route.
 
 The **External tools** tab (between Roles and Assets) sets up the `mcpServers` of [External tools](#external-tools-mcp-servers):
 
