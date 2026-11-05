@@ -33,7 +33,7 @@
       "cpuMsAvg": 14.484,
       "cpuMsP95": 14.005,
       "cpuMsMax": 219.594,
-      "peakMemoryMB": 112.8,
+      "peakMemoryMB": 124.3,
       "drawCalls": 51,
       "entities": 99,
       "graphics": "D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)",
