@@ -145,7 +145,7 @@ public:
     Mat4 world_matrix(Entity e) const;  // parent chain * local TRS
     Vec3 world_position(Entity e) const;
     // world_matrix() with the visual poses of the game feel effects (shake, squash; feel.h) multiplied into each entity of the
-    // chain: what is DRAWN. Equal to world_matrix() while no such effect runs. Only drawing and picking use it; physics, audio
+    // chain: what is DRAWN. Equal to world_matrix() while no such effect runs. Only drawing uses it; picking, bounds, physics, audio
     // and scripts read world_matrix() / the Transform, which an effect never changes.
     Mat4 drawn_matrix(Entity e) const;
     void set_world_position(Entity e, Vec3 p);  // converts into the parent's space

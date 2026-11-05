@@ -190,6 +190,7 @@ public:
     bool save_scene_now();
     void reload_scene_from_disk(bool keepUndo = false);   // keepUndo: Ctrl+Z brings back what was on screen before
     void restore_scene(const Json& snapshot);
+    void reset_feel_choices();   // feel.reduceMotion / reducedEffects back to following the system (a Play session starts and ends)
 
     // ---------------------------------------------------------------- play mode
     PlayState play_state() const { return play_; }
@@ -233,7 +234,7 @@ public:
     void run_console_line(const std::string& line);
     // Commands typed in the Console or called by the AI go through these two hooks (editor_app.cpp):
     // command_edits_scene() is false for commands that only write FILES (prefab.save, scene.format, scene.ascii_edit,
-    // scene.import_ascii with `path`), so they neither take an undo snapshot nor mark the scene dirty; after_command() reloads
+    // scene.import_ascii with `path`) and for the feel.* effects (a moment of the running game), so they neither take an undo snapshot nor mark the scene dirty; after_command() reloads
     // the scene when scene.import_ascii or scene.ascii_edit rebuilt the scene file that is open (Ctrl+Z brings back what was
     // on screen).
     bool command_edits_scene(const std::string& name, const Json& args) const;

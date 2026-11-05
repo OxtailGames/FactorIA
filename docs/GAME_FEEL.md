@@ -41,8 +41,10 @@ and the shake you see is trauma SQUARED: small bumps stay small and a pile of hi
 `frequency` samples per second (default 25: higher is jitterier). `maxOffset` is the largest offset at trauma 1 in world units
 (default 2.5 % of the visible height of an orthographic camera, 0.3 for a perspective one); `maxAngle` is the largest turn in
 degrees (default 2). A 2D camera moves in x, y and rolls; a 3D camera moves and looks a little around. The camera's `Transform`
-does not change; the pointer (`input.pointer.world`, `camera.screenToWorld`) maps through the shaken view, so what you click is
-what you see.
+does not change; the pointer (`input.pointer.world`, `camera.screenToWorld`) maps through the shaken view (offset and roll), so
+the point under the cursor is the point of the scene that is drawn under it. A scene with no active camera has nothing to shake:
+`camera.shake` and `feel.shake` do nothing there and log one warning (not an error, so a hit in a loading scene does not stop a
+script); pass `camera:` to shake a camera that is not the active one.
 
 Command: `feel.shake {"amount":0.5,"duration":0.3}`. Action: `{"action":"shake","amount":0.5}`.
 
@@ -93,7 +95,7 @@ Action: `{"action":"flash","color":"#ffffff","duration":0.1,"fade":true,"strengt
 ## Knockback
 
 ```js
-player.knockback([-1, 0.3], { speed: 8 });               // away from the hit, a little up
+player.knockback([-1, 0.3]);                             // away from the hit, a little up (default speed)
 enemy.knockback(enemy.transform.position.sub(hitPoint), { speed: 6, lockTime: 0.3 });
 
 // in the player's movement script: no control while it lasts
@@ -103,7 +105,10 @@ onFixedUpdate() {
 }
 ```
 
-`direction` is any vector (`[x, y]` or `[x, y, z]`, normalised; a 2D body ignores z). An entity with a DYNAMIC `RigidBody2D` or
+`direction` is any vector (`[x, y]` or `[x, y, z]`, normalised; a 2D body ignores z). `speed` is in world units per second and its
+default is 6 METRES per second: 6 units for a 3D entity, and 6 times `physics.pixelsPerMeter` for a 2D one (600 pixels per second
+at the default 100), so the same call pushes a 2D and a 3D entity the same visible distance. Pass `speed` yourself and it is used
+as given, in the units of the entity's world. An entity with a DYNAMIC `RigidBody2D` or
 `RigidBody3D` gets `speed` world units per second ADDED to its velocity at once (an impulse: the physics engine's friction and
 damping slow it down). An entity without a dynamic body moves with a velocity that decays by `exp(-decay * dt)` on the fixed
 clock (`decay` default 8) until it is under 0.01 units per second, and its `Transform` position is what changes, so give a
@@ -113,8 +118,8 @@ body-less enemy a `Collider` and a movement script that respects walls if it mus
 loss of control. The engine does not take control away by itself; your movement script checks the flag. Knockback runs on
 the simulation clock, so a hit-stop freezes it too.
 
-Command: `feel.knockback {"entity":"player","direction":[-1,0.3],"speed":8}`.
-Action: `{"action":"knockback","direction":[-1,0.3],"speed":8,"lockTime":0.25,"decay":8}`.
+Command: `feel.knockback {"entity":"player","direction":[-1,0.3]}` (`speed` is optional).
+Action: `{"action":"knockback","direction":[-1,0.3],"speed":6,"lockTime":0.25,"decay":8}`.
 
 ## Squash and stretch
 
@@ -153,10 +158,13 @@ Two settings, both read from the player's choice when the game set one and from 
 | `reduceMotion` | `feel.reduceMotion = true` | shake amount x0.25, squash amount x0.25, hit-stop duration x0.5 |
 | `reducedEffects` | `feel.reducedEffects = true` | flash strength at most 0.35 and always fading: never a full-bright pulse or a square wave |
 
-`feel.reduceMotion = null` (and `reducedEffects`) goes back to following the system. Knockback has no reduced form: it is
+`feel.reduceMotion = null` (and `reducedEffects`) goes back to following the system. A choice belongs to one run of the game: a new
+engine starts following the system, and so does the editor when a Play session stops (a test of the game started its own
+choice, the editor's own scene never keeps it). Knockback has no reduced form: it is
 gameplay, not decoration. Effects already running are not changed when a setting changes. The menu kit's `settings.js`
-(`applyFeel`, called by `apply()`) sets both from its "reduced effects" option, so a game made from the kit already honours the
-player's choice; a game of your own does the same once at start:
+(`applyFeel`, called by `apply()` and by every options row of the template when it changes) sets both from its "reduced effects"
+option, so a game made from the kit already honours the player's choice. The option starts as `null` ("follow the system") and a
+row the player never touched stays `null` when the settings are saved, so it keeps following the OS setting; a game of your own does the same once at start:
 
 ```js
 import { feel, game } from "factoria";
@@ -206,8 +214,11 @@ A test can check it without a window: call `hit`, then `game.step(1)` and read `
 
 ## Limits
 
-- Shake and squash are visual: a script that reads `entity.transform` (for a hit box, say) sees the true position, not the
-  shaken one.
+- Shake and squash are visual, and gameplay never sees them: `entity.transform`, `entity.bounds()`, physics, the UI hit-test of
+  an `Interactable`, `light2d` and the animation commands all use the true position, so a hit box, a button or a shadow does
+  not wobble with a squash. Only drawing uses the posed matrix. The one thing that does move with the picture is the pointer:
+  the camera's shake (offset and roll) is part of the view the pointer is mapped through, so a click lands on what is drawn
+  under the cursor; the camera's own true rotation is not part of the script-side mapping when no renderer is running.
 - The camera's shake moves everything the camera draws (sprites, tilemaps, text and particles in the world) but not the
   screen-space UI, which stays put on purpose; shake a panel with a `tween` when you want it to move.
 - A rotated orthographic camera decides what to draw with the rectangle that encloses its view, so a shake never shows a

@@ -1722,7 +1722,7 @@ declare module "factoria" {
    */
   export interface KnockbackOptions {
     /**
-     * World units per second added to the velocity at once (default 6).
+     * World units per second added to the velocity at once. Default: 6 metres per second, so 6 units for a 3D entity and 6 times the project's physics.pixelsPerMeter (600 pixels per second at 100) for a 2D one: a speed you give is in world units (pixels in 2D), whatever the entity.
      * @since unreleased
      */
     speed?: number;

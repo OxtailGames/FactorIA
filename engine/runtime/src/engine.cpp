@@ -80,6 +80,7 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
 
 void Engine::Impl::apply_project_settings() {
     fixedDt = 1.0 / std::max(1.0, project.fixedHz);
+    world.feel().pixelsPerMeter = project.pixelsPerMeter;  // the 2D default speed of entity.knockback (fa/scene/feel.h)
     input.set_gamepad_deadzone(float(project.inputDeadzone));
     // The interface scale of factoria.json: applied when it changes (the first time included), so reloading the project for
     // another setting does not undo what the player chose in the Options menu. The start-up change sends no ui.scale event.
@@ -585,6 +586,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
 
     // World + input.
     I.world.rng().reseed(config.seed);
+    I.world.feel().reduceMotionSetting.reset();  // the player's feel choices belong to a run: an engine starts following the system
+    I.world.feel().reducedEffectsSetting.reset();
     I.apply_project_settings();
     I.setup_localization();
 

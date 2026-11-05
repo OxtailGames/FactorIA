@@ -55,7 +55,7 @@ The same as `entity.knockback(direction, opts)`. A dynamic RigidBody2D/RigidBody
 |---|---|---|---|
 | `entity` | string | yes | The entity (id or name). |
 | `direction` | array | no | Which way, [x, y] or [x, y, z]; any length, it is normalised. Default [1,0]. |
-| `speed` | number | no | World units per second added at once. Default 6. |
+| `speed` | number | no | World units per second added at once. Default: 6 metres per second, which is 6 units for a 3D entity and 6 times physics.pixelsPerMeter (600 pixels per second at 100) for a 2D one. |
 | `lockTime` | number | no | Seconds isKnockedBack stays true. Default 0.25. |
 | `decay` | number | no | Entities without a dynamic body: the velocity falls by exp(-decay * dt) per second. Default 8. |
 
