@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include "common.h"  // tools/cli/src: Session and run_project_tests, the setup behind `factoria test`
+#include "fa/ai/project_settings.h"
 #include "fa/cli/cli.h"
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
@@ -698,4 +699,101 @@ TEST_CASE("feedback signout and signin: unknown provider is a usage error; signo
     CHECK(run({"feedback", "signin", "gitlab"}).code == 2);
     CHECK(run({"feedback", "signout"}).code == 0);
     CHECK(run({"feedback", "signout"}).code == 0);
+}
+
+// ---- ai doctor / ai run resolve the project they run in (cwd or --project), with its AI settings
+namespace {
+struct EnvVar {
+    std::string name, old;
+    bool had;
+    EnvVar(const std::string& n, const std::string& value) : name(n) {
+        const char* o = std::getenv(n.c_str());
+        had = o != nullptr;
+        if (had) old = o;
+#ifdef _WIN32
+        _putenv_s(n.c_str(), value.c_str());
+#else
+        setenv(n.c_str(), value.c_str(), 1);
+#endif
+    }
+    ~EnvVar() {
+#ifdef _WIN32
+        _putenv_s(name.c_str(), had ? old.c_str() : "");
+#else
+        if (had) setenv(name.c_str(), old.c_str(), 1);
+        else unsetenv(name.c_str());
+#endif
+    }
+};
+}  // namespace
+
+TEST_CASE("ai doctor and ai run use the AI settings of the project they run in") {
+    namespace stdfs = std::filesystem;
+    std::error_code ec;
+    const stdfs::path oldCwd = stdfs::current_path(ec);
+    stdfs::path root = stdfs::temp_directory_path() / ("fa_cli_aiproj_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    stdfs::create_directories(root / "home");
+    root = stdfs::canonical(root);
+    const stdfs::path project = root / "game", sub = project / "assets" / "deep", elsewhere = root / "elsewhere";
+    stdfs::create_directories(elsewhere);
+    auto made = run({"new", project.string(), "--template", "2d-empty", "--json"});
+    REQUIRE_MESSAGE(made.code == 0, made.err);
+    stdfs::create_directories(sub);
+    // Never the real ~/.factoria: the user's config and its trust file live in the temp folder.
+    const stdfs::path aiJson = root / "home" / "ai.json";
+    std::ofstream(aiJson) << R"({"limits":{"maxTurns":30}})";
+    EnvVar env("FACTORIA_AI_CONFIG", aiJson.string());
+
+    SUBCASE("a file the user saved here applies: doctor lists its overrides from a subfolder, run refuses a role it turned off") {
+        auto saved = fa::ai::save_project_settings(project.string(), fa::Json::parse(R"({"roles":{"artist":{"enabled":false}},"limits":{"maxTurns":5}})"),
+                                                   aiJson.string(), fa::ai::system_env(), true);
+        if (!saved.ok()) MESSAGE(saved.error().message);
+        REQUIRE(saved.ok());
+        stdfs::current_path(sub, ec);  // a folder INSIDE the project: find_project_root finds it
+        auto doctor = run({"ai", "doctor"});
+        CHECK(doctor.code == 0);
+        CHECK(doctor.out.find("Project AI settings") != std::string::npos);
+        CHECK(doctor.out.find("(applied)") != std::string::npos);
+        CHECK(doctor.out.find("/roles/artist/enabled = false") != std::string::npos);
+        CHECK(doctor.out.find("/limits/maxTurns = 5") != std::string::npos);
+        auto json = run({"ai", "doctor", "--json"});
+        REQUIRE(json.code == 0);
+        auto rep = fa::parse_json(json.out, "doctor");
+        REQUIRE(rep);
+        CHECK((*rep)["projectSettings"]["applied"] == true);
+        CHECK((*rep)["projectSettings"]["overrides"]["limits"]["maxTurns"] == 5);
+        CHECK((*rep)["roles"]["artist"]["provider"].is_string());
+
+        auto refused = run({"ai", "run", "--role", "artist", "paint a door"});
+        CHECK(refused.code == 2);
+        CHECK(refused.err.find("this project's AI settings") != std::string::npos);
+        CHECK(refused.err.find("/roles/artist/enabled") != std::string::npos);
+
+        // outside the project, --project names it; without it there is no project and no mention of one
+        stdfs::current_path(elsewhere, ec);
+        auto named = run({"ai", "doctor", "--project", project.string()});
+        CHECK(named.out.find("(applied)") != std::string::npos);
+        auto none = run({"ai", "doctor"});
+        CHECK(none.code == 0);
+        CHECK(none.out.find("Project AI settings") == std::string::npos);
+        auto namedRun = run({"ai", "run", "--project", project.string(), "--role", "artist", "paint"});
+        CHECK(namedRun.code == 2);
+        CHECK(namedRun.err.find("this project's AI settings") != std::string::npos);
+    }
+    SUBCASE("a file that came with the project is shown as not applied") {
+        stdfs::create_directories(project / ".factoria" / "ai");
+        std::ofstream(project / ".factoria" / "ai" / "settings.json") << R"({"roles":{"artist":{"enabled":false}}})";
+        stdfs::current_path(sub, ec);
+        auto doctor = run({"ai", "doctor"});
+        CHECK(doctor.code == 0);
+        CHECK(doctor.out.find("NOT applied") != std::string::npos);
+        CHECK(doctor.out.find("/roles/artist/enabled: true -> false") != std::string::npos);
+        auto json = run({"ai", "doctor", "--json"});
+        auto rep = fa::parse_json(json.out, "doctor");
+        REQUIRE(rep);
+        CHECK((*rep)["projectSettings"]["pendingTrust"] == true);
+        CHECK((*rep)["projectSettings"]["applied"] == false);
+    }
+    stdfs::current_path(oldCwd, ec);
+    stdfs::remove_all(root, ec);
 }

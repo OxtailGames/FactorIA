@@ -21,6 +21,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "feedback_review.h"
+#include "settings_commands.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -92,7 +93,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
     // a settings file gets exactly load_config().
     auto load = [opts, project_dir]() -> Result<AiConfig> {
         if (opts->loadConfig) return opts->loadConfig();
-        return load_resolved_config(project_dir(), {}, opts->runtime.env ? opts->runtime.env : system_env());
+        return load_resolved_config(project_dir(), opts->aiConfigPath, opts->runtime.env ? opts->runtime.env : system_env());
     };
 
     {
@@ -549,7 +550,11 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             if (!is_known_role(so.role)) {
                 throw CommandError("unknown_role", "No role named '" + so.role + "'", fa::did_you_mean(so.role, std::vector<std::string>{"orchestrator", "worker", "fast", "artist", "audio"}));
             }
-            if (!cfg->role_enabled(so.role)) throw CommandError("role_off", role_off_message(so.role), role_off_hint(so.role));
+            if (!cfg->role_enabled(so.role)) {
+                // When this project's AI settings turned it off, the refusal says which setting and how to change it.
+                const Error off = role_off_error(so.role, so.projectDir, opts->aiConfigPath, opts->runtime.env ? opts->runtime.env : system_env());
+                throw CommandError("role_off", off.message, off.hint);
+            }
             so.providerOverride = str(args, "provider");
             so.modelOverride = str(args, "model");
             so.maxTurns = static_cast<int>(num(args, "maxTurns"));
@@ -820,6 +825,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             return out;
         });
     }
+    register_settings_commands(registry, project_dir, opts->aiConfigPath, opts->runtime.env ? opts->runtime.env : system_env());
     register_asset_commands(registry, load, project_dir, opts->runtime, opts->cancel);
     register_image_provider_commands(registry, load, project_dir, opts->runtime, opts->cancel);
     register_assets_review(registry, load, project_dir, *opts);

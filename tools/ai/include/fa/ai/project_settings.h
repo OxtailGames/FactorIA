@@ -168,4 +168,18 @@ Result<void> reset_project_setting(std::string_view projectDir, std::string_view
 Result<void> accept_project_settings(std::string_view projectDir, std::string_view expectedHash, std::string_view aiConfigPath = {},
                                      const EnvLookup& env = system_env());
 
+// Writes ONE value of the user's ai.json (the same pointers as settings_view: "/roles/artist/enabled", "/limits/maxTurns",
+// "/mcpServers/<name>", "/extensions/plugins/<name>", ...) and keeps everything else in the file; `value` null removes the key, so
+// the engine's default applies again. The value is checked like a project's file (names must exist, no key that runs a program) and
+// the result like ai.json (parse_config) before anything is written. A new provider for a role or asset route drops its model, effort
+// and voice, as the project's file does. Owner-only permissions. Nothing here touches ai-trust.json.
+Result<void> set_user_setting(std::string_view pointer, const Json& value, std::string_view aiConfigPath = {},
+                              const EnvLookup& env = system_env());
+
+// The message and hint for a delegation (ai.run, ai_run, agent_delegate) to a role that is off. When the project's AI settings are
+// what turned it off (the role's `enabled` comes from <project>/.factoria/ai/settings.json), they say so and how to change it;
+// otherwise they are role_off_message / role_off_hint. `projectDir` "" = no project.
+Error role_off_error(std::string_view role, std::string_view projectDir, std::string_view aiConfigPath = {},
+                     const EnvLookup& env = system_env());
+
 }  // namespace fa::ai

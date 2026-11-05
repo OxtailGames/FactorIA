@@ -298,14 +298,20 @@ Providers and roles are configured in `~/.factoria/ai.json` ([AI_PROVIDERS.md](A
 
 | Command | Purpose |
 |---|---|
-| `factoria ai doctor [--json]` | Which CLIs/keys are usable right now, which asset providers make what (`[makes image, voice]`), and which provider each kind of asset is assigned to |
-| `factoria ai providers [--json]` | Providers and the role mapping |
-| `factoria ai config [--json]` | Config path, effective settings (redacted), example file |
+| `factoria ai doctor [--project DIR] [--json]` | Which CLIs/keys are usable right now, which asset providers make what (`[makes image, voice]`), and which provider each kind of asset is assigned to. In a project (the current folder or a parent, or `--project`) it lists the project's AI settings: the values its file sets, what a file you have not accepted would change, or what is wrong with it |
+| `factoria ai providers [--project DIR] [--json]` | Providers and the role mapping of the project (or yours) |
+| `factoria ai config [--project DIR] [--json]` | Config path, effective settings (redacted), example file |
 | `factoria ai run [project] "<task>" [--provider P] [--role orchestrator\|worker\|fast] [--model M] [--max-turns N] [--max-cost USD] [--no-delegate] [--json]` | Run a task; streams text, tool calls and cost |
 
 `factoria hooks run <hooks/module.js> [--project DIR] [--event NAME] [--timeout S]` runs a JavaScript hook module as a hook
 program: the event as JSON on stdin, the module's answer as JSON on stdout ([HOOKS.md](HOOKS.md)). Claude Code starts it for `js` hooks.
 Hooks of `beforeCommand` / `afterCommand` also apply to `factoria call` and to every command the CLI runs.
+
+`ai run`, `ai review` and the commands above run in the project given as argument or `--project`, else the one that contains the current
+folder, and use its AI settings (`<project>/.factoria/ai/settings.json`; [AI_PROVIDERS.md](AI_PROVIDERS.md#per-project)): `ai run --role artist` in a
+project that turned the artist off is refused and says which setting did it. To read or change those settings use the commands
+`factoria call ai.settings.get '{"scope":"resolved"}'` and `factoria call ai.settings.set '{"scope":"project","pointer":"/roles/artist/enabled","value":false}'`
+(a project change waits until you accept the file in the editor).
 
 `ai run` gives the agent the project's command registry as tools (the `ai.*` commands are hidden from it). Use `-`
 as the task to read stdin, `@file` to read it from a file. The transcript is saved in `<project>/.factoria/ai/sessions/`.
