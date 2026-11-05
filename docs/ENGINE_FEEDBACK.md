@@ -166,9 +166,9 @@ Settings; docs/EDITOR.md, "Sharing feedback") or in your terminal:
 
 | Command | Effect |
 |---|---|
-| `factoria feedback sharing always` | New shareable entries are sent as they are recorded. |
-| `factoria feedback sharing ask` | They wait in the outbox; `factoria feedback share` shows them and sends what you confirm. |
-| `factoria feedback sharing never` | Nothing is sent; the outbox is emptied and its entries are marked `skipped`. |
+| `factoria feedback sharing always` | New shareable entries are sent as they are recorded; entries that waited for your answer are sent too. |
+| `factoria feedback sharing ask` | They wait in the outbox; `factoria feedback share` shows them and sends what you confirm. Items queued but not sent yet go back to waiting. |
+| `factoria feedback sharing never` | Nothing is sent; the outbox items of every project that follows your default are dropped and their entries marked `skipped`. A project with its own choice keeps its items and its mode. |
 | `factoria feedback sharing` | Shows the mode, the server, whether you are signed in and the outbox. |
 
 In the editor the three choices are **Always**, **Ask me each time** and **Never**, with a preview of the next report exactly as
@@ -183,18 +183,29 @@ share, **ask**, or no choice (it follows the default). Type it in the project (o
 |---|---|
 | `factoria feedback sharing never --project .` | This project sends nothing, whatever the default is. Its outbox items are dropped and its entries marked `skipped`. |
 | `factoria feedback sharing always --project ../puzzle` | That project shares even when your default is `never` or not chosen. |
-| `factoria feedback sharing default --project .` (or `--clear`) | Removes the project's choice: it follows your default again. |
+| `factoria feedback sharing ask --project .` | That project asks, whatever the default is; its queued items go back to waiting for your answer. |
+| `factoria feedback sharing default --project .` (or `--clear`, alone) | Removes the project's choice: it follows your default again, and its waiting or queued items are handled as that default says (a default of `never` drops them). |
 | `factoria feedback sharing` | Shows your default and the effective mode of the project you are in, with its source (`its own choice` or `follows your default`). |
+
+`--project <path>` takes the project's folder or any folder inside it (the nearest `factoria.json` upwards is the project); a folder
+that is not in a project is an error that says so, and the command prints the project it used. `--clear` with a mode is a usage
+error.
 
 The effective mode of a project is its own choice if it has one, else your default. Queueing, sending, the outbox, the verdict
 check, `feedback.share_preview`, `feedback.share_status` (`mode` is the effective one; `default` and `project{mode, source}` say
 where it comes from) and the answer of `feedback.report` about sharing all use it. If a project is `never` (or not set up, with
 no default) while items of it are in the outbox, they are not sent and `feedback.share_status` counts them in
-`outbox.blocked`; going back to a mode that sends lets them go.
+`outbox.blocked`; going back to a mode that sends lets them go. Each outbox item stores the key of the project it came from when
+it is queued, and every later decision (send, wait, drop) uses that key, so changing your default never moves the items of a
+project with its own choice: a default of `always` does not send what a project set to `ask` or `never` holds, and a default of
+`never` does not drop what a project set to `always` holds. Items written by an older version have no key: they wait (as in `ask`)
+until you decide in the editor or with `factoria feedback share`.
 
 The choice is stored in YOUR `feedback-sharing.json` (`"projects": {"<project folder path>": "never"}`), never inside the
-project, so a project you copy or download can never turn sharing on. The key is the folder's absolute path (symlinks resolved,
-forward slashes, no trailing slash, case-insensitive on Windows). **Moving or renaming the project folder drops its choice back to
+project, so a project you copy or download does not inherit the choice: it follows your default. The key is the folder's absolute
+path (symlinks resolved, UTF-8, forward slashes, no trailing slash, lower-cased on Windows and on a volume that ignores case, as
+macOS does by default). If the file has two keys for the same folder (edited by hand), the most restrictive mode wins and a warning
+says so; the next save writes one entry. **Moving or renaming the project folder drops its choice back to
 your default**; set it again from the new place. No command an AI can call sets it.
 
 In the editor you never write a share text. The Engine Feedback panel has two buttons. **Add feedback** opens a form

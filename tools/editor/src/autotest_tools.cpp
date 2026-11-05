@@ -4465,7 +4465,8 @@ void Editor::at_build_tools_script() {
     // fake server of on_init: no network, and the settings and the outbox live in the autotest's own folder.
     {
         struct EState {
-            std::string path, installBefore, alwaysId;
+            std::string path, installBefore, alwaysId, projectSentId, projectAskId, projectAskKey;
+            size_t reportsBeforeAsk = 0;
             std::optional<ai::AiConfig> savedConfig;
             ImGuiID row = 0, sibling = 0;  // the dock row of the panel made taller for this section, and the one it took from
             float grown = 0;
@@ -4968,21 +4969,62 @@ void Editor::at_build_tools_script() {
             at_check(at_visible("share:settings:project") && at_visible("share:settings:project:default") && at_visible("share:settings:project:always") &&
                          at_visible("share:settings:project:ask") && at_visible("share:settings:project:never"),
                      "Feedback Settings has \"This project\" with Follow default, Always, Ask and Never");
+            // On a small window the row wraps: every radio button has its centre inside the visible part of the window.
+            at_check(at_shown("share:settings:project:default") && at_shown("share:settings:project:always") && at_shown("share:settings:project:ask") &&
+                         at_shown("share:settings:project:never"),
+                     "the project's radio buttons wrap to the window's width: none of them is clipped at its right edge");
         });
         click("share:settings:project:always");
-        step(3, [this] {
+        step(3, [this, x, add_entry] {
             const ShareSettings st = load_share_settings(share_env());
             at_check(st.mode == ShareMode::Never && share_project_mode(st, projectDir_) == ShareMode::Always &&
                          effective_share_mode(st, projectDir_) == ShareMode::Always,
                      "the project's Always writes `projects` in the user's file and leaves the default (Never) alone");
             at_check(share_.mode == ShareMode::Always && at_enabled("feedback:send"), "the project's mode is the one that applies: Send feedback is enabled again");
             at_check(!stdfs::exists(projectDir_ + "/.factoria/feedback-sharing.json"), "nothing about the choice is written inside the project");
+            // A report made now goes out although the default is Never: the project's own mode is the one that counts.
+            x->projectSentId = add_entry("Sprites cannot be skewed on one axis", "Sprite has no skew, so a slanted shadow needs a separate image for every angle.",
+                                         Json::object({{"title", "Sprites cannot be skewed on one axis"},
+                                                       {"missing", "Sprite has no skew, so a slanted shadow needs a separate image for every angle."}}));
+        });
+        wait_until([x, shared_of] { return shared_of(x->projectSentId) == "sent"; });
+        step(3, [this, x, shared_of] {
+            at_check(shared_of(x->projectSentId) == "sent" && load_share_settings(share_env()).mode == ShareMode::Never,
+                     "with the default Never and the project Always, the project's new report was sent");
+        });
+        // Ask: a new report is queued with the project's key and waits; nothing goes until the person says yes.
+        scroll_to("share:settings:project:ask", "Feedback Settings###share-settings");
+        click("share:settings:project:ask");
+        step(3, [this, x, add_entry, reports] {
+            at_check(effective_share_mode(load_share_settings(share_env()), projectDir_) == ShareMode::Ask, "the project's Ask is the mode that applies");
+            x->reportsBeforeAsk = reports();
+            x->projectAskId = add_entry("Tilemaps have no animated tiles", "Tilemap cannot play a tile animation, so water needs one entity per tile.",
+                                        Json::object({{"title", "Tilemaps have no animated tiles"},
+                                                      {"missing", "Tilemap cannot play a tile animation, so water needs one entity per tile."}}));
+        });
+        wait_until([x] {
+            for (const OutboxItem& it : load_outbox(share_env()).items)
+                if (it.localId == x->projectAskId) return true;
+            return false;
+        });
+        step(3, [this, x, reports, shared_of] {
+            const Outbox box = load_outbox(share_env());
+            const OutboxItem* item = nullptr;
+            for (const OutboxItem& it : box.items)
+                if (it.localId == x->projectAskId) item = &it;
+            at_check(item && item->state == OutboxState::Waiting && item->projectKey == share_project_key(projectDir_),
+                     "the report of a project set to Ask waits for the person's yes, and the outbox item stores the project's key");
+            if (item) x->projectAskKey = item->key;
+            at_check(shared_of(x->projectAskId) == "pending" && reports() == x->reportsBeforeAsk, "nothing of it was sent");
+            at_check(share_status(share_env(), projectDir_)["outbox"].value("waitingForConfirmation", 0) == 1, "the status counts it as waiting for the person's answer");
         });
         scroll_to("share:settings:project:never", "Feedback Settings###share-settings");
         click("share:settings:project:never");
-        step(3, [this] {
+        step(3, [this, x, reports, shared_of] {
             at_check(effective_share_mode(load_share_settings(share_env()), projectDir_) == ShareMode::Never && !at_enabled("feedback:send"),
                      "the project's Never disables Send feedback");
+            at_check(load_outbox(share_env()).items.empty() && shared_of(x->projectAskId) == "skipped" && reports() == x->reportsBeforeAsk,
+                     "the project's Never dropped the item that waited and marked its entry skipped; nothing was sent");
         });
         scroll_to("share:settings:project:default", "Feedback Settings###share-settings");
         click("share:settings:project:default");

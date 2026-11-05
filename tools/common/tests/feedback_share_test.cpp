@@ -322,6 +322,7 @@ TEST_CASE("share outbox: saved and loaded as it was") {
     it.file = "/p/ENGINE_FEEDBACK.json";
     it.localId = "FB-0001";
     it.key = it.file + "#" + it.localId;
+    it.projectKey = "/p";
     it.state = OutboxState::Waiting;
     it.entry = Json::object({{"localId", "FB-0001"}});
     it.attempts = 2;
@@ -334,6 +335,7 @@ TEST_CASE("share outbox: saved and loaded as it was") {
     const Outbox back = load_outbox(s.env);
     REQUIRE(back.items.size() == 1);
     CHECK(back.items[0].key == it.key);
+    CHECK(back.items[0].projectKey == "/p");
     CHECK(back.items[0].state == OutboxState::Waiting);
     CHECK(back.items[0].attempts == 2);
     CHECK(back.items[0].nextAttempt == 99);
@@ -1161,4 +1163,319 @@ TEST_CASE("share per project: feedback.report and feedback.share_status use the 
     REQUIRE(r.ok);
     CHECK(r.result["mode"] == "never");
     CHECK(r.result["default"] == "always");
+}
+
+// ---------------------------------------------------------------------------- review fixes: the item's project, the default
+
+namespace {
+// A second project next to the first one (the folder name given), with its feedback file holding FB-0001.
+struct TwoProjects {
+    Share s;
+    std::string a, b, fileA, fileB;
+    TwoProjects() {
+        a = s.project();
+        fileA = s.feedback_file(a);
+        b = s.dir.sub("game2");
+        testing::write_all(b + "/factoria.json", R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"s.scene.json"})");
+        fileB = s.feedback_file(b);
+    }
+    Outbox box() { return load_outbox(s.env); }
+    const OutboxItem* item(const Outbox& box, const std::string& file) {
+        for (const OutboxItem& it : box.items)
+            if (share_same_path(it.file, file)) return &it;
+        return nullptr;
+    }
+    // The choice written straight into the settings file, as a person editing it (or another process) would.
+    void own_mode(const std::string& proj, ShareMode m) {
+        ShareSettings st = load_share_settings(s.env);
+        st.projects[share_project_key(proj)] = m;
+        REQUIRE(save_share_settings(s.env, st).ok());
+    }
+};
+}  // namespace
+
+TEST_CASE("share per project: a queued item remembers its project, and its mode is that project's") {
+    TwoProjects t;
+    t.s.mode(ShareMode::Always);
+    REQUIRE(share_queue(t.s.env, t.fileA, t.a, engine_names()).ok());
+    const Outbox box = t.box();
+    REQUIRE(box.items.size() == 1);
+    CHECK(box.items[0].projectKey == share_project_key(t.a));
+    CHECK(box.items[0].state == OutboxState::Queued);
+    CHECK(load_feedback(t.fileA).ok());
+    // It is written and read back.
+    CHECK(parse_json(testing::read_all(box.path), "outbox").value()["items"][0]["project"] == share_project_key(t.a));
+    // A queue call without the project folder works it out from the feedback file, once, at that moment.
+    REQUIRE(share_queue(t.s.env, t.fileB, "", engine_names()).ok());
+    CHECK(t.item(t.box(), t.fileB)->projectKey == share_project_key(t.b));
+}
+
+TEST_CASE("share per project: the default `always` never confirms or sends the items of a project set to ask or never") {
+    TwoProjects t;
+    t.s.mode(ShareMode::Ask);
+    REQUIRE(share_queue(t.s.env, t.fileA, t.a, engine_names()).ok());
+    REQUIRE(share_queue(t.s.env, t.fileB, t.b, engine_names()).ok());
+    // A is set to ask and B to never by someone editing the file: B's items stay in the outbox, blocked.
+    t.own_mode(t.a, ShareMode::Ask);
+    t.own_mode(t.b, ShareMode::Never);
+    t.s.mode(ShareMode::Always);
+    Outbox box = t.box();
+    REQUIRE(box.items.size() == 2);
+    CHECK(t.item(box, t.fileA)->state == OutboxState::Waiting);  // `always` did not turn the project's wait into a yes
+    CHECK(t.item(box, t.fileB)->state == OutboxState::Waiting);
+    FlushOptions all;
+    all.oneBatch = false;
+    all.force = true;
+    t.s.script = {reply(200, t.s.answer_ok({{"FB-0001", "accepted"}}))};
+    const FlushResult f = share_flush(t.s.env, all);
+    CHECK(f.sent == 0);
+    CHECK(f.waiting == 1);
+    CHECK(f.notAllowed == 1);
+    CHECK(t.s.requests.empty());
+    CHECK(t.box().items.size() == 2);
+    // The default going to never takes neither away: both projects have their own mode.
+    t.s.mode(ShareMode::Never);
+    CHECK(t.box().items.size() == 2);
+}
+
+TEST_CASE("share per project: a default `always` does not confirm a project's waiting items; `never` does not drop a project set to always") {
+    TwoProjects t;
+    t.s.mode(ShareMode::Ask);
+    REQUIRE(share_queue(t.s.env, t.fileA, t.a, engine_names()).ok());
+    REQUIRE(share_queue(t.s.env, t.fileB, t.b, engine_names()).ok());
+    REQUIRE(t.box().items.size() == 2);
+    t.own_mode(t.a, ShareMode::Ask);
+    t.s.mode(ShareMode::Always);  // the projects that follow the default are confirmed; A keeps asking
+    Outbox box = t.box();
+    CHECK(t.item(box, t.fileA)->state == OutboxState::Waiting);
+    CHECK(t.item(box, t.fileB)->state == OutboxState::Queued);
+    // B goes to always of its own, then the default goes to never: B's item stays, A's (ask) stays, nothing else is touched.
+    REQUIRE(set_project_share_mode(t.s.env, t.b, ShareMode::Always).ok());
+    t.s.mode(ShareMode::Never);
+    box = t.box();
+    REQUIRE(box.items.size() == 2);
+    CHECK(t.item(box, t.fileB)->state == OutboxState::Queued);
+    CHECK(load_feedback(t.fileB).value()["entries"][0]["shared"]["status"] == "pending");
+    t.s.script = {reply(200, t.s.answer_ok({{"FB-0001", "accepted"}}))};
+    const FlushResult f = share_flush(t.s.env);
+    CHECK(f.sent == 1);
+    CHECK(load_feedback(t.fileB).value()["entries"][0]["shared"]["status"] == "sent");
+    // The default `never` does drop the items of a project that follows it.
+    REQUIRE(set_project_share_mode(t.s.env, t.a, std::nullopt).ok());  // A follows the default (never): dropped now
+    CHECK(t.box().items.empty());
+    CHECK(load_feedback(t.fileA).value()["entries"][0]["shared"]["status"] == "skipped");
+}
+
+TEST_CASE("share per project: from always to ask the queued items wait again; clearing under a default of never drops them") {
+    TwoProjects t;
+    t.s.mode(ShareMode::Never);
+    REQUIRE(set_project_share_mode(t.s.env, t.a, ShareMode::Always).ok());
+    REQUIRE(share_queue(t.s.env, t.fileA, t.a, engine_names()).ok());
+    REQUIRE(t.box().items[0].state == OutboxState::Queued);
+    REQUIRE(set_project_share_mode(t.s.env, t.a, ShareMode::Ask).ok());
+    CHECK(t.box().items[0].state == OutboxState::Waiting);
+    CHECK_FALSE(share_has_due(t.s.env));
+    FlushOptions all;
+    const FlushResult f = share_flush(t.s.env, all);
+    CHECK(f.sent == 0);
+    CHECK(f.waiting == 1);
+    CHECK(t.s.requests.empty());
+    // The user answers yes: it goes.
+    CHECK(share_confirm(t.s.env, {t.box().items[0].key}) == 1);
+    CHECK(share_has_due(t.s.env));
+    // Always again, then the choice is removed while the default is never: the project's items are dropped, as for `never`.
+    REQUIRE(set_project_share_mode(t.s.env, t.a, ShareMode::Always).ok());
+    CHECK(t.box().items.size() == 1);
+    REQUIRE(set_project_share_mode(t.s.env, t.a, std::nullopt).ok());
+    CHECK(t.box().items.empty());
+    CHECK(load_feedback(t.fileA).value()["entries"][0]["shared"]["status"] == "skipped");
+    // The default going to ask puts the queued items of the projects that follow it back to waiting.
+    t.s.mode(ShareMode::Always);
+    REQUIRE(share_queue(t.s.env, t.fileB, t.b, engine_names()).ok());
+    REQUIRE(t.box().items[0].state == OutboxState::Queued);
+    t.s.mode(ShareMode::Ask);
+    CHECK(t.box().items[0].state == OutboxState::Waiting);
+}
+
+TEST_CASE("share per project: an item written without a project (an older version) waits for a yes and gets its key then") {
+    TwoProjects t;
+    t.s.mode(ShareMode::Always);
+    // The outbox as the version before the project key wrote it: a queued item with no "project".
+    Outbox box;
+    OutboxItem it;
+    it.file = t.fileA;
+    it.localId = "FB-0001";
+    it.state = OutboxState::Queued;
+    it.entry = Json::object({{"localId", "FB-0001"}, {"category", "physics"}, {"severity", "major"}, {"title", "No one-way platforms"},
+                              {"missing", "Collider2D has no one-way option, so a body cannot pass up through a platform."}});
+    box.items.push_back(it);
+    REQUIRE(save_outbox(t.s.env, box).ok());
+    Outbox back = t.box();
+    REQUIRE(back.items.size() == 1);
+    CHECK(back.items[0].projectKey.empty());
+    CHECK(back.items[0].state == OutboxState::Waiting);  // not sendable until the user decides
+    CHECK_FALSE(share_has_due(t.s.env));
+    t.s.script = {reply(200, t.s.answer_ok({{"FB-0001", "accepted"}}))};
+    CHECK(share_flush(t.s.env).sent == 0);
+    CHECK(t.s.requests.empty());
+    CHECK(share_status(t.s.env, t.a)["outbox"]["waitingForConfirmation"] == 1);
+    // A default that changes does not decide for it either.
+    t.s.mode(ShareMode::Always);
+    CHECK(t.box().items[0].state == OutboxState::Waiting);
+    // The user says yes: it takes its file's project now and goes.
+    REQUIRE(share_waiting(t.s.env).size() == 1);
+    CHECK(share_confirm(t.s.env) == 1);
+    CHECK(t.box().items[0].projectKey == share_project_key(t.a));
+    CHECK(share_flush(t.s.env).sent == 1);
+    // A project that is never does not confirm it.
+    REQUIRE(save_outbox(t.s.env, box).ok());
+    t.own_mode(t.a, ShareMode::Never);
+    CHECK(share_confirm(t.s.env) == 0);
+    // The default going to never drops it (nothing may be sent), unless the file's project has its own mode.
+    t.s.mode(ShareMode::Never);
+    CHECK(t.box().items.size() == 1);  // A has its own mode: the default does not touch it
+    REQUIRE(set_project_share_mode(t.s.env, t.a, std::nullopt).ok());
+    CHECK(t.box().items.empty());
+}
+
+TEST_CASE("share per project: `feedback share` for one project confirms and sends that project's items only") {
+    TwoProjects t;
+    t.s.mode(ShareMode::Ask);
+    REQUIRE(share_queue(t.s.env, t.fileA, t.a, engine_names()).ok());
+    REQUIRE(share_queue(t.s.env, t.fileB, t.b, engine_names()).ok());
+    const std::vector<OutboxItem> waiting = share_waiting(t.s.env, t.fileA);
+    REQUIRE(waiting.size() == 1);
+    CHECK(share_same_path(waiting[0].file, t.fileA));
+    // The same file spelled another way is the same file.
+    CHECK(share_waiting(t.s.env, t.a + "/../game/ENGINE_FEEDBACK.json").size() == 1);
+    CHECK(share_confirm(t.s.env, {waiting[0].key}) == 1);
+    CHECK(t.item(t.box(), t.fileB)->state == OutboxState::Waiting);
+    FlushOptions fo;
+    fo.file = t.a + "/../game/ENGINE_FEEDBACK.json";  // another spelling of the project's file
+    fo.force = true;
+    t.s.script = {reply(200, t.s.answer_ok({{"FB-0001", "accepted"}}))};
+    CHECK(share_flush(t.s.env, fo).sent == 1);
+    REQUIRE(t.box().items.size() == 1);
+    CHECK(t.box().items[0].file == t.fileB);
+    CHECK(t.box().items[0].state == OutboxState::Waiting);
+    // Skipping and discarding match files the same way.
+    share_skip(t.s.env, t.b + "/../game2/ENGINE_FEEDBACK.json", {"FB-0001"});
+    CHECK(t.box().items.empty());
+}
+
+TEST_CASE("share per project: a mode changed while a flush is running is honored by the next batch") {
+    Share s;
+    const std::string proj = s.project();
+    Json doc = create_empty_feedback("g", "9.9.9");
+    const char* topics[25] = {"gradient fills", "tilemap collisions", "bone attachments", "shadow cascades", "audio ducking",
+                              "gamepad rumble", "text outlines", "particle trails", "scene streaming", "path smoothing",
+                              "ragdoll joints", "decal projection", "cloth simulation", "voice chat", "save encryption",
+                              "camera shake", "water reflections", "inventory grids", "dialogue trees", "terrain brushes",
+                              "network replay", "sprite atlases", "light cookies", "rope physics", "mesh decimation"};
+    const auto& cats = feedback_categories();
+    for (int i = 0; i < 25; ++i) {
+        FeedbackInput in;
+        in.category = cats[std::size_t(i) % cats.size()];
+        in.severity = "minor";
+        in.title = std::string("No built-in ") + topics[i];
+        in.missing = std::string("The engine has no ") + topics[i] + " feature";
+        in.workaround = "wrote a script by hand";
+        in.share = Json::object({{"title", in.title},
+                                 {"missing", std::string("The engine has no ") + topics[i] + " feature, so every game builds it again."}});
+        REQUIRE(add_feedback_entry(doc, in).ok());
+    }
+    const std::string file = proj + "/ENGINE_FEEDBACK.json";
+    REQUIRE(save_feedback(file, doc).ok());
+    s.mode(ShareMode::Always);
+    auto q = share_queue(s.env, file, proj, engine_names());
+    REQUIRE(q.ok());
+    REQUIRE(q->queued > 20);
+    const int queued = q->queued;
+    s.env.transport = [&](const HttpRequest& r) {
+        s.requests.push_back(r);
+        if (s.requests.size() == 1) REQUIRE(set_project_share_mode(s.env, proj, ShareMode::Ask).ok());  // the user switches while it is sent
+        Json body = parse_json(r.body, "b").value();
+        std::vector<std::pair<std::string, std::string>> results;
+        for (const Json& e : body["entries"]) results.push_back({e["localId"].get<std::string>(), "accepted"});
+        return reply(200, s.answer_ok(results));
+    };
+    FlushOptions all;
+    all.oneBatch = false;
+    const FlushResult f = share_flush(s.env, all);
+    CHECK(s.requests.size() == 1);  // the second batch was not sent: the project asks now
+    CHECK(f.sent == 20);
+    const Outbox box = load_outbox(s.env);
+    CHECK(box.items.size() == std::size_t(queued - 20));
+    for (const OutboxItem& it : box.items) CHECK(it.state == OutboxState::Waiting);  // and the switch (to waiting) was not undone by the flush
+}
+
+TEST_CASE("share per project: keys are UTF-8 and survive a round trip, also for a folder with accents") {
+    Share s;
+    const std::string accented = "jue\xc3\xb1o \xc3\xa0 la carta";  // n with tilde and a with grave, as UTF-8 bytes
+    const std::filesystem::path dir = s.dir.path / std::filesystem::path(std::u8string(
+        reinterpret_cast<const char8_t*>(accented.data()), accented.size()));
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    REQUIRE_FALSE(ec);
+    testing::write_all(dir / "factoria.json", R"({"name":"Accents","id":"com.acme.accents","version":"0.1.0","mainScene":"s.scene.json"})");
+    const std::string proj = dir.string();
+    const std::string key = share_project_key(proj);
+    const std::string lowered = to_lower(accented);  // Windows keys are lower case (ASCII letters only)
+    CHECK(key.size() > lowered.size());
+    CHECK(key.compare(key.size() - lowered.size(), lowered.size(), lowered) == 0);  // the key ends with the folder name, in UTF-8
+    CHECK(key.find("\xc3\xb1") != std::string::npos);  // the n with tilde, as UTF-8 bytes
+    CHECK(key.find("\xc3\xa0") != std::string::npos);  // the a with grave
+    REQUIRE(set_project_share_mode(s.env, proj, ShareMode::Always).ok());
+    // The settings file holds the same bytes (UTF-8, whatever the code page of the system) and reads back.
+    const std::string text = testing::read_all(share_settings_path(s.env));
+    CHECK(text.find("\xc3\xb1") != std::string::npos);
+    const ShareSettings st = load_share_settings(s.env);
+    REQUIRE(st.projects.size() == 1);
+    CHECK(st.projects.begin()->first == key);
+    CHECK(effective_share_mode(st, proj) == ShareMode::Always);
+    CHECK(share_same_path(proj, proj + "/."));
+}
+
+TEST_CASE("share per project: on a volume that ignores case two spellings are one project; elsewhere they differ") {
+    Share s;
+    const std::string proj = s.project();
+    std::string swapped = proj;
+    for (char& c : swapped) c = (c >= 'a' && c <= 'z') ? char(c - 32) : (c >= 'A' && c <= 'Z') ? char(c + 32) : c;
+    std::error_code ec;
+    const bool ignoresCase = std::filesystem::exists(swapped, ec) && std::filesystem::equivalent(proj, swapped, ec);
+    if (ignoresCase) {
+        CHECK(share_project_key(proj) == share_project_key(swapped));  // macOS' default volume, Windows
+        REQUIRE(set_project_share_mode(s.env, swapped, ShareMode::Never).ok());
+        CHECK(effective_share_mode(load_share_settings(s.env), proj) == ShareMode::Never);
+    } else {
+        CHECK(share_project_key(proj) != share_project_key(swapped));  // a case-sensitive volume: two different folders
+    }
+}
+
+TEST_CASE("share per project: the same folder listed twice keeps the most restrictive mode and warns") {
+    Share s;
+    const std::string proj = s.project();
+    const std::string key = share_project_key(proj);
+    testing::write_all(share_settings_path(s.env), Json::object({{"mode", "always"},
+                                                                  {"projects", Json::object({{key, "always"}, {key + "/", "never"}})}}).dump());
+    ShareSettings st = load_share_settings(s.env);
+    REQUIRE(st.projects.size() == 1);
+    CHECK(effective_share_mode(st, proj) == ShareMode::Never);
+    CHECK(st.warning.find("more than once") != std::string::npos);
+    testing::write_all(share_settings_path(s.env), Json::object({{"mode", "always"},
+                                                                  {"projects", Json::object({{key, "ask"}, {key + "//", "always"}})}}).dump());
+    CHECK(effective_share_mode(load_share_settings(s.env), proj) == ShareMode::Ask);
+    // The next save writes one entry.
+    REQUIRE(set_project_share_mode(s.env, proj, ShareMode::Ask).ok());
+    CHECK(load_share_settings(s.env).raw["projects"].size() == 1);
+    CHECK(load_share_settings(s.env).warning.empty());
+}
+
+TEST_CASE("share per project: the status names a project given as `.`") {
+    Share s;
+    const Json st = share_status(s.env, ".");
+    REQUIRE(st.contains("project"));
+    CHECK_FALSE(st["project"]["name"].get<std::string>().empty());
+    CHECK(st["project"]["name"].get<std::string>() != ".");
+    CHECK(std::filesystem::path(st["project"]["dir"].get<std::string>()).is_absolute());
 }

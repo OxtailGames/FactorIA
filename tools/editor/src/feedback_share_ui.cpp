@@ -6,6 +6,7 @@
 // radio buttons of Feedback Settings, both of which only a click can reach. No command, MCP tool, script or AI may set the mode
 // (there is no command for it, and ai.review_feedback never touches it): do not add one.
 #include <algorithm>
+#include <cstring>
 #include <sstream>
 
 #include "editor_internal.h"
@@ -40,10 +41,21 @@ std::string removals_text(const std::vector<Removal>& removed) {
 SendOutbox outbox_of_file(const ShareEnv& env, const std::string& file) {
     SendOutbox out;
     for (const OutboxItem& it : load_outbox(env).items) {
-        if (it.file != file) continue;
+        if (!share_same_path(it.file, file)) continue;
         (it.state == OutboxState::Waiting ? out.waiting : out.queued).insert(it.localId);
     }
     return out;
+}
+
+// A radio button on the line of the previous item while it fits in the window's content width, on a new line otherwise (a small
+// window must not clip the last choice). `label` may end in "##id".
+bool flow_radio(const char* label, bool active, bool first) {
+    const char* hidden = std::strstr(label, "##");
+    const float textW = ImGui::CalcTextSize(label, hidden ? hidden : nullptr).x;
+    const float width = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + textW;
+    const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    if (!first && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= right) ImGui::SameLine();
+    return ImGui::RadioButton(label, active);
 }
 
 const Json* entry_in(const Json& doc, const std::string& id) {
@@ -436,7 +448,7 @@ void Editor::feedback_share_tick() {
 
     // ask: the entries that wait for the person's answer (the Send feedback window lists them).
     if (s.mode == ShareMode::Ask) {
-        s.waiting = share_waiting(env);
+        s.waiting = file.empty() ? std::vector<OutboxItem>{} : share_waiting(env, file);  // this project's entries only
         int fresh = 0;
         for (const OutboxItem& it : s.waiting)
             if (s.notified.insert(it.key).second) ++fresh;
@@ -876,7 +888,7 @@ void Editor::draw_share_settings_window() {
         {ShareMode::Always, "Always", "Entries that carry a share text (an AI writes one when it reports) go to the engine developers in the background. "
          "Send feedback sends the others, after you read them."},
         {ShareMode::Ask, "Ask me each time", "Nothing leaves until you press Send in Send feedback (a notification opens it), where you read each text and choose what goes."},
-        {ShareMode::Never, "Never", "Nothing leaves this computer, and Send feedback is off. What waits in the outbox is dropped."}};
+        {ShareMode::Never, "Never", "Nothing leaves this computer, and Send feedback is off. What waits in the outbox of the projects that follow this default is dropped."}};
     for (const Choice& c : choices) {
         if (ImGui::RadioButton(c.name, s.settings.mode == c.mode) && s.settings.mode != c.mode) share_choose_mode(c.mode);
         at_track(std::string("share:settings:mode:") + share_mode_name(c.mode));
@@ -902,12 +914,12 @@ void Editor::draw_share_settings_window() {
                                           {ShareMode::Always, "Always##project", "always"},
                                           {ShareMode::Ask, "Ask me each time##project", "ask"},
                                           {ShareMode::Never, "Never##project", "never"}};
+        bool firstChoice = true;
         for (const ProjectChoice& c : pchoices) {
-            if (ImGui::RadioButton(c.name, own == c.mode) && own != c.mode) share_choose_project_mode(c.mode);
+            if (flow_radio(c.name, own == c.mode, firstChoice) && own != c.mode) share_choose_project_mode(c.mode);
+            firstChoice = false;
             at_track(std::string("share:settings:project:") + c.track);
-            ImGui::SameLine();
         }
-        ImGui::NewLine();
         ImGui::TextDisabled("Applies now: %s (%s).", share_mode_name(effective_share_mode(s.settings, projectDir_)),
                             own ? "this project's choice" : "your default");
         at_track("share:settings:project:effective");
