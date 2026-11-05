@@ -190,7 +190,20 @@ void Editor::at_run_steps(int frame) {
     if (atSteps_.empty() || frame < atStepAt_) return;
     AtStep s = std::move(atSteps_.front());
     atSteps_.pop_front();
+    atInStep_ = true;
+    atStepRetry_ = false;
     s.run();
+    atInStep_ = false;
+    if (atStepRetry_) {  // its widget is scrolled out of view: at_track scrolls to it, and the step runs again once it is shown
+        atStepRetry_ = false;
+        const std::string name = atScrollTo_;
+        atSteps_.push_front(std::move(s));
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this, name] { return at_shown(name); };
+        atStepAt_ = frame + 1;
+        return;
+    }
+    atScrollTo_.clear();
     atStepAt_ = frame + s.wait;
 }
 

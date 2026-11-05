@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <memory>
 
+#include "fa/ai/anthropic.h"
 #include "fa/ai/cli_agent.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
@@ -115,8 +116,10 @@ Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOption
 
     const bool keyless = pc->preset == "ollama" || pc->preset == "lmstudio" || pc->baseUrl.find("localhost") != std::string::npos ||
                          pc->baseUrl.find("127.0.0.1") != std::string::npos;
+    // Anthropic without a key falls back to the token of the `ant` CLI: ask it for one (resolve_auth), since a program
+    // called `ant` on the PATH can be Apache Ant, which has no token to give.
     if (!keyless && !resolve_api_key(*pc, options.runtime.env).found() &&
-        !(pc->kind == ProviderKind::Anthropic && pc->useAntCli && !find_cli("ant", options.runtime.env).empty()))
+        !(pc->kind == ProviderKind::Anthropic && pc->useAntCli && anthropic::resolve_auth(*pc, options.runtime).ok()))
         return make_error("The provider '" + pc->name + "' of the \"" + roleName + "\" role has no API key.",
                           "Set " + default_key_env(*pc) + " or put the key in " + where + " (docs/AI_PROVIDERS.md).");
     auto provider = make_chat_provider(*pc, options.runtime);

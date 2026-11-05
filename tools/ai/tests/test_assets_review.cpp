@@ -158,6 +158,7 @@ TEST_CASE("assets.review: no provider or no key is a teaching error before the c
         opt.loadConfig = [&] { return Result<AiConfig>(f.cfg); };
         opt.projectDir = [&] { return f.dir.str(); };
         opt.runtime.env = [](const std::string&) { return std::string(); };
+        opt.runtime.antToken = [] { return std::string(); };  // an `ant` on the PATH (Apache Ant on CI runners) gives no token
         CommandRegistry reg = make_registry();
         register_ai_commands(reg, opt);
         f.cfg.roles["fast"].provider = "anthropic";
