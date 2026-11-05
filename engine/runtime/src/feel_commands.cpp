@@ -120,7 +120,7 @@ void register_feel_commands(Engine&, Engine::Impl& I) {
                "prefab":{"type":"string","description":"Project-relative path of the prefab."},
                "offset":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":3,"default":[0,0],"description":"Added to the entity's world position, [x, y] or [x, y, z]."},
                "local":{"type":"boolean","default":false,"description":"true: `offset` is in the entity's own space (a mirrored sprite puts it on the other side)."},
-               "lifetime":{"type":"number","minimum":0,"default":0,"description":"Seconds on the game clock until the spawned entity is destroyed; 0 = the prefab ends itself."}}})"),
+               "lifetime":{"type":"number","minimum":0,"default":0,"description":"Seconds of game time until the spawned entity is destroyed (a hit-stop, time.scale 0 or a pause holds the count); 0 = the prefab ends itself."}}})"),
            false, "feel"},
           [&I](const Json& a) { return run_action(I, a, "spawn", "feel.spawn", false); });
 

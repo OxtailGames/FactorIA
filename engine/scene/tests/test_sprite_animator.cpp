@@ -263,3 +263,18 @@ TEST_CASE("sprite animator events: the checks name the pointer, the key and the 
     CHECK(check_sprite_events(Json::parse(R"([{"frame":1,"name":"a"}])"), "/events", sheet).empty());
     CHECK_FALSE(check_sprite_events(Json::parse(R"({"frame":1})"), "/events", sheet).empty());
 }
+
+TEST_CASE("sprite animator events: wrong JSON types are said once and skipped, never thrown in the frame loop") {
+    EventRig r("spin", R"([{"frame":"two","name":"a"},{"frame":1,"name":5},{"frame":1,"clip":3,"name":"b"},{"frame":1,"feel":{"action":5}},
+                           {"frame":1,"data":7,"name":"c"},{"frame":1,"feel":9},4,{"frame":1,"name":"ok"}])");
+    CHECK_NOTHROW([&] {
+        for (int i = 0; i < 12; ++i) r.step(0.1f);  // 3 loops of the 4 frames
+    }());
+    CHECK(r.game_frames() == std::vector<int>{1, 1, 1});  // only the good event
+    const auto& said = r.world.feel().warnedClipActions;
+    CHECK(said.size() >= 7);  // each bad entry once, however many passes
+    CHECK(said.size() <= 8);
+    bool pointer = false;
+    for (const std::string& s : said) pointer = pointer || s.find("events/1/name") != std::string::npos;
+    CHECK(pointer);
+}

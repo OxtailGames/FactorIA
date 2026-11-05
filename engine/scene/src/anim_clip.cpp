@@ -8,7 +8,9 @@
 #include <mutex>
 
 #include "fa/core/fs.h"
+#include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/scene/sprite_animator.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -462,6 +464,77 @@ bool read_event_feel(const Json& event, const std::string& pointer, std::vector<
         ok = false;
     }
     return ok;
+}
+
+std::vector<ClipIssue> check_animator_event(const Json& ev, const std::string& ep) {
+    std::vector<ClipIssue> issues;
+    if (!ev.is_object()) {
+        issues.push_back({ep, "an Animator event is an object, got " + describe_json_value(ev),
+                          "Write {\"clip\": \"Walk\", \"time\": 0.25, \"name\": \"footstep\"} or {\"clip\": \"Attack\", \"time\": 0.3, \"feel\": {\"action\": \"hitStop\"}}."});
+        return issues;
+    }
+    const std::vector<std::string> allowed = {"clip", "time", "name", "feel"};
+    for (auto it = ev.begin(); it != ev.end(); ++it)
+        if (std::find(allowed.begin(), allowed.end(), it.key()) == allowed.end())
+            issues.push_back({ep + "/" + it.key(), "unknown key '" + it.key() + "', so it is ignored", did_you_mean(it.key(), allowed)});
+    if (const auto it = ev.find("clip"); it == ev.end())
+        issues.push_back({ep + "/clip", "the event has no `clip`, so it never fires", "Name the clip it belongs to, e.g. \"clip\": \"Walk\"."});
+    else if (!it->is_string() || it->get<std::string>().empty())
+        issues.push_back({ep + "/clip", "clip must be the name of a clip, got " + describe_json_value(*it), "Write the clip's name as a string, e.g. \"Walk\"."});
+    if (const auto it = ev.find("time"); it != ev.end() && (!it->is_number() || it->get<double>() < 0.0))
+        issues.push_back({ep + "/time", "time must be a number of seconds from 0, got " + describe_json_value(*it), "Write the time in seconds from the start of the clip, e.g. 0.25."});
+    if (const auto it = ev.find("name"); it != ev.end() && (!it->is_string() || it->get<std::string>().empty()))
+        issues.push_back({ep + "/name", "name must be a non-empty string, got " + describe_json_value(*it), "The name is the game event world.on(name, fn) listens to."});
+    std::vector<Json> feel;
+    read_event_feel(ev, ep, feel, issues);
+    if (!ev.contains("name") && !ev.contains("feel"))
+        issues.push_back({ep, "the event needs `name` or `feel`, so it does nothing",
+                          "`name` sends the game event world.on(name, fn) listens to; `feel` runs game feel actions (docs/GAME_FEEL.md, \"Effects as data\")."});
+    return issues;
+}
+
+std::vector<ClipIssue> check_animator_events(const Json& events, const std::string& pointer) {
+    std::vector<ClipIssue> issues;
+    if (!events.is_array()) {
+        issues.push_back({pointer, "events must be an array, got " + describe_json_value(events),
+                          "Write [{\"clip\": \"Walk\", \"time\": 0.25, \"name\": \"footstep\"}]."});
+        return issues;
+    }
+    for (std::size_t i = 0; i < events.size(); ++i) {
+        std::vector<ClipIssue> one = check_animator_event(events[i], pointer + "/" + std::to_string(i));
+        issues.insert(issues.end(), one.begin(), one.end());
+    }
+    return issues;
+}
+
+bool inline_event_usable(World& w, Entity e, bool sprite, std::size_t index, const Json& ev) {
+    auto typed = [&](const char* key, auto&& test) {
+        const auto it = ev.find(key);
+        return it == ev.end() || test(*it);
+    };
+    const auto is_str = [](const Json& j) { return j.is_string(); };
+    const auto is_num = [](const Json& j) { return j.is_number(); };
+    const auto is_obj = [](const Json& j) { return j.is_object(); };
+    const auto is_feel = [](const Json& j) { return j.is_object() || j.is_array(); };
+    bool ok = ev.is_object();
+    if (ok) {
+        ok = typed("clip", is_str) && typed("name", is_str) && typed("feel", is_feel);
+        if (sprite) ok = ok && typed("data", is_obj) && ev.contains("frame") && is_num(ev["frame"]);
+        else ok = ok && typed("time", is_num);
+    }
+    if (ok) return true;
+    FeelState& fs = w.feel();
+    const char* component = sprite ? "SpriteAnimator" : "Animator";
+    const std::string base = "events/" + std::to_string(index);
+    const std::vector<ClipIssue> issues = sprite ? check_sprite_event(ev, base, nullptr) : check_animator_event(ev, base);
+    std::string text = std::format("{} '{}' skips the event {}: it has the wrong JSON type", component, w.id_of(e), base);
+    std::size_t shown = 0;
+    for (const ClipIssue& i : issues) {
+        if (shown++ == 3) break;
+        text += std::format("{}{}: {} (hint: {})", shown == 1 ? ". " : "; ", i.pointer, i.message, i.hint);
+    }
+    if (fs.warnedClipActions.size() < 64 && fs.warnedClipActions.insert(text).second) FA_WARN("feel", "{}", text);
+    return false;
 }
 
 bool read_clip_event(const Json& ej, const std::string& ep, float duration, bool durationKnown, ClipEvent& ev,

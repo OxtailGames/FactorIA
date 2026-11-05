@@ -42,8 +42,26 @@ std::vector<std::string> project_clip_files() {
     return out;
 }
 
-// The files a clip event's game feel actions name (a spawn's prefab, a sound's path) must exist. `event` is the event object,
-// `pointer` its place in `file`.
+// True when a prefab ends itself without a `lifetime`: it carries a Script (which can destroy it) or a ParticleEmitter with
+// `autoDestroy`. Anything else lives as long as the scene unless the spawn action gives a `lifetime`. Read from the file, no scene.
+bool prefab_ends_itself(const Json& node) {
+    if (node.is_array()) {
+        for (const Json& n : node)
+            if (prefab_ends_itself(n)) return true;
+        return false;
+    }
+    if (!node.is_object()) return false;
+    if (const auto comps = node.find("components"); comps != node.end() && comps->is_object()) {
+        if (comps->contains("Script")) return true;
+        if (const auto pe = comps->find("ParticleEmitter"); pe != comps->end() && pe->is_object() && pe->value("autoDestroy", false)) return true;
+    }
+    for (auto it = node.begin(); it != node.end(); ++it)
+        if ((it.key() == "children" || it.key() == "entity" || it.key() == "entities") && prefab_ends_itself(*it)) return true;
+    return false;
+}
+
+// The files a clip event's game feel actions name (a spawn's prefab, a sound's path) must exist, and a spawn that never ends is a
+// warning. `event` is the event object, `pointer` its place in `file`.
 void check_feel_files(const std::string& file, const std::string& pointer, const Json& event, ValidationReport& report) {
     if (!event.is_object() || !event.contains("feel")) return;
     const Json& feel = event["feel"];
@@ -56,7 +74,18 @@ void check_feel_files(const std::string& file, const std::string& pointer, const
         const char* key = kind == "spawn" ? "prefab" : kind == "sound" ? "path" : nullptr;
         if (!key || !action.contains(key) || !action[key].is_string()) return;
         const std::string path = action[key].get<std::string>();
-        if (path.empty() || fs::exists(path)) return;
+        if (path.empty()) return;
+        if (fs::exists(path)) {
+            if (kind != "spawn") return;
+            const auto life = action.find("lifetime");
+            if (life != action.end() && life->is_number() && life->get<double>() > 0.0) return;
+            auto prefab = load_json_file(path);
+            if (prefab.ok() && prefab_ends_itself(*prefab)) return;
+            report.warnings.push_back({file, ap + "/prefab",
+                                       std::format("the spawn of '{}' has no `lifetime` and the prefab has no Script or autoDestroy particles to end it: every time the event fires an effect stays for the rest of the scene", path),
+                                       "Add \"lifetime\": 0.5 (seconds) to the action, or end the effect from a script or with ParticleEmitter.autoDestroy."});
+            return;
+        }
         std::vector<std::string> existing;
         if (kind == "spawn") {
             for (const std::string& f : fs::list(".", true, ".json"))
@@ -92,24 +121,12 @@ void check_inline_events(const std::string& file, const World& world, const Json
     };
     for (Entity e : world.entities_with(TypeRegistry::global().of<Animator>())) {
         const Animator* an = world.get<Animator>(e);
-        if (!an || !an->events.is_array()) continue;
+        if (!an || an->events.is_null() || (an->events.is_array() && an->events.empty())) continue;
         const std::string base = base_of(e) + "/components/Animator/events";
-        for (std::size_t i = 0; i < an->events.size(); ++i) {
-            const Json& ev = an->events[i];
-            if (!ev.is_object()) continue;
-            const std::string ep = base + "/" + std::to_string(i);
-            if (!ev.contains("name") && !ev.contains("feel")) {
-                report.errors.push_back({file, ep, "Animator '" + world.id_of(e) + "': the event needs `name` or `feel`, so it does nothing.",
-                                         "`name` sends the game event world.on(name, fn) listens to; `feel` runs game feel actions (docs/GAME_FEEL.md, \"Effects as data\")."});
-                continue;
-            }
-            if (!ev.contains("feel")) continue;
-            std::vector<Json> actions;
-            std::vector<ClipIssue> issues;
-            read_event_feel(ev, ep, actions, issues);
-            for (const ClipIssue& p : issues) report.errors.push_back({file, p.pointer, "Animator '" + world.id_of(e) + "': " + p.message, p.hint});
-            if (issues.empty()) check_feel_files(file, ep, ev, report);
-        }
+        const std::vector<ClipIssue> issues = check_animator_events(an->events, base);
+        for (const ClipIssue& p : issues) report.errors.push_back({file, p.pointer, "Animator '" + world.id_of(e) + "': " + p.message, p.hint});
+        if (issues.empty())
+            for (std::size_t i = 0; i < an->events.size(); ++i) check_feel_files(file, base + "/" + std::to_string(i), an->events[i], report);
     }
     for (Entity e : world.entities_with(TypeRegistry::global().of<SpriteAnimator>())) {
         const SpriteAnimator* sa = world.get<SpriteAnimator>(e);

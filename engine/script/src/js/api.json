@@ -1900,7 +1900,7 @@
       },
       {
        "sig": "lifetime?: number",
-       "doc": "Seconds on the game clock after which the spawned entity is destroyed. Default 0: the prefab ends itself (a script, or a non-looping animation that destroys it); an effect with neither stays for the whole scene."
+       "doc": "Seconds of game time after which the spawned entity is destroyed (a hit-stop, time.scale 0 or a pause holds the count). Default 0: the prefab ends itself (a script, or a non-looping animation that destroys it); an effect with neither stays for the whole scene."
       }
      ]
     },

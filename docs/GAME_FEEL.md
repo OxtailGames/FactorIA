@@ -197,9 +197,12 @@ Two actions make something outside the entity, both from the same JSON form (and
 - `spawn {prefab, offset?, local?, lifetime?}` puts the prefab (a project-relative path) at the entity's world position plus
   `offset`. With `local: true` the offset is in the entity's own space, so a mirrored sprite flips its x and the dust appears
   behind a character that faces left. The spawned entity is created the next time the engine updates the effects (never in the
-  middle of an iteration over the scene) and is marked as script-spawned. `lifetime` is a number of seconds on the game clock
-  after which it is destroyed (a hit-stop pauses it); with `0`, the default, the prefab has to end itself (a particle burst that
-  stops, an animation that destroys its entity), or the effects pile up. A missing prefab is logged once and nothing appears.
+  middle of an iteration over the scene) and is marked as script-spawned. `lifetime` is a number of seconds of game time
+  after which it is destroyed (a hit-stop, `time.scale` 0 or a paused game holds the count); with `0`, the default, the prefab has to end itself (a particle burst that
+  stops, an animation that destroys its entity), or the effects pile up (`project.validate` warns about a clip event whose
+  `spawn` has no `lifetime` and whose prefab has no Script or `autoDestroy` particles). A missing prefab is logged once and
+  nothing appears. At most 64 spawns wait for one frame: the extra ones are dropped with one warning per scene (a clip event
+  that fires on every step, or a script that calls `feel.spawn` in a loop, makes this).
 - `sound {path, volume?, pitch?, pan?, bus?}` plays a sound once: `volume` 0 to 4 (default 1), `pitch` 0.1 to 4 (default 1),
   `pan` -1 to 1 (default 0) and `bus` (`sfx` by default). The sound waits in a queue that the audio system drains every frame,
   so a headless run without audio only holds it (`feel.state` lists the `queued` sounds and spawns; when more than 64 sounds
@@ -232,7 +235,10 @@ This works in the three places that have events:
 preset button for each action. Loading a clip checks every action: a typo in an action name, an unknown key, a value out of
 range and an event with neither `name` nor `feel` are errors with their JSON pointer (`/events/2/feel/0/action`) and a "did you
 mean". `project.validate` also checks that the prefab or the sound file of a `spawn` or `sound` action exists. An action that fails while the game runs (for example a prefab
-deleted since) is logged once per scene and the rest of the event still runs: an event never stops an animation.
+deleted since) is logged once per scene and the rest of the event still runs: an event never stops an animation. The same goes
+for an inline event (`Animator.events`, `SpriteAnimator.events`) written with the wrong JSON type, for example `"action": 5` or
+`"name": 5`: the frame loop never throws, the event is skipped, and one warning per scene names the component, the JSON pointer
+(`events/1/name`) and the fix; `project.validate` reports the same mistakes as errors with a "did you mean" for a misspelt key.
 
 A `shake` in a clip event shakes the entity that plays the clip when it is a camera, else the main camera.
 

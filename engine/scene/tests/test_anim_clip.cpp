@@ -838,21 +838,21 @@ TEST_CASE("feel actions as data: push local follows the facing, spawn instantiat
     CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json","offset":[1,2,0],"local":true,"lifetime":0.5})")).ok());
     CHECK(rig.world.feel().spawns.size() == 1);  // queued: nothing is created inside the caller's iteration
     CHECK(rig.world.find_by_id("spark").is_null());
-    feel_update(rig.world, 0.1);
+    feel_update(rig.world, 0.1, 0.1);
     const Entity spark = rig.world.find_by_id("spark");
     REQUIRE_FALSE(spark.is_null());
     const Vec3 at = rig.world.world_position(spark);
     CHECK(at.x == doctest::Approx(9.0f));  // the offset's x is mirrored by the facing, not stretched by the scale
     CHECK(at.y == doctest::Approx(2.0f));
-    for (int i = 0; i < 6; ++i) feel_update(rig.world, 0.1);
+    for (int i = 0; i < 6; ++i) feel_update(rig.world, 0.1, 0.1);
     rig.world.flush();
     CHECK(rig.world.find_by_id("spark").is_null());
     CHECK(rig.world.feel().lifetimes.empty());
     // a missing prefab is logged once, never thrown
     CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/none.prefab.json"})")).ok());
-    feel_update(rig.world, 0.1);
+    feel_update(rig.world, 0.1, 0.1);
     CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/none.prefab.json"})")).ok());
-    feel_update(rig.world, 0.1);
+    feel_update(rig.world, 0.1, 0.1);
     CHECK(rig.world.feel().warnedClipActions.size() == 1);
 
     // sound: validated, queued, taken once; the queue is bounded
@@ -880,4 +880,77 @@ TEST_CASE("feel actions as data: push local follows the facing, spawn instantiat
     auto bad = feel_check_action(Json::parse(R"({"action":"sond"})"));
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().message.find("sound") != std::string::npos);
+}
+
+TEST_CASE("inline Animator events with the wrong JSON types never throw in the frame loop: said once, skipped, the rest still fire") {
+    TempProject p;
+    p.write("anim/walk.anim.json", clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])")));
+    Rig rig;
+    rig.clips(R"({"walk":"anim/walk.anim.json"})");
+    rig.a->clip = "walk";
+    rig.a->events = Json::parse(R"([{"clip":"walk","time":0.25,"name":5},
+                                    {"clip":"walk","time":0.25,"feel":{"action":5}},
+                                    {"clip":"walk","time":0.25,"feel":"hitStop"},
+                                    {"clip":"walk","time":"soon","name":"late"},
+                                    {"clip":7,"time":0.25,"name":"noclip"},
+                                    {"clip":"walk","time":0.5,"feel":[5,{"action":"sound","path":"audio/ok.wav"}]},
+                                    "not an object",
+                                    {"clip":"walk","time":0.75,"name":"fine"}])");
+    std::vector<std::string> names;
+    CHECK_NOTHROW([&] {
+        for (int i = 0; i < 8; ++i)  // two loops
+            for (const std::string& n : rig.step(0.25f)) names.push_back(n);
+    }());
+    CHECK(names == std::vector<std::string>{"fine", "fine"});
+    CHECK(feel_take_sounds(rig.world).size() == 2);  // the good action of an event with a bad sibling still runs
+    // 4 bad entries said once each (not once per loop pass or per step), plus the bad action 5 twice-fired but said once
+    const auto& said = rig.world.feel().warnedClipActions;
+    CHECK(said.size() >= 5);
+    CHECK(said.size() <= 8);
+    bool pointer = false, hint = false;
+    for (const std::string& s : said) {
+        pointer = pointer || s.find("events/0/name") != std::string::npos;
+        hint = hint || s.find("hint:") != std::string::npos;
+    }
+    CHECK(pointer);
+    CHECK(hint);
+    // feel_run_clip_actions itself copes with an action that is not a string
+    CHECK_NOTHROW(feel_run_clip_actions(rig.world, rig.hero, {Json::parse(R"({"action":5})"), Json(7), Json::object()}, "test"));
+}
+
+TEST_CASE("check_animator_events: the pointer, the field and the fix of every mistake") {
+    const auto issues = check_animator_events(Json::parse(R"([{"clip":"walk","time":0.1,"name":"a"},{"clip":"walk","time":-1,"name":"b"},
+        {"clip":"walk","time":"x","name":"c"},{"time":0.1,"name":"d"},{"clip":"walk","time":0.1},{"clip":"walk","time":0.1,"name":5},
+        {"clip":"walk","tme":0.1,"name":"e"},{"clip":"walk","time":0.1,"feel":{"action":5}},"x"])"), "/events");
+    auto has = [&](const std::string& pointer, const std::string& text) {
+        for (const ClipIssue& i : issues)
+            if (i.pointer == pointer && (i.message + " " + i.hint).find(text) != std::string::npos) return true;
+        return false;
+    };
+    CHECK(has("/events/1/time", "from 0"));
+    CHECK(has("/events/2/time", "number"));
+    CHECK(has("/events/3/clip", "never fires"));
+    CHECK(has("/events/4", "name"));
+    CHECK(has("/events/5/name", "string"));
+    CHECK(has("/events/6/tme", "time"));  // did you mean
+    CHECK(has("/events/7/feel", "action"));
+    CHECK(has("/events/8", "object"));
+    CHECK(check_animator_events(Json::parse(R"([{"clip":"walk","time":0.1,"name":"a"}])"), "/events").empty());
+    CHECK_FALSE(check_animator_events(Json::parse(R"({"clip":"walk"})"), "/events").empty());
+}
+
+TEST_CASE("spawn actions: at most kMaxQueuedSpawns wait for a frame, the rest are dropped with one warning") {
+    TempProject p;
+    p.write("prefabs/spark.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"spark","components":{"Transform":{}}}})");
+    Rig rig;
+    for (std::size_t i = 0; i < kMaxQueuedSpawns + 10; ++i)
+        CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json","lifetime":1})")).ok());
+    CHECK(rig.world.feel().spawns.size() == kMaxQueuedSpawns);
+    CHECK(rig.world.feel().warnedClipActions.size() == 1);
+    feel_update(rig.world, 0.016, 0.016);
+    CHECK(rig.world.feel().spawns.empty());
+    CHECK(rig.world.feel().lifetimes.size() == kMaxQueuedSpawns);
+    // a new frame has room again
+    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json"})")).ok());
+    CHECK(rig.world.feel().spawns.size() == 1);
 }

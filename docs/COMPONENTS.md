@@ -3180,7 +3180,7 @@ The same as the "spawn" action of a clip event (docs/GAME_FEEL.md, "Effects as d
 | `prefab` | string | yes | Project-relative path of the prefab. |
 | `offset` | array | no | Added to the entity's world position, [x, y] or [x, y, z]. Default [0,0]. |
 | `local` | boolean | no | true: `offset` is in the entity's own space (a mirrored sprite puts it on the other side). Default false. |
-| `lifetime` | number | no | Seconds on the game clock until the spawned entity is destroyed; 0 = the prefab ends itself. Default 0. |
+| `lifetime` | number | no | Seconds of game time until the spawned entity is destroyed (a hit-stop, time.scale 0 or a pause holds the count); 0 = the prefab ends itself. Default 0. |
 
 ### `feel.squash` (modifies state)
 
@@ -9308,7 +9308,7 @@ declare module "factoria" {
      */
     local?: boolean;
     /**
-     * Seconds on the game clock after which the spawned entity is destroyed. Default 0: the prefab ends itself (a script, or a non-looping animation that destroys it); an effect with neither stays for the whole scene.
+     * Seconds of game time after which the spawned entity is destroyed (a hit-stop, time.scale 0 or a pause holds the count). Default 0: the prefab ends itself (a script, or a non-looping animation that destroys it); an effect with neither stays for the whole scene.
      * @since unreleased
      */
     lifetime?: number;
