@@ -28,6 +28,12 @@ Look first for what CI finds and the orchestrator's machine does not:
 Then the usual: logic errors, missing error handling (errors must teach: location, what, how to fix), tests that do
 not test what they claim, docs that do not match the code, generated files not regenerated.
 
-Reply in the language your brief asks for, with findings ordered by severity. For each: file and line, what goes
+Sort every finding into one of two groups. BLOCKING: a bug users hit, a CI failure on another platform or a slow VM,
+data loss, a security or privacy hole, a result that depends on the machine, or docs that promise what the code does
+not do. POLISH: everything else (a better message, a missing tooltip, a cheaper path, a test that could be tidier).
+Only BLOCKING findings send a package back for another round; POLISH ones are collected and fixed together at the end
+of the milestone. Do not inflate POLISH into BLOCKING to make sure it gets fixed.
+
+Reply in the language your brief asks for, with the BLOCKING group first, then POLISH, each ordered by severity. For each: file and line, what goes
 wrong and on which platform or condition, how sure you are (certain / likely / worth a check), and the fix in one or
 two sentences. Say plainly when you found nothing serious; do not pad the list.

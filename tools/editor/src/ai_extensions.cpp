@@ -887,6 +887,7 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
                 if (loaded) aiConfig_ = *loaded;
                 aiConfigError_ = loaded ? std::string() : loaded.error().to_string();
             }
+            ai_project_invalidate();
             if (loaded) {
                 ai_settings_load(*loaded, true, true);  // the other tabs keep what they had typed
                 ai_extensions_load(*loaded);

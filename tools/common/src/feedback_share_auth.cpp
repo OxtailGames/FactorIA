@@ -135,19 +135,21 @@ Result<ShareSignIn> github_sign_in(const ShareEnv& env, const std::function<void
     if (!token.ok()) return token.error();
     auto signIn = exchange_github_token(env, token.value());  // the GitHub token lives in this scope only
     if (!signIn.ok()) return signIn.error();
-    ShareSettings settings = load_share_settings(env);
-    settings.credential = signIn->credential;
-    settings.login = signIn->login;
-    if (auto saved = save_share_settings(env, settings); !saved.ok()) return saved.error();
+    if (auto saved = update_share_settings(env, [&](ShareSettings& settings) {
+            settings.credential = signIn->credential;
+            settings.login = signIn->login;
+        });
+        !saved.ok())
+        return saved.error();
     return signIn.value();
 }
 
 Result<void> share_sign_out(const ShareEnv& env) {
-    ShareSettings settings = load_share_settings(env);
-    if (settings.credential.empty() && settings.login.empty()) return {};
-    settings.credential.clear();
-    settings.login.clear();
-    return save_share_settings(env, settings);
+    if (const ShareSettings settings = load_share_settings(env); settings.credential.empty() && settings.login.empty()) return {};
+    return update_share_settings(env, [](ShareSettings& settings) {
+        settings.credential.clear();
+        settings.login.clear();
+    });
 }
 
 }  // namespace fa
