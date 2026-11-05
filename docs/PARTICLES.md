@@ -349,9 +349,9 @@ Three commands check an effect before it ships. All three read the file on disk 
   the camera (the result says so in `notes`).
 - `vfx.filmstrip {"effect", "position"?, "frames"?, "everyFrames"?, "size"?, "region"?, "zoom"?, "columns"?, "path"?}` plays the effect in the
   running game and captures a contact sheet of `frames` pictures (2 to 64, default 12) spread over the effect's life (or every `everyFrames`
-  frames), each labelled with its frame number and time (`f3 +250ms`). It needs a renderer; without one it fails and points at `vfx.budget`
+  frames), each labelled with its frame number and time in milliseconds (`f3 +250`). It needs a renderer; without one it fails and points at `vfx.budget`
   and `vfx.check`. **It steps the game** to get the frames (the strip covers the effect's length, at most 3 s by default), so the scene
-  moves on, and it plays the effect at `position` (default: the world point in the middle of the view, which is only the right place in a 2D game: **in a
+  moves on; the effect's sound and command parts really act on the game (a `feel.hitStop` also stretches the labelled times, an `audio.music` keeps playing), and it plays the effect at `position` (default: the world point in the middle of the view, which is only the right place in a 2D game: **in a
   3D game give `position`**). The effect it made is always removed afterwards. The picture is a `$image` (a temporary file, or `path`).
 - `vfx.review {"effect", "position"?, "preset"?, "frames"?, "focus"?, "picturePath"?}` is the art critic. It runs `vfx.budget` and `vfx.filmstrip`, shows the
   strip, the document and the budget to the vision model of the `fast` role (docs/AI_PROVIDERS.md; without one it fails with `no_model` and nothing
