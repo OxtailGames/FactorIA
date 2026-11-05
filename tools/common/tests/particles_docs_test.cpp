@@ -6,8 +6,11 @@
 #include <regex>
 #include <sstream>
 
+#include "fa/core/fs.h"
 #include "fa/core/json.h"
 #include "fa/scene/particles.h"
+#include "fa/scene/vfx.h"
+#include "fa/scene/world.h"
 #include "fa/core/reflect.h"
 #include "fa_test_paths.h"  // FA_REPO_ROOT
 #include "test_helpers.h"
@@ -21,9 +24,10 @@ struct Example {
     std::string name, text;
 };
 
-std::vector<Example> examples() {
+// `label` is "Example" (a ParticleEmitter) or "Effect" (a *.vfx.json document).
+std::vector<Example> examples(const std::string& kind = "Example") {
     std::istringstream in(testing::read_all(stdfs::path(FA_REPO_ROOT) / "docs" / "PARTICLES.md"));
-    static const std::regex label(R"(^Example `([^`]+)`:\s*$)");
+    const std::regex label("^" + kind + R"( `([^`]+)`:\s*$)");
     std::vector<Example> out;
     std::string line, pending;
     bool inFence = false;
@@ -77,5 +81,41 @@ TEST_CASE("docs/PARTICLES.md: the worked examples are real emitters that run") {
         }
         CHECK(most > 5);
         CHECK(sim.take_problems().empty());
+    }
+}
+
+TEST_CASE("docs/PARTICLES.md: the worked effect documents parse without a problem and play") {
+    const auto all = examples("Effect");
+    REQUIRE(all.size() >= 1);
+    ensure_builtin_components();
+    for (const Example& ex : all) {
+        INFO("effect " << ex.name);
+        auto json = parse_json(ex.text, ex.name);
+        REQUIRE(json);
+        std::vector<VfxIssue> issues;
+        auto doc = parse_vfx(*json, ex.name + ".vfx.json", &issues);
+        if (!doc) FAIL(doc.error().to_string());
+        for (const VfxIssue& i : issues) FAIL_CHECK(i.pointer << ": " << i.message);
+        // Play it from a file: the parts happen, the sound is asked for once and the entity goes when it is over.
+        const stdfs::path dir = fs::make_temp_dir("fa-vfx-docs-");
+        const std::string file = (dir / "doc.vfx.json").generic_string();
+        REQUIRE(fs::write_text(file, ex.text));
+        World world;
+        int sounds = 0;
+        VfxHost host;
+        host.play_sound = [&](const std::string&, float, float, const std::string&) { ++sounds; return true; };
+        auto played = vfx_play(world, file);
+        REQUIRE(played);
+        std::size_t children = 0;
+        for (int step = 0; step < 90; ++step) {
+            update_vfx(world, 1.0f / 60.0f, host);
+            if (world.alive(*played)) children = std::max(children, world.children(*played).size());
+        }
+        CHECK(children >= 2);  // the emitter and the light of the example
+        CHECK(sounds == 1);
+        CHECK_FALSE(vfx_playing_count(world) > 0);
+        std::error_code ec;
+        stdfs::remove_all(dir, ec);
+        clear_vfx_cache();
     }
 }

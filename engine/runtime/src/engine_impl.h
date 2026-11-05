@@ -14,6 +14,7 @@
 #include "fa/runtime/input_recorder.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/vfx.h"
 #include "fa/services/platform.h"
 #include "fa/ui/ui.h"
 
@@ -92,6 +93,7 @@ struct Engine::Impl {
     Input input;
     Physics physics;
     Audio audio;
+    VfxHost vfxHost;  // what the effect system plays sounds and calls commands with (filled by register_vfx_commands)
     ScriptSystem scripts;
     UiSystem ui;
     std::function<Vec2(Vec2)> designToWindow;  // Engine::set_design_to_window; empty = design pixels
@@ -190,6 +192,7 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& impl);  // ui_chec
 void register_shot_commands(Engine& engine, Engine::Impl& impl);  // shot_commands.cpp: game.screenshot, render.inspect, render.pick
 void register_anim_commands(Engine& engine, Engine::Impl& impl);  // anim_commands.cpp (+ anim_view_commands.cpp): anim.*
 void register_music_commands(Engine& engine, Engine::Impl& impl);  // music_commands.cpp: audio.music_state, audio.music
+void register_vfx_commands(Engine& engine, Engine::Impl& impl);  // vfx_commands.cpp: vfx.play, vfx.stop, vfx.list, vfx.check
 void register_mesh_commands(Engine& engine, Engine::Impl& impl);  // mesh_commands.cpp: mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
 void register_bones_commands(Engine& engine, Engine::Impl& impl);  // bones_commands.cpp: bones.create, skin.*
 

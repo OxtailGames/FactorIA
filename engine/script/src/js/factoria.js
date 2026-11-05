@@ -2320,6 +2320,27 @@
     commands() { return N.commands(); },
   };
 
+  // vfx.play(effect, { position, entity, rotation, scale, speed, loop }) -> the entity that plays the effect (null when 64 effects already
+  // play). The effect is a *.vfx.json (docs/PARTICLES.md, "Effect documents"); a file with errors throws with the JSON pointer.
+  const vfx = {
+    play(effect, options = {}) {
+      if (typeof effect !== "string" || !effect)
+        throw new Error(`vfx.play(effect, options): effect is the path of an effect document such as "assets/vfx/hit.vfx.json", but got ${inspect(effect)}`);
+      if (!isObj(options) || Array.isArray(options))
+        throw new Error(`vfx.play(effect, options): options is an object like { position: [120, 64], scale: 2 }, but got ${inspect(options)}`);
+      const r = fa.call("vfx.play", { effect, ...plain(options) });
+      return r.id === null ? null : entityOf(N.find(r.id));
+    },
+    stop(entity, options = {}) {
+      if (!(entity instanceof Entity) && typeof entity !== "string")
+        throw new Error(`vfx.stop(entity, options): entity is what vfx.play returned (or its id), but got ${inspect(entity)}`);
+      if (!isObj(options) || Array.isArray(options))
+        throw new Error(`vfx.stop(entity, options): options is an object like { immediate: true }, but got ${inspect(options)}`);
+      fa.call("vfx.stop", { id: plain(entity), immediate: !!options.immediate });
+    },
+    playing() { return fa.call("vfx.list").playing; },
+  };
+
   // plugins.<plugin>.<function>(...args): the functions of the game's native plugins (factoria.json "plugins",
   // docs/EXTENDING.md). A plugin not built for this platform is undefined; one that failed to load throws why on use.
   const plugins = {};
@@ -3536,7 +3557,7 @@
 
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
-    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, didYouMean, particles, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
+    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, didYouMean, particles, vfx, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
     window: windowApi, clipboard: clipboardApi, render, mesh, tween, ease, cancelTweens, bt,
   };
 

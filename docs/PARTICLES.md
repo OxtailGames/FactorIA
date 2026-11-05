@@ -233,6 +233,85 @@ Example `pixel-fire`:
 }
 ```
 
+## Effect documents (`*.vfx.json`)
+
+A hit is rarely one emitter: sparks, a light flash, a sound, a camera shake. An **effect document** bundles them on one timeline,
+so the game plays "the hit effect" with one call and the same effect is used by every enemy, weapon and level. Like a prefab, it is
+a file in the project; like a prefab it is placed in a scene or spawned from a script. The engine ships no effects: you write your
+own (a model or the AI writes the JSON, `vfx.check` tells what is wrong).
+
+Sparks that fly out at once, a flash of light for a tenth of a second and a hit sound a moment later.
+
+Effect `hit-effect`:
+
+```json
+{
+  "format": "factoria.vfx/1",
+  "doc": "A hit: sparks, a flash and a thud. Played where the sword lands.",
+  "parts": [
+    { "type": "emitter", "name": "sparks",
+      "emitter": { "burst": 14, "lifetime": 0.3, "speed": 260, "spread": 180, "gravity": [0, -500, 0],
+                   "startSize": 4, "endSize": 1, "blend": "additive", "maxParticles": 40 } },
+    { "type": "light", "name": "flash", "duration": 0.1, "light": { "radius": 80, "intensity": 2 } },
+    { "type": "sound", "at": 0.02, "clip": "assets/sfx/hit.wav", "volume": 0.8 }
+  ]
+}
+```
+
+Play it from a script (`vfx.play` returns the entity that runs the effect, which removes itself when the effect has ended and its
+particles are gone) or from any tool, then from a test step the game and look at `vfx.list`:
+
+```js
+vfx.play("assets/vfx/hit.vfx.json", { position: enemy.position, scale: 1.5 });   // at a place
+vfx.play("assets/vfx/hit.vfx.json", { entity: enemy, position: [0, 12] });       // follows the enemy
+```
+
+```
+vfx.play {"effect":"assets/vfx/hit.vfx.json","position":[120,64]}
+vfx.list {}
+vfx.check {"path":"assets/vfx/hit.vfx.json"}
+```
+
+To put an effect in a scene, add a `Vfx` component (`{"effect": "assets/vfx/torch.vfx.json", "loop": true}`): it starts with the
+scene, follows its entity, and its parts become child entities. With `autoDestroy` false (the default for a placed effect) it stays
+and plays again when a script sets `playing` to true.
+
+### The file
+
+Top level: `format` (always `"factoria.vfx/1"`), `doc` (what it is), `duration` (seconds, optional: by default the effect lasts
+until its last part has started and ended; at most 30) and `parts` (1 to 16 of them). Every part has a `type`, a `name` (the name of the child entity an emitter or
+a light becomes; defaults to the type and index), an `at` (seconds after the start, default 0) and, where it matters, a `duration`:
+
+| `type` | Fields | What it does |
+|---|---|---|
+| `emitter` | `emitter` (the fields of a `ParticleEmitter`, a patch over its defaults), `duration`, `offset` | A child entity with that `ParticleEmitter`, made at `at`. Its `burst` fires once. A `rate` runs for `duration` seconds, then the emitter stops emitting and its particles finish. With no `duration` only the burst happens. |
+| `light` | `light` (fields of a `Light2D`), `is3D` (a 3D `Light` instead), `duration` (required), `fade` (a curve, position 0 to 1, that multiplies the intensity; default a straight fade out), `offset` | A child light that fades out over `duration` and is then removed. |
+| `sound` | `clip`, `volume`, `pitch`, `bus` | Plays the clip once on the mixer bus (`sfx` by default) at `at`. |
+| `command` | `command`, `args` | Calls one command once at `at`, for example `feel.shake {"amount":0.5,"duration":0.3}` or `feel.hitStop {"duration":0.06}` from the game feel API. Only `feel.*` and `audio.*` commands are allowed: an effect cannot write files or destroy entities. A command that fails (it does not exist in this game, or its arguments are wrong) is logged once with the reason; the rest of the effect plays. |
+
+Emitters and lights of an effect are children of the effect's entity, so they follow its position and rotation. `vfx.play` `scale` sets the scale of that entity: the offsets of the parts and the spawn shape of an emitter that is not in `worldSpace` grow with it, but the sizes written in the file (`startSize`, a light's `radius`) do not, so scale an effect by writing a bigger one. An effect has at most 8 emitters and 8 commands. Anything else is an
+error that names the file, the JSON pointer and the fix, with "did you mean" for keys and values:
+`assets/vfx/hit.vfx.json /parts/1/emitter/burts: unknown field 'burts' (did you mean 'burst'?)`. `vfx.check` and `factoria validate`
+list every problem, and warn about what does nothing (a `rate` with no `duration`, emitters that may hold more than 4000 live particles together).
+`factoria validate` also checks that the clip of every sound part is in the project; it does not check textures named by an emitter.
+
+### Timeline, determinism, speed
+
+The system runs once per fixed step with the step's length times `time.scale`. It has no clock and no random numbers of its own: the
+same effects at the same steps do the same things on every run and platform (the emitters keep their own seeded generator, "Determinism and `seed`"). Consequences: at `time.scale` 0 an effect waits; a
+hit-stop that stops the game clock stops the effect with it; a test that steps frames sees the parts start at the frame their time falls in
+(a 60 Hz game starts a part at `at` 0.1 on the 6th step). `speed` (0.05 to 20) plays the timeline faster or slower; the particles
+keep their own speed. `loop` starts the effect again from the beginning when it ends (a loop is never shorter than 0.1 s); `vfx.stop`
+ends it: by default the parts that did not start never do, lights end and emitters stop emitting but let their particles finish; with `immediate` everything goes at once.
+
+### Budgets and hot reload
+
+At most 64 effects play at once: a play past that is dropped (`vfx.play` returns `null` as the id, and it is logged once). An autoDestroy effect leaves
+when its emitters have no particles left (a headless run has no renderer to empty them, so after 30 seconds of game time it
+leaves anyway). A document is read once and shared by every effect that plays it. When the file changes on disk, the next play reads the new version; effects already
+playing finish the version they started with. A file that has become invalid is an error for the next play (`vfx.play` fails with its pointer; a placed `Vfx` logs it once and does not play), fix it and play again. The runtime state of a `Vfx` (`playing`, `time`, the child entities) is not saved: a scene saved while an effect plays
+starts it again from the beginning, and the entities `vfx.play` makes are never saved with the scene.
+
 ## Problems the engine reports
 
 `factoria validate` and scene loading report, with the file and JSON pointer: curves, gradients and palettes that do not parse

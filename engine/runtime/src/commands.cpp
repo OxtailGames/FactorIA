@@ -528,6 +528,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     register_shot_commands(engine, I);          // game.screenshot, render.inspect, render.pick
     register_anim_commands(engine, I);          // anim.create_clip, anim.set_keys, anim.list, anim.check, ...
     register_music_commands(engine, I);         // audio.music_state, audio.music
+    register_vfx_commands(engine, I);           // vfx.play, vfx.stop, vfx.list, vfx.check
     register_mesh_commands(engine, I);          // mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
     register_bones_commands(engine, I);         // bones.create, skin.bind, skin.auto_weights, skin.set_weights
     register_platform_commands(I.commands, I.platform);  // platform.state, platform.respond, ... (fa/services)

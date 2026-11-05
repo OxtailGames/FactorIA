@@ -159,3 +159,54 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 | `position` | array | yes | [x, y] in design pixels (origin top-left). |
 | `max` | integer | no | At most this many hits. Default 20. |
 
+## `vfx.check`
+
+Not released yet (on main after 0.16.1).
+
+Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix.
+
+Returns {ok, path, duration, parts: [{index, name, type, at, duration}], errors: [{pointer, message, hint}], warnings: [...]}. Errors stop the effect from playing; warnings (a `rate` with no duration, too many live particles) do not. A sound whose file is missing is an error. Example: vfx.check {"path":"assets/vfx/hit.vfx.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project path of the effect document, e.g. "assets/vfx/hit.vfx.json". |
+
+## `vfx.list`
+
+Not released yet (on main after 0.16.1).
+
+The effects that play now, and the limits of an effect.
+
+Returns {playing: [{id, effect, time, duration, loop, speed}], count, max, limits}. `time` is seconds into the effect (the document's own clock), `duration` its length. Use it in a test to see that an effect started and ended: game.step, then vfx.list. Example: vfx.list {}.
+
+## `vfx.play` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Play an effect document (*.vfx.json) at a position, or on an entity.
+
+Makes an entity with a Vfx component (autoDestroy on) that plays the effect: its emitters and light flash become children of it, its sounds and commands (a camera shake, a hit-stop...) fire at their times. Without `entity` the effect is in world space at `position`; with `entity` it is that entity's child at the local `position`, so it follows it. The file is read and checked now: an invalid one is an error naming the JSON pointer. At most 64 effects play at once: past that the call returns {"id": null, "dropped": true} (logged once). The effect advances with the game clock (game.step, time.scale), so the same calls at the same steps give the same result. Example: vfx.play {"effect":"assets/vfx/hit.vfx.json","position":[120,64]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `effect` | string | yes | Project path of the effect document, e.g. "assets/vfx/hit.vfx.json" (docs/PARTICLES.md, "Effect documents"). |
+| `position` | array | no | [x, y] or [x, y, z]: world position, or relative to `entity` when that is given. Default [0, 0]. |
+| `entity` | string | no | Entity (id or name) the effect follows: it becomes the effect's parent. |
+| `rotation` | number | no | Degrees around z (2D). Default 0. |
+| `scale` | number | no | Scale of the effect's entity: the offsets of its parts and the spawn shape of its emitters grow with it; the sizes written in the file (particle size, light radius) do not. 1 = as written. Default 1. |
+| `speed` | number | no | Speed of the timeline: 2 plays the parts' times twice as fast. The particles keep their own speed. Default 1. |
+| `loop` | boolean | no | Start again at the end until vfx.stop. Default false. |
+
+## `vfx.stop` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+End an effect started by vfx.play (or a Vfx entity).
+
+`immediate` true removes the effect's entity and its children at once (particles vanish); the default lets the emitters stop emitting and their particles finish, ends the lights, and the parts that had not started never do. Example: vfx.stop {"id":"vfx_hit_3"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The entity (id or name) with the Vfx, as vfx.play returned it. |
+| `immediate` | boolean | no | Remove it now instead of letting its particles finish. Default false. |
+

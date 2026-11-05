@@ -1,0 +1,551 @@
+// Effect documents (fa/scene/vfx.h): the format and its errors, the timeline, play / stop, budgets, determinism, reloading.
+#include <doctest.h>
+
+#include <filesystem>
+#include <string>
+#include <vector>
+
+#include "fa/core/fs.h"
+#include "fa_test_paths.h"
+#include "fa/scene/serialize.h"
+#include "fa/scene/vfx.h"
+#include "fa/scene/world.h"
+
+using namespace fa;
+
+namespace {
+
+struct TempDir {
+    std::filesystem::path dir;
+    explicit TempDir(const char* prefix) : dir(fs::make_temp_dir(prefix)) {}
+    ~TempDir() {
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        clear_vfx_cache();
+    }
+    TempDir(const TempDir&) = delete;
+    TempDir& operator=(const TempDir&) = delete;
+    std::string file(const char* name) const { return (dir / name).generic_string(); }
+};
+
+void write(const std::string& path, const Json& j) {
+    auto r = fs::write_text(path, j.dump(2));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().message));
+}
+
+// A hit effect: a burst, a flash, a sound at 0.1 s and a shake at 0.2 s. Ends at 0.4 s (the flash lasts 0.4 s).
+Json hit_effect() {
+    return Json::parse(R"({
+      "format": "factoria.vfx/1",
+      "doc": "A hit",
+      "parts": [
+        {"type": "emitter", "name": "sparks", "emitter": {"burst": 12, "lifetime": 0.3, "speed": 90, "maxParticles": 40}},
+        {"type": "light", "name": "flash", "duration": 0.4, "offset": [0, 4], "light": {"intensity": 2, "radius": 120}},
+        {"type": "sound", "at": 0.1, "clip": "assets/sfx/hit.wav", "volume": 0.5, "pitch": 1.2},
+        {"type": "command", "at": 0.2, "command": "feel.shake", "args": {"strength": 0.5}}
+      ]})");
+}
+
+struct Log {
+    std::vector<std::string> events;
+    VfxHost host() {
+        VfxHost h;
+        h.play_sound = [this](const std::string& clip, float volume, float pitch, const std::string& bus) {
+            events.push_back("sound " + clip + " " + std::to_string(int(volume * 100)) + " " + std::to_string(int(pitch * 10)) + " " + bus);
+            return true;
+        };
+        h.call = [this](const std::string& command, const Json& args) {
+            events.push_back("call " + command + " " + args.dump());
+            return std::string();
+        };
+        return h;
+    }
+};
+
+std::vector<VfxIssue> issues_of(const Json& doc) {
+    std::vector<VfxIssue> issues;
+    (void)parse_vfx(doc, "t.vfx.json", &issues);
+    return issues;
+}
+
+const VfxIssue* find_issue(const std::vector<VfxIssue>& issues, const std::string& pointer) {
+    for (const VfxIssue& i : issues)
+        if (i.pointer == pointer) return &i;
+    return nullptr;
+}
+
+int children_named(World& w, Entity parent, const char* name) {
+    int n = 0;
+    for (Entity c : w.children(parent))
+        if (w.alive(c) && !w.pending_destroy(c) && w.info(c).name == name) ++n;
+    return n;
+}
+
+}  // namespace
+
+// ------------------------------------------------------------------------------------------------------------ format --
+
+TEST_CASE("vfx: a valid document parses with the parts, their times and the length it works out") {
+    std::vector<VfxIssue> issues;
+    auto doc = parse_vfx(hit_effect(), "hit.vfx.json", &issues);
+    REQUIRE_MESSAGE(doc.ok(), (doc.ok() ? "" : doc.error().message));
+    CHECK_MESSAGE(issues.empty(), (issues.empty() ? "" : issues[0].pointer + ": " + issues[0].message));
+    const VfxDoc& d = **doc;
+    REQUIRE(d.parts.size() == 4);
+    CHECK(d.description == "A hit");
+    CHECK(d.parts[0].kind == VfxPartKind::Emitter);
+    CHECK(d.parts[0].name == "sparks");
+    CHECK(d.parts[1].offset.y == doctest::Approx(4.0f));
+    CHECK(d.parts[2].clip == "assets/sfx/hit.wav");
+    CHECK(d.parts[2].bus == "sfx");
+    CHECK(d.parts[3].command == "feel.shake");
+    CHECK(d.duration == doctest::Approx(0.4));  // the flash ends last
+}
+
+TEST_CASE("vfx: every kind of mistake is an error naming the JSON pointer, with a fix") {
+    SUBCASE("an unknown key suggests the closest one") {
+        Json j = hit_effect();
+        j["durration"] = 1.0;
+        auto issues = issues_of(j);
+        const VfxIssue* i = find_issue(issues, "/durration");
+        REQUIRE(i);
+        CHECK(i->hint.find("duration") != std::string::npos);
+    }
+    SUBCASE("a key of another kind of part says which kind it belongs to") {
+        Json j = hit_effect();
+        j["parts"][0]["clip"] = "assets/sfx/hit.wav";
+        auto issues = issues_of(j);
+        const VfxIssue* i = find_issue(issues, "/parts/0/clip");
+        REQUIRE(i);
+        CHECK(i->hint.find("sound") != std::string::npos);
+    }
+    SUBCASE("an unknown type suggests one") {
+        Json j = hit_effect();
+        j["parts"][1]["type"] = "ligth";
+        auto issues = issues_of(j);
+        const VfxIssue* i = find_issue(issues, "/parts/1/type");
+        REQUIRE(i);
+        CHECK(i->hint.find("light") != std::string::npos);
+    }
+    SUBCASE("a wrong format and a missing parts list") {
+        CHECK(find_issue(issues_of(Json::parse(R"({"format":"factoria.vfx/2","parts":[]})")), "/format"));
+        CHECK(find_issue(issues_of(Json::parse(R"({"format":"factoria.vfx/1"})")), "/parts"));
+        CHECK(find_issue(issues_of(Json::parse(R"({"format":"factoria.vfx/1","parts":[]})")), "/parts"));
+    }
+    SUBCASE("a command outside the game feel and audio commands is refused") {
+        Json j = hit_effect();
+        j["parts"][3]["command"] = "fs.delete";
+        auto issues = issues_of(j);
+        const VfxIssue* i = find_issue(issues, "/parts/3/command");
+        REQUIRE(i);
+        CHECK(i->message.find("fs.delete") != std::string::npos);
+        CHECK(i->hint.find("feel.") != std::string::npos);
+    }
+    SUBCASE("an emitter field that does not exist is the same error a scene gives") {
+        Json j = hit_effect();
+        j["parts"][0]["emitter"]["burts"] = 3;
+        auto issues = issues_of(j);
+        const VfxIssue* i = find_issue(issues, "/parts/0/emitter");
+        REQUIRE(i);
+        CHECK(i->message.find("burts") != std::string::npos);
+    }
+    SUBCASE("an emitter that never emits") {
+        Json j = hit_effect();
+        j["parts"][0]["emitter"]["burst"] = 0;
+        auto issues = issues_of(j);
+        CHECK(find_issue(issues, "/parts/0/emitter"));
+    }
+    SUBCASE("times and offsets are finite and in range") {
+        Json j = hit_effect();
+        j["parts"][2]["at"] = 31;
+        j["parts"][1]["offset"] = Json::array({1});
+        j["parts"][3]["at"] = -1;
+        auto issues = issues_of(j);
+        CHECK(find_issue(issues, "/parts/2/at"));
+        CHECK(find_issue(issues, "/parts/1/offset"));
+        CHECK(find_issue(issues, "/parts/3/at"));
+    }
+    SUBCASE("a part that would start after the end of the effect") {
+        Json j = hit_effect();
+        j["duration"] = 0.15;
+        auto issues = issues_of(j);
+        CHECK(find_issue(issues, "/parts/3/at"));
+    }
+    SUBCASE("two parts with one name") {
+        Json j = hit_effect();
+        j["parts"][1]["name"] = "sparks";
+        CHECK(find_issue(issues_of(j), "/parts/1/name"));
+    }
+    SUBCASE("more parts than the limit") {
+        Json j = hit_effect();
+        for (int i = 0; i < kVfxMaxParts; ++i) j["parts"].push_back(Json::parse(R"({"type":"sound","clip":"a.wav"})"));
+        CHECK(find_issue(issues_of(j), "/parts"));
+    }
+    SUBCASE("the Error names the file and the first problem, and counts the others") {
+        Json j = hit_effect();
+        j["parts"][2]["volume"] = 5;
+        j["parts"][3]["command"] = "fs.delete";
+        auto doc = parse_vfx(j, "assets/vfx/hit.vfx.json");
+        REQUIRE_FALSE(doc.ok());
+        CHECK(doc.error().message.find("assets/vfx/hit.vfx.json") != std::string::npos);
+        CHECK(doc.error().message.find("/parts/2/volume") != std::string::npos);
+        CHECK(doc.error().message.find("1 more problem") != std::string::npos);
+    }
+}
+
+TEST_CASE("vfx: a rate with no duration is a warning, the effect still parses") {
+    Json j = hit_effect();
+    j["parts"][0]["emitter"]["rate"] = 50;
+    std::vector<VfxIssue> issues;
+    auto doc = parse_vfx(j, "t.vfx.json", &issues);
+    REQUIRE(doc.ok());
+    const VfxIssue* i = find_issue(issues, "/parts/0/emitter/rate");
+    REQUIRE(i);
+    CHECK_FALSE(i->error);
+}
+
+TEST_CASE("vfx: missing sound files are listed with their pointer") {
+    auto doc = parse_vfx(hit_effect(), "t.vfx.json");
+    REQUIRE(doc.ok());
+    auto missing = vfx_missing_assets(**doc, [](const std::string&) { return false; });
+    REQUIRE(missing.size() == 1);
+    CHECK(missing[0].pointer == "/parts/2/clip");
+    CHECK(vfx_missing_assets(**doc, [](const std::string&) { return true; }).empty());
+}
+
+TEST_CASE("vfx: the schema file lists every key the parser accepts") {
+    auto text = fs::read_text(std::string(FA_REPO_ROOT) + "/schemas/vfx.schema.json");
+    REQUIRE(text.ok());
+    auto schema = parse_json(*text, "vfx.schema.json");
+    REQUIRE(schema.ok());
+    const Json& top = (*schema)["properties"];
+    for (const char* k : {"$schema", "format", "doc", "duration", "parts"}) CHECK_MESSAGE(top.contains(k), k);
+    const Json& part = (*schema)["properties"]["parts"]["items"]["properties"];
+    for (const char* k : {"type", "name", "at", "duration", "offset", "emitter", "light", "is3D", "fade", "clip", "volume", "pitch", "bus", "command", "args"}) {
+        REQUIRE_MESSAGE(part.contains(k), k);
+        CHECK_MESSAGE(part[k].contains("description"), k);
+    }
+}
+
+// ----------------------------------------------------------------------------------------------------------- loading --
+
+TEST_CASE("vfx: load_vfx reads a file, shares it, and reads it again when it changed") {
+    TempDir tmp("fa_vfx_load");
+    const std::string path = tmp.file("hit.vfx.json");
+    write(path, hit_effect());
+    auto a = load_vfx(path);
+    auto b = load_vfx(path);
+    REQUIRE(a.ok());
+    REQUIRE(b.ok());
+    CHECK(a->get() == b->get());  // one VfxDoc for both
+    Json longer = hit_effect();
+    longer["doc"] = "A hit that is a bit longer than the first one";  // a different size: the cache sees it on any file system
+    write(path, longer);
+    auto c = load_vfx(path);
+    REQUIRE(c.ok());
+    CHECK(c->get() != a->get());
+    CHECK((*c)->description == "A hit that is a bit longer than the first one");
+    CHECK((*a)->description == "A hit");  // the one an effect already playing holds is unchanged
+}
+
+TEST_CASE("vfx: an unreadable file and an invalid one are errors that name the file") {
+    TempDir tmp("fa_vfx_bad");
+    auto missing = load_vfx(tmp.file("nope.vfx.json"));
+    REQUIRE_FALSE(missing.ok());
+    CHECK(missing.error().message.find("nope.vfx.json") != std::string::npos);
+    const std::string path = tmp.file("bad.vfx.json");
+    REQUIRE(fs::write_text(path, "{ not json").ok());
+    auto bad = load_vfx(path);
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("bad.vfx.json") != std::string::npos);
+    Json j = hit_effect();
+    j["parts"][3]["command"] = "fs.delete";
+    write(path, j);
+    auto invalid = load_vfx(path);
+    REQUIRE_FALSE(invalid.ok());
+    CHECK(invalid.error().message.find("/parts/3/command") != std::string::npos);
+}
+
+// ---------------------------------------------------------------------------------------------------------- timeline --
+
+TEST_CASE("vfx: parts start at their time, lights fade and end, and an autoDestroy effect goes") {
+    TempDir tmp("fa_vfx_timeline");
+    const std::string path = tmp.file("hit.vfx.json");
+    write(path, hit_effect());
+    World w;
+    Log log;
+    const VfxHost host = log.host();
+    VfxPlayOptions o;
+    o.position = {100, 50, 0};
+    auto r = vfx_play(w, path, o);
+    REQUIRE(r.ok());
+    const Entity fx = *r;
+    REQUIRE_FALSE(fx.is_null());
+    CHECK(w.info(fx).scriptSpawned);
+    CHECK(w.get<Transform>(fx)->position.x == doctest::Approx(100.0f));
+    CHECK(vfx_playing_count(w) == 1);
+    CHECK(w.children(fx).empty());  // nothing before the first step
+
+    const float dt = 0.05f;
+    update_vfx(w, dt, host);  // t = 0.05: the emitter and the light started at 0
+    CHECK(children_named(w, fx, "sparks") == 1);
+    CHECK(children_named(w, fx, "flash") == 1);
+    REQUIRE(w.get<Vfx>(fx)->duration == doctest::Approx(0.4f));
+    CHECK(log.events.empty());
+    Entity flash = kNullEntity;
+    for (Entity c : w.children(fx))
+        if (w.info(c).name == "flash") flash = c;
+    REQUIRE(w.get<Light2D>(flash));
+    CHECK(w.get<Light2D>(flash)->intensity == doctest::Approx(2.0f * (1.0f - 0.05f / 0.4f)).epsilon(0.02));
+    CHECK(w.get<Transform>(flash)->position.y == doctest::Approx(4.0f));
+
+    update_vfx(w, dt, host);  // 0.10: the sound
+    REQUIRE(log.events.size() == 1);
+    CHECK(log.events[0] == "sound assets/sfx/hit.wav 50 12 sfx");
+    update_vfx(w, dt, host);  // 0.15
+    update_vfx(w, dt, host);  // 0.20: the shake
+    REQUIRE(log.events.size() == 2);
+    CHECK(log.events[1] == "call feel.shake {\"strength\":0.5}");
+    for (int i = 0; i < 20; ++i) update_vfx(w, dt, host);
+    CHECK(log.events.size() == 2);  // each part once
+    CHECK(children_named(w, fx, "flash") == 0);  // the flash lasted 0.4 s
+    CHECK_FALSE(w.get<Vfx>(fx)->playing);
+    // The sparks are the renderer's: it destroys an emitter whose particles are gone. Stand in for it.
+    for (Entity c : w.children(fx)) w.destroy(c);
+    w.flush();
+    update_vfx(w, dt, host);
+    w.flush();
+    CHECK_FALSE(w.alive(fx));
+    CHECK(vfx_playing_count(w) == 0);
+}
+
+TEST_CASE("vfx: an autoDestroy effect nobody steps the emitters of still goes after the linger time") {
+    TempDir tmp("fa_vfx_linger");
+    const std::string path = tmp.file("hit.vfx.json");
+    write(path, hit_effect());
+    World w;
+    VfxHost none;
+    auto r = vfx_play(w, path);
+    REQUIRE(r.ok());
+    for (int i = 0; i < 12; ++i) update_vfx(w, 0.05f, none);  // past the end at 0.4 s
+    CHECK(w.alive(*r));
+    update_vfx(w, float(kVfxMaxLinger) + 1.0f, none);
+    w.flush();
+    CHECK_FALSE(w.alive(*r));
+}
+
+TEST_CASE("vfx: speed, a paused clock and loop") {
+    TempDir tmp("fa_vfx_speed");
+    const std::string path = tmp.file("hit.vfx.json");
+    write(path, hit_effect());
+    SUBCASE("speed 2 brings the sound from 0.1 s to 0.05 s") {
+        World w;
+        Log log;
+        VfxPlayOptions o;
+        o.speed = 2.0f;
+        REQUIRE(vfx_play(w, path, o).ok());
+        update_vfx(w, 0.025f, log.host());
+        CHECK(log.events.empty());
+        update_vfx(w, 0.025f, log.host());
+        update_vfx(w, 0.025f, log.host());
+        CHECK(log.events.size() == 1);
+    }
+    SUBCASE("a step of 0 (time.scale 0) does not advance the timeline") {
+        World w;
+        Log log;
+        auto r = vfx_play(w, path);
+        REQUIRE(r.ok());
+        for (int i = 0; i < 50; ++i) update_vfx(w, 0.0f, log.host());
+        CHECK(log.events.empty());
+        CHECK(w.get<Vfx>(*r)->time == 0.0f);
+    }
+    SUBCASE("loop starts the parts again at the end") {
+        World w;
+        Log log;
+        VfxPlayOptions o;
+        o.loop = true;
+        auto r = vfx_play(w, path, o);
+        REQUIRE(r.ok());
+        for (int i = 0; i < 32; ++i) update_vfx(w, 0.05f, log.host());  // 1.6 s = four passes of 0.4 s
+        int sounds = 0;
+        for (const std::string& e : log.events) sounds += e.rfind("sound", 0) == 0;
+        CHECK(sounds >= 3);
+        CHECK(sounds <= 4);
+        CHECK(w.get<Vfx>(*r)->playing);
+    }
+}
+
+TEST_CASE("vfx: the same effects at the same steps do the same things") {
+    TempDir tmp("fa_vfx_det");
+    const std::string path = tmp.file("hit.vfx.json");
+    write(path, hit_effect());
+    auto run = [&]() {
+        World w;
+        Log log;
+        VfxPlayOptions o;
+        o.speed = 1.5f;
+        REQUIRE(vfx_play(w, path, o).ok());
+        std::vector<std::string> trace;
+        for (int i = 0; i < 20; ++i) {
+            const std::size_t before = log.events.size();
+            update_vfx(w, 1.0f / 60.0f, log.host());
+            for (std::size_t k = before; k < log.events.size(); ++k) trace.push_back(std::to_string(i) + ":" + log.events[k]);
+            trace.push_back(std::to_string(i) + " children " + std::to_string(w.entity_count()));
+        }
+        return trace;
+    };
+    CHECK(run() == run());
+}
+
+// --------------------------------------------------------------------------------------------------- play and stop --
+
+TEST_CASE("vfx: vfx_play checks the file and the options, and follows a parent") {
+    TempDir tmp("fa_vfx_play");
+    const std::string path = tmp.file("hit.vfx.json");
+    write(path, hit_effect());
+    World w;
+    CHECK_FALSE(vfx_play(w, tmp.file("missing.vfx.json")).ok());
+    VfxPlayOptions bad;
+    bad.speed = 0.0f;
+    CHECK_FALSE(vfx_play(w, path, bad).ok());
+    bad = {};
+    bad.scale = -1.0f;
+    CHECK_FALSE(vfx_play(w, path, bad).ok());
+    CHECK(w.entity_count() == 0);  // a refused play makes nothing
+
+    Entity boss = w.create("boss");
+    VfxPlayOptions o;
+    o.parent = boss;
+    o.position = {0, 10, 0};
+    o.scale = 2.0f;
+    auto r = vfx_play(w, path, o);
+    REQUIRE(r.ok());
+    CHECK(w.parent(*r) == boss);
+    CHECK(w.get<Transform>(*r)->scale.x == doctest::Approx(2.0f));
+    CHECK(w.get<Vfx>(*r)->autoDestroy);
+}
+
+TEST_CASE("vfx: at most kVfxMaxPlaying effects play at once; a play past that is dropped") {
+    TempDir tmp("fa_vfx_budget");
+    const std::string path = tmp.file("hit.vfx.json");
+    write(path, hit_effect());
+    World w;
+    for (int i = 0; i < kVfxMaxPlaying; ++i) {
+        auto r = vfx_play(w, path);
+        REQUIRE(r.ok());
+        REQUIRE_FALSE(r->is_null());
+    }
+    auto over = vfx_play(w, path);
+    REQUIRE(over.ok());
+    CHECK(over->is_null());
+    CHECK(vfx_playing_count(w) == kVfxMaxPlaying);
+}
+
+TEST_CASE("vfx: vfx_stop ends an effect, at once or letting its particles finish") {
+    TempDir tmp("fa_vfx_stop");
+    const std::string path = tmp.file("hit.vfx.json");
+    write(path, hit_effect());
+    World w;
+    Log log;
+    SUBCASE("immediate removes the entity and its children") {
+        auto r = vfx_play(w, path);
+        REQUIRE(r.ok());
+        update_vfx(w, 0.05f, log.host());
+        REQUIRE(w.children(*r).size() == 2);
+        vfx_stop(w, *r, true);
+        w.flush();
+        CHECK_FALSE(w.alive(*r));
+    }
+    SUBCASE("a soft stop: the emitter stops emitting, the light goes, later parts never start") {
+        auto r = vfx_play(w, path);
+        REQUIRE(r.ok());
+        update_vfx(w, 0.05f, log.host());
+        vfx_stop(w, *r, false);
+        for (Entity c : w.children(*r))
+            if (auto* pe = w.get<ParticleEmitter>(c)) CHECK_FALSE(pe->emitting);
+        for (int i = 0; i < 10; ++i) update_vfx(w, 0.05f, log.host());
+        CHECK(log.events.empty());  // the sound and the shake never started
+        CHECK_FALSE(w.get<Vfx>(*r)->playing);
+    }
+}
+
+// -------------------------------------------------------------------------------------------------- Vfx component --
+
+TEST_CASE("vfx: an entity with a Vfx component plays by itself, a missing file is reported once and stops it") {
+    TempDir tmp("fa_vfx_comp");
+    const std::string path = tmp.file("hit.vfx.json");
+    write(path, hit_effect());
+    World w;
+    Log log;
+    SUBCASE("autoplay") {
+        Entity e = w.create("torch");
+        w.add<Vfx>(e).effect = path;
+        update_vfx(w, 0.05f, log.host());
+        CHECK(w.get<Vfx>(e)->playing);
+        CHECK(children_named(w, e, "sparks") == 1);
+    }
+    SUBCASE("autoplay off waits for playing") {
+        Entity e = w.create("torch");
+        auto& v = w.add<Vfx>(e);
+        v.effect = path;
+        v.autoplay = false;
+        for (int i = 0; i < 5; ++i) update_vfx(w, 0.05f, log.host());
+        CHECK(w.children(e).empty());
+        v.playing = true;
+        update_vfx(w, 0.05f, log.host());
+        CHECK(children_named(w, e, "sparks") == 1);
+    }
+    SUBCASE("a playing effect that ended plays again when playing is set true") {
+        Entity e = w.create("torch");
+        w.add<Vfx>(e).effect = path;
+        for (int i = 0; i < 12; ++i) update_vfx(w, 0.05f, log.host());
+        REQUIRE_FALSE(w.get<Vfx>(e)->playing);
+        for (Entity c : w.children(e)) w.destroy(c);
+        w.flush();
+        w.get<Vfx>(e)->playing = true;
+        update_vfx(w, 0.05f, log.host());
+        CHECK(w.get<Vfx>(e)->playing);
+        CHECK(children_named(w, e, "sparks") == 1);
+    }
+    SUBCASE("changing `effect` starts the other one from the beginning") {
+        Entity e = w.create("torch");
+        w.add<Vfx>(e).effect = path;
+        update_vfx(w, 0.05f, log.host());
+        update_vfx(w, 0.05f, log.host());
+        const std::string other = tmp.file("other.vfx.json");
+        write(other, Json::parse(R"({"format":"factoria.vfx/1","parts":[{"type":"sound","at":0.2,"clip":"x.wav"}]})"));
+        w.get<Vfx>(e)->effect = other;
+        update_vfx(w, 0.05f, log.host());
+        CHECK(w.get<Vfx>(e)->time == doctest::Approx(0.05f));
+        CHECK(w.get<Vfx>(e)->duration == doctest::Approx(0.2f));
+        CHECK(children_named(w, e, "flash") == 0);
+    }
+    SUBCASE("a file with errors stops it: nothing plays, and the world is not stuck") {
+        Entity e = w.create("torch");
+        w.add<Vfx>(e).effect = tmp.file("absent.vfx.json");
+        for (int i = 0; i < 3; ++i) update_vfx(w, 0.05f, log.host());
+        CHECK_FALSE(w.get<Vfx>(e)->playing);
+        CHECK(w.children(e).empty());
+    }
+}
+
+TEST_CASE("vfx: the runtime state is not saved, and a copy starts the effect again") {
+    TempDir tmp("fa_vfx_copy");
+    const std::string path = tmp.file("hit.vfx.json");
+    write(path, hit_effect());
+    World w;
+    Log log;
+    Entity e = w.create("torch");
+    w.add<Vfx>(e).effect = path;
+    update_vfx(w, 0.05f, log.host());
+    REQUIRE(w.get<Vfx>(e)->rt.children.size() == 2);
+    Vfx copy = *w.get<Vfx>(e);
+    CHECK(copy.rt.children.empty());
+    CHECK(copy.rt.doc == nullptr);
+    const TypeInfo& type = World::type_of<Vfx>();
+    const Json saved = object_to_json(type, w.get<Vfx>(e), false);
+    CHECK_FALSE(saved.contains("playing"));
+    CHECK_FALSE(saved.contains("time"));
+    CHECK_FALSE(saved.contains("duration"));
+    CHECK(saved["effect"] == path);
+}

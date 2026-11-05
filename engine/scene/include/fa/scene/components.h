@@ -793,6 +793,53 @@ struct Video : UiBox {
     }
 };
 
+// ------------------------------------------------------------------ vfx ---
+struct VfxDoc;  // an effect document (vfx.h)
+
+// A child entity a Vfx made (an emitter or a light): which part of the document it came from, and the intensity a light started with.
+struct VfxChild {
+    Entity entity = kNullEntity;
+    std::int32_t part = 0;
+    float baseIntensity = 1.0f;
+};
+
+// What the effect system (vfx.h) keeps per Vfx at run time. Never serialized. Copying it gives an EMPTY state (the children belong to
+// the entity they were made under: a copy starts its effect again), moving it keeps the state.
+struct VfxRuntime {
+    VfxRuntime() = default;
+    VfxRuntime(const VfxRuntime&) {}
+    VfxRuntime& operator=(const VfxRuntime& o) {
+        if (this != &o) *this = VfxRuntime();
+        return *this;
+    }
+    VfxRuntime(VfxRuntime&&) noexcept = default;
+    VfxRuntime& operator=(VfxRuntime&&) noexcept = default;
+
+    std::shared_ptr<const VfxDoc> doc;  // the version of the document this play started with
+    std::string loadedEffect;           // the `effect` the document was loaded for (a different `effect` starts over)
+    bool tried = false;                 // loadedEffect was tried (a file that failed is not read again every step)
+    bool seen = false;                  // the system has looked at this Vfx (autoplay applied)
+    float linger = 0.0f;                // seconds since the effect ended (autoDestroy waits for the emitters, up to kVfxMaxLinger)
+    bool finished = false;              // the effect ran to its end (or was stopped): `playing` set true again restarts it
+    std::uint32_t started = 0;          // bit i: part i has started
+    std::vector<VfxChild> children;     // the emitters and lights this play made
+};
+
+// A visual effect placed in the scene: plays the effect document `effect` (a *.vfx.json, docs/PARTICLES.md "Effect documents"). Its
+// parts become child entities (emitters, lights) or happen once (a sound, a command) at their time on the document's timeline.
+// `vfx.play` (a command, and `vfx.play()` in scripts) makes one of these at a position with autoDestroy on.
+struct Vfx {
+    std::string effect;               // project path of the *.vfx.json; changing it starts that effect from the beginning
+    bool autoplay = true;             // start by itself when the system first sees this entity
+    bool playing = false;             // runtime: advancing; set true to start (from the start when it had ended), false to pause
+    bool loop = false;                // start again when the effect ends
+    bool autoDestroy = false;         // remove this entity when the effect has ended and its emitters have emptied
+    float speed = 1.0f;               // 1 = as written, 2 = twice as fast; scales the timeline, not the particles' own motion
+    float time = 0.0f;                // runtime: seconds into the effect
+    float duration = 0.0f;            // runtime: length of the effect in seconds; 0 until the document is read
+    VfxRuntime rt;
+};
+
 // ------------------------------------------------------------------- 3D ---
 // mesh: "cube" | "sphere" | "plane" | "cylinder" | "capsule" | "cone" | "quad"
 //       or an asset path to a .gltf/.glb file ("assets/models/ship.glb").

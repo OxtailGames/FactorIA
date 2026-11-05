@@ -2138,6 +2138,41 @@ void register_builtin_components(TypeRegistry& r) {
             .runtime_only().read_only();
     }
 
+    r.add<Vfx>("Vfx",
+               "A visual effect placed in the scene, like a prefab (docs/PARTICLES.md, \"Effect documents\"): plays the effect document "
+               "`effect` (a *.vfx.json that bundles emitters, a light flash, sounds and commands such as a camera shake on one timeline). "
+               "Its emitters and lights become child entities when their time comes; a sound plays once; a command is called once. "
+               "The effect starts when the scene starts (`autoplay`) and runs to its end; `loop` starts it again, setting `playing` "
+               "to true after it ended replays it. It follows this entity: put it under a moving entity, or move it. `vfx.play` (a "
+               "command; `vfx.play()` in scripts) makes one of these at a position with `autoDestroy` on, so a hit effect is one call. "
+               "The timeline follows the game clock (it pauses with time.scale 0) and uses no clock or random numbers of its own: "
+               "the same effects at the same steps do the same on every run. At most 64 effects play at once.",
+               "2D")
+        .asset_field("effect", &Vfx::effect, "vfx",
+                     "Project path of the effect document, e.g. \"assets/vfx/hit.vfx.json\". Changing it starts that effect from the "
+                     "beginning. A file that is missing or has errors is logged once with the JSON pointer of the first problem "
+                     "(`vfx.check` lists them all) and nothing plays.")
+        .field("autoplay", &Vfx::autoplay,
+               "True (default): the effect starts by itself the first time the system sees this entity (scene start, or spawn). False: "
+               "it waits until a script (or `scene.set_component`) sets `playing` to true.")
+        .field("playing", &Vfx::playing,
+               "Runtime: true while the timeline advances. Set true to play (from the start when it had ended), false to pause. "
+               "Becomes false when the effect ends.").runtime_only()
+        .field("loop", &Vfx::loop,
+               "True: at the end the effect starts again from the beginning (its emitters keep their own particles until they empty). "
+               "False (default): it ends and `playing` becomes false.")
+        .field("autoDestroy", &Vfx::autoDestroy,
+               "True: this entity is removed once the effect ended and its emitters have no particles left. `vfx.play` sets it. "
+               "False (default, for an effect placed in a scene): it stays, ready to play again.")
+        .field("speed", &Vfx::speed,
+               "Speed of the timeline: 1 (default) = as written, 2 = twice as fast, 0.5 = half. It moves the parts' start times and "
+               "the light fades; the particles of an emitter keep their own speed.").range(0.05f, 20)
+        .field("time", &Vfx::time, "Runtime: seconds into the effect (before `speed`: the document's own clock). Assign to seek forward.")
+        .runtime_only().range(0, 1000000)
+        .field("duration", &Vfx::duration,
+               "Runtime: length of the effect in seconds, from the document; 0 until the document is read.")
+        .runtime_only().read_only();
+
     {
         auto cv = r.add<CameraView>("CameraView",
                   "A 3D (or 2D) view inside the UI (docs/MENUS.md, \"A camera inside the UI\"): draws the camera named by `camera` into "

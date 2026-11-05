@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factoria.dev/schemas/vfx.schema.json",
+  "title": "FactorIA effect document (*.vfx.json)",
+  "description": "A reusable visual effect: several emitters, a light flash, sounds and commands (a camera shake, a hit-stop) on one timeline. `vfx.play` (and `vfx.play()` in scripts) plays it at a position or on an entity; an entity with a `Vfx` component plays it from a scene like a prefab. Errors name the file and the JSON pointer; `vfx.check {path}` lists every problem. docs/PARTICLES.md, \"Effect documents\", explains the format.",
+  "type": "object",
+  "required": [
+    "format",
+    "parts"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference for editors."
+    },
+    "format": {
+      "const": "factoria.vfx/1",
+      "description": "File format identifier. Always \"factoria.vfx/1\"."
+    },
+    "doc": {
+      "type": "string",
+      "description": "What the effect is and where the game plays it."
+    },
+    "duration": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 30,
+      "description": "Length of the effect in seconds. Left out: until the last part has started and ended. A part that starts after it is an error."
+    },
+    "parts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "description": "What the effect does, each part at its own time. At most 16 parts, 8 of them emitters and 8 of them commands.",
+      "items": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "enum": [
+              "emitter",
+              "light",
+              "sound",
+              "command"
+            ],
+            "description": "What the part is. emitter: a ParticleEmitter child entity. light: a Light2D (or Light with is3D) that fades out. sound: a one-shot clip. command: a call to a game feel (feel.*) or audio (audio.*) command."
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "description": "Name of the child entity an emitter or a light becomes (letters, digits, '_' and '-'); unique in the effect. Default: the type and the index of the part (\"emitter0\")."
+          },
+          "at": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 30,
+            "default": 0,
+            "description": "Seconds after the effect starts that the part starts. A speed above 1 on the Vfx or vfx.play brings it earlier."
+          },
+          "duration": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 30,
+            "description": "emitter: seconds it keeps emitting its `rate` after the burst (0, the default: only the burst). light: seconds it lasts (default 0.2; it fades out over it). sound and command: not used."
+          },
+          "offset": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 3,
+            "items": {
+              "type": "number"
+            },
+            "description": "emitter, light: [x, y] or [x, y, z] relative to the effect's position. Default [0, 0, 0]."
+          },
+          "emitter": {
+            "type": "object",
+            "description": "emitter parts, required: the fields of a ParticleEmitter component (docs/PARTICLES.md and docs/COMPONENTS.md list them), checked against the component with the same errors as a scene. `emitting` and `autoDestroy` are set by the effect. A part needs a `burst`, or a `rate` with the part's `duration`, or it emits nothing and is an error."
+          },
+          "light": {
+            "type": "object",
+            "description": "light parts: the fields of a Light2D (or of a Light when is3D is true), e.g. {\"color\": \"#ffe9a0\", \"intensity\": 2, \"radius\": 160}. Its `intensity` is the peak; the part fades it to 0 over its duration."
+          },
+          "is3D": {
+            "type": "boolean",
+            "default": false,
+            "description": "light parts: true makes a 3D point Light instead of a Light2D."
+          },
+          "fade": {
+            "description": "light parts: a curve (position 0..1 over the light's life, the form of a ParticleEmitter sizeCurve, e.g. [[0, 1], [1, 0]]) that multiplies the intensity. Left out: a straight fade from 1 to 0.",
+            "type": [
+              "array",
+              "object",
+              "number"
+            ]
+          },
+          "clip": {
+            "type": "string",
+            "description": "sound parts, required: the audio file (project path) played once."
+          },
+          "volume": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 1,
+            "description": "sound parts: volume 0..1."
+          },
+          "pitch": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 4,
+            "default": 1,
+            "description": "sound parts: playback speed, 1 = as recorded."
+          },
+          "bus": {
+            "type": "string",
+            "default": "sfx",
+            "description": "sound parts: the mixer bus, \"sfx\", \"music\", \"ui\" or a bus of the project."
+          },
+          "command": {
+            "type": "string",
+            "description": "command parts, required: the command to call. Only game feel (feel.*) and audio (audio.*) commands are allowed, so an effect file cannot change or delete your project."
+          },
+          "args": {
+            "type": "object",
+            "description": "command parts: the arguments of the command, e.g. {\"strength\": 0.5}."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

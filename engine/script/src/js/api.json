@@ -2706,6 +2706,25 @@
     },
     {
      "kind": "interface",
+     "name": "VfxAPI",
+     "doc": "Effect documents (*.vfx.json, docs/PARTICLES.md \"Effect documents\"). The same as the vfx.* commands.",
+     "members": [
+      {
+       "sig": "play(effect: string, options?: { position?: number[] | Vec2 | Vec3; entity?: Entity | string; rotation?: number; scale?: number; speed?: number; loop?: boolean }): Entity | null",
+       "doc": "Plays the effect document at `position` in the world (default [0, 0]), or at that local position under `entity` so it follows it. Returns the entity that plays it (autoDestroy: it goes when the effect and its particles are done), or null when 64 effects already play. `rotation` is degrees around z, `scale` sizes the whole effect, `speed` plays its timeline faster or slower, `loop` repeats it until vfx.stop. The file is read and checked now: an unreadable or invalid one throws with the JSON pointer of the problem. The effect follows the game clock: it waits at time.scale 0."
+      },
+      {
+       "sig": "stop(entity: Entity | string, options?: { immediate?: boolean }): void",
+       "doc": "Ends an effect that play returned. By default its emitters stop emitting and their particles finish, its lights end and parts that had not started never do; `immediate` removes it and its particles at once."
+      },
+      {
+       "sig": "playing(): { id: string; effect: string; time: number; duration: number; loop: boolean; speed: number }[]",
+       "doc": "The effects that play now: the entity id, the document, seconds into it, its length, whether it loops and its speed."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "UiEvent",
      "doc": "What a ui.on callback receives: one widget event (Button, Toggle, Slider, TextField, Interactable).",
      "members": [
@@ -3969,6 +3988,12 @@
      "name": "particles",
      "type": "ParticlesAPI",
      "doc": "Particle helpers."
+    },
+    {
+     "kind": "const",
+     "name": "vfx",
+     "type": "VfxAPI",
+     "doc": "Effect documents (*.vfx.json): several emitters, a light flash, sounds and commands on one timeline, played with one call."
     },
     {
      "kind": "const",
