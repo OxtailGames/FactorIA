@@ -81,4 +81,24 @@ void curve_value_range(const Curve& c, float& lo, float& hi) {
     if (hi - lo < 0.001f) hi = lo + 1.0f;
 }
 
+std::vector<float> curve_grid_values(float lo, float hi) {
+    std::vector<float> out;
+    const double span = double(hi) - double(lo);
+    if (!std::isfinite(span) || span < 0.0) return out;
+    double step = 1.0;
+    if (span > 4.0) {
+        step = std::pow(10.0, std::floor(std::log10(span / 4.0)));
+        const double n = span / step;
+        if (n >= 20.0) step *= 5.0;
+        else if (n >= 10.0) step *= 2.0;
+    }
+    const double first = std::ceil(double(lo) / step);
+    for (int i = 0; i < kCurveGridMaxLines; ++i) {
+        const double v = (first + double(i)) * step;
+        if (v > double(hi) + 1e-4 * step) break;
+        out.push_back(float(v));
+    }
+    return out;
+}
+
 }  // namespace fa::editor

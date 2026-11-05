@@ -3,6 +3,8 @@
 // fa::Gradient (fa/scene/curve.h), the same objects the renderer reads, so what the editor shows is what the emitter does.
 #pragma once
 
+#include <vector>
+
 #include "fa/scene/curve.h"
 
 namespace fa::editor {
@@ -21,5 +23,11 @@ bool gradient_remove_key(Gradient& g, int i);
 
 // The range a curve editor shows on the value axis: at least 0..1, wider when a key is outside it.
 void curve_value_range(const Curve& c, float& lo, float& hi);
+
+// The values of the horizontal grid lines of a curve editor showing lo..hi: whole multiples of 1, 2 or 5 x 10^n chosen so that
+// a range of any width gets at most kCurveGridMaxLines lines, in ascending order (a key of 1e9 must not draw a billion lines).
+// Empty for a range that is not finite or has lo > hi.
+inline constexpr int kCurveGridMaxLines = 16;
+std::vector<float> curve_grid_values(float lo, float hi);
 
 }  // namespace fa::editor
