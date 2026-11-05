@@ -44,6 +44,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"V", "AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator"},
     {"W", "Several AI chats at once: both finish, same-file warning, the cap, Revert of one run, Stop of one run"},
     {"X", "AI settings window: asset providers, a key, asset sites; a bad site stops Save; Remove stored key"},
+    {"Q2", "AI settings per project: a copied file waits for Accept (Ignore, Review), switching project shows the other roles, Reset of a row, Save as my defaults, a project Save, an invalid file"},
     {"Y", "Recipes: stale badge, the banner when a source is saved, Regenerate (toolbar and banner), a missing source"},
     {"Z", "Sprite sheets: the Project panel previews a sheet's clips, the Inspector lists them and one click sets SpriteAnimator.clip"},
     {"B2", "Animation panel: new clip, keys recorded by a gizmo drag, a key moved and undone, easing, an event, scrubbing, onion skin"},

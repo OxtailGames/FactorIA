@@ -651,6 +651,9 @@ bool Editor::boot(const std::string& dirIn) {
         while (projectDir_.size() > 1 && (projectDir_.back() == '/' || projectDir_.back() == '\\')) projectDir_.pop_back();
         fs::set_project_root(projectDir_);
         projectName_ = engine_->project().name;
+        ai_project_invalidate();  // the next message and the AI windows use this project's AI settings, not the last project's
+        aiRolesOpen_ = true;
+        ai_settings_discard();
         // Closed engine feedback moves to ENGINE_FEEDBACK.archive.json so the file only holds what is still open.
         if (const std::string fbPath = fs::join(projectDir_, engine_->project().feedbackFile); fs::exists(engine_->project().feedbackFile)) {
             // First, the gaps this engine version fixed are closed (the list embedded in the binary), then archived below.
