@@ -119,6 +119,7 @@ void Editor::draw_ai_economizer_view(const ai::AiConfig& cfg, bool configReadabl
                 std::lock_guard<std::mutex> lock(aiMu_);
                 aiConfig_ = *loaded;
             }
+            ai_project_invalidate();
             for (const ai::Extension& e : loaded->extensions.entries) {
                 if (e.kind != ai::ExtensionKind::Plugin || lower_copy(e.plugin) != lower_copy(preset.plugin)) continue;
                 const auto has = [&](const std::vector<ai::Extension>& list) {

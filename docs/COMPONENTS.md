@@ -1381,6 +1381,32 @@ Reads one transcript of <project>/.factoria/ai/sessions/ (every event has "t", t
 | `session` | string | no | File name of the session (20261014-153012-orchestrator or with .jsonl) in .factoria/ai/sessions. Omit for the newest. |
 | `minGapSeconds` | number | no | List only the gaps at least this long (seconds). Totals always count every gap. Default 30. |
 
+### `ai.settings.get`
+
+Not released yet (on main after 0.16.1).
+
+Show the AI settings (roles, limits, assets, savers, tool servers, extensions) with where each value comes from: this project, your defaults or the engine.
+
+The AI settings of a project resolve key by key: the engine's defaults, then your ~/.factoria/ai.json, then the project's own file (<project>/.factoria/ai/settings.json), docs/AI_PROVIDERS.md "Per project". scope "resolved" (default) returns {scope, project (the folder, or null), values:[{pointer, value, source}], projectSettings} with the values the project runs with (JSON pointers like /roles/artist/enabled or /limits/maxTurns) and `source` "project", "you" or "default"; projectSettings is the file's state when the project has one. scope "project" returns the project file itself: {scope, project, file, exists, overrides (the raw file), applied, pendingTrust, pending:[{pointer, from, to}], invalidError}. A project file the user has not accepted on this computer (it came inside a copied project, or an AI wrote it with ai.settings.set) has no effect yet: pendingTrust is true and `pending` lists what it would change; an invalid one that is not accepted is in invalidError and has no effect either. scope "user" returns your own ai.json view: {scope, configPath, configFound, values} with source "you" (the file sets it, or it differs from the engine's) or "default". Read-only; providers and keys are never part of it. Example: {"scope":"resolved"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `scope` | string ["resolved","project","user"] | no | resolved: what this project runs with, each value with its source. project: the project's own file. user: your ai.json. Default "resolved". |
+
+### `ai.settings.set` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Change one AI setting of this project; a project change waits for the user to accept it in the editor. Your own defaults (scope user) only the user changes.
+
+Writes ONE value, named by its JSON pointer as ai.settings.get lists them (/roles/artist/enabled, /roles/worker/model, /limits/maxCostUsd, /savers/loopGuard, /assets/image/provider, /assetSources/images, /mcpServers/<name> true or false, /extensions/plugins/<name> true or false). scope "project" writes <project>/.factoria/ai/settings.json (only what differs from your defaults is kept). scope "user" writes the user's own ~/.factoria/ai.json defaults and is only for the user (`factoria call`): an AI agent or MCP client that asks for it gets the error user_only, and the user changes them in the editor's AI settings window (Your defaults). `value` null removes the setting: from the project file (it goes back to your default) or from ai.json (it goes back to the engine's). A new provider for a role or asset route drops its model, effort and voice. A project can only NAME providers, tool servers and extensions that your ai.json defines, and never holds a command, address, header, environment or key: such keys, and pointers that are not settings, are refused with where they belong and a "did you mean" (errors unknown_pointer, rejected_key, invalid_setting). IMPORTANT: this command NEVER accepts a project file: setting a value never writes ai-trust.json. A project file written here is NOT applied until the user accepts it once in the editor (AI settings, with this project open); until then the project runs with the user's settings. Setting a value in an already accepted file makes the whole file wait for acceptance again. Removing a value (null) from an accepted file keeps it accepted (it only gets smaller; its acceptance is updated to the smaller file), and a removal that empties the file deletes it and forgets its acceptance; removing a value from a file that is not accepted leaves it waiting. The result says so: needsAcceptance true plus a hint. Returns {ok, scope, pointer, removed, value (what you asked for), runsWith (what the project runs with right now, which is unchanged while its file waits), source (where runsWith comes from), file, needsAcceptance, applied, hint}; scope "user" also returns changed: [{pointer, from, to}], every setting whose value is different now (a new provider for a role also drops its model, effort and voice). Example: {"scope":"project","pointer":"/roles/artist/enabled","value":false}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `scope` | string ["project","user"] | yes | project: this project's file (waits for the user's acceptance). user: the user's ai.json defaults; refused for an AI agent or MCP client (only the user changes them). |
+| `pointer` | string | yes | JSON pointer of one value, like /roles/artist/enabled (ai.settings.get lists them). |
+| `value` | any | yes | The new value (boolean, number, string, or an array for /assetSources/<category>). null removes the setting. |
+
 ### `ai.tool_plan`
 
 Since 0.11.0.
@@ -3091,7 +3117,7 @@ Since 0.10.0.
 
 Sharing with the engine developer: the mode, the server, whether the user signed in, and the outbox.
 
-Reports the mode the USER chose (unset, always, ask or never; no command changes it), whether this build has a feedback server, whether the user signed in with GitHub, and the outbox: entries queued, waiting for the user's confirmation, and failed ones with their reason and when they are retried. Use it to tell the user why a report was not sent.
+Reports the mode that applies to this project (unset, always, ask or never): its own choice if the user made one, else the user's default (`default` and `project` say which; no command changes either). Also whether this build has a feedback server, whether the user signed in with GitHub, and the outbox: entries queued, waiting for the user's confirmation, and failed ones with their reason and when they are retried. Use it to tell the user why a report was not sent.
 
 ### `feedback.update` (modifies state)
 
