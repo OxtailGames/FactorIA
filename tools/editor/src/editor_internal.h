@@ -38,6 +38,7 @@
 #include "fa/ai/skills.h"
 #include "fa/ai/session.h"
 #include "fa/core/asset_manifest.h"
+#include "level_gen_model.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
@@ -578,6 +579,13 @@ public:
     void draw_animator_clips(Entity e, const std::string& id, const Json& current);
     void draw_material_params(Entity e, const Json& current);
     void draw_profiler_panel();
+    // Level generator window (level_gen_panel.cpp; the model, level_gen_model.h, has no ImGui).
+    void draw_level_gen_panel();
+    void draw_level_gen_preview(float height);
+    LevelGenCaller level_gen_caller();
+    void level_gen_keep();
+    void level_gen_save();
+    void level_gen_refresh_sample();   // the selection's Tilemap and the sample's solid tiles, for the buttons and the preview colours
     void draw_project_dialog();
     // AI panel text: the right-click menu of the InputText just submitted on `text` (Cut/Copy/Paste/Select all), and a
     // transcript message as a selectable read-only box (ai_panel.cpp)
@@ -786,6 +794,15 @@ public:
     bool showViewport_ = true;
     bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false, showProfiler_ = false, showProject_ = true;
     bool showAnimation_ = false, showBoneTools_ = false;
+    bool showLevelGen_ = false;
+    LevelGenSession levelGen_;
+    LevelGenOptions levelGenOpt_;
+    std::string levelGenKeepName_ = "generated", levelGenSavePath_ = "levels/generated.json", levelGenMessage_;
+    bool levelGenMessageBad_ = false;
+    std::vector<int> levelGenSolid_;   // solid tile numbers of the sample, for the preview colours
+    std::string levelGenSelId_;        // the selection levelGenSelTilemap_ was read for
+    bool levelGenSelTilemap_ = false;  // the selected entity has a Tilemap
+    std::uint64_t levelGenSampleFrame_ = 0;
     ProjectBrowser projBrowser_;
     bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false;
     bool showQuitDialog_ = false, showReloadConfirm_ = false;

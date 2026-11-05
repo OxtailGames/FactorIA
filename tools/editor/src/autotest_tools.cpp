@@ -585,6 +585,11 @@ void Editor::at_build_tools_script() {
             anim_ = AnimUi{};
             bone_ = BoneUi{};
             showAnimation_ = showBoneTools_ = showImage_ = showVector_ = showSound_ = showMusic_ = showModeler_ = false;
+            showLevelGen_ = false;   // section P3: the Level generator window, its sample, its preview and its history are not carried over
+            levelGen_.clear();
+            levelGenOpt_ = LevelGenOptions{};
+            levelGenMessage_.clear();
+            levelGenSelId_.clear();
             sound_close_document();   // section K3: the Sound panel, its sound and its playback are not carried over
             sound_release_textures();
             if (sound_.player) sound_.player->stop();
@@ -8018,6 +8023,100 @@ void Editor::at_build_tools_script() {
             feedbackPolled_ = -10;
         });
         step(2, [grow_panel_row] { grow_panel_row(false); });
+    }
+
+    // ----------------------------------------------------------------------------------------- P3. Level generator
+    section("P3");
+    // View > Level generator (docs/EDITOR.md, "Level generator"): a drawn level is the sample, Generate makes a level, Next / Previous seed
+    // walk the seeds (the same seed gives the same rows again), Keep builds the preview in the open scene as ONE undo step, Save writes a
+    // level file. Every wait is a state, not a number of frames.
+    {
+        struct Ps {
+            size_t undo = 0;
+            std::vector<std::string> first;
+            std::int64_t firstSeed = 0;
+        };
+        auto ps = std::make_shared<Ps>();
+        auto wait_ready = [this, &step] {
+            step(1, [this] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = [this] { return levelGen_.state() == LevelGenSession::State::Ready; };
+            });
+        };
+        step(2, [this] {
+            run_console_line(
+                "scene.import_ascii {\"rows\":[\"............\",\"..####..##..\",\"..#..#..##..\",\"..#..#......\",\"..####..#...\",\"..........#.\","
+                "\"....#.......\",\"............\"],\"legend\":{\"#\":0},\"entity\":\"at_sample\",\"tilemap\":{\"tileSize\":[16,16],\"solidTiles\":[0]}}");
+        });
+        click("menu:view");
+        step(3, [] {});
+        click("menu:levelgen");
+        step(4, [this] {
+            at_check(showLevelGen_, "View > Level generator shows the Level generator window");
+            pendingFocus_ = "Level generator";
+            levelGenKeepName_ = "at_generated";
+            levelGenSavePath_ = "levels/at-generated.json";
+            levelGenOpt_.width = 20;
+            levelGenOpt_.height = 12;
+            levelGenOpt_.seed = 1;
+            levelGenOpt_.n = 2;
+            select_id("at_sample");
+        });
+        step(3, [this] { at_check(at_enabled("levelgen:use-selected") && at_shown("levelgen:use-selected"), "the sample button is on and on screen with a Tilemap selected"); });
+        click("levelgen:use-selected");
+        step(3, [this] {
+            at_check(levelGenOpt_.sampleEntity == "at_sample", "Use the selected Tilemap makes the selected level the sample (" + levelGenOpt_.sampleEntity + ")");
+        });
+        click("levelgen:generate");
+        wait_ready();
+        step(3, [this, ps] {
+            const LevelGenPreview& p = levelGen_.preview();
+            at_check(p.valid && p.width == 20 && p.height == 12 && p.rows.size() == 12, "Generate fills the preview: a 20 x 12 level");
+            at_check(p.seed == 1, "...for the seed in the window");
+            ps->first = p.rows;
+            ps->firstSeed = p.seed;
+            at_check(at_shown("levelgen:stats") && at_shown("levelgen:preview"), "...the numbers and the plan are on screen");
+        });
+        snap("editor_level_generator.png");
+        click("levelgen:next");
+        wait_ready();
+        step(3, [this, ps] {
+            at_check(levelGenOpt_.seed == 2 && levelGen_.preview().seed == 2, "Next seed generates the level of seed 2 at once");
+            at_check(levelGen_.tries().size() >= 2, "...and the history keeps both seeds");
+        });
+        click("levelgen:prev");
+        wait_ready();
+        step(3, [this, ps] {
+            at_check(levelGen_.preview().seed == ps->firstSeed && levelGen_.preview().rows == ps->first, "Previous seed brings the first level back, row by row");
+            ps->undo = undo_depth();
+        });
+        click("levelgen:keep");
+        step(4, [this, ps] {
+            Entity kept = world().find_by_id("at_generated");
+            at_check(!kept.is_null(), "Keep builds the level as the entity at_generated");
+            const Tilemap* tm = kept.is_null() ? nullptr : world().get<Tilemap>(kept);
+            at_check(tm && tm->width == 20 && tm->height == 12 && tm->tileSize.x == 16.0f, "...a 20 x 12 Tilemap with the sample's tile size");
+            at_check(tm && tm->solidTiles.is_array() && tm->solidTiles.size() == 1, "...and the sample's solid tiles");
+            at_check(undo_depth() == ps->undo + 1 && dirty(), "...as one undo step, and the scene is marked changed");
+            at_check(selected_id() == "at_generated", "...selected");
+        });
+        click("levelgen:save");
+        step(4, [this, project_file] {
+            Result<Json> parsed = parse_json(read_file(project_file("levels/at-generated.json")), "levels/at-generated.json");
+            const Json doc = parsed.ok() ? parsed.value() : Json();
+            at_check(doc.is_object() && doc.contains("rows") && doc["rows"].size() == 12 && doc.contains("legend"),
+                     "Save level file writes the rows and the legend to levels/at-generated.json");
+            at_check(!levelGenMessageBad_ && levelGenMessage_.find("at-generated.json") != std::string::npos, "...and says so");
+            undo();
+            at_check(world().find_by_id("at_generated").is_null(), "Ctrl+Z takes the kept level away");
+        });
+        // ---- leave the editor as the other sections expect it
+        step(2, [this, project_file] {
+            showLevelGen_ = false;
+            levelGen_.clear();
+            std::error_code ec;
+            stdfs::remove(project_file("levels/at-generated.json"), ec);
+        });
     }
 
     // ------------------------------------------------------------------------------------------------------ done
