@@ -27,13 +27,15 @@ ParticlePreview::~ParticlePreview() = default;
 void ParticlePreview::set_document(std::shared_ptr<const VfxDoc> doc) {
     if (doc == doc_) return;
     doc_ = std::move(doc);
-    seek(time_);
+    stale_ = true;
+    seek(target_time());
 }
 
 void ParticlePreview::set_seed(std::uint32_t seed) {
     if (seed == seed_) return;
     seed_ = seed;
-    seek(time_);
+    stale_ = true;
+    seek(target_time());
 }
 
 void ParticlePreview::rebuild() {
@@ -45,6 +47,7 @@ void ParticlePreview::rebuild() {
     steps_ = 0;
     time_ = 0.0;
     carry_ = 0.0;
+    stale_ = false;
     world_ = std::make_unique<World>();
     vfx_ = kNullEntity;
     if (!doc_) return;
@@ -58,19 +61,40 @@ void ParticlePreview::rebuild() {
 
 void ParticlePreview::seek(double t) {
     const double target = std::clamp(t, 0.0, kPreviewMaxTime);
-    rebuild();
+    // Step number n is at time n * kPreviewStep: counting whole steps keeps the same time from drifting between a seek and playing to it.
+    targetSteps_ = int(std::floor(target / kPreviewStep + 1e-9));
+    // A later moment goes on from the state the preview has; an earlier one, or a changed document or seed, starts again.
+    if (stale_ || targetSteps_ < steps_) rebuild();
     if (!doc_) {
-        time_ = target;
+        time_ = double(targetSteps_) * kPreviewStep;
+        steps_ = targetSteps_;
         return;
     }
-    // Step number n is at time n * kPreviewStep: counting whole steps keeps the same time from drifting between a seek and playing to it.
-    const int wanted = int(std::floor(target / kPreviewStep + 1e-9));
-    while (steps_ < wanted) step_once();
     carry_ = 0.0;
+    catch_up();
+}
+
+void ParticlePreview::catch_up() {
+    if (!doc_ || !catching_up()) return;
+    long work = 0;
+    int n = 0;
+    while (steps_ < targetSteps_ && n < kPreviewStepBudget && work < kPreviewWorkBudget) {
+        work += step_once();
+        ++n;
+    }
+    snapshot();
+}
+
+void ParticlePreview::settle() {
+    while (catching_up() && doc_) catch_up();
 }
 
 void ParticlePreview::advance(double dt) {
     if (!doc_ || dt <= 0.0) return;
+    if (catching_up()) {   // a seek is still on its way: finish it before playing on from there
+        catch_up();
+        return;
+    }
     carry_ += dt;
     int n = 0;
     while (carry_ >= kPreviewStep && time_ < kPreviewMaxTime && n < 120) {
@@ -78,11 +102,13 @@ void ParticlePreview::advance(double dt) {
         step_once();
         ++n;
     }
+    targetSteps_ = steps_;
+    if (n > 0) snapshot();
     if (n == 120 || time_ >= kPreviewMaxTime) carry_ = 0.0;
 }
 
-void ParticlePreview::step_once() {
-    if (!doc_ || !world_) return;
+long ParticlePreview::step_once() {
+    if (!doc_ || !world_) return kPreviewStepCost;
     VfxHost host;
     host.load = [doc = doc_](const std::string&) { return doc; };
     // Sounds and commands are listed, not run.
@@ -121,7 +147,9 @@ void ParticlePreview::step_once() {
                 fired_.push_back(int(i));
     }
     world_->flush();
-    snapshot();
+    long particles = 0;
+    for (const auto& [bits, sim] : sims_) particles += long(sim.particles.size());
+    return kPreviewStepCost + particles;
 }
 
 void ParticlePreview::snapshot() {

@@ -248,6 +248,7 @@ void Editor::draw_particle_panel() {
 
     // The preview plays the document as it is now (a drag in progress included).
     u.preview->set_document(m.doc());
+    u.preview->catch_up();   // a seek or an edit that is still being rebuilt does a bounded share of its steps per frame
     if (u.playing && !u.scrubbing && m.doc()) {
         const double dt = std::min(0.1, double(ImGui::GetIO().DeltaTime)) * double(u.speed);
         if (u.preview->time() >= u.preview->timeline_length()) {
@@ -433,7 +434,7 @@ void Editor::draw_particle_timeline(ParticleModel& m) {
         }
     }
     // the playhead
-    const float xp = xat(pv.time());
+    const float xp = xat(pv.target_time());   // under the mouse even while the particles are catching up
     dl->AddLine(ImVec2(xp, p0.y), ImVec2(xp, p0.y + rulerH + trackH), IM_COL32(255, 80, 80, 255), 2.0f);
     dl->AddTriangleFilled(ImVec2(xp - 5, p0.y), ImVec2(xp + 5, p0.y), ImVec2(xp, p0.y + 7), IM_COL32(255, 80, 80, 255));
 
@@ -451,7 +452,7 @@ void Editor::draw_particle_timeline(ParticleModel& m) {
         u.scrubbing = true;
         u.playing = false;
         const double t = time_at_mouse();
-        if (std::abs(t - pv.time()) > 1e-6) pv.seek(t);
+        if (std::abs(t - pv.target_time()) > 1e-6) pv.seek(t);
     } else if (u.scrubbing) {
         u.scrubbing = false;
     }
@@ -514,7 +515,8 @@ void Editor::draw_particle_canvas(ParticleModel& m) {
         dl->AddCircleFilled(c, r * 0.6f, col32(d.color, a), r > 12.0f ? 20 : 10);
     }
     dl->AddText(ImVec2(p0.x + 6, p0.y + 4), IM_COL32(150, 155, 170, 255),
-                std::format("{:.2f} s   {} particles   {} emitters   {} lights", pv.time(), pv.live_particles(), pv.live_emitters(), pv.lights().size()).c_str());
+                (std::format("{:.2f} s   {} particles   {} emitters   {} lights", pv.time(), pv.live_particles(), pv.live_emitters(), pv.lights().size()) +
+                 (pv.catching_up() ? std::format("   (catching up to {:.2f} s)", pv.target_time()) : std::string())).c_str());
     dl->PopClipRect();
     hint("The preview: the effect played by the same timeline and particle simulation a game runs (additive blending shows as normal; ribbon trails are not drawn). "
          "The cross is the effect's position; +y is up. The mouse wheel zooms.");

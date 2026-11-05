@@ -928,7 +928,9 @@ when it changes on disk and no drag is running; the undo steps stay. While the g
   part's row selects it.
 - **Preview.** The effect played by the same timeline (`update_vfx`) and the same particle simulation (`ParticleSim`) a game runs, in a scratch world with no
   renderer: dots with the renderer's size, colour and alpha formulas, and lights as glows. It steps by a fixed 1/60 s from the start every time it is built, so the
-  preview is repeatable. What it does not show: ribbon trails, textures and flipbooks (a dot stands for the quad), and additive blending (it draws as normal).
+  preview is repeatable. Dragging the playhead, a slider or the seed never freezes the editor: a later moment goes on from the state the preview has, an earlier one or an
+  edit starts again, and each frame does a bounded share of the steps (240 at most, fewer when there are many particles), so the particles shown can lag the playhead
+  for a few frames; the readout says "catching up to" the moment asked for. Where the preview ends up does not depend on how many frames it took. What it does not show: ribbon trails, textures and flipbooks (a dot stands for the quad), and additive blending (it draws as normal).
   Sounds and commands are not run, so a preview never shakes the editor or plays a clip; they only appear as markers on the timeline. The mouse wheel zooms.
 - **Parts.** The list with **+ Emitter**, **+ Light**, **+ Sound** (the first audio file of the project; pick the clip in the inspector) and **+ Command**, and **Up**,
   **Down** and **Remove** for the selected part (an effect has 1 to 16 parts).

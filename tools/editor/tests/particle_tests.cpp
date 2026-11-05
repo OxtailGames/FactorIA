@@ -230,6 +230,7 @@ TEST_CASE("particle preview: the same seed and the same time show the same parti
     b.seek(0.0);
     for (int i = 0; i < 30; ++i) a.advance(1.0 / 60.0);   // played
     b.seek(a.time());                                      // scrubbed to the same moment
+    b.settle();
     REQUIRE(a.live_particles() > 0);
     REQUIRE(a.dots().size() == b.dots().size());
     for (std::size_t i = 0; i < a.dots().size(); ++i) {
@@ -242,14 +243,17 @@ TEST_CASE("particle preview: the same seed and the same time show the same parti
     c.set_seed(8);
     c.set_document(p.model->doc());
     c.seek(a.time());
+    c.settle();
     bool differs = c.dots().size() != a.dots().size();
     for (std::size_t i = 0; !differs && i < std::min(a.dots().size(), c.dots().size()); ++i)
         differs = std::abs(a.dots()[i].x - c.dots()[i].x) > 1e-4f || std::abs(a.dots()[i].y - c.dots()[i].y) > 1e-4f;
     CHECK(differs);
     // the end of the timeline has no particles left; going back brings them back
     a.seek(a.timeline_length());
+    a.settle();
     CHECK(a.live_particles() == 0);
     a.seek(0.2);
+    a.settle();
     CHECK(a.live_particles() > 0);
     CHECK(a.timeline_length() >= 0.25);
 }
@@ -262,11 +266,81 @@ TEST_CASE("particle preview: lights glow while they last and sounds and commands
     ParticlePreview v;
     v.set_document(p.model->doc());
     v.seek(0.05);
+    v.settle();
     CHECK(v.lights().size() == 1);
     CHECK(v.lights()[0].intensity > 0.0f);
     v.seek(v.timeline_length());
+    v.settle();
     CHECK(v.lights().empty());
     v.seek(0.0);
     for (int i = 0; i < 90; ++i) v.advance(1.0 / 60.0);
     CHECK(v.fired().size() == 1);   // the command; it was not run
+}
+
+TEST_CASE("particle preview: a far seek is done a bounded share per call and ends on the same particles as one done at once") {
+    FxProject p;
+    p.open();
+    // a long effect: 6 s of emission and particles that live 12 s, so the timeline is far longer than one call's share of steps
+    REQUIRE(p.model->set_field("/duration", 6.0, "Longer").ok);
+    REQUIRE(p.model->set_field("/parts/0/emitter/lifetime", 12.0, "Longer lives").ok);
+    REQUIRE(p.model->set_field("/parts/0/emitter/rate", 40.0, "Emit").ok);
+    ParticlePreview slow, whole;
+    slow.set_document(p.model->doc());
+    whole.set_document(p.model->doc());
+    const double far = std::min(slow.timeline_length() * 0.9, 20.0);
+    const int wantedSteps = int(far / kPreviewStep);
+    REQUIRE(wantedSteps > 2 * kPreviewStepBudget);   // more than one call's share, so the test sees the catching up
+
+    slow.seek(far);
+    CHECK(slow.catching_up());                        // the first call did not get there
+    CHECK(slow.target_time() == doctest::Approx(far).epsilon(0.01));
+    CHECK(slow.time() <= double(kPreviewStepBudget) * kPreviewStep + 1e-9);   // and did at most its budget
+    int calls = 1;
+    double last = slow.time();
+    while (slow.catching_up() && calls < 1000) {
+        slow.catch_up();
+        ++calls;
+        CHECK(slow.time() > last);                    // every call moves on
+        CHECK(slow.time() - last <= double(kPreviewStepBudget) * kPreviewStep + 1e-9);
+        last = slow.time();
+    }
+    CHECK(calls >= 3);
+    CHECK_FALSE(slow.catching_up());
+    CHECK(slow.time() == doctest::Approx(slow.target_time()));
+
+    whole.seek(far);
+    whole.settle();
+    CHECK(whole.time() == slow.time());
+    REQUIRE(slow.dots().size() == whole.dots().size());
+    for (std::size_t i = 0; i < slow.dots().size(); ++i) {
+        CHECK(slow.dots()[i].x == whole.dots()[i].x);
+        CHECK(slow.dots()[i].y == whole.dots()[i].y);
+    }
+
+    // going on to a later moment continues from the state the preview has (no rebuild); the result is the same as from the start
+    ParticlePreview fresh;
+    fresh.set_document(p.model->doc());
+    fresh.seek(0.5);
+    fresh.settle();
+    ParticlePreview onward;
+    onward.set_document(p.model->doc());
+    onward.seek(0.25);
+    onward.settle();
+    onward.seek(0.5);
+    onward.settle();
+    CHECK(onward.time() == fresh.time());
+    REQUIRE(onward.dots().size() == fresh.dots().size());
+    for (std::size_t i = 0; i < onward.dots().size(); ++i) CHECK(onward.dots()[i].x == fresh.dots()[i].x);
+
+    // an edit of the document while it is far along rebuilds up to the same moment, a share per call
+    ParticlePreview edited;
+    edited.set_document(p.model->doc());
+    edited.seek(far);
+    edited.settle();
+    REQUIRE(p.model->add_item("/parts", ParticleModel::starter_part("light"), -1, "Add light").ok);
+    edited.set_document(p.model->doc());
+    CHECK(edited.target_time() == doctest::Approx(far).epsilon(0.01));
+    CHECK(edited.catching_up());
+    edited.settle();
+    CHECK(edited.time() == doctest::Approx(edited.target_time()));
 }
