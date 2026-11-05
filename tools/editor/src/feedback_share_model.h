@@ -117,6 +117,11 @@ struct SendChoice {
     ShareFields text;            // the row's text (used when send)
     bool reviewPassed = false;   // the AI review of this text passed
 };
+// The environment the UI thread uses for everything that takes the sharing lock: the same as share_env() but it waits at most 0.3 s
+// for a busy lock instead of seconds (a flush or a CLI command in another process holds it only for a moment), so a frame never stalls.
+// The caller reports the error and the person (or the next tick) tries again.
+ShareEnv ui_share_env();
+
 struct SendRowResult {
     std::string id;
     std::string status;   // queued | skipped | rejected | failed

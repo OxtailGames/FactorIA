@@ -16,6 +16,7 @@
 //                        severity weight x trust x min(occurrences, 3) per project).
 #pragma once
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -137,7 +138,11 @@ Result<Json> update_feedback_file(const std::string& path, std::string_view id, 
 bool feedback_entry_deletable(const Json& entry, std::string* whyNot = nullptr);
 // Deletes entry `id` from the feedback file or its archive (a rejected entry lives in the archive). Its id is never given again
 // (the documents keep `nextId`). Nothing is written when the entry is not deletable. Returns the deleted entry.
-Result<Json> delete_feedback_file(const std::string& path, std::string_view id);
+// `beforeWrite` (optional) runs once the entry is found and deletable, just before the file is written: an error from it is returned
+// and nothing is deleted. The callers use it to take the entry out of the sharing outbox first (share_discard), so a failure there
+// never leaves a deleted entry that is still sendable.
+Result<Json> delete_feedback_file(const std::string& path, std::string_view id,
+                                  const std::function<Result<void>()>& beforeWrite = {});
 
 struct FeedbackShareEdit {
     Json share;                    // null = leave `share` as it is; else {title, missing, suggestion?, workaround?}

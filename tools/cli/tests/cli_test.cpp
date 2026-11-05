@@ -652,6 +652,64 @@ TEST_CASE("feedback sharing: shows the status, sets a mode, refuses unknown ones
     CHECK(unset.code == 2);  // only always, ask and never can be chosen
 }
 
+TEST_CASE("feedback sharing --project: resolved to the project folder, printed, and refused where there is none") {
+    CliShare s;
+    const std::string proj = s.project();
+    std::filesystem::create_directories(std::filesystem::path(proj) / "scenes");
+    // A folder inside the project resolves to the project; the answer prints the project it chose.
+    auto set = run({"feedback", "sharing", "never", "--project", proj + "/scenes"});
+    CHECK_MESSAGE(set.code == 0, set.err);
+    CHECK(set.out.find("Project: ") != std::string::npos);
+    CHECK(set.out.find("game") != std::string::npos);
+    CHECK(fa::effective_share_mode(fa::load_share_settings(s.env), proj) == fa::ShareMode::Never);
+    CHECK(fa::load_share_settings(s.env).mode == fa::ShareMode::Unset);  // the default did not move
+    auto st = run({"feedback", "sharing", "--project", proj});
+    CHECK(st.out.find("its own choice") != std::string::npos);
+    CHECK(st.out.find("game") != std::string::npos);
+    // A folder that is not a project (or does not exist) is an error that says what to pass, never another project.
+    const std::string other = (s.dir / "not-a-project").string();
+    std::filesystem::create_directories(other);
+    auto none = run({"feedback", "sharing", "always", "--project", other});
+    CHECK(none.code == 1);
+    CHECK(none.err.find("factoria.json") != std::string::npos);
+    CHECK(none.err.find("--project") != std::string::npos);
+    auto typo = run({"feedback", "sharing", "always", "--project", proj + "/scenez"});
+    CHECK(typo.code == 1);
+    CHECK(typo.err.find("not a folder") != std::string::npos);
+    CHECK(fa::effective_share_mode(fa::load_share_settings(s.env), proj) == fa::ShareMode::Never);
+    // --clear is alone: with a mode it is a usage error; alone it removes the choice.
+    auto both = run({"feedback", "sharing", "always", "--clear", "--project", proj});
+    CHECK(both.code == 2);
+    CHECK(both.err.find("--clear") != std::string::npos);
+    CHECK(fa::effective_share_mode(fa::load_share_settings(s.env), proj) == fa::ShareMode::Never);
+    auto clear = run({"feedback", "sharing", "--clear", "--project", proj});
+    CHECK(clear.code == 0);
+    CHECK(clear.out.find("Project: ") != std::string::npos);
+    CHECK(fa::load_share_settings(s.env).projects.empty());
+}
+
+TEST_CASE("feedback share --yes confirms only the project it was run for") {
+    CliShare s;
+    const std::string proj = s.project();
+    const std::filesystem::path other = s.dir / "game2";
+    std::filesystem::create_directories(other);
+    std::ofstream(other / "factoria.json") << R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"scenes/main.scene.json"})";
+    REQUIRE(run(add_args(proj)).code == 0);
+    REQUIRE(run(add_args(other.string())).code == 0);
+    REQUIRE(run({"feedback", "sharing", "ask"}).code == 0);
+    // Both projects queue their entry and wait (ask).
+    REQUIRE(run({"feedback", "share", proj}, "n\n").code == 0);
+    REQUIRE(run({"feedback", "share", other.string()}, "n\n").code == 0);
+    REQUIRE(fa::load_outbox(s.env).items.size() == 2);
+    auto yes = run({"feedback", "share", proj, "--yes"});
+    CHECK_MESSAGE(yes.code == 0, yes.err);
+    CHECK(s.requests.size() == 1);
+    const fa::Outbox box = fa::load_outbox(s.env);
+    REQUIRE(box.items.size() == 1);
+    CHECK(fa::share_same_path(box.items[0].file, (other / "ENGINE_FEEDBACK.json").string()));
+    CHECK(box.items[0].state == fa::OutboxState::Waiting);
+}
+
 TEST_CASE("feedback share: --preview sends nothing; always sends; ask asks first; unset refuses") {
     CliShare s;
     const std::string proj = s.project();
@@ -692,6 +750,82 @@ TEST_CASE("feedback share: --preview sends nothing; always sends; ask asks first
         run({"feedback", "share", proj});
         CHECK(s.requests.empty());
     }
+}
+
+TEST_CASE("feedback share: a project without ENGINE_FEEDBACK.json, or no project, flushes nothing (not another project's items)") {
+    CliShare s;
+    const std::string proj = s.project();
+    const std::filesystem::path other = s.dir / "game2";
+    std::filesystem::create_directories(other);
+    std::ofstream(other / "factoria.json") << R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"scenes/main.scene.json"})";
+    // The other project has an entry that waits in the outbox; `proj` has no feedback file at all.
+    REQUIRE(run(add_args(other.string())).code == 0);
+    REQUIRE(run({"feedback", "sharing", "ask"}).code == 0);
+    REQUIRE(run({"feedback", "share", other.string()}, "n\n").code == 0);
+    REQUIRE(fa::load_outbox(s.env).items.size() == 1);
+    REQUIRE(run({"feedback", "sharing", "always", "--project", other.string()}).code == 0);
+    SUBCASE("always, with no ENGINE_FEEDBACK.json in the project") {
+        REQUIRE(run({"feedback", "sharing", "always"}).code == 0);
+        auto r = run({"feedback", "share", proj});
+        CHECK(r.code == 1);
+        CHECK(r.err.find("No ENGINE_FEEDBACK.json in ") != std::string::npos);
+        CHECK(r.err.find("Nothing was sent") != std::string::npos);
+        CHECK(s.requests.empty());
+        CHECK(fa::load_outbox(s.env).items.size() == 1);
+    }
+    SUBCASE("ask, with --yes: still nothing") {
+        auto r = run({"feedback", "share", proj, "--yes"});
+        CHECK(r.code == 1);
+        CHECK(s.requests.empty());
+    }
+    SUBCASE("outside a project") {
+        REQUIRE(run({"feedback", "sharing", "always"}).code == 0);
+        const std::string nowhere = (s.dir / "nowhere").string();
+        std::filesystem::create_directories(nowhere);
+        auto r = run({"feedback", "share", nowhere});
+        CHECK(r.code == 1);
+        CHECK(s.requests.empty());
+        CHECK(fa::load_outbox(s.env).items.size() == 1);
+    }
+}
+
+TEST_CASE("feedback share: with sharing off for the project it says so and flushes nothing") {
+    CliShare s;
+    const std::string proj = s.project();
+    REQUIRE(run(add_args(proj)).code == 0);
+    REQUIRE(run({"feedback", "sharing", "always"}).code == 0);
+    REQUIRE(run({"feedback", "sharing", "never", "--project", proj}).code == 0);
+    auto r = run({"feedback", "share", proj});
+    CHECK(r.code == 0);
+    CHECK(r.out.find("off for this project") != std::string::npos);
+    CHECK(r.out.find("your choice for it is never") != std::string::npos);
+    CHECK(s.requests.empty());
+    REQUIRE(run({"feedback", "sharing", "--clear", "--project", proj}).code == 0);
+    REQUIRE(run({"feedback", "sharing", "never"}).code == 0);
+    auto d = run({"feedback", "share", proj});
+    CHECK(d.out.find("your default is never") != std::string::npos);
+    CHECK(s.requests.empty());
+}
+
+TEST_CASE("feedback sharing --clear: entries that waited under the project's ask keep waiting while the default is always") {
+    CliShare s;
+    const std::string proj = s.project();
+    REQUIRE(run(add_args(proj)).code == 0);
+    REQUIRE(run({"feedback", "sharing", "always"}).code == 0);
+    REQUIRE(run({"feedback", "sharing", "ask", "--project", proj}).code == 0);
+    REQUIRE(run({"feedback", "share", proj}, "n\n").code == 0);
+    REQUIRE(fa::load_outbox(s.env).items.size() == 1);
+    auto clear = run({"feedback", "sharing", "--clear", "--project", proj});
+    CHECK(clear.code == 0);
+    CHECK(clear.out.find("waits for your confirmation") != std::string::npos);
+    CHECK(s.requests.empty());
+    const fa::Outbox box = fa::load_outbox(s.env);
+    REQUIRE(box.items.size() == 1);
+    CHECK(box.items[0].state == fa::OutboxState::Waiting);
+    // Saying yes is the user's decision: it goes out.
+    auto yes = run({"feedback", "share", proj, "--yes"});
+    CHECK_MESSAGE(yes.code == 0, yes.err);
+    CHECK(s.requests.size() == 1);
 }
 
 TEST_CASE("feedback signout and signin: unknown provider is a usage error; signout is idempotent") {
