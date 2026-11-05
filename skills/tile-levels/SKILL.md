@@ -34,6 +34,13 @@ level). `constraints` (fixed cells, `border`, `forbidden`, `required`, `counts`)
 `toTiles`, `allConnected`, `solidTiles`) make it a playable one: an entrance that reaches the exit and the treasure.
 Guide section 9.8.
 
+A game that wants a new level on every run calls the script API `tilemap.generate({sample, size, seed: rng.create(runSeed).int(0, 2147483647), place: {...}})`.
+It returns a handle (`progress`, `done`, `error`, `result`, `promise`, `cancel()`), works a little every frame (about 4 ms
+with a window, so a phone does not stall) and gives the same level as the command for the same arguments. With `place`
+it builds the Tilemap and turns the sample's markers (glyphs whose legend entry has a `prefab`: spawn points, coins,
+enemies) into entities, as `scene.import_ascii` does. It belongs to the scene that started it: a scene load rejects it,
+so check `scene.generation` before using the answer. Guide section 9.8, "A new level on every run".
+
 ## Camera and area limits
 
 `entity.bounds()` is the world rectangle `{x, y, w, h}` (bottom-left corner and size) of a

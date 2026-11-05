@@ -860,6 +860,36 @@ The entrance (1,1) and the exit (22,14) are floor, the level is walled in, a tre
 - A grid that breaks a rule is refused and the next derived seed is tried, so the level you get is playable; a missing minimum is also repaired by pinning cells at positions drawn from the seed. The `stats` show the effort (`attempts`, `rejected`, `pinned`). If every attempt fails the error says why (for example "no route from the start (1, 1) to 1 of 2 goal cell(s)") and what to try: fewer constraints, a bigger sample, more `maxAttempts`.
 - Everything is deterministic: the retries derive from `seed`, never from the clock.
 
+**A new level on every run (script `tilemap.generate`).** A game that wants a different level each time it starts calls `tilemap.generate(options)` from a script. The options are those of the command plus `place`; the seed comes from `rng.create`, so a stored `runSeed` rebuilds the same level and the clock is never used. The call checks the arguments at once (a mistake throws with its JSON pointer and a hint) and returns a handle; the generator then works a little every frame, so the game keeps running and a phone does not stall:
+
+```js
+export default class LevelLoader extends Behaviour {
+    runSeed = 1;                                        // set it from Script.props or a stored run
+    onStart() {
+        const rand = rng.create(this.runSeed);
+        const gen = scene.generation;                   // see "Scene lifetime" below
+        this.job = tilemap.generate({
+            sample: "levels/sample.json",               // rows + legend with the spawn point, coins and enemies drawn once
+            size: [60, 24], seed: rand.int(0, 2147483647), n: 3,
+            constraints: { border: { tile: "#" } },
+            reachability: { from: [1, 1], toTiles: ["$"], solidTiles: [0] },
+            place: { entity: "level", tilemap: { tileset: "assets/art/tiles.png", tileSize: [16, 16] } },
+        });
+        this.job.promise.then((r) => {
+            if (scene.generation !== gen) return;       // another scene was loaded meanwhile
+            console.log("level ready", r.stats.attempts, "attempt(s)");
+        }, (e) => console.error(e.message, e.hint));
+    }
+    onUpdate() { console.log(this.job.progress); }      // 0..1, never goes down; drive a loading bar with it
+}
+```
+
+- `place` builds the level when it is ready the way `scene.import_ascii` does (the same report, in `result.placed`): the Tilemap entity (`place.entity`, default `tilemap`; fields from `place.tilemap`; `position` / `anchor`) and one entity per glyph of the sample whose legend entry has a `prefab` (spawn points, coins, enemies), with the ids and tags `scene.import_ascii` gives them. Draw the markers in the sample once, where you want them to repeat (a tile that only appears on the sample's right or bottom edge cannot be placed inside a bigger level). `place` is exclusive with `into` (tiles only, into an existing Tilemap) and does not take the arguments that write files (`path`, `from`, `save`, `dryRun`) or `rows` / `legend` in the call: the sample and legend define it.
+- The handle has `progress` (0..1, never goes down), `done`, `error` and `hint` (`""` while it works), `result` (what the command answers; `null` until ready), `attempts`, `work` (the unit of `maxWork`), `promise` (resolves with `result`; rejects with an Error that has `.hint`) and `cancel()`. Values change between frames, never in the middle of your code. A script that only polls `done` is not reported for an unhandled rejection.
+- Budget: each frame does up to 500000 units of generator work in tests and headless runs, so the frames it takes are the same on every machine; with a window it works until about 4 ms of the frame are used (the number of frames then depends on the machine, and the game must not depend on it). The level itself, `rows` and `stats.work` are the same as the command's for the same arguments, however the work is cut. One attempt starts and ends inside a single piece of work, so a very big level (a side above about 500) can still make one frame long: keep run-time levels modest, and pre-generate the big ones with the command.
+- Scene lifetime: a generation belongs to the scene that started it. When another scene is loaded the generation ends with an error, nothing is placed and its memory is freed; the promise rejects. If your code waits for `promise`, keep `const gen = scene.generation` and drop the answer when `scene.generation !== gen` before it uses the result (a rejected promise needs no such check). At most 8 generations run at once and their solver memory adds up under the same 256 MB limit; `maxWork` and `maxSeconds` (CPU seconds spent generating, not frames spent on other things) end a level that cannot be solved with `budget_exceeded`.
+- The command also has a stepped form for tests and tools: `tilemap.generate_start` (same arguments, returns a `job`), `tilemap.generate_step {job, work?, budgetMs?}` (returns `done`, `progress`, and the `result` when done) and `tilemap.generate_cancel {job}`. A scene load drops these jobs too.
+
 ### 9.9 3D scene with a light and fog
 
 A camera, a sun and a floor (the `3d-empty` template has only the camera; add the rest):

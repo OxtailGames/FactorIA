@@ -128,6 +128,10 @@ struct Engine::Impl {
     // The current scene is the project's mainScene, loaded at start because no start scene was given (no EngineConfig::scene),
     // and no scene was loaded since. scene.import_ascii refuses `save` without `path` then: see level_commands.cpp.
     bool implicitStartScene = false;
+    // tilemap.generate_start jobs (wfc_commands.cpp): the generations the script API advances a little every frame, by id. The
+    // pointers are really std::shared_ptr<GenRun>; the type stays private to wfc_commands.cpp. Dropped when the scene changes.
+    std::map<int, std::shared_ptr<void>> wfcJobs;
+    int nextWfcJob = 1;
     std::vector<std::string> sceneIssues;  // every LoadMessage of the last scene load (errors + warnings)
     std::size_t sceneErrorCount = 0;
     std::vector<std::string> startupProblems;

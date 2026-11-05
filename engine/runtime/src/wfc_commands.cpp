@@ -2,11 +2,13 @@
 // fa/scene/wfc.h; this file reads the sample (a Tilemap entity or ASCII rows in the format of scene.import_ascii), checks the
 // arguments with errors that teach, runs the generator and writes the result into a Tilemap and/or returns it as ASCII rows.
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -31,6 +33,7 @@ constexpr long long kDefaultMaxWork = 600'000'000;                     // units 
 constexpr long long kMaxWorkLimit = 100'000'000'000;
 constexpr double kDefaultMaxSeconds = 120.0;                           // CPU seconds of the process: a safety net far above what kDefaultMaxWork takes, even on a slow machine
 constexpr double kMaxSecondsLimit = 600.0;
+constexpr std::int64_t kFrameWork = 500'000;                           // default work of one tilemap.generate_step (the script API: per frame without a window)
 constexpr std::int64_t kStepWork = 1 << 16;                            // work per step() call: the caps are checked between calls
 constexpr std::size_t kReachPaths = 16;                                // paths the reachability report lists
 constexpr std::size_t kReachAreas = 5;                                 // unreachable areas the report lists
@@ -880,9 +883,466 @@ ReachResult check_reachability(const ReachSpec& spec, int width, int height, con
     return res;
 }
 
+
+// ------------------------------------------------------------------------------------------------------------ one generation
+// Everything a generation holds from the moment its arguments are checked to the moment its level is written. The command
+// `tilemap.generate` creates one and runs it to the end; the script API (`tilemap.generate` in a Behaviour) keeps it in
+// Engine::Impl::wfcJobs and advances it a little every frame through tilemap.generate_step. Not copyable or movable: `view`
+// points at the members next to it and the reachability check at the object itself.
+struct GenRun {
+    // the arguments
+    std::string model;
+    bool tiled = false;
+    int width = 0, height = 0, n = 3, symmetry = 1;
+    long long maxWork = kDefaultMaxWork, seedValue = 0;
+    double maxSeconds = kDefaultMaxSeconds;
+    bool hasInto = false, wantRows = true;
+    Entity intoEntity;
+    // what was read and built from them
+    SampleData sample;
+    std::vector<std::string> warnings;
+    std::shared_ptr<wfc::PatternModel> patternModel;
+    std::vector<int> symbolTile;   // symbol id -> tile value (tile-valued symbols)
+    std::vector<Terrain> terrains;
+    ModelView view;
+    Constraints cons;
+    ReachSpec reach;
+    Json reachReport;
+    std::unique_ptr<wfc::Generator> gen;
+    std::uint64_t memoryBytes = 0;     // what the solver may hold (wfc::estimate_generator_memory + the reachability check)
+    double cpuSeconds = 0.0;           // CPU the process spent inside step_generation() calls of this generation
+    std::uint64_t sceneGeneration = 0; // World::scene_generation() when it was created: a script generation belongs to that scene
+
+    GenRun() = default;
+    GenRun(const GenRun&) = delete;
+    GenRun& operator=(const GenRun&) = delete;
+
+    // The tiles a grid of symbols becomes: the sample's tiles, or the model's tile values re-tiled with the autotile rules.
+    std::vector<int> tiles_of(const std::vector<int>& symbols) {
+        std::vector<int> t(symbols.size(), -1);
+        if (!tiled && sample.ascii) {
+            for (std::size_t i = 0; i < symbols.size(); ++i) t[i] = sample.glyphs.glyphs[std::size_t(symbols[i])].tile;
+        } else {
+            for (std::size_t i = 0; i < symbols.size(); ++i) t[i] = symbolTile[std::size_t(symbols[i])];
+            if (tiled) retile_terrain_grid(terrains, width, height, t);
+        }
+        return t;
+    }
+};
+
+constexpr std::size_t kMaxWfcJobs = 8;   // generations a game may have running at once (their memory adds up: see held_bytes)
+
+std::shared_ptr<GenRun> job_of(Engine::Impl& I, int id) {
+    auto it = I.wfcJobs.find(id);
+    return it == I.wfcJobs.end() ? nullptr : std::static_pointer_cast<GenRun>(it->second);
+}
+
+// A generation belongs to the scene that started it: after a load nobody can receive its level, so it is dropped (and its
+// memory with it). Called by every command that starts or advances one.
+void drop_stale_jobs(Engine::Impl& I) {
+    const std::uint64_t now = I.world.scene_generation();
+    for (auto it = I.wfcJobs.begin(); it != I.wfcJobs.end();) {
+        if (std::static_pointer_cast<GenRun>(it->second)->sceneGeneration != now) it = I.wfcJobs.erase(it);
+        else ++it;
+    }
+}
+
+// The solver memory the running script generations hold: a new one has to fit beside them under wfc::kWfcMemoryBudget.
+std::uint64_t held_bytes(Engine::Impl& I) {
+    std::uint64_t sum = 0;
+    for (const auto& kv : I.wfcJobs) sum += std::static_pointer_cast<GenRun>(kv.second)->memoryBytes;
+    return sum;
+}
+
+// Checks the arguments of tilemap.generate, reads the sample, builds the model and the rules, and creates the generator, which
+// has not taken a step yet. Throws CommandError for every mistake, before anything big is allocated.
+std::shared_ptr<GenRun> prepare_generation(Engine::Impl& I, const Json& a) {
+    auto run = std::make_shared<GenRun>();
+    GenRun& r = *run;
+    const std::uint64_t heldBytes = held_bytes(I);
+    SampleData& sample = r.sample;
+    std::vector<std::string>& warnings = r.warnings;
+    std::shared_ptr<wfc::PatternModel>& patternModel = r.patternModel;
+    std::vector<int>& symbolTile = r.symbolTile;
+    std::vector<Terrain>& terrains = r.terrains;
+    ModelView& view = r.view;
+    Constraints& cons = r.cons;
+    ReachSpec& reach = r.reach;
+    // ---- arguments
+    if (a.contains("model") && !a["model"].is_string())
+        bad_arg("'model' must be the text \"overlapping\" or \"tiled\", got " + describe_json_value(a["model"]),
+                "`overlapping` learns the n x n patterns of a sample; `tiled` uses the adjacency of the autotile rules.");
+    const std::string model = a.value("model", std::string("overlapping"));
+    if (model != "overlapping" && model != "tiled")
+        bad_arg("Unknown model '" + model + "'. " + did_you_mean(model, std::vector<std::string>{"overlapping", "tiled"}),
+                "`overlapping` learns the n x n patterns of a sample; `tiled` uses the adjacency of the autotile rules.");
+    const bool tiled = model == "tiled";
+    int width = 0, height = 0;
+    parse_size(a, width, height);
+    // n and symmetry belong to the overlapping model: the tiled one ignores them, so they are not even checked there.
+    int n = 3, symmetry = 1;
+    if (!tiled) {
+        n = int_arg(a, "n", 3, wfc::kMinPatternSize, wfc::kMaxPatternSize,
+                    "n is the side of the learned windows: 2..5, usually 3. A bigger n copies larger pieces of the sample, a smaller n mixes more freely.");
+        symmetry = int_arg(a, "symmetry", 1, 1, 8, "symmetry is 1 (as drawn), 2 (+ mirror), 4 (+ turns) or 8 (turns and mirrors).");
+        if (a.contains("symmetry") && symmetry != 1 && symmetry != 2 && symmetry != 4 && symmetry != 8)
+            bad_arg("'symmetry' is " + std::to_string(symmetry) + " but it must be 1, 2, 4 or 8", "1 = as drawn, 2 = also mirrored left-right, 4 = also turned, 8 = turned and mirrored.");
+    }
+    const bool strict = a.contains("constraints") || a.contains("reachability");
+    const int maxAttempts = int_arg(a, "maxAttempts", strict ? kDefaultConstraintAttempts : kDefaultMaxAttempts, 1, wfc::kMaxAttempts,
+                                    "Each attempt restarts from the next derived seed. 10 is the default (50 with `constraints` or `reachability`, which refuse many grids); a few hundred only helps a very strict sample.");
+    long long maxWork = kDefaultMaxWork;
+    if (a.contains("maxWork") && (!whole_number(a["maxWork"], maxWork) || maxWork < 1 || maxWork > kMaxWorkLimit))
+        bad_arg("'maxWork' must be a whole number between 1 and " + std::to_string(kMaxWorkLimit) + ", got " + describe_json_value(a["maxWork"]),
+                "It caps the work over all attempts (units: about one step of the inner loops; `stats.work` of an earlier run shows what a level needs). Default " + std::to_string(kDefaultMaxWork) + ".");
+    double maxSeconds = kDefaultMaxSeconds;
+    if (a.contains("maxSeconds") && (!a["maxSeconds"].is_number() || a["maxSeconds"].get<double>() <= 0.0 || a["maxSeconds"].get<double>() > kMaxSecondsLimit))
+        bad_arg("'maxSeconds' must be a number of CPU seconds above 0 and up to " + std::to_string(int(kMaxSecondsLimit)) + ", got " + describe_json_value(a["maxSeconds"]),
+                "It is a safety net on the CPU time of the process (all threads; wall clock on the web build). `maxWork` is the cap that decides. Default " + std::to_string(int(kDefaultMaxSeconds)) + ".");
+    if (a.contains("maxSeconds")) maxSeconds = a["maxSeconds"].get<double>();
+    const bool periodic = bool_arg(a, "periodic", false);
+    const bool periodicInput = bool_arg(a, "periodicInput", periodic);
+    long long seedValue = 0;
+    if (a.contains("seed") && !whole_number(a["seed"], seedValue))
+        bad_arg("'seed' must be a whole number, got " + describe_json_value(a["seed"]), "Example: \"seed\": 12345.");
+    const std::uint64_t seed = std::uint64_t(seedValue);
+    const bool hasInto = a.contains("into");
+    if (hasInto && !a["into"].is_string()) bad_arg("'into' must be the id of an entity with a Tilemap, got " + describe_json_value(a["into"]));
+    const bool wantRows = bool_arg(a, "rows", !hasInto);
+
+    Entity intoEntity;
+    const Tilemap* into = nullptr;
+    if (hasInto) {
+        const std::string id = a["into"].get<std::string>();
+        intoEntity = need_entity(I.world, a, "into");
+        into = I.world.get<Tilemap>(intoEntity);
+        if (!into)
+            bad_arg("Entity '" + id + "' has no Tilemap component, so the level cannot be written into it",
+                    "Pass the id of the entity that holds the Tilemap (scene.import_ascii names it 'tilemap'), or leave `into` out to get the rows back.");
+    }
+
+    r.model = model;
+    r.tiled = tiled;
+    r.width = width;
+    r.height = height;
+    r.n = n;
+    r.symmetry = symmetry;
+    r.maxWork = maxWork;
+    r.maxSeconds = maxSeconds;
+    r.seedValue = seedValue;
+    r.hasInto = hasInto;
+    r.wantRows = wantRows;
+    r.intoEntity = intoEntity;
+    r.sceneGeneration = I.world.scene_generation();
+
+    sample = read_sample(I, a);
+    if (!tiled && !sample.present)
+        bad_arg("The overlapping model needs a `sample` to learn from",
+                "Pass `sample`: the id of an entity with a Tilemap, or ASCII rows with a `legend`, e.g. \"sample\": [\"#####\",\"#...#\",\"#####\"], \"legend\": {\"#\": 0}. "
+                "To generate from autotile rules alone use \"model\": \"tiled\".");
+    if (sample.present && (sample.width <= 0 || sample.height <= 0)) bad_arg("The sample is empty: it has no cells", "Give a sample with a few rows and columns.");
+
+    // ---- the model
+                if (!tiled) {
+        wfc::Sample s;
+        s.width = sample.width;
+        s.height = sample.height;
+        if (sample.ascii) {
+            s.cells = sample.glyphs.cells;
+            s.symbolCount = int(sample.glyphs.glyphs.size());
+        } else {
+            std::map<int, int> symbolOf;
+            for (int t : sample.tiles) {
+                auto it = symbolOf.find(t);
+                if (it == symbolOf.end()) {
+                    it = symbolOf.emplace(t, int(symbolTile.size())).first;
+                    symbolTile.push_back(t);
+                }
+                s.cells.push_back(it->second);
+            }
+            s.symbolCount = int(symbolTile.size());
+        }
+        wfc::OverlapOptions oo;
+        oo.n = n;
+        oo.symmetry = symmetry;
+        oo.periodicInput = periodicInput;
+        auto built = wfc::build_overlapping_model(s, oo);
+        if (!built.ok()) throw_error(built.error());
+        patternModel = *built;
+    } else {
+        Json rules = Json::array();
+        std::string where;
+        if (a.contains("terrains")) {
+            rules = a["terrains"];
+            where = "`terrains`";
+        } else if (sample.present && !sample.ascii && sample.terrains.is_array() && !sample.terrains.empty()) {
+            rules = sample.terrains;
+            where = "the sample's Tilemap";
+        } else if (into && into->terrains.is_array() && !into->terrains.empty()) {
+            rules = into->terrains;
+            where = "the `into` Tilemap";
+        }
+        if (!rules.is_array() || rules.empty())
+            bad_arg("The tiled model needs autotile rules (terrains) to know which tiles may touch, and none were found: " +
+                        std::string(a.contains("terrains") ? "`terrains` is empty" : "the sample's Tilemap and the `into` Tilemap have no Tilemap.terrains"),
+                    "Add rules to the Tilemap: tilemap.set_terrains {\"id\":\"map\",\"path\":\"assets/art/ground.terrains.json\"} (image.tileset.build writes that file), "
+                    "or pass `terrains` here ([{\"name\":\"grass\",\"mode\":\"blob47\",\"first\":0}]). Or use \"model\": \"overlapping\", which needs only a sample.");
+        auto parsed = parse_terrains(rules);
+        if (!parsed.ok()) bad_arg("The terrain rules of " + where + " are invalid: " + parsed.error().message, parsed.error().hint);
+        terrains = *parsed;
+        // The sample's tiles are counted by tile index: the rules list a tile once, the sample may hold it turned or flipped.
+        std::map<int, std::uint32_t> counts;
+        std::set<int> ruleTiles;
+        std::set<int> ruleIndexes;
+        for (const Terrain& t : terrains)
+            for (const auto& slot : t.slots)
+                for (int v : slot) {
+                    ruleTiles.insert(v);
+                    ruleIndexes.insert(tile_index(v));
+                }
+        if (sample.present) {
+            std::set<int> ignored;
+            for (int t : sample.tiles) {
+                if (t < 0) continue;
+                const int idx = tile_index(t);
+                if (ruleIndexes.count(idx)) counts[idx] += 1;
+                else ignored.insert(idx);
+            }
+            if (!ignored.empty()) {
+                std::string list;
+                int shown = 0;
+                for (int t : ignored) {
+                    if (shown++ == 6) {
+                        list += ", ...";
+                        break;
+                    }
+                    list += (list.empty() ? "" : ", ") + std::to_string(t);
+                }
+                warnings.push_back("The sample holds tiles that belong to no terrain (" + list + "): the tiled model cannot place them, so they were ignored.");
+            }
+        }
+        std::vector<std::pair<int, std::uint32_t>> weights;
+        for (int v : ruleTiles) {
+            auto c = counts.find(tile_index(v));
+            weights.push_back({v, 1u + (c != counts.end() ? c->second : 0u)});
+        }
+        auto built = wfc::build_terrain_model(terrains, weights);
+        if (!built.ok()) throw_error(built.error());
+        patternModel = built->model;
+        symbolTile = built->tileValues;
+    }
+
+    // ---- the size first: nothing below allocates per cell or per fixed cell before the memory estimate is known to fit
+    // (the reachability check holds a few grids of its own: tiles, costs, areas, a queue, about 32 bytes a cell)
+    const std::uint64_t reachBytes = a.contains("reachability") ? std::uint64_t(width) * std::uint64_t(height) * 32u : 0u;
+    if (auto fits = wfc::check_generator_memory(*patternModel, width, height, periodic, reachBytes + heldBytes); !fits.ok()) throw_error(fits.error());
+
+    // ---- constraints and reachability (checked against the model before anything is generated)
+    view.tiled = tiled;
+    view.sample = &sample;
+    view.symbolTile = &symbolTile;
+    view.terrains = &terrains;
+    view.symbolCount = (!tiled && sample.ascii) ? int(sample.glyphs.glyphs.size()) : int(symbolTile.size());
+    cons = parse_constraints(a, view, width, height);
+    reach = parse_reachability(a, view, sample, into, cons, width, height);
+
+    // ---- generate
+    wfc::GenerateOptions go;
+    go.width = width;
+    go.height = height;
+    go.periodic = periodic;
+    go.seed = seed;
+    go.maxAttempts = maxAttempts;
+    go.forbidden = cons.forbidden;
+    go.cellRules = cons.cellRules;
+    go.counts = cons.counts;
+    go.maxWork = maxWork;
+    if (reach.enabled)
+        go.accept = [self = run.get()](const std::vector<int>& symbols, std::string& why, std::int64_t& work) {
+            work += std::int64_t(self->width) * self->height;   // tiles_of
+            ReachResult res = check_reachability(self->reach, self->width, self->height, self->tiles_of(symbols), symbols, work);
+            self->reachReport = res.report;
+            why = res.why;
+            return res.ok;
+        };
+    auto gen = wfc::Generator::create(patternModel, go);
+    if (!gen.ok()) throw_error(gen.error());
+    run->gen = std::move(*gen);
+    run->memoryBytes = run->gen->stats().memoryBytes + reachBytes;
+
+    return run;
+}
+
+CommandError budget_error(GenRun& r, bool overWork) {
+    const wfc::GenStats& so = r.gen->stats();
+    const std::string size = std::to_string(r.width) + " x " + std::to_string(r.height) + " output, " + std::to_string(so.cells) + " solver cells, " +
+                             std::to_string(so.patterns) + " patterns" + (r.tiled ? "" : ", n " + std::to_string(r.n) + ", symmetry " + std::to_string(r.symmetry));
+    return CommandError(
+        "budget_exceeded",
+        "tilemap.generate stopped after " + std::to_string(so.attempts) + " attempt(s) (" + std::to_string(so.contradictions) + " dead ends, " + std::to_string(so.rejected) +
+            " refused): it used " + std::to_string(so.work) + " units of work (`maxWork` " + std::to_string(r.maxWork) + ") and " + one_decimal(r.cpuSeconds) +
+            " CPU seconds (`maxSeconds` " + one_decimal(r.maxSeconds) + ", counting every thread of the process) for a " + size + ".",
+        std::string(overWork ? "The work cap was hit. " : "The CPU time safety cap was hit (the machine is very slow or busy). ") +
+            "Make the level smaller (`size`), use a smaller `n` or `symmetry` 1 (fewer patterns), a simpler sample, or fewer constraints; "
+            "or raise `" + (overWork ? "maxWork" : "maxSeconds") + "` (up to " + (overWork ? std::to_string(kMaxWorkLimit) : std::to_string(int(kMaxSecondsLimit))) + ") if you accept the wait.");
+}
+
+// Advances the generator: one step() of at most `workBudget` units, or, when `budgetMs` > 0, steps of at most kStepWork units until that
+// many milliseconds have passed (at least one step). The level never depends on how it is cut: the cap a result depends on is `maxWork` (inside the
+// generator, deterministic units), while the CPU safety net and `budgetMs` only pace the call. True when the level is done; throws
+// CommandError when it failed or hit a cap.
+bool step_generation(GenRun& r, std::int64_t workBudget, double budgetMs) {
+    wfc::Generator& g = *r.gen;
+    const double cpuStart = process_cpu_seconds();
+    const auto wallStart = std::chrono::steady_clock::now();
+    wfc::GenStatus status = wfc::GenStatus::Running;
+    bool overTime = false;
+    while (true) {
+        status = g.step(budgetMs > 0.0 ? std::min(workBudget, kStepWork) : workBudget);  // small pieces under a time budget, so it is checked often
+        if (status != wfc::GenStatus::Running) break;
+        if (r.cpuSeconds + (process_cpu_seconds() - cpuStart) > r.maxSeconds) {
+            overTime = true;
+            break;
+        }
+        if (budgetMs <= 0.0) break;
+        if (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wallStart).count() >= budgetMs) break;
+    }
+    r.cpuSeconds += process_cpu_seconds() - cpuStart;
+    if (overTime) throw budget_error(r, false);
+    if (status == wfc::GenStatus::Failed && g.failure().workLimit) throw budget_error(r, true);
+    if (status != wfc::GenStatus::Done && status != wfc::GenStatus::Running) throw CommandError("generation_failed", g.failure_message(), g.failure_hint());
+    return status == wfc::GenStatus::Done;
+}
+
+// The result of a finished generation (and `into` written). The grid is the same whichever way the steps were cut.
+Json finish_generation(Engine::Impl& I, GenRun& r) {
+    wfc::Generator& g = *r.gen;
+    const int width = r.width, height = r.height;
+    const bool tiled = r.tiled, hasInto = r.hasInto, wantRows = r.wantRows;
+    const std::string& model = r.model;
+    const long long seedValue = r.seedValue;
+    SampleData& sample = r.sample;
+    std::vector<std::string>& warnings = r.warnings;
+    Constraints& cons = r.cons;
+    ReachSpec& reach = r.reach;
+    Tilemap* into = nullptr;
+    if (hasInto) {
+        if (!I.world.alive(r.intoEntity) || !(into = I.world.get<Tilemap>(r.intoEntity)))
+            throw CommandError("not_found", "The entity given as `into` is gone or has no Tilemap any more, so the level cannot be written into it",
+                               "Keep the Tilemap entity alive until the generation finishes, or leave `into` out and place the rows yourself.");
+    }
+    const std::vector<int>& cellsOut = g.output();
+    std::vector<int> tiles = r.tiles_of(cellsOut);
+    std::vector<std::string> glyphOfCell(cellsOut.size());
+    GlyphBook book(sample);
+    Json legend = Json::object();
+    int prefabCells = 0;
+    if (!tiled && sample.ascii) {
+        for (std::size_t i = 0; i < cellsOut.size(); ++i) {
+            const AsciiSampleGlyph& sg = sample.glyphs.glyphs[std::size_t(cellsOut[i])];
+            glyphOfCell[i] = sg.glyph;
+            if (sg.hasPrefab) ++prefabCells;
+            if (!sg.legendEntry.is_null()) legend[sg.glyph] = sg.legendEntry;
+        }
+    } else {
+        for (std::size_t i = 0; i < tiles.size(); ++i) {
+            glyphOfCell[i] = book.glyph_for_tile(tiles[i]);
+            book.use(glyphOfCell[i], legend);
+        }
+    }
+    if (prefabCells > 0)
+        warnings.push_back(std::to_string(prefabCells) + " cell(s) hold glyphs that spawn objects: " + std::string(hasInto ? "`into` wrote only their tiles; " : "") +
+                           "call scene.import_ascii with the returned rows and legend to place the objects.");
+
+    Json out = Json::object();
+    out["model"] = model;
+    out["width"] = width;
+    out["height"] = height;
+    out["seed"] = seedValue;
+    std::map<std::string, int> glyphCounts;
+    for (const std::string& gl : glyphOfCell) ++glyphCounts[gl];
+    Json counts = Json::object();
+    for (const auto& kv : glyphCounts) counts[kv.first] = kv.second;
+    out["counts"] = counts;
+    out["legend"] = legend;
+    if (wantRows) {
+        Json rows = Json::array();
+        for (int y = 0; y < height; ++y) {
+            std::string row;
+            for (int x = 0; x < width; ++x) row += glyphOfCell[std::size_t(y) * std::size_t(width) + std::size_t(x)];
+            rows.push_back(row);
+        }
+        out["rows"] = rows;
+    }
+    if (into) {
+        set_tilemap_grid(*into, width, height, tiles);
+        out["into"] = I.world.id_of(r.intoEntity);
+    }
+    if (sample.present)
+        out["sample"] = Json::object({{"source", sample.source}, {"width", sample.width}, {"height", sample.height}});
+    const wfc::GenStats& st = g.stats();
+    out["stats"] = Json::object({{"attempts", st.attempts}, {"contradictions", st.contradictions}, {"rejected", st.rejected}, {"patterns", st.patterns},
+                                 {"cells", st.cells}, {"observations", st.observations}, {"propagations", st.propagations}, {"work", st.work},
+                                 {"pinned", st.pinned}, {"ms", std::round(st.ms * 10.0) / 10.0}, {"memoryBytes", st.memoryBytes},
+                                 {"peakBytes", st.peakBytes}});
+    if (cons.any()) {
+        Json counted = Json::array();
+        for (std::size_t k = 0; k < cons.counts.size(); ++k) {
+            const wfc::CountRule& rule = cons.counts[k];
+            const std::set<int> symbols(rule.symbols.begin(), rule.symbols.end());
+            int found = 0;
+            for (int sym : cellsOut) found += symbols.count(sym) ? 1 : 0;
+            Json entry = Json::object({{"tile", cons.countLabels[k]}, {"found", found}});
+            if (rule.min > 0) entry["min"] = rule.min;
+            if (rule.max >= 0) entry["max"] = rule.max;
+            counted.push_back(entry);
+        }
+        out["constraints"] = Json::object({{"fixedCells", cons.fixedCells}, {"forbiddenTiles", cons.forbidden.size()}, {"counts", counted}, {"pinnedCells", st.pinned}});
+    }
+    if (reach.enabled) out["reachability"] = r.reachReport;
+    if (!warnings.empty()) out["warnings"] = warnings;
+    return out;
+}
+
+// ---- tilemap.generate_start / generate_step / generate_cancel: the same generation, advanced by the caller
+
+Json step_result(GenRun& r, bool done) {
+    const wfc::GenStats& st = r.gen->stats();
+    Json out = Json::object({{"done", done}, {"progress", done ? 1.0 : std::round(r.gen->progress() * 1000.0) / 1000.0}, {"attempts", st.attempts}, {"work", st.work},
+                             {"contradictions", st.contradictions}, {"rejected", st.rejected}});
+    return out;
+}
+
+int job_id_arg(const Json& a) {
+    if (!a.contains("job")) bad_arg("Missing 'job'", "It is the number tilemap.generate_start returned. Example: {\"job\": 1}.");
+    long long id = 0;
+    if (!whole_number(a["job"], id) || id < 1 || id > std::numeric_limits<int>::max())
+        bad_arg("'job' must be the whole number tilemap.generate_start returned, got " + describe_json_value(a["job"]), "Example: {\"job\": 1}.");
+    return int(id);
+}
+
 }  // namespace
 
 void register_wfc_commands(Engine&, Engine::Impl& I) {
+    const Json generateSchema = parse_schema(R"json({"type":"object","required":["size"],"properties":{
+               "sample":{"type":["string","array","object"],"description":"The example to learn from: the id of an entity with a Tilemap; ASCII rows (array of strings, or one string with line breaks) with `legend`; an object {rows, legend?, legendFrom?} (scene.import_ascii arguments); or a project-relative .json file with such an object. Required for model overlapping; for tiled it only sets the tile frequencies.","items":{"type":"string"}},
+               "legend":{"type":"object","description":"Glyph -> tile index or {tile?, rotate?, flipX?, flipY?, prefab?...}, as in scene.import_ascii; for ASCII rows given as an array or text. '.' and ' ' are empty unless defined here."},
+               "legendFrom":{"type":"string","description":"Project-relative JSON file with a shared legend (see scene.import_ascii), merged under `legend`."},
+               "size":{"type":["array","object","integer"],"description":"Output size in cells: [width, height], {width, height} or one number for a square. Each side 1..2048 (and at least n for overlapping).","items":{"type":"integer"}},
+               "seed":{"type":"integer","default":0,"description":"Picks the level. The same sample, seed and arguments always give the same level. Each restart after a dead end uses the next derived seed."},
+               "model":{"type":"string","enum":["overlapping","tiled"],"default":"overlapping","description":"overlapping: learn the n x n patterns of the sample. tiled: tile adjacency from the autotile rules (Tilemap.terrains)."},
+               "n":{"type":"integer","default":3,"description":"Overlapping model: side of the learned windows, 2..5 (checked only for the overlapping model). Bigger copies larger pieces of the sample; smaller mixes more. Ignored by tiled (not even checked)."},
+               "symmetry":{"type":"integer","default":1,"description":"One of 1, 2, 4, 8 (checked only for the overlapping model). 1 = the sample as drawn, 2 = also mirrored left-right, 4 = also turned 90/180/270 degrees, 8 = turned and mirrored. Only for tiles that look the same turned (floor, wall); overlapping model; ignored by tiled."},
+               "periodic":{"type":"boolean","default":false,"description":"The output wraps around its edges (a tileable level). Also lets the sample wrap unless periodicInput is given."},
+               "periodicInput":{"type":"boolean","description":"The sample wraps around its edges (patterns cross them). Default: the value of `periodic`."},
+               "maxAttempts":{"type":"integer","default":10,"minimum":1,"maximum":1000,"description":"Attempts before giving up: a dead end (or a grid that breaks a constraint or is not reachable) restarts with the next derived seed. Default 10, 50 with constraints or reachability."},
+               "maxWork":{"type":"integer","default":600000000,"minimum":1,"maximum":100000000000,"description":"Cap on the work (stats.work of an earlier run shows what a level needs: pattern removals and the adjacency they touch, cells observed, the fixed cells and the reachability check) over all attempts. It counts the same on every machine, so a level either always fits or never does. Hit it and the call fails with how to shrink the level or raise the cap."},
+               "maxSeconds":{"type":"number","default":120,"exclusiveMinimum":0,"maximum":600,"description":"Safety net on the CPU seconds the process may spend on this call (all threads count; the web build counts wall-clock seconds). The cap a result depends on is maxWork: this one only stops a machine that is far slower than expected."},
+               "constraints":{"type":"object","description":"Rules the level must follow. fixed: [{at:[x,y] | rect:[x,y,w,h], tile}] pins cells; border: {tile, thickness (default 1)}; forbidden: [tile]; required: [tile] (at least one each); counts: [{tile, min?, max?}]. A tile is a glyph of an ASCII sample, a tile number (-1 = empty) or a terrain name (tiled); a list = any of them. Contradictions are reported before generating, with the JSON pointer.","properties":{"fixed":{"type":"array","items":{"type":"object"}},"border":{"type":"object"},"forbidden":{"type":"array"},"required":{"type":"array"},"counts":{"type":"array","items":{"type":"object"}}}},
+               "reachability":{"type":"object","description":"The level must be playable: {from:[x,y], to:[x,y] | [[x,y]...], toTiles:[tile] (every cell with one must be reachable), allConnected:true, solidTiles:[tile numbers that block] (default: Tilemap.solidTiles of `into`, then of the sample), costs:{tile:cost|null}, diagonals:bool}. Same walking rules as nav.find_tile_path. A grid that fails restarts with the next derived seed. The result's `reachability` reports unreachable cells and areas and the path lengths.","properties":{"from":{"type":"array","items":{"type":"integer"}},"to":{"type":"array"},"toTiles":{"type":["array","string","integer"]},"allConnected":{"type":"boolean"},"solidTiles":{"type":"array","items":{"type":"integer"}},"costs":{"type":"object"},"diagonals":{"type":"boolean"}}},
+               "into":{"type":"string","description":"Id of an entity with a Tilemap to write the result into (its tiles, width and height are replaced; tileset, tileSize and solidTiles stay). RUNNING world only."},
+               "rows":{"type":"boolean","description":"Return the level as ASCII `rows`. Default: true without `into`, false with it."},
+               "terrains":{"type":"array","items":{"type":"object"},"description":"Tiled model: autotile rules to use instead of the Tilemap's own (same objects as Tilemap.terrains)."}}})json");
     I.commands.add(
         {"tilemap.generate",
          "Generate a level from an example with Wave Function Collapse: a grid that only contains the patterns of the sample.",
@@ -925,329 +1385,94 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
          "about 256 MB of solver memory (checked first, before anything is built for the constraints; the error says what to shrink), 65536 fixed cells. Example: tilemap.generate {\"sample\":[\"........\",\"..##....\",\"..##..#.\","
          "\"......#.\",\"..#.....\",\"........\"],\"legend\":{\"#\":0},\"size\":[32,20],\"seed\":7,\"n\":3,\"symmetry\":8,"
          "\"constraints\":{\"border\":{\"tile\":\"#\"},\"fixed\":[{\"at\":[1,1],\"tile\":\".\"}]},\"reachability\":{\"from\":[1,1],\"allConnected\":true,\"solidTiles\":[0]}}",
-         parse_schema(R"json({"type":"object","required":["size"],"properties":{
-               "sample":{"type":["string","array","object"],"description":"The example to learn from: the id of an entity with a Tilemap; ASCII rows (array of strings, or one string with line breaks) with `legend`; an object {rows, legend?, legendFrom?} (scene.import_ascii arguments); or a project-relative .json file with such an object. Required for model overlapping; for tiled it only sets the tile frequencies.","items":{"type":"string"}},
-               "legend":{"type":"object","description":"Glyph -> tile index or {tile?, rotate?, flipX?, flipY?, prefab?...}, as in scene.import_ascii; for ASCII rows given as an array or text. '.' and ' ' are empty unless defined here."},
-               "legendFrom":{"type":"string","description":"Project-relative JSON file with a shared legend (see scene.import_ascii), merged under `legend`."},
-               "size":{"type":["array","object","integer"],"description":"Output size in cells: [width, height], {width, height} or one number for a square. Each side 1..2048 (and at least n for overlapping).","items":{"type":"integer"}},
-               "seed":{"type":"integer","default":0,"description":"Picks the level. The same sample, seed and arguments always give the same level. Each restart after a dead end uses the next derived seed."},
-               "model":{"type":"string","enum":["overlapping","tiled"],"default":"overlapping","description":"overlapping: learn the n x n patterns of the sample. tiled: tile adjacency from the autotile rules (Tilemap.terrains)."},
-               "n":{"type":"integer","default":3,"description":"Overlapping model: side of the learned windows, 2..5 (checked only for the overlapping model). Bigger copies larger pieces of the sample; smaller mixes more. Ignored by tiled (not even checked)."},
-               "symmetry":{"type":"integer","default":1,"description":"One of 1, 2, 4, 8 (checked only for the overlapping model). 1 = the sample as drawn, 2 = also mirrored left-right, 4 = also turned 90/180/270 degrees, 8 = turned and mirrored. Only for tiles that look the same turned (floor, wall); overlapping model; ignored by tiled."},
-               "periodic":{"type":"boolean","default":false,"description":"The output wraps around its edges (a tileable level). Also lets the sample wrap unless periodicInput is given."},
-               "periodicInput":{"type":"boolean","description":"The sample wraps around its edges (patterns cross them). Default: the value of `periodic`."},
-               "maxAttempts":{"type":"integer","default":10,"minimum":1,"maximum":1000,"description":"Attempts before giving up: a dead end (or a grid that breaks a constraint or is not reachable) restarts with the next derived seed. Default 10, 50 with constraints or reachability."},
-               "maxWork":{"type":"integer","default":600000000,"minimum":1,"maximum":100000000000,"description":"Cap on the work (stats.work of an earlier run shows what a level needs: pattern removals and the adjacency they touch, cells observed, the fixed cells and the reachability check) over all attempts. It counts the same on every machine, so a level either always fits or never does. Hit it and the call fails with how to shrink the level or raise the cap."},
-               "maxSeconds":{"type":"number","default":120,"exclusiveMinimum":0,"maximum":600,"description":"Safety net on the CPU seconds the process may spend on this call (all threads count; the web build counts wall-clock seconds). The cap a result depends on is maxWork: this one only stops a machine that is far slower than expected."},
-               "constraints":{"type":"object","description":"Rules the level must follow. fixed: [{at:[x,y] | rect:[x,y,w,h], tile}] pins cells; border: {tile, thickness (default 1)}; forbidden: [tile]; required: [tile] (at least one each); counts: [{tile, min?, max?}]. A tile is a glyph of an ASCII sample, a tile number (-1 = empty) or a terrain name (tiled); a list = any of them. Contradictions are reported before generating, with the JSON pointer.","properties":{"fixed":{"type":"array","items":{"type":"object"}},"border":{"type":"object"},"forbidden":{"type":"array"},"required":{"type":"array"},"counts":{"type":"array","items":{"type":"object"}}}},
-               "reachability":{"type":"object","description":"The level must be playable: {from:[x,y], to:[x,y] | [[x,y]...], toTiles:[tile] (every cell with one must be reachable), allConnected:true, solidTiles:[tile numbers that block] (default: Tilemap.solidTiles of `into`, then of the sample), costs:{tile:cost|null}, diagonals:bool}. Same walking rules as nav.find_tile_path. A grid that fails restarts with the next derived seed. The result's `reachability` reports unreachable cells and areas and the path lengths.","properties":{"from":{"type":"array","items":{"type":"integer"}},"to":{"type":"array"},"toTiles":{"type":["array","string","integer"]},"allConnected":{"type":"boolean"},"solidTiles":{"type":"array","items":{"type":"integer"}},"costs":{"type":"object"},"diagonals":{"type":"boolean"}}},
-               "into":{"type":"string","description":"Id of an entity with a Tilemap to write the result into (its tiles, width and height are replaced; tileset, tileSize and solidTiles stay). RUNNING world only."},
-               "rows":{"type":"boolean","description":"Return the level as ASCII `rows`. Default: true without `into`, false with it."},
-               "terrains":{"type":"array","items":{"type":"object"},"description":"Tiled model: autotile rules to use instead of the Tilemap's own (same objects as Tilemap.terrains)."}}})json"),
+         generateSchema,
          false, "scene"},
         [&I](const Json& a) {
-            // ---- arguments
-            if (a.contains("model") && !a["model"].is_string())
-                bad_arg("'model' must be the text \"overlapping\" or \"tiled\", got " + describe_json_value(a["model"]),
-                        "`overlapping` learns the n x n patterns of a sample; `tiled` uses the adjacency of the autotile rules.");
-            const std::string model = a.value("model", std::string("overlapping"));
-            if (model != "overlapping" && model != "tiled")
-                bad_arg("Unknown model '" + model + "'. " + did_you_mean(model, std::vector<std::string>{"overlapping", "tiled"}),
-                        "`overlapping` learns the n x n patterns of a sample; `tiled` uses the adjacency of the autotile rules.");
-            const bool tiled = model == "tiled";
-            int width = 0, height = 0;
-            parse_size(a, width, height);
-            // n and symmetry belong to the overlapping model: the tiled one ignores them, so they are not even checked there.
-            int n = 3, symmetry = 1;
-            if (!tiled) {
-                n = int_arg(a, "n", 3, wfc::kMinPatternSize, wfc::kMaxPatternSize,
-                            "n is the side of the learned windows: 2..5, usually 3. A bigger n copies larger pieces of the sample, a smaller n mixes more freely.");
-                symmetry = int_arg(a, "symmetry", 1, 1, 8, "symmetry is 1 (as drawn), 2 (+ mirror), 4 (+ turns) or 8 (turns and mirrors).");
-                if (a.contains("symmetry") && symmetry != 1 && symmetry != 2 && symmetry != 4 && symmetry != 8)
-                    bad_arg("'symmetry' is " + std::to_string(symmetry) + " but it must be 1, 2, 4 or 8", "1 = as drawn, 2 = also mirrored left-right, 4 = also turned, 8 = turned and mirrored.");
+            drop_stale_jobs(I);
+            std::shared_ptr<GenRun> run = prepare_generation(I, a);
+            // Stepped, not run(): the CPU safety cap is checked between steps (step_generation).
+            while (!step_generation(*run, kStepWork, 0.0)) {
             }
-            const bool strict = a.contains("constraints") || a.contains("reachability");
-            const int maxAttempts = int_arg(a, "maxAttempts", strict ? kDefaultConstraintAttempts : kDefaultMaxAttempts, 1, wfc::kMaxAttempts,
-                                            "Each attempt restarts from the next derived seed. 10 is the default (50 with `constraints` or `reachability`, which refuse many grids); a few hundred only helps a very strict sample.");
-            long long maxWork = kDefaultMaxWork;
-            if (a.contains("maxWork") && (!whole_number(a["maxWork"], maxWork) || maxWork < 1 || maxWork > kMaxWorkLimit))
-                bad_arg("'maxWork' must be a whole number between 1 and " + std::to_string(kMaxWorkLimit) + ", got " + describe_json_value(a["maxWork"]),
-                        "It caps the work over all attempts (units: about one step of the inner loops; `stats.work` of an earlier run shows what a level needs). Default " + std::to_string(kDefaultMaxWork) + ".");
-            double maxSeconds = kDefaultMaxSeconds;
-            if (a.contains("maxSeconds") && (!a["maxSeconds"].is_number() || a["maxSeconds"].get<double>() <= 0.0 || a["maxSeconds"].get<double>() > kMaxSecondsLimit))
-                bad_arg("'maxSeconds' must be a number of CPU seconds above 0 and up to " + std::to_string(int(kMaxSecondsLimit)) + ", got " + describe_json_value(a["maxSeconds"]),
-                        "It is a safety net on the CPU time of the process (all threads; wall clock on the web build). `maxWork` is the cap that decides. Default " + std::to_string(int(kDefaultMaxSeconds)) + ".");
-            if (a.contains("maxSeconds")) maxSeconds = a["maxSeconds"].get<double>();
-            const bool periodic = bool_arg(a, "periodic", false);
-            const bool periodicInput = bool_arg(a, "periodicInput", periodic);
-            long long seedValue = 0;
-            if (a.contains("seed") && !whole_number(a["seed"], seedValue))
-                bad_arg("'seed' must be a whole number, got " + describe_json_value(a["seed"]), "Example: \"seed\": 12345.");
-            const std::uint64_t seed = std::uint64_t(seedValue);
-            const bool hasInto = a.contains("into");
-            if (hasInto && !a["into"].is_string()) bad_arg("'into' must be the id of an entity with a Tilemap, got " + describe_json_value(a["into"]));
-            const bool wantRows = bool_arg(a, "rows", !hasInto);
-
-            Entity intoEntity;
-            Tilemap* into = nullptr;
-            if (hasInto) {
-                const std::string id = a["into"].get<std::string>();
-                intoEntity = need_entity(I.world, a, "into");
-                into = I.world.get<Tilemap>(intoEntity);
-                if (!into)
-                    bad_arg("Entity '" + id + "' has no Tilemap component, so the level cannot be written into it",
-                            "Pass the id of the entity that holds the Tilemap (scene.import_ascii names it 'tilemap'), or leave `into` out to get the rows back.");
-            }
-
-            SampleData sample = read_sample(I, a);
-            std::vector<std::string> warnings;
-            if (!tiled && !sample.present)
-                bad_arg("The overlapping model needs a `sample` to learn from",
-                        "Pass `sample`: the id of an entity with a Tilemap, or ASCII rows with a `legend`, e.g. \"sample\": [\"#####\",\"#...#\",\"#####\"], \"legend\": {\"#\": 0}. "
-                        "To generate from autotile rules alone use \"model\": \"tiled\".");
-            if (sample.present && (sample.width <= 0 || sample.height <= 0)) bad_arg("The sample is empty: it has no cells", "Give a sample with a few rows and columns.");
-
-            // ---- the model
-            std::shared_ptr<wfc::PatternModel> patternModel;
-            std::vector<int> symbolTile;            // symbol id -> tile value (tile-valued symbols)
-            std::vector<Terrain> terrains;
-            if (!tiled) {
-                wfc::Sample s;
-                s.width = sample.width;
-                s.height = sample.height;
-                if (sample.ascii) {
-                    s.cells = sample.glyphs.cells;
-                    s.symbolCount = int(sample.glyphs.glyphs.size());
-                } else {
-                    std::map<int, int> symbolOf;
-                    for (int t : sample.tiles) {
-                        auto it = symbolOf.find(t);
-                        if (it == symbolOf.end()) {
-                            it = symbolOf.emplace(t, int(symbolTile.size())).first;
-                            symbolTile.push_back(t);
-                        }
-                        s.cells.push_back(it->second);
-                    }
-                    s.symbolCount = int(symbolTile.size());
-                }
-                wfc::OverlapOptions oo;
-                oo.n = n;
-                oo.symmetry = symmetry;
-                oo.periodicInput = periodicInput;
-                auto built = wfc::build_overlapping_model(s, oo);
-                if (!built.ok()) throw_error(built.error());
-                patternModel = *built;
-            } else {
-                Json rules = Json::array();
-                std::string where;
-                if (a.contains("terrains")) {
-                    rules = a["terrains"];
-                    where = "`terrains`";
-                } else if (sample.present && !sample.ascii && sample.terrains.is_array() && !sample.terrains.empty()) {
-                    rules = sample.terrains;
-                    where = "the sample's Tilemap";
-                } else if (into && into->terrains.is_array() && !into->terrains.empty()) {
-                    rules = into->terrains;
-                    where = "the `into` Tilemap";
-                }
-                if (!rules.is_array() || rules.empty())
-                    bad_arg("The tiled model needs autotile rules (terrains) to know which tiles may touch, and none were found: " +
-                                std::string(a.contains("terrains") ? "`terrains` is empty" : "the sample's Tilemap and the `into` Tilemap have no Tilemap.terrains"),
-                            "Add rules to the Tilemap: tilemap.set_terrains {\"id\":\"map\",\"path\":\"assets/art/ground.terrains.json\"} (image.tileset.build writes that file), "
-                            "or pass `terrains` here ([{\"name\":\"grass\",\"mode\":\"blob47\",\"first\":0}]). Or use \"model\": \"overlapping\", which needs only a sample.");
-                auto parsed = parse_terrains(rules);
-                if (!parsed.ok()) bad_arg("The terrain rules of " + where + " are invalid: " + parsed.error().message, parsed.error().hint);
-                terrains = *parsed;
-                // The sample's tiles are counted by tile index: the rules list a tile once, the sample may hold it turned or flipped.
-                std::map<int, std::uint32_t> counts;
-                std::set<int> ruleTiles;
-                std::set<int> ruleIndexes;
-                for (const Terrain& t : terrains)
-                    for (const auto& slot : t.slots)
-                        for (int v : slot) {
-                            ruleTiles.insert(v);
-                            ruleIndexes.insert(tile_index(v));
-                        }
-                if (sample.present) {
-                    std::set<int> ignored;
-                    for (int t : sample.tiles) {
-                        if (t < 0) continue;
-                        const int idx = tile_index(t);
-                        if (ruleIndexes.count(idx)) counts[idx] += 1;
-                        else ignored.insert(idx);
-                    }
-                    if (!ignored.empty()) {
-                        std::string list;
-                        int shown = 0;
-                        for (int t : ignored) {
-                            if (shown++ == 6) {
-                                list += ", ...";
-                                break;
-                            }
-                            list += (list.empty() ? "" : ", ") + std::to_string(t);
-                        }
-                        warnings.push_back("The sample holds tiles that belong to no terrain (" + list + "): the tiled model cannot place them, so they were ignored.");
-                    }
-                }
-                std::vector<std::pair<int, std::uint32_t>> weights;
-                for (int v : ruleTiles) {
-                    auto c = counts.find(tile_index(v));
-                    weights.push_back({v, 1u + (c != counts.end() ? c->second : 0u)});
-                }
-                auto built = wfc::build_terrain_model(terrains, weights);
-                if (!built.ok()) throw_error(built.error());
-                patternModel = built->model;
-                symbolTile = built->tileValues;
-            }
-
-            // ---- the size first: nothing below allocates per cell or per fixed cell before the memory estimate is known to fit
-            // (the reachability check holds a few grids of its own: tiles, costs, areas, a queue, about 32 bytes a cell)
-            const std::uint64_t reachBytes = a.contains("reachability") ? std::uint64_t(width) * std::uint64_t(height) * 32u : 0u;
-            if (auto fits = wfc::check_generator_memory(*patternModel, width, height, periodic, reachBytes); !fits.ok()) throw_error(fits.error());
-
-            // ---- constraints and reachability (checked against the model before anything is generated)
-            ModelView view;
-            view.tiled = tiled;
-            view.sample = &sample;
-            view.symbolTile = &symbolTile;
-            view.terrains = &terrains;
-            view.symbolCount = (!tiled && sample.ascii) ? int(sample.glyphs.glyphs.size()) : int(symbolTile.size());
-            Constraints cons = parse_constraints(a, view, width, height);
-            ReachSpec reach = parse_reachability(a, view, sample, into, cons, width, height);
-
-            // The tiles a grid of symbols becomes: the sample's tiles, or the model's tile values re-tiled with the autotile rules.
-            auto tiles_of = [&](const std::vector<int>& symbols) {
-                std::vector<int> t(symbols.size(), -1);
-                if (!tiled && sample.ascii) {
-                    for (std::size_t i = 0; i < symbols.size(); ++i) t[i] = sample.glyphs.glyphs[std::size_t(symbols[i])].tile;
-                } else {
-                    for (std::size_t i = 0; i < symbols.size(); ++i) t[i] = symbolTile[std::size_t(symbols[i])];
-                    if (tiled) retile_terrain_grid(terrains, width, height, t);
-                }
-                return t;
-            };
-
-            // ---- generate
-            wfc::GenerateOptions go;
-            go.width = width;
-            go.height = height;
-            go.periodic = periodic;
-            go.seed = seed;
-            go.maxAttempts = maxAttempts;
-            go.forbidden = cons.forbidden;
-            go.cellRules = cons.cellRules;
-            go.counts = cons.counts;
-            go.maxWork = maxWork;
-            Json reachReport;
-            if (reach.enabled)
-                go.accept = [&](const std::vector<int>& symbols, std::string& why, std::int64_t& work) {
-                    work += std::int64_t(width) * height;   // tiles_of
-                    ReachResult r = check_reachability(reach, width, height, tiles_of(symbols), symbols, work);
-                    reachReport = r.report;
-                    why = r.why;
-                    return r.ok;
-                };
-            auto gen = wfc::Generator::create(patternModel, go);
-            if (!gen.ok()) throw_error(gen.error());
-            wfc::Generator& g = **gen;
-
-            // Stepped, not run(): the CPU safety cap is checked between steps. The cap a result depends on is `maxWork` (inside the
-            // generator): it counts deterministic units, so the same arguments end the same way on a fast and on a slow machine.
-            const double cpuStart = process_cpu_seconds();
-            wfc::GenStatus status = wfc::GenStatus::Running;
-            auto budget_error = [&](bool overWork, double cpu) {
-                const wfc::GenStats& so = g.stats();
-                const std::string size = std::to_string(width) + " x " + std::to_string(height) + " output, " + std::to_string(so.cells) + " solver cells, " +
-                                         std::to_string(so.patterns) + " patterns" + (tiled ? "" : ", n " + std::to_string(n) + ", symmetry " + std::to_string(symmetry));
-                return CommandError(
-                    "budget_exceeded",
-                    "tilemap.generate stopped after " + std::to_string(so.attempts) + " attempt(s) (" + std::to_string(so.contradictions) + " dead ends, " + std::to_string(so.rejected) +
-                        " refused): it used " + std::to_string(so.work) + " units of work (`maxWork` " + std::to_string(maxWork) + ") and " + one_decimal(cpu) +
-                        " CPU seconds (`maxSeconds` " + one_decimal(maxSeconds) + ", counting every thread of the process) for a " + size + ".",
-                    std::string(overWork ? "The work cap was hit. " : "The CPU time safety cap was hit (the machine is very slow or busy). ") +
-                        "Make the level smaller (`size`), use a smaller `n` or `symmetry` 1 (fewer patterns), a simpler sample, or fewer constraints; "
-                        "or raise `" + (overWork ? "maxWork" : "maxSeconds") + "` (up to " + (overWork ? std::to_string(kMaxWorkLimit) : std::to_string(int(kMaxSecondsLimit))) + ") if you accept the wait.");
-            };
-            while ((status = g.step(kStepWork)) == wfc::GenStatus::Running) {
-                const double cpu = process_cpu_seconds() - cpuStart;
-                if (cpu > maxSeconds) throw budget_error(false, cpu);
-            }
-            if (status == wfc::GenStatus::Failed && g.failure().workLimit) throw budget_error(true, process_cpu_seconds() - cpuStart);
-            if (status != wfc::GenStatus::Done) throw CommandError("generation_failed", g.failure_message(), g.failure_hint());
-
-            // ---- the result as tiles and glyphs
-            const std::vector<int>& cellsOut = g.output();
-            std::vector<int> tiles = tiles_of(cellsOut);
-            std::vector<std::string> glyphOfCell(cellsOut.size());
-            GlyphBook book(sample);
-            Json legend = Json::object();
-            int prefabCells = 0;
-            if (!tiled && sample.ascii) {
-                for (std::size_t i = 0; i < cellsOut.size(); ++i) {
-                    const AsciiSampleGlyph& sg = sample.glyphs.glyphs[std::size_t(cellsOut[i])];
-                    glyphOfCell[i] = sg.glyph;
-                    if (sg.hasPrefab) ++prefabCells;
-                    if (!sg.legendEntry.is_null()) legend[sg.glyph] = sg.legendEntry;
-                }
-            } else {
-                for (std::size_t i = 0; i < tiles.size(); ++i) {
-                    glyphOfCell[i] = book.glyph_for_tile(tiles[i]);
-                    book.use(glyphOfCell[i], legend);
-                }
-            }
-            if (prefabCells > 0)
-                warnings.push_back(std::to_string(prefabCells) + " cell(s) hold glyphs that spawn objects: " + std::string(hasInto ? "`into` wrote only their tiles; " : "") +
-                                   "call scene.import_ascii with the returned rows and legend to place the objects.");
-
-            Json out = Json::object();
-            out["model"] = model;
-            out["width"] = width;
-            out["height"] = height;
-            out["seed"] = seedValue;
-            std::map<std::string, int> glyphCounts;
-            for (const std::string& gl : glyphOfCell) ++glyphCounts[gl];
-            Json counts = Json::object();
-            for (const auto& kv : glyphCounts) counts[kv.first] = kv.second;
-            out["counts"] = counts;
-            out["legend"] = legend;
-            if (wantRows) {
-                Json rows = Json::array();
-                for (int y = 0; y < height; ++y) {
-                    std::string row;
-                    for (int x = 0; x < width; ++x) row += glyphOfCell[std::size_t(y) * std::size_t(width) + std::size_t(x)];
-                    rows.push_back(row);
-                }
-                out["rows"] = rows;
-            }
-            if (into) {
-                set_tilemap_grid(*into, width, height, tiles);
-                out["into"] = I.world.id_of(intoEntity);
-            }
-            if (sample.present)
-                out["sample"] = Json::object({{"source", sample.source}, {"width", sample.width}, {"height", sample.height}});
-            const wfc::GenStats& st = g.stats();
-            out["stats"] = Json::object({{"attempts", st.attempts}, {"contradictions", st.contradictions}, {"rejected", st.rejected}, {"patterns", st.patterns},
-                                         {"cells", st.cells}, {"observations", st.observations}, {"propagations", st.propagations}, {"work", st.work},
-                                         {"pinned", st.pinned}, {"ms", std::round(st.ms * 10.0) / 10.0}, {"memoryBytes", st.memoryBytes},
-                                         {"peakBytes", st.peakBytes}});
-            if (cons.any()) {
-                Json counted = Json::array();
-                for (std::size_t k = 0; k < cons.counts.size(); ++k) {
-                    const wfc::CountRule& rule = cons.counts[k];
-                    const std::set<int> symbols(rule.symbols.begin(), rule.symbols.end());
-                    int found = 0;
-                    for (int sym : cellsOut) found += symbols.count(sym) ? 1 : 0;
-                    Json entry = Json::object({{"tile", cons.countLabels[k]}, {"found", found}});
-                    if (rule.min > 0) entry["min"] = rule.min;
-                    if (rule.max >= 0) entry["max"] = rule.max;
-                    counted.push_back(entry);
-                }
-                out["constraints"] = Json::object({{"fixedCells", cons.fixedCells}, {"forbiddenTiles", cons.forbidden.size()}, {"counts", counted}, {"pinnedCells", st.pinned}});
-            }
-            if (reach.enabled) out["reachability"] = reachReport;
-            if (!warnings.empty()) out["warnings"] = warnings;
-            return out;
+            return finish_generation(I, *run);
         });
+
+    // ---- the same generation in pieces: what the script API tilemap.generate runs on (docs/SCRIPTING.md, "Generating a level")
+    I.commands.add(
+        {"tilemap.generate_start",
+         "Check the arguments of tilemap.generate and start a generation that you advance yourself with tilemap.generate_step.",
+         "Takes exactly the arguments of tilemap.generate, checks them at once (the same errors, before anything is generated) and returns "
+         "{job, width, height, seed, cells, patterns, memoryBytes} without generating. Then call tilemap.generate_step {job} until it answers "
+         "done: its `result` is what tilemap.generate returns, and `into` is written at that moment, not before. The level does not depend on "
+         "how the steps are cut: any `work` or `budgetMs` gives the same level and the same stats.work for the same arguments. A job belongs to "
+         "the scene that started it (a scene load drops it) and holds its solver memory until it finishes, fails or is cancelled; at most 8 "
+         "run at once and their memory adds up under the same 256 MB limit. Scripts do not need this: `tilemap.generate(...)` in a Behaviour "
+         "starts the job, advances it every frame within a budget and places the objects of the sample. Example: tilemap.generate_start "
+         "{\"sample\":[\"#####\",\"#...#\",\"#####\"],\"legend\":{\"#\":0},\"size\":[16,12],\"seed\":3}",
+         generateSchema, false, "scene"},
+        [&I](const Json& a) {
+            drop_stale_jobs(I);
+            if (I.wfcJobs.size() >= kMaxWfcJobs)
+                bad_arg("There are already " + std::to_string(kMaxWfcJobs) + " generations running",
+                        "Wait for one to finish (tilemap.generate_step until done) or drop one with tilemap.generate_cancel {job}.");
+            std::shared_ptr<GenRun> run = prepare_generation(I, a);
+            const int id = I.nextWfcJob++;
+            I.wfcJobs[id] = run;
+            const wfc::GenStats& st = run->gen->stats();
+            return Json::object({{"job", id}, {"width", run->width}, {"height", run->height}, {"seed", run->seedValue}, {"cells", st.cells},
+                                 {"patterns", st.patterns}, {"memoryBytes", run->memoryBytes}});
+        });
+    I.commands.add(
+        {"tilemap.generate_step",
+         "Advance a generation started with tilemap.generate_start by a bounded amount of work.",
+         "Does at most `work` units of work (default 500000, about 10 ms of a Debug build; the same unit as stats.work) or, with `budgetMs`, steps until "
+         "that many milliseconds have passed (at least one step). Returns {done:false, progress, attempts, work, contradictions, rejected} while it runs "
+         "(progress 0..1 is the share of cells decided in the current attempt: it goes back to 0 when an attempt restarts) and {done:true, progress:1, "
+         "result} when the level is finished, `result` being what tilemap.generate returns. A step can overshoot its budget by one unit of the algorithm: "
+         "the start of an attempt and the end of one (the reachability check) each run in one piece, so they cost more on a very big level. Errors "
+         "(the generation failed, hit `maxWork`, the entity of `into` is gone) end the job. A job whose scene was unloaded no longer exists. "
+         "Example: tilemap.generate_step {\"job\":1,\"work\":200000}",
+         parse_schema(R"json({"type":"object","required":["job"],"properties":{
+               "job":{"type":"integer","minimum":1,"description":"The job tilemap.generate_start returned."},
+               "work":{"type":"integer","default":500000,"minimum":1,"maximum":100000000,"description":"Units of work to do in this call (stats.work counts the same units)."},
+               "budgetMs":{"type":"number","exclusiveMinimum":0,"maximum":1000,"description":"Instead of `work`: step until this many milliseconds have passed (at least one step). How far a job gets in a call then depends on the machine, never the level."}}})json"),
+         false, "scene"},
+        [&I](const Json& a) {
+            drop_stale_jobs(I);
+            const int id = job_id_arg(a);
+            std::shared_ptr<GenRun> run = job_of(I, id);
+            if (!run)
+                bad_arg("There is no generation with job " + std::to_string(id),
+                        "A job ends when it finishes, fails, is cancelled, or when its scene is unloaded. tilemap.generate_start returns the number to use.");
+            long long work = kFrameWork;
+            if (a.contains("work") && (!whole_number(a["work"], work) || work < 1 || work > 100'000'000))
+                bad_arg("'work' must be a whole number between 1 and 100000000, got " + describe_json_value(a["work"]), "Units of work for this call. Default " + std::to_string(kFrameWork) + ".");
+            double budgetMs = 0.0;
+            if (a.contains("budgetMs") && (!a["budgetMs"].is_number() || a["budgetMs"].get<double>() <= 0.0 || a["budgetMs"].get<double>() > 1000.0))
+                bad_arg("'budgetMs' must be a number of milliseconds above 0 and up to 1000, got " + describe_json_value(a["budgetMs"]), "Example: \"budgetMs\": 4.");
+            if (a.contains("budgetMs")) budgetMs = a["budgetMs"].get<double>();
+            try {
+                const bool done = step_generation(*run, work, budgetMs);
+                if (!done) return step_result(*run, false);
+                Json out = step_result(*run, true);
+                out["result"] = finish_generation(I, *run);
+                I.wfcJobs.erase(id);
+                return out;
+            } catch (...) {
+                I.wfcJobs.erase(id);  // a job that failed has nothing left to step
+                throw;
+            }
+        });
+    I.commands.add(
+        {"tilemap.generate_cancel",
+         "Drop a generation started with tilemap.generate_start and free its memory.",
+         "Idempotent: an unknown job (finished, failed, already cancelled, or dropped by a scene load) answers {cancelled:false}. Example: tilemap.generate_cancel {\"job\":1}",
+         parse_schema(R"json({"type":"object","required":["job"],"properties":{"job":{"type":"integer","minimum":1,"description":"The job tilemap.generate_start returned."}}})json"),
+         false, "scene"},
+        [&I](const Json& a) {
+            const int id = job_id_arg(a);
+            return Json::object({{"cancelled", I.wfcJobs.erase(id) > 0}});
+        });
+
 }
 
 }  // namespace fa

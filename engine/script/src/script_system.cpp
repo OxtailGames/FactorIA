@@ -1148,6 +1148,15 @@ void ScriptSystem::dispatch_platform() {
             I.run_jobs();
         }
     }
+    if (I.generateJobs > 0) {  // tilemap.generate: this frame's share of the work (same budget as the preload)
+        JSValue budget = JS_NewFloat64(I.ctx, I.host->preload_time_budget_ms());
+        JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "generateTick");
+        JSValue r = I.call("tilemap.generate", "", fn, I.hooks.get(), {budget});
+        JS_FreeValue(I.ctx, r);
+        JS_FreeValue(I.ctx, fn);
+        JS_FreeValue(I.ctx, budget);
+        I.run_jobs();
+    }
     PlatformServices* services = I.host->platform_services();
     if (!services) return;
     const std::vector<PlatformAnswer> answers = services->take_answers();
