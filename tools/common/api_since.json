@@ -1180,6 +1180,8 @@
     "vector.transform": "0.16.0",
     "vector.ungroup": "0.16.0",
     "vfx.check": "unreleased",
+    "vfx.create": "unreleased",
+    "vfx.edit": "unreleased",
     "vfx.list": "unreleased",
     "vfx.play": "unreleased",
     "vfx.stop": "unreleased"

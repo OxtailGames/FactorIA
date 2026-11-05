@@ -322,6 +322,20 @@ entity goes with its last emitter. A document is read once and shared by every e
 playing finish the version they started with. A file that has become invalid is an error for the next play (`vfx.play` fails with its pointer; a placed `Vfx` logs it once and does not play), fix it and play again. The runtime state of a `Vfx` (`playing`, `time`, the child entities) is not saved: a scene saved while an effect plays
 starts it again from the beginning, and the entities `vfx.play` makes are never saved with the scene.
 
+### Editing an effect: `vfx.create`, `vfx.edit` and the Particles panel
+
+`vfx.create {"path":"assets/vfx/hit.vfx.json"}` writes a starting point (one burst emitter that falls a little; `doc` sets its description, `overwrite`
+replaces an existing file). `vfx.edit {"path", "op", "pointer", "value"?, "index"?, "to"?}` changes one thing in a file by JSON pointer: `set` a value
+(`/parts/0/emitter/burst`, `/duration`), `remove` a field or a part, `add` a part (`pointer` `/parts`, `value` the part, `index` where) or `move` one (`pointer`
+`/parts`, `index` the part, `to` where it goes). The result is parsed as an effect before anything is written: an edit that would make the file invalid is refused with
+the errors (pointer, message, fix) and the file stays as it was. The same calls are what the editor's Particles panel makes, so a person and an AI can take turns on one
+file ([EDITOR.md](EDITOR.md), "Particles panel").
+
+The panel plays the effect in the editor with the same timeline and the same `ParticleSim` a game runs, with a time scrubber, a parts list, an inspector built from the
+reflected fields of `ParticleEmitter` and editors for gradients and curves. Its preview is seeded and repeatable (the same seed and the same moment show the same
+particles). It draws dots and glows, not the final render: ribbon trails and textures are not drawn, additive blending shows as normal, and sounds and commands are
+only markers on the timeline.
+
 ## Problems the engine reports
 
 `factoria validate` and scene loading report, with the file and JSON pointer: curves, gradients and palettes that do not parse

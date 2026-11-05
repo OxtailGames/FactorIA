@@ -625,7 +625,8 @@ void update_vfx(World& world, float dt, const VfxHost& host) {
             if (v.effect.empty()) {
                 v.playing = false;
             } else if (v.playing) {
-                auto doc = load_vfx(v.effect);
+                Result<std::shared_ptr<const VfxDoc>> doc = host.load ? Result<std::shared_ptr<const VfxDoc>>(host.load(v.effect)) : load_vfx(v.effect);
+                if (doc && !*doc) doc = make_error("the document '" + v.effect + "' is not available", "Check the path of the effect.");
                 if (!doc) {
                     warn_once(v.effect + "|" + std::to_string(fs::modified_time(v.effect)) + "|load",
                               std::format("entity '{}' Vfx: {}{}", world.id_of(e), doc.error().message,

@@ -999,7 +999,7 @@ void Editor::after_command(const std::string& name, const Json& args, const Comm
     if (name.rfind("anim.", 0) == 0 && command_edits_scene(name, args) == false && name != "anim.check" && name != "anim.filmstrip") anim_.dirtyPose = true;
     // Commands that write or delete project files: the Project panel reads the folder again (it never walks the disk per frame).
     if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly)
-        for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "image.", "vector.", "sfx.", "audio.", "scene.save", "scene.format", "scene.import_ascii",
+        for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "image.", "vector.", "sfx.", "vfx.", "audio.", "scene.save", "scene.format", "scene.import_ascii",
                                    "scene.ascii_edit"})
             if (name.rfind(prefix, 0) == 0) { project_files_changed(); break; }
     // A file-mode import (scene.import_ascii with `path`, or scene.ascii_edit rebuilding its level) returns `path` and, unless
@@ -1203,6 +1203,13 @@ void Editor::undo() {
         sound_apply_undo(entry, false);
         return;
     }
+    if (undo_.back().is_object() && undo_.back().contains("$particle")) {  // a step of an effect document (particle_panel.cpp)
+        Json entry = std::move(undo_.back());
+        undo_.pop_back();
+        lastEditKey_.clear();
+        particle_apply_undo(entry, false);
+        return;
+    }
     if (undo_.back().is_object() && undo_.back().contains("$music")) {  // a step of a song (music_panel.cpp)
         Json entry = std::move(undo_.back());
         undo_.pop_back();
@@ -1262,6 +1269,13 @@ void Editor::redo() {
         sound_apply_undo(entry, true);
         return;
     }
+    if (redo_.back().is_object() && redo_.back().contains("$particle")) {  // a step of an effect document (particle_panel.cpp)
+        Json entry = std::move(redo_.back());
+        redo_.pop_back();
+        lastEditKey_.clear();
+        particle_apply_undo(entry, true);
+        return;
+    }
     if (redo_.back().is_object() && redo_.back().contains("$music")) {
         Json entry = std::move(redo_.back());
         redo_.pop_back();
@@ -1319,7 +1333,7 @@ void Editor::open_screenshots_folder() {
 // The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
 int Editor::panels_mask() const {
     const bool flags[] = {showViewport_, showHierarchy_, showInspector_, showConsole_,  showProject_,  showAi_,
-                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_, showImage_, showVector_, showSound_, showMusic_, showModeler_};
+                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_, showImage_, showVector_, showSound_, showMusic_, showModeler_, showParticle_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1328,7 +1342,7 @@ int Editor::panels_mask() const {
 
 void Editor::set_panels_mask(int mask) {
     bool* flags[] = {&showViewport_, &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,  &showAi_,
-                     &showFeedback_, &showAudio_,     &showProfiler_,  &showAnimation_, &showBoneTools_, &showImage_, &showVector_, &showSound_, &showMusic_, &showModeler_};
+                     &showFeedback_, &showAudio_,     &showProfiler_,  &showAnimation_, &showBoneTools_, &showImage_, &showVector_, &showSound_, &showMusic_, &showModeler_, &showParticle_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1477,6 +1491,7 @@ void Editor::build_ui() {
         if (showVector_) draw_vector_panel();
         if (showSound_) draw_sound_panel();
         else if (sound_.player && sound_.player->playing()) sound_.player->stop();
+        if (showParticle_) draw_particle_panel();
         if (showMusic_) draw_music_panel();
         else if (music_.preview && music_.preview->playing()) music_.preview->stop();
         if (showModeler_) draw_modeler_panel();

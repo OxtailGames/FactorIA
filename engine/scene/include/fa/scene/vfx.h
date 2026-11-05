@@ -101,6 +101,10 @@ struct VfxHost {
     std::function<bool(const std::string& clip, float volume, float pitch, const std::string& bus)> play_sound;
     // Calls a command; returns "" when it worked, else what went wrong.
     std::function<std::string(const std::string& command, const Json& args)> call;
+    // Where the documents come from. Unset (the game): load_vfx, the file through fa::fs. The editor's Particle panel sets it to
+    // play the document it is editing from memory, so a preview never waits for a file's modification time. An empty pointer is a
+    // document that cannot be read (logged once, nothing plays), as an unreadable file is.
+    std::function<std::shared_ptr<const VfxDoc>(const std::string& effect)> load;
 };
 
 // Advances every active Vfx by `dt` seconds (dt 0: only a change of `playing` or `effect` applies): loads its document, starts

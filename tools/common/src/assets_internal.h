@@ -110,6 +110,7 @@ void register_draw_icon_command(CommandRegistry& registry, const std::string& pr
 void register_draw_capsules_command(CommandRegistry& registry, const std::string& projectDir);
 void register_synth_sound_command(CommandRegistry& registry, const std::string& projectDir);
 void register_sfx_commands(CommandRegistry& registry, const std::string& projectDir);  // sfx.render, sfx.bake, sfx.tweak, sfx.family, sfx.preset, sfx.info (assets_sfx.cpp)
+void register_vfx_commands(CommandRegistry& registry, const std::string& projectDir);  // vfx.create, vfx.edit (assets_vfx.cpp, docs/PARTICLES.md)
 void register_texture_command(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_texture
 void register_svg_command(CommandRegistry& registry, const std::string& projectDir);      // assets.rasterize_svg
 void register_animate_svg_command(CommandRegistry& registry, const std::string& projectDir);  // assets.animate_svg
