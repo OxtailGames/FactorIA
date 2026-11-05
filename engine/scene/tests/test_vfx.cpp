@@ -1,6 +1,7 @@
 // Effect documents (fa/scene/vfx.h): the format and its errors, the timeline, play / stop, budgets, determinism, reloading.
 #include <doctest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -42,7 +43,7 @@ Json hit_effect() {
         {"type": "emitter", "name": "sparks", "emitter": {"burst": 12, "lifetime": 0.3, "speed": 90, "maxParticles": 40}},
         {"type": "light", "name": "flash", "duration": 0.4, "offset": [0, 4], "light": {"intensity": 2, "radius": 120}},
         {"type": "sound", "at": 0.1, "clip": "assets/sfx/hit.wav", "volume": 0.5, "pitch": 1.2},
-        {"type": "command", "at": 0.2, "command": "feel.shake", "args": {"strength": 0.5}}
+        {"type": "command", "at": 0.2, "command": "feel.shake", "args": {"amount": 0.5}}
       ]})");
 }
 
@@ -132,14 +133,37 @@ TEST_CASE("vfx: every kind of mistake is an error naming the JSON pointer, with 
         CHECK(find_issue(issues_of(Json::parse(R"({"format":"factoria.vfx/1"})")), "/parts"));
         CHECK(find_issue(issues_of(Json::parse(R"({"format":"factoria.vfx/1","parts":[]})")), "/parts"));
     }
-    SUBCASE("a command outside the game feel and audio commands is refused") {
+    SUBCASE("a command outside the allowed list is refused, with the list and a suggestion") {
         Json j = hit_effect();
         j["parts"][3]["command"] = "fs.delete";
         auto issues = issues_of(j);
         const VfxIssue* i = find_issue(issues, "/parts/3/command");
         REQUIRE(i);
         CHECK(i->message.find("fs.delete") != std::string::npos);
-        CHECK(i->hint.find("feel.") != std::string::npos);
+        CHECK(i->hint.find("feel.shake") != std::string::npos);
+        j["parts"][3]["command"] = "feel.shak";
+        const auto typo = issues_of(j);
+        i = find_issue(typo, "/parts/3/command");
+        REQUIRE(i);
+        CHECK(i->hint.find("Did you mean 'feel.shake'") != std::string::npos);
+    }
+    SUBCASE("commands that write files or change settings are refused at parse time, with the pointer") {
+        for (const char* name : {"audio.bake", "audio.create", "audio.edit", "feel.settings", "feel.cancel", "audio.log", "feel.state", "feel.*"}) {
+            Json j = hit_effect();
+            j["parts"][3]["command"] = name;
+            auto doc = parse_vfx(j, "assets/vfx/hit.vfx.json");
+            INFO(name);
+            REQUIRE_FALSE(doc.ok());
+            CHECK(doc.error().message.find("/parts/3/command") != std::string::npos);
+            CHECK(doc.error().message.find(name) != std::string::npos);
+            CHECK_FALSE(vfx_command_allowed(name));
+        }
+        for (const std::string& name : vfx_allowed_commands()) {
+            Json j = hit_effect();
+            j["parts"][3]["command"] = name;
+            INFO(name);
+            CHECK(parse_vfx(j, "t.vfx.json").ok());
+        }
     }
     SUBCASE("an emitter field that does not exist is the same error a scene gives") {
         Json j = hit_effect();
@@ -305,31 +329,118 @@ TEST_CASE("vfx: parts start at their time, lights fade and end, and an autoDestr
     update_vfx(w, dt, host);  // 0.15
     update_vfx(w, dt, host);  // 0.20: the shake
     REQUIRE(log.events.size() == 2);
-    CHECK(log.events[1] == "call feel.shake {\"strength\":0.5}");
-    for (int i = 0; i < 20; ++i) update_vfx(w, dt, host);
+    CHECK(log.events[1] == "call feel.shake {\"amount\":0.5}");
+    for (int i = 0; i < 6; ++i) update_vfx(w, dt, host);  // 0.60 s: past the end of the effect (0.4 s) and of its sparks (0.46 s)
     CHECK(log.events.size() == 2);  // each part once
     CHECK(children_named(w, fx, "flash") == 0);  // the flash lasted 0.4 s
     CHECK_FALSE(w.get<Vfx>(fx)->playing);
-    // The sparks are the renderer's: it destroys an emitter whose particles are gone. Stand in for it.
-    for (Entity c : w.children(fx)) w.destroy(c);
     w.flush();
-    update_vfx(w, dt, host);
-    w.flush();
-    CHECK_FALSE(w.alive(fx));
+    CHECK_FALSE(w.alive(fx));  // no renderer here: the effect removed its emitter itself, and then went
     CHECK(vfx_playing_count(w) == 0);
 }
 
-TEST_CASE("vfx: an autoDestroy effect nobody steps the emitters of still goes after the linger time") {
-    TempDir tmp("fa_vfx_linger");
+// ---- cleanup does not depend on a renderer: nobody steps the particles in these tests ----
+
+TEST_CASE("vfx: a one-shot autoDestroy effect is gone at the time its particles can live until, without a renderer") {
+    TempDir tmp("fa_vfx_drain");
     const std::string path = tmp.file("hit.vfx.json");
-    write(path, hit_effect());
+    write(path, hit_effect());  // sparks: lifetime 0.3 +- 20%, a burst; the flash ends the effect at 0.4 s
     World w;
     VfxHost none;
     auto r = vfx_play(w, path);
     REQUIRE(r.ok());
-    for (int i = 0; i < 12; ++i) update_vfx(w, 0.05f, none);  // past the end at 0.4 s
+    const std::size_t before = w.entity_count();
+    // The emitter starts at the first step: its entity waits 0.3 * 1.2 + kVfxDrainSlack = 0.46 s, counted from then.
+    int steps = 0;
+    auto step = [&] {
+        update_vfx(w, 0.05f, none);
+        w.flush();
+        ++steps;
+    };
+    while (steps < 8) step();  // 0.40 s
     CHECK(w.alive(*r));
-    update_vfx(w, float(kVfxMaxLinger) + 1.0f, none);
+    CHECK(w.entity_count() == before + 1);  // the sparks, the flash went at 0.4 s
+    while (steps < 11) step();  // 0.55 s
+    CHECK_FALSE(w.alive(*r));
+    CHECK(w.entity_count() == before - 1);
+    CHECK(vfx_playing_count(w) == 0);
+}
+
+TEST_CASE("vfx: a looping effect over a minute of game time keeps a bounded, stable set of entities, without a renderer") {
+    TempDir tmp("fa_vfx_loop60");
+    const std::string path = tmp.file("loop.vfx.json");
+    write(path, Json::parse(R"({"format":"factoria.vfx/1","duration":1.0,"parts":[
+        {"type":"emitter","name":"sparks","duration":0.5,"emitter":{"rate":30,"lifetime":0.5,"maxParticles":50}},
+        {"type":"emitter","name":"burst","at":0.5,"emitter":{"burst":8,"lifetime":0.4}},
+        {"type":"light","name":"glow","duration":0.3}]})"));
+    World w;
+    VfxHost none;
+    VfxPlayOptions o;
+    o.loop = true;
+    auto r = vfx_play(w, path, o);
+    REQUIRE(r.ok());
+    std::size_t peak = 0, peakEarly = 0, peakLate = 0;
+    for (int i = 0; i < 60 * 60; ++i) {  // 60 s of 60 Hz steps
+        update_vfx(w, 1.0f / 60.0f, none);
+        w.flush();
+        peak = std::max(peak, w.entity_count());
+        if (i >= 2 * 60 && i < 10 * 60) peakEarly = std::max(peakEarly, w.entity_count());  // after the first loops have warmed up
+        if (i >= 50 * 60) peakLate = std::max(peakLate, w.entity_count());
+    }
+    // The effect, plus at most the emitters of the loops whose particles are still draining (0.6 s + 0.1 s of slack, and 0.48 + 0.1).
+    CHECK(peak <= 1 + 2 * 2 + 1);
+    CHECK(peakEarly > 1);
+    CHECK(peakLate == peakEarly);  // nothing piles up from loop to loop
+    CHECK(w.alive(*r));
+    CHECK(w.get<Vfx>(*r)->playing);
+    CHECK(w.get<Vfx>(*r)->rt.children.size() <= 6);
+    CHECK(vfx_playing_count(w) == 1);
+}
+
+TEST_CASE("vfx: an explicit file duration shorter than a part ends its light and its emitter at the end of the effect") {
+    TempDir tmp("fa_vfx_shortdur");
+    const std::string path = tmp.file("short.vfx.json");
+    write(path, Json::parse(R"({"format":"factoria.vfx/1","duration":0.2,"parts":[
+        {"type":"emitter","name":"stream","duration":1.0,"emitter":{"rate":40,"lifetime":0.1,"lifetimeVariance":0}},
+        {"type":"light","name":"glow","duration":0.4}]})"));
+    World w;
+    VfxHost none;
+    auto r = vfx_play(w, path);
+    REQUIRE(r.ok());
+    Entity stream = kNullEntity;
+    update_vfx(w, 0.05f, none);
+    for (Entity c : w.children(*r))
+        if (w.info(c).name == "stream") stream = c;
+    REQUIRE_FALSE(stream.is_null());
+    CHECK(w.get<ParticleEmitter>(stream)->emitting);
+    CHECK(children_named(w, *r, "glow") == 1);
+    for (int i = 0; i < 3; ++i) update_vfx(w, 0.05f, none);  // 0.20 s: the effect ends
+    w.flush();
+    CHECK_FALSE(w.get<Vfx>(*r)->playing);
+    CHECK(children_named(w, *r, "glow") == 0);  // not left alive until its own end at 0.4 s
+    REQUIRE(w.alive(stream));
+    CHECK_FALSE(w.get<ParticleEmitter>(stream)->emitting);
+    for (int i = 0; i < 6; ++i) update_vfx(w, 0.05f, none);  // 0.1 s lifetime + slack have passed
+    w.flush();
+    CHECK_FALSE(w.alive(stream));
+    CHECK_FALSE(w.alive(*r));
+}
+
+TEST_CASE("vfx: the time an emitter waits counts the trail and the sub-emitter chain") {
+    TempDir tmp("fa_vfx_chain");
+    const std::string path = tmp.file("chain.vfx.json");
+    write(path, Json::parse(R"({"format":"factoria.vfx/1","parts":[
+        {"type":"emitter","name":"rocket","emitter":{"burst":3,"lifetime":1.0,"lifetimeVariance":0,"trail":"particle","trailTime":0.5,
+          "subEmitters":{"death":{"count":4,"emitter":{"lifetime":2.0,"lifetimeVariance":0}}}}}]})"));
+    World w;
+    VfxHost none;
+    auto r = vfx_play(w, path);
+    REQUIRE(r.ok());
+    update_vfx(w, 0.01f, none);
+    REQUIRE(w.get<Vfx>(*r)->rt.children.size() == 1);
+    // 1.0 + 0.5 (trail) + 2.0 (what its death makes) + slack
+    CHECK(w.get<Vfx>(*r)->rt.children[0].drainFor == doctest::Approx(3.5f + float(kVfxDrainSlack)).epsilon(0.001));
+    for (int i = 0; i < 100; ++i) update_vfx(w, 0.05f, none);  // 5 s
     w.flush();
     CHECK_FALSE(w.alive(*r));
 }
@@ -439,6 +550,14 @@ TEST_CASE("vfx: at most kVfxMaxPlaying effects play at once; a play past that is
     REQUIRE(over.ok());
     CHECK(over->is_null());
     CHECK(vfx_playing_count(w) == kVfxMaxPlaying);
+    // They count until they have ended and their emitters have drained, not before; then the budget is free again.
+    VfxHost none;
+    for (int i = 0; i < 20; ++i) update_vfx(w, 0.05f, none);  // 1 s
+    w.flush();
+    CHECK(vfx_playing_count(w) == 0);
+    auto again = vfx_play(w, path);
+    REQUIRE(again.ok());
+    CHECK_FALSE(again->is_null());
 }
 
 TEST_CASE("vfx: vfx_stop ends an effect, at once or letting its particles finish") {

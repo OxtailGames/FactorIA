@@ -29,8 +29,8 @@ constexpr int kVfxMaxEmitters = 8;         // of those, emitters
 constexpr int kVfxMaxCommands = 8;         // of those, commands
 constexpr double kVfxMaxDuration = 30.0;   // seconds: the longest an effect, or a part of it, may last
 constexpr double kVfxMinLoop = 0.1;        // seconds: a looping effect shorter than this waits until it is this long before it restarts
-constexpr double kVfxMaxLinger = 30.0;     // seconds an ended autoDestroy effect waits for its emitters' particles before it goes anyway
-constexpr int kVfxMaxPlaying = 64;         // Vfx playing at once: a play past this is dropped (and logged once)
+constexpr double kVfxDrainSlack = 0.1;     // seconds added to the time an emitter's particles need to die before its entity is removed (the renderer steps by frames)
+constexpr int kVfxMaxPlaying = 64;         // Vfx playing, or still holding emitters and lights, at once: a play past this is dropped (and logged once)
 constexpr int kVfxMaxLiveParticles = 4000; // warning: the emitters of one effect may hold more live particles than this together
 
 enum class VfxPartKind { Emitter, Light, Sound, Command };
@@ -73,9 +73,12 @@ struct VfxIssue {
     std::string hint;
 };
 
-// The commands a `command` part may call: the game feel API and the audio commands. An effect cannot write files or destroy
-// entities. Matched as a prefix of the command name.
-const std::vector<std::string>& vfx_command_prefixes();
+// The commands a `command` part may call, by exact name: the game feel effects (feel.shake, feel.hitStop, feel.flash, feel.knockback,
+// feel.squash, feel.spawn, feel.sound) and the playback ones of the mixer (audio.bus, audio.snapshot, audio.music). Nothing that writes a
+// file (audio.create, audio.edit, audio.bake) or changes a setting of the player (feel.settings) or ends other effects (feel.cancel).
+// parse_vfx rejects any other name, and the runtime checks it again before it calls the command.
+const std::vector<std::string>& vfx_allowed_commands();
+bool vfx_command_allowed(std::string_view command);
 
 // Checks a parsed JSON document. On an error the Error names the file, the pointer and the fix of the first problem (and says how
 // many more there are); `issues` receives every problem, warnings included, and is filled on success too.
@@ -102,8 +105,10 @@ struct VfxHost {
 
 // Advances every active Vfx by `dt` seconds (dt 0: only a change of `playing` or `effect` applies): loads its document, starts
 // the parts whose time has come (children of the Vfx entity: ParticleEmitter, Light2D / Light), animates the lights, and at the
-// end of the effect clears `playing` and, with `autoDestroy`, removes the entity once its emitters have emptied. A document that
-// cannot be read is logged once per file and change. Run once per FIXED step, like update_videos().
+// end of the effect clears `playing`, ends its lights and stops its emitters. A stopped emitter's entity is removed a fixed time
+// later, the longest its particles (and those of its sub-emitters) can live, so the entities that exist do not depend on whether
+// a renderer steps the particles. With `autoDestroy` the Vfx entity goes with its last emitter. A document that cannot be read is
+// logged once per file and change. Run once per FIXED step, like update_videos().
 void update_vfx(World& world, float dt, const VfxHost& host);
 
 // Starts an effect: a new entity with a Vfx component (autoDestroy on), at `position` in the world, or a child of `parent` at
@@ -120,10 +125,12 @@ struct VfxPlayOptions {
 Result<Entity> vfx_play(World& world, std::string_view effect, const VfxPlayOptions& options = {});
 
 // Ends an effect. immediate: the entity and its children go at once (their particles vanish); else the parts that have not
-// started never do, lights end, and emitters stop emitting but let their particles finish.
+// started never do, lights end, and emitters stop emitting but let their particles finish (their entities go once those have had the
+// time to die, as at the end of an effect).
 void vfx_stop(World& world, Entity vfx, bool immediate);
 
-// How many Vfx are playing now (the budget kVfxMaxPlaying counts them).
+// How many effects play or still hold emitters and lights (the budget kVfxMaxPlaying counts them). A counter the system keeps
+// (World::vfx_live), not a scan.
 int vfx_playing_count(const World& world);
 
 }  // namespace fa
