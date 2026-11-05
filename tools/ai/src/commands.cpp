@@ -92,7 +92,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
     // a settings file gets exactly load_config().
     auto load = [opts, project_dir]() -> Result<AiConfig> {
         if (opts->loadConfig) return opts->loadConfig();
-        return load_resolved_config(project_dir());
+        return load_resolved_config(project_dir(), {}, opts->runtime.env ? opts->runtime.env : system_env());
     };
 
     {

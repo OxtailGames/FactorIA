@@ -10,9 +10,12 @@
 //
 // Trust: a file the user did not save on this computer (it came inside a copied or unzipped project) applies only after the user
 // accepts it once (accept_project_settings; the editor asks). The acceptance is the sha256 of the file in ai-trust.json (next
-// to ai.json, the same file as the extensions' trust) and is dropped when the file changes. Saving through save_project_settings
-// on this computer records it, so the user's own edits apply at once. No command grants trust: an AI cannot accept what it
-// just wrote.
+// to ai.json, the same file as the extensions' trust); a file that differs from the accepted one is not accepted (the old record
+// stays until the next acceptance replaces it: reading never writes ai-trust.json). A file that is not accepted has NO effect,
+// not even failing: when it is also invalid, the project runs with the inherited config and the problem is in
+// ResolvedAiConfig::invalidError (and a config warning), so a copied project can never stop a run. save_project_settings records
+// the acceptance only when its caller says so (recordTrust): only code that saves on the user's behalf in the editor does. No
+// command grants trust: an AI cannot accept what it just wrote.
 //
 // How callers use it:
 //   * a runtime path that needs "the config of this project": load_resolved_config(projectDir) (an AiConfig, as load_config
@@ -20,11 +23,13 @@
 //     load_config returns and writes nothing.
 //   * a window or command that shows where each value comes from: resolve_ai_config(projectDir) (ResolvedAiConfig: the config,
 //     the source of every value, what a file that is not accepted yet would change).
+//   * the editor, whose ai.json is already in memory: resolve_ai_config_over(projectDir, inheritedConfig).
 //   * editing: save_project_settings / project_overrides_from / reset_project_setting.
 // The user file keeps its own API (load_config, save_roles, ...); nothing here writes ai.json.
 #pragma once
 
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -36,6 +41,10 @@
 namespace fa::ai {
 
 inline constexpr const char* kProjectAiSettingsFile = ".factoria/ai/settings.json";
+
+// `text` with every control character (ANSI escapes, NUL, DEL, a lone CR) written as \xNN, for printing what an untrusted project
+// file says (a key, a value, a parse error) to a terminal or a log. Line feeds and tabs stay.
+std::string escape_control_chars(std::string_view text);
 
 std::string_view project_settings_schema_text();  // schemas/ai-project-settings.schema.json
 // Schema problems only (types, ranges, unknown keys). validate_project_settings adds the names and the teaching messages.
@@ -86,20 +95,32 @@ struct ResolvedAiConfig {
     std::string fileHash;     // sha256 of the file (line endings normalized); "" when there is none
     Json overrides = Json::object();  // the file's content ({} when there is none)
     bool applied = false;     // the file exists, is valid and accepted: `config` has its values
-    // The file exists and is valid but the user has not accepted it on this computer: the project behaves as without it, and
-    // `pending` says what it would change, for the editor to show before the user accepts (accept_project_settings).
+    // The file exists but the user has not accepted it on this computer: the project behaves as without it (`config` is
+    // `inherited`, `applied` false), and `pending` says what it would change, for the editor to show before the user accepts
+    // (accept_project_settings). Not accepted AND invalid (not JSON, a key a project may not hold, an unknown name, a value ai.json
+    // refuses): `pending` is empty and `invalidError` says what is wrong (message + hint, control characters escaped); the
+    // file has no effect, not even failing, and `config.warnings` carries a line about it.
     bool pendingTrust = false;
     std::vector<SettingChange> pending;
+    std::optional<Error> invalidError;
 
     SettingSource source_of(std::string_view pointer) const;  // Default for a pointer that is not a leaf of the view
 };
 
 // What `projectDir` runs with. `aiConfigPath` "" = default_config_path(env). `projectDir` "" = no project (the user file alone).
-// An error when ai.json is invalid, or when the project's file is invalid: not JSON, a key that is not allowed in a project
-// file, an unknown provider, server, role or extension name (each with its JSON pointer, the file and the fix), or a value
-// ai.json would refuse. An invalid project file is an error even before it is accepted, so the user sees it.
+// An error when ai.json is invalid, or when the project's file is invalid AND was accepted (the user's ai.json changed since, or
+// the file was accepted through another route): not JSON, a key that is not allowed in a project file, an unknown provider,
+// server, role or extension name (each with its JSON pointer, the file and the fix), or a value ai.json would refuse. An invalid
+// file that was not accepted is not an error: it has no effect and `invalidError` carries the problem (a file that came inside a
+// copied project, for example naming a provider you do not have, must not stop your runs). Reads never write ai-trust.json.
 Result<ResolvedAiConfig> resolve_ai_config(std::string_view projectDir, std::string_view aiConfigPath = {},
                                            const EnvLookup& env = system_env());
+// The same resolution on top of a config that is already in memory (`inherited`: ai.json as the caller loaded it, with the
+// engine's defaults), instead of reading ai.json from the disk: the editor's own config is the single source of truth there.
+// `aiConfigPath` locates ai-trust.json ("" = inherited.sourcePath, else default_config_path(env)). The project's overrides are
+// applied on a JSON form of `inherited` (config_to_json), with the roles that only follow another role left to follow it.
+Result<ResolvedAiConfig> resolve_ai_config_over(std::string_view projectDir, const AiConfig& inherited,
+                                                std::string_view aiConfigPath = {}, const EnvLookup& env = system_env());
 // resolve_ai_config(...).config, for the paths that only run with it (ai commands, skills, asset commands, the agent). Without a
 // project file the result is load_config's, byte for byte.
 Result<AiConfig> load_resolved_config(std::string_view projectDir, std::string_view aiConfigPath = {},
@@ -127,10 +148,14 @@ Json project_overrides_from(const AiConfig& wanted, const AiConfig& inherited);
 
 // Replaces the project's file with `overrides`, keeping only what changes the inherited value: a key equal to what the user's
 // ai.json gives (or the engine's default) is removed, empty objects too, and when nothing is left the file is removed. The file is
-// checked first (validate_project_settings and a trial resolution): an invalid one is refused and nothing is written. The content
-// is the caller's: it records the project's acceptance, so these edits apply at once. Atomic replacement with retry (fa::fs).
+// checked first (validate_project_settings and a trial resolution): an invalid one is refused and nothing is written. Atomic
+// replacement with retry (fa::fs).
+// `recordTrust` false (the default): the new file is NOT accepted: it applies only after accept_project_settings, like any file
+// the user did not review. True records the acceptance of exactly what was written, so the edit applies at once: pass it ONLY
+// from code that saves what the user just chose on this computer (the editor's AI settings window). NO COMMAND OR TOOL MAY PASS
+// TRUE: a command that wrote and applied a file in one step would let an AI grant itself settings the user never accepted.
 Result<void> save_project_settings(std::string_view projectDir, const Json& overrides, std::string_view aiConfigPath = {},
-                                   const EnvLookup& env = system_env());
+                                   const EnvLookup& env = system_env(), bool recordTrust = false);
 // Removes one override from the project's file ("/roles/artist/enabled", or a whole branch: "/roles/artist", "/limits",
 // "/roles"), so the value goes back to the user's. Resetting a role's or asset route's provider also resets its model, effort
 // and voice (they belong to that provider). Not a save of new content: when the file was not accepted before, it stays not

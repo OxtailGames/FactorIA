@@ -640,6 +640,9 @@ public:
     // AI settings (<project>/.factoria/ai/settings.json) applied when it has them and the user accepted them. Any thread. A project
     // with a settings file is re-read at most once a second unless `fresh` (a run starting): the panels ask every frame.
     Result<ai::AiConfig> ai_project_config(bool fresh = false);
+    // The same without a copy: calls `use` with the config (valid during the call; `use` must not lock aiMu_). False, and the
+    // project file's problem in `error`, when the project's file was accepted and is invalid now (ai.json changed): `use` is not called.
+    bool ai_with_project_config(const std::function<void(const ai::AiConfig&)>& use, Error* error = nullptr, bool fresh = false);
     // What the Play button says while the assistant works: which chats.
     std::string ai_editing_note();
     int ai_last_revertable_run() const;                      // index of the active chat's newest Run item not reverted, or -1
@@ -937,10 +940,13 @@ public:
     MainThreadQueue queue_;
     std::mutex aiMu_;
     ai::AiConfig aiConfig_;
-    std::mutex aiProjMu_;                       // the last ai_project_config() of a project with a settings file
-    std::string aiProjKey_;
+    std::mutex aiProjMu_;                       // the cache of ai_with_project_config(); never held while aiMu_ is taken
+    std::string aiProjFileDir_;                 // the project whose settings file existence was checked ...
+    long long aiProjFileAtMs_ = 0;              // ... when (steady-clock ms) ...
+    bool aiProjHasFile_ = false;                // ... and what was found
+    std::string aiProjKey_;                     // the project of the last resolution
     long long aiProjAtMs_ = 0;
-    std::optional<ai::AiConfig> aiProjConfig_;
+    std::shared_ptr<const ai::AiConfig> aiProjConfig_;  // null: the resolution failed (aiProjError_)
     Error aiProjError_;
     std::string aiConfigError_;
     std::vector<ai::ProviderStatus> aiStatus_;

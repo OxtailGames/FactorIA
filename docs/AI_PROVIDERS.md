@@ -200,15 +200,20 @@ instead, for example {"mcpServers": {"scenario": false}}
 
 A provider, server, role, asset kind, extension or key that does not exist is an error with the JSON pointer and a "Did you mean"
 (`/roles/worker/provider: no provider named 'claud-code' in your AI settings. Did you mean 'claude-code'?`). So a copied project can never
-run a program or spend a key you did not choose. An invalid file is an error even before it is accepted, in every place that reads it
-(`factoria ai run`, the editor's runs, `factoria ai doctor`), so the mistake is seen instead of ignored.
+run a program or spend a key you did not choose. A file you have not accepted yet has **no effect, not even failing**: when it is also
+invalid (a provider you do not have, a key a project may not hold, not JSON), the project runs with your settings as if the file were not
+there, and the problem is shown instead of thrown: `factoria ai doctor` (`projectSettings.invalidError` with `--json`), `ai providers`
+and `ai config` print it, it is a warning of the resolved config, and the resolver's `invalidError` carries it for the editor. A file you
+accepted that becomes invalid (for example you removed the provider it names from your `ai.json`) is an error in every place that reads
+it (`factoria ai run`, the editor's runs, `factoria ai doctor`), since you had agreed to it.
 
 **Trust.** A file you did not save on this computer (it came inside a copied, unzipped or pulled project) applies only after you accept
 it once: until then the project behaves as if the file were not there and `factoria ai doctor` lists what the file would change. The acceptance is the hash of the file in `ai-trust.json` next to your `ai.json` (readable only by you,
-the same file as the [extensions' trust](#trusting-a-projects-extensions), in its own `aiSettings` record) and ends as soon as the file
-changes (a line-ending change does not count). A file the engine's own writer saves on this computer (`save_project_settings`) is accepted at once, and
-`accept_project_settings` accepts a file as it is (the call the editor makes when you accept). No command or tool can accept it: an AI
-cannot trust what it has just written.
+the same file as the [extensions' trust](#trusting-a-projects-extensions), in its own `aiSettings` record) and stops counting as soon as the
+file changes (a line-ending change does not count); reading never writes `ai-trust.json`, only accepting does. `accept_project_settings` accepts a file as it is
+(the call the editor makes when you accept; it refuses an invalid file), and the engine's own writer (`save_project_settings`) records the acceptance of what it saves only when its caller asks
+for it (`recordTrust`, for code that saves what you just chose on this computer). No command or tool can accept a file: an AI cannot trust
+what it has just written.
 
 **Where a value comes from.** The resolver (`fa::ai::resolve_ai_config`, `fa/ai/project_settings.h`) returns the resolved config and,
 for every value, `default`, `you` (your `ai.json`) or `project`, plus what an unaccepted file would change, for the windows and commands that show it. The writer (`save_project_settings`) keeps only the values that differ from what the
