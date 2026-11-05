@@ -53,10 +53,13 @@ struct ClipTrack {
     std::vector<ClipKey> keys;         // ascending in t, at least one
 };
 
+// A moment of a clip: it sends the game event `name` (when it has one) and runs the game feel actions of `feel` (when it has
+// any, docs/GAME_FEEL.md, "Effects as data"). An event has a name, feel actions, or both.
 struct ClipEvent {
     float t = 0.0f;
-    std::string name;
+    std::string name;                  // "" = the event only runs its `feel` actions
     Json data = Json::object();        // sent with the event next to {id, clip, time}
+    std::vector<Json> feel;            // game feel actions in the JSON form of feel_apply_action, each already checked
 };
 
 struct ClipAsset {
@@ -100,6 +103,17 @@ Result<std::shared_ptr<const ClipAsset>> parse_anim_clip(const Json& json, std::
 Result<std::shared_ptr<const ClipAsset>> load_anim_clip(std::string_view path, std::vector<ClipIssue>* issues = nullptr);
 // Forgets every cached clip (tests).
 void clear_anim_clip_cache();
+
+// Reads the `feel` of an event object ("feel": one action object or an array of them) into `out`, checking every action with
+// feel_check_action. A problem is added to `issues` as "<pointer>/feel" or "<pointer>/feel/<i>" with the action's own error;
+// returns false when there is one. Absent `feel` = true with nothing in `out`. The one reader behind the clip files, the
+// Animator's inline `events`, the SpriteAnimator's `events` and `validate`.
+bool read_event_feel(const Json& event, const std::string& pointer, std::vector<Json>& out, std::vector<ClipIssue>& issues);
+
+// Reads one event object of a clip file (`pointer` = "/events/3"): t, name, data and feel, with the same checks for the 2D and the
+// 3D clip files. `duration` bounds t when `durationKnown`. Problems go to `issues`; returns false when there is one.
+bool read_clip_event(const Json& event, const std::string& pointer, float duration, bool durationKnown, ClipEvent& out,
+                     std::vector<ClipIssue>& issues);
 
 // The entity at `path` below `root` ("" = root itself): the first child with each name, walking down. The Error lists the
 // names at the level that failed with "did you mean", and where a name that exists deeper lives.

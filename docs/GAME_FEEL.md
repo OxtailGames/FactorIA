@@ -1,7 +1,8 @@
 # Game feel: shake, hit-stop, flash, knockback, squash and stretch
 
 The short effects that make a hit, a landing or an explosion read on screen. Each is one call in a script, one `feel.*` command
-and one JSON action (the form a clip event or a timeline will use), and all three run the same C++ (`fa/scene/feel.h`).
+and one JSON action (the form the events of an animation clip carry, "Effects as data"), and all three run the same C++
+(`fa/scene/feel.h`). Two more actions, `spawn` (an effect prefab) and `sound`, exist as actions and commands only.
 
 | Effect | Script | Command | What moves |
 |---|---|---|---|
@@ -177,17 +178,63 @@ The settings outlive scene loads and reset before every test (`feel.settings {"r
 
 ## Effects as data
 
-Everything above is also a JSON action `{ "action": "shake" | "hitStop" | "flash" | "knockback" | "squash", ...options }` with
-the same option names. This is the form the M62.2 clip events and timeline tracks carry, and the form scripts and tools can run:
+Everything above is also a JSON action `{ "action": "shake" | "hitStop" | "flash" | "knockback" | "push" | "squash" | "spawn" |
+"sound", ...options }` with the same option names (`push` is another name for `knockback`). This is the form scripts, tools
+and animation clip events run:
 
 ```js
 import { feel } from "factoria";
 feel.do({ action: "flash", color: "#ffffff", duration: 0.1 }, enemy);   // target = the entity (or the camera for shake)
 feel.do({ action: "hitStop", duration: 0.06 });
+feel.do({ action: "spawn", prefab: "prefabs/dust.prefab.json", lifetime: 0.6 }, hero);
 feel.cancel(enemy);   // ends this entity's effects; feel.cancel() ends everything, hit-stops included
 ```
 
 Unknown keys, wrong types and out-of-range values are errors that name the field and say what to pass.
+
+Two actions make something outside the entity, both from the same JSON form (and the commands `feel.spawn`, `feel.sound`):
+
+- `spawn {prefab, offset?, local?, lifetime?}` puts the prefab (a project-relative path) at the entity's world position plus
+  `offset`. With `local: true` the offset is in the entity's own space, so a mirrored sprite flips its x and the dust appears
+  behind a character that faces left. The spawned entity is created the next time the engine updates the effects (never in the
+  middle of an iteration over the scene) and is marked as script-spawned. `lifetime` is a number of seconds on the game clock
+  after which it is destroyed (a hit-stop pauses it); with `0`, the default, the prefab has to end itself (a particle burst that
+  stops, an animation that destroys its entity), or the effects pile up. A missing prefab is logged once and nothing appears.
+- `sound {path, volume?, pitch?, pan?, bus?}` plays a sound once: `volume` 0 to 4 (default 1), `pitch` 0.1 to 4 (default 1),
+  `pan` -1 to 1 (default 0) and `bus` (`sfx` by default). The sound waits in a queue that the audio system drains every frame,
+  so a headless run without audio only holds it (`feel.state` lists the `queued` sounds and spawns; when more than 64 sounds
+  wait and nobody plays them, the oldest are dropped).
+- `knockback` and `push` take `local: true` too: the direction is in the entity's own space, so `[1, 0]` is "forward" for a
+  sprite that faces left.
+
+### Clip events that do it
+
+An event of a clip can carry `feel`: one action or an array of them, in the same form. The actions run for the entity that plays
+the clip, in the step the event fires, deterministically (once per loop pass, and a long step does not skip any event).
+An event needs a `name`, `feel`, or both: a nameless event only runs its actions.
+
+```json
+{ "t": 0.3, "feel": [ { "action": "hitStop", "duration": 0.06 }, { "action": "shake", "amount": 0.3 },
+                      { "action": "sound", "path": "audio/hit.wav" } ] }
+```
+
+This works in the three places that have events:
+
+- the 2D clip files (`anim.schema.json`) and the 3D bone clip files (`anim3d.schema.json`): `events: [{t, name?, data?, feel?}]`;
+- the `events` list of an `Animator` component: `[{clip, time, name?, feel?}]`;
+- the `events` list of a `SpriteAnimator`, one per frame of the sheet: `[{frame, clip?, name?, data?, feel?}]`. `frame` is the
+  absolute frame of the sheet's grid (row by row, as `firstFrame` and `lastFrame` count), `clip` limits the event to one clip of the
+  sheet. Each pass of the animation fires a frame once (a loop fires it again at every pass), a step that skips frames fires
+  the ones it skipped, in order, and a seek back fires nothing.
+
+`anim.add_event` and `anim.set_event` take `feel` (a `null` or `[]` removes it), the same for `anim3d.add_event` and
+`anim3d.set_event`. The editor's Animation panels (2D and 3D) have a `feel` box in the event inspector (JSON) and, for 2D, a
+preset button for each action. Loading a clip checks every action: a typo in an action name, an unknown key, a value out of
+range and an event with neither `name` nor `feel` are errors with their JSON pointer (`/events/2/feel/0/action`) and a "did you
+mean". `project.validate` also checks that the prefab or the sound file of a `spawn` or `sound` action exists. An action that fails while the game runs (for example a prefab
+deleted since) is logged once per scene and the rest of the event still runs: an event never stops an animation.
+
+A `shake` in a clip event shakes the entity that plays the clip when it is a camera, else the main camera.
 
 ```bash
 factoria call --project . feel.shake '{"amount":0.5}'

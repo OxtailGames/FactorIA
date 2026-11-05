@@ -93,7 +93,8 @@ void register_feel_commands(Engine&, Engine::Impl& I) {
                "direction":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":3,"default":[1,0],"description":"Which way, [x, y] or [x, y, z]; any length, it is normalised."},
                "speed":{"type":"number","minimum":0,"description":"World units per second added at once. Default: 6 metres per second, which is 6 units for a 3D entity and 6 times physics.pixelsPerMeter (600 pixels per second at 100) for a 2D one."},
                "lockTime":{"type":"number","minimum":0,"maximum":30,"default":0.25,"description":"Seconds isKnockedBack stays true."},
-               "decay":{"type":"number","minimum":0,"maximum":1000,"default":8,"description":"Entities without a dynamic body: the velocity falls by exp(-decay * dt) per second."}}})"),
+               "decay":{"type":"number","minimum":0,"maximum":1000,"default":8,"description":"Entities without a dynamic body: the velocity falls by exp(-decay * dt) per second."},
+               "local":{"type":"boolean","default":false,"description":"true: `direction` is in the entity's own space (a mirrored sprite is pushed the other way)."}}})"),
            false, "feel"},
           [&I](const Json& a) { return run_action(I, a, "knockback", "feel.knockback", true); });
 
@@ -108,6 +109,33 @@ void register_feel_commands(Engine&, Engine::Impl& I) {
                "axis":{"type":"string","enum":["x","y"],"default":"y","description":"The axis that gets shorter when amount > 0."}}})"),
            false, "feel"},
           [&I](const Json& a) { return run_action(I, a, "squash", "feel.squash", true); });
+
+    I.commands.add({"feel.spawn", "Makes an effect appear: instantiates a prefab at an entity (or at a point) the next frame.",
+           "The same as the \"spawn\" action of a clip event (docs/GAME_FEEL.md, \"Effects as data\"). The prefab appears at the "
+           "entity's world position plus `offset`, or at `offset` itself without an entity, the next time the frame's game feel pass "
+           "runs. Spawned entities are left out of saved scenes. Give `lifetime` to have it destroyed after that many seconds; "
+           "without it the prefab has to end itself. Example: feel.spawn {\"entity\":\"enemy\",\"prefab\":\"prefabs/hit_spark.prefab.json\",\"lifetime\":0.4}",
+           parse_schema(R"({"type":"object","required":["prefab"],"properties":{
+               "entity":{"type":"string","description":"The entity the effect appears at (id or name). Default: the world origin plus `offset`."},
+               "prefab":{"type":"string","description":"Project-relative path of the prefab."},
+               "offset":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":3,"default":[0,0],"description":"Added to the entity's world position, [x, y] or [x, y, z]."},
+               "local":{"type":"boolean","default":false,"description":"true: `offset` is in the entity's own space (a mirrored sprite puts it on the other side)."},
+               "lifetime":{"type":"number","minimum":0,"default":0,"description":"Seconds on the game clock until the spawned entity is destroyed; 0 = the prefab ends itself."}}})"),
+           false, "feel"},
+          [&I](const Json& a) { return run_action(I, a, "spawn", "feel.spawn", false); });
+
+    I.commands.add({"feel.sound", "Plays a sound once through the audio system (the same one a clip event's \"sound\" action uses).",
+           "The sound starts on the next audio update, on its bus, and shows in `audio.log` like any other play. Example: "
+           "feel.sound {\"path\":\"audio/hit.wav\",\"volume\":0.8,\"pitch\":1.1}",
+           parse_schema(R"({"type":"object","required":["path"],"properties":{
+               "entity":{"type":"string","description":"The entity the sound belongs to (id or name); optional, only named in logs."},
+               "path":{"type":"string","description":"Project-relative path of the sound."},
+               "volume":{"type":"number","minimum":0,"maximum":4,"default":1,"description":"Volume."},
+               "pitch":{"type":"number","minimum":0.1,"maximum":4,"default":1,"description":"Playback speed and pitch."},
+               "pan":{"type":"number","minimum":-1,"maximum":1,"default":0,"description":"-1 left to 1 right."},
+               "bus":{"type":"string","default":"sfx","description":"\"sfx\", \"music\", \"ui\" or a bus of the project."}}})"),
+           false, "feel"},
+          [&I](const Json& a) { return run_action(I, a, "sound", "feel.sound", false); });
 
     I.commands.add({"feel.cancel", "Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything.",
            "Without `entity` it ends every effect of the scene, hit-stops included. The entity's Transform is not touched: effects "
@@ -147,7 +175,7 @@ void register_feel_commands(Engine&, Engine::Impl& I) {
 
     I.commands.add({"feel.state", "What the game feel effects are doing now: hit-stop, and per entity its shake, flash, squash, knockback and drawn pose.",
            "Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: {remaining, scale, running}, "
-           "entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time "
+           "queued: {sounds, spawns, spawnLifetimes} (sounds and spawns waiting for the next frame, spawned effects that will be destroyed), entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time "
            "(position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}",
            parse_schema(R"({"type":"object","properties":{}})"),
            true, "feel"},

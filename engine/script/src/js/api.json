@@ -1874,6 +1874,60 @@
       {
        "sig": "decay?: number",
        "doc": "Entities WITHOUT a dynamic body only: the velocity falls by exp(-decay * dt) per second (default 8)."
+      },
+      {
+       "sig": "local?: boolean",
+       "doc": "true: `direction` is in the entity's own space, so a mirrored sprite (negative scale x) is pushed the other way and a turned entity pushes along its own axes. Default false: world directions. Meant for the \"push\" action of a clip, whose direction cannot know which way the character faces."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "FeelSpawnOptions",
+     "doc": "Options of the \"spawn\" feel action: an effect prefab appears at the target entity (without a target, at `offset` in the world) the next time the frame's feel pass runs. Spawned entities are left out of saved scenes.",
+     "members": [
+      {
+       "sig": "prefab: string",
+       "doc": "Project-relative path of the prefab to instantiate, e.g. \"prefabs/hit_spark.prefab.json\"."
+      },
+      {
+       "sig": "offset?: Vec3Like",
+       "doc": "Added to the world position of the target (default [0, 0, 0])."
+      },
+      {
+       "sig": "local?: boolean",
+       "doc": "true: `offset` is in the target's own space, so a mirrored sprite puts the effect on its other side. Default false."
+      },
+      {
+       "sig": "lifetime?: number",
+       "doc": "Seconds on the game clock after which the spawned entity is destroyed. Default 0: the prefab ends itself (a script, or a non-looping animation that destroys it); an effect with neither stays for the whole scene."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "FeelSoundOptions",
+     "doc": "Options of the \"sound\" feel action: plays a clip once through the audio system (the play log and audio.log show it).",
+     "members": [
+      {
+       "sig": "path: string",
+       "doc": "Project-relative path of the sound, e.g. \"audio/hit.wav\"."
+      },
+      {
+       "sig": "volume?: number",
+       "doc": "0..4, default 1."
+      },
+      {
+       "sig": "pitch?: number",
+       "doc": "0.1..4, default 1."
+      },
+      {
+       "sig": "pan?: number",
+       "doc": "-1 (left) to 1 (right), default 0."
+      },
+      {
+       "sig": "bus?: string",
+       "doc": "\"sfx\" (default), \"music\", \"ui\" or a bus of the project."
       }
      ]
     },
@@ -1891,8 +1945,8 @@
     {
      "kind": "alias",
      "name": "FeelAction",
-     "type": "{ action: \"shake\"; amount?: number } & ShakeOptions | { action: \"hitStop\"; duration?: number } & HitStopOptions | { action: \"flash\" } & FlashOptions | { action: \"knockback\"; direction?: Vec3Like } & KnockbackOptions | { action: \"squash\" } & SquashOptions",
-     "doc": "A game feel effect as data: what Animator and SpriteAnimator clip events, the timeline and the feel.* commands run. Same names as the options of the matching function."
+     "type": "{ action: \"shake\"; amount?: number } & ShakeOptions | { action: \"hitStop\"; duration?: number } & HitStopOptions | { action: \"flash\" } & FlashOptions | { action: \"knockback\" | \"push\"; direction?: Vec3Like } & KnockbackOptions | { action: \"squash\" } & SquashOptions | { action: \"spawn\" } & FeelSpawnOptions | { action: \"sound\" } & FeelSoundOptions",
+     "doc": "A game feel effect as data: what the `feel` of Animator, SpriteAnimator and clip-file events, the feel.* commands and feel.do run. Same names as the options of the matching function; \"push\" is \"knockback\", \"spawn\" and \"sound\" have no function of their own (docs/GAME_FEEL.md, \"Effects as data\")."
     },
     {
      "kind": "interface",
@@ -1909,7 +1963,7 @@
       },
       {
        "sig": "do(action: FeelAction, target?: Entity | string): void",
-       "doc": "Runs one effect given as data on `target` (the entity of flash, knockback and squash; the camera of shake, default camera.main). Unknown keys and wrong types throw with a \"did you mean\"."
+       "doc": "Runs one effect given as data on `target` (the entity of flash, knockback, squash, spawn and sound; the camera of shake, default camera.main; spawn without a target puts the effect at `offset`). Unknown keys and wrong types throw with a \"did you mean\"."
       },
       {
        "sig": "cancel(target?: Entity | string): void",

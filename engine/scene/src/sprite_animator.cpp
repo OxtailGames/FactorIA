@@ -5,6 +5,7 @@
 #include <format>
 
 #include "fa/core/strings.h"
+#include "fa/scene/feel.h"
 
 namespace fa {
 
@@ -82,6 +83,7 @@ bool sprite_animator_step(SpriteAnimator& a, const SpriteAnimPlan& plan, float d
     if (a.playedClip != a.clip) {  // another clip: start over
         a.playedClip = a.clip;
         a.time = 0.0f;
+        a.eventStep = -1;
         if (a.ended) a.playing = true;
         a.ended = false;
         a.frame = sprite_anim_frame(plan, 0);
@@ -104,6 +106,85 @@ bool sprite_animator_step(SpriteAnimator& a, const SpriteAnimPlan& plan, float d
         a.frame = sprite_anim_frame(plan, 0);
     }
     return false;
+}
+
+void sprite_animator_fire_events(World& world, Entity e, SpriteAnimator& a, const SpriteAnimPlan& plan) {
+    const double stepsD = std::floor(static_cast<double>(a.time) * std::max(0.0f, plan.fps));
+    const int period = sprite_anim_steps(plan);
+    // The frames a pass shows are steps 0..period-1; a clip that does not loop shows nothing after them (it has ended).
+    int last = static_cast<int>(std::clamp(stepsD, 0.0, 1.0e9));
+    if (!plan.loop) last = std::min(last, period - 1);
+    if (a.eventStep > last) a.eventStep = last;  // time went back: a seek, no events for the jump
+    if (!a.events.is_array() || a.events.empty()) {
+        a.eventStep = last;
+        return;
+    }
+    const int first = std::max(a.eventStep + 1, last - kMaxSpriteEventSteps + 1);
+    for (int step = first; step <= last; ++step) {
+        const int frame = sprite_anim_frame(plan, step);
+        for (const Json& ev : a.events) {
+            if (!ev.is_object()) continue;
+            const auto fit = ev.find("frame");
+            if (fit == ev.end() || !fit->is_number() || fit->get<double>() != frame) continue;
+            const auto cit = ev.find("clip");
+            if (cit != ev.end() && (!cit->is_string() || cit->get<std::string>() != a.clip)) continue;
+            const std::string name = ev.value("name", std::string());
+            if (!name.empty()) {
+                Json data = Json::object();
+                if (const auto dit = ev.find("data"); dit != ev.end() && dit->is_object()) data = *dit;
+                data["id"] = world.id_of(e);
+                data["clip"] = a.clip;
+                data["frame"] = frame;
+                world.events().game.push_back(GameEvent{name, std::move(data), e});
+            }
+            if (ev.contains("feel"))
+                feel_run_clip_actions(world, e, feel_event_actions(ev),
+                                      std::format("SpriteAnimator '{}' clip '{}' frame {}", world.id_of(e), a.clip, frame));
+        }
+    }
+    a.eventStep = last;
+}
+
+std::vector<ClipIssue> check_sprite_events(const Json& events, const std::string& pointer, const std::shared_ptr<const assets::Sheet>& sheet) {
+    std::vector<ClipIssue> issues;
+    if (!events.is_array()) {
+        issues.push_back({pointer, "events must be an array, got " + describe_json_value(events),
+                          "Write [{\"frame\": 9, \"feel\": {\"action\": \"hitStop\", \"duration\": 0.06}}]."});
+        return issues;
+    }
+    const std::vector<std::string> allowed = {"frame", "clip", "name", "data", "feel"};
+    for (std::size_t i = 0; i < events.size(); ++i) {
+        const Json& ev = events[i];
+        const std::string ep = pointer + "/" + std::to_string(i);
+        if (!ev.is_object()) {
+            issues.push_back({ep, "a frame event is an object, got " + describe_json_value(ev),
+                              "Write {\"frame\": 9, \"name\": \"hit\"} or {\"frame\": 9, \"feel\": {\"action\": \"shake\"}}."});
+            continue;
+        }
+        for (auto it = ev.begin(); it != ev.end(); ++it)
+            if (std::find(allowed.begin(), allowed.end(), it.key()) == allowed.end())
+                issues.push_back({ep + "/" + it.key(), "unknown key '" + it.key() + "'", did_you_mean(it.key(), allowed)});
+        const auto fit = ev.find("frame");
+        if (fit == ev.end() || !fit->is_number_integer() || fit->get<std::int64_t>() < 0)
+            issues.push_back({ep + "/frame", fit == ev.end() ? "a frame event needs `frame`" : "frame must be a whole number from 0, got " + describe_json_value(*fit),
+                              "The grid frame that triggers it, numbered row-major from the top-left like firstFrame and lastFrame."});
+        if (const auto cit = ev.find("clip"); cit != ev.end()) {
+            if (!cit->is_string() || cit->get<std::string>().empty()) {
+                issues.push_back({ep + "/clip", "clip must be the name of a clip of the sheet, got " + describe_json_value(*cit), "Leave `clip` out to fire in every clip."});
+            } else if (sheet && !sheet->find(cit->get<std::string>())) {
+                issues.push_back({ep + "/clip", "the sheet has no clip '" + cit->get<std::string>() + "'", did_you_mean(cit->get<std::string>(), sheet->clip_names())});
+            }
+        }
+        if (const auto nit = ev.find("name"); nit != ev.end() && (!nit->is_string() || nit->get<std::string>().empty()))
+            issues.push_back({ep + "/name", "name must be a non-empty string, got " + describe_json_value(*nit), "The game event world.on(name, fn) listens to."});
+        if (const auto dit = ev.find("data"); dit != ev.end() && !dit->is_object())
+            issues.push_back({ep + "/data", "data must be an object, got " + describe_json_value(*dit), "Write {\"hand\": \"left\"}."});
+        std::vector<Json> feel;
+        read_event_feel(ev, ep, feel, issues);
+        if (!ev.contains("name") && !ev.contains("feel"))
+            issues.push_back({ep, "a frame event needs `name` or `feel`", "`name` sends a game event; `feel` runs game feel actions (docs/GAME_FEEL.md)."});
+    }
+    return issues;
 }
 
 Rect sprite_frame_rect(const SpriteAnimPlan& plan, int frame, int texW, int texH) {

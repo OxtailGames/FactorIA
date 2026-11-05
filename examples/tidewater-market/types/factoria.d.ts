@@ -1736,6 +1736,70 @@ declare module "factoria" {
      * @since unreleased
      */
     decay?: number;
+    /**
+     * true: `direction` is in the entity's own space, so a mirrored sprite (negative scale x) is pushed the other way and a turned entity pushes along its own axes. Default false: world directions. Meant for the "push" action of a clip, whose direction cannot know which way the character faces.
+     * @since unreleased
+     */
+    local?: boolean;
+  }
+
+  /**
+   * Options of the "spawn" feel action: an effect prefab appears at the target entity (without a target, at `offset` in the world) the next time the frame's feel pass runs. Spawned entities are left out of saved scenes.
+   * @since unreleased
+   */
+  export interface FeelSpawnOptions {
+    /**
+     * Project-relative path of the prefab to instantiate, e.g. "prefabs/hit_spark.prefab.json".
+     * @since unreleased
+     */
+    prefab: string;
+    /**
+     * Added to the world position of the target (default [0, 0, 0]).
+     * @since unreleased
+     */
+    offset?: Vec3Like;
+    /**
+     * true: `offset` is in the target's own space, so a mirrored sprite puts the effect on its other side. Default false.
+     * @since unreleased
+     */
+    local?: boolean;
+    /**
+     * Seconds on the game clock after which the spawned entity is destroyed. Default 0: the prefab ends itself (a script, or a non-looping animation that destroys it); an effect with neither stays for the whole scene.
+     * @since unreleased
+     */
+    lifetime?: number;
+  }
+
+  /**
+   * Options of the "sound" feel action: plays a clip once through the audio system (the play log and audio.log show it).
+   * @since unreleased
+   */
+  export interface FeelSoundOptions {
+    /**
+     * Project-relative path of the sound, e.g. "audio/hit.wav".
+     * @since unreleased
+     */
+    path: string;
+    /**
+     * 0..4, default 1.
+     * @since unreleased
+     */
+    volume?: number;
+    /**
+     * 0.1..4, default 1.
+     * @since unreleased
+     */
+    pitch?: number;
+    /**
+     * -1 (left) to 1 (right), default 0.
+     * @since unreleased
+     */
+    pan?: number;
+    /**
+     * "sfx" (default), "music", "ui" or a bus of the project.
+     * @since unreleased
+     */
+    bus?: string;
   }
 
   /**
@@ -1751,10 +1815,10 @@ declare module "factoria" {
   }
 
   /**
-   * A game feel effect as data: what Animator and SpriteAnimator clip events, the timeline and the feel.* commands run. Same names as the options of the matching function.
+   * A game feel effect as data: what the `feel` of Animator, SpriteAnimator and clip-file events, the feel.* commands and feel.do run. Same names as the options of the matching function; "push" is "knockback", "spawn" and "sound" have no function of their own (docs/GAME_FEEL.md, "Effects as data").
    * @since unreleased
    */
-  export type FeelAction = { action: "shake"; amount?: number } & ShakeOptions | { action: "hitStop"; duration?: number } & HitStopOptions | { action: "flash" } & FlashOptions | { action: "knockback"; direction?: Vec3Like } & KnockbackOptions | { action: "squash" } & SquashOptions;
+  export type FeelAction = { action: "shake"; amount?: number } & ShakeOptions | { action: "hitStop"; duration?: number } & HitStopOptions | { action: "flash" } & FlashOptions | { action: "knockback" | "push"; direction?: Vec3Like } & KnockbackOptions | { action: "squash" } & SquashOptions | { action: "spawn" } & FeelSpawnOptions | { action: "sound" } & FeelSoundOptions;
 
   /**
    * Game feel settings and the data form of the effects (docs/GAME_FEEL.md). The effects themselves are camera.shake, time.hitStop, entity.flash, entity.knockback and entity.squash.
@@ -1772,7 +1836,7 @@ declare module "factoria" {
      */
     reducedEffects: boolean;
     /**
-     * Runs one effect given as data on `target` (the entity of flash, knockback and squash; the camera of shake, default camera.main). Unknown keys and wrong types throw with a "did you mean".
+     * Runs one effect given as data on `target` (the entity of flash, knockback, squash, spawn and sound; the camera of shake, default camera.main; spawn without a target puts the effect at `offset`). Unknown keys and wrong types throw with a "did you mean".
      * @since unreleased
      */
     do(action: FeelAction, target?: Entity | string): void;
@@ -5469,7 +5533,7 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}.
+   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
    * 
    * Category: 2D
    */
@@ -5517,6 +5581,11 @@ declare module "factoria" {
      * @since 0.6.0
      */
     sheetPivot: boolean;
+    /**
+     * Frame events, an array of {frame, clip?, name?, data?, feel?}: every time the animation shows grid frame `frame` (the same row-major number as firstFrame and lastFrame) the game event `name` is sent with {id, clip, frame, ...data}, and the game feel actions of `feel` run (one action object or an array of them, in the form of `feel.do(action)` in scripts: shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, "Effects as data"). With `clip` (a name of the sheet's clips) the event belongs to that clip only. An event needs `name` or `feel`. A frame is shown once per pass over the clip, so a looping clip fires it once per loop, a frame that a long frame time skips still fires, and pingpong shows its middle frames twice. Example: [{"clip": "attack", "frame": 9, "feel": [{"action": "hitStop", "duration": 0.06}, {"action": "shake", "amount": 0.3}]}]. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    events: any;
     /**
      * Runtime state: a non-looping clip reached its end (clipEnded was sent).
      * @since 0.6.0
@@ -6223,7 +6292,7 @@ declare module "factoria" {
      */
     layers: any;
     /**
-     * Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. Returns a plain-object COPY; assign a new value to write.
+     * Clip events, an array of {clip, time, name?, feel?}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). `feel` (one action object or an array, the form of `feel.do(action)`: shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, "Effects as data") runs game feel actions on this entity at the same moment. An event needs `name` or `feel`. Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}, {"clip": "Attack", "time": 0.2, "feel": {"action": "hitStop", "duration": 0.06}}]. Returns a plain-object COPY; assign a new value to write.
      * @since 0.2.0
      */
     events: any;
@@ -9098,7 +9167,7 @@ declare module "factoria" {
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
-    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; ended?: boolean; playedClip?: string; time?: number; frame?: number };
+    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
     SpriteSkin: { bones?: any; weights?: any; bindPose?: any; outline?: boolean; outlineDetail?: number };
     IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd" };

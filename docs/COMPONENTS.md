@@ -130,7 +130,7 @@ A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their 
 
 ### SpriteAnimator
 
-Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}.
+Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -144,6 +144,7 @@ Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entit
 | `clip` | string | `""` | Name of a clip of the Sprite texture's `sheet` entry in assets.json ("run"); "" = none, the numeric fields alone. Changing it restarts the animation. A name the sheet does not have is an error that lists the clips ("did you mean"): `factoria validate` finds it in scenes, a script's play(name) throws it, a running game logs it once and shows the first frame. (since 0.6.0) |
 | `mode` | enum: forward \\| reverse \\| pingpong | `"forward"` | Order of the frames: forward (first to last), reverse (last to first) or pingpong (first to last and back, without repeating the end frames). A pingpong clip that does not loop stops back on the first frame. (since 0.6.0) |
 | `sheetPivot` | bool | `true` | true = the pivot recorded in the sheet entry (or the clip's own pivot) is used as Sprite.pivot while the Sprite's own pivot is the default centre [0.5, 0.5]; a Sprite that sets another pivot keeps it. The sheet stores it from the TOP-left of the frame, Sprite.pivot counts from the bottom-left, so y is flipped. false = never touch the pivot. (since 0.6.0) |
+| `events` | json | `[]` | Frame events, an array of {frame, clip?, name?, data?, feel?}: every time the animation shows grid frame `frame` (the same row-major number as firstFrame and lastFrame) the game event `name` is sent with {id, clip, frame, ...data}, and the game feel actions of `feel` run (one action object or an array of them, in the form of `feel.do(action)` in scripts: shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, "Effects as data"). With `clip` (a name of the sheet's clips) the event belongs to that clip only. An event needs `name` or `feel`. A frame is shown once per pass over the clip, so a looping clip fires it once per loop, a frame that a long frame time skips still fires, and pingpong shows its middle frames twice. Example: [{"clip": "attack", "frame": 9, "feel": [{"action": "hitStop", "duration": 0.06}, {"action": "shake", "amount": 0.3}]}]. (not released yet, on main after 0.16.1) |
 | `ended` | bool | `false` | Runtime state: a non-looping clip reached its end (clipEnded was sent). Runtime-only (not saved). (since 0.6.0) |
 | `playedClip` | string | `""` | Runtime state: the clip `time` counts in. Runtime-only (not saved). (since 0.6.0) |
 | `time` | float | `0.0` | Runtime state: seconds elapsed in the current clip. Runtime-only (not saved). |
@@ -361,7 +362,7 @@ Plays animation clips: the skeletal clips of a skinned glTF model (the model of 
 | `states` | json | `{}` | State machine states, an object name -> {clip, loop (default true), speed (default 1), onEnter}. `onEnter` is the name of a game event sent when the state starts (world.on). Example: {"idle": {"clip": "Idle"}, "run": {"clip": "Run", "onEnter": "started_running"}}. |
 | `transitions` | json | `[]` | State machine transitions, an array checked in order every step; the first that matches fires. Each: {from (a state, or "*"/omitted = any), to, when, fade (seconds, default 0.2), onFinish}. `when` is conditions joined by "&&": `speed > 0.1`, `grounded`, `!grounded`, `hp <= 0` (operators > >= < <= == !=). A parameter set with animator.trigger(name) is true for one step. onFinish: true fires when the current non-looping clip ended (alone or together with `when`). |
 | `layers` | json | `[]` | 2D clips only: layers played at the same time as the main clip, an array of {name, clip \| states (with transitions and state, like the Animator's own), weight (0..1, default 1), mode ("override" blends toward the layer's pose, "additive" adds the layer's change from its first pose; default override), mask (paths such as ["body/arm_l"]: the layer drives only the parts under them; empty = all), speed (default 1), loop}. Layers apply in order over the main clip. A layer at weight 0 is not playing; it starts from its first pose when its weight rises. Example: [{"name": "arms", "clip": "shoot", "mask": ["body/arm_l"]}]. (since 0.7.0) |
-| `events` | json | `[]` | Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. |
+| `events` | json | `[]` | Clip events, an array of {clip, time, name?, feel?}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). `feel` (one action object or an array, the form of `feel.do(action)`: shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, "Effects as data") runs game feel actions on this entity at the same moment. An event needs `name` or `feel`. Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}, {"clip": "Attack", "time": 0.2, "feel": {"action": "hitStop", "duration": 0.06}}]. |
 | `state` | string | `""` | State machine: the state the animator is in (the start state when set in the scene; empty = the first state of `states`). Updated as transitions fire. |
 | `time` | float | `0.0` | Runtime state: seconds into the current clip. Assigning it seeks (no events fire). Runtime-only (not saved). |
 | `values` | json | `{}` | Runtime state: current value of every state machine parameter. Runtime-only (not saved). |
@@ -1352,16 +1353,17 @@ The user's "mcpServers" (docs/AI_PROVIDERS.md, External tools): services such as
 
 Since 0.7.0.
 
-Add an event to a clip: a game event sent when the clip passes its time.
+Add an event to a clip: a game event and/or game feel actions run when the clip passes its time.
 
-The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: {path, event (index), undo}. Example: anim.add_event {"path":"anim/hero_walk.anim.json","t":0.2,"name":"footstep","data":{"foot":"left"}}
+The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. `feel` is one game feel action or an array of them (hitStop, shake, flash, knockback or push, squash, spawn, sound: docs/GAME_FEEL.md, "Effects as data"), run on the entity that plays the clip; they are checked now, so a typo is refused with the option names. An event needs `name` or `feel`. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: {path, event (index), undo}. Example: anim.add_event {"path":"anim/hero_attack.anim.json","t":0.3,"feel":[{"action":"hitStop","duration":0.06},{"action":"shake","amount":0.3}]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The clip file (.anim.json). |
 | `t` | number | yes | Seconds from the start of the clip. |
-| `name` | string | yes | The game event name. |
+| `name` | string | no | The game event name. Optional when `feel` is given. |
 | `data` | object | no | Extra fields sent with the event. |
+| `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}. |
 | `extendDuration` | boolean | no |  Default false. |
 
 ### `anim.add_track` (modifies state)
@@ -1410,7 +1412,7 @@ Creates the file with `duration` seconds, `loop`, and optionally its `tracks` an
 | `loop` | boolean | no | true repeats the clip, false stops on the last pose (anim.finished). Default true. |
 | `doc` | string | no | What the clip shows. |
 | `tracks` | array | no | Tracks [{path, component, field, keys:[{t, value, interp?}]}]; none = an empty clip to fill with anim.set_keys. |
-| `events` | array | no | Events [{t, name, data?}] sent to the game when the clip passes t. |
+| `events` | array | no | Events [{t, name?, data?, feel?}]: a game event and/or game feel actions run when the clip passes t. |
 | `overwrite` | boolean | no | Replace the file if it exists. Default false. |
 
 ### `anim.filmstrip`
@@ -1498,7 +1500,7 @@ Since 0.7.0.
 
 Remove an event from a clip.
 
-`event` is the event's index, or {t, name?}. Result: {path, removed: {t, name, data?}, undo}. Example: anim.remove_event {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"}}
+`event` is the event's index, or {t, name?}. Result: {path, removed: {t, name?, data?, feel?}, undo}. Example: anim.remove_event {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1565,16 +1567,17 @@ Give any of `duration` (seconds), `loop` and `doc`. A duration shorter than the 
 
 Since 0.7.0.
 
-Rename an event of a clip or replace its data.
+Rename an event of a clip, or replace its data or its game feel actions.
 
-`event` is the event's index, or {t, name?}. Give `name` and/or `data` (an object that REPLACES the event's data; {} clears it). Result: {path, event, undo}. Example: anim.set_event {"path":"anim/hero_walk.anim.json","event":0,"name":"step","data":{"foot":"right"}}
+`event` is the event's index, or {t, name?}. Give `name`, `data` (an object that REPLACES the event's data; {} clears it) and/or `feel` (an action or an array of actions that REPLACE the event's; null or [] removes them). `name` null removes the name; an event keeps `name` or `feel`. Result: {path, event, undo}. Example: anim.set_event {"path":"anim/hero_walk.anim.json","event":0,"name":"step","data":{"foot":"right"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The clip file (.anim.json). |
 | `event` | any | yes | Index of the event, or {t, name?}. |
-| `name` | string | no | The new event name. |
+| `name` | any | no | The new event name; null removes it (the event then needs `feel`). |
 | `data` | object | no | The new data object. |
+| `feel` | any | no | The new game feel action(s); null or [] removes them. |
 
 ### `anim.set_interp` (modifies state)
 
@@ -1612,16 +1615,17 @@ Add or replace keys of one track of a clip, creating the track if it is missing.
 
 Since 0.16.0.
 
-Add an event to a 3D clip: a game event the Animator sends when the clip passes its time.
+Add an event to a 3D clip: a game event and/or game feel actions the Animator runs when the clip passes its time.
 
-The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: the clip summary plus {event, undo}. Example: {"path":"anim/hero_walk.anim.json","t":0.2,"name":"footstep","data":{"foot":"left"}} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. `feel` is one game feel action or an array (hitStop, shake, flash, knockback or push, squash, spawn, sound: docs/GAME_FEEL.md, "Effects as data") run on the entity that plays the clip; they are checked now. An event needs `name` or `feel`. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: the clip summary plus {event, undo}. Example: {"path":"anim/hero_walk.anim.json","t":0.2,"name":"footstep","data":{"foot":"left"}} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
 | `t` | number | yes | Seconds from the start of the clip. |
-| `name` | string | yes | The game event name. |
+| `name` | string | no | The game event name. Optional when `feel` is given. |
 | `data` | object | no | Extra fields sent with the event. |
+| `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}; on set_event they replace the old ones, null or [] removes them. |
 | `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
 
 ### `anim3d.create`
@@ -1823,9 +1827,9 @@ Give any of `duration` (seconds; shorter than the last key or event is refused),
 
 Since 0.16.0.
 
-Move, rename or change the data of an event of a 3D clip.
+Move, rename or change the data or the game feel actions of an event of a 3D clip.
 
-`event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Give any of `t` (move it), `name` and `data` (an empty object or null clears it). Events stay sorted by t. Result: the clip summary plus {undo}. Example: {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"},"t":0.25} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+`event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Give any of `t` (move it), `name`, `data` (an empty object or null clears it) and `feel` (an action or an array that REPLACES the event's; null or [] removes them). Events stay sorted by t. Result: the clip summary plus {undo}. Example: {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"},"t":0.25} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1834,6 +1838,7 @@ Move, rename or change the data of an event of a 3D clip.
 | `t` | number | no | The new time in seconds. |
 | `name` | string | no | The new event name. |
 | `data` | object | no | The new data (replaces the old). |
+| `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}; on set_event they replace the old ones, null or [] removes them. |
 | `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
 
 ### `anim3d.set_interp`
@@ -3111,6 +3116,7 @@ The same as `entity.knockback(direction, opts)`. A dynamic RigidBody2D/RigidBody
 | `speed` | number | no | World units per second added at once. Default: 6 metres per second, which is 6 units for a 3D entity and 6 times physics.pixelsPerMeter (600 pixels per second at 100) for a 2D one. |
 | `lockTime` | number | no | Seconds isKnockedBack stays true. Default 0.25. |
 | `decay` | number | no | Entities without a dynamic body: the velocity falls by exp(-decay * dt) per second. Default 8. |
+| `local` | boolean | no | true: `direction` is in the entity's own space (a mirrored sprite is pushed the other way). Default false. |
 
 ### `feel.settings` (modifies state)
 
@@ -3143,6 +3149,39 @@ The same as `camera.shake(amount, opts)` in a script. Adds `amount` (0..1) of tr
 | `maxAngle` | number | no | Largest turn at trauma 1, degrees. Default 2. |
 | `cap` | number | no | Trauma never goes above this: stacked hits stop here. Default 1. |
 
+### `feel.sound` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Plays a sound once through the audio system (the same one a clip event's "sound" action uses).
+
+The sound starts on the next audio update, on its bus, and shows in `audio.log` like any other play. Example: feel.sound {"path":"audio/hit.wav","volume":0.8,"pitch":1.1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The entity the sound belongs to (id or name); optional, only named in logs. |
+| `path` | string | yes | Project-relative path of the sound. |
+| `volume` | number | no | Volume. Default 1. |
+| `pitch` | number | no | Playback speed and pitch. Default 1. |
+| `pan` | number | no | -1 left to 1 right. Default 0. |
+| `bus` | string | no | "sfx", "music", "ui" or a bus of the project. Default "sfx". |
+
+### `feel.spawn` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Makes an effect appear: instantiates a prefab at an entity (or at a point) the next frame.
+
+The same as the "spawn" action of a clip event (docs/GAME_FEEL.md, "Effects as data"). The prefab appears at the entity's world position plus `offset`, or at `offset` itself without an entity, the next time the frame's game feel pass runs. Spawned entities are left out of saved scenes. Give `lifetime` to have it destroyed after that many seconds; without it the prefab has to end itself. Example: feel.spawn {"entity":"enemy","prefab":"prefabs/hit_spark.prefab.json","lifetime":0.4}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The entity the effect appears at (id or name). Default: the world origin plus `offset`. |
+| `prefab` | string | yes | Project-relative path of the prefab. |
+| `offset` | array | no | Added to the entity's world position, [x, y] or [x, y, z]. Default [0,0]. |
+| `local` | boolean | no | true: `offset` is in the entity's own space (a mirrored sprite puts it on the other side). Default false. |
+| `lifetime` | number | no | Seconds on the game clock until the spawned entity is destroyed; 0 = the prefab ends itself. Default 0. |
+
 ### `feel.squash` (modifies state)
 
 Not released yet (on main after 0.16.1).
@@ -3164,7 +3203,7 @@ Not released yet (on main after 0.16.1).
 
 What the game feel effects are doing now: hit-stop, and per entity its shake, flash, squash, knockback and drawn pose.
 
-Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: {remaining, scale, running}, entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time (position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}
+Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: {remaining, scale, running}, queued: {sounds, spawns, spawnLifetimes} (sounds and spawns waiting for the next frame, spawned effects that will be destroyed), entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time (position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}
 
 ## fs
 
@@ -9241,6 +9280,70 @@ declare module "factoria" {
      * @since unreleased
      */
     decay?: number;
+    /**
+     * true: `direction` is in the entity's own space, so a mirrored sprite (negative scale x) is pushed the other way and a turned entity pushes along its own axes. Default false: world directions. Meant for the "push" action of a clip, whose direction cannot know which way the character faces.
+     * @since unreleased
+     */
+    local?: boolean;
+  }
+
+  /**
+   * Options of the "spawn" feel action: an effect prefab appears at the target entity (without a target, at `offset` in the world) the next time the frame's feel pass runs. Spawned entities are left out of saved scenes.
+   * @since unreleased
+   */
+  export interface FeelSpawnOptions {
+    /**
+     * Project-relative path of the prefab to instantiate, e.g. "prefabs/hit_spark.prefab.json".
+     * @since unreleased
+     */
+    prefab: string;
+    /**
+     * Added to the world position of the target (default [0, 0, 0]).
+     * @since unreleased
+     */
+    offset?: Vec3Like;
+    /**
+     * true: `offset` is in the target's own space, so a mirrored sprite puts the effect on its other side. Default false.
+     * @since unreleased
+     */
+    local?: boolean;
+    /**
+     * Seconds on the game clock after which the spawned entity is destroyed. Default 0: the prefab ends itself (a script, or a non-looping animation that destroys it); an effect with neither stays for the whole scene.
+     * @since unreleased
+     */
+    lifetime?: number;
+  }
+
+  /**
+   * Options of the "sound" feel action: plays a clip once through the audio system (the play log and audio.log show it).
+   * @since unreleased
+   */
+  export interface FeelSoundOptions {
+    /**
+     * Project-relative path of the sound, e.g. "audio/hit.wav".
+     * @since unreleased
+     */
+    path: string;
+    /**
+     * 0..4, default 1.
+     * @since unreleased
+     */
+    volume?: number;
+    /**
+     * 0.1..4, default 1.
+     * @since unreleased
+     */
+    pitch?: number;
+    /**
+     * -1 (left) to 1 (right), default 0.
+     * @since unreleased
+     */
+    pan?: number;
+    /**
+     * "sfx" (default), "music", "ui" or a bus of the project.
+     * @since unreleased
+     */
+    bus?: string;
   }
 
   /**
@@ -9256,10 +9359,10 @@ declare module "factoria" {
   }
 
   /**
-   * A game feel effect as data: what Animator and SpriteAnimator clip events, the timeline and the feel.* commands run. Same names as the options of the matching function.
+   * A game feel effect as data: what the `feel` of Animator, SpriteAnimator and clip-file events, the feel.* commands and feel.do run. Same names as the options of the matching function; "push" is "knockback", "spawn" and "sound" have no function of their own (docs/GAME_FEEL.md, "Effects as data").
    * @since unreleased
    */
-  export type FeelAction = { action: "shake"; amount?: number } & ShakeOptions | { action: "hitStop"; duration?: number } & HitStopOptions | { action: "flash" } & FlashOptions | { action: "knockback"; direction?: Vec3Like } & KnockbackOptions | { action: "squash" } & SquashOptions;
+  export type FeelAction = { action: "shake"; amount?: number } & ShakeOptions | { action: "hitStop"; duration?: number } & HitStopOptions | { action: "flash" } & FlashOptions | { action: "knockback" | "push"; direction?: Vec3Like } & KnockbackOptions | { action: "squash" } & SquashOptions | { action: "spawn" } & FeelSpawnOptions | { action: "sound" } & FeelSoundOptions;
 
   /**
    * Game feel settings and the data form of the effects (docs/GAME_FEEL.md). The effects themselves are camera.shake, time.hitStop, entity.flash, entity.knockback and entity.squash.
@@ -9277,7 +9380,7 @@ declare module "factoria" {
      */
     reducedEffects: boolean;
     /**
-     * Runs one effect given as data on `target` (the entity of flash, knockback and squash; the camera of shake, default camera.main). Unknown keys and wrong types throw with a "did you mean".
+     * Runs one effect given as data on `target` (the entity of flash, knockback, squash, spawn and sound; the camera of shake, default camera.main; spawn without a target puts the effect at `offset`). Unknown keys and wrong types throw with a "did you mean".
      * @since unreleased
      */
     do(action: FeelAction, target?: Entity | string): void;
@@ -12974,7 +13077,7 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}.
+   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
    * 
    * Category: 2D
    */
@@ -13022,6 +13125,11 @@ declare module "factoria" {
      * @since 0.6.0
      */
     sheetPivot: boolean;
+    /**
+     * Frame events, an array of {frame, clip?, name?, data?, feel?}: every time the animation shows grid frame `frame` (the same row-major number as firstFrame and lastFrame) the game event `name` is sent with {id, clip, frame, ...data}, and the game feel actions of `feel` run (one action object or an array of them, in the form of `feel.do(action)` in scripts: shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, "Effects as data"). With `clip` (a name of the sheet's clips) the event belongs to that clip only. An event needs `name` or `feel`. A frame is shown once per pass over the clip, so a looping clip fires it once per loop, a frame that a long frame time skips still fires, and pingpong shows its middle frames twice. Example: [{"clip": "attack", "frame": 9, "feel": [{"action": "hitStop", "duration": 0.06}, {"action": "shake", "amount": 0.3}]}]. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    events: any;
     /**
      * Runtime state: a non-looping clip reached its end (clipEnded was sent).
      * @since 0.6.0
@@ -13728,7 +13836,7 @@ declare module "factoria" {
      */
     layers: any;
     /**
-     * Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. Returns a plain-object COPY; assign a new value to write.
+     * Clip events, an array of {clip, time, name?, feel?}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). `feel` (one action object or an array, the form of `feel.do(action)`: shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, "Effects as data") runs game feel actions on this entity at the same moment. An event needs `name` or `feel`. Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}, {"clip": "Attack", "time": 0.2, "feel": {"action": "hitStop", "duration": 0.06}}]. Returns a plain-object COPY; assign a new value to write.
      * @since 0.2.0
      */
     events: any;
@@ -16603,7 +16711,7 @@ declare module "factoria" {
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
-    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; ended?: boolean; playedClip?: string; time?: number; frame?: number };
+    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
     SpriteSkin: { bones?: any; weights?: any; bindPose?: any; outline?: boolean; outlineDetail?: number };
     IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd" };

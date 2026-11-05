@@ -58,6 +58,7 @@ The same as `entity.knockback(direction, opts)`. A dynamic RigidBody2D/RigidBody
 | `speed` | number | no | World units per second added at once. Default: 6 metres per second, which is 6 units for a 3D entity and 6 times physics.pixelsPerMeter (600 pixels per second at 100) for a 2D one. |
 | `lockTime` | number | no | Seconds isKnockedBack stays true. Default 0.25. |
 | `decay` | number | no | Entities without a dynamic body: the velocity falls by exp(-decay * dt) per second. Default 8. |
+| `local` | boolean | no | true: `direction` is in the entity's own space (a mirrored sprite is pushed the other way). Default false. |
 
 ## `feel.settings` (modifies state)
 
@@ -90,6 +91,39 @@ The same as `camera.shake(amount, opts)` in a script. Adds `amount` (0..1) of tr
 | `maxAngle` | number | no | Largest turn at trauma 1, degrees. Default 2. |
 | `cap` | number | no | Trauma never goes above this: stacked hits stop here. Default 1. |
 
+## `feel.sound` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Plays a sound once through the audio system (the same one a clip event's "sound" action uses).
+
+The sound starts on the next audio update, on its bus, and shows in `audio.log` like any other play. Example: feel.sound {"path":"audio/hit.wav","volume":0.8,"pitch":1.1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The entity the sound belongs to (id or name); optional, only named in logs. |
+| `path` | string | yes | Project-relative path of the sound. |
+| `volume` | number | no | Volume. Default 1. |
+| `pitch` | number | no | Playback speed and pitch. Default 1. |
+| `pan` | number | no | -1 left to 1 right. Default 0. |
+| `bus` | string | no | "sfx", "music", "ui" or a bus of the project. Default "sfx". |
+
+## `feel.spawn` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Makes an effect appear: instantiates a prefab at an entity (or at a point) the next frame.
+
+The same as the "spawn" action of a clip event (docs/GAME_FEEL.md, "Effects as data"). The prefab appears at the entity's world position plus `offset`, or at `offset` itself without an entity, the next time the frame's game feel pass runs. Spawned entities are left out of saved scenes. Give `lifetime` to have it destroyed after that many seconds; without it the prefab has to end itself. Example: feel.spawn {"entity":"enemy","prefab":"prefabs/hit_spark.prefab.json","lifetime":0.4}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The entity the effect appears at (id or name). Default: the world origin plus `offset`. |
+| `prefab` | string | yes | Project-relative path of the prefab. |
+| `offset` | array | no | Added to the entity's world position, [x, y] or [x, y, z]. Default [0,0]. |
+| `local` | boolean | no | true: `offset` is in the entity's own space (a mirrored sprite puts it on the other side). Default false. |
+| `lifetime` | number | no | Seconds on the game clock until the spawned entity is destroyed; 0 = the prefab ends itself. Default 0. |
+
 ## `feel.squash` (modifies state)
 
 Not released yet (on main after 0.16.1).
@@ -111,5 +145,5 @@ Not released yet (on main after 0.16.1).
 
 What the game feel effects are doing now: hit-stop, and per entity its shake, flash, squash, knockback and drawn pose.
 
-Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: {remaining, scale, running}, entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time (position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}
+Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: {remaining, scale, running}, queued: {sounds, spawns, spawnLifetimes} (sounds and spawns waiting for the next frame, spawned effects that will be destroyed), entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time (position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}
 

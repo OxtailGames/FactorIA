@@ -16,6 +16,7 @@
 #include "fa/scene/anim3d_gen.h"
 #include "fa/scene/anim3d_retarget.h"
 #include "fa/scene/animation.h"
+#include "fa/scene/feel.h"
 #include "fa/scene/gltf_mesh.h"
 #include "fa/scene/ik3d.h"
 #include "fa/scene/rig3d.h"
@@ -302,7 +303,11 @@ Json anim3d_info_command(const std::string& projectDir, const Json& a) {
     for (const Anim3DTrack& t : clip->tracks)
         tracks.push_back(obj({{"bone", t.bone}, {"channel", anim3d_channel_name(t.channel)}, {"keys", t.keys.size()}, {"first", round_to(t.keys.front().t, 4)}, {"last", round_to(t.keys.back().t, 4)}}));
     Json events = Json::array();
-    for (const ClipEvent& e : clip->events) events.push_back(obj({{"t", round_to(e.t, 4)}, {"name", e.name}}));
+    for (const ClipEvent& e : clip->events) {
+        Json ev = obj({{"t", round_to(e.t, 4)}, {"name", e.name}});
+        if (!e.feel.empty()) ev["feel"] = Json(e.feel);
+        events.push_back(std::move(ev));
+    }
     Json r = clip_summary(*clip);
     r["path"] = rel;
     r["doc"] = clip->doc;
@@ -701,7 +706,13 @@ int event_ref(const char* command, const Json& doc, const Json& ref, const std::
     const Json& events = doc.contains("events") && doc["events"].is_array() ? doc["events"] : Json::array();
     auto list = [&] {
         std::string s;
-        for (std::size_t i = 0; i < events.size(); ++i) s += (s.empty() ? "" : ", ") + std::format("{}: {} at {:g}", i, events[i].value("name", std::string()), events[i].value("t", 0.0));
+        for (std::size_t i = 0; i < events.size(); ++i) {
+            std::string label = events[i].value("name", std::string());
+            std::string acts;
+            for (const Json& act : feel_event_actions(events[i])) acts += "+" + act.value("action", std::string("?"));
+            if (!acts.empty()) label += (label.empty() ? "feel" : " feel") + acts;
+            s += (s.empty() ? "" : ", ") + std::format("{}: {} at {:g}", i, label, events[i].value("t", 0.0));
+        }
         return s.empty() ? std::string("The clip has no events (anim3d.add_event adds one).") : "The events: " + s + ".";
     };
     if (ref.is_number_integer()) {
@@ -725,10 +736,14 @@ int event_ref(const char* command, const Json& doc, const Json& ref, const std::
 }
 
 Json anim3d_add_event_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys("anim3d.add_event", a, "", {"path", "t", "name", "data", "extendDuration"});
+    check_arg_keys("anim3d.add_event", a, "", {"path", "t", "name", "data", "feel", "extendDuration"});
     const std::string rel = clip_path_arg("anim3d.add_event", a, "path");
-    if (!a.contains("name") || !a["name"].is_string() || a["name"].get<std::string>().empty())
-        fail("invalid_argument", "anim3d.add_event: give `name`, the game event this raises.", "Example: {\"t\":0.2,\"name\":\"footstep\",\"data\":{\"foot\":\"left\"}}.");
+    const bool hasName = a.contains("name") && !a["name"].is_null();
+    if (hasName && (!a["name"].is_string() || a["name"].get<std::string>().empty()))
+        fail("invalid_argument", "anim3d.add_event: `name` must be a non-empty string.", "The game event name world.on(name, fn) listens to.");
+    if (!hasName && !a.contains("feel"))
+        fail("invalid_argument", "anim3d.add_event: give `name` (the game event this raises) or `feel` (game feel actions to run).",
+             "Example: {\"t\":0.2,\"name\":\"footstep\",\"data\":{\"foot\":\"left\"}} or {\"t\":0.2,\"feel\":{\"action\":\"hitStop\"}}.");
     const double t = round_to(number_arg("anim3d.add_event", a, "t", -1.0, 0.0, 3600.0, "Seconds from the start of the clip."), 4);
     if (!a.contains("t")) fail("invalid_argument", "anim3d.add_event: give `t`, the time of the event in seconds.", "Example: \"t\":0.2.");
     const Json before = read_clip_json(projectDir, rel);
@@ -737,18 +752,21 @@ Json anim3d_add_event_command(const std::string& projectDir, const Json& a) {
         if (!tooling_detail::arg_bool(a, "extendDuration", false)) fail("invalid_argument", std::format("anim3d.add_event: t={} is after the end of the clip ({} s).", t, doc.value("duration", 1.0)), "Pass extendDuration: true, or anim3d.set_clip {duration} first.");
         doc["duration"] = t;
     }
-    Json ev = obj({{"t", t}, {"name", a["name"]}});
+    Json ev = obj({{"t", t}});
+    if (hasName) ev["name"] = a["name"];
     if (a.contains("data") && !a["data"].is_null()) ev["data"] = a["data"];
+    if (a.contains("feel") && !a["feel"].is_null()) ev["feel"] = a["feel"];
     if (!doc.contains("events") || !doc["events"].is_array()) doc["events"] = Json::array();
     doc["events"].push_back(ev);
     return commit_clip(projectDir, rel, before, doc, obj({{"event", ev}}));
 }
 
 Json anim3d_set_event_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys("anim3d.set_event", a, "", {"path", "event", "t", "name", "data", "extendDuration"});
+    check_arg_keys("anim3d.set_event", a, "", {"path", "event", "t", "name", "data", "feel", "extendDuration"});
     const std::string rel = clip_path_arg("anim3d.set_event", a, "path");
     if (!a.contains("event")) fail("invalid_argument", "anim3d.set_event: give `event`, the index of the event or {t, name?}.", "anim3d.info {path} lists the events.");
-    if (!a.contains("t") && !a.contains("name") && !a.contains("data")) fail("invalid_argument", "anim3d.set_event: nothing to change.", "Pass `t` (move it), `name` and/or `data`.");
+    if (!a.contains("t") && !a.contains("name") && !a.contains("data") && !a.contains("feel"))
+        fail("invalid_argument", "anim3d.set_event: nothing to change.", "Pass `t` (move it), `name`, `data` and/or `feel`.");
     const Json before = read_clip_json(projectDir, rel);
     Json doc = before;
     const int i = event_ref("anim3d.set_event", doc, a["event"], rel);
@@ -768,6 +786,10 @@ Json anim3d_set_event_command(const std::string& projectDir, const Json& a) {
     if (a.contains("data")) {
         if (a["data"].is_null() || (a["data"].is_object() && a["data"].empty())) ev.erase("data");
         else ev["data"] = a["data"];
+    }
+    if (a.contains("feel")) {
+        if (a["feel"].is_null() || (a["feel"].is_array() && a["feel"].empty())) ev.erase("feel");
+        else ev["feel"] = a["feel"];
     }
     return commit_clip(projectDir, rel, before, doc);
 }
@@ -1327,6 +1349,8 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
     }
     const Json keyRefsProp = Json::object({{"type", "array"}, {"minItems", 1}, {"items", obj({{"type", "object"}, {"properties", obj({{"bone", str_prop("Canonical bone name.")}, {"channel", channelProp}, {"t", num_prop("The key's time in seconds.", 0, 3600)}})}, {"required", Json::array({"bone", "t"})}})},
                                            {"description", "The keys, each {bone, channel (default rotation), t}."}});
+    const Json feelProp = Json::object({{"type", Json::array({"object", "array", "null"})},
+                                        {"description", "Game feel action(s) to run, each {action: shake|hitStop|flash|knockback|push|squash|spawn|sound, ...options}; on set_event they replace the old ones, null or [] removes them."}});
     const Json eventRefProp = Json::object({{"description", "The event: its index in the clip's events, or {t, name?}."}});
     {
         CommandInfo info;
@@ -1390,24 +1414,25 @@ void register_anim3d_commands(CommandRegistry& registry, const std::string& proj
         CommandInfo info;
         info.name = "anim3d.add_event";
         info.category = "anim";
-        info.summary = "Add an event to a 3D clip: a game event the Animator sends when the clip passes its time.";
-        info.description = "The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. Events stay sorted by t. A time past the duration is refused unless "
+        info.summary = "Add an event to a 3D clip: a game event and/or game feel actions the Animator runs when the clip passes its time.";
+        info.description = "The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. `feel` is one game feel action or an array "
+                           "(hitStop, shake, flash, knockback or push, squash, spawn, sound: docs/GAME_FEEL.md, \"Effects as data\") run on the entity that plays the clip; they are checked now. An event needs `name` or `feel`. Events stay sorted by t. A time past the duration is refused unless "
                            "`extendDuration`. Result: the clip summary plus {event, undo}. Example: {\"path\":\"anim/hero_walk.anim.json\",\"t\":0.2,\"name\":\"footstep\",\"data\":{\"foot\":\"left\"}}" + kUndoNote;
-        info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "t", "name"})},
-                                         {"properties", obj({{"path", pathProp}, {"t", num_prop("Seconds from the start of the clip.", 0, 3600)}, {"name", str_prop("The game event name.")},
-                                                             {"data", obj_prop("Extra fields sent with the event.")}, {"extendDuration", bool_prop("Lengthen the clip when t is past its end.")}})}});
+        info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "t"})},
+                                         {"properties", obj({{"path", pathProp}, {"t", num_prop("Seconds from the start of the clip.", 0, 3600)}, {"name", str_prop("The game event name. Optional when `feel` is given.")},
+                                                             {"data", obj_prop("Extra fields sent with the event.")}, {"feel", feelProp}, {"extendDuration", bool_prop("Lengthen the clip when t is past its end.")}})}});
         registry.add(info, [projectDir](const Json& args) { return anim3d_add_event_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
         CommandInfo info;
         info.name = "anim3d.set_event";
         info.category = "anim";
-        info.summary = "Move, rename or change the data of an event of a 3D clip.";
-        info.description = "`event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Give any of `t` (move it), `name` and `data` (an empty object or null clears it). Events stay sorted by t. "
+        info.summary = "Move, rename or change the data or the game feel actions of an event of a 3D clip.";
+        info.description = "`event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Give any of `t` (move it), `name`, `data` (an empty object or null clears it) and `feel` (an action or an array that REPLACES the event's; null or [] removes them). Events stay sorted by t. "
                            "Result: the clip summary plus {undo}. Example: {\"path\":\"anim/hero_walk.anim.json\",\"event\":{\"t\":0.2,\"name\":\"footstep\"},\"t\":0.25}" + kUndoNote;
         info.inputSchema = Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"path", "event"})},
                                          {"properties", obj({{"path", pathProp}, {"event", eventRefProp}, {"t", num_prop("The new time in seconds.", 0, 3600)}, {"name", str_prop("The new event name.")},
-                                                             {"data", obj_prop("The new data (replaces the old).")}, {"extendDuration", bool_prop("Lengthen the clip when t is past its end.")}})}});
+                                                             {"data", obj_prop("The new data (replaces the old).")}, {"feel", feelProp}, {"extendDuration", bool_prop("Lengthen the clip when t is past its end.")}})}});
         registry.add(info, [projectDir](const Json& args) { return anim3d_set_event_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {

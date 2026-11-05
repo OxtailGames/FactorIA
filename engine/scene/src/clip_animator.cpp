@@ -1,4 +1,5 @@
 #include "clip_animator.h"
+#include "fa/scene/feel.h"
 
 #include <algorithm>
 #include <cmath>
@@ -489,10 +490,10 @@ void switch_player(ClipPlayer& p, const std::string& name, float fade, bool curL
 
 void fire_clip_events(World& w, Entity e, const Animator& a, const ClipAsset& asset, const std::string& clip, const std::string* layer,
                       float from, float to) {
-    struct Hit { float t; const std::string* name; const Json* data; };
+    struct Hit { float t; const ClipEvent* own; const Json* inlined; };
     std::vector<Hit> hits;
     for (const ClipEvent& ev : asset.events)
-        if (ev.t > from && ev.t <= to) hits.push_back({ev.t, &ev.name, &ev.data});
+        if (ev.t > from && ev.t <= to) hits.push_back({ev.t, &ev, nullptr});
     if (a.events.is_array()) {
         for (const Json& ev : a.events) {
             if (!ev.is_object() || jstr(ev, "clip") != clip) continue;
@@ -504,17 +505,23 @@ void fire_clip_events(World& w, Entity e, const Animator& a, const ClipAsset& as
     for (const Hit& h : hits) {
         std::string name;
         Json data = Json::object();
-        if (h.name) {
-            name = *h.name;
-            if (h.data->is_object()) data = *h.data;
+        std::vector<Json> feel;
+        if (h.own) {
+            name = h.own->name;
+            if (h.own->data.is_object()) data = h.own->data;
+            feel = h.own->feel;
         } else {
-            name = jstr(*h.data, "name");
+            name = jstr(*h.inlined, "name");
+            feel = feel_event_actions(*h.inlined);
         }
-        if (name.empty()) continue;
-        data["clip"] = clip;
-        data["time"] = h.t;
-        if (layer) data["layer"] = *layer;
-        animdetail::emit_game_event(w, name, e, std::move(data));
+        if (!name.empty()) {
+            data["clip"] = clip;
+            data["time"] = h.t;
+            if (layer) data["layer"] = *layer;
+            animdetail::emit_game_event(w, name, e, std::move(data));
+        }
+        if (!feel.empty())
+            feel_run_clip_actions(w, e, feel, std::format("Animator '{}' clip '{}' at {:.2f} s", w.id_of(e), clip, h.t));
     }
 }
 
