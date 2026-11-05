@@ -22,6 +22,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <optional>
@@ -73,8 +74,9 @@ struct ShareEnv {
     std::string githubClientId = compiled_github_client_id();              // "" = GitHub sign-in is unavailable
     std::string platform;                          // "" = the platform of this build (macos, windows, linux, other)
     std::string engineVersion;                     // "" = FA_ENGINE_VERSION
-    double lockStaleSec = 10.0;                    // a lock file older than this was left by a dead process: taken over
-    double lockWaitSec = 12.0;                     // the longest wait for a busy lock (more than lockStaleSec: a dead holder is always beaten)
+    double lockStaleSec = 10.0;                    // a lock file not refreshed for this long (or dated this far in the future) was left by a dead process: taken over
+    double lockWaitSec = 12.0;                     // the longest wait for a busy lock (more than lockStaleSec: a dead holder is always beaten).
+                                                   // The editor's UI thread uses 0.3 (ui_share_env in the editor): it never waits for seconds
 
     std::int64_t clock() const;
     std::string config_dir() const;
@@ -125,10 +127,14 @@ Result<void> update_share_settings(const ShareEnv& env, const std::function<void
 // set_project_share_mode, share_queue, share_confirm, share_drop, share_skip, share_discard, ensure_install_id, the sign-in, the
 // saves of share_flush) runs under it, so a flush in the editor and a mode change in the terminal cannot undo each other. A lock
 // file next to the settings (feedback-share.lock) made with an exclusive create, so it works the same on Windows and POSIX:
-//  - a lock file older than ShareEnv::lockStaleSec (its process died) is taken over;
+//  - the file holds an owner token (process id + a random number); the holder deletes it only while it still holds its own token,
+//    so a lock that was taken over is never deleted under its new owner;
+//  - a lock file not written for ShareEnv::lockStaleSec (its process died), or dated further than that in the future (a clock set
+//    back, a shared folder), is taken over, one waiter at a time (a second exclusive-create file serializes the takeover);
+//  - a long change refreshes the file's time (ShareLock::keep_alive) so a live holder never looks dead;
 //  - the wait for a busy lock ends after ShareEnv::lockWaitSec: held() is false and error() says why (nothing is then changed);
 //  - the same thread may take it again while it holds it (nested use does not wait for itself).
-// Reading is lock-free (files are replaced atomically). Never hold it across a network request.
+// Reading is lock-free (files are replaced atomically). Never hold it across a network request. Never throws.
 class ShareLock {
 public:
     explicit ShareLock(const ShareEnv& env);
@@ -137,11 +143,31 @@ public:
     ShareLock& operator=(const ShareLock&) = delete;
     bool held() const { return held_; }
     const std::string& error() const { return error_; }  // why it is not held; "" when it is
-    const std::string& path() const { return path_; }
+    const std::string& path() const { return path_; }    // the lock file, as text for messages (UTF-8)
+    const std::filesystem::path& file() const { return file_; }
+    // Refreshes the time of the lock file this thread holds (a no-op when it holds none, or when the time is fresh). Call it inside a
+    // loop that may take seconds (many entries written under the lock).
+    static void keep_alive();
 
 private:
+    void acquire(const ShareEnv& env);
+    void refresh();
     bool held_ = false, nested_ = false;
-    std::string error_, path_;
+    double staleSec_ = 10.0;
+    std::string error_, path_, token_;
+    std::filesystem::path file_;
+};
+// For the span of its life no lock taken by this thread waits longer than `sec`, whatever ShareEnv::lockWaitSec says. The editor's UI
+// thread uses it around commands it runs on its own thread (feedback.delete) so a frame never stalls on another process.
+class ShareWaitCap {
+public:
+    explicit ShareWaitCap(double sec);
+    ~ShareWaitCap();
+    ShareWaitCap(const ShareWaitCap&) = delete;
+    ShareWaitCap& operator=(const ShareWaitCap&) = delete;
+
+private:
+    double previous_;
 };
 // Only a person calls these (the CLI, the editor's Settings): there is no command for them.
 // Changes the default, and the outbox items of the projects that FOLLOW it (a project with its own mode keeps its items as
@@ -336,16 +362,19 @@ bool share_has_due(const ShareEnv& env, const std::string& file = {});
 // when given; empty = of every project).
 std::vector<OutboxItem> share_waiting(const ShareEnv& env, const std::string& file = {});
 // The user said yes to these keys (empty = all waiting): they become Queued (confirmedBy "user"). Returns how many. An item whose project is
-// `never` is not confirmed. Callers that mean one project pass its keys (share_waiting(env, file)).
-int share_confirm(const ShareEnv& env, const std::vector<std::string>& keys = {});
-// The user said no: they leave the outbox and their entries are marked skipped. Returns how many.
-int share_drop(const ShareEnv& env, const std::vector<std::string>& keys = {});
+// `never` is not confirmed. Callers that mean one project pass its keys (share_waiting(env, file)). An error (the lock is busy, the
+// outbox cannot be written) changes nothing: the items stay as they were, waiting.
+Result<int> share_confirm(const ShareEnv& env, const std::vector<std::string>& keys = {});
+// The user said no: they leave the outbox and their entries are marked skipped. Returns how many. An error (the lock is busy, the
+// outbox cannot be written) changes nothing: the items stay in the outbox and no entry is marked.
+Result<int> share_drop(const ShareEnv& env, const std::vector<std::string>& keys = {});
 
 // The user left these entries of `feedbackFile` out of a batch (the editor's Send feedback window): they leave the outbox and
 // their `shared` says skipped with `reason` (an id that is not in the file is ignored). They are offered again, unchecked, the
-// next time. Not for turning sharing off: that is set_share_mode.
-void share_skip(const ShareEnv& env, const std::string& feedbackFile, const std::vector<std::string>& ids,
-               const std::string& reason = "left out when sending feedback");
+// next time. Not for turning sharing off: that is set_share_mode. An error (the lock is busy, the outbox cannot be written) changes
+// nothing: the entries stay in the outbox and none says skipped.
+Result<void> share_skip(const ShareEnv& env, const std::string& feedbackFile, const std::vector<std::string>& ids,
+                        const std::string& reason = "left out when sending feedback");
 
 // The preview: {mode, entries: [{id, ok, sent?, reason?, removed}], note}. Nothing is queued, sent or written.
 Json share_preview(const ShareEnv& env, const std::string& feedbackFile, const std::string& projectDir, const EngineNames& engine,
@@ -360,8 +389,10 @@ Json share_status(const ShareEnv& env, const std::string& projectDir = {});
 Json share_report_summary(const ShareEnv& env, const std::string& feedbackFile, const std::string& projectDir,
                           const std::string& entryId, const CommandRegistry* registry, bool shareGiven);
 
-// The entries of `feedbackFile` named by `ids` leave the outbox (the entry is being deleted): nothing is written to the file.
-void share_discard(const ShareEnv& env, const std::string& feedbackFile, const std::vector<std::string>& ids);
+// The entries of `feedbackFile` named by `ids` leave the outbox (the entry is being deleted): nothing is written to the file. An
+// error (the lock is busy, the outbox cannot be written) leaves the outbox as it was: the caller must then NOT delete the entry,
+// or it would stay sendable without being in the file (delete_feedback_file takes this as its `beforeWrite`).
+Result<void> share_discard(const ShareEnv& env, const std::string& feedbackFile, const std::vector<std::string>& ids);
 
 struct VerdictResult {
     int checked = 0;                  // shareIds asked about

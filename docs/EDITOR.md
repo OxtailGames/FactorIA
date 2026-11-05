@@ -393,7 +393,9 @@ server address, where there is nothing to send.
   Send feedback, the outbox and the sending all use the project's mode. The outbox line says how many items are not sent because
   their project is Never. The consent dialog (shown while no mode is chosen at all) sets the default; ask mode's question is
   per project, because the waiting entries and the Review notification belong to the project's feedback file.
-- **Installation id** and **Reset id**, which makes a new random one (the old reports stay with the old id).
+- **Installation id** and **Reset id**, which makes a new random one (the old reports stay with the old id). The settings, the outbox and
+  the lock they share with the terminal and the MCP server never make the window wait: when another program is changing them, the
+  action says so (a notification, or the row of Send feedback) and nothing is changed; try again a moment later.
 - **GitHub (optional)**: **Sign in with GitHub** shows the code to type, the address and **Open in browser**; the window finishes by
   itself when you authorize (**Cancel** stops it), then shows your login and **Sign out**. Signing in only makes your reports
   count as verified; no GitHub permission is requested.

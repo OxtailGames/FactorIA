@@ -306,7 +306,9 @@ void add_feedback_share_commands(Command& group) {
             if (yes) {
                 std::vector<std::string> keys;
                 for (const OutboxItem& it : waiting) keys.push_back(it.key);
-                share_confirm(env, keys);
+                // A busy lock or an unwritable outbox: nothing was confirmed, so nothing is sent (the entries stay waiting).
+                if (auto confirmed = share_confirm(env, keys); !confirmed.ok())
+                    return report_failure(ctx, "Could not confirm the entries: " + confirmed.error().message, confirmed.error().hint);
             }
         }
         FlushOptions fo;

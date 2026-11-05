@@ -94,15 +94,32 @@ what was removed, so the preview can show it.
   file on disk, `std::filesystem::equivalent`) with every stored key that exists, so another spelling of the folder (another
   case on a volume that ignores it, NFC against NFD on macOS, a symlink) still finds its choice; the most restrictive match
   counts. A project folder that cannot be resolved (permissions, a broken volume) reads as `ask`, never as the default
-  (`feedback.share_status` says `source: unresolved`). The key of a path is worked out once per call.
+  (`feedback.share_status` says `source: unresolved`). The same for an outbox item whose folder no longer exists and that has no
+  exact entry in `projects`: it reads as `ask` (a deleted project must not be sent because the default says `always`).
+  `set_project_share_mode` applies the new mode to the items whose project is the same folder under any spelling, not only the
+  ones whose stored key is equal. The facts about a folder (its key, whether it exists, whether two keys are one folder) are
+  asked of the file system once per call.
 - **Lock**: every read-modify-write of the settings and the outbox (a flush's save, `set_share_mode`,
   `set_project_share_mode`, queueing, confirming, dropping, sign-in and sign-out, creating the installation id) runs under
   `feedback-share.lock` in the config folder, a file made with an exclusive create (`O_EXCL` on POSIX, `CREATE_NEW` on
   Windows) so the editor, the CLI and the MCP server cannot undo each other's changes. Readers do not take it (files are
-  replaced atomically). A lock file older than 10 s was left by a process that died and is taken over; a busy lock is waited
-  for at most 12 s and then the change fails with a message (nothing is changed), so nothing blocks for good. The network
-  request of a flush runs outside the lock: afterwards the flush reads the files again under the lock and applies only its own
-  results, so a mode changed meanwhile is not undone. Paths in `share_status` and the outbox's `file` are UTF-8 (an outbox
+  replaced atomically). The file holds an owner token (process id and a random number); the holder deletes it only while it
+  still holds its own token, so a lock that was taken over is never deleted under its new owner. A lock file not written for
+  10 s was left by a process that died (or is dated more than 10 s in the future: a clock set back, a shared folder) and is
+  taken over, one waiter at a time: the takeover itself needs a second exclusive-create file (`feedback-share.lock.takeover`),
+  and the age is checked again inside it, so two waiters never both take it. A long change (many entries written) refreshes the
+  file's time (`ShareLock::keep_alive`), so a live holder never looks dead. A busy lock is waited for at most 12 s and then the
+  change fails with a message (nothing is changed), so nothing blocks for good; on Windows an `access denied` answer to the
+  exclusive create (a virus scanner, a file being deleted) counts as busy until that time, and the message names the code, while a
+  folder that is really not writable fails at once. The editor's UI thread waits 0.3 s at most (`ShareEnv::lockWaitSec` of a
+  copy, `ShareWaitCap` for a command it runs on its own thread) and tells the person; the tick of the editor retries after 10 s.
+  `share_skip`, `share_drop`, `share_confirm` and `share_discard` return a `Result`: with the lock busy or the outbox unwritable
+  they change nothing, and `skipped` is written into an entry only after its item is out of the outbox. `feedback.delete` and
+  `feedback discard` take the entry out of the outbox first and keep it when that fails. The network request of a flush runs
+  outside the lock: afterwards the flush reads the files again under the lock and applies only its own results, so a mode
+  changed meanwhile is not undone. If the lock cannot be taken after the request (it is retried with five times the wait), the
+  finished items are remembered in memory for the life of the process (there is no sent-log file): the next flush takes them out
+  of the outbox without sending them again, and the result says so; another process would still send them. Paths in `share_status` and the outbox's `file` are UTF-8 (an outbox
   an older version wrote on Windows in the system code page is read as it is).
 - **Commands** (registered with the other feedback commands; none changes the mode):
   - `feedback.report` gains `share` and `reviewed`. With mode `always` the entry is sanitized and queued at once and the

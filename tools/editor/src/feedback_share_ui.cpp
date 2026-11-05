@@ -70,7 +70,7 @@ const Json* entry_in(const Json& doc, const std::string& id) {
 // ------------------------------------------------------------------------------------------------------------ the mode
 
 void Editor::share_choose_mode(ShareMode mode) {
-    if (auto r = set_share_mode(share_env(), mode); !r) {
+    if (auto r = set_share_mode(ui_share_env(), mode); !r) {
         notify(r.error().to_string(), 2);
         return;
     }
@@ -99,7 +99,7 @@ void Editor::share_choose_mode(ShareMode mode) {
 // This project's own choice (nullopt = follow the default). Like share_choose_mode, only a person's click gets here.
 void Editor::share_choose_project_mode(std::optional<ShareMode> mode) {
     if (projectDir_.empty()) return;
-    if (auto r = set_project_share_mode(share_env(), projectDir_, mode); !r) {
+    if (auto r = set_project_share_mode(ui_share_env(), projectDir_, mode); !r) {
         notify(r.error().to_string(), 2);
         return;
     }
@@ -371,7 +371,7 @@ void Editor::feedback_share_tick() {
     }
     if (time_ - s.tickAt < 1.0) return;
     s.tickAt = time_;
-    const ShareEnv& env = share_env();
+    const ShareEnv env = ui_share_env();  // a busy lock is waited for 0.3 s at most: the tick tries again in a second
     const ShareSettings settings = load_share_settings(env);
     s.mode = effective_share_mode(settings, projectDir_);  // this project's own choice, else the default
     s.sharingAvailable = !share_endpoint(env, settings).empty();
@@ -448,16 +448,29 @@ void Editor::feedback_share_tick() {
     // An entry without a share text waits for Send feedback, which makes the text and asks.
     if (docLoaded && (s.mode == ShareMode::Always || s.mode == ShareMode::Ask)) {
         const std::vector<std::string> ids = entries_to_queue(doc);
-        if (!ids.empty()) {
+        if (!ids.empty() && time_ >= s.queueRetryAt) {
             const EngineNames engine = collect_engine_names(&engine_->commands());
-            if (auto q = share_queue(env, file, projectDir_, engine, ids)) {
+            auto q = share_queue(env, file, projectDir_, engine, ids);
+            if (q) {
+                s.queueError.clear();
+                s.queueRetryAt = 0;
                 if (q->rejected > 0)
                     notify(std::to_string(q->rejected) + (q->rejected == 1 ? " share text was" : " share texts were") +
                                " not accepted by the sanitizer. The Engine Feedback panel says why.",
                            1);
+                feedbackMtime_ = INT64_MIN;
+                feedbackPolled_ = -10;
+            } else {
+                // The lock was busy (or a file could not be written): nothing was changed. A busy lock costs the UI thread up to
+                // 0.3 s, so it is not asked again every second; the person is told once per message, and again every two minutes
+                // while it lasts.
+                s.queueRetryAt = time_ + 10.0;
+                if (s.queueError != q.error().message || time_ - s.queueErrorAt > 120.0) {
+                    s.queueError = q.error().message;
+                    s.queueErrorAt = time_;
+                    notify("Feedback entries could not be queued for sharing yet: " + q.error().to_string(), 1);
+                }
             }
-            feedbackMtime_ = INT64_MIN;
-            feedbackPolled_ = -10;
         }
     }
 
@@ -583,7 +596,7 @@ void Editor::draw_share_consent() {
 void Editor::open_send_window() {
     ShareUi& s = share_;
     if (!engine_ || projectDir_.empty()) return;
-    const ShareEnv& env = share_env();
+    const ShareEnv env = ui_share_env();
     const ShareSettings settings = load_share_settings(env);
     s.mode = effective_share_mode(settings, projectDir_);  // this project's own choice, else the default
     s.sharingAvailable = !share_endpoint(env, settings).empty();
@@ -614,7 +627,7 @@ void Editor::open_send_window() {
 
 void Editor::build_send_window() {
     ShareUi& s = share_;
-    const ShareEnv& env = share_env();
+    const ShareEnv env = ui_share_env();
     const std::string file = fs::join(projectDir_, engine_->project().feedbackFile);
     auto loaded = load_feedback(file);
     if (!loaded.ok()) {
@@ -661,7 +674,7 @@ void Editor::send_window_apply() {
     for (const ShareUi::SendRowUi& r : s.sendRows)
         if (r.row.canSend) choices.push_back({r.row.id, r.checked, r.row.fields, r.reviewPassed});
     const EngineNames names = collect_engine_names(&engine_->commands());
-    const SendApplied applied = apply_send(share_env(), s.sendFile, projectDir_, names, choices);
+    const SendApplied applied = apply_send(ui_share_env(), s.sendFile, projectDir_, names, choices);
     feedbackMtime_ = INT64_MIN;
     feedbackPolled_ = -10;
     s.tickAt = -10;
@@ -862,7 +875,7 @@ void Editor::open_share_settings() {
 void Editor::draw_share_settings_window() {
     ShareUi& s = share_;
     if (!s.settingsOpen) return;
-    const ShareEnv& env = share_env();
+    const ShareEnv env = ui_share_env();
     if (time_ - s.settingsPolled > 1.0) {
         s.settingsPolled = time_;
         s.settings = load_share_settings(env);
@@ -950,9 +963,7 @@ void Editor::draw_share_settings_window() {
     ImGui::SameLine();
     ImGui::BeginDisabled(s.settings.installId.empty());
     if (ImGui::SmallButton("Reset id")) {
-        ShareSettings fresh = load_share_settings(env);
-        fresh.installId.clear();
-        if (auto r = save_share_settings(env, fresh); !r) s.settingsMessage = r.error().to_string();
+        if (auto r = update_share_settings(env, [](ShareSettings& st) { st.installId.clear(); }); !r) s.settingsMessage = r.error().to_string();
         else if (auto id = ensure_install_id(env); id) s.settingsMessage = "New installation id made.";
         s.settingsPolled = -10;
     }
