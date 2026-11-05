@@ -3,6 +3,8 @@
 // game.step, so no assertion depends on the speed of the machine: every wait is a count of steps.
 import { test, expect, game } from "factoria:test";
 import { fa } from "factoria";
+import assetsFile from "../assets.json";
+import jumpClip from "../anim/hero_jump.anim.json";
 import { state, resetState } from "scripts/game_state.js";
 
 function load() {
@@ -44,7 +46,7 @@ test("a coin plays the sparkle: three layers in step, the light added, gone afte
 });
 
 test("the sparkle sheets are baked from one module with a ramp and three layers", () => {
-  const assets = JSON.parse(fa.call("fs.read", { path: "assets.json" }).content).assets;
+  const assets = assetsFile.assets;
   for (const layer of ["back", "front", "light"]) {
     const a = assets[`assets/fx/coin_sparkle_${layer}.png`];
     expect(a).toBeDefined();
@@ -96,7 +98,7 @@ test("a hurt flashes the hero red, shakes harder than a stomp and holds the game
 });
 
 test("the jump's squash is an event of the clip, so the animation file carries it", () => {
-  const clip = JSON.parse(fa.call("fs.read", { path: "anim/hero_jump.anim.json" }).content);
+  const clip = jumpClip;
   expect(clip.events.length).toBe(1);
   expect(clip.events[0].feel[0].action).toBe("squash");
   const p = load();
@@ -125,8 +127,13 @@ test("reduced motion: a stomp shakes a quarter as much", () => {
     const cam = entry(game.find("camera").id);
     return cam && cam.shake ? cam.shake.trauma : 0;
   };
-  const full = trauma(false);
-  const reduced = trauma(true);
+  let full, reduced;
+  try {
+    full = trauma(false);
+    reduced = trauma(true);
+  } finally {
+    fa.call("feel.settings", { reduceMotion: null });
+  }
   expect(full).toBeGreaterThan(0.1);
   expect(reduced).toBeLessThan(full * 0.5);
 });
