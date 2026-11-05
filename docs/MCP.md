@@ -76,7 +76,9 @@ that.)
   (`ai_settings_set`, see below).
 - **AI settings**: `ai_settings_get {scope: resolved|project|user}` shows each setting with where it comes from (`project`, `you`,
   `default`); `ai_settings_set {scope, pointer, value}` changes one. A project change is written but never accepted: it applies only
-  after the user accepts the file in the editor, and the result says `needsAcceptance` (`docs/AI_PROVIDERS.md`, "Per project").
+  after the user accepts the file in the editor, and the result says `needsAcceptance` (`docs/AI_PROVIDERS.md`, "Per project"). Scope `user`
+  (the user's own `ai.json` defaults) is refused to every MCP client with `user_only`: ask the user to change it in the editor's AI
+  settings window. (A client with file access to `~/.factoria/ai.json` can still edit it by hand: the refusal is not a sandbox.)
 - **Instructions**: the server sends a short engine guide on `initialize`, including the rule to call
   `feedback_report` whenever the engine lacks something.
 

@@ -3939,7 +3939,10 @@ void Editor::at_build_tools_script() {
         step(1, [this] {
             atWaitCount_ = 0;
             atWaitUntil_ = [this] {
-                return !aiDetecting_.load() && !aiRolesOpen_ && aiProj_.have && aiProj_.resolved.pendingTrust && !aiProj_.resolved.invalidError;
+                // A detection that was running can make this true one frame before the reload: wait until neither file's
+                // change flag is pending (the reload consumes them) as well.
+                return !aiDetecting_.load() && !aiRolesOpen_ && !aiUserFileChanged_.load() && !aiProjectFileChanged_.load() && aiProj_.have &&
+                       aiProj_.resolved.pendingTrust && !aiProj_.resolved.invalidError;
             };
         });
         step(4, [this, run_model] {

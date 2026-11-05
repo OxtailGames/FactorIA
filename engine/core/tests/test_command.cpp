@@ -168,6 +168,34 @@ TEST_CASE("command caller: the user outside any scope, the stricter caller insid
     CHECK(std::string(command_caller_name(CommandCaller::Agent)) == "an AI agent");
 }
 
+TEST_CASE("command caller floor: a process started by an AI is never the user, on every thread, and only gets stricter") {
+    CHECK_FALSE(command_caller_from_env_value(nullptr).has_value());
+    CHECK_FALSE(command_caller_from_env_value("").has_value());
+    CHECK(command_caller_from_env_value("agent") == CommandCaller::Agent);
+    CHECK(command_caller_from_env_value("mcp") == CommandCaller::Mcp);
+    CHECK(command_caller_from_env_value("user") == CommandCaller::Agent);     // never the user
+    CHECK(command_caller_from_env_value("whatever") == CommandCaller::Agent);  // unknown: restricted
+    CHECK(command_caller() == CommandCaller::User);
+    {
+        CommandCallerFloor agent(CommandCaller::Agent);
+        CHECK(command_caller() == CommandCaller::Agent);
+        CommandCaller other = CommandCaller::User;
+        std::thread t([&] { other = command_caller(); });
+        t.join();
+        CHECK(other == CommandCaller::Agent);  // any thread, unlike a scope
+        {
+            CommandCallerFloor user(CommandCaller::User);  // cannot loosen
+            CHECK(command_caller() == CommandCaller::Agent);
+        }
+        CHECK(command_caller() == CommandCaller::Agent);
+        {
+            CommandCallerScope mcp(CommandCaller::Mcp);  // a scope inside a floor that is not User keeps the outer caller
+            CHECK(command_caller() == CommandCaller::Agent);
+        }
+    }
+    CHECK(command_caller() == CommandCaller::User);
+}
+
 TEST_CASE("CommandRegistry interceptor: refuse, change the arguments, add to the result, skip what it does not want") {
     CommandRegistry reg;
     for (const char* name : {"t.echo", "t.skipped", "t.refused"}) {
