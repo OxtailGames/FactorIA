@@ -1820,6 +1820,122 @@
   }
   function preloadReset() { preloadJobs.clear(); }
 
+  // tilemap.generate: a level made from an example (Wave Function Collapse) while the game runs. The engine command
+  // tilemap.generate_start checks the arguments at once, then dispatch_platform calls generateTick every frame
+  // (script_system.cpp) and each job does a bounded amount of work through tilemap.generate_step: a fixed number of work units per
+  // frame in tests and headless runs (so the frames it takes never depend on the machine), as many as fit in a few ms in a game
+  // with a window. The level does not depend on how the work is cut. A generation belongs to the scene that started it: a scene
+  // load rejects it, and a result is placed only while that scene is still the current one.
+  const generateJobs = new Map();  // job id -> handle
+  class TilemapGeneration {
+    constructor(id, info, label, sceneGen, place) {
+      this.$id = id; this.$label = label; this.$gen = sceneGen; this.$place = place;
+      this.$progress = 0; this.$done = false; this.$error = ""; this.$hint = ""; this.$result = null;
+      this.$attempts = 0; this.$work = 0;
+      this.$info = info;
+      this.promise = new Promise((resolve, reject) => { this.$resolve = resolve; this.$reject = reject; });
+      this.promise.catch(() => {});  // a script that only polls `done` is not reported for a failure it can read in `error`
+    }
+    /** How much of the level is decided, 0..1 (cells decided in the attempt that is running). Never goes down; 1 when `done` and it worked. */
+    get progress() { return this.$progress; }
+    /** True once the level is ready (see `result`) or the generation failed (see `error`). */
+    get done() { return this.$done; }
+    /** Why it failed, or "". */
+    get error() { return this.$error; }
+    /** How to fix `error`, or "". */
+    get hint() { return this.$hint; }
+    /** What tilemap.generate returns (rows, legend, counts, stats...; `placed` has the scene.import_ascii report when `place` was given), or null until done. */
+    get result() { return this.$result; }
+    /** Attempts started so far (a dead end restarts with the next derived seed). */
+    get attempts() { return this.$attempts; }
+    /** Units of work done so far (the same unit as stats.work, counted the same on every machine). */
+    get work() { return this.$work; }
+    /** Stops a generation that is still running and frees its memory; the Promise rejects. */
+    cancel() {
+      if (this.$done) return;
+      generateFail(this, { message: "cancelled before it finished", hint: "" }, true);
+    }
+  }
+  function generateFail(h, err, cancelNative) {
+    generateJobs.delete(h.$id);
+    if (cancelNative) N.callCommand("tilemap.generate_cancel", { job: h.$id });
+    N.generateActive(generateJobs.size);
+    h.$done = true;
+    h.$error = err.message || "unknown error"; h.$hint = err.hint || "";
+    const e = new Error(`${h.$label} failed: ${h.$error}` + (h.$hint ? ` (hint: ${h.$hint})` : ""));
+    e.code = err.code; e.hint = h.$hint;
+    h.$reject(e);
+  }
+  function generateFinish(h, result) {
+    generateJobs.delete(h.$id);
+    N.generateActive(generateJobs.size);
+    if (h.$place) {
+      if (N.sceneGeneration() !== h.$gen) return generateFail(h, { message: "the scene that asked for this level is no longer the current one, so its objects were not placed", hint: "Start the generation again in the new scene." }, false);
+      const args = Object.assign({}, h.$place, { rows: result.rows, legend: result.legend });
+      const r = N.callCommand("scene.import_ascii", plain(args));
+      if (!r.ok) {
+        const err = r.error || {};
+        return generateFail(h, { message: `placing the level with scene.import_ascii failed: ${err.message || "unknown error"}`, hint: err.hint, code: err.code }, false);
+      }
+      result.placed = r.result;
+    }
+    h.$done = true; h.$progress = 1; h.$result = result;
+    h.$resolve(result);
+  }
+  function generateTick(budgetMs) {
+    for (const [id, h] of Array.from(generateJobs)) {
+      if (N.sceneGeneration() !== h.$gen) { generateFail(h, { message: "the scene was unloaded before the level was finished", hint: "Start the generation again in the new scene." }, true); continue; }
+      const args = { job: id };
+      if (budgetMs > 0) args.budgetMs = budgetMs;
+      const r = N.callCommand("tilemap.generate_step", args);
+      if (!r.ok) { generateFail(h, r.error || {}, false); continue; }
+      const st = r.result;
+      h.$progress = Math.max(h.$progress, st.progress); h.$attempts = st.attempts; h.$work = st.work;
+      if (st.done) generateFinish(h, st.result);
+    }
+  }
+  function generateReset() {
+    for (const h of Array.from(generateJobs.values())) generateFail(h, { message: "the scene was unloaded before the level was finished", hint: "Start the generation again in the new scene." }, true);
+  }
+  const tilemapApi = {
+    generate(options) {
+      if (options === null || typeof options !== "object" || Array.isArray(options)) {
+        throw new Error(`tilemap.generate(options) expects an object such as { sample: ["#####", "#...#", "#####"], legend: { "#": 0 }, size: [32, 20], seed: 7 }, got ${inspect(options)}`);
+      }
+      const args = Object.assign({}, options);
+      let place = null;
+      if (args.place !== undefined) {
+        const p = args.place;
+        delete args.place;
+        if (p === true) place = {};
+        else if (p !== null && typeof p === "object" && !Array.isArray(p) && !(p instanceof Entity)) place = Object.assign({}, p);
+        else if (p !== false) throw new Error(`tilemap.generate: \`place\` must be true or an object with the options of scene.import_ascii (entity, tilemap, position, anchor, replace), got ${inspect(p)}`);
+        if (place) {
+          for (const k of ["rows", "legend", "legendFrom", "path", "from", "save", "dryRun"]) {
+            if (k in place) throw new Error(`tilemap.generate: \`place.${k}\` is not allowed: the generated rows and legend are what is placed (put the sample's legend in \`legend\`), and the level is placed in the running scene, never saved to a file. Allowed: entity, tilemap, position, anchor, replace.`);
+          }
+          if (args.into !== undefined) throw new Error("tilemap.generate: give `place` or `into`, not both. `place` creates or updates the Tilemap entity itself (with the objects of the sample); `into` only writes the tiles of an entity that exists.");
+          args.rows = true;
+        }
+      }
+      for (const key of ["sample", "into"]) {
+        if (args[key] instanceof Entity) args[key] = args[key].id;
+      }
+      const r = N.callCommand("tilemap.generate_start", plain(args));
+      if (!r.ok) {
+        const err = r.error || {};
+        const e = new Error(`tilemap.generate failed: ${err.message || "unknown error"}` + (err.hint ? ` (hint: ${err.hint})` : ""));
+        e.code = err.code; e.hint = err.hint;
+        throw e;
+      }
+      const info = r.result;
+      const h = new TilemapGeneration(info.job, info, `tilemap.generate(${info.width} x ${info.height}, seed ${info.seed})`, N.sceneGeneration(), place);
+      generateJobs.set(info.job, h);
+      N.generateActive(generateJobs.size);
+      return h;
+    },
+  };
+
   const scene = {
     preload(path) {
       if (typeof path !== "string" || path === "") throw new Error(`scene.preload(path) expects a scene path such as "scenes/level1.scene.json", got ${inspect(path)}`);
@@ -2019,7 +2135,7 @@
 
   // Cross-scene game state: a plain object that survives scene loads for the whole run (reset per test file).
   const session = {};
-  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); storageReset(); servicesReset(); }
+  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); generateReset(); storageReset(); servicesReset(); }
 
   class ToolError extends Error {
     // Expected failure of a tool: `hint` says how to fix it, `data` (optional object) is reported with the error.
@@ -3535,7 +3651,7 @@
   };
 
   const factoria = {
-    Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
+    Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, tilemap: tilemapApi, game, screen, storage, rng, fa,
     vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, didYouMean, particles, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
     window: windowApi, clipboard: clipboardApi, render, mesh, tween, ease, cancelTweens, bt,
   };
@@ -4210,6 +4326,7 @@
   }
 
   function resetScene() {
+    generateReset();
     voiceEnded.clear(); timers.reset(); tweens.reset(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; N.inCursor(4, false); pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
     timers.now = 0;
     tooltipFns.clear(); worldTooltipFn = null; dropFns.clear(); worldDropFn = null;
@@ -4218,7 +4335,7 @@
   return {
     tooltipFor, worldTooltip, dropAccepts, worldDropAccepts,
     factoria, test: testApi,
-    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, storageDeliver, back: deliverBack,
+    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, generateTick, storageDeliver, back: deliverBack,
     tick: (dt) => { timers.tick(dt); tickTweens(dt); tickVoices(); },
     serviceTick, serviceSuspend, serviceQuit, servicePending,
     resetScene,

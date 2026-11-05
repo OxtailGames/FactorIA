@@ -1737,6 +1737,172 @@ declare module "factoria" {
   }
 
   /**
+   * The arguments of tilemap.generate: the same as the command tilemap.generate (docs/AI_GUIDE.md, section 9.8), plus `place`. Arguments are checked when you call it, so a mistake throws at once with its JSON pointer; the generation itself runs over the next frames.
+   * @since unreleased
+   */
+  export interface TilemapGenerateOptions {
+    /**
+     * The example to learn from: an entity with a Tilemap, ASCII rows (an array of strings, or one string with line breaks) with `legend`, an object {rows, legend?, legendFrom?} or the path of a JSON file holding one. Required for the overlapping model. Glyphs whose legend entry has a `prefab` are the markers (spawn points, coins, enemies) that `place` turns into entities.
+     * @since unreleased
+     */
+    sample?: string | Entity | string[] | { rows: string[]; legend?: Json; legendFrom?: string };
+    /**
+     * Glyph -> tile index or {tile?, prefab?, id?, overrides?, offset?...}, the format of scene.import_ascii. "." and " " are empty unless defined here.
+     * @since unreleased
+     */
+    legend?: Json;
+    /**
+     * Project-relative JSON file with a shared legend, merged under `legend`.
+     * @since unreleased
+     */
+    legendFrom?: string;
+    /**
+     * Output size in cells; each side 1..2048 (a phone wants far less: the work grows with width x height x the patterns of the sample).
+     * @since unreleased
+     */
+    size: number | [number, number] | { width: number; height: number };
+    /**
+     * Picks the level: the same sample, seed and options give the same level on every platform. Take it from a generator of your own, `rng.create(runSeed).int(0, 2147483647)`, so that a stored `runSeed` rebuilds the level; never from the clock.
+     * @since unreleased
+     */
+    seed?: number;
+    /**
+     * overlapping (default) learns the n x n windows of the sample; tiled reads which tiles may touch from the autotile rules (Tilemap.terrains).
+     * @since unreleased
+     */
+    model?: "overlapping" | "tiled";
+    /**
+     * Overlapping model: side of the windows, 2..5 (default 3).
+     * @since unreleased
+     */
+    n?: number;
+    /**
+     * Overlapping model: 1 as drawn (default), 2 + mirror, 4 + turns, 8 turns and mirrors.
+     * @since unreleased
+     */
+    symmetry?: 1 | 2 | 4 | 8;
+    /**
+     * The level wraps around its edges.
+     * @since unreleased
+     */
+    periodic?: boolean;
+    /**
+     * The sample wraps around its edges (default: `periodic`).
+     * @since unreleased
+     */
+    periodicInput?: boolean;
+    /**
+     * Attempts before giving up (default 10, 50 with constraints or reachability).
+     * @since unreleased
+     */
+    maxAttempts?: number;
+    /**
+     * Cap on the work over all attempts (default 600000000 units); the level either always fits or never does, on any machine. Hitting it fails the generation with an error that says how to shrink the level.
+     * @since unreleased
+     */
+    maxWork?: number;
+    /**
+     * Safety net on the CPU seconds the generation may use in total (default 120). Frames spent doing something else do not count.
+     * @since unreleased
+     */
+    maxSeconds?: number;
+    /**
+     * {fixed: [{at:[x,y] | rect:[x,y,w,h], tile}], border: {tile, thickness?}, forbidden: [tile], required: [tile], counts: [{tile, min?, max?}]}: see the command tilemap.generate.
+     * @since unreleased
+     */
+    constraints?: Json;
+    /**
+     * {from:[x,y], to?, toTiles?, allConnected?, solidTiles?, costs?, diagonals?}: the finished level must be playable; see the command tilemap.generate.
+     * @since unreleased
+     */
+    reachability?: Json;
+    /**
+     * Tiled model: autotile rules to use instead of the Tilemap's own.
+     * @since unreleased
+     */
+    terrains?: Json[];
+    /**
+     * An entity with a Tilemap that gets the tiles when the level is ready (tileset, tileSize and solidTiles stay). Writes only tiles: no objects. Not together with `place`.
+     * @since unreleased
+     */
+    into?: string | Entity;
+    /**
+     * When the level is ready, build it in the running scene the way scene.import_ascii does: the Tilemap entity (`entity`, default "tilemap", created or updated, with the `tilemap` fields such as tileset and tileSize, at `position`/`anchor`) and one entity per glyph of the sample whose legend entry has a `prefab` (spawn points, coins, enemies), ids and tags as scene.import_ascii names them. The report of scene.import_ascii is in `result.placed`. With `replace` (default true) the objects of an earlier placement into the same entity are destroyed first. `true` uses the defaults. The level is placed in the scene that called tilemap.generate: if another scene is current when the level is ready, nothing is placed and the generation fails.
+     * @since unreleased
+     */
+    place?: boolean | { entity?: string; tilemap?: Json; position?: Vec2Like; anchor?: string; replace?: boolean };
+    /**
+     * Return the level as ASCII `rows` in the result (true when `place` is given; false with `into`, true otherwise).
+     * @since unreleased
+     */
+    rows?: boolean;
+  }
+
+  /**
+   * A level being generated by tilemap.generate. It works a little every frame (within a budget: 500000 units of work per frame in tests and headless runs, so the frames it takes never depend on the machine; about 4 ms per frame in a game with a window), so the game keeps running and drawing while it works. Values change between frames only, never in the middle of your code. The level it ends with does not depend on how the work was cut into frames. A generation belongs to the scene that started it: when another scene is loaded it fails (error says so) and nothing is placed.
+   * @since unreleased
+   */
+  export interface TilemapGeneration {
+    /**
+     * How much of the level is decided, 0..1 (cells decided in the attempt that is running). Never goes down, 1 when the level is ready. It can stay put while a dead end restarts the attempt.
+     * @since unreleased
+     */
+    readonly progress: number;
+    /**
+     * True once the level is ready (see `result`) or the generation failed or was cancelled (see `error`).
+     * @since unreleased
+     */
+    readonly done: boolean;
+    /**
+     * Why it failed (no level fits the sample and constraints, it hit maxWork, the scene changed, cancelled...), or an empty string.
+     * @since unreleased
+     */
+    readonly error: string;
+    /**
+     * How to fix `error`, or an empty string.
+     * @since unreleased
+     */
+    readonly hint: string;
+    /**
+     * What the command tilemap.generate returns: {model, width, height, seed, rows, legend, counts, stats: {attempts, work, ...}, constraints?, reachability?, warnings?, placed?}; null until the level is ready.
+     * @since unreleased
+     */
+    readonly result: Json | null;
+    /**
+     * Attempts started so far (a dead end restarts with the next derived seed).
+     * @since unreleased
+     */
+    readonly attempts: number;
+    /**
+     * Units of work done so far, the unit of maxWork and stats.work.
+     * @since unreleased
+     */
+    readonly work: number;
+    /**
+     * Resolves with `result` when the level is ready (and placed, if `place` was given); rejects with an Error (message + hint) when the generation fails, is cancelled, or its scene is unloaded.
+     * @since unreleased
+     */
+    readonly promise: Promise<Json>;
+    /**
+     * Stops a generation that is still running and frees its memory; the Promise rejects. Nothing is written or placed.
+     * @since unreleased
+     */
+    cancel(): void;
+  }
+
+  /**
+   * Level generation from an example while the game runs (the global `tilemap`).
+   * @since unreleased
+   */
+  export interface TilemapGeneratorAPI {
+    /**
+     * Generates a level from a small example level with Wave Function Collapse: every n x n window of the result also exists in the sample, so it looks like the sample but is new for every seed. The arguments are checked at once (a mistake throws with a JSON pointer and a hint); the work is then spread over the next frames within a budget, so a phone does not stall, and the handle tells when the level is ready. It is the command tilemap.generate run in pieces: the same arguments give the same level, rows and stats.work as the command, on every platform, whatever the frame rate. With `place` the Tilemap and the sample's markers (spawn points, coins, enemies: the glyphs with a `prefab`) become entities in the running scene, as scene.import_ascii places them. A generation belongs to the scene that started it (a load rejects it); at most 8 run at once, and their solver memory adds up under 256 MB. One attempt starts and ends in a single piece of work, so on a very big level (side above ~500) a frame can still run long: keep levels for run time modest. Example: const level = rng.create(runSeed); const job = tilemap.generate({ sample: ["#####", "#...#", "#.o.#", "#####"], legend: { "#": 1, "o": { prefab: "prefabs/coin.prefab.json" } }, size: [40, 24], seed: level.int(0, 2147483647), constraints: { border: { tile: "#" } }, place: { entity: "level", tilemap: { tileset: "art/tiles.png", tileSize: [16, 16] } } }); job.promise.then((r) => console.log("ready after", r.stats.attempts, "attempt(s)")); or poll job.progress and job.done in onUpdate.
+     * @since unreleased
+     */
+    generate(options: TilemapGenerateOptions): TilemapGeneration;
+  }
+
+  /**
    * How far a notch, rounded corners and the system bars cover the screen from each edge, in design pixels.
    * @since 0.2.0
    */
@@ -3926,6 +4092,12 @@ declare module "factoria" {
    * Scene control.
    */
   export const scene: SceneAPI;
+
+  /**
+   * Level generation (tilemap.generate). Not the tilemap of an entity: that is entity.tilemap.
+   * @since unreleased
+   */
+  export const tilemap: TilemapGeneratorAPI;
 
   /**
    * Game control.

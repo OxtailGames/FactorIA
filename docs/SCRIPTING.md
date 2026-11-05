@@ -1007,6 +1007,31 @@ the press is released over the same widget; a Slider follows the pointer while p
   modification time, so calling it every frame is cheap. An empty or non-string `path` throws.
 - `assets.preload(paths)` → a preload handle (below): reads the files ahead of time, for assets a script uses later.
 
+### Generating a level: `tilemap.generate(options)`
+`tilemap.generate` makes a level from a small example at run time with Wave Function Collapse (the command of the same
+name, docs/AI_GUIDE.md section 9.8, run in pieces). It checks the options at once (a mistake throws with its JSON pointer
+and a hint), returns a handle and works a little every frame, so the game keeps drawing. The seed comes from
+`rng.create`, never from the clock; the same options give the same level as the command, whatever the frame rate.
+
+```js
+const gen = scene.generation;
+const job = tilemap.generate({ sample: "levels/sample.json", size: [48, 20],
+    seed: rng.create(runSeed).int(0, 2147483647), constraints: { border: { tile: "#" } },
+    place: { entity: "level", tilemap: { tileset: "assets/art/tiles.png", tileSize: [16, 16] } } });
+job.promise.then((r) => { if (scene.generation === gen) console.log("ready", r.placed); },
+                 (e) => console.error(e.message, e.hint));
+```
+- The handle has `progress` (0..1, never goes down), `done`, `error`, `hint`, `result` (`null` until ready), `attempts`,
+  `work`, `promise` (resolves with `result`, rejects with an Error that has `.hint`) and `cancel()`.
+- `place` builds the Tilemap and the sample's markers (glyphs with a `prefab`) as entities, like `scene.import_ascii`;
+  `into` writes only tiles into an existing Tilemap. They exclude each other.
+- Per frame: **tests, headless runs and replays do 500000 units of generator work**, so the frames it takes are the same
+  on every machine; **a game with a window** works until about 4 ms of the frame are used (the same budget as
+  `scene.preload`), so the game must not depend on how many frames it takes. One attempt starts and ends in one piece of
+  work: a very big level (a side above about 500) can still make a frame long.
+- A generation belongs to the scene that started it: a scene load (a reload too) ends it with an error, places nothing
+  and frees its memory. A script that awaits `promise` checks `scene.generation` before it uses the result.
+
 ### Preloading: `scene.preload(path)`, `assets.preload(paths)`
 `scene.load` reads the scene and everything it uses before the frame goes on, so a big level freezes the game for a
 moment. `scene.preload("scenes/level2.scene.json")` returns a handle at once and reads the scene file and what it points

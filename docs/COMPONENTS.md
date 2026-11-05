@@ -6389,7 +6389,7 @@ Not released yet (on main after 0.16.1).
 
 Generate a level from an example with Wave Function Collapse: a grid that only contains the patterns of the sample.
 
-Learns from a small example level and makes a new, bigger one that looks like it, the same on every machine for the same arguments. `sample` is the example: the id of an entity with a Tilemap, ASCII rows (an array of strings, or a string with line breaks) with a `legend` in the format of scene.import_ascii (glyph -> tile index or {tile?, prefab?...}; '.' and ' ' are empty), an object {rows, legend?, legendFrom?}, or the path of a JSON file holding one. `size` is the output in cells ([width, height], {width, height} or one number). MODELS: `overlapping` (default) learns every n x n window of the sample (n 2..5, default 3) and fills the output cell by cell, always the one with the fewest options left, so every n x n window of the result also exists in the sample (with `symmetry` also in its rotations and mirrors); a bigger n copies larger pieces, a smaller n mixes more freely. `tiled` ignores n and symmetry (they are not even checked) and reads which tiles may touch from the autotile rules (Tilemap.terrains, tilemap.set_terrains, image.tileset.build) of the sample's Tilemap, of `into`, or from `terrains`; the sample only sets how often each tile is picked, and blob47 corners are fixed afterwards like tilemap.retile. Without rules it fails and says how to add them. `symmetry` 1 (default) uses the sample as drawn, 2 adds its mirror image, 4 its three turns, 8 turns and mirrors (use it for floors and walls, not for tiles that point somewhere). `periodic` true makes the output wrap around its edges (a tileable level) and, unless `periodicInput` says otherwise, also lets the sample wrap. `seed` (default 0) picks the level: same sample, seed and arguments, same level, on every platform. A dead end (a cell with no pattern left) restarts with the next derived seed, up to `maxAttempts` (default 10, 50 with `constraints` or `reachability`); when all fail the error says where, and what to try (a bigger or more varied sample, a smaller n, symmetry, periodic). Output: with `into` (the id of an entity with a Tilemap) the grid is written there (tileset, tileSize and solidTiles stay) in the RUNNING world; without it the grid comes back as `rows` + `legend`, ready for scene.import_ascii, and with `rows` true it comes back as well when `into` is given. Glyphs of an ASCII sample that spawn prefabs come back as the same glyph in `rows`; `into` writes only their tiles, so build objects with scene.import_ascii. A Tilemap sample is printed with generated glyphs ('.' = empty). CONSTRAINTS (`constraints`, checked before generating; each problem names its JSON pointer): `fixed` [{at:[x,y] | rect:[x,y,w,h], tile}] pins cells (an entrance, an exit), `border` {tile, thickness?} walls in the edge, `forbidden` [tile] never appear, `required` [tile] appear at least once, `counts` [{tile, min?, max?}]. A `tile` is a glyph of an ASCII sample, a tile number (-1 = empty) or, for the tiled model, a terrain name; a list of them means any of them. A tile the sample never shows cannot be placed. A missing minimum is repaired on the next attempt by pinning cells (positions drawn from the seed); a maximum or any other miss restarts. REACHABILITY (`reachability`): {from:[x,y], to:[x,y] | [[x,y]...], toTiles:[tile] (every cell holding one is a goal), allConnected:true (all walkable cells form one area), solidTiles:[tile numbers that block] (default: those of `into` or of the sample), costs:{tile: cost|null}, diagonals}. It uses the rules of nav.find_tile_path, on the finished level; a grid that fails restarts with the next derived seed, so the level you get is playable. The report lists walkable cells, the cells and areas that were cut off (a few rects) and the path length to each goal. Everything derives from `seed`, never the clock. LIMITS OF TIME: `maxWork` (default 400000000 units over all attempts) and `maxSeconds` (default 20 CPU seconds, not wall clock) stop a level that cannot be solved with a teaching error. Returns {model, width, height, seed, rows?, legend, counts: {glyph: cells}, into?, warnings?, sample: {source, width, height}, constraints?: {fixedCells, forbiddenTiles, counts: [{tile, found, min?, max?}], pinnedCells}, reachability?, stats: {attempts, contradictions, rejected, patterns, cells, observations, propagations, work, pinned, ms, memoryBytes, peakBytes}}. The level and the counters (attempts, work...) are the same on every machine; stats.ms (the time it took), memoryBytes and peakBytes (bytes: they depend on the compiler and standard library) are not part of the determinism promise. Limits: output sides up to 2048, sample up to 262144 cells, 20000 patterns, about 256 MB of solver memory (the error says what to shrink). Example: tilemap.generate {"sample":["........","..##....","..##..#.","......#.","..#.....","........"],"legend":{"#":0},"size":[32,20],"seed":7,"n":3,"symmetry":8,"constraints":{"border":{"tile":"#"},"fixed":[{"at":[1,1],"tile":"."}]},"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[0]}}
+Learns from a small example level and makes a new, bigger one that looks like it, the same on every machine for the same arguments. `sample` is the example: the id of an entity with a Tilemap, ASCII rows (an array of strings, or a string with line breaks) with a `legend` in the format of scene.import_ascii (glyph -> tile index or {tile?, prefab?...}; '.' and ' ' are empty), an object {rows, legend?, legendFrom?}, or the path of a JSON file holding one. `size` is the output in cells ([width, height], {width, height} or one number). MODELS: `overlapping` (default) learns every n x n window of the sample (n 2..5, default 3) and fills the output cell by cell, always the one with the fewest options left, so every n x n window of the result also exists in the sample (with `symmetry` also in its rotations and mirrors); a bigger n copies larger pieces, a smaller n mixes more freely. `tiled` ignores n and symmetry (they are not even checked) and reads which tiles may touch from the autotile rules (Tilemap.terrains, tilemap.set_terrains, image.tileset.build) of the sample's Tilemap, of `into`, or from `terrains`; the sample only sets how often each tile is picked, and blob47 corners are fixed afterwards like tilemap.retile. Without rules it fails and says how to add them. `symmetry` 1 (default) uses the sample as drawn, 2 adds its mirror image, 4 its three turns, 8 turns and mirrors (use it for floors and walls, not for tiles that point somewhere). `periodic` true makes the output wrap around its edges (a tileable level) and, unless `periodicInput` says otherwise, also lets the sample wrap. `seed` (default 0) picks the level: same sample, seed and arguments, same level, on every platform. A dead end (a cell with no pattern left) restarts with the next derived seed, up to `maxAttempts` (default 10, 50 with `constraints` or `reachability`); when all fail the error says where, and what to try (a bigger or more varied sample, a smaller n, symmetry, periodic). Output: with `into` (the id of an entity with a Tilemap) the grid is written there (tileset, tileSize and solidTiles stay) in the RUNNING world; without it the grid comes back as `rows` + `legend`, ready for scene.import_ascii, and with `rows` true it comes back as well when `into` is given. Glyphs of an ASCII sample that spawn prefabs come back as the same glyph in `rows`; `into` writes only their tiles, so build objects with scene.import_ascii. A Tilemap sample is printed with generated glyphs ('.' = empty). CONSTRAINTS (`constraints`, checked before generating; each problem names its JSON pointer): `fixed` [{at:[x,y] | rect:[x,y,w,h], tile}] pins cells (an entrance, an exit), `border` {tile, thickness?} walls in the edge, `forbidden` [tile] never appear, `required` [tile] appear at least once, `counts` [{tile, min?, max?}]. A `tile` is a glyph of an ASCII sample, a tile number (-1 = empty) or, for the tiled model, a terrain name; a list of them means any of them. A tile the sample never shows cannot be placed. A missing minimum is repaired on the next attempt by pinning cells (positions drawn from the seed); a maximum or any other miss restarts. REACHABILITY (`reachability`): {from:[x,y], to:[x,y] | [[x,y]...], toTiles:[tile] (every cell holding one is a goal), allConnected:true (all walkable cells form one area), solidTiles:[tile numbers that block] (default: those of `into` or of the sample), costs:{tile: cost|null}, diagonals}. It uses the rules of nav.find_tile_path, on the finished level; a grid that fails restarts with the next derived seed, so the level you get is playable. The report lists walkable cells, the cells and areas that were cut off (a few rects) and the path length to each goal. Everything derives from `seed`, never the clock. LIMITS: `maxWork` (default 600000000 units of work over all attempts, counted the same on every machine: it is what decides whether a level is too big) and `maxSeconds` (default 120, a safety net: CPU seconds of the whole process counting every thread; on the web build wall-clock seconds) stop a level that cannot be solved with a teaching error. Returns {model, width, height, seed, rows?, legend, counts: {glyph: cells}, into?, warnings?, sample: {source, width, height}, constraints?: {fixedCells, forbiddenTiles, counts: [{tile, found, min?, max?}], pinnedCells}, reachability?, stats: {attempts, contradictions, rejected, patterns, cells, observations, propagations, work, pinned, ms, memoryBytes, peakBytes}}. The level and the counters (attempts, work...) are the same on every machine; stats.ms (the time it took), memoryBytes and peakBytes (bytes: they depend on the compiler and standard library) are not part of the determinism promise. Limits: output sides up to 2048, sample up to 262144 cells, 20000 patterns, about 256 MB of solver memory (checked first, before anything is built for the constraints; the error says what to shrink), 65536 fixed cells. Example: tilemap.generate {"sample":["........","..##....","..##..#.","......#.","..#.....","........"],"legend":{"#":0},"size":[32,20],"seed":7,"n":3,"symmetry":8,"constraints":{"border":{"tile":"#"},"fixed":[{"at":[1,1],"tile":"."}]},"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[0]}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6404,13 +6404,68 @@ Learns from a small example level and makes a new, bigger one that looks like it
 | `periodic` | boolean | no | The output wraps around its edges (a tileable level). Also lets the sample wrap unless periodicInput is given. Default false. |
 | `periodicInput` | boolean | no | The sample wraps around its edges (patterns cross them). Default: the value of `periodic`. |
 | `maxAttempts` | integer | no | Attempts before giving up: a dead end (or a grid that breaks a constraint or is not reachable) restarts with the next derived seed. Default 10, 50 with constraints or reachability. Default 10. |
-| `maxWork` | integer | no | Cap on the solver's work over all attempts (stats.work of an earlier run shows what a level needs). Hit it and the call fails with how to shrink the level or raise the cap. Default 400000000. |
-| `maxSeconds` | number | no | Cap on the CPU seconds (not wall clock) the generator may use over all attempts. Default 20. |
+| `maxWork` | integer | no | Cap on the work (stats.work of an earlier run shows what a level needs: pattern removals and the adjacency they touch, cells observed, the fixed cells and the reachability check) over all attempts. It counts the same on every machine, so a level either always fits or never does. Hit it and the call fails with how to shrink the level or raise the cap. Default 600000000. |
+| `maxSeconds` | number | no | Safety net on the CPU seconds the process may spend on this call (all threads count; the web build counts wall-clock seconds). The cap a result depends on is maxWork: this one only stops a machine that is far slower than expected. Default 120. |
 | `constraints` | object | no | Rules the level must follow. fixed: [{at:[x,y] \| rect:[x,y,w,h], tile}] pins cells; border: {tile, thickness (default 1)}; forbidden: [tile]; required: [tile] (at least one each); counts: [{tile, min?, max?}]. A tile is a glyph of an ASCII sample, a tile number (-1 = empty) or a terrain name (tiled); a list = any of them. Contradictions are reported before generating, with the JSON pointer. |
 | `reachability` | object | no | The level must be playable: {from:[x,y], to:[x,y] \| [[x,y]...], toTiles:[tile] (every cell with one must be reachable), allConnected:true, solidTiles:[tile numbers that block] (default: Tilemap.solidTiles of `into`, then of the sample), costs:{tile:cost\|null}, diagonals:bool}. Same walking rules as nav.find_tile_path. A grid that fails restarts with the next derived seed. The result's `reachability` reports unreachable cells and areas and the path lengths. |
 | `into` | string | no | Id of an entity with a Tilemap to write the result into (its tiles, width and height are replaced; tileset, tileSize and solidTiles stay). RUNNING world only. |
 | `rows` | boolean | no | Return the level as ASCII `rows`. Default: true without `into`, false with it. |
 | `terrains` | array | no | Tiled model: autotile rules to use instead of the Tilemap's own (same objects as Tilemap.terrains). |
+
+### `tilemap.generate_cancel` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Drop a generation started with tilemap.generate_start and free its memory.
+
+Idempotent: an unknown job (finished, failed, already cancelled, or dropped by a scene load) answers {cancelled:false}. Example: tilemap.generate_cancel {"job":1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `job` | integer | yes | The job tilemap.generate_start returned. |
+
+### `tilemap.generate_start` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Check the arguments of tilemap.generate and start a generation that you advance yourself with tilemap.generate_step.
+
+Takes exactly the arguments of tilemap.generate, checks them at once (the same errors, before anything is generated) and returns {job, width, height, seed, cells, patterns, memoryBytes} without generating. Then call tilemap.generate_step {job} until it answers done: its `result` is what tilemap.generate returns, and `into` is written at that moment, not before. The level does not depend on how the steps are cut: any `work` or `budgetMs` gives the same level and the same stats.work for the same arguments. A job belongs to the scene that started it (a scene load drops it) and holds its solver memory until it finishes, fails or is cancelled; at most 8 run at once and their memory adds up under the same 256 MB limit. Scripts do not need this: `tilemap.generate(...)` in a Behaviour starts the job, advances it every frame within a budget and places the objects of the sample. Example: tilemap.generate_start {"sample":["#####","#...#","#####"],"legend":{"#":0},"size":[16,12],"seed":3}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `sample` | any | no | The example to learn from: the id of an entity with a Tilemap; ASCII rows (array of strings, or one string with line breaks) with `legend`; an object {rows, legend?, legendFrom?} (scene.import_ascii arguments); or a project-relative .json file with such an object. Required for model overlapping; for tiled it only sets the tile frequencies. |
+| `legend` | object | no | Glyph -> tile index or {tile?, rotate?, flipX?, flipY?, prefab?...}, as in scene.import_ascii; for ASCII rows given as an array or text. '.' and ' ' are empty unless defined here. |
+| `legendFrom` | string | no | Project-relative JSON file with a shared legend (see scene.import_ascii), merged under `legend`. |
+| `size` | any | yes | Output size in cells: [width, height], {width, height} or one number for a square. Each side 1..2048 (and at least n for overlapping). |
+| `seed` | integer | no | Picks the level. The same sample, seed and arguments always give the same level. Each restart after a dead end uses the next derived seed. Default 0. |
+| `model` | string ["overlapping","tiled"] | no | overlapping: learn the n x n patterns of the sample. tiled: tile adjacency from the autotile rules (Tilemap.terrains). Default "overlapping". |
+| `n` | integer | no | Overlapping model: side of the learned windows, 2..5 (checked only for the overlapping model). Bigger copies larger pieces of the sample; smaller mixes more. Ignored by tiled (not even checked). Default 3. |
+| `symmetry` | integer | no | One of 1, 2, 4, 8 (checked only for the overlapping model). 1 = the sample as drawn, 2 = also mirrored left-right, 4 = also turned 90/180/270 degrees, 8 = turned and mirrored. Only for tiles that look the same turned (floor, wall); overlapping model; ignored by tiled. Default 1. |
+| `periodic` | boolean | no | The output wraps around its edges (a tileable level). Also lets the sample wrap unless periodicInput is given. Default false. |
+| `periodicInput` | boolean | no | The sample wraps around its edges (patterns cross them). Default: the value of `periodic`. |
+| `maxAttempts` | integer | no | Attempts before giving up: a dead end (or a grid that breaks a constraint or is not reachable) restarts with the next derived seed. Default 10, 50 with constraints or reachability. Default 10. |
+| `maxWork` | integer | no | Cap on the work (stats.work of an earlier run shows what a level needs: pattern removals and the adjacency they touch, cells observed, the fixed cells and the reachability check) over all attempts. It counts the same on every machine, so a level either always fits or never does. Hit it and the call fails with how to shrink the level or raise the cap. Default 600000000. |
+| `maxSeconds` | number | no | Safety net on the CPU seconds the process may spend on this call (all threads count; the web build counts wall-clock seconds). The cap a result depends on is maxWork: this one only stops a machine that is far slower than expected. Default 120. |
+| `constraints` | object | no | Rules the level must follow. fixed: [{at:[x,y] \| rect:[x,y,w,h], tile}] pins cells; border: {tile, thickness (default 1)}; forbidden: [tile]; required: [tile] (at least one each); counts: [{tile, min?, max?}]. A tile is a glyph of an ASCII sample, a tile number (-1 = empty) or a terrain name (tiled); a list = any of them. Contradictions are reported before generating, with the JSON pointer. |
+| `reachability` | object | no | The level must be playable: {from:[x,y], to:[x,y] \| [[x,y]...], toTiles:[tile] (every cell with one must be reachable), allConnected:true, solidTiles:[tile numbers that block] (default: Tilemap.solidTiles of `into`, then of the sample), costs:{tile:cost\|null}, diagonals:bool}. Same walking rules as nav.find_tile_path. A grid that fails restarts with the next derived seed. The result's `reachability` reports unreachable cells and areas and the path lengths. |
+| `into` | string | no | Id of an entity with a Tilemap to write the result into (its tiles, width and height are replaced; tileset, tileSize and solidTiles stay). RUNNING world only. |
+| `rows` | boolean | no | Return the level as ASCII `rows`. Default: true without `into`, false with it. |
+| `terrains` | array | no | Tiled model: autotile rules to use instead of the Tilemap's own (same objects as Tilemap.terrains). |
+
+### `tilemap.generate_step` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Advance a generation started with tilemap.generate_start by a bounded amount of work.
+
+Does at most `work` units of work (default 500000, about 10 ms of a Debug build; the same unit as stats.work) or, with `budgetMs`, steps until that many milliseconds have passed (at least one step). Returns {done:false, progress, attempts, work, contradictions, rejected} while it runs (progress 0..1 is the share of cells decided in the current attempt: it goes back to 0 when an attempt restarts) and {done:true, progress:1, result} when the level is finished, `result` being what tilemap.generate returns. A step can overshoot its budget by one unit of the algorithm: the start of an attempt and the end of one (the reachability check) each run in one piece, so they cost more on a very big level. Errors (the generation failed, hit `maxWork`, the entity of `into` is gone) end the job. A job whose scene was unloaded no longer exists. Example: tilemap.generate_step {"job":1,"work":200000}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `job` | integer | yes | The job tilemap.generate_start returned. |
+| `work` | integer | no | Units of work to do in this call (stats.work counts the same units). Default 500000. |
+| `budgetMs` | number | no | Instead of `work`: step until this many milliseconds have passed (at least one step). How far a job gets in a call then depends on the machine, never the level. |
 
 ### `tilemap.paint_terrain` (modifies state)
 
@@ -9158,6 +9213,172 @@ declare module "factoria" {
   }
 
   /**
+   * The arguments of tilemap.generate: the same as the command tilemap.generate (docs/AI_GUIDE.md, section 9.8), plus `place`. Arguments are checked when you call it, so a mistake throws at once with its JSON pointer; the generation itself runs over the next frames.
+   * @since unreleased
+   */
+  export interface TilemapGenerateOptions {
+    /**
+     * The example to learn from: an entity with a Tilemap, ASCII rows (an array of strings, or one string with line breaks) with `legend`, an object {rows, legend?, legendFrom?} or the path of a JSON file holding one. Required for the overlapping model. Glyphs whose legend entry has a `prefab` are the markers (spawn points, coins, enemies) that `place` turns into entities.
+     * @since unreleased
+     */
+    sample?: string | Entity | string[] | { rows: string[]; legend?: Json; legendFrom?: string };
+    /**
+     * Glyph -> tile index or {tile?, prefab?, id?, overrides?, offset?...}, the format of scene.import_ascii. "." and " " are empty unless defined here.
+     * @since unreleased
+     */
+    legend?: Json;
+    /**
+     * Project-relative JSON file with a shared legend, merged under `legend`.
+     * @since unreleased
+     */
+    legendFrom?: string;
+    /**
+     * Output size in cells; each side 1..2048 (a phone wants far less: the work grows with width x height x the patterns of the sample).
+     * @since unreleased
+     */
+    size: number | [number, number] | { width: number; height: number };
+    /**
+     * Picks the level: the same sample, seed and options give the same level on every platform. Take it from a generator of your own, `rng.create(runSeed).int(0, 2147483647)`, so that a stored `runSeed` rebuilds the level; never from the clock.
+     * @since unreleased
+     */
+    seed?: number;
+    /**
+     * overlapping (default) learns the n x n windows of the sample; tiled reads which tiles may touch from the autotile rules (Tilemap.terrains).
+     * @since unreleased
+     */
+    model?: "overlapping" | "tiled";
+    /**
+     * Overlapping model: side of the windows, 2..5 (default 3).
+     * @since unreleased
+     */
+    n?: number;
+    /**
+     * Overlapping model: 1 as drawn (default), 2 + mirror, 4 + turns, 8 turns and mirrors.
+     * @since unreleased
+     */
+    symmetry?: 1 | 2 | 4 | 8;
+    /**
+     * The level wraps around its edges.
+     * @since unreleased
+     */
+    periodic?: boolean;
+    /**
+     * The sample wraps around its edges (default: `periodic`).
+     * @since unreleased
+     */
+    periodicInput?: boolean;
+    /**
+     * Attempts before giving up (default 10, 50 with constraints or reachability).
+     * @since unreleased
+     */
+    maxAttempts?: number;
+    /**
+     * Cap on the work over all attempts (default 600000000 units); the level either always fits or never does, on any machine. Hitting it fails the generation with an error that says how to shrink the level.
+     * @since unreleased
+     */
+    maxWork?: number;
+    /**
+     * Safety net on the CPU seconds the generation may use in total (default 120). Frames spent doing something else do not count.
+     * @since unreleased
+     */
+    maxSeconds?: number;
+    /**
+     * {fixed: [{at:[x,y] | rect:[x,y,w,h], tile}], border: {tile, thickness?}, forbidden: [tile], required: [tile], counts: [{tile, min?, max?}]}: see the command tilemap.generate.
+     * @since unreleased
+     */
+    constraints?: Json;
+    /**
+     * {from:[x,y], to?, toTiles?, allConnected?, solidTiles?, costs?, diagonals?}: the finished level must be playable; see the command tilemap.generate.
+     * @since unreleased
+     */
+    reachability?: Json;
+    /**
+     * Tiled model: autotile rules to use instead of the Tilemap's own.
+     * @since unreleased
+     */
+    terrains?: Json[];
+    /**
+     * An entity with a Tilemap that gets the tiles when the level is ready (tileset, tileSize and solidTiles stay). Writes only tiles: no objects. Not together with `place`.
+     * @since unreleased
+     */
+    into?: string | Entity;
+    /**
+     * When the level is ready, build it in the running scene the way scene.import_ascii does: the Tilemap entity (`entity`, default "tilemap", created or updated, with the `tilemap` fields such as tileset and tileSize, at `position`/`anchor`) and one entity per glyph of the sample whose legend entry has a `prefab` (spawn points, coins, enemies), ids and tags as scene.import_ascii names them. The report of scene.import_ascii is in `result.placed`. With `replace` (default true) the objects of an earlier placement into the same entity are destroyed first. `true` uses the defaults. The level is placed in the scene that called tilemap.generate: if another scene is current when the level is ready, nothing is placed and the generation fails.
+     * @since unreleased
+     */
+    place?: boolean | { entity?: string; tilemap?: Json; position?: Vec2Like; anchor?: string; replace?: boolean };
+    /**
+     * Return the level as ASCII `rows` in the result (true when `place` is given; false with `into`, true otherwise).
+     * @since unreleased
+     */
+    rows?: boolean;
+  }
+
+  /**
+   * A level being generated by tilemap.generate. It works a little every frame (within a budget: 500000 units of work per frame in tests and headless runs, so the frames it takes never depend on the machine; about 4 ms per frame in a game with a window), so the game keeps running and drawing while it works. Values change between frames only, never in the middle of your code. The level it ends with does not depend on how the work was cut into frames. A generation belongs to the scene that started it: when another scene is loaded it fails (error says so) and nothing is placed.
+   * @since unreleased
+   */
+  export interface TilemapGeneration {
+    /**
+     * How much of the level is decided, 0..1 (cells decided in the attempt that is running). Never goes down, 1 when the level is ready. It can stay put while a dead end restarts the attempt.
+     * @since unreleased
+     */
+    readonly progress: number;
+    /**
+     * True once the level is ready (see `result`) or the generation failed or was cancelled (see `error`).
+     * @since unreleased
+     */
+    readonly done: boolean;
+    /**
+     * Why it failed (no level fits the sample and constraints, it hit maxWork, the scene changed, cancelled...), or an empty string.
+     * @since unreleased
+     */
+    readonly error: string;
+    /**
+     * How to fix `error`, or an empty string.
+     * @since unreleased
+     */
+    readonly hint: string;
+    /**
+     * What the command tilemap.generate returns: {model, width, height, seed, rows, legend, counts, stats: {attempts, work, ...}, constraints?, reachability?, warnings?, placed?}; null until the level is ready.
+     * @since unreleased
+     */
+    readonly result: Json | null;
+    /**
+     * Attempts started so far (a dead end restarts with the next derived seed).
+     * @since unreleased
+     */
+    readonly attempts: number;
+    /**
+     * Units of work done so far, the unit of maxWork and stats.work.
+     * @since unreleased
+     */
+    readonly work: number;
+    /**
+     * Resolves with `result` when the level is ready (and placed, if `place` was given); rejects with an Error (message + hint) when the generation fails, is cancelled, or its scene is unloaded.
+     * @since unreleased
+     */
+    readonly promise: Promise<Json>;
+    /**
+     * Stops a generation that is still running and frees its memory; the Promise rejects. Nothing is written or placed.
+     * @since unreleased
+     */
+    cancel(): void;
+  }
+
+  /**
+   * Level generation from an example while the game runs (the global `tilemap`).
+   * @since unreleased
+   */
+  export interface TilemapGeneratorAPI {
+    /**
+     * Generates a level from a small example level with Wave Function Collapse: every n x n window of the result also exists in the sample, so it looks like the sample but is new for every seed. The arguments are checked at once (a mistake throws with a JSON pointer and a hint); the work is then spread over the next frames within a budget, so a phone does not stall, and the handle tells when the level is ready. It is the command tilemap.generate run in pieces: the same arguments give the same level, rows and stats.work as the command, on every platform, whatever the frame rate. With `place` the Tilemap and the sample's markers (spawn points, coins, enemies: the glyphs with a `prefab`) become entities in the running scene, as scene.import_ascii places them. A generation belongs to the scene that started it (a load rejects it); at most 8 run at once, and their solver memory adds up under 256 MB. One attempt starts and ends in a single piece of work, so on a very big level (side above ~500) a frame can still run long: keep levels for run time modest. Example: const level = rng.create(runSeed); const job = tilemap.generate({ sample: ["#####", "#...#", "#.o.#", "#####"], legend: { "#": 1, "o": { prefab: "prefabs/coin.prefab.json" } }, size: [40, 24], seed: level.int(0, 2147483647), constraints: { border: { tile: "#" } }, place: { entity: "level", tilemap: { tileset: "art/tiles.png", tileSize: [16, 16] } } }); job.promise.then((r) => console.log("ready after", r.stats.attempts, "attempt(s)")); or poll job.progress and job.done in onUpdate.
+     * @since unreleased
+     */
+    generate(options: TilemapGenerateOptions): TilemapGeneration;
+  }
+
+  /**
    * How far a notch, rounded corners and the system bars cover the screen from each edge, in design pixels.
    * @since 0.2.0
    */
@@ -11347,6 +11568,12 @@ declare module "factoria" {
    * Scene control.
    */
   export const scene: SceneAPI;
+
+  /**
+   * Level generation (tilemap.generate). Not the tilemap of an entity: that is entity.tilemap.
+   * @since unreleased
+   */
+  export const tilemap: TilemapGeneratorAPI;
 
   /**
    * Game control.
