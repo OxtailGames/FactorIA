@@ -1,4 +1,4 @@
-// Clip checks of `factoria validate` (docs/ANIMATION.md, "2D clips"): every *.anim.json of the project, and the clips each
+// Clip checks of `factoria validate` (docs/ANIMATION.md, "2D clips" and "3D bone clips"): every *.anim.json of the project, and the clips each
 // Animator of a scene or prefab names. Called by validate.cpp while the VFS root is the project.
 #pragma once
 
@@ -16,6 +16,10 @@ namespace fa::validate_detail {
 // files found are added to `named`.
 void check_animator_clips(const std::string& file, const World& world, const Json& source, std::set<std::string>& named,
                           ValidationReport& report);
+
+// Each IK3D component of `world`: it needs an Animator that plays a skinned model, and its `solvers` must pass ik3d_check_solvers
+// against that model's bones (pointers inside the component).
+void check_ik3d(const std::string& file, const World& world, const Json& source, ValidationReport& report);
 
 // Every *.anim.json under the project (hidden folders, node_modules and a top-level build/ skipped) and every file in
 // `named`: valid JSON and a valid clip (parse_anim_clip's own messages, with the JSON pointer inside the file).

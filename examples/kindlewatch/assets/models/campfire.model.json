@@ -1,0 +1,114 @@
+{
+  "format": "factoria.model/1",
+  "doc": "The campfire: nine stones in a ring, two logs and a bed of glowing embers; 2 m across.",
+  "materials": {
+    "ember": {
+      "color": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "emissive": [
+        1,
+        0.35,
+        0.1,
+        1
+      ],
+      "roughness": 1
+    }
+  },
+  "nodes": [
+    {
+      "op": "radial_array",
+      "id": "stones",
+      "part": "stones",
+      "count": 9,
+      "axis": "y",
+      "children": [
+        {
+          "op": "rounded_box",
+          "id": "stone",
+          "size": [
+            0.32,
+            0.22,
+            0.26
+          ],
+          "radius": 0.06,
+          "segments": 3,
+          "position": [
+            0,
+            0.11,
+            1.0
+          ],
+          "color": "#46628a"
+        }
+      ]
+    },
+    {
+      "op": "cylinder",
+      "id": "log_a",
+      "part": "logs",
+      "radius": 0.09,
+      "height": 1.1,
+      "segments": 8,
+      "rotation": [
+        0,
+        0,
+        90
+      ],
+      "position": [
+        0,
+        0.22,
+        0
+      ],
+      "color": "#4a2c1c"
+    },
+    {
+      "op": "cylinder",
+      "id": "log_b",
+      "part": "logs",
+      "radius": 0.09,
+      "height": 1.1,
+      "segments": 8,
+      "rotation": [
+        0,
+        90,
+        90
+      ],
+      "position": [
+        0,
+        0.32,
+        0
+      ],
+      "color": "#7a4a28"
+    },
+    {
+      "op": "cylinder",
+      "id": "embers",
+      "part": "embers",
+      "radius": 0.7,
+      "height": 0.06,
+      "segments": 16,
+      "position": [
+        0,
+        0.06,
+        0
+      ],
+      "material": "ember",
+      "color": "#d9501c"
+    }
+  ],
+  "gameReady": {
+    "origin": "bottom_center",
+    "merge": true,
+    "lods": [
+      {
+        "ratio": 0.3
+      }
+    ],
+    "collider": {
+      "shape": "box"
+    }
+  }
+}

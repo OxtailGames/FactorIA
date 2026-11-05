@@ -47,7 +47,17 @@ Result<TextBitmap> rasterize_text(std::string_view utf8, const std::string& font
         pen += adv * scale;
     }
     TextBitmap out;
+    out.advance = pen;
+    {
+        int ascent = 0, descent = 0, lineGap = 0;
+        stbtt_GetFontVMetrics(&primary->info, &ascent, &descent, &lineGap);
+        const float scale = stbtt_ScaleForMappingEmToPixels(&primary->info, pixelSize);
+        out.ascent = float(ascent) * scale;
+        out.descent = -float(descent) * scale;
+    }
     if (placed.empty()) return out;
+    out.originX = -minX;
+    out.originY = -minY;
     out.width = maxX - minX;
     out.height = maxY - minY;
     out.coverage.assign(std::size_t(out.width) * out.height, 0);

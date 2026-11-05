@@ -60,8 +60,14 @@ struct Vec2 {
     constexpr Vec2(float x_, float y_) : x(x_), y(y_) {}
     constexpr explicit Vec2(float s) : x(s), y(s) {}
 
-    float& operator[](int i) { return (&x)[i]; }
-    float operator[](int i) const { return (&x)[i]; }
+    // Component i through pointers to members: `(&x)[i]` reads past x, which is undefined behaviour that optimizers act on
+    // (an Apple Clang Release build wrote y and z of a rounded box to x).
+    constexpr float& operator[](int i) { return this->*member(i); }
+    constexpr float operator[](int i) const { return this->*member(i); }
+    static constexpr float Vec2::*member(int i) {
+        constexpr float Vec2::*kMembers[] = {&Vec2::x, &Vec2::y};
+        return kMembers[i];
+    }
     constexpr Vec2 operator+(Vec2 o) const { return {x + o.x, y + o.y}; }
     constexpr Vec2 operator-(Vec2 o) const { return {x - o.x, y - o.y}; }
     constexpr Vec2 operator*(Vec2 o) const { return {x * o.x, y * o.y}; }
@@ -115,8 +121,14 @@ struct Vec3 {
     constexpr Vec3(Vec2 v, float z_) : x(v.x), y(v.y), z(z_) {}
 
     constexpr Vec2 xy() const { return {x, y}; }
-    float& operator[](int i) { return (&x)[i]; }
-    float operator[](int i) const { return (&x)[i]; }
+    // Component i through pointers to members: `(&x)[i]` reads past x, which is undefined behaviour that optimizers act on
+    // (an Apple Clang Release build wrote y and z of a rounded box to x).
+    constexpr float& operator[](int i) { return this->*member(i); }
+    constexpr float operator[](int i) const { return this->*member(i); }
+    static constexpr float Vec3::*member(int i) {
+        constexpr float Vec3::*kMembers[] = {&Vec3::x, &Vec3::y, &Vec3::z};
+        return kMembers[i];
+    }
     constexpr Vec3 operator+(Vec3 o) const { return {x + o.x, y + o.y, z + o.z}; }
     constexpr Vec3 operator-(Vec3 o) const { return {x - o.x, y - o.y, z - o.z}; }
     constexpr Vec3 operator*(Vec3 o) const { return {x * o.x, y * o.y, z * o.z}; }
@@ -163,8 +175,14 @@ struct Vec4 {
     constexpr Vec4(Vec3 v, float w_) : x(v.x), y(v.y), z(v.z), w(w_) {}
 
     constexpr Vec3 xyz() const { return {x, y, z}; }
-    float& operator[](int i) { return (&x)[i]; }
-    float operator[](int i) const { return (&x)[i]; }
+    // Component i through pointers to members: `(&x)[i]` reads past x, which is undefined behaviour that optimizers act on
+    // (an Apple Clang Release build wrote y and z of a rounded box to x).
+    constexpr float& operator[](int i) { return this->*member(i); }
+    constexpr float operator[](int i) const { return this->*member(i); }
+    static constexpr float Vec4::*member(int i) {
+        constexpr float Vec4::*kMembers[] = {&Vec4::x, &Vec4::y, &Vec4::z, &Vec4::w};
+        return kMembers[i];
+    }
     constexpr Vec4 operator+(Vec4 o) const { return {x + o.x, y + o.y, z + o.z, w + o.w}; }
     constexpr Vec4 operator-(Vec4 o) const { return {x - o.x, y - o.y, z - o.z, w - o.w}; }
     constexpr Vec4 operator*(float s) const { return {x * s, y * s, z * s, w * s}; }

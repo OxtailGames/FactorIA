@@ -1,0 +1,18 @@
+{
+  "format": "factoria.model/1",
+  "doc": "The scout: a small humanoid made of primitives only. Rig it with rig.create (scout.rig.json), animate it with anim3d.generate.",
+  "materials": {
+    "suit": { "color": [0.9, 0.42, 0.16, 1], "roughness": 0.7 },
+    "skin": { "color": [0.96, 0.78, 0.62, 1], "roughness": 0.8 }
+  },
+  "nodes": [
+    { "op": "rounded_box", "id": "pelvis", "size": [0.38, 0.22, 0.24], "radius": 0.07, "position": [0, 0.93, 0], "part": "pelvis", "material": "suit" },
+    { "op": "rounded_box", "id": "torso", "size": [0.44, 0.5, 0.26], "radius": 0.1, "position": [0, 1.29, 0], "part": "torso", "material": "suit" },
+    { "op": "cylinder", "id": "neck", "radius": 0.055, "height": 0.1, "segments": 12, "position": [0, 1.6, 0], "part": "neck", "material": "skin" },
+    { "op": "sphere", "id": "head", "radius": 0.13, "segments": 20, "position": [0, 1.75, 0.01], "part": "head", "material": "skin" },
+    { "op": "capsule", "id": "arm_l", "radius": 0.055, "height": 0.7, "segments": 12, "rings": 4, "position": [0.34, 1.32, 0], "part": "arm_l", "material": "suit" },
+    { "op": "capsule", "id": "arm_r", "radius": 0.055, "height": 0.7, "segments": 12, "rings": 4, "position": [-0.34, 1.32, 0], "part": "arm_r", "material": "suit" },
+    { "op": "capsule", "id": "leg_l", "radius": 0.075, "height": 0.9, "segments": 12, "rings": 4, "position": [0.11, 0.45, 0], "part": "leg_l", "material": "suit" },
+    { "op": "capsule", "id": "leg_r", "radius": 0.075, "height": 0.9, "segments": 12, "rings": 4, "position": [-0.11, 0.45, 0], "part": "leg_r", "material": "suit" }
+  ]
+}

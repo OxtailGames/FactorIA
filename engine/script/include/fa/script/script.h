@@ -205,6 +205,10 @@ public:
         return Json::object({{"formFactor", "desktop"}, {"gpuBackend", "headless"}, {"memoryGB", 8}, {"tier", "high"},
                                 {"steamDeck", false}, {"handheld", false}});
     }
+    // `game.setDevice` changed the device a test pretends to run on: `device` is device_info() with the overrides on top
+    // (and device_info() alone after `game.setDevice()` without an argument). Engine gives it to the audio, so a MusicPlayer
+    // in mode "auto" picks live or stems for the pretended device.
+    virtual void device_overridden(const Json& device) { (void)device; }
     // The renderer's stats of the picture now (RenderStats::to_json plus the target size), drawing a frame first when none
     // has been drawn since the last change (`game.renderStats()` in tests, the `game.render_stats` command). Null without
     // a renderer.

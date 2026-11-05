@@ -190,7 +190,8 @@ export default class Rat extends Behaviour {
   `blocked`, `too_far`), `message` and `hint`. A map that is not a Tilemap or a grid, or a malformed cell, throws.
 - Deterministic: the open list breaks ties by (f, h, cell index), so the same map and query give the same path on every run.
 - `nav.tileVersion(tilemap)` is a counter that goes up whenever the tiles of that Tilemap change, to tell that a path you
-  kept is stale: `setTile` / `tilemap.set_tile`, and any write that replaces `tiles` (a script assigning `tilemap.tiles`,
+  kept is stale: `setTile` / `tilemap.set_tile`, autotile painting (`paintTerrain`, `eraseTerrain`, `retile` / `tilemap.paint_terrain`,
+  `tilemap.retile`, which also re-tile the cells around the painted ones), and any write that replaces `tiles` (a script assigning `tilemap.tiles`,
   `scene.set_component`, an editor edit). A call hashes the tiles once, so ask when you need a decision,
   not for every cell; the count starts at 0 on every scene load. For your own grid, keep your own counter.
 

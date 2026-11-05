@@ -1,0 +1,43 @@
+{
+  "format": "factoria.song/1",
+  "doc": "Dawn: the night is over. A major, bells and strings rise over four bars; plays once as the win jingle.",
+  "tempo": 84.0,
+  "meter": "4/4",
+  "key": "A",
+  "mode": "major",
+  "tracks": {
+    "pad": {
+      "instrument": "strings",
+      "volume": 0.7,
+      "patterns": {
+        "chords": "v80 (A@3):1 | (E@3) | (F#m@3) | (D@3)"
+      }
+    },
+    "bass": {
+      "instrument": "bass",
+      "volume": 0.7,
+      "patterns": {
+        "line": "v85 A1:2 E2 | E1:2 B1 | F#1:2 C#2 | D2:1"
+      }
+    },
+    "arp": {
+      "instrument": "bell",
+      "volume": 0.6,
+      "patterns": {
+        "arp": "v85 A4:8 C#5 E5 A5 E5:4 C#5 | B4:8 E5 G#5 B5 G#5:4 E5 | C#5:8 F#5 A5 C#6 A5:4 F#5 | D5:8 F#5 A5 D6 A5:2"
+      }
+    }
+  },
+  "sections": [
+    {
+      "name": "loop",
+      "kind": "section",
+      "repeat": 1,
+      "play": {
+        "pad": "chords",
+        "bass": "line",
+        "arp": "arp"
+      }
+    }
+  ]
+}

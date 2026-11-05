@@ -517,6 +517,11 @@
         throw new Error(`entity '${this.id}' has no Video component; add one: entity.add("Video", {path: "assets/video/intro.mpg"})`);
       return new VideoApi(this.$h);
     }
+    get music() {
+      if (!N.hasComp(this.$h, "MusicPlayer"))
+        throw new Error(`entity '${this.id}' has no MusicPlayer component; add one: entity.add("MusicPlayer", {song: "music/theme.song.json"})`);
+      return new MusicApi(this.$h);
+    }
     toJSON() { return N.entityJson(this.$h, true, false); }
     toString() { return `Entity(${this.id})`; }
   }
@@ -628,7 +633,31 @@
       const w = N.tileCellToWorld(this.$h, col, row);
       return vec2(w[0], w[1]);
     }
+    // Autotile (Tilemap.terrains): sets the cells to a terrain and re-tiles them and the cells around them. `cells` is a list
+    // of [col, row] pairs or {col, row} objects. Returns {painted, outside, changed, changes: [{col, row, from, to}]}.
+    paintTerrain(terrain, cells) { return N.tilePaintTerrain(this.$h, terrainName(terrain, "paintTerrain"), terrainCells(cells, "paintTerrain"), 0); }
+    // The same with the cells emptied (-1); the cells next to them are re-tiled.
+    eraseTerrain(terrain, cells) { return N.tilePaintTerrain(this.$h, terrainName(terrain, "eraseTerrain"), terrainCells(cells, "eraseTerrain"), 1); }
+    // Re-tiles every cell that belongs to a terrain (after writing tiles by hand or changing the rules).
+    retile() { return N.tileRetile(this.$h); }
+    // The name of the terrain the tile at (col, row) belongs to, or null.
+    terrainAt(col, row) {
+      if (typeof col !== "number" || typeof row !== "number") throw new Error(`tilemap.terrainAt(col, row) expects two cell numbers, got ${inspect(col)}, ${inspect(row)}`);
+      return N.tileTerrainAt(this.$h, col, row);
+    }
   }
+  const terrainName = (t, fn) => {
+    if (typeof t !== "string" || !t) throw new Error(`tilemap.${fn}(terrain, cells) expects the name of a terrain of Tilemap.terrains first, got ${inspect(t)}`);
+    return t;
+  };
+  const terrainCells = (cells, fn) => {
+    if (!Array.isArray(cells)) throw new Error(`tilemap.${fn}(terrain, cells) expects a list of cells, [[col, row], ...] or [{col, row}, ...], got ${inspect(cells)}`);
+    return cells.map((c, i) => {
+      if (Array.isArray(c) && c.length === 2 && typeof c[0] === "number" && typeof c[1] === "number") return [c[0], c[1]];
+      if (c && typeof c.col === "number" && typeof c.row === "number") return [c.col, c.row];
+      throw new Error(`tilemap.${fn}: cells[${i}] is ${inspect(c)}, not a [col, row] pair or a {col, row} object`);
+    });
+  };
 
   // ========================================================================================================== video
   // entity.video: a Video component (an .mpg on a UI rectangle). The component holds the state and the engine advances it with
@@ -657,6 +686,78 @@
     set loop(v) { this.component.loop = v; }
     get volume() { return this.component.volume; }
     set volume(v) { this.component.volume = v; }
+  }
+
+  // entity.music: a MusicPlayer component (a song played as layers, sections, stingers and beat events). The mixer does the playing;
+  // everything here asks it, and a change that waits for a beat or a bar is queued there and lands on that exact audio frame.
+  const MUSIC_QUANTIZE = ["none", "beat", "bar", "section"];
+  const MUSIC_EVENTS = ["ready", "beat", "bar", "section", "loop", "ended", "stinger", "crossfade"];
+  function musicOptions(call, options, allowed) {
+    if (options === undefined || options === null) return {};
+    if (typeof options !== "object" || Array.isArray(options))
+      throw new Error(`music.${call}(options) expects an object like {${allowed[0]}: ...}, got ${Array.isArray(options) ? "an array" : typeof options}`);
+    for (const k of Object.keys(options)) {
+      if (!allowed.includes(k)) {
+        const c = closest(k, allowed);
+        throw new Error(`music.${call}: unknown option '${k}'${c ? `; did you mean '${c}'?` : ""}; the options are ${allowed.join(", ")}`);
+      }
+      if (options[k] === undefined) continue;
+      if (k === "quantize") {
+        if (!MUSIC_QUANTIZE.includes(options[k]))
+          throw new Error(`music.${call}: quantize must be ${MUSIC_QUANTIZE.map((x) => `"${x}"`).join(", ")}, got ${JSON.stringify(options[k])}${closest(String(options[k]), MUSIC_QUANTIZE) ? `; did you mean '${closest(String(options[k]), MUSIC_QUANTIZE)}'?` : ""}`);
+      } else if (["song", "section", "clip", "bus"].includes(k)) {
+        if (typeof options[k] !== "string") throw new Error(`music.${call}: ${k} must be a string, got ${typeof options[k]}`);
+      } else if (typeof options[k] !== "number" || !Number.isFinite(options[k])) {
+        throw new Error(`music.${call}: ${k} must be a number, got ${typeof options[k]}`);
+      }
+    }
+    return options;
+  }
+  class MusicApi {
+    constructor(h) { this.$h = h; }
+    get component() { return viewOf(this.$h, typeOf("MusicPlayer")); }
+    play(options) {
+      const o = typeof options === "string" ? { song: options } : musicOptions("play", options, ["song", "section", "intensity"]);
+      N.musicCall(this.$h, "play", o);
+    }
+    stop(options) { N.musicCall(this.$h, "stop", musicOptions("stop", options, ["quantize", "fade"])); }
+    setIntensity(intensity, options) {
+      if (typeof intensity !== "number" || !Number.isFinite(intensity))
+        throw new Error(`music.setIntensity(intensity) expects a number from 0 (calm) to 1 (full), got ${typeof intensity === "number" ? intensity : typeof intensity}`);
+      N.musicCall(this.$h, "setIntensity", Object.assign({}, musicOptions("setIntensity", options, ["quantize"]), { intensity }));
+    }
+    goToSection(section, options) {
+      if (typeof section !== "string" || !section)
+        throw new Error(`music.goToSection(section) expects the name of a section of the song, e.g. "battle"; music.sections lists them`);
+      N.musicCall(this.$h, "goToSection", Object.assign({}, musicOptions("goToSection", options, ["quantize", "fade"]), { section }));
+    }
+    playStinger(options) {
+      const o = typeof options === "string" ? { clip: options } : musicOptions("playStinger", options, ["clip", "section", "quantize", "volume", "tail", "bus", "duck", "duckAttack", "duckHold", "duckRelease"]);
+      N.musicCall(this.$h, "playStinger", o);
+    }
+    crossfadeTo(song, options) {
+      if (typeof song !== "string" || !song)
+        throw new Error(`music.crossfadeTo(song) expects the path of a song, e.g. "music/battle.song.json"`);
+      N.musicCall(this.$h, "crossfadeTo", Object.assign({}, musicOptions("crossfadeTo", options, ["section", "quantize", "bars"]), { song }));
+    }
+    on(name, fn) {
+      if (!MUSIC_EVENTS.includes(name)) {
+        const c = closest(name, MUSIC_EVENTS);
+        throw new Error(`music.on: unknown event '${name}'${c ? `; did you mean '${c}'?` : ""}; the events are ${MUSIC_EVENTS.join(", ")}`);
+      }
+      const id = N.idOf(this.$h);
+      return addListener("music." + name, (data, source) => { if (data && data.id === id) fn(data, source); }, null);
+    }
+    get status() { return N.musicCall(this.$h, "status"); }
+    get ready() { return this.status.ready; }
+    get playing() { return this.status.playing; }
+    get song() { return this.status.song; }
+    get section() { return this.status.section; }
+    get bar() { return this.status.bar; }
+    get beat() { return this.status.beat; }
+    get tempo() { return this.status.tempo; }
+    get intensity() { return this.component.intensity; }
+    get sections() { return N.musicCall(this.$h, "status").sections; }
   }
 
   // ========================================================================================================= tween
@@ -1332,8 +1433,19 @@
     }
   }
 
+  // The last variant played per clip, so that the same take is not heard twice in a row (audio.play(path, { variants })).
+  const lastVariant = new Map();
+
   const audio = {
-    // play(path, { volume, pitch, pan, loop, bus, caption, captionKey, speaker, captionSeconds }) -> voice id. A caption (plain
+    // variantPath(path, variant, count) -> the file name of baked variant `variant` (1..count) of `path`: "assets/sfx/step.wav", 3, 8 ->
+    // "assets/sfx/step_03.wav". The naming of sfx.bake for a patch with `variations`.
+    variantPath(path, variant, count) {
+      if (typeof path !== "string") throw new Error(`audio.variantPath(path, variant, count): path is a clip path such as "assets/sfx/step.wav", but got ${inspect(path)}`);
+      if (!Number.isInteger(count) || count < 2 || count > 64) throw new Error(`audio.variantPath(path, variant, count): count is the number of variants, a whole number from 2 to 64, but got ${inspect(count)}`);
+      if (!Number.isInteger(variant) || variant < 1 || variant > count) throw new Error(`audio.variantPath(${inspect(path)}, variant, ${count}): variant is a whole number from 1 to ${count}, but got ${inspect(variant)}`);
+      return N.audioVariantPath(path, variant, count);
+    },
+    // play(path, { volume, pitch, pan, loop, bus, variants, caption, captionKey, speaker, captionSeconds }) -> voice id. A caption (plain
     // text, or a localization key that follows a language change) shows on the Captions component while the sound plays and goes
     // when it ends or is stopped; `speaker` is a name shown before the line; `captionSeconds` shows it for that long instead.
     // A looping sound never ends, so with `loop` a caption needs captionSeconds.
@@ -1350,6 +1462,17 @@
         throw new Error(`audio.play(${inspect(path)}, { loop: true, caption }): a looping sound never ends, so its caption would never go. Add captionSeconds: 5 (how long it shows), or play the sound without a caption`);
       if (o.onEnded !== undefined && typeof o.onEnded !== "function")
         throw new Error(`audio.play(path, { onEnded }): onEnded must be a function, e.g. { onEnded: (id) => console.log("done", id) }, but got ${inspect(o.onEnded)}`);
+      if (o.variants !== undefined) {
+        const n = o.variants;
+        if (!Number.isInteger(n) || n < 2 || n > 64) throw new Error(`audio.play(path, { variants }): variants is the number of baked variants of the clip, a whole number from 2 to 64 (sfx.bake writes name_01.wav ... for a patch with "variations"), but got ${inspect(n)}`);
+        // The world RNG picks (seeded per run, so a replay hears the same takes); never the one played last.
+        const last = lastVariant.get(path) ?? 0;
+        let pick;
+        if (last > 0 && last <= n) { pick = N.rngInt(1, n - 1); if (pick >= last) pick++; }
+        else pick = N.rngInt(1, n);
+        lastVariant.set(path, pick);
+        path = N.audioVariantPath(path, pick, n);
+      }
       const id = N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0, !!o.onEnded);
       if (o.onEnded && id) voiceEnded.set(id, o.onEnded);  // a sound that did not start (id 0) never ends: no callback
       return id;

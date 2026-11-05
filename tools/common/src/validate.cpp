@@ -37,6 +37,7 @@
 #include "fa/tooling/audio_analysis.h"
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/feedback.h"
+#include "fa/tooling/art_check.h"
 #include "fa/tooling/icons.h"
 #include "fa/tooling/publish.h"
 #include "fa/tooling/skills.h"
@@ -62,6 +63,8 @@ struct Ctx {
     std::string dir;
     std::vector<PropsCheck> propChecks;
     std::set<std::string> spriteTextures;  // what Sprites draw, for the asset checks
+    bool artRules = false;                 // assets.json style sets a rule a picture can be measured against
+    ProjectArtUse artUse;                  // where the scenes draw each texture, for those rules (texelsPerUnit)
     std::map<std::string, Error> videoProblems;  // video path -> why the decoder refuses it (empty message = fine), each file is opened once
     std::vector<localization_detail::SceneText> sceneTexts;  // what scenes and prefabs show, for the string-table and glyph checks
     LocalizationParse localization;                           // the "localization" section of factoria.json
@@ -877,6 +880,34 @@ void check_assets_manifest(Ctx& c) {
     }
 }
 
+// assets.json "style": mistakes the schema cannot see (a number out of range, a palette that is not one), and mixer buses
+// style.audio names that the project does not have. The rules themselves are judged after the scenes are loaded.
+void check_style_section(Ctx& c) {
+    const char* file = assets::kManifestFile;
+    StyleParse parsed = load_style_guide(c.dir);
+    for (const StyleProblem& p : parsed.problems) {
+        bool reported = false;  // the schema check already said it
+        for (const ValidationIssue& e : c.report.errors)
+            if (e.file == file && e.pointer == p.pointer) reported = true;
+        if (!reported) c.error(file, p.pointer, p.message, p.hint);
+    }
+    c.artRules = parsed.guide.has_art_rules();
+    if (c.artRules) read_art_display(c.dir, c.artUse);
+    if (parsed.guide.audio && !parsed.guide.audio->loudnessLufs.empty()) {
+        std::vector<std::string> buses = {"master", "sfx", "music", "ui"};
+        if (auto text = tooling_detail::read_file(stdfs::path(c.dir) / kProjectFileName)) {
+            Json pj = Json::parse(*text, nullptr, false);
+            if (pj.is_object() && pj.contains("audio"))
+                for (const AudioBusDef& b : parse_audio_settings(pj["audio"]).buses) buses.push_back(b.name);
+        }
+        for (const auto& [bus, lufs] : parsed.guide.audio->loudnessLufs) {
+            if (std::find(buses.begin(), buses.end(), bus) != buses.end()) continue;
+            c.warn(file, "/style/audio/loudnessLufs/" + tooling_detail::escape_token(bus), "style.audio.loudnessLufs names the bus '" + bus + "', which the project does not have.",
+                   "Use a bus that exists (" + join(buses, ", ") + ")." + did_you_mean(bus, buses));
+        }
+    }
+}
+
 }  // namespace
 
 Json ValidationIssue::to_json() const {
@@ -931,10 +962,16 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     check_skills(c);
     check_feedback_file(c, feedbackFile);
     check_assets_manifest(c);
+    check_style_section(c);
     for (ValidationIssue& w : check_audio_loudness(c.dir)) c.report.warnings.push_back(std::move(w));
     assets_detail::check_shipped_assets(c.dir, c.report.warnings);
     assets_detail::check_model_files(c.dir, c.report.errors);
     assets_detail::check_recipes(c.dir, c.report.warnings);
+    assets_detail::check_image_documents(c.dir, c.report.errors, c.report.warnings);
+    assets_detail::check_audio_documents(c.dir, c.report.errors, c.report.warnings);
+    assets_detail::check_model_documents(c.dir, c.report.errors, c.report.warnings);
+    assets_detail::check_rig_documents(c.dir, c.report.errors, c.report.warnings);
+    assets_detail::check_song_documents(c.dir, c.report.errors, c.report.warnings);
 
     std::set<std::string> scripts;
     if (options.checkScenes) {
@@ -956,6 +993,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 (m.severity == LoadMessage::Severity::Error ? c.report.errors : c.report.warnings).push_back(std::move(issue));
             }
             collect_if_not_canonical(handFormatted, rel);
+            if (c.artRules) collect_art_use(world, rel, c.artUse);
             check_fit_panels(c, rel, world);
             check_offscreen_widgets(c, rel, world);
             check_start_overlaps(c, rel, world);
@@ -965,6 +1003,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             if (!parsed.ok()) continue;  // load_scene_file already reported it
             const Json& j = parsed.value();
             validate_detail::check_animator_clips(rel, world, j, namedClips, c.report);
+            validate_detail::check_ik3d(rel, world, j, c.report);
             if (j.is_object() && j.contains("settings"))
                 check_component_assets(c, rel, "/settings", "SceneSettings", j["settings"]);
             if (j.is_object() && j.contains("entities") && j["entities"].is_array()) {
@@ -982,7 +1021,9 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 World prefabWorld;
                 LoadReport ignored;
                 instantiate_prefab(prefabWorld, rel, kNullEntity, ignored);
+                if (c.artRules) collect_art_use(prefabWorld, rel, c.artUse);
                 validate_detail::check_animator_clips(rel, prefabWorld, parsed.value(), namedClips, c.report);
+                validate_detail::check_ik3d(rel, prefabWorld, parsed.value(), c.report);
             }
             if (parsed.value().is_object() && parsed.value().contains("entity"))
                 check_entity_assets(c, rel, "/entity", parsed.value()["entity"], scripts);
@@ -991,6 +1032,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
         check_camera_tags(c);
         validate_detail::check_clip_files(namedClips, c.report);
         assets_detail::check_sprite_textures(c.dir, c.spriteTextures, c.report.warnings);
+        if (c.artRules) check_art_style(c.dir, c.spriteTextures, c.artUse, c.report.warnings);
         if (sceneFiles.empty())
             c.warn("scenes", "", "No scenes found (scenes/*.scene.json).", "Create scenes/main.scene.json.");
         else if (!mainScene.empty() && std::find(sceneFiles.begin(), sceneFiles.end(), mainScene) == sceneFiles.end() &&

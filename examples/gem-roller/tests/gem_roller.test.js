@@ -295,3 +295,98 @@ test("the gems are drawn with the pulsing gem material, not the magenta error ma
     expect(stats.materialFallbacks).toEqual(["materials/gem.material.json"]);
   }
 });
+
+// The gem is not a hand-made file: assets/models/gem.model.json is its recipe (docs/MODELING.md) and gem.glb is what it bakes to.
+// Edit a node of the document with `factoria call model.edit`, look at it with `model.preview` and re-bake (model.bake, or the Model panel's Save).
+test("the gem mesh is baked from its model recipe, is current, and passes model.check at the size the scene expects", () => {
+  load();
+  const doc = "assets/models/gem.model.json";
+  const info = fa.call("model.info", { path: doc });
+  expect(info.valid).toBe(true);
+  expect(info.output).toBe("assets/models/gem.glb");
+  // An out-of-date .glb would show an old gem: this fails when the document changed and was not baked again.
+  expect(info.bake.state).toBe("fresh");
+  // One part with one material: the whole gem is one draw call, like the hand-made octahedron it replaced.
+  expect(info.measurements.parts.length).toBe(1);
+  expect(info.measurements.triangles).toBeLessThan(100);
+  expect(info.measurements.closed).toBe(true);
+
+  // It is one metre high before the scene scales it by 0.8.
+  const check = fa.call("model.check", { path: doc, expectedHeight: 1, tolerance: 0.1 });
+  expect(check.errors).toBe(0);
+  expect(check.warnings).toBe(0);
+
+  // The scattered gems load that file.
+  const placed = fa.call("project.scatter_gems", { count: 3, seed: 5, clear: true });
+  game.step(1);
+  expect(placed.placed).toBe(3);
+  expect(game.find(placed.gems[0].id).get("MeshRenderer").mesh).toBe(info.output);
+});
+
+// The scout is made entirely with the engine, from primitives to animation: scout.model.json (capsules, a sphere, rounded boxes) -> rig.create
+// (scout.rig.json, a humanoid with automatic weights) -> scout.rig.glb -> anim3d.generate (walk and idle clips, kept in assets/anim/).
+// Nothing is imported and no provider made anything. Edit a clip in the editor's Animation panel (3D mode) and it plays the same way.
+test("the scout's rig and clips are made in the engine, are current, and fit each other", () => {
+  load();
+  const rig = fa.call("rig.info", { path: "assets/models/scout.rig.json" });
+  expect(rig.valid).toBe(true);
+  expect(rig.template).toBe("humanoid");
+  expect(rig.output).toBe("assets/models/scout.rig.glb");
+  // An out-of-date .rig.glb would pose an old body: this fails when the model or the rig document changed and was not baked again.
+  expect(rig.bake.state).toBe("fresh");
+  expect(fa.call("model.info", { path: "assets/models/scout.model.json" }).bake.state).toBe("fresh");
+
+  for (const kind of ["walk", "idle"]) {
+    const clip = fa.call("anim3d.info", { path: `assets/anim/scout_${kind}.anim.json`, rig: rig.output });
+    expect(clip.rigCheck.ok).toBe(true); // every bone the clip drives exists in the rig
+    expect(clip.generated.kind).toBe(kind);
+    expect(clip.loop).toBe(true);
+  }
+  const walk = fa.call("anim3d.info", { path: "assets/anim/scout_walk.anim.json" });
+  expect(walk.contacts).toBe(2); // two feet, planted in turn
+  expect(walk.events).toBe(2); // two footsteps per cycle
+  // The scout script walks at this clip's ground speed (model units per second) times the entity's scale: no foot sliding.
+  const scout = game.find("scout");
+  expect(scout.behaviour.speed).toBeCloseTo(walk.groundSpeed * scout.transform.scale.x, 1);
+
+  // Both clips and the model are in the scene's Animator, and the clip files are recorded in assets.json.
+  const animator = scout.get("Animator");
+  expect(animator.clips.walk).toBe("assets/anim/scout_walk.anim.json");
+  expect(animator.clips.idle).toBe("assets/anim/scout_idle.anim.json");
+  expect(scout.get("MeshRenderer").mesh).toBe(rig.output);
+});
+
+test("the scout walks its loop on the clip's footsteps, and stops to watch the ball when it comes close", () => {
+  const { ball } = load();
+  const scout = game.find("scout");
+  const walk = scout.behaviour;
+  expect(scout.animator.clip).toBe("walk");
+  const start = { x: scout.position.x, z: scout.position.z };
+  game.step(120); // two seconds
+  const moved = Math.hypot(scout.position.x - start.x, scout.position.z - start.z);
+  expect(moved).toBeGreaterThan(1.0);
+  // It stays on the circle of its loop and on the platform.
+  const r = Math.hypot(scout.position.x - walk.center[0], scout.position.z - walk.center[2]);
+  expect(r).toBeCloseTo(walk.radius, 1);
+  expect(scout.position.y).toBeCloseTo(0.5, 2);
+  // The clip's footstep events reach the script: two per 1.11 s cycle.
+  expect(walk.steps).toBeGreaterThanOrEqual(3);
+  expect(walk.watching).toBe(false);
+
+  // The ball rolls next to it: the scout stops, switches to the idle clip (cross-faded) and turns its face to the ball.
+  teleportOnto(ball, { x: scout.position.x + 1.2, y: 1.2, z: scout.position.z });
+  game.step(90);
+  expect(walk.watching).toBe(true);
+  expect(scout.animator.clip).toBe("idle");
+  const here = { x: scout.position.x, z: scout.position.z };
+  game.step(30);
+  expect(scout.position.x).toBeCloseTo(here.x, 3); // standing still
+  // It faces +X: the model looks along +Z at yaw 0, so yaw 90 looks along +X.
+  expect(scout.transform.rotation.y).toBeCloseTo(90, 0);
+
+  // The ball leaves and the scout walks again.
+  teleportOnto(ball, { x: 3.5, y: 1.2, z: 3.5 });
+  game.step(60);
+  expect(walk.watching).toBe(false);
+  expect(scout.animator.clip).toBe("walk");
+});

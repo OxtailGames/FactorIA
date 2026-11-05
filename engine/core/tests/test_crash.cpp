@@ -2,11 +2,15 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "fa/core/crash.h"
@@ -212,7 +216,78 @@ TEST_CASE("crash reporter: install errors say what to do") {
     CHECK_FALSE(blocked.error().hint.empty());
 }
 
+#if defined(_WIN32)
+#define FA_STACK_PROBE_FUNCTION __declspec(noinline)
+#else
+#define FA_STACK_PROBE_FUNCTION __attribute__((visibility("default"), noinline))
+#endif
+
+std::atomic<bool> g_probeStuck{false}, g_probeRelease{false};
+
+// Where the watched thread of the next test is "stuck": a loop the test ends.
+FA_STACK_PROBE_FUNCTION void fa_stack_probe_stuck_here() {
+    g_probeStuck = true;
+    while (!g_probeRelease.load()) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+}
+
+bool counts_frames(const std::string& stack) {
+    return stack.rfind("#0  ", 0) == 0 && stack.find("\n#1  ") != std::string::npos;
+}
+
+TEST_CASE("thread stacks: a watchdog reads the stack of the thread it watches while it runs") {
+    std::string ownStack;
+    std::thread stuck([&] {
+        watch_thread_stack();
+        ownStack = watched_thread_stack();  // from the watched thread itself: its own stack
+        fa_stack_probe_stuck_here();
+    });
+    while (!g_probeStuck.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    const std::string first = watched_thread_stack();
+    const std::string second = watched_thread_stack();  // it can be asked again: the thread went on after the first
+    g_probeRelease = true;
+    stuck.join();
+    watch_thread_stack();  // the stuck thread has ended: watch one that lives on, for any later caller
+    INFO("watched stack:\n" << first << "\nown stack:\n" << ownStack);
+#if (defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))) || (!defined(_WIN32) && !defined(__ANDROID__) && !defined(__EMSCRIPTEN__))
+    CHECK(counts_frames(first));
+    CHECK(counts_frames(second));
+    CHECK(counts_frames(ownStack));
+    CHECK(counts_frames(current_thread_stack()));
+// Names need symbols: Linux's backtrace_symbols names only exported ones (no -rdynamic here), MinGW and an MSVC Release build
+// write no PDB (the frames are module+offset there), macOS reads the symbol table.
+#if (defined(_MSC_VER) && !defined(NDEBUG)) || defined(__APPLE__)
+    CHECK(first.find("fa_stack_probe_stuck_here") != std::string::npos);
+#endif
+#else
+    CHECK(first.rfind("no stack", 0) == 0);
+#endif
+}
+
 #ifdef _MSC_VER
+TEST_CASE("thread stacks: an unhandled access violation prints its stack and ends the run, no silent exit") {
+    TempDir dir;
+    ProcessResult r;
+    if (!run_child(dir.path, "fault-printed", r)) return;
+    INFO("child stderr: " << r.stderrText);
+    CHECK(std::uint32_t(r.exitCode) == 0xC0000005u);
+    CHECK(r.stderrText.find("unhandled exception ") != std::string::npos);
+    CHECK(r.stderrText.find("write to ") != std::string::npos);
+    CHECK(r.stderrText.find("fa_crash_child_null_write") != std::string::npos);
+}
+
+#ifdef _DEBUG
+TEST_CASE("thread stacks: a failed Debug runtime check prints and ends the run, no dialog") {
+    TempDir dir;
+    ProcessResult r;
+    if (!run_child(dir.path, "runtime-check", r)) return;
+    INFO("child stderr: " << r.stderrText);
+    CHECK(r.exitCode == 3);
+    CHECK(r.stderrText.find("C runtime check failed: ") != std::string::npos);
+    CHECK(r.stderrText.find("the runtime check of the crash test") != std::string::npos);
+    CHECK(r.stderrText.find("fa_crash_child_runtime_check") != std::string::npos);
+}
+#endif
+
 TEST_CASE("crash reporter: a bad argument to the C runtime is reported") {
     crash_and_read("invalid-parameter", "fa_crash_child",  // any frame of the program: the optimizer folds these two
                    "invalid parameter passed to a C runtime function");

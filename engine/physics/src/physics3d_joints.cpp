@@ -362,7 +362,7 @@ void Physics3D::solve_joints(float h, int iteration) {
             for (int i = 0; i < 2; ++i) {
                 const float target = gain * dot(j.fixBias, ts[i]);
                 const float L = (target - dot(wr(), ts[i])) / ks[i];
-                (&j.aImp.x)[i] += L;
+                j.aImp[i] += L;
                 apply_ang(ts[i] * L);
             }
             if (j.useMotor) {

@@ -1,6 +1,6 @@
 // assets.import: brings a file made elsewhere into assets/ and records its provenance in assets.json.
 // The importers of the formats that need converting live in assets_aseprite.cpp, assets_obj.cpp and assets_fbx.cpp; the
-// formats the engine reads as they are (and PSD, which only needs decoding) are handled here.
+// formats the engine reads as they are are handled here; a PSD becomes an image document with its layers (image_psd.cpp).
 #include <algorithm>
 #include <cctype>
 #include <format>
@@ -8,9 +8,12 @@
 #include <set>
 
 #include "assets_internal.h"
+#include "image_edit.h"
+#include "music_internal.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/asset_import.h"
+#include "fa/tooling/image_doc.h"
 #include "fa/tooling/project_fs.h"
 #include "util.h"
 
@@ -215,23 +218,97 @@ Result<ImportOutput> import_glb(const ImportRequest& request) {
     return import_gltf_text(request, std::move(*bytes), *json);
 }
 
+// The layers of a PSD as an image document (documentPath) with one PNG per layer in <name>.layers/. files[0] stays the PNG the file
+// always imported to (its merged image, which the document's bake replaces with the same picture drawn from the layers).
+void psd_layer_json(const imgedit::PsdLayer& l, const std::string& layersDir, std::set<std::string>& usedNames, std::set<std::string>& usedFiles,
+                    std::vector<OutFile>& files, Json& out, std::vector<std::string>& warnings, bool bottom) {
+    std::string name = l.name;
+    for (int n = 2; usedNames.count(to_lower(name)); ++n) name = l.name + " " + std::to_string(n);
+    usedNames.insert(to_lower(name));
+    Json j = Json::object({{"kind", l.isGroup ? "group" : "pixels"}, {"name", name}});
+    if (l.isGroup) {
+        Json kids = Json::array();
+        bool first = true;
+        for (const imgedit::PsdLayer& c : l.children) {
+            psd_layer_json(c, layersDir, usedNames, usedFiles, files, kids, warnings, first);
+            if (kids.size() > 0) first = false;
+        }
+        if (kids.empty()) {
+            warnings.push_back("Group '" + name + "' has no layers with pixels and was left out.");
+            return;
+        }
+        j["layers"] = kids;
+    } else {
+        std::string base = safe_file_name(name, "layer"), file = base;
+        for (int n = 2; usedFiles.count(to_lower(file)); ++n) file = base + "-" + std::to_string(n);
+        usedFiles.insert(to_lower(file));
+        const std::string path = layersDir + file + ".png";
+        files.push_back({path, encode_png(l.pixels)});
+        j["source"] = path;
+        if (l.x) j["x"] = l.x;
+        if (l.y) j["y"] = l.y;
+    }
+    if (l.opacity < 0.9999f) j["opacity"] = std::round(double(l.opacity) * 10000.0) / 10000.0;
+    if (!l.visible) j["visible"] = false;
+    if (l.blend != "normal") j["blend"] = l.blend;
+    if (l.clip) {
+        if (bottom) warnings.push_back("Layer '" + name + "' was clipped to a layer below it that is not in the same group; it was imported unclipped.");
+        else j["clip"] = true;
+    }
+    out.push_back(std::move(j));
+}
+
 Result<ImportOutput> import_psd(const ImportRequest& request) {
     auto bytes = read_bytes(request.source);
     if (!bytes.ok()) return bytes.error();
     const std::string file = request.source.filename().string();
     if (bytes->size() < 4 || std::string_view(reinterpret_cast<const char*>(bytes->data()), 4) != "8BPS")
         return make_error("'" + file + "' is not a Photoshop (.psd) file.", "Large documents (.psb) are not supported: flatten and save a PNG.");
-    auto image = decode_image(bytes->data(), bytes->size());
-    if (!image.ok())
-        return make_error("Cannot read the merged image of '" + file + "': " + image.error().message,
+    auto merged = decode_image(bytes->data(), bytes->size());
+    auto layered = imgedit::read_psd_layers(*bytes, file);
+    ImportOutput out;
+    if (layered.ok() && !layered->layers.empty()) {
+        const imgedit::PsdDocument& psd = *layered;
+        const std::string stem = request.dest.substr(0, request.dest.size() - fs::extension(request.dest).size());
+        const std::string layersDir = stem + ".layers/";
+        std::set<std::string> names, files;
+        std::vector<OutFile> layerFiles;
+        Json layers = Json::array();
+        std::vector<std::string> warnings = psd.warnings;
+        bool first = true;
+        for (const imgedit::PsdLayer& l : psd.layers) {
+            psd_layer_json(l, layersDir, names, files, layerFiles, layers, warnings, first);
+            if (layers.size() > 0) first = false;
+        }
+        if (!layers.empty()) {
+            Image placeholder;
+            if (merged.ok() && merged->width == psd.width && merged->height == psd.height) {
+                placeholder = std::move(*merged);
+            } else {
+                placeholder.width = psd.width;
+                placeholder.height = psd.height;
+                placeholder.rgba.assign(std::size_t(psd.width) * psd.height * 4, 0);
+            }
+            out.files.push_back({request.dest, encode_png(placeholder)});
+            for (OutFile& f : layerFiles) out.files.push_back(std::move(f));
+            out.documentPath = stem + ".image.json";
+            out.document = Json::object({{"width", psd.width}, {"height", psd.height}, {"description", "Imported from " + file + "."}, {"layers", layers}});
+            out.details = Json::object({{"width", psd.width}, {"height", psd.height}, {"layers", out.files.size() - 1}, {"document", out.documentPath}});
+            out.warnings = warnings;
+            out.nextSteps.push_back("The layers are an image document: image.info {\"path\":\"" + out.documentPath + "\"} lists them, image.layer.set / image.edit / image.paint change them, and the PNG at \"" +
+                                    request.dest + "\" is baked from it (a Sprite can use that PNG).");
+            return out;
+        }
+    }
+    if (!merged.ok())
+        return make_error("Cannot read the merged image of '" + file + "': " + merged.error().message,
                           "Only 8 and 16 bit RGB PSDs are read, from their saved merged image. In Photoshop turn on "
                           "Edit > Preferences > File Handling > Maximize PSD and PSB File Compatibility and save again, convert the "
                           "mode to RGB, or export a PNG (File > Export > Quick Export as PNG).");
-    ImportOutput out;
-    out.files.push_back({request.dest, encode_png(*image)});
-    out.details = Json::object({{"width", image->width}, {"height", image->height}, {"layersFlattened", true}});
-    out.warnings.push_back("Layers were flattened: the PNG is the merged image of the PSD. To use layers separately, export each one "
-                           "from Photoshop (File > Export > Layers to Files) and import those.");
+    out.files.push_back({request.dest, encode_png(*merged)});
+    out.details = Json::object({{"width", merged->width}, {"height", merged->height}, {"layersFlattened", true}});
+    if (!layered.ok()) out.warnings.push_back("Layers were flattened: " + layered.error().message + " " + layered.error().hint);
+    else out.warnings.push_back("The file has no layers, so the PNG is its merged image.");
     return out;
 }
 
@@ -382,6 +459,8 @@ const std::map<std::string, Route>& routes() {
 std::string supported_extensions() {
     std::vector<std::string> list;
     for (const auto& [ext, route] : routes()) list.push_back(ext);
+    list.push_back(".mid");
+    list.push_back(".midi");
     return join(list, ", ");
 }
 
@@ -403,6 +482,16 @@ Json import_asset(const std::string& projectDir, const Json& a) {
     const std::string sourceArg = arg_string(a, "source", true);
     const stdfs::path source = resolve_source(projectDir, sourceArg);
     const std::string ext = to_lower(source.extension().string());
+    // A MIDI file becomes a song document (the same as music.import_midi, which has the options).
+    if (ext == ".mid" || ext == ".midi") {
+        Json args = Json::object();
+        for (const char* key : {"overwrite", "license", "author", "sourceUrl", "quantize", "soundfont", "loop"})
+            if (a.contains(key)) args[key] = a[key];
+        const std::string dest = arg_string(a, "path", false);
+        Json result = music::import_midi_file(projectDir, source, replace_all(sourceArg, "\\", "/"), args, dest);
+        result["importer"] = "midi";
+        return result;
+    }
     const auto route = routes().find(ext);
     if (route == routes().end()) {
         std::string hint = "Supported: " + supported_extensions() + ".";
@@ -417,6 +506,7 @@ Json import_asset(const std::string& projectDir, const Json& a) {
     request.source = source;
     request.dest = plan_destination(arg_string(a, "path", false), source, route->second);
     request.columns = int(tooling_detail::arg_int(a, "columns", 0));
+    request.flat = arg_bool(a, "flat", false);
     const bool overwrite = arg_bool(a, "overwrite", false);
     auto exists = [&](const std::string& rel) { std::error_code ec; return stdfs::exists(project_file(projectDir, rel), ec); };
     if (!overwrite && exists(request.dest))
@@ -443,7 +533,7 @@ Json import_asset(const std::string& projectDir, const Json& a) {
             if (i == 0) {
                 clashes.push_back(f.path);
             } else if (same_bytes(f.path, f.bytes)) {
-            } else if (to_lower(fs::extension(f.path)) == ".bin") {
+            } else if (to_lower(fs::extension(f.path)) == ".bin" || !out.documentPath.empty()) {
                 clashes.push_back(f.path);
             } else {
                 out.warnings.push_back("'" + f.path + "' already exists and is a DIFFERENT file (another model's?), so it was kept and the "
@@ -457,6 +547,8 @@ Json import_asset(const std::string& projectDir, const Json& a) {
     if (!clashes.empty())
         fail("exists", "These files already exist: " + join(clashes, ", ") + ".", "Pass overwrite: true to replace them, or choose another `path` (the files next to a model follow its folder).");
     out.files = std::move(toWrite);
+    if (!out.documentPath.empty() && !overwrite && exists(out.documentPath))
+        fail("exists", "'" + out.documentPath + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
 
     Json provenance = Json::object({{"origin", "imported"}, {"date", assets::today()}});
     provenance["source"] = arg_string(a, "sourceUrl", false, replace_all(sourceArg, "\\", "/"));
@@ -479,6 +571,19 @@ Json import_asset(const std::string& projectDir, const Json& a) {
                 if (i == 0 && !out.sheet.is_null()) e["sheet"] = out.sheet;
             });
             if (!r.ok()) fail("failed", "The files were written, but assets.json was not updated: " + r.error().message, r.error().hint);
+        }
+    }
+
+    if (!out.documentPath.empty()) {
+        auto saved = save_image_document(projectDir, out.documentPath, out.document, true);
+        if (!saved.ok()) fail("failed", "The layers were written, but the image document could not be saved: " + saved.error().message, saved.error().hint);
+        written.push_back(Json::object({{"path", out.documentPath}, {"kind", "image document"}}));
+        for (const std::string& w : saved->warnings) out.warnings.push_back(w);
+        if (out.sheet.is_null() && saved->sheet.is_object()) {
+            // An animated document bakes a sprite sheet: report it and how to play it, like an importer that makes a sheet.
+            out.sheet = saved->sheet;
+            if (out.nextSteps.empty()) out.nextSteps = default_next_steps(request.dest);
+            for (const std::string& step : sheet_next_steps(request.dest, out.sheet, 10)) out.nextSteps.push_back(step);
         }
     }
 
@@ -516,17 +621,27 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "the same name is kept and the result warns (kits ship different Textures/colormap.png files: import each kit into its own "
         "folder with `path`, or pass overwrite), and a DIFFERENT buffer is an `exists` error. project.validate reports a model whose "
         "texture or buffer is missing.\n"
-        "- .aseprite .ase: becomes ONE PNG sprite sheet (frames in a grid, `columns` per row, default ceil(sqrt(frames))) and the "
-        "`sheet` entry of assets.json: columns, rows, frameWidth, frameHeight, frames and a clip per tag (firstFrame, lastFrame, fps from "
-        "the frame durations). Hidden layers are left out, layer and cel opacity apply, RGBA, grayscale and indexed colors work. "
-        "Blend modes other than normal are drawn as normal, and ping-pong or reverse tags become forward clips (set SpriteAnimator.mode to play them that way); the result says so. "
-        "The result lists the Sprite and SpriteAnimator settings that play it.\n"
-        "- .psd: the merged image becomes a PNG (layers are flattened).\n"
+        "- .aseprite .ase: becomes an image document (<name>.image.json, one PNG per layer and changing cel in <name>.layers/) and the "
+        "sprite sheet is baked from it: layers (hidden ones kept hidden; groups are flattened, their visibility and opacity kept), cels "
+        "(a cel the file links to an earlier frame is a `link`), frame durations, tags (name, range, direction, repeat count) and blend "
+        "modes. An indexed file stays an INDEXED document with its palette when the colors fit (opaque, at most 81); otherwise the layers "
+        "are pixels layers and the result says why. Tags become the clips of the baked sheet's `sheet` entry (frames in a grid, "
+        "`columns` per row, default ceil(sqrt(cells)); a reverse, ping-pong or repeated tag gets extra cells so it plays that way), so "
+        "a SpriteAnimator plays a tag by clip name. A file with one frame and no tags bakes a plain PNG. Edit the result with image.* "
+        "(image.pixel, image.draw, image.edit and image.paint take a `frame`; image.frame.* and image.tag.* change the animation). "
+        "Not kept: tilemap layers, reference layers, cel z-indexes, the blend mode of a group and the 'divide' blend mode (the result "
+        "warns). Pass flat: true for the old result: ONE PNG sprite sheet and the `sheet` entry of assets.json (columns, rows, "
+        "frameWidth, frameHeight, frames and a clip per tag, fps from the frame durations), no document and no layers; hidden layers "
+        "are left out, blend modes other than normal are drawn as normal and ping-pong or reverse tags become forward clips (the "
+        "result says so). The result lists the Sprite and SpriteAnimator settings that play the sheet.\n"
+        "- .psd: the layers become an image document (<name>.image.json, one PNG per layer in <name>.layers/; names, opacity, visibility, blend modes, clipping, groups and layer masks are kept) and the PNG is baked from it; a file whose layers cannot be read imports its merged image as a PNG with a warning.\n"
         "- .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are "
         "triangulated, objects/groups/materials become separate meshes, missing normals give flat shading, and the result has the "
         "bounds so you can scale it.\n"
         "- .fbx: converted to .glb by FBX2glTF ($FACTORIA_FBX2GLTF or PATH) or by Blender (PATH or its install folder). With neither "
         "installed the error says where to get them.\n"
+        "- .mid .midi: becomes a song document (assets/music/<name>.song.json, or `path`): tracks, patterns, sections from markers, drums as grids "
+        "(music.import_midi has the options `quantize` and `soundfont`; docs/MUSIC.md, \"MIDI\").\n"
         "- .mp4 .mov .webm .mkv .avi .m4v: converted to an MPEG-1 video with MP2 audio in an .mpg (the only video the engine plays, "
         "the same on every platform) by ffmpeg, at most 1280 px wide, quality 4, 30 fps when the frame rate is not one MPEG-1 has. "
         "ffmpeg is found through $FACTORIA_FFMPEG, PATH or the copy `factoria setup ffmpeg` installs; without it the error names that "
@@ -544,7 +659,8 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "author":{"type":"string","description":"Who made it. Recorded in assets.json for the credits."},
         "sourceUrl":{"type":"string","description":"Where the file came from (a page URL). Recorded as the provenance source instead of the local path."},
         "ai":{"type":"boolean","description":"Set true when AI made the content elsewhere (Steam's AI disclosure reads it). Leave out when unknown."},
-        "columns":{"type":"integer","minimum":1,"description":"Aseprite only: frames per row of the sheet (default ceil(sqrt(frames)))."},
+        "columns":{"type":"integer","minimum":1,"description":"Aseprite only: frames per row of the baked sprite sheet (default ceil(sqrt(frames))); recorded as `sheet.columns` of the document."},
+        "flat":{"type":"boolean","default":false,"description":"Aseprite only: skip the image document and write ONE PNG sprite sheet with its `sheet` entry (the layers are flattened, a ping-pong or reverse tag becomes a forward clip)."},
         "overwrite":{"type":"boolean","default":false,"description":"Replace files that already exist."}
       }})");
     registry.add(info, [projectDir](const Json& args) { return import_asset(projectDir, args); });
@@ -553,13 +669,25 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
     register_draw_icon_command(registry, projectDir);
     register_draw_capsules_command(registry, projectDir);
     register_synth_sound_command(registry, projectDir);
+    register_sfx_commands(registry, projectDir);
+    register_audio_doc_commands(registry, projectDir);
+    register_model_commands(registry, projectDir);
+    register_rig_commands(registry, projectDir);
+    register_skin3d_commands(registry, projectDir);
+    register_anim3d_commands(registry, projectDir);
+    register_music_commands(registry, projectDir);
     register_texture_command(registry, projectDir);
     register_svg_command(registry, projectDir);
     register_animate_svg_command(registry, projectDir);
     register_preview_sheet_command(registry, projectDir);
+    register_check_art_command(registry, projectDir);
     register_bake_sheet_command(registry, projectDir);
+    register_contact_sheet_command(registry, projectDir);
+    register_preview_scene_command(registry, projectDir);
     register_audio_commands(registry, projectDir);
     register_subset_font_command(registry, projectDir);
+    register_image_commands(registry, projectDir);
+    register_vector_commands(registry, projectDir);
     register_regenerate_command(registry, projectDir);
 }
 

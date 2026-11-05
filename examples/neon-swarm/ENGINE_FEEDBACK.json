@@ -442,6 +442,71 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0020",
+      "date": "2026-11-03",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude",
+        "model": "sonnet-5.5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "assets.check_mix judges raw source recordings of an audio document and a crossfaded loop still warns on loop_seam_slope",
+      "missing": "After turning assets/music/loop.wav into an audio document (loop step, 0.25 to 2 s crossfade) the mix check still reports loop_seam_slope (8.4x to 9.5x, threshold 8) on the baked file, and it reports click_start (fail) on the untouched source recording assets/source/music_loop.wav, which the game never plays.",
+      "workaround": "Kept the 0.25 s crossfade; left the warning. The source stays next to the document so the bake can be repeated.",
+      "workaroundFiles": [
+        "assets/music/loop.audio.json"
+      ],
+      "suggestion": "Skip sounds that are only the source of an audio document (or mark them in assets.json), and judge loop_seam_slope across the crossfade the loop step made.",
+      "occurrences": 1,
+      "status": "open",
+      "notes": [
+        "Moot for this example from M56.5: the loop became the adaptive song assets/music/score.song.json, so the baked loop.wav and its source are gone. The checker's behaviour on a crossfaded loop is unchanged."
+      ]
+    },
+    {
+      "id": "FB-0021",
+      "date": "2026-11-03",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude",
+        "model": "sonnet-5.5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "entity.music.status.intensity is the applied intensity, entity.music.intensity the requested one, and the docs do not say",
+      "missing": "After setIntensity(0.8) the component and entity.music.intensity read 0.8 at once, but status.intensity (and audio.music_state) stay at the old value until the layerQuantize boundary. A test that reads status.intensity right after a change sees the old value; both are described as 'the intensity'.",
+      "workaround": "The tests read entity.music.intensity for what the script asked and status.stemGains for what is audible, and wait one beat before reading status.intensity.",
+      "workaroundFiles": [
+        "tests/neon.test.js"
+      ],
+      "suggestion": "Name the applied value (for example appliedIntensity) or say in docs/MUSIC.md which one status.intensity is.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0022",
+      "date": "2026-11-03",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude",
+        "model": "sonnet-5.5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "A section change and a layer change cannot be read as 'done' without polling status",
+      "missing": "goToSection and setIntensity return nothing; a script that wants to know when the battle section is audible has to listen to the section event (the section event fires for loop passes too) or poll status.section and status.stemGains.",
+      "workaround": "The tests step the game a bar and read status.section / status.stemGains; the game script does not need the answer.",
+      "workaroundFiles": [
+        "tests/neon.test.js"
+      ],
+      "suggestion": "goToSection and setIntensity could return the audio frame the change lands on, or take an onDone callback.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

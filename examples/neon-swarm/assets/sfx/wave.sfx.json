@@ -1,0 +1,38 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "A power-up: a square wave that sweeps up two octaves with a fast vibrato.",
+  "length": 0.45,
+  "layers": [
+    {
+      "pitch": {
+        "freq": 330,
+        "sweep": {
+          "to": 1320
+        },
+        "vibrato": {
+          "rate": 18,
+          "depth": 50
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "square"
+        }
+      ],
+      "amp": {
+        "attack": 0.003,
+        "decay": 0.4485,
+        "sustain": 0,
+        "curve": 0.8
+      }
+    }
+  ],
+  "sampleRate": 22050,
+  "master": {
+    "normalize": {
+      "mode": "lufs",
+      "target": -11,
+      "ceilingDb": -2
+    }
+  }
+}

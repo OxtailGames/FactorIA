@@ -1,0 +1,24 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "log_pile",
+    "components": {
+      "MeshRenderer": {
+        "mesh": "assets/models/log_pile.glb"
+      },
+      "Collider3D": {
+        "shape": "box",
+        "size": [
+          0.8663,
+          0.78,
+          1.015
+        ],
+        "offset": [
+          0.0,
+          0.39,
+          0.0
+        ]
+      }
+    }
+  }
+}

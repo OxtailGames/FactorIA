@@ -7,9 +7,9 @@
       "cpuMsAvg": 63.446,
       "cpuMsP95": 79.123,
       "cpuMsMax": 348.95,
-      "peakMemoryMB": 120.5,
-      "drawCalls": 14,
-      "entities": 30,
+      "peakMemoryMB": 173.8,
+      "drawCalls": 30,
+      "entities": 31,
       "graphics": "D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)"
     },
     "linux-gcc-llvmpipe": {
@@ -18,8 +18,8 @@
       "cpuMsP95": 502.808,
       "cpuMsMax": 1330.161,
       "peakMemoryMB": 222.4,
-      "drawCalls": 14,
-      "entities": 30,
+      "drawCalls": 30,
+      "entities": 31,
       "graphics": "EGL surfaceless / llvmpipe (LLVM 20.1.2, 256 bits) (GL 4.3 core, 4.5 (Core Profile) Mesa 25.2.8-0ubuntu0.24.04.4)"
     },
     "macos-clang-metal-paravirtual": {
@@ -28,8 +28,8 @@
       "cpuMsP95": 0.464,
       "cpuMsMax": 9.274,
       "peakMemoryMB": 41.0,
-      "drawCalls": 14,
-      "entities": 30,
+      "drawCalls": 30,
+      "entities": 31,
       "graphics": "Metal / Apple Paravirtual device"
     }
   }

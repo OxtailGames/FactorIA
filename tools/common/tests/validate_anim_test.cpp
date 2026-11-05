@@ -3,6 +3,7 @@
 
 #include <filesystem>
 
+#include "asset_test_helpers.h"
 #include "fa/scene/serialize.h"
 #include "fa/tooling/scaffold.h"
 #include "fa/tooling/validate.h"
@@ -90,4 +91,94 @@ TEST_CASE("validate: a track that names no part of the Animator's entity") {
     CHECK(hand->message.find("hero") != std::string::npos);
     CHECK(hand->hint.find("arm") != std::string::npos);
     CHECK(find_in(r.errors, "scenes/main.scene.json", "no Sprite component"));
+}
+
+// ---- 3D bone clips and IK3D -------------------------------------------------------------------------------------------------------------
+
+namespace {
+
+const char* kBox = R"({"format":"factoria.model/1","nodes":[
+  {"op":"box","size":[0.36,0.2,0.2],"position":[0,0.95,0],"part":"pelvis"},
+  {"op":"box","size":[0.4,0.5,0.22],"position":[0,1.3,0],"part":"torso"},
+  {"op":"box","size":[0.1,0.1,0.1],"position":[0,1.6,0],"part":"neck"},
+  {"op":"box","size":[0.22,0.25,0.22],"position":[0,1.77,0.02],"part":"head"},
+  {"op":"box","size":[0.7,0.1,0.1],"position":[0.55,1.5,0],"part":"arm_l"},
+  {"op":"box","size":[0.7,0.1,0.1],"position":[-0.55,1.5,0],"part":"arm_r"},
+  {"op":"box","size":[0.14,0.9,0.14],"position":[0.11,0.45,0],"part":"leg_l"},
+  {"op":"box","size":[0.14,0.9,0.14],"position":[-0.11,0.45,0],"part":"leg_r"}]})";
+
+// A project with a baked humanoid (assets/models/hero.rig.glb) and a "hero" entity that shows it with an Animator and optionally an IK3D.
+stdfs::path make_rig_project(testing::TempDir& tmp, const char* clips, const char* ik3d = nullptr) {
+    REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
+    const stdfs::path dir = tmp.path / "game";
+    CommandRegistry registry;
+    register_asset_commands(registry, dir.string());
+    testing::write_all(dir / "assets/models/hero.model.json", kBox);
+    const CommandResult made = registry.call("rig.create", Json::parse(R"({"path":"assets/models/hero.rig.json","model":"assets/models/hero.model.json","template":"humanoid"})"));
+    REQUIRE_MESSAGE(made.ok, made.error.dump());
+    auto scene = load_json_file((dir / "scenes/main.scene.json").string());
+    REQUIRE(scene.ok());
+    Json hero = Json::parse(R"({"id":"hero","name":"hero","components":{"MeshRenderer":{"mesh":"assets/models/hero.rig.glb"},"Animator":{"model":"assets/models/hero.rig.glb"}}})");
+    hero["components"]["Animator"]["clips"] = Json::parse(clips);
+    if (ik3d) hero["components"]["IK3D"] = Json::parse(ik3d);
+    (*scene)["entities"].push_back(hero);
+    REQUIRE(save_scene_json_file((dir / "scenes/main.scene.json").string(), *scene).ok());
+    return dir;
+}
+
+const char* kGoodClip3D = R"({"format":"factoria.anim3d/1","duration":1,"loop":true,"tracks":[
+  {"bone":"spine_1","keys":[{"t":0,"value":[0,0,0]},{"t":0.5,"value":[10,0,0]},{"t":1,"value":[0,0,0]}]}]})";
+
+}  // namespace
+
+TEST_CASE("validate: a 3D bone clip played by an Animator on a skinned model passes, and IK3D with good solvers too") {
+    testing::TempDir tmp;
+    const stdfs::path dir = make_rig_project(tmp, R"({"walk":"anim/walk.anim.json"})", R"({"solvers":[{"type":"lookAt","bone":"head","target":[0,1.6,3]}]})");
+    testing::write_all(dir / "anim/walk.anim.json", kGoodClip3D);
+    const ValidationReport r = validate_project(dir.string());
+    for (const auto& e : r.errors) MESSAGE(e.to_string());
+    CHECK(r.ok);
+}
+
+TEST_CASE("validate: a 3D clip with a bad key, a bone the model lacks, a missing file, and a 2D clip on a model all teach") {
+    testing::TempDir tmp;
+    const stdfs::path dir = make_rig_project(tmp, R"({"walk":"anim/walk.anim.json","ghost":"anim/ghost.anim.json","gone":"anim/gone.anim.json"})");
+    testing::write_all(dir / "anim/walk.anim.json", R"({"format":"factoria.anim3d/1","duration":1,"tracks":[
+      {"bone":"spine_1","keys":[{"t":0,"value":[0,0]}]}]})");
+    testing::write_all(dir / "anim/ghost.anim.json", R"({"format":"factoria.anim3d/1","duration":1,"tracks":[
+      {"bone":"spin_1","keys":[{"t":0,"value":[0,0,0]}]}]})");
+    const ValidationReport r = validate_project(dir.string());
+    CHECK_FALSE(r.ok);
+    const ValidationIssue* bad = find_in(r.errors, "anim/walk.anim.json", "");
+    REQUIRE(bad);
+    CHECK(bad->pointer.find("/tracks/0") == 0);
+    CHECK_FALSE(bad->hint.empty());
+    const ValidationIssue* ghost = find_in(r.errors, "scenes/main.scene.json", "spin_1");
+    REQUIRE(ghost);
+    CHECK(ghost->pointer.find("/components/Animator/clips/ghost") != std::string::npos);
+    CHECK(ghost->hint.find("spine_1") != std::string::npos);
+    CHECK(find_in(r.errors, "scenes/main.scene.json", "anim/gone.anim.json"));
+}
+
+TEST_CASE("validate: IK3D solvers are checked against the model's bones, and an IK3D needs an Animator on a model") {
+    testing::TempDir tmp;
+    const stdfs::path dir = make_rig_project(tmp, R"({})", R"({"weight":2,"solvers":[{"type":"twoBone","root":"thigh_l","mid":"shin_q","end":"foot_l"},{"type":"lookAt","bone":"head","yawLimit":900}]})");
+    ValidationReport r = validate_project(dir.string());
+    CHECK_FALSE(r.ok);
+    const ValidationIssue* mid = find_in(r.errors, "scenes/main.scene.json", "shin_q");
+    REQUIRE(mid);
+    CHECK(mid->pointer.find("/components/IK3D/solvers/0/mid") != std::string::npos);
+    CHECK(mid->hint.find("shin_l") != std::string::npos);
+    CHECK(find_in(r.errors, "scenes/main.scene.json", "yawLimit"));
+    CHECK(find_in(r.errors, "scenes/main.scene.json", "weight"));
+
+    // an IK3D whose entity has no Animator
+    auto scene = load_json_file((dir / "scenes/main.scene.json").string());
+    REQUIRE(scene.ok());
+    (*scene)["entities"].push_back(Json::parse(R"({"id":"lonely","name":"lonely","components":{"IK3D":{}}})"));
+    REQUIRE(save_scene_json_file((dir / "scenes/main.scene.json").string(), *scene).ok());
+    r = validate_project(dir.string());
+    const ValidationIssue* lonely = find_in(r.errors, "scenes/main.scene.json", "needs an Animator");
+    REQUIRE(lonely);
+    CHECK(lonely->message.find("lonely") != std::string::npos);
 }

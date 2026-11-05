@@ -1,5 +1,6 @@
 #include "fa/render/renderer.h"
 #include "fa/scene/bones2d.h"
+#include "fa/scene/lod.h"
 
 #include <algorithm>
 #include <chrono>
@@ -1536,8 +1537,9 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     if (fr.wantWorld) world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
         if (!entity_active(world, fr, e) || !fr.mask.draws(world, e)) return;  // Camera.showTags / hideTags
         MeshItem mi;
-        mi.mesh = assets->mesh(mr.mesh);
         mi.model = world.world_matrix(e);
+        mi.dist = length(mi.model.translation() - fr.cam.position);
+        mi.mesh = assets->mesh(mr.lods.empty() ? mr.mesh : lod_mesh(mr, mi.dist));  // MeshRenderer::lods
         mi.mr = &mr;
         mi.tex = mr.texture.empty() ? nullptr : assets->texture(mr.texture);
         mi.material = mr.material.empty() ? nullptr : assets->material(mr.material);
@@ -1546,7 +1548,6 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
         if (mr.materialColors.is_object() && !mr.materialColors.empty())
             mi.colorsHash = std::hash<std::string>{}(mr.materialColors.dump());
         mi.normalTex = mr.normalMap.empty() ? nullptr : assets->texture(mr.normalMap);
-        mi.dist = length(mi.model.translation() - fr.cam.position);
         mi.bmin = mi.mesh->bmin;
         mi.bmax = mi.mesh->bmax;
         // A skinned model with a computed pose is drawn deformed by the Animator's palette (before its first fixed step the

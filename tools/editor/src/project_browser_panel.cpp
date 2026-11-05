@@ -14,6 +14,7 @@
 #include "imgui_internal.h"
 #include "fa/runtime/project.h"
 #include "fa/core/asset_manifest.h"
+#include "fa/core/strings.h"
 #include "project_browser_model.h"
 #include "sheet_preview_model.h"
 #include "ui_backend.h"
@@ -290,6 +291,12 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
         if (dirty_) pendingScene_ = f.path;  // the "Unsaved changes" dialog asks first
         else open_scene(f.path);
     }
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".image.json")) open_image_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".svg")) open_vector_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && (ends_with(f.path, ".sfx.json") || ends_with(f.path, ".audio.json") || ends_with(f.path, ".wav") || ends_with(f.path, ".ogg"))) open_sound_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".song.json")) open_music_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".model.json")) open_model_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".anim.json") && anim3d_file_is_3d(projectDir_, f.path)) open_anim3d_clip(f.path);
     const AssetRecipeStatus* recipe = recipe_of_file(pb.listing, f.path);
     if (hovered && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
         std::string made;
@@ -300,7 +307,7 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
             else made += ": up to date";
         }
         ImGui::SetTooltip("%s\n%s, %s%s%s", f.path.c_str(), f.type.c_str(), size_text(f.size).c_str(),
-                          f.type == "scene" ? "\nDouble-click to open" : f.type == "prefab" ? "\nDrag onto the Viewport to spawn it" : "",
+                          f.type == "scene" || ends_with(f.path, ".image.json") || ends_with(f.path, ".svg") ? "\nDouble-click to open" : f.type == "prefab" ? "\nDrag onto the Viewport to spawn it" : "",
                           made.c_str());
     }
 

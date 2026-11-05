@@ -1,6 +1,49 @@
 {
   "format": "factoria.assets/1",
+  "style": {
+    "texelsPerUnit": 1,
+    "saturation": {
+      "min": 0.3,
+      "max": 0.9
+    },
+    "ignore": [
+      "assets/crawler_sheet.png",
+      "assets/parts_atlas.png"
+    ]
+  },
   "assets": {
+    "assets/coin.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria assets.rasterize_svg",
+        "license": "CC0-1.0",
+        "notes": "Rasterized from SVG 'assets/src/svg/props/coin.svg' at 24x24.",
+        "date": "2026-11-03",
+        "author": "FactorIA",
+        "source": "assets/src/svg/props/coin.svg",
+        "recipe": {
+          "command": "assets.rasterize_svg",
+          "args": {
+            "source": "assets/src/svg/props/coin.svg",
+            "path": "assets/coin.png",
+            "width": 24,
+            "height": 24,
+            "ai": false,
+            "author": "FactorIA",
+            "license": "CC0-1.0",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/src/svg/props/coin.svg",
+              "sha256": "604882f9ec5bf09feaaf9efefab672a91ee87b8180d86c2b8732591dc2de74dd"
+            }
+          ]
+        }
+      }
+    },
     "assets/crawler_sheet.png": {
       "sheet": {
         "columns": 4,
@@ -84,6 +127,38 @@
             {
               "path": "prefabs/crawler_rig.prefab.json",
               "sha256": "b5f1ba1aef16d8203da9c55ca1c854ccc7b4992ed60cc8bdc29643c97c262336"
+            }
+          ]
+        }
+      }
+    },
+    "assets/flag.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria assets.rasterize_svg",
+        "license": "CC0-1.0",
+        "notes": "Rasterized from SVG 'assets/src/svg/props/flag.svg' at 40x96.",
+        "date": "2026-11-03",
+        "author": "FactorIA",
+        "source": "assets/src/svg/props/flag.svg",
+        "recipe": {
+          "command": "assets.rasterize_svg",
+          "args": {
+            "source": "assets/src/svg/props/flag.svg",
+            "path": "assets/flag.png",
+            "width": 40,
+            "height": 96,
+            "ai": false,
+            "author": "FactorIA",
+            "license": "CC0-1.0",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/src/svg/props/flag.svg",
+              "sha256": "dfec073e2c5250065b0d7a250f1b2023c7d658647b9edfbc04bee7adbe8bca29"
             }
           ]
         }

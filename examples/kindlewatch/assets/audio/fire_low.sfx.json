@@ -1,0 +1,42 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "The fire is nearly out: a falling low warning tone.",
+  "length": 0.4,
+  "layers": [
+    {
+      "pitch": {
+        "freq": 130,
+        "sweep": {
+          "to": 110
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "square"
+        },
+        {
+          "wave": "noise",
+          "gain": 0.08
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 3500
+      },
+      "tremolo": {
+        "rate": 11,
+        "depth": 0.9
+      },
+      "amp": {
+        "attack": 0.003,
+        "decay": 0.397,
+        "sustain": 0,
+        "curve": 0.5
+      }
+    }
+  ],
+  "macros": {
+    "weight": 0.5,
+    "tail": 0.4
+  }
+}

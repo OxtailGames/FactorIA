@@ -68,6 +68,14 @@ Bytes tags(const std::vector<std::tuple<int, int, int, std::string>>& list) {
     return chunk(0x2018, b);
 }
 
+// from, to, direction, repeat, name
+Bytes tags_repeat(const std::vector<std::tuple<int, int, int, int, std::string>>& list) {
+    Bytes b;
+    b.u16(unsigned(list.size())).zeros(8);
+    for (const auto& [from, to, dir, repeat, name] : list) b.u16(unsigned(from)).u16(unsigned(to)).u8(unsigned(dir)).u16(unsigned(repeat)).zeros(6).zeros(3).u8(0).str(name);
+    return chunk(0x2018, b);
+}
+
 Bytes palette(const std::vector<Rgba>& colors) {
     Bytes b;
     b.u32(unsigned(colors.size())).u32(0).u32(unsigned(colors.size()) - 1).zeros(8);
@@ -115,7 +123,7 @@ std::string art(AssetsProject& p, const std::string& name, const std::string& by
 
 }  // namespace
 
-TEST_CASE("assets.import: Aseprite frames, layers, cels and tags become a sheet and its clips") {
+TEST_CASE("assets.import: Aseprite flat: true makes one sheet and its clips, no document") {
     AssetsProject p;
     const Rgba red{255, 0, 0, 255}, blue{0, 0, 255, 255};
     // Layers: 0 "body", 1 "hidden" (not visible), 2 "half" (layer opacity 128), 3 "glow" (addition blend mode).
@@ -130,8 +138,9 @@ TEST_CASE("assets.import: Aseprite frames, layers, cels and tags become a sheet 
     frames.push_back(frame(50, {cel_raw(2, 0, 0, 1, 1, rgba_block(1, red))}));                    // on the layer with opacity 128
     const std::string source = art(p, "hero.aseprite", aseprite(4, 2, 32, frames));
 
-    const Json r = p.ok("assets.import", {{"source", source}, {"license", "CC0"}, {"author", "Ana"}});
+    const Json r = p.ok("assets.import", {{"source", source}, {"license", "CC0"}, {"author", "Ana"}, {"flat", true}});
     CHECK(r["importer"] == "aseprite");
+    CHECK_FALSE(p.exists("assets/hero.image.json"));
     CHECK(r["path"] == "assets/hero.png");
     const Json& sheet = r["sheet"];
     CHECK(sheet["columns"] == 2);
@@ -177,10 +186,154 @@ TEST_CASE("assets.import: Aseprite frames, layers, cels and tags become a sheet 
     CHECK_FALSE(entry["provenance"].contains("ai"));
 
     // `columns` lays the frames out in one row.
-    const Json row = p.ok("assets.import", {{"source", source}, {"path", "assets/row.png"}, {"columns", 4}});
+    const Json row = p.ok("assets.import", {{"source", source}, {"path", "assets/row.png"}, {"columns", 4}, {"flat", true}});
     CHECK(row["sheet"]["columns"] == 4);
     CHECK(row["sheet"]["rows"] == 1);
     CHECK(read_png(p.file("assets/row.png")).width == 16);
+}
+
+TEST_CASE("assets.import: an Aseprite file becomes an image document with layers, cels, durations and tags") {
+    AssetsProject p;
+    const Rgba red{255, 0, 0, 255}, blue{0, 0, 255, 255};
+    // Layers: 0 "body", 1 "hidden" (not visible), 2 "glow" (multiply blend, opacity 128), 3 "odd" (divide: no equivalent), 4 an empty one.
+    std::vector<Bytes> first = {layer("body"), layer("hidden", 0), layer("glow", 1, 1, 128), layer("odd", 1, 18), layer("nothing")};
+    first.push_back(cel_zlib(0, 0, 0, 2, 2, rgba_block(4, red)));
+    first.push_back(cel_zlib(1, 0, 0, 2, 2, rgba_block(4, blue)));
+    first.push_back(cel_raw(2, 1, 0, 1, 1, rgba_block(1, blue)));
+    first.push_back(cel_raw(3, 0, 1, 1, 1, rgba_block(1, blue)));
+    first.push_back(tags_repeat({{0, 1, 0, 0, "idle"}, {2, 3, 2, 2, "run"}, {3, 3, 3, 0, "idle"}, {1, 9, 0, 0, "gone"}}));
+    std::vector<Bytes> frames;
+    frames.push_back(frame(100, first));
+    frames.push_back(frame(100, {cel_linked(0, 0), cel_linked(2, 0)}));                                   // body and glow link frame 0
+    frames.push_back(frame(250, {cel_raw(0, 1, 0, 1, 2, rgba_block(2, {0, 255, 0, 255}), 128), cel_linked(2, 0)}));   // a new body cel, cel opacity 128
+    frames.push_back(frame(50, {cel_linked(0, 0), cel_linked(2, 0)}));                                     // the body is frame 0's again
+    frames.push_back(frame(30, {cel_linked(2, 0)}));                                                       // no body cel: nothing
+    const std::string source = art(p, "hero.aseprite", aseprite(2, 2, 32, frames));
+
+    const Json r = p.ok("assets.import", {{"source", source}, {"license", "CC0"}, {"author", "Ana"}});
+    CHECK(r["importer"] == "aseprite");
+    CHECK(r["path"] == "assets/hero.png");
+    CHECK(r["details"]["frames"] == 5);
+    CHECK(r["details"]["document"] == "assets/hero.image.json");
+
+    const Json doc = parse_json(read_all(p.file("assets/hero.image.json")), "hero.image.json").value();
+    REQUIRE(doc["frames"].size() == 5);
+    CHECK(doc["frames"][2]["duration"] == 250);
+    CHECK(doc["frames"][3]["duration"] == 50);
+    REQUIRE(doc["tags"].size() == 3);   // "gone" is out of range and skipped; the second "idle" is renamed
+    CHECK(doc["tags"][2]["name"] == "idle 2");
+    CHECK(doc["tags"][0]["name"] == "idle");
+    CHECK_FALSE(doc["tags"][0].contains("direction"));
+    CHECK(doc["tags"][1]["name"] == "run");
+    CHECK(doc["tags"][1]["direction"] == "pingpong");
+    CHECK(doc["tags"][1]["repeat"] == 2);
+    REQUIRE(doc["layers"].size() == 4);   // the empty layer is left out; the hidden one stays, hidden
+    CHECK(doc["layers"][1]["name"] == "hidden");
+    CHECK(doc["layers"][1]["visible"] == false);
+    const Json& body = doc["layers"][0];
+    CHECK(body["name"] == "body");
+    CHECK(body["kind"] == "pixels");
+    CHECK(body["source"].get<std::string>().find("assets/hero.layers/") == 0);
+    REQUIRE(body["cels"].size() == 3);   // frame 1 shows frame 0's cel again: it holds, and needs no cel
+    CHECK(body["cels"][0]["frame"] == 2);
+    CHECK(body["cels"][0]["source"].get<std::string>() != body["source"].get<std::string>());
+    CHECK(body["cels"][0]["x"] == 1);
+    CHECK(body["cels"][1]["frame"] == 3);
+    CHECK(body["cels"][1]["link"] == 0);   // frame 0's cel again, after another one: a link, not a copy
+    CHECK(body["cels"][2]["frame"] == 4);
+    CHECK(body["cels"][2]["empty"] == true);
+    CHECK(doc["layers"][2]["name"] == "glow");
+    CHECK(doc["layers"][2]["blend"] == "multiply");
+    CHECK(doc["layers"][2]["opacity"] == doctest::Approx(128.0 / 255.0).epsilon(0.001));
+    CHECK_FALSE(doc["layers"][2].contains("cels"));   // linked in every frame: one picture
+    CHECK(doc["layers"][3]["name"] == "odd");
+    CHECK_FALSE(doc["layers"][3].contains("blend"));
+
+    // The baked sheet: the cels in a grid, the tags as clips; the hidden layer is hidden, not left out.
+    // (the hidden layer is not in the file list of visible layers, so it is the one at index 1 after "body": checked below)
+    CHECK(has_text(r["warnings"], "'odd' (divide)"));
+    CHECK(has_text(r["warnings"], "'nothing'"));
+    CHECK(has_text(r["warnings"], "'gone'"));
+    CHECK(has_text(r["warnings"], "covers frames 1-9"));
+    CHECK(has_text(r["warnings"], "more than once"));
+    REQUIRE(r.contains("sheet"));
+    const Json& sheet = r["sheet"];
+    CHECK(sheet["frameWidth"] == 2);
+    CHECK(sheet["frameHeight"] == 2);
+    const Json* idle = find_clip(sheet, "idle");
+    const Json* run = find_clip(sheet, "run");
+    REQUIRE((idle && run));
+    CHECK((*idle)["firstFrame"] == 0);
+    CHECK((*idle)["lastFrame"] == 1);
+    CHECK((*idle)["fps"] == 10);
+    CHECK((*run)["loop"] == false);   // repeat 2
+    CHECK((*run)["firstFrame"].get<int>() >= 4);   // ping-pong twice and a duration of 250/50 need extra cells
+    CHECK(has_text(r["nextSteps"], "SpriteAnimator"));
+    CHECK(p.manifest()["assets"]["assets/hero.png"]["sheet"] == sheet);
+
+    const Image img = read_png(p.file("assets/hero.png"));
+    const int cols = sheet["columns"].get<int>();
+    REQUIRE(img.width == cols * 2);
+    CHECK(get(img, 0, 0) == red);   // frame 0: the red body; the hidden blue layer is not drawn
+    CHECK(get(img, 0, 1).a == 255);
+    CHECK(get(img, 2 % (cols * 2), 0).a == 255);   // cell 1 is frame 1: the linked body
+
+    // Provenance: every file the import wrote says where it came from; the document is the source of the sheet.
+    const Json entry = p.manifest()["assets"]["assets/hero.png"];
+    CHECK(entry["provenance"]["origin"] == "imported");
+    CHECK(entry["provenance"]["license"] == "CC0");
+    CHECK(entry["provenance"]["author"] == "Ana");
+    CHECK(entry["provenance"]["source"].get<std::string>().find("hero.aseprite") != std::string::npos);
+    CHECK(entry["provenance"]["recipe"]["command"] == "image.bake");
+    CHECK(p.manifest()["assets"][body["source"].get<std::string>()]["provenance"]["origin"] == "imported");
+    CHECK(p.ok("image.info", {{"path", "assets/hero.image.json"}})["bake"]["state"] == "fresh");
+    // And the document plays on: the tag is a clip by name, and a frame can be edited.
+    p.ok("image.frame.set", {{"path", "assets/hero.image.json"}, {"frame", 0}, {"duration", 400}});
+    CHECK(p.manifest()["assets"]["assets/hero.png"]["sheet"]["clips"].size() == 3);
+
+    // `columns` lays the cells out in one row.
+    const Json row = p.ok("assets.import", {{"source", source}, {"path", "assets/row.png"}, {"columns", 2}});
+    CHECK(row["sheet"]["columns"] == 2);
+}
+
+TEST_CASE("assets.import: an indexed Aseprite file stays an indexed document with its palette") {
+    AssetsProject p;
+    // Index 0 is the transparent one; 1 red, 2 green, 3 a duplicate of red, 4 half transparent (never used here).
+    const Bytes pal = palette({{0, 0, 0, 0}, {255, 0, 0, 255}, {0, 255, 0, 255}, {255, 0, 0, 255}, {9, 9, 9, 100}});
+    const std::string indexed = art(p, "dot.aseprite", aseprite(2, 2, 8, {frame(80, {pal, layer("dot"), cel_raw(0, 0, 0, 2, 2, {0, 1, 2, 3})}),
+                                                                           frame(120, {cel_raw(0, 0, 0, 2, 2, {1, 0, 0, 2})})}, 0));
+    const Json r = p.ok("assets.import", {{"source", indexed}});
+    CHECK(r["details"]["indexedDocument"] == true);
+    const Json doc = parse_json(read_all(p.file("assets/dot.image.json")), "dot.image.json").value();
+    REQUIRE(doc["palette"].size() == 2);   // the colours the pictures use, each once: the duplicate red is index 0 again
+    CHECK(doc["palette"][0] == "#ff0000");
+    CHECK(doc["palette"][1] == "#00ff00");
+    const Json& layer0 = doc["layers"][0];
+    CHECK(layer0["kind"] == "indexed");
+    CHECK(layer0["rows"] == Json::array({".0", "10"}));   // the transparent index is '.'
+    REQUIRE(layer0["cels"].size() == 1);
+    CHECK(layer0["cels"][0]["rows"] == Json::array({"0.", ".1"}));
+    CHECK(doc["frames"][0]["duration"] == 80);
+    CHECK(doc["frames"][1]["duration"] == 120);
+    // The sheet has the same pixels as the palette colours.
+    const Image img = read_png(p.file("assets/dot.png"));
+    CHECK(get(img, 1, 0) == Rgba{255, 0, 0, 255});
+    CHECK(get(img, 0, 1) == Rgba{0, 255, 0, 255});
+    CHECK(get(img, 0, 0).a == 0);
+    // image.palette lists it: it is a real indexed document.
+    CHECK(p.ok("image.palette", {{"path", "assets/dot.image.json"}}).contains("palette"));
+
+    // A palette colour with its own alpha cannot be a document palette colour: the layers are pixels layers.
+    const Bytes alphaPal = palette({{0, 0, 0, 0}, {255, 0, 0, 255}, {0, 255, 0, 128}});
+    const std::string soft = art(p, "soft.aseprite", aseprite(2, 2, 8, {frame(100, {alphaPal, layer("l"), cel_raw(0, 0, 0, 2, 2, {0, 1, 2, 1})})}));
+    const Json s = p.ok("assets.import", {{"source", soft}});
+    CHECK(s["details"]["indexedDocument"] == false);
+    CHECK(has_text(s["warnings"], "alpha"));
+    const Json softDoc = parse_json(read_all(p.file("assets/soft.image.json")), "soft.image.json").value();
+    CHECK(softDoc["layers"][0]["kind"] == "pixels");
+    CHECK_FALSE(softDoc.contains("frames"));   // one frame, no tags: a plain PNG
+    CHECK_FALSE(s.contains("sheet"));
+    CHECK(read_png(p.file("assets/soft.png")).width == 2);
 }
 
 TEST_CASE("assets.import: Aseprite indexed color uses the palette and the transparent index; grayscale uses its alpha") {
@@ -309,7 +462,7 @@ TEST_CASE("assets.import: a .gltf brings its buffer and images along") {
     CHECK_FALSE(remote.ok);
 }
 
-TEST_CASE("assets.import: a PSD becomes a PNG of its merged image") {
+TEST_CASE("assets.import: a PSD without layers becomes a PNG of its merged image") {
     AssetsProject p;
     auto be16 = [](Bytes& b, unsigned v) { b.u8(v >> 8).u8(v & 255); };
     auto be32 = [&](Bytes& b, unsigned v) { be16(b, v >> 16); be16(b, v & 0xffff); };
@@ -330,7 +483,7 @@ TEST_CASE("assets.import: a PSD becomes a PNG of its merged image") {
     const Json r = p.ok("assets.import", {{"source", art(p, "layers.psd", std::string(psd.v.begin(), psd.v.end()))}});
     CHECK(r["importer"] == "psd");
     CHECK(r["path"] == "assets/layers.png");
-    CHECK(has_text(r["warnings"], "flattened"));
+    CHECK(has_text(r["warnings"], "no layers"));
     const Image img = read_png(p.file("assets/layers.png"));
     CHECK(get(img, 0, 0) == Rgba{255, 0, 0, 255});
     CHECK(get(img, 1, 0) == Rgba{0, 255, 0, 255});
