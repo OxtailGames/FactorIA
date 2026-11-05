@@ -1111,13 +1111,13 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
         const CountRule& cap = options.counts[b];
         if (cap.max < 0) continue;
         for (std::size_t a = 0; a < options.counts.size(); ++a) {
-            const CountRule& need = options.counts[a];
-            if (a == b || need.min <= cap.max) continue;
+            const CountRule& floorRule = options.counts[a];
+            if (a == b || floorRule.min <= cap.max) continue;
             bool inside = true;
-            for (int sym : need.symbols)
+            for (int sym : floorRule.symbols)
                 if (!barred.is(sym) && !inRule[b][std::size_t(sym)]) inside = false;
             if (inside)
-                return make_error(count_name(options.counts, a) + " needs at least " + std::to_string(need.min) + " cells, all of them tiles that " + count_name(options.counts, b) +
+                return make_error(count_name(options.counts, a) + " needs at least " + std::to_string(floorRule.min) + " cells, all of them tiles that " + count_name(options.counts, b) +
                                       " allows at most " + std::to_string(cap.max) + " of",
                                   "Lower the minimum, raise the maximum, or make the minimum name a tile outside the capped group.");
         }
