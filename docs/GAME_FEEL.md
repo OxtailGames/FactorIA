@@ -265,6 +265,13 @@ export default class Sword extends Behaviour {
 
 A test can check it without a window: call `hit`, then `game.step(1)` and read `feel.state` (or `entity.isKnockedBack`).
 
+## Drawing the effect that goes with it
+
+The spark, the ring and the sparkle that appear on a hit or a pickup are a sprite sheet baked from code
+(`assets.animate_svg` with `ramp` and `layers`) and played by a `spawn` action; making one, looking at it at the game's size
+and refining it is the loop of [EFFECTS.md](EFFECTS.md), with three worked examples (an impact, a pickup, a fire loop).
+Sky Hopper (`examples/sky-hopper`) uses it for its coins, and the shake, hit-stop, flash and squash of its stomp, hurt and jump.
+
 ## Limits
 
 - Shake and squash are visual, and gameplay never sees them: `entity.transform`, `entity.bounds()`, physics, the UI hit-test of
