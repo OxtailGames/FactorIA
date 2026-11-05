@@ -2,9 +2,11 @@
 // Nothing here reaches the network or the real user config: a fake transport and a temp config folder.
 #include <doctest.h>
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <thread>
 
 #include "fa/core/strings.h"
@@ -442,14 +444,14 @@ TEST_CASE("share queue: ask waits for the user; confirm and drop") {
     REQUIRE(waiting.size() == 1);
     CHECK(waiting[0].localId == "FB-0001");
     SUBCASE("confirm sends") {
-        CHECK(share_confirm(s.env, {waiting[0].key}) == 1);
+        CHECK(share_confirm(s.env, {waiting[0].key}).value_or(-1) == 1);
         CHECK(share_has_due(s.env));
         const FlushResult f = share_flush(s.env);
         CHECK(f.sent == 1);
         CHECK(load_feedback(file).value()["entries"][0]["shared"]["status"] == "sent");
     }
     SUBCASE("drop marks skipped and never sends") {
-        CHECK(share_drop(s.env, {waiting[0].key}) == 1);
+        CHECK(share_drop(s.env, {waiting[0].key}).value_or(-1) == 1);
         CHECK(load_outbox(s.env).items.empty());
         CHECK(load_feedback(file).value()["entries"][0]["shared"]["status"] == "skipped");
         CHECK(share_flush(s.env).requests == 0);
@@ -463,7 +465,7 @@ TEST_CASE("share skip: a left-out entry leaves the outbox, reads skipped, and is
     s.mode(ShareMode::Ask);
     REQUIRE(share_queue(s.env, file, proj, engine_names()).ok());
     REQUIRE(load_outbox(s.env).items.size() == 1);
-    share_skip(s.env, file, {"FB-0001", "FB-9999"}, "left out in the Send window");  // an unknown id is ignored
+    CHECK(share_skip(s.env, file, {"FB-0001", "FB-9999"}, "left out in the Send window").ok());  // an unknown id is ignored
     CHECK(load_outbox(s.env).items.empty());
     const Json shared = load_feedback(file).value()["entries"][0]["shared"];
     CHECK(shared["status"] == "skipped");
@@ -1283,7 +1285,7 @@ TEST_CASE("share per project: from always to ask the queued items wait again; cl
     CHECK(f.waiting == 1);
     CHECK(t.s.requests.empty());
     // The user answers yes: it goes.
-    CHECK(share_confirm(t.s.env, {t.box().items[0].key}) == 1);
+    CHECK(share_confirm(t.s.env, {t.box().items[0].key}).value_or(-1) == 1);
     CHECK(share_has_due(t.s.env));
     // Always again, then the choice is removed while the default is never: the project's items are dropped, as for `never`.
     REQUIRE(set_project_share_mode(t.s.env, t.a, ShareMode::Always).ok());
@@ -1326,13 +1328,13 @@ TEST_CASE("share per project: an item written without a project (an older versio
     CHECK(t.box().items[0].state == OutboxState::Waiting);
     // The user says yes: it takes its file's project now and goes.
     REQUIRE(share_waiting(t.s.env).size() == 1);
-    CHECK(share_confirm(t.s.env) == 1);
+    CHECK(share_confirm(t.s.env).value_or(-1) == 1);
     CHECK(t.box().items[0].projectKey == share_project_key(t.a));
     CHECK(share_flush(t.s.env).sent == 1);
     // A project that is never does not confirm it.
     REQUIRE(save_outbox(t.s.env, box).ok());
     t.own_mode(t.a, ShareMode::Never);
-    CHECK(share_confirm(t.s.env) == 0);
+    CHECK(share_confirm(t.s.env).value_or(-1) == 0);
     // The default going to never drops it (nothing may be sent), unless the file's project has its own mode.
     t.s.mode(ShareMode::Never);
     CHECK(t.box().items.size() == 1);  // A has its own mode: the default does not touch it
@@ -1350,7 +1352,7 @@ TEST_CASE("share per project: `feedback share` for one project confirms and send
     CHECK(share_same_path(waiting[0].file, t.fileA));
     // The same file spelled another way is the same file.
     CHECK(share_waiting(t.s.env, t.a + "/../game/ENGINE_FEEDBACK.json").size() == 1);
-    CHECK(share_confirm(t.s.env, {waiting[0].key}) == 1);
+    CHECK(share_confirm(t.s.env, {waiting[0].key}).value_or(-1) == 1);
     CHECK(t.item(t.box(), t.fileB)->state == OutboxState::Waiting);
     FlushOptions fo;
     fo.file = t.a + "/../game/ENGINE_FEEDBACK.json";  // another spelling of the project's file
@@ -1361,7 +1363,7 @@ TEST_CASE("share per project: `feedback share` for one project confirms and send
     CHECK(t.box().items[0].file == t.fileB);
     CHECK(t.box().items[0].state == OutboxState::Waiting);
     // Skipping and discarding match files the same way.
-    share_skip(t.s.env, t.b + "/../game2/ENGINE_FEEDBACK.json", {"FB-0001"});
+    CHECK(share_skip(t.s.env, t.b + "/../game2/ENGINE_FEEDBACK.json", {"FB-0001"}).ok());
     CHECK(t.box().items.empty());
 }
 
@@ -1613,7 +1615,7 @@ TEST_CASE("share lock: an item queued by always is not sent when its project is 
     CHECK(box.items[0].state == OutboxState::Waiting);
     CHECK(box.items[0].confirmedBy.empty());
     // What a person confirmed goes under ask, and is remembered as the person's.
-    REQUIRE(share_confirm(t.s.env, {box.items[0].key}) == 1);
+    REQUIRE(share_confirm(t.s.env, {box.items[0].key}).value_or(-1) == 1);
     CHECK(t.box().items[0].confirmedBy == "user");
     CHECK(share_has_due(t.s.env));
     CHECK(share_flush(t.s.env, all).sent == 1);
@@ -1669,7 +1671,7 @@ TEST_CASE("share per project: queueing under always never releases an item that 
     // Only the user releases it.
     const auto waiting = share_waiting(t.s.env, t.fileA);
     REQUIRE(waiting.size() == 1);
-    CHECK(share_confirm(t.s.env, {waiting[0].key}) == 1);
+    CHECK(share_confirm(t.s.env, {waiting[0].key}).value_or(-1) == 1);
     CHECK(t.item(t.box(), t.fileA)->state == OutboxState::Queued);
 }
 
@@ -1775,11 +1777,46 @@ TEST_CASE("share keys: a key stored through a symlink or in another case is foun
     }
 }
 
+namespace {
+
+// A folder whose name has non-ASCII letters, made from a UTF-8 path (never a narrow string: on Windows that is the system code page).
+// `native` is the folder as the narrow string the rest of the code passes around (the code page on Windows); empty when this system
+// cannot hold the name in it (the test is then skipped), so the check below is about the code, not about the machine's locale.
+struct AccentedFolder {
+    std::filesystem::path path;
+    std::string native;
+    std::string utf8;
+    bool usable = false;
+    explicit AccentedFolder(const testing::TempDir& dir) {
+        path = dir.path / std::filesystem::path(u8"Ca\u00f1\u00f3n");
+        std::error_code ec;
+        std::filesystem::create_directories(path, ec);
+        if (ec) return;
+        try {
+            native = path.string();
+            const std::u8string u = path.u8string();
+            utf8.assign(reinterpret_cast<const char*>(u.data()), u.size());
+            usable = std::filesystem::exists(std::filesystem::path(native), ec) &&
+                     std::filesystem::equivalent(std::filesystem::path(native), path, ec) && !ec;
+        } catch (const std::exception&) {
+            usable = false;
+        }
+    }
+};
+
+}  // namespace
+
 TEST_CASE("share: the status names and the outbox file are UTF-8, and an outbox written in the old code page is read") {
     Share s;
-    const std::string accented = "Ca\xc3\xb1" "\xc3\xb3n";  // a folder name with non-ASCII letters, as UTF-8
-    const std::string proj = s.dir.sub(accented);
-    testing::write_all(proj + "/factoria.json", R"({"name":"Ca\u00f1\u00f3n","id":"com.acme.canyon","version":"0.1.0","mainScene":"s.scene.json"})");
+    const AccentedFolder folder(s.dir);
+    if (!folder.usable) {
+        MESSAGE("skipped: the system code page cannot hold the accented folder name");
+        return;
+    }
+    const std::string accented = "Ca\xc3\xb1" "\xc3\xb3n";  // the folder name as UTF-8
+    const std::string proj = folder.native;
+    testing::write_all(std::filesystem::path(proj) / "factoria.json",
+                       R"({"name":"Ca\u00f1\u00f3n","id":"com.acme.canyon","version":"0.1.0","mainScene":"s.scene.json"})");
     const Json st = share_status(s.env, proj);
     const std::string dir = st["project"]["dir"].get<std::string>();
     CHECK(dir.find(accented) != std::string::npos);
@@ -1795,4 +1832,303 @@ TEST_CASE("share: the status names and the outbox file are UTF-8, and an outbox 
     const Json onDisk = parse_json(testing::read_all(box.path), "outbox").value();
     CHECK(onDisk["items"][0]["file"].get<std::string>().find(accented) != std::string::npos);
     CHECK(onDisk["items"][0]["confirmedBy"] == "always");
+}
+
+namespace {
+// An outbox file written by hand with one item whose `file` is `storedFile` (the text exactly as it is in the file).
+void write_outbox_with_file(const Share& s, const std::string& storedFile) {
+    Json item = Json::object();
+    item["localId"] = "FB-0001";
+    item["file"] = storedFile;
+    item["project"] = "somewhere";
+    item["state"] = "waiting";
+    item["entry"] = Json::object({{"localId", "FB-0001"}});
+    Json doc = Json::object({{"format", kFeedbackOutboxFormat}, {"items", Json::array({item})}});
+    testing::write_all(std::filesystem::path(s.env.config_dir()) / kFeedbackOutboxFile, doc.dump());
+}
+}  // namespace
+
+TEST_CASE("share outbox: a file name stored as UTF-8 opens the file, and one an older version wrote in the code page is used as it is") {
+    Share s;
+    SUBCASE("UTF-8 text names the file whatever the platform's narrow encoding is") {
+        const AccentedFolder folder(s.dir);
+        if (!folder.usable) {
+            MESSAGE("skipped: the system code page cannot hold the accented folder name");
+            return;
+        }
+        testing::write_all(folder.path / "ENGINE_FEEDBACK.json", "{}");
+        write_outbox_with_file(s, folder.utf8 + "/ENGINE_FEEDBACK.json");
+        std::error_code ec;
+        const Outbox box = load_outbox(s.env);
+        REQUIRE(box.items.size() == 1);
+        CHECK(std::filesystem::exists(std::filesystem::path(box.items[0].file), ec));  // in memory it is the narrow string that opens it
+        CHECK(box.items[0].file == folder.native + "/ENGINE_FEEDBACK.json");
+    }
+    SUBCASE("an older version stored the code page text: invalid UTF-8 became U+FFFD in the file, and is kept as written") {
+        const std::string legacy = "Ca\xef\xbf\xbd\xef\xbf\xbdn/ENGINE_FEEDBACK.json";
+        write_outbox_with_file(s, legacy);
+        const Outbox box = load_outbox(s.env);
+        REQUIRE(box.items.size() == 1);
+        CHECK(box.items[0].file == legacy);  // not converted (nor does it throw), so it can still be dropped or skipped
+        // Saving writes it back as it is.
+        REQUIRE(save_outbox(s.env, box).ok());
+        CHECK(load_outbox(s.env).items[0].file == legacy);
+    }
+}
+
+// ----------------------------------------------------------------------------------------------- the lock, third round
+
+TEST_CASE("share lock: many threads take over one stale lock, and only one holds it at a time") {
+    Share s;
+    s.env.lockStaleSec = 5.0;
+    s.env.lockWaitSec = 20.0;
+    std::error_code ec;
+    std::filesystem::create_directories(s.env.config_dir(), ec);
+    const std::string lockPath = (std::filesystem::path(s.env.config_dir()) / kFeedbackShareLockFile).string();
+    testing::write_all(lockPath, "dead process");
+    set_old_mtime(lockPath, 3600);
+    constexpr int kThreads = 8;
+    std::atomic<int> inside{0}, maxInside{0}, held{0};
+    std::vector<std::thread> threads;
+    for (int i = 0; i < kThreads; ++i)
+        threads.emplace_back([&] {
+            ShareLock lock(s.env);
+            if (!lock.held()) return;
+            ++held;
+            const int now = ++inside;
+            int seen = maxInside.load();
+            while (now > seen && !maxInside.compare_exchange_weak(seen, now)) {}
+            std::this_thread::sleep_for(std::chrono::milliseconds(15));
+            --inside;
+        });
+    for (std::thread& t : threads) t.join();
+    CHECK(held.load() == kThreads);       // every waiter got it in the end
+    CHECK(maxInside.load() == 1);         // never two at once: the takeover is one waiter at a time
+    CHECK_FALSE(std::filesystem::exists(lockPath));
+    // No file of a takeover is left behind.
+    int leftovers = 0;
+    for (const auto& e : std::filesystem::directory_iterator(s.env.config_dir(), ec))
+        if (e.path().filename().string().rfind("feedback-share.lock", 0) == 0) ++leftovers;
+    CHECK(leftovers == 0);
+}
+
+TEST_CASE("share lock: a lock that was taken over is not deleted by its old holder") {
+    Share s;
+    std::string lockPath;
+    {
+        ShareLock mine(s.env);
+        REQUIRE(mine.held());
+        lockPath = mine.path();
+        // Somebody took it over (we looked dead): the file now holds their token.
+        testing::write_all(lockPath, "the new owner");
+    }
+    REQUIRE(std::filesystem::exists(lockPath));
+    CHECK(testing::read_all(lockPath) == "the new owner");
+    std::error_code ec;
+    std::filesystem::remove(lockPath, ec);
+}
+
+TEST_CASE("share lock: a lock file dated in the future counts as stale") {
+    Share s;
+    s.env.lockStaleSec = 2.0;
+    s.env.lockWaitSec = 5.0;
+    std::error_code ec;
+    std::filesystem::create_directories(s.env.config_dir(), ec);
+    const std::string lockPath = (std::filesystem::path(s.env.config_dir()) / kFeedbackShareLockFile).string();
+    testing::write_all(lockPath, "from a clock that was ahead");
+    set_old_mtime(lockPath, -3600);  // an hour from now
+    ShareLock lock(s.env);
+    CHECK(lock.held());
+    // A time only a little ahead (clock jitter between machines) is not stale.
+    ShareLock second(s.env);  // nested: held without touching the file
+    CHECK(second.held());
+}
+
+TEST_CASE("share lock: keep_alive refreshes the file of a lock this thread holds, only while the file is its own") {
+    Share s;
+    s.env.lockStaleSec = 8.0;
+    ShareLock lock(s.env);
+    REQUIRE(lock.held());
+    const std::filesystem::path file = lock.file();
+    auto age_sec = [&] {
+        std::error_code ec;
+        const auto t = std::filesystem::last_write_time(file, ec);
+        return std::chrono::duration<double>(std::filesystem::file_time_type::clock::now() - t).count();
+    };
+    set_old_mtime(file.string(), 5);  // older than a quarter of the stale time: refreshed
+    ShareLock::keep_alive();
+    CHECK(age_sec() < 2.0);
+    // A fresh file is left alone (no write for nothing)...
+    // ...and a file that belongs to somebody else is never touched.
+    testing::write_all(file, "somebody else");
+    set_old_mtime(file.string(), 5);
+    ShareLock::keep_alive();
+    CHECK(age_sec() > 3.0);
+    std::error_code ec;
+    std::filesystem::remove(file, ec);
+}
+
+TEST_CASE("share lock: a thread without a lock may call keep_alive") {
+    ShareLock::keep_alive();  // nothing to refresh, nothing happens
+    CHECK(true);
+}
+
+TEST_CASE("share lock: ShareWaitCap shortens the wait of this thread for its lifetime only") {
+    Share s;
+    s.env.lockStaleSec = 600.0;
+    s.env.lockWaitSec = 30.0;
+    std::error_code ec;
+    std::filesystem::create_directories(s.env.config_dir(), ec);
+    const std::string lockPath = (std::filesystem::path(s.env.config_dir()) / kFeedbackShareLockFile).string();
+    testing::write_all(lockPath, "alive");
+    {
+        const ShareWaitCap cap(0.1);
+        const auto start = std::chrono::steady_clock::now();
+        ShareLock busy(s.env);
+        CHECK_FALSE(busy.held());
+        CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(10));
+    }
+    std::filesystem::remove(lockPath, ec);
+    ShareLock afterCap(s.env);
+    CHECK(afterCap.held());
+}
+
+TEST_CASE("share lock: skip, drop, confirm and discard with the lock busy fail with an error and change nothing") {
+    TwoProjects t;
+    t.s.mode(ShareMode::Ask);
+    REQUIRE(share_queue(t.s.env, t.fileA, t.a, engine_names()).ok());
+    REQUIRE(t.box().items.size() == 1);
+    REQUIRE(t.box().items[0].state == OutboxState::Waiting);
+    const std::string key = t.box().items[0].key;
+    const std::string outboxBefore = testing::read_all(t.box().path);
+    auto entry_status = [&] { return load_feedback(t.fileA).value()["entries"][0]["shared"]["status"].get<std::string>(); };
+    REQUIRE(entry_status() == "pending");
+
+    // Another process holds the lock (a fresh file, not stale).
+    t.s.env.lockWaitSec = 0.1;
+    t.s.env.lockStaleSec = 600.0;
+    std::error_code ec;
+    const std::string lockPath = (std::filesystem::path(t.s.env.config_dir()) / kFeedbackShareLockFile).string();
+    testing::write_all(lockPath, "another process");
+
+    const auto confirm = share_confirm(t.s.env, {key});
+    CHECK_FALSE(confirm.ok());
+    const auto drop = share_drop(t.s.env, {key});
+    CHECK_FALSE(drop.ok());
+    const auto skip = share_skip(t.s.env, t.fileA, {"FB-0001"});
+    CHECK_FALSE(skip.ok());
+    const auto discard = share_discard(t.s.env, t.fileA, {"FB-0001"});
+    CHECK_FALSE(discard.ok());
+    CHECK(skip.error().message.find("did not finish") != std::string::npos);
+    CHECK(testing::read_all(t.box().path) == outboxBefore);  // the outbox is as it was
+    CHECK(entry_status() == "pending");                      // no entry says skipped while its item can still go
+    CHECK(t.box().items[0].state == OutboxState::Waiting);
+
+    // A deleted entry must never stay sendable: delete_feedback_file runs the discard first and stops when it fails.
+    REQUIRE(update_feedback_file(t.fileA, "FB-0001", "wont-fix", "").ok());
+    const auto del = delete_feedback_file(t.fileA, "FB-0001", [&] { return share_discard(t.s.env, t.fileA, {"FB-0001"}); });
+    CHECK_FALSE(del.ok());
+    CHECK(load_feedback(t.fileA).value()["entries"].size() == 1);  // the entry is still in the file
+    CHECK(t.box().items.size() == 1);
+
+    // With the lock free every one of them works.
+    std::filesystem::remove(lockPath, ec);
+    CHECK(share_confirm(t.s.env, {key}).value_or(-1) == 1);
+    CHECK(share_drop(t.s.env, {key}).value_or(-1) == 0);  // it is queued now, not waiting
+    const auto del2 = delete_feedback_file(t.fileA, "FB-0001", [&] { return share_discard(t.s.env, t.fileA, {"FB-0001"}); });
+    CHECK(del2.ok());
+    CHECK(t.box().items.empty());
+    CHECK(load_feedback(t.fileA).value()["entries"].empty());
+}
+
+TEST_CASE("share: skip and drop mark the entries skipped once their items are out of the outbox") {
+    TwoProjects t;
+    t.s.mode(ShareMode::Ask);
+    REQUIRE(share_queue(t.s.env, t.fileA, t.a, engine_names()).ok());
+    REQUIRE(share_queue(t.s.env, t.fileB, t.b, engine_names()).ok());
+    REQUIRE(t.box().items.size() == 2);
+    REQUIRE(share_skip(t.s.env, t.fileA, {"FB-0001"}, "left out").ok());
+    CHECK(load_feedback(t.fileA).value()["entries"][0]["shared"]["status"] == "skipped");
+    CHECK(load_feedback(t.fileA).value()["entries"][0]["shared"]["reason"] == "left out");
+    CHECK(t.box().items.size() == 1);
+    CHECK(share_drop(t.s.env).value_or(-1) == 1);
+    CHECK(load_feedback(t.fileB).value()["entries"][0]["shared"]["status"] == "skipped");
+    CHECK(t.box().items.empty());
+}
+
+TEST_CASE("share flush: when the lock stays busy after a request, what was sent is not sent again") {
+    TwoProjects t;
+    t.s.env.lockStaleSec = 600.0;
+    t.s.env.lockWaitSec = 0.1;  // the patient wait is five times this
+    t.s.mode(ShareMode::Always);
+    REQUIRE(share_queue(t.s.env, t.fileA, t.a, engine_names()).ok());
+    const std::string lockPath = (std::filesystem::path(t.s.env.config_dir()) / kFeedbackShareLockFile).string();
+    int posts = 0;
+    t.s.env.transport = [&](const HttpRequest& r) {
+        t.s.requests.push_back(r);
+        ++posts;
+        // Another process takes the lock while the request is on its way, and keeps it.
+        testing::write_all(lockPath, "another process");
+        return reply(200, t.s.answer_ok({{"FB-0001", "accepted"}}));
+    };
+    FlushOptions fo;
+    fo.file = t.fileA;
+    fo.force = true;
+    const FlushResult first = share_flush(t.s.env, fo);
+    CHECK(first.sent == 1);
+    CHECK(first.message.find("not sent again") != std::string::npos);  // the person is told
+    CHECK(load_feedback(t.fileA).value()["entries"][0]["shared"]["status"] == "sent");
+    CHECK(t.box().items.size() == 1);  // the removal could not be saved
+    // The other process is done. The next flush takes the item out of the outbox without sending it again.
+    std::error_code ec;
+    std::filesystem::remove(lockPath, ec);
+    const FlushResult second = share_flush(t.s.env, fo);
+    CHECK(second.sent == 0);
+    CHECK(posts == 1);
+    CHECK(t.box().items.empty());
+}
+
+TEST_CASE("share per project: an item whose folder is gone and has no entry of its own reads as ask") {
+    TwoProjects t;
+    t.s.mode(ShareMode::Always);
+    REQUIRE(share_queue(t.s.env, t.fileB, t.b, engine_names()).ok());
+    const Outbox box = t.box();
+    REQUIRE(box.items.size() == 1);
+    REQUIRE(box.items[0].state == OutboxState::Queued);
+    // The project folder is deleted: its key resolves to nothing, and the default (always) must not decide for it.
+    std::error_code ec;
+    std::filesystem::remove_all(t.b, ec);
+    REQUIRE_FALSE(std::filesystem::exists(t.b));
+    FlushOptions fo;
+    fo.force = true;
+    fo.oneBatch = false;
+    const FlushResult f = share_flush(t.s.env, fo);
+    CHECK(f.sent == 0);
+    CHECK(t.s.requests.empty());
+    const Outbox after = t.box();
+    REQUIRE(after.items.size() == 1);
+    CHECK(after.items[0].state == OutboxState::Waiting);  // demoted: only a person's yes sends it
+}
+
+TEST_CASE("share per project: a project's own mode applies to its items whichever way their key is spelled") {
+    Share s;
+    const std::string proj = s.project();
+    const std::string file = s.feedback_file(proj);
+    s.mode(ShareMode::Always);
+    REQUIRE(share_queue(s.env, file, proj, engine_names()).ok());
+    // The item carries a key for the same folder spelled differently (a link made by hand in its stored `project`).
+    const std::string link = s.dir.sub("link");
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(proj, link, ec);
+    if (ec) {
+        MESSAGE("skipped: this system cannot make a symlink here (" << ec.message() << ")");
+        return;
+    }
+    Outbox box = load_outbox(s.env);
+    REQUIRE(box.items.size() == 1);
+    box.items[0].projectKey = share_project_key(link);
+    REQUIRE(save_outbox(s.env, box).ok());
+    REQUIRE(set_project_share_mode(s.env, proj, ShareMode::Never).ok());
+    CHECK(load_outbox(s.env).items.empty());  // dropped although its stored key is not equal to the project's key
+    CHECK(load_feedback(file).value()["entries"][0]["shared"]["status"] == "skipped");
 }

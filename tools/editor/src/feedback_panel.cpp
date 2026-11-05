@@ -358,6 +358,7 @@ void Editor::draw_feedback_actions(const Json& en, const std::string& path) {
             ImGui::PopTextWrapPos();
             if (!fbAsk_.error.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", fbAsk_.error.c_str());
             if (ImGui::Button("Delete", ImVec2(110, 0))) {
+                const ShareWaitCap shortWait(0.3);  // the command takes the sharing lock; the UI thread never waits seconds for it
                 const CommandResult r = engine_->commands().call("feedback.delete", Json::object({{"id", id}}));
                 if (!r.ok) {
                     fbAsk_.error = command_error_text(r.error);

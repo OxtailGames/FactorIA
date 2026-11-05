@@ -208,11 +208,16 @@ only handles the project you are in: with no ENGINE_FEEDBACK.json there, or outs
 what another project left in the outbox).
 
 If the folder of a project cannot be resolved (a permission, a disconnected volume), its mode reads as `ask`, never as your default;
-`feedback.share_status` says `unresolved`. Another spelling of the same folder in your settings file (another case on a volume that
+`feedback.share_status` says `unresolved`. The same holds for an item in the outbox whose project folder no longer exists (deleted,
+moved, an unplugged drive) and that has no choice of its own listed under that exact path: it waits for your answer instead of following
+the default. Another spelling of the same folder in your settings file (another case on a volume that
 ignores it, NFC against NFD on macOS, a symlink) finds the same choice. The settings and the outbox are changed under a lock file
 (`feedback-share.lock` next to them), so the editor, the terminal and the MCP server never undo each other's changes: a lock left by
-a program that died is taken over after 10 seconds, and a change that finds the lock busy for 12 seconds fails with a message and
-changes nothing.
+a program that died (its file not refreshed for 10 seconds, or dated in the future) is taken over, and a change that finds the lock
+busy for 12 seconds fails with a message and changes nothing. That holds for every change: choosing a mode, skipping, dropping,
+confirming or discarding an entry (`feedback.delete` and `factoria feedback discard` keep the entry when the outbox cannot be updated, so
+a deleted entry never stays sendable), and the command line says so and exits with an error. The editor never waits more than a third
+of a second for it: it tells you ("could not be queued for sharing yet", or the action's own message) and tries again.
 
 The choice is stored in YOUR `feedback-sharing.json` (`"projects": {"<project folder path>": "never"}`), never inside the
 project, so a project you copy or download does not inherit the choice: it follows your default. The key is the folder's absolute
