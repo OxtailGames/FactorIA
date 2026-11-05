@@ -346,6 +346,17 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`feedback.update`](commands/feedback.md#feedbackupdate-modifies-state): Change the status of a feedback entry (with a reason when it is rejected) or link it to an engine issue.
 - [`feedback.verdicts`](commands/feedback.md#feedbackverdicts-modifies-state): Ask the feedback server what the engine developers decided about the reports this installation sent. _Since 0.16.1._
 
+### [feel](commands/feel.md)
+
+- [`feel.cancel`](commands/feel.md#feelcancel-modifies-state): Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything. _Not released yet._
+- [`feel.flash`](commands/feel.md#feelflash-modifies-state): Draws an entity in one colour for a moment (a hit flash): sprites, shapes and 3D meshes, fading or square. _Not released yet._
+- [`feel.hitStop`](commands/feel.md#feelhitstop-modifies-state): Hit-stop: freezes or slows gameplay for a moment of real time; UI, audio and the stop's own timer keep going. _Not released yet._
+- [`feel.knockback`](commands/feel.md#feelknockback-modifies-state): Pushes an entity away and holds `isKnockedBack` for a moment: an impulse on its physics body, else a decaying velocity. _Not released yet._
+- [`feel.settings`](commands/feel.md#feelsettings-modifies-state): The accessibility choices of the game feel effects: reduceMotion and reducedEffects. _Not released yet._
+- [`feel.shake`](commands/feel.md#feelshake-modifies-state): Camera shake: adds trauma to a camera (2D and 3D); it stacks up to `cap` and dies out over `duration`. _Not released yet._
+- [`feel.squash`](commands/feel.md#feelsquash-modifies-state): Squash and stretch: a short scale pulse that keeps the volume and springs back to exactly the entity's scale. _Not released yet._
+- [`feel.state`](commands/feel.md#feelstate): What the game feel effects are doing now: hit-stop, and per entity its shake, flash, squash, knockback and drawn pose. _Not released yet._
+
 ### [fs](commands/fs.md)
 
 - [`fs.delete`](commands/fs.md#fsdelete-modifies-state): Delete a file or folder from the project.

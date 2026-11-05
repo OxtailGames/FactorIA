@@ -25,6 +25,7 @@
 #include "fa/physics/physics.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/camera_query.h"
+#include "fa/scene/feel.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/sprite_animator.h"
 #include "fa/scene/bounds.h"
@@ -531,12 +532,63 @@ NATIVE(types) {
 NATIVE(timeInfo) {
     SETUP;
     JSValue a = JS_NewArray(ctx);
-    JS_SetPropertyUint32(ctx, a, 0, JS_NewFloat64(ctx, I->lastDt * I->timeScale));
+    JS_SetPropertyUint32(ctx, a, 0, JS_NewFloat64(ctx, I->lastDt * I->timeScale * W.feel().hit_stop_factor()));  // time.dt: a hit-stop slows it too
     JS_SetPropertyUint32(ctx, a, 1, JS_NewFloat64(ctx, I->host->fixed_dt()));
     JS_SetPropertyUint32(ctx, a, 2, JS_NewFloat64(ctx, W.time()));
     JS_SetPropertyUint32(ctx, a, 3, JS_NewFloat64(ctx, static_cast<double>(W.frame())));
     JS_SetPropertyUint32(ctx, a, 4, JS_NewFloat64(ctx, I->timeScale));
     JS_SetPropertyUint32(ctx, a, 5, JS_NewFloat64(ctx, I->lastDt));
+    JS_SetPropertyUint32(ctx, a, 6, JS_NewFloat64(ctx, W.feel().hit_stop_remaining()));
+    return a;
+}
+
+// ---- game feel (feel.h) ---------------------------------------------------------------------------------------------
+NATIVE(feelDo) {  // (entity handle or null, action object): runs one {"action": "shake" | "hitStop" | "flash" | ...}
+    SETUP;
+    const Entity e = argc > 0 ? ent_from(ctx, argv[0]) : kNullEntity;
+    if (argc > 0 && !JS_IsNull(argv[0]) && !JS_IsUndefined(argv[0]) && !W.alive(e)) {
+        const std::string id = I->destroyed_id(e);
+        return throw_err(ctx, id.empty() ? std::string("entity was destroyed; check entity.alive before using it")
+                                         : "entity '" + id + "' was destroyed; check entity.alive before using it");
+    }
+    W.feel().systemReduceMotion = I->owner->system_reduce_motion();  // fresh: a game.setAccessibility of this very frame counts
+    auto r = feel_apply_action(W, e, argc > 1 ? I->to_json(argv[1]) : Json());
+    if (!r.ok()) return throw_err(ctx, r.error().to_string());
+    return JS_UNDEFINED;
+}
+
+NATIVE(feelCancel) {  // (entity handle or null = everything, hit-stops included)
+    SETUP;
+    feel_cancel(W, argc > 0 ? ent_from(ctx, argv[0]) : kNullEntity);
+    return JS_UNDEFINED;
+}
+
+NATIVE(feelSet) {  // ("reduceMotion" | "reducedEffects", true | false | null = follow the system)
+    SETUP;
+    const std::string which = arg_str(ctx, argc, argv, 0);
+    std::optional<bool> value;
+    if (argc > 1 && !JS_IsNull(argv[1]) && !JS_IsUndefined(argv[1])) value = arg_bool(ctx, argc, argv, 1, false);
+    if (which == "reduceMotion") W.feel().reduceMotionSetting = value;
+    else if (which == "reducedEffects") W.feel().reducedEffectsSetting = value;
+    else return throw_err(ctx, "feel: unknown setting '" + which + "' (reduceMotion or reducedEffects)");
+    return JS_UNDEFINED;
+}
+
+// (entity handle or null) -> [knockbackRemaining of the entity, hitStopRemaining, reduceMotion, reducedEffects, the game's
+// reduceMotion choice (null = system), the game's reducedEffects choice]
+NATIVE(feelInfo) {
+    SETUP;
+    W.feel().systemReduceMotion = I->owner->system_reduce_motion();
+    const FeelState& fs = W.feel();
+    const Entity e = argc > 0 ? ent_from(ctx, argv[0]) : kNullEntity;
+    auto opt = [&](const std::optional<bool>& v) { return v ? JS_NewBool(ctx, *v) : JS_NULL; };
+    JSValue a = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, a, 0, JS_NewFloat64(ctx, e.is_null() ? 0.0 : fs.knockback_remaining(e)));
+    JS_SetPropertyUint32(ctx, a, 1, JS_NewFloat64(ctx, fs.hit_stop_remaining()));
+    JS_SetPropertyUint32(ctx, a, 2, JS_NewBool(ctx, fs.reduce_motion()));
+    JS_SetPropertyUint32(ctx, a, 3, JS_NewBool(ctx, fs.reduced_effects()));
+    JS_SetPropertyUint32(ctx, a, 4, opt(fs.reduceMotionSetting));
+    JS_SetPropertyUint32(ctx, a, 5, opt(fs.reducedEffectsSetting));
     return a;
 }
 
@@ -4054,7 +4106,7 @@ struct Reg {
 #define R(n, a) {#n, n_##n, a}
 const Reg kRegs[] = {
     R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(sourceCaret, 3), R(logSeq, 0), R(types, 0), R(timeInfo, 0),
-    R(setTimeScale, 1), R(alive, 1), R(pendingDestroy, 1), R(idOf, 1), R(destroyedId, 1), R(find, 1), R(findAll, 1),
+    R(setTimeScale, 1), R(feelDo, 2), R(feelCancel, 1), R(feelSet, 2), R(feelInfo, 1), R(alive, 1), R(pendingDestroy, 1), R(idOf, 1), R(destroyedId, 1), R(find, 1), R(findAll, 1),
     R(findByTag, 1), R(entities, 0), R(tags, 1), R(setTags, 2), R(hasTag, 2), R(addTag, 2), R(removeTag, 2),
     R(setId, 2), R(getName, 1), R(setName, 2), R(getActive, 1), R(setActive, 2), R(activeInHierarchy, 1),
     R(destroy, 1), R(parent, 1), R(children, 1), R(setParent, 4), R(worldPos, 1), R(setWorldPos, 2),

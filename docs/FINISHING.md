@@ -254,6 +254,7 @@ The engine also has these; the menu kit ([MENUS.md](MENUS.md)) has an option for
 |---|---|
 | **Colour filter** | `Camera.colorFilter` (`greyscale`, `highContrast`, `protanopia`, `deuteranopia`, `tritanopia`) on the scene's camera, chosen by the player and set again in every scene. To check how a colour-blind player sees the game without changing it: `factoria run --headless --screenshot-at 60 --screenshot-simulate deuteranopia` ([CLI.md](CLI.md)), or `simulate` of `game.screenshot` |
 | **Start from the system's settings** | `game.accessibility` (`textScale`, `reduceMotion`, `highContrast`, `screenReader`) gives the first-run values of text size, reduced effects and "read menus aloud"; save the player's own choice, which wins from then on |
+| **Game feel effects** | `camera.shake`, `time.hitStop`, `entity.flash` / `squash` / `knockback` follow `feel.reduceMotion` and `feel.reducedEffects` (smaller shake and squash, shorter hit-stops, faint fading flashes); the kit's `applyFeel` sets both from the player's option ([GAME_FEEL.md](GAME_FEEL.md)) |
 | **Read menus aloud** | `ui.speak(text)` with the system's text to speech, speaking the focused widget on each `ui.focus` event; tests read `game.spoken()` ([SCRIPTING.md](SCRIPTING.md)) |
 | **Subtitles** | a `Captions` entity, then `audio.play(path, { caption })` for a voice line, or `ui.caption(text)` for a line with no sound; an option turns the entity off. Tests read `game.captions()` ([TEXT.md](TEXT.md), "Captions") |
 

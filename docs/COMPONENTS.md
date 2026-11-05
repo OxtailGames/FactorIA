@@ -3053,6 +3053,119 @@ Ask the feedback server what the engine developers decided about the reports thi
 
 Asks POST /v1/verdicts for the entries of this project's ENGINE_FEEDBACK.json (and its archive) that were sent, by their shareIds, authenticated by the installation header: only this installation's reports are answered. A report the engine developers rejected becomes status rejected (statusBy developer, statusReason = their reason, shared.status declined); a rejection they took back reopens it. The editor asks by itself about every 30 minutes. Needs the sharing mode always or ask; a server without verdicts changes nothing. Result: {outcome, checked, declined, restored, changed[], message}. Example: {}
 
+## feel
+
+### `feel.cancel` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything.
+
+Without `entity` it ends every effect of the scene, hit-stops included. The entity's Transform is not touched: effects never wrote to it, except the position a body-less knockback already moved. Example: feel.cancel {}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The entity (id or name). Default: everything. |
+
+### `feel.flash` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Draws an entity in one colour for a moment (a hit flash): sprites, shapes and 3D meshes, fading or square.
+
+The same as `entity.flash(opts)`. The entity's own colour, material and Transform never change. Children are flashed with it. Text, Tilemap, particles and UI are not flashed. With the player's reducedEffects on (feel.settings, else the system's reduce motion) the strength is capped at 0.35 and the flash always fades, never a full-bright strobe. Example: feel.flash {"entity":"enemy","color":"#ffffff","duration":0.1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The entity (id or name). |
+| `color` | any | no | The colour: "#rrggbb", a name or [r, g, b, a] in 0..1. Default white. Alpha is ignored. |
+| `duration` | number | no | Seconds. Default 0.12. |
+| `fade` | boolean | no | true: from `strength` down to 0; false: `strength` for the whole duration, then off. Default true. |
+| `strength` | number | no | How much of the colour replaces the entity's own (1 = solid). Default 1. |
+
+### `feel.hitStop` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Hit-stop: freezes or slows gameplay for a moment of real time; UI, audio and the stop's own timer keep going.
+
+The same as `time.hitStop(seconds, opts)`. Physics, onUpdate/onFixedUpdate, timers, particles and sprite animators stop (or slow to `scale`); the UI, audio, runWhilePaused behaviours, shake, flashes and squash keep running; `time.scale` and `game.paused` do not change. Overlapping calls do not add up: the longest wins and the smallest scale applies while they overlap. With reduceMotion on the duration is halved. The timer is REAL time: `game.step` frames count their fixed step. Example: feel.hitStop {"duration":0.08}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `duration` | number | no | Real seconds. Default 0.08. |
+| `scale` | number | no | Game-time scale during the stop: 0 freezes, 0.2 is slow motion. Default 0. |
+
+### `feel.knockback` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Pushes an entity away and holds `isKnockedBack` for a moment: an impulse on its physics body, else a decaying velocity.
+
+The same as `entity.knockback(direction, opts)`. A dynamic RigidBody2D/RigidBody3D gets `speed` added to its velocity; an entity without one moves with a velocity that decays by exp(-decay * dt) on the fixed clock. For `lockTime` seconds `entity.isKnockedBack` is true: the movement script leaves the player without control. A hit-stop freezes it. Example: feel.knockback {"entity":"player","direction":[-1,0.3],"speed":8}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The entity (id or name). |
+| `direction` | array | no | Which way, [x, y] or [x, y, z]; any length, it is normalised. Default [1,0]. |
+| `speed` | number | no | World units per second added at once. Default 6. |
+| `lockTime` | number | no | Seconds isKnockedBack stays true. Default 0.25. |
+| `decay` | number | no | Entities without a dynamic body: the velocity falls by exp(-decay * dt) per second. Default 8. |
+
+### `feel.settings` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+The accessibility choices of the game feel effects: reduceMotion and reducedEffects.
+
+The same as `feel.reduceMotion` / `feel.reducedEffects` in a script. true or false is the player's choice, null follows the operating system's reduce motion again; a missing key stays as it is. reduceMotion shrinks shake and squash to a quarter and halves hit-stops; reducedEffects caps flashes at 0.35 and makes them fade. Applies to effects started afterwards. Returns the values in force. Example: feel.settings {"reduceMotion":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `reduceMotion` | any | no | true / false = the player's choice; null = follow the system. |
+| `reducedEffects` | any | no | true / false = the player's choice; null = follow the system. |
+
+### `feel.shake` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Camera shake: adds trauma to a camera (2D and 3D); it stacks up to `cap` and dies out over `duration`.
+
+The same as `camera.shake(amount, opts)` in a script. Adds `amount` (0..1) of trauma; the shake is trauma squared, smooth noise seeded from the world's RNG (deterministic), and only what is DRAWN moves: the camera's Transform does not change. A 2D camera moves in x, y and roll, a 3D one also looks a little around. With the player's reduceMotion on (feel.settings, else the system's) the amount is a quarter. Example: feel.shake {"amount":0.5,"duration":0.3}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name). Default: the first camera drawn (camera.main). |
+| `amount` | number | no | Trauma to add, 0..1. Default 0.4. |
+| `duration` | number | no | Seconds the shake takes to die out (a longer one already running is kept). Default 0.4. |
+| `frequency` | number | no | Noise samples per second: how jittery. Default 25. |
+| `maxOffset` | number | no | Largest offset at trauma 1, world units. Default: 2.5% of an orthographic camera's visible height, 0.3 for a perspective one. |
+| `maxAngle` | number | no | Largest turn at trauma 1, degrees. Default 2. |
+| `cap` | number | no | Trauma never goes above this: stacked hits stop here. Default 1. |
+
+### `feel.squash` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Squash and stretch: a short scale pulse that keeps the volume and springs back to exactly the entity's scale.
+
+The same as `entity.squash(opts)`. The pulse is drawn on top of the entity's own scale (volume kept: x * y in 2D, x * y * z with a mesh); `entity.scale` is never written, so nothing is left behind. amount > 0 squashes, < 0 stretches. With reduceMotion on the amount is a quarter. Example: feel.squash {"entity":"player","amount":0.35,"duration":0.25}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The entity (id or name). |
+| `amount` | number | no | > 0 squashes (flatter and wider), < 0 stretches (taller and thinner). Default 0.3. |
+| `duration` | number | no | Seconds until the entity is back to its own scale. Default 0.3. |
+| `axis` | string ["x","y"] | no | The axis that gets shorter when amount > 0. Default "y". |
+
+### `feel.state`
+
+Not released yet (on main after 0.16.1).
+
+What the game feel effects are doing now: hit-stop, and per entity its shake, flash, squash, knockback and drawn pose.
+
+Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: {remaining, scale, running}, entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time (position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}
+
 ## fs
 
 ### `fs.delete` (modifies state)
@@ -7804,6 +7917,31 @@ declare module "factoria" {
      */
     emitBurst(count?: number): void;
     /**
+     * Draws this entity in one colour for a moment (sprites and 3D meshes; a Shape2D too; Text, Tilemap, particles and UI are not flashed): a hit flash. fade (default true) goes from `strength` down to 0 over `duration`; fade: false is a square flash. Calling it again restarts it. The entity's own colour, material and Transform never change, so nothing is left behind. With reducedEffects on (feel.reducedEffects) the strength is capped at 0.35 and the flash always fades. Example: enemy.flash({ color: "#ffffff", duration: 0.1 });
+     * @since unreleased
+     */
+    flash(opts?: FlashOptions): void;
+    /**
+     * Squash and stretch: a short scale pulse that keeps the volume (x * y constant in 2D) and springs back to exactly the entity's own scale (it is drawn multiplied, entity.scale is never written). amount > 0 squashes (flatter and wider, a landing), < 0 stretches (a jump); axis "y" (default) or "x". With reduceMotion on the amount is a quarter. Example: player.squash({ amount: 0.35, duration: 0.25 });
+     * @since unreleased
+     */
+    squash(opts?: SquashOptions): void;
+    /**
+     * Pushes the entity away: `speed` world units per second along `direction` (any length, it is normalised). A dynamic RigidBody2D/RigidBody3D gets the impulse on its velocity; an entity without one moves with a velocity that decays (opts.decay) and is integrated on the fixed clock. For opts.lockTime seconds isKnockedBack is true so your movement script can leave the player without control. Frozen by hit-stop like the rest of the simulation. Example: if (!me.isKnockedBack) move(); me.knockback(vec2(-1, 0.3), { speed: 8 });
+     * @since unreleased
+     */
+    knockback(direction: Vec3Like, opts?: KnockbackOptions): void;
+    /**
+     * True for the lockTime of the last knockback of this entity: read it in your movement code to ignore input (the loss of control).
+     * @since unreleased
+     */
+    readonly isKnockedBack: boolean;
+    /**
+     * Seconds left of the loss of control of the last knockback (0 = in control). Runs on the game clock, so a hit-stop and time.scale = 0 hold it.
+     * @since unreleased
+     */
+    readonly knockbackRemaining: number;
+    /**
      * Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get("Animator") answers null instead.
      * @since 0.2.0
      */
@@ -8998,6 +9136,159 @@ declare module "factoria" {
   }
 
   /**
+   * Options of camera.shake(amount, opts) and of the "shake" feel action (docs/GAME_FEEL.md).
+   * @since unreleased
+   */
+  export interface ShakeOptions {
+    /**
+     * Seconds the shake takes to die out (default 0.4).
+     * @since unreleased
+     */
+    duration?: number;
+    /**
+     * Noise samples per second: how jittery (default 25).
+     * @since unreleased
+     */
+    frequency?: number;
+    /**
+     * Largest offset at trauma 1, in world units. Default: 2.5% of the visible height of an orthographic camera, 0.3 for a perspective one.
+     * @since unreleased
+     */
+    maxOffset?: number;
+    /**
+     * Largest turn at trauma 1, in degrees (default 2).
+     * @since unreleased
+     */
+    maxAngle?: number;
+    /**
+     * Trauma never goes above this, 0..1 (default 1): stacking hits stop here.
+     * @since unreleased
+     */
+    cap?: number;
+    /**
+     * The camera to shake (default camera.main). Only for camera.shake.
+     * @since unreleased
+     */
+    camera?: Entity | string;
+  }
+
+  /**
+   * Options of entity.flash(opts) and of the "flash" feel action.
+   * @since unreleased
+   */
+  export interface FlashOptions {
+    /**
+     * The colour the entity is drawn in (default white); alpha is ignored.
+     * @since unreleased
+     */
+    color?: Color | string | [number, number, number, number?];
+    /**
+     * Seconds (default 0.12).
+     * @since unreleased
+     */
+    duration?: number;
+    /**
+     * true (default): from `strength` down to 0; false: `strength` for the whole duration, then off.
+     * @since unreleased
+     */
+    fade?: boolean;
+    /**
+     * 0..1: how much of the colour replaces the entity's own (default 1 = solid).
+     * @since unreleased
+     */
+    strength?: number;
+  }
+
+  /**
+   * Options of entity.squash(opts) and of the "squash" feel action.
+   * @since unreleased
+   */
+  export interface SquashOptions {
+    /**
+     * > 0 squashes (wider, flatter), < 0 stretches (taller, thinner); default 0.3.
+     * @since unreleased
+     */
+    amount?: number;
+    /**
+     * Seconds until the entity is back to exactly its own scale (default 0.3).
+     * @since unreleased
+     */
+    duration?: number;
+    /**
+     * The axis that gets shorter when amount > 0 (default "y").
+     * @since unreleased
+     */
+    axis?: "x" | "y";
+  }
+
+  /**
+   * Options of entity.knockback(direction, opts) and of the "knockback" feel action.
+   * @since unreleased
+   */
+  export interface KnockbackOptions {
+    /**
+     * World units per second added to the velocity at once (default 6).
+     * @since unreleased
+     */
+    speed?: number;
+    /**
+     * Seconds isKnockedBack stays true (default 0.25).
+     * @since unreleased
+     */
+    lockTime?: number;
+    /**
+     * Entities WITHOUT a dynamic body only: the velocity falls by exp(-decay * dt) per second (default 8).
+     * @since unreleased
+     */
+    decay?: number;
+  }
+
+  /**
+   * Options of time.hitStop(seconds, opts) and of the "hitStop" feel action.
+   * @since unreleased
+   */
+  export interface HitStopOptions {
+    /**
+     * Game-time scale during the stop, 0..1: 0 (default) freezes, 0.2 is slow motion.
+     * @since unreleased
+     */
+    scale?: number;
+  }
+
+  /**
+   * A game feel effect as data: what Animator and SpriteAnimator clip events, the timeline and the feel.* commands run. Same names as the options of the matching function.
+   * @since unreleased
+   */
+  export type FeelAction = { action: "shake"; amount?: number } & ShakeOptions | { action: "hitStop"; duration?: number } & HitStopOptions | { action: "flash" } & FlashOptions | { action: "knockback"; direction?: Vec3Like } & KnockbackOptions | { action: "squash" } & SquashOptions;
+
+  /**
+   * Game feel settings and the data form of the effects (docs/GAME_FEEL.md). The effects themselves are camera.shake, time.hitStop, entity.flash, entity.knockback and entity.squash.
+   * @since unreleased
+   */
+  export interface FeelAPI {
+    /**
+     * Whether shake and squash are turned way down (a quarter) and hit-stops halved: the game's own choice when it set one, else the operating system's "reduce motion" (game.accessibility.reduceMotion). Assign true or false to set the player's choice (a settings menu), null to follow the system again. Applies to effects started afterwards.
+     * @since unreleased
+     */
+    reduceMotion: boolean;
+    /**
+     * Whether flashes are turned down: at most 0.35 strength and always fading, never a full-bright strobe. Same rule as reduceMotion: the game's choice, else the system's reduce motion. Assign true, false or null.
+     * @since unreleased
+     */
+    reducedEffects: boolean;
+    /**
+     * Runs one effect given as data on `target` (the entity of flash, knockback and squash; the camera of shake, default camera.main). Unknown keys and wrong types throw with a "did you mean".
+     * @since unreleased
+     */
+    do(action: FeelAction, target?: Entity | string): void;
+    /**
+     * Ends the flash, squash, shake and knockback of `target` at once; without an argument every effect of the scene, hit-stops included.
+     * @since unreleased
+     */
+    cancel(target?: Entity | string): void;
+  }
+
+  /**
    * Game clock.
    */
   export interface TimeAPI {
@@ -9012,7 +9303,7 @@ declare module "factoria" {
     readonly elapsed: number;
     readonly frame: number;
     /**
-     * Time scale for gameplay (>= 0, default 1): scales onUpdate/onFixedUpdate dt, timers, physics steps, particles and sprite animators. 0 freezes all of them (game.paused): only behaviours with runWhilePaused = true keep updating, and the UI keeps working. Audio is not scaled.
+     * Time scale for gameplay (>= 0, default 1): scales onUpdate/onFixedUpdate dt, timers, physics steps, particles and sprite animators. 0 freezes all of them (game.paused): only behaviours with runWhilePaused = true keep updating, and the UI keeps working. Audio is not scaled. A hit-stop (time.hitStop) slows these further for a moment without changing this value; time.dt shows the effective step.
      */
     scale: number;
     /**
@@ -9020,6 +9311,16 @@ declare module "factoria" {
      * @since 0.1.6
      */
     readonly unscaledDt: number;
+    /**
+     * Hit-stop: freezes (opts.scale 0, the default) or slows (scale 0.2 = slow motion) gameplay for `seconds` of REAL time, the pause that makes an impact land. Physics, behaviours' onUpdate/onFixedUpdate, timers, particles and sprite animators stop; the UI, the audio, runWhilePaused behaviours, camera shake, flashes and squash keep going, and time.scale / game.paused do not change. Overlapping calls do not add up: the longest one wins, and while several run the smallest scale applies; a longer stop than 5 s is an error (a unit mix-up). With reduceMotion on the duration is halved. Example: time.hitStop(0.08);
+     * @since unreleased
+     */
+    hitStop(seconds: number, opts?: HitStopOptions): void;
+    /**
+     * Real seconds left of the longest running hit-stop (0 = none).
+     * @since unreleased
+     */
+    readonly hitStopRemaining: number;
   }
 
   /**
@@ -9083,6 +9384,11 @@ declare module "factoria" {
      * @since 0.3.0
      */
     clampTo(rect: RectLike, options?: { camera?: Entity | string; margin?: number }): void;
+    /**
+     * Camera shake: adds `amount` (0..1, default 0.4) of trauma to a camera; trauma stacks up to opts.cap (default 1) and dies out over opts.duration seconds (a longer shake already running is kept), and the shake is trauma squared, so many small hits stay gentle and a big one is violent. The noise is smooth and seeded from the world's RNG (deterministic). 2D cameras move in x, y and roll; 3D ones also look a little around. Only what is drawn moves: the camera's Transform does not change, so a follow script never chases the shake, and screen-to-world conversions use the shaken view. opts.camera picks the camera (default camera.main). With reduceMotion on the amount is a quarter. Example: camera.shake(0.5, { duration: 0.3 });
+     * @since unreleased
+     */
+    shake(amount?: number, opts?: ShakeOptions): void;
   }
 
   /**
@@ -11298,6 +11604,12 @@ declare module "factoria" {
    * @since 0.3.0
    */
   export const bt: BtAPI;
+
+  /**
+   * Game feel settings and effects as data.
+   * @since unreleased
+   */
+  export const feel: FeelAPI;
 
   /**
    * Game clock.

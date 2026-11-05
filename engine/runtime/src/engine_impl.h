@@ -191,6 +191,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& impl);  // shot_comman
 void register_anim_commands(Engine& engine, Engine::Impl& impl);  // anim_commands.cpp (+ anim_view_commands.cpp): anim.*
 void register_music_commands(Engine& engine, Engine::Impl& impl);  // music_commands.cpp: audio.music_state, audio.music
 void register_mesh_commands(Engine& engine, Engine::Impl& impl);  // mesh_commands.cpp: mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
+void register_feel_commands(Engine& engine, Engine::Impl& impl);  // feel_commands.cpp: feel.shake, feel.hitStop, feel.flash, feel.knockback, feel.squash, feel.cancel, feel.settings, feel.state
 void register_bones_commands(Engine& engine, Engine::Impl& impl);  // bones_commands.cpp: bones.create, skin.*
 
 // Entity named by the string argument `key` (id or name). Throws CommandError("not_found") with a "did you mean".

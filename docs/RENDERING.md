@@ -194,6 +194,15 @@ test("the page's toggle works through the model", () => {
 Anything a test awaits (a `scene.preload`, a platform answer) must compare `scene.current` (or `scene.generation` for a reload
 of the same scene) with the scene it started in before it acts: the page and the model belong to one scene.
 
+## Game feel in the renderer
+
+Camera shake and squash are a pose added to an entity's matrix when the frame is drawn (`World::drawn_matrix`), so a shaken
+camera shows the whole scene moved while every Transform stays put. A flash (`entity.flash`) is drawn by the renderer without
+touching the entity's colour: sprites take a flash variant of the quad shader (OpenGL, Direct3D 11, Metal and web alike),
+`Shape2D` mixes the colour on the CPU, and a 3D mesh fades its surface colour out and adds the flash as emission (lit meshes
+keep a little specular and image-based reflection). A flashing entity never shares a draw with a non-flashing one. `Text`,
+`Tilemap`, particles and the UI are not flashed. See [GAME_FEEL.md](GAME_FEEL.md).
+
 ## Off-screen capture
 
 `render.captureTexture({ entity | rect, space: "world", scale })` draws a part of the world into a texture of its own, with a

@@ -17,6 +17,7 @@
 #include "fa/runtime/plugins.h"
 #include "fa/scene/camera_mask.h"
 #include "fa/scene/camera_query.h"
+#include "fa/scene/feel.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/ik3d.h"
@@ -395,6 +396,9 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         scripts.dispatch_back();  // the Back button of this frame: input.onBack handlers, else quit
         scripts.dispatch_gamepads();  // pads plugged in or out since the last frame: game.on("gamepadConnected" ...)
     }
+    // Hit-stop timers run in real time (they are what slows scripts.time_scale() below) and the effects learn the system's
+    // "reduce motion" for the actions that start this frame (fa/scene/feel.h).
+    feel_begin_frame(world, dt, scripts.system_reduce_motion());
     const float fdt = float(fixedDt);
     for (int i = 0; i < fixedSteps; ++i) {
         {
@@ -439,6 +443,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             ProfSystemScope prof(ProfSystem::Animation);
             update_videos(world, float(fixedDt * scale));
         }
+        feel_fixed_update(world, fixedDt * scale);  // knockback of entities without a physics body (the game clock WITH hit-stop)
         {
             ProfSystemScope prof(ProfSystem::ScriptsEvents);
             scripts.dispatch_events();
@@ -475,6 +480,9 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         ProfSystemScope prof(ProfSystem::Localization);
         apply_localization();  // keys of entities scripts spawned or edited this frame
     }
+    // Shake, flash and squash follow real time times the player's time.scale: they keep moving through a hit-stop. Before
+    // drawing, so the poses the renderer reads belong to this frame.
+    feel_update(world, dt * scripts.user_time_scale());
     render(dt);
     {
         ProfSystemScope prof(ProfSystem::EndOfFrame);
