@@ -27,6 +27,13 @@ tile for each combination of neighbours) and you paint the terrain, not tile num
 it re-tiles the cells around it) and `tilemap.retile` after you write `tiles` by hand. A game script paints
 with `entity.tilemap.paintTerrain("ground", [[col, row]])` and `eraseTerrain`, `retile`, `terrainAt` (SCRIPTING.md, "Autotile"). Guide section 9.8.
 
+## More levels like one you drew
+
+`tilemap.generate` makes a new, bigger level from a small example you drew (Wave Function Collapse; same arguments, same
+level). `constraints` (fixed cells, `border`, `forbidden`, `required`, `counts`) and `reachability` (`from`, `to`,
+`toTiles`, `allConnected`, `solidTiles`) make it a playable one: an entrance that reaches the exit and the treasure.
+Guide section 9.8.
+
 ## Camera and area limits
 
 `entity.bounds()` is the world rectangle `{x, y, w, h}` (bottom-left corner and size) of a

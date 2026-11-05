@@ -28,6 +28,11 @@
 // shrink. GenStats::peakBytes is what the vectors really held at the end, always at most the estimate. `ms` in the stats is the
 // wall time and `memoryBytes` / `peakBytes` are byte counts of this compiler's containers: they differ between runs and machines and are NOT
 // part of the determinism promise; `work` and the other counters are.
+//
+// CONSTRAINTS. `forbidden` symbols never appear (the patterns that contain them are removed), a CellRule fixes or restricts one
+// output cell, a CountRule says how many cells of some symbols the finished grid must hold (min / max): a grid that misses a
+// minimum is refused and the next attempt pins the missing cells at positions drawn from its own seed, so a rare tile still
+// turns up. `accept` is the last word (reachability, ...). All of it is deterministic.
 #pragma once
 
 #include <cstddef>
@@ -117,6 +122,14 @@ struct CellRule {
     std::vector<int> allowed;
 };
 
+// The finished grid must hold between `min` and `max` cells whose symbol is one of `symbols`.
+struct CountRule {
+    std::vector<int> symbols;
+    int min = 0;
+    int max = -1;                                // -1 = no maximum
+    std::string name;                            // for messages ("treasure"); empty = the symbol ids
+};
+
 struct GenerateOptions {
     int width = 0;                               // output cells
     int height = 0;
@@ -124,6 +137,8 @@ struct GenerateOptions {
     std::uint64_t seed = 0;
     int maxAttempts = 10;                        // 1..kMaxAttempts; a contradiction or a refused grid uses one
     std::vector<CellRule> cellRules;
+    std::vector<int> forbidden;                  // symbols no cell may hold
+    std::vector<CountRule> counts;               // minimum / maximum cells per symbol group (checked on every finished grid)
     // Asked about every finished grid (width * height symbols). Return false to refuse it (with `why`): the generator retries
     // with the next seed and, after maxAttempts, fails with the last reason. Must be deterministic.
     std::function<bool(const std::vector<int>& cells, std::string& why)> accept;
@@ -140,6 +155,7 @@ struct GenStats {
     int patterns = 0;                            // patterns of the model
     int cells = 0;                               // cells of the solver (the pattern grid: smaller than the output for a non-periodic overlapping model)
     std::int64_t work = 0;                       // units of work done (see Generator::step): deterministic, unlike `ms`
+    int pinned = 0;                              // cells pinned to a tile a minimum count was missing (see CountRule)
     double ms = 0.0;                             // wall time spent in step(): it differs between runs and machines and is NOT part of the determinism promise
     std::size_t memoryBytes = 0;                 // estimate_generator_memory(): the solver state and the model, an upper bound
     int heapRebuilds = 0;                        // times the entropy heap was rebuilt without its stale entries
@@ -154,7 +170,8 @@ struct GenFailure {
     int attempt = 0;                             // 1-based
     int x = -1;                                  // output cell where the contradiction appeared (-1: the grid was refused)
     int y = -1;
-    std::string reason;                          // "contradiction" or what `accept` said
+    std::string reason;                          // "contradiction", the count that was missed, or what `accept` said
+    int countRule = -1;                          // index into GenerateOptions::counts when a count was missed
 };
 
 // An upper bound of the bytes the model's tables and the solver state take for this model and size.
@@ -169,7 +186,8 @@ public:
     Generator(const Generator&) = delete;
     Generator& operator=(const Generator&) = delete;
 
-    // Checks the options (size, periodic size against n, cell rules inside the grid with symbols the model has, weights, memory budget) and prepares the first attempt. The model is kept alive by the generator.
+    // Checks the options (size, periodic size against n, cell rules inside the grid with symbols the model has, constraints that
+    // contradict each other or the model, weights, memory budget) and prepares the first attempt. The model is kept alive by the generator.
     static Result<std::unique_ptr<Generator>> create(std::shared_ptr<const PatternModel> model, GenerateOptions options);
 
     // Does at most `workBudget` units of work (a unit is one pattern removed from a cell or one cell observed; starting an

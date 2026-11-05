@@ -484,6 +484,12 @@ std::unique_ptr<wfc::Generator> make_generator(std::shared_ptr<const wfc::Patter
     return std::move(*g);
 }
 
+int count_of(const std::vector<int>& cells, int symbol) {
+    int n = 0;
+    for (int c : cells) n += c == symbol;
+    return n;
+}
+
 }  // namespace
 
 TEST_CASE("wfc: the entropy heap stays within 4 entries per cell and the memory estimate covers what was held") {
@@ -553,4 +559,130 @@ TEST_CASE("wfc: weights above 2^32 and an oversized tiled adjacency table are re
     auto big = wfc::build_terrain_model({wide}, {});
     REQUIRE_FALSE(big.ok());
     CHECK(message(big.error()).find("adjacency table") != std::string::npos);
+}
+
+TEST_CASE("wfc constraints: forbidden symbols never appear") {
+    auto model = overlapping(kRooms, 3, 1, false);  // symbols: 0 floor, 1 wall
+    auto go = options_for(20, 14, 5, 400);
+    go.forbidden = {1};
+    // Forbidding the wall leaves only the all-floor patterns: a level of floor.
+    auto g = make_generator(model, go);
+    REQUIRE_MESSAGE(g->run() == wfc::GenStatus::Done, g->failure_message());
+    CHECK(count_of(g->output(), 1) == 0);
+
+    // Forbidding everything is refused before anything runs.
+    go.forbidden = {0, 1};
+    auto none = wfc::Generator::create(model, go);
+    REQUIRE_FALSE(none.ok());
+    CHECK(none.error().message.find("forbidden") != std::string::npos);
+    go.forbidden = {7};
+    CHECK_FALSE(wfc::Generator::create(model, go).ok());
+}
+
+TEST_CASE("wfc constraints: counts, a missed minimum pins the missing cells and the maximum refuses a grid") {
+    auto model = overlapping(kRooms, 3, 1, false);
+    for (std::uint64_t seed = 1; seed <= 6; ++seed) {
+        auto go = options_for(24, 16, seed, 200);
+        go.counts.push_back({{1}, 60, 90, "wall"});
+        auto g = make_generator(model, go);
+        REQUIRE_MESSAGE(g->run() == wfc::GenStatus::Done, g->failure_message());
+        const int walls = count_of(g->output(), 1);
+        CHECK(walls >= 60);
+        CHECK(walls <= 90);
+        CHECK(g->stats().symbolCounts[1] == walls);
+    }
+
+    // The rare tile of the sample (the lone 'o') still turns up: a minimum of three of them.
+    Rows rare = kRooms;
+    rare[3][4] = 'o';
+    auto rareModel = overlapping(rare, 3, 1, false);
+    int pinnedAny = 0;
+    for (std::uint64_t seed = 1; seed <= 5; ++seed) {
+        auto go = options_for(24, 16, seed, 300);
+        go.counts.push_back({{2}, 3, -1, "pillar"});
+        auto g = make_generator(rareModel, go);
+        REQUIRE_MESSAGE(g->run() == wfc::GenStatus::Done, g->failure_message());
+        CHECK(count_of(g->output(), 2) >= 3);
+        pinnedAny += g->stats().pinned;
+    }
+    CHECK(pinnedAny > 0);
+
+    // An exact count of zero is a ban that is checked at the end.
+    auto go = options_for(20, 14, 2, 400);
+    go.counts.push_back({{1}, 0, 0, "wall"});
+    auto none = make_generator(model, go);
+    if (none->run() == wfc::GenStatus::Done) CHECK(count_of(none->output(), 1) == 0);
+    else CHECK(none->failure_message().find("at most 0") != std::string::npos);
+}
+
+TEST_CASE("wfc constraints: the same constraints and seed give the same grid; pins are derived from the seed") {
+    Rows rare = kRooms;
+    rare[3][4] = 'o';
+    auto model = overlapping(rare, 3, 1, false);
+    auto build = [&] {
+        auto go = options_for(30, 18, 9, 300);
+        go.cellRules.push_back({1, 1, {0}});
+        go.cellRules.push_back({28, 16, {0}});
+        go.counts.push_back({{2}, 2, 4, "pillar"});
+        auto g = make_generator(model, go);
+        REQUIRE_MESSAGE(g->run() == wfc::GenStatus::Done, g->failure_message());
+        return std::make_pair(g->output(), g->stats().attempts);
+    };
+    const auto a = build(), b = build();
+    CHECK(a.first == b.first);
+    CHECK(a.second == b.second);
+    CHECK(fingerprint(a.first) == fingerprint(b.first));
+}
+
+TEST_CASE("wfc constraints: contradictions are reported before generating") {
+    auto model = overlapping(kRooms, 3, 1, false);
+    auto refused = [&](wfc::GenerateOptions go, const char* part) {
+        auto g = wfc::Generator::create(model, go);
+        REQUIRE_FALSE(g.ok());
+        const std::string text = g.error().message + " | " + g.error().hint;
+        CHECK_MESSAGE(text.find(part) != std::string::npos, text);
+    };
+    {
+        auto go = options_for(20, 14, 1);
+        go.counts.push_back({{1}, 5, 2, "wall"});
+        refused(go, "greater than max");
+    }
+    {
+        auto go = options_for(20, 14, 1);
+        go.counts.push_back({{1}, 281, -1, "wall"});
+        refused(go, "output has only 280");
+    }
+    {
+        auto go = options_for(20, 14, 1);
+        go.cellRules.push_back({0, 0, {1}});
+        go.forbidden = {1};
+        refused(go, "only forbidden");
+    }
+    {
+        auto go = options_for(20, 14, 1);
+        go.cellRules.push_back({0, 0, {1}});
+        go.cellRules.push_back({0, 0, {0}});
+        refused(go, "no symbol in common");
+    }
+    {
+        auto go = options_for(20, 14, 1);
+        for (int x = 0; x < 3; ++x) go.cellRules.push_back({x, 0, {1}});
+        go.counts.push_back({{1}, 0, 2, "wall"});
+        refused(go, "fixed cells already hold it");
+    }
+    {
+        auto go = options_for(4, 4, 1);  // 16 cells, 14 fixed to floor: only two can hold walls
+        for (int i = 0; i < 14; ++i) go.cellRules.push_back({i % 4, i / 4, {0}});
+        go.counts.push_back({{1}, 3, -1, "wall"});
+        refused(go, "only 2 cells can hold it");
+    }
+    {
+        auto go = options_for(20, 14, 1);  // the symbol exists in the grammar of the model but no pattern holds it
+        auto m2 = std::make_shared<wfc::PatternModel>(*model);
+        m2->symbolCount = 3;
+        go.counts.push_back({{2}, 1, -1, "ghost"});
+        auto g = wfc::Generator::create(m2, go);
+        REQUIRE_FALSE(g.ok());
+        CHECK(g.error().message.find("no pattern of the model holds it") != std::string::npos);
+    }
 }

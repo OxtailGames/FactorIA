@@ -16,6 +16,7 @@
 #include "fa/core/perf.h"
 #include "fa/core/strings.h"
 #include "fa/core/utf8.h"
+#include "fa/physics/nav.h"
 #include "fa/scene/autotile.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/wfc.h"
@@ -25,11 +26,14 @@ namespace fa {
 namespace {
 
 constexpr int kDefaultMaxAttempts = 10;
+constexpr int kDefaultConstraintAttempts = 50;                         // with constraints or reachability a refused grid is common: more attempts
 constexpr long long kDefaultMaxWork = 400'000'000;                     // units of solver work (wfc::Generator::step) over all attempts
 constexpr long long kMaxWorkLimit = 100'000'000'000;
 constexpr double kDefaultMaxSeconds = 20.0;                            // CPU seconds of the process
 constexpr double kMaxSecondsLimit = 600.0;
 constexpr std::int64_t kStepWork = 1 << 16;                            // work per step() call: the caps are checked between calls
+constexpr std::size_t kReachPaths = 16;                                // paths the reachability report lists
+constexpr std::size_t kReachAreas = 5;                                 // unreachable areas the report lists
 
 Json parse_schema(const char* text) {
     auto r = parse_json(text, "command schema");
@@ -111,6 +115,7 @@ struct SampleData {
     std::vector<int> tiles;          // tile value of every cell (-1 = none); for ASCII the tile of the cell's glyph
     AsciiSample glyphs;              // ASCII samples: the cells are indexes into glyphs.glyphs
     Json terrains = Json::array();   // the Tilemap's autotile rules (entity samples)
+    Json solidTiles = Json::array(); // the tiles that block: Tilemap.solidTiles of an entity sample, `tilemap.solidTiles` of ASCII arguments
 };
 
 Json ascii_args_from(const Json& a, const Json& sample) {
@@ -194,6 +199,7 @@ SampleData read_sample(Engine::Impl& I, const Json& a) {
             out.height = grid.height;
             out.tiles = grid.tiles;
             out.terrains = tm->terrains;
+            out.solidTiles = tm->solidTiles;
             out.source = "the Tilemap of entity '" + I.world.id_of(e) + "'";
             return out;
         }
@@ -204,6 +210,8 @@ SampleData read_sample(Engine::Impl& I, const Json& a) {
         bad_arg("'sample' must be an entity id, ASCII rows or an object, got " + describe_json_value(s), hint);
     }
     out.ascii = true;
+    if (asciiArgs.is_object() && asciiArgs.contains("tilemap") && asciiArgs["tilemap"].is_object() && asciiArgs["tilemap"].contains("solidTiles"))
+        out.solidTiles = asciiArgs["tilemap"]["solidTiles"];
     out.glyphs = read_ascii_sample(asciiArgs);
     out.width = out.glyphs.width;
     out.height = out.glyphs.height;
@@ -264,6 +272,596 @@ private:
     std::size_t paletteIndex_ = 0;
 };
 
+// ------------------------------------------------------------------------------------------------------------ tile references
+// What a constraint's `tile` means in this model: the glyphs of an ASCII sample, the tile numbers of a Tilemap sample or of the
+// tiled model (and the names of its terrains), -1 for an empty cell.
+struct ModelView {
+    bool tiled = false;
+    const SampleData* sample = nullptr;
+    const std::vector<int>* symbolTile = nullptr;   // symbol -> tile value (not for ASCII overlapping)
+    const std::vector<Terrain>* terrains = nullptr;
+    int symbolCount = 0;
+
+    bool glyph_symbols() const { return !tiled && sample && sample->ascii; }
+    // The tile value a symbol stands for (-1 = empty or a glyph without a tile).
+    int tile_of(int symbol) const {
+        if (glyph_symbols()) return sample->glyphs.glyphs[std::size_t(symbol)].tile;
+        return (*symbolTile)[std::size_t(symbol)];
+    }
+    bool has_prefab(int symbol) const { return glyph_symbols() && sample->glyphs.glyphs[std::size_t(symbol)].hasPrefab; }
+};
+
+struct TileRefs {
+    std::vector<int> symbols;   // ascending, no duplicates
+    std::string label;          // "'#'", "tile 3", "terrain 'grass'"
+};
+
+std::string options_list(const ModelView& mv) {
+    std::string out;
+    int shown = 0;
+    if (mv.glyph_symbols()) {
+        for (const AsciiSampleGlyph& g : mv.sample->glyphs.glyphs) {
+            if (shown++ == 12) return out + ", ...";
+            out += (out.empty() ? "'" : ", '") + g.glyph + "'";
+        }
+        return out;
+    }
+    std::set<int> tiles;
+    for (int s = 0; s < mv.symbolCount; ++s) tiles.insert(mv.tile_of(s));
+    for (int t : tiles) {
+        if (shown++ == 12) return out + ", ...";
+        out += (out.empty() ? "" : ", ") + std::to_string(t);
+    }
+    if (mv.tiled && mv.terrains) {
+        std::string names;
+        for (const Terrain& t : *mv.terrains) names += (names.empty() ? "'" : ", '") + t.name + "'";
+        out += "; terrains " + names;
+    }
+    return out;
+}
+
+TileRefs resolve_refs(const ModelView& mv, const Json& v, const std::string& pointer) {
+    TileRefs out;
+    std::set<int> found;
+    auto one = [&](const Json& r, const std::string& at) {
+        std::vector<int> matched;
+        std::string label;
+        if (r.is_string()) {
+            const std::string text = r.get<std::string>();
+            if (mv.glyph_symbols()) {
+                label = "'" + text + "'";
+                std::vector<std::string> names;
+                for (int s = 0; s < mv.symbolCount; ++s) {
+                    names.push_back(mv.sample->glyphs.glyphs[std::size_t(s)].glyph);
+                    if (names.back() == text) matched.push_back(s);
+                }
+                if (matched.empty())
+                    bad_arg(at + ": the glyph '" + text + "' is not in the sample, so the generated level never has it. " + did_you_mean(text, names),
+                            "Name a glyph of the sample (" + options_list(mv) + ") or a tile number.");
+            } else if (mv.tiled && mv.terrains) {
+                label = "terrain '" + text + "'";
+                std::set<int> values;
+                std::vector<std::string> names;
+                for (const Terrain& t : *mv.terrains) {
+                    names.push_back(t.name);
+                    if (t.name != text) continue;
+                    for (const auto& slot : t.slots)
+                        for (int tv : slot) values.insert(tv);
+                }
+                for (int s = 0; s < mv.symbolCount; ++s)
+                    if (values.count(mv.tile_of(s))) matched.push_back(s);
+                if (matched.empty())
+                    bad_arg(at + ": '" + text + "' is not a terrain of the rules. " + did_you_mean(text, names),
+                            "Name a terrain (" + options_list(mv) + ") or a tile number.");
+            } else {
+                bad_arg(at + ": a glyph like '" + text + "' only names a tile when the sample is ASCII rows; this model's tiles are numbers",
+                        "Use the tile number (-1 = empty cell). Tiles: " + options_list(mv) + ".");
+            }
+        } else if (r.is_number_integer() || r.is_number_unsigned()) {
+            const long long ref = r.get<long long>();
+            label = ref < 0 ? "the empty tile" : "tile " + std::to_string(ref);
+            // A plain index matches the tile however it is turned; a value with flip bits matches exactly that one.
+            const bool exact = ref >= 0 && (ref & kTileFlagMask) != 0;
+            for (int s = 0; s < mv.symbolCount; ++s) {
+                if (mv.has_prefab(s)) continue;   // a glyph that spawns an object is named by its glyph
+                const int t = mv.tile_of(s);
+                const bool same = ref < 0 ? t < 0 : (t >= 0 && (exact ? static_cast<long long>(t) == ref : tile_index(t) == ref));
+                if (same) matched.push_back(s);
+            }
+            if (matched.empty())
+                bad_arg(at + ": " + label + " is not in " + (mv.tiled ? "the tiled model" : "the sample") + ", so the generated level never has it",
+                        "Tiles here: " + options_list(mv) + (mv.tiled ? "" : ". Draw it in the sample first (the generator only places what the sample shows)."));
+        } else {
+            bad_arg(at + ": a tile is a glyph (\"#\"), a tile number (3, -1 = empty)" + std::string(mv.tiled ? " or a terrain name" : "") + ", got " + describe_json_value(r),
+                    "Example: \"tile\": \"#\" for an ASCII sample, \"tile\": 3 for a tile number.");
+        }
+        found.insert(matched.begin(), matched.end());
+        out.label += (out.label.empty() ? "" : "/") + label;
+    };
+    if (v.is_array()) {
+        if (v.empty()) bad_arg(pointer + ": the list of tiles is empty", "List at least one tile, e.g. [\"#\"].");
+        for (std::size_t i = 0; i < v.size(); ++i) one(v[i], pointer + "/" + std::to_string(i));
+    } else {
+        one(v, pointer);
+    }
+    out.symbols.assign(found.begin(), found.end());
+    return out;
+}
+
+// ------------------------------------------------------------------------------------------------------------ constraints
+struct Constraints {
+    std::vector<wfc::CellRule> cellRules;
+    std::vector<int> forbidden;
+    std::vector<wfc::CountRule> counts;
+    std::vector<std::string> countLabels;
+    int fixedCells = 0;
+    bool any() const { return !cellRules.empty() || !forbidden.empty() || !counts.empty(); }
+};
+
+void unknown_keys(const Json& obj, const std::set<std::string>& known, const std::string& pointer) {
+    std::vector<std::string> list(known.begin(), known.end());
+    for (auto it = obj.begin(); it != obj.end(); ++it)
+        if (!known.count(it.key()))
+            bad_arg(pointer + ": unknown key '" + it.key() + "'. " + did_you_mean(it.key(), list), "Keys here: " + join(list, ", ") + ".");
+}
+
+int cell_coord(const Json& v, const std::string& pointer, int lo, int hi, const char* what) {
+    long long x = 0;
+    if (!whole_number(v, x)) bad_arg(pointer + ": " + what + " must be a whole number, got " + describe_json_value(v));
+    if (x < lo || x > hi)
+        bad_arg(pointer + ": " + what + " is " + std::to_string(x) + " but the output has " + what + " 0.." + std::to_string(hi),
+                "Cells count from 0 at the top-left: x is the column, y the row.");
+    return int(x);
+}
+
+void parse_cell(const Json& v, const std::string& pointer, int width, int height, int& x, int& y) {
+    if (!v.is_array() || v.size() != 2)
+        bad_arg(pointer + ": a cell is [x, y], got " + describe_json_value(v), "Example: [3, 0]. x is the column, y the row, from 0 at the top-left.");
+    x = cell_coord(v[0], pointer + "/0", 0, width - 1, "x");
+    y = cell_coord(v[1], pointer + "/1", 0, height - 1, "y");
+}
+
+Constraints parse_constraints(const Json& a, const ModelView& mv, int width, int height) {
+    Constraints out;
+    if (!a.contains("constraints")) return out;
+    const Json& c = a["constraints"];
+    const std::string base = "/constraints";
+    if (!c.is_object())
+        bad_arg(base + ": 'constraints' must be an object, got " + describe_json_value(c),
+                "Example: {\"fixed\":[{\"at\":[1,1],\"tile\":\"@\"}],\"forbidden\":[\"%\"],\"required\":[\"$\"],\"counts\":[{\"tile\":\"E\",\"max\":3}],\"border\":{\"tile\":\"#\"}}.");
+    unknown_keys(c, {"fixed", "border", "forbidden", "required", "counts"}, base);
+    auto list_of = [&](const char* key) -> const Json* {
+        if (!c.contains(key)) return nullptr;
+        if (!c[key].is_array()) bad_arg(base + "/" + key + ": must be an array, got " + describe_json_value(c[key]));
+        return &c[key];
+    };
+
+    std::set<int> forbidden;
+    std::vector<std::pair<std::set<int>, std::string>> forbiddenSources;
+    if (const Json* f = list_of("forbidden"))
+        for (std::size_t i = 0; i < f->size(); ++i) {
+            const std::string at = base + "/forbidden/" + std::to_string(i);
+            TileRefs r = resolve_refs(mv, (*f)[i], at);
+            forbiddenSources.push_back({std::set<int>(r.symbols.begin(), r.symbols.end()), at});
+            forbidden.insert(r.symbols.begin(), r.symbols.end());
+        }
+    auto forbidden_source = [&](int symbol) {
+        for (const auto& src : forbiddenSources)
+            if (src.first.count(symbol)) return src.second;
+        return std::string();
+    };
+
+    // Fixed cells: the border first, explicit cells over it.
+    struct Fixed {
+        std::set<int> allowed;
+        std::string pointer;
+        std::string label;
+        bool fromBorder = false;
+    };
+    std::map<int, Fixed> cells;   // output cell index -> what it may hold
+    auto put = [&](int x, int y, const TileRefs& refs, const std::string& pointer, bool border) {
+        const int index = y * width + x;
+        auto it = cells.find(index);
+        if (it == cells.end()) {
+            cells[index] = Fixed{std::set<int>(refs.symbols.begin(), refs.symbols.end()), pointer, refs.label, border};
+            return;
+        }
+        if (it->second.fromBorder && !border) {   // an explicit cell replaces the border's
+            it->second = Fixed{std::set<int>(refs.symbols.begin(), refs.symbols.end()), pointer, refs.label, false};
+            return;
+        }
+        if (border) return;
+        std::set<int> both;
+        for (int s : refs.symbols)
+            if (it->second.allowed.count(s)) both.insert(s);
+        if (both.empty())
+            bad_arg(pointer + ": the cell (" + std::to_string(x) + ", " + std::to_string(y) + ") is fixed to " + refs.label + " here and to " + it->second.label + " at " + it->second.pointer +
+                        ": no tile satisfies both",
+                    "Give each cell one tile; a cell listed twice must share a tile.");
+        it->second.allowed = both;
+        it->second.pointer = pointer;
+    };
+    if (c.contains("border")) {
+        const Json& b = c["border"];
+        const std::string at = base + "/border";
+        if (!b.is_object() || !b.contains("tile"))
+            bad_arg(at + ": 'border' is {\"tile\": <tile>, \"thickness\": 1}, got " + describe_json_value(b), "Example: \"border\": {\"tile\": \"#\"} walls in the edge of the level.");
+        unknown_keys(b, {"tile", "thickness"}, at);
+        TileRefs refs = resolve_refs(mv, b["tile"], at + "/tile");
+        long long thickness = 1;
+        if (b.contains("thickness") && !whole_number(b["thickness"], thickness)) bad_arg(at + "/thickness: must be a whole number, got " + describe_json_value(b["thickness"]));
+        if (thickness < 1 || thickness > std::min(width, height))
+            bad_arg(at + "/thickness: is " + std::to_string(thickness) + " but it must be between 1 and " + std::to_string(std::min(width, height)) + " for a " + std::to_string(width) + " x " + std::to_string(height) + " level");
+        for (int y = 0; y < height; ++y)
+            for (int x = 0; x < width; ++x)
+                if (x < thickness || y < thickness || x >= width - thickness || y >= height - thickness) put(x, y, refs, at, true);
+    }
+    if (const Json* f = list_of("fixed"))
+        for (std::size_t i = 0; i < f->size(); ++i) {
+            const Json& e = (*f)[i];
+            const std::string at = base + "/fixed/" + std::to_string(i);
+            if (e.is_object()) unknown_keys(e, {"at", "rect", "tile"}, at);
+            if (!e.is_object() || !e.contains("tile") || (e.contains("at") == e.contains("rect")))
+                bad_arg(at + ": a fixed entry is {\"at\": [x, y], \"tile\": <tile>} or {\"rect\": [x, y, width, height], \"tile\": <tile>}, got " + describe_json_value(e),
+                        "Example: {\"at\":[1,1],\"tile\":\"@\"} puts the entrance at the top-left corner; give `at` or `rect`, not both.");
+            TileRefs refs = resolve_refs(mv, e["tile"], at + "/tile");
+            if (e.contains("at")) {
+                int x = 0, y = 0;
+                parse_cell(e["at"], at + "/at", width, height, x, y);
+                put(x, y, refs, at, false);
+            } else {
+                const Json& r = e["rect"];
+                if (!r.is_array() || r.size() != 4) bad_arg(at + "/rect: a rect is [x, y, width, height], got " + describe_json_value(r), "Example: [0, 0, 8, 1] is the top row's first 8 cells.");
+                int x = cell_coord(r[0], at + "/rect/0", 0, width - 1, "x");
+                int y = cell_coord(r[1], at + "/rect/1", 0, height - 1, "y");
+                long long w = 0, h = 0;
+                if (!whole_number(r[2], w) || !whole_number(r[3], h) || w < 1 || h < 1 || x + w > width || y + h > height)
+                    bad_arg(at + "/rect: the rect " + describe_json_value(r) + " must have a width and height of at least 1 and stay inside the " + std::to_string(width) + " x " + std::to_string(height) + " level");
+                for (int yy = y; yy < y + int(h); ++yy)
+                    for (int xx = x; xx < x + int(w); ++xx) put(xx, yy, refs, at, false);
+            }
+        }
+    for (const auto& kv : cells) {
+        const int x = kv.first % width, y = kv.first / width;
+        std::vector<int> allowed;
+        for (int s : kv.second.allowed)
+            if (!forbidden.count(s)) allowed.push_back(s);
+        if (allowed.empty()) {
+            const std::string other = forbidden_source(*kv.second.allowed.begin());
+            bad_arg(kv.second.pointer + ": the cell (" + std::to_string(x) + ", " + std::to_string(y) + ") is fixed to " + kv.second.label + ", which is also forbidden" +
+                        (other.empty() ? std::string() : " at " + other),
+                    "Remove it from `forbidden` or fix the cell to another tile.");
+        }
+        out.cellRules.push_back({x, y, allowed});
+    }
+    out.fixedCells = int(cells.size());
+    out.forbidden.assign(forbidden.begin(), forbidden.end());
+
+    // Counts: `required` is a minimum of one, `counts` says min and max.
+    long long sumMin = 0;
+    std::vector<std::pair<std::set<int>, std::string>> minSets;
+    auto add_count = [&](const TileRefs& refs, long long mn, long long mx, const std::string& at) {
+        std::vector<int> usable;
+        for (int s : refs.symbols)
+            if (!forbidden.count(s)) usable.push_back(s);
+        if (usable.empty() && mn > 0)
+            bad_arg(at + ": " + refs.label + " must appear at least " + std::to_string(mn) + " time(s) but it is also forbidden at " + forbidden_source(refs.symbols.front()),
+                    "Remove it from `forbidden`, or from `required` / `counts`.");
+        wfc::CountRule rule;
+        rule.symbols = refs.symbols;
+        rule.min = int(mn);
+        rule.max = mx < 0 ? -1 : int(mx);
+        rule.name = refs.label + " (" + at + ")";
+        out.counts.push_back(rule);
+        out.countLabels.push_back(refs.label);
+        if (mn > 0) {
+            sumMin += mn;
+            minSets.push_back({std::set<int>(refs.symbols.begin(), refs.symbols.end()), at});
+        }
+    };
+    const long long cellsTotal = static_cast<long long>(width) * height;
+    if (const Json* r = list_of("required"))
+        for (std::size_t i = 0; i < r->size(); ++i) {
+            const std::string at = base + "/required/" + std::to_string(i);
+            add_count(resolve_refs(mv, (*r)[i], at), 1, -1, at);
+        }
+    if (const Json* k = list_of("counts"))
+        for (std::size_t i = 0; i < k->size(); ++i) {
+            const Json& e = (*k)[i];
+            const std::string at = base + "/counts/" + std::to_string(i);
+            if (e.is_object()) unknown_keys(e, {"tile", "min", "max"}, at);
+            if (!e.is_object() || !e.contains("tile") || (!e.contains("min") && !e.contains("max")))
+                bad_arg(at + ": a count is {\"tile\": <tile>, \"min\": 1, \"max\": 3} with `min`, `max` or both, got " + describe_json_value(e),
+                        "Example: {\"tile\":\"E\",\"max\":3} allows at most 3 enemies; {\"tile\":\"$\",\"min\":2,\"max\":5} wants 2 to 5 treasures.");
+            long long mn = 0, mx = -1;
+            if (e.contains("min") && (!whole_number(e["min"], mn) || mn < 0)) bad_arg(at + "/min: must be a whole number of 0 or more, got " + describe_json_value(e["min"]));
+            if (e.contains("max") && (!whole_number(e["max"], mx) || mx < 0)) bad_arg(at + "/max: must be a whole number of 0 or more, got " + describe_json_value(e["max"]));
+            if (mx >= 0 && mn > mx) bad_arg(at + ": min " + std::to_string(mn) + " is greater than max " + std::to_string(mx), "Make min at most max.");
+            if (mn > cellsTotal)
+                bad_arg(at + "/min: " + std::to_string(mn) + " cells are required but the output has only " + std::to_string(cellsTotal), "Ask for a bigger `size` or a smaller min.");
+            add_count(resolve_refs(mv, e["tile"], at + "/tile"), mn, mx, at);
+        }
+    // Minimums of tiles that exclude each other add up: they must fit in the output.
+    bool disjoint = true;
+    for (std::size_t i = 0; i < minSets.size() && disjoint; ++i)
+        for (std::size_t j = i + 1; j < minSets.size() && disjoint; ++j)
+            for (int s : minSets[i].first)
+                if (minSets[j].first.count(s)) {
+                    disjoint = false;
+                    break;
+                }
+    if (disjoint && sumMin > cellsTotal)
+        bad_arg(base + ": the minimums add up to " + std::to_string(sumMin) + " cells but the output has only " + std::to_string(cellsTotal),
+                "Ask for a bigger `size` or lower the minimums in `required` and `counts`.");
+    return out;
+}
+
+// ------------------------------------------------------------------------------------------------------------ reachability
+struct ReachSpec {
+    bool enabled = false;
+    bool hasFrom = false;
+    int fromX = 0, fromY = 0;
+    std::vector<std::pair<int, int>> toCells;   // explicit cells that must be reachable
+    std::vector<int> toSymbols;                 // every cell holding one of these symbols must be reachable
+    std::string toLabel;
+    bool allConnected = false;
+    bool diagonals = false;
+    std::vector<int> solid;                     // tile indices that block
+    std::vector<std::pair<int, float>> costs;   // tile index -> cost override (< 0 blocks), sorted
+};
+
+ReachSpec parse_reachability(const Json& a, const ModelView& mv, const SampleData& sample, const Tilemap* into, const Constraints& cons, int width, int height) {
+    ReachSpec spec;
+    if (!a.contains("reachability")) return spec;
+    const Json& r = a["reachability"];
+    const std::string base = "/reachability";
+    if (!r.is_object())
+        bad_arg(base + ": 'reachability' must be an object, got " + describe_json_value(r),
+                "Example: {\"from\":[1,1],\"to\":[[30,18]],\"toTiles\":[\"$\"],\"allConnected\":true,\"solidTiles\":[0]}.");
+    unknown_keys(r, {"from", "to", "toTiles", "allConnected", "solidTiles", "costs", "diagonals"}, base);
+    spec.enabled = true;
+    if (r.contains("from")) {
+        parse_cell(r["from"], base + "/from", width, height, spec.fromX, spec.fromY);
+        spec.hasFrom = true;
+    }
+    if (r.contains("to")) {
+        const Json& t = r["to"];
+        if (!t.is_array() || t.empty()) bad_arg(base + "/to: must be one cell [x, y] or a list of cells [[x, y], ...], got " + describe_json_value(t));
+        auto push = [&](const Json& c, const std::string& at) {
+            int x = 0, y = 0;
+            parse_cell(c, at, width, height, x, y);
+            spec.toCells.push_back({x, y});
+        };
+        if (t[0].is_number()) push(t, base + "/to");
+        else
+            for (std::size_t i = 0; i < t.size(); ++i) push(t[i], base + "/to/" + std::to_string(i));
+    }
+    if (r.contains("toTiles")) {
+        TileRefs refs = resolve_refs(mv, r["toTiles"], base + "/toTiles");
+        spec.toSymbols = refs.symbols;
+        spec.toLabel = refs.label;
+    }
+    spec.allConnected = bool_arg(r, "allConnected", false);
+    spec.diagonals = bool_arg(r, "diagonals", false);
+    if ((!spec.toCells.empty() || !spec.toSymbols.empty()) && !spec.hasFrom)
+        bad_arg(base + ": `to` and `toTiles` need a start: add \"from\": [x, y]", "Example: {\"from\":[1,1],\"to\":[[30,18]]} checks that the exit can be reached from the entrance.");
+    if (!spec.hasFrom && !spec.allConnected)
+        bad_arg(base + ": it checks nothing: give `from` with `to` / `toTiles`, or \"allConnected\": true", "Example: {\"from\":[1,1],\"to\":[[30,18]]}.");
+
+    // Which tiles block: the call's own list, else the Tilemap the level goes into, else the sample's.
+    const Json* solid = nullptr;
+    if (r.contains("solidTiles")) {
+        if (!r["solidTiles"].is_array()) bad_arg(base + "/solidTiles: must be a list of tile numbers, got " + describe_json_value(r["solidTiles"]), "Example: \"solidTiles\": [0, 2].");
+        solid = &r["solidTiles"];
+    } else if (into && into->solidTiles.is_array() && !into->solidTiles.empty()) {
+        solid = &into->solidTiles;
+    } else if (sample.solidTiles.is_array() && !sample.solidTiles.empty()) {
+        solid = &sample.solidTiles;
+    }
+    if (!solid)
+        bad_arg(base + ": it needs to know which tiles block the way and none were found (no `solidTiles` here, in the `into` Tilemap or in the sample)",
+                "Add \"solidTiles\": [0] (the tile numbers that are walls) to `reachability`, or set Tilemap.solidTiles on `into`. Those are the rules nav.find_tile_path uses on the finished level too.");
+    for (const Json& j : *solid) {
+        long long v = 0;
+        if (!whole_number(j, v)) bad_arg(base + "/solidTiles: tile numbers only, got " + describe_json_value(j));
+        spec.solid.push_back(tile_index(int(v)));
+    }
+    if (r.contains("costs")) {
+        const Json& c = r["costs"];
+        if (!c.is_object()) bad_arg(base + "/costs: must be {\"<tile>\": cost | null}, got " + describe_json_value(c), "Same as nav.find_tile_path: {\"3\": 2.5, \"7\": null}; null blocks, key \"-1\" is the empty cell.");
+        for (auto it = c.begin(); it != c.end(); ++it) {
+            long long key = 0;
+            try {
+                key = std::stoll(it.key());
+            } catch (...) {
+                bad_arg(base + "/costs: the key '" + it.key() + "' is not a tile number", "Keys are tile numbers as text: {\"3\": 2.5}.");
+            }
+            if (key < -1 || key > kTileIndexMask) bad_arg(base + "/costs: the tile number " + it.key() + " is out of range");
+            const float v = it.value().is_number() ? it.value().get<float>() : -1.0f;
+            spec.costs.push_back({int(key), v < 0.0f || std::isnan(v) ? -1.0f : v});
+        }
+        std::sort(spec.costs.begin(), spec.costs.end());
+    }
+
+    // A cell that is fixed to a blocking tile cannot be a start or a goal.
+    if (!mv.tiled) {
+        std::set<int> solidSet(spec.solid.begin(), spec.solid.end());
+        auto fixed_solid = [&](int x, int y) {
+            for (const wfc::CellRule& rule : cons.cellRules) {
+                if (rule.x != x || rule.y != y) continue;
+                for (int s : rule.allowed)
+                    if (!solidSet.count(tile_index(mv.tile_of(s)))) return false;
+                return true;
+            }
+            return false;
+        };
+        auto check = [&](int x, int y, const std::string& at) {
+            if (fixed_solid(x, y))
+                bad_arg(at + ": the cell (" + std::to_string(x) + ", " + std::to_string(y) + ") is fixed to a tile that blocks the way, so nothing can stand or arrive there",
+                        "Fix it to a walkable tile, or take the tile out of `solidTiles`.");
+        };
+        if (spec.hasFrom) check(spec.fromX, spec.fromY, base + "/from");
+        for (std::size_t i = 0; i < spec.toCells.size(); ++i) check(spec.toCells[i].first, spec.toCells[i].second, base + "/to" + (spec.toCells.size() > 1 ? "/" + std::to_string(i) : std::string()));
+    }
+    return spec;
+}
+
+// The cost grid nav.find_tile_path reads from a Tilemap (nav_tile_grid_from_tilemap): solid tiles block, every other cell, the
+// empty ones too, costs 1, and `costs` overrides either rule per tile index.
+NavTileGrid nav_grid_of(const ReachSpec& spec, int width, int height, const std::vector<int>& tiles) {
+    NavTileGrid g;
+    g.width = width;
+    g.height = height;
+    g.cost.resize(tiles.size());
+    for (std::size_t i = 0; i < tiles.size(); ++i) {
+        const int idx = tile_index(tiles[i]);
+        float cost = std::find(spec.solid.begin(), spec.solid.end(), idx) != spec.solid.end() ? -1.0f : 1.0f;
+        auto o = std::lower_bound(spec.costs.begin(), spec.costs.end(), std::make_pair(idx, -std::numeric_limits<float>::infinity()));
+        if (o != spec.costs.end() && o->first == idx) cost = o->second;
+        g.cost[i] = cost;
+    }
+    return g;
+}
+
+struct ReachResult {
+    bool ok = false;
+    std::string why;    // when !ok: what failed, in a sentence
+    Json report;
+};
+
+std::string cell_text(int x, int y) { return "(" + std::to_string(x) + ", " + std::to_string(y) + ")"; }
+
+// Is the level playable: the start reaches every goal, and (allConnected) all walkable cells form one area. `tiles` is what the
+// level will hold (after re-tiling), `symbols` the generator's own cells. The walk follows nav.find_tile_path: 4-way or 8-way
+// without cutting corners, a cell with a negative cost blocks.
+ReachResult check_reachability(const ReachSpec& spec, int width, int height, const std::vector<int>& tiles, const std::vector<int>& symbols) {
+    ReachResult res;
+    const NavTileGrid grid = nav_grid_of(spec, width, height, tiles);
+    const std::size_t total = grid.cost.size();
+    auto at = [&](int x, int y) { return std::size_t(y) * std::size_t(width) + std::size_t(x); };
+    auto open = [&](int x, int y) { return x >= 0 && y >= 0 && x < width && y < height && grid.cost[at(x, y)] >= 0.0f; };
+
+    // Areas: flood fill every walkable cell, scanning rows top to bottom so the numbering never depends on anything but the grid.
+    struct Area {
+        int cells = 0;
+        int minX = 0, minY = 0, maxX = 0, maxY = 0;
+        int firstX = 0, firstY = 0;
+    };
+    std::vector<int> areaOf(total, -1);
+    std::vector<Area> areas;
+    std::vector<std::pair<int, int>> queue;
+    static constexpr int kStep[8][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {-1, 1}, {-1, -1}, {1, -1}};
+    const int dirs = spec.diagonals ? 8 : 4;
+    std::size_t walkable = 0;
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x) {
+            if (!open(x, y)) continue;
+            ++walkable;
+            if (areaOf[at(x, y)] >= 0) continue;
+            const int id = int(areas.size());
+            Area area;
+            area.minX = area.maxX = area.firstX = x;
+            area.minY = area.maxY = area.firstY = y;
+            queue.assign(1, {x, y});
+            areaOf[at(x, y)] = id;
+            for (std::size_t head = 0; head < queue.size(); ++head) {
+                const auto [cx, cy] = queue[head];
+                ++area.cells;
+                area.minX = std::min(area.minX, cx);
+                area.maxX = std::max(area.maxX, cx);
+                area.minY = std::min(area.minY, cy);
+                area.maxY = std::max(area.maxY, cy);
+                for (int d = 0; d < dirs; ++d) {
+                    const int nx = cx + kStep[d][0], ny = cy + kStep[d][1];
+                    if (!open(nx, ny) || areaOf[at(nx, ny)] >= 0) continue;
+                    if (d >= 4 && !(open(cx + kStep[d][0], cy) && open(cx, cy + kStep[d][1]))) continue;   // no corner cutting
+                    areaOf[at(nx, ny)] = id;
+                    queue.push_back({nx, ny});
+                }
+            }
+            areas.push_back(area);
+        }
+
+    // The area everything is measured from: the start's, or (allConnected alone) the biggest one.
+    int mainArea = -1;
+    if (spec.hasFrom) {
+        mainArea = open(spec.fromX, spec.fromY) ? areaOf[at(spec.fromX, spec.fromY)] : -1;
+    } else {
+        for (std::size_t i = 0; i < areas.size(); ++i)
+            if (mainArea < 0 || areas[i].cells > areas[std::size_t(mainArea)].cells) mainArea = int(i);
+    }
+    Json report = Json::object();
+    if (spec.hasFrom) report["from"] = Json::array({spec.fromX, spec.fromY});
+    report["walkableCells"] = walkable;
+    report["reachableCells"] = mainArea >= 0 ? areas[std::size_t(mainArea)].cells : 0;
+    std::vector<std::size_t> cut;   // areas that are not the main one, biggest first
+    for (std::size_t i = 0; i < areas.size(); ++i)
+        if (int(i) != mainArea) cut.push_back(i);
+    std::stable_sort(cut.begin(), cut.end(), [&](std::size_t l, std::size_t r) { return areas[l].cells > areas[r].cells; });
+    long long cutCells = 0;
+    for (std::size_t i : cut) cutCells += areas[i].cells;
+    Json cutList = Json::array();
+    for (std::size_t k = 0; k < cut.size() && k < kReachAreas; ++k) {
+        const Area& ar = areas[cut[k]];
+        cutList.push_back(Json::object({{"cells", ar.cells},
+                                        {"rect", Json::array({ar.minX, ar.minY, ar.maxX - ar.minX + 1, ar.maxY - ar.minY + 1})},
+                                        {"at", Json::array({ar.firstX, ar.firstY})}}));
+    }
+    report["unreachable"] = Json::object({{"cells", cutCells}, {"areas", cut.size()}, {"largest", cutList}});
+
+    if (spec.hasFrom && !open(spec.fromX, spec.fromY)) {
+        res.why = "the start " + cell_text(spec.fromX, spec.fromY) + " is a blocked cell (tile " + std::to_string(tile_index(tiles[at(spec.fromX, spec.fromY)])) + ")";
+        res.report = report;
+        return res;
+    }
+
+    // Goals: explicit cells first, then every cell holding a goal tile, top to bottom.
+    std::vector<std::pair<int, int>> goals = spec.toCells;
+    if (!spec.toSymbols.empty()) {
+        std::set<int> want(spec.toSymbols.begin(), spec.toSymbols.end());
+        for (int y = 0; y < height; ++y)
+            for (int x = 0; x < width; ++x)
+                if (want.count(symbols[at(x, y)])) goals.push_back({x, y});
+    }
+    Json paths = Json::array();
+    Json lost = Json::array();
+    std::size_t lostCount = 0;
+    NavTileOptions nopt;
+    nopt.diagonals = spec.diagonals;
+    nopt.maxNodes = int(std::min<std::size_t>(total * 2 + 16, std::size_t(std::numeric_limits<int>::max())));
+    std::string firstLost;
+    for (std::size_t i = 0; i < goals.size(); ++i) {
+        const auto [gx, gy] = goals[i];
+        const bool reachable = open(gx, gy) && areaOf[at(gx, gy)] == mainArea;
+        if (!reachable) {
+            if (lostCount++ < kReachAreas) lost.push_back(Json::array({gx, gy}));
+            if (firstLost.empty()) firstLost = cell_text(gx, gy);
+            continue;
+        }
+        if (paths.size() < kReachPaths) {
+            const NavTilePath path = nav_find_tile_path(grid, spec.fromX, spec.fromY, gx, gy, nopt);
+            if (path.found)
+                paths.push_back(Json::object({{"to", Json::array({gx, gy})}, {"steps", path.cells.empty() ? 0 : path.cells.size() - 1}, {"cost", path.cost}}));
+        }
+    }
+    report["goals"] = goals.size();
+    report["paths"] = paths;
+    if (lostCount > 0) report["unreachableGoals"] = lost;
+    res.report = report;
+    if (lostCount > 0) {
+        res.why = "no route from the start " + cell_text(spec.fromX, spec.fromY) + " to " + std::to_string(lostCount) + " of " + std::to_string(goals.size()) +
+                  " goal cell(s), the first at " + firstLost + "; " + std::to_string(cutCells) + " walkable cells in " + std::to_string(cut.size()) + " other area(s) are cut off";
+        return res;
+    }
+    if (spec.allConnected && !cut.empty()) {
+        const Area& ar = areas[cut.front()];
+        res.why = std::to_string(cut.size()) + " walkable area(s) are cut off from the main one (" + std::to_string(cutCells) + " cells), the biggest around " + cell_text(ar.firstX, ar.firstY);
+        return res;
+    }
+    res.ok = true;
+    return res;
+}
+
 }  // namespace
 
 void register_wfc_commands(Engine&, Engine::Impl& I) {
@@ -284,19 +882,30 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
          "(use it for floors and walls, not for tiles that point somewhere). `periodic` true makes the output wrap around its edges "
          "(a tileable level) and, unless `periodicInput` says otherwise, also lets the sample wrap. `seed` (default 0) picks the "
          "level: same sample, seed and arguments, same level, on every platform. A dead end (a cell with no pattern left) restarts with "
-         "the next derived seed, up to `maxAttempts` (default 10); when all fail the error says where, and what to try (a bigger or more "
+         "the next derived seed, up to `maxAttempts` (default 10, 50 with `constraints` or `reachability`); when all fail the error says where, and what to try (a bigger or more "
          "varied sample, a smaller n, symmetry, periodic). Output: with `into` (the id of an entity with a Tilemap) the grid is written "
          "there (tileset, tileSize and solidTiles stay) in the RUNNING world; without it the grid comes back as `rows` + `legend`, ready for "
          "scene.import_ascii, and with `rows` true it comes back as well when `into` is given. Glyphs of an ASCII sample that spawn "
          "prefabs come back as the same glyph in `rows`; `into` writes only their tiles, so build objects with scene.import_ascii. "
          "A Tilemap sample is printed with generated glyphs ('.' = empty). "
+         "CONSTRAINTS (`constraints`, checked before generating; each problem names its JSON pointer): `fixed` [{at:[x,y] | rect:[x,y,w,h], tile}] "
+         "pins cells (an entrance, an exit), `border` {tile, thickness?} walls in the edge, `forbidden` [tile] never appear, `required` [tile] "
+         "appear at least once, `counts` [{tile, min?, max?}]. A `tile` is a glyph of an ASCII sample, a tile number (-1 = empty) or, for the tiled model, a "
+         "terrain name; a list of them means any of them. A tile the sample never shows cannot be placed. A missing minimum is repaired on the next attempt "
+         "by pinning cells (positions drawn from the seed); a maximum or any other miss restarts. REACHABILITY (`reachability`): {from:[x,y], to:[x,y] | "
+         "[[x,y]...], toTiles:[tile] (every cell holding one is a goal), allConnected:true (all walkable cells form one area), solidTiles:[tile numbers that "
+         "block] (default: those of `into` or of the sample), costs:{tile: cost|null}, diagonals}. It uses the rules of nav.find_tile_path, on the finished "
+         "level; a grid that fails restarts with the next derived seed, so the level you get is playable. The report lists walkable cells, the cells and "
+         "areas that were cut off (a few rects) and the path length to each goal. Everything derives from `seed`, never the clock. "
          "LIMITS OF TIME: `maxWork` (default 400000000 units over all attempts) and `maxSeconds` (default 20 CPU seconds, not wall clock) stop a level "
          "that cannot be solved with a teaching error. Returns {model, width, height, seed, rows?, legend, "
-         "counts: {glyph: cells}, into?, warnings?, sample: {source, width, height}, stats: {attempts, contradictions, rejected, patterns, cells, observations, propagations, work, ms, memoryBytes, "
+         "counts: {glyph: cells}, into?, warnings?, sample: {source, width, height}, constraints?: {fixedCells, forbiddenTiles, counts: [{tile, found, min?, max?}], "
+         "pinnedCells}, reachability?, stats: {attempts, contradictions, rejected, patterns, cells, observations, propagations, work, pinned, ms, memoryBytes, "
          "peakBytes}}. The level and the counters (attempts, work...) are the same on every machine; stats.ms (the time it took), memoryBytes and peakBytes (bytes: they depend on the compiler and standard library) are not part of the determinism promise. "
          "Limits: output sides up to 2048, sample up to 262144 cells, 20000 patterns, "
          "about 256 MB of solver memory (the error says what to shrink). Example: tilemap.generate {\"sample\":[\"........\",\"..##....\",\"..##..#.\","
-         "\"......#.\",\"..#.....\",\"........\"],\"legend\":{\"#\":0},\"size\":[32,20],\"seed\":7,\"n\":3,\"symmetry\":8}",
+         "\"......#.\",\"..#.....\",\"........\"],\"legend\":{\"#\":0},\"size\":[32,20],\"seed\":7,\"n\":3,\"symmetry\":8,"
+         "\"constraints\":{\"border\":{\"tile\":\"#\"},\"fixed\":[{\"at\":[1,1],\"tile\":\".\"}]},\"reachability\":{\"from\":[1,1],\"allConnected\":true,\"solidTiles\":[0]}}",
          parse_schema(R"json({"type":"object","required":["size"],"properties":{
                "sample":{"type":["string","array","object"],"description":"The example to learn from: the id of an entity with a Tilemap; ASCII rows (array of strings, or one string with line breaks) with `legend`; an object {rows, legend?, legendFrom?} (scene.import_ascii arguments); or a project-relative .json file with such an object. Required for model overlapping; for tiled it only sets the tile frequencies.","items":{"type":"string"}},
                "legend":{"type":"object","description":"Glyph -> tile index or {tile?, rotate?, flipX?, flipY?, prefab?...}, as in scene.import_ascii; for ASCII rows given as an array or text. '.' and ' ' are empty unless defined here."},
@@ -308,9 +917,11 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
                "symmetry":{"type":"integer","default":1,"description":"One of 1, 2, 4, 8 (checked only for the overlapping model). 1 = the sample as drawn, 2 = also mirrored left-right, 4 = also turned 90/180/270 degrees, 8 = turned and mirrored. Only for tiles that look the same turned (floor, wall); overlapping model; ignored by tiled."},
                "periodic":{"type":"boolean","default":false,"description":"The output wraps around its edges (a tileable level). Also lets the sample wrap unless periodicInput is given."},
                "periodicInput":{"type":"boolean","description":"The sample wraps around its edges (patterns cross them). Default: the value of `periodic`."},
-               "maxAttempts":{"type":"integer","default":10,"minimum":1,"maximum":1000,"description":"Attempts before giving up: a dead end restarts with the next derived seed."},
+               "maxAttempts":{"type":"integer","default":10,"minimum":1,"maximum":1000,"description":"Attempts before giving up: a dead end (or a grid that breaks a constraint or is not reachable) restarts with the next derived seed. Default 10, 50 with constraints or reachability."},
                "maxWork":{"type":"integer","default":400000000,"minimum":1,"maximum":100000000000,"description":"Cap on the solver's work over all attempts (stats.work of an earlier run shows what a level needs). Hit it and the call fails with how to shrink the level or raise the cap."},
                "maxSeconds":{"type":"number","default":20,"exclusiveMinimum":0,"maximum":600,"description":"Cap on the CPU seconds (not wall clock) the generator may use over all attempts."},
+               "constraints":{"type":"object","description":"Rules the level must follow. fixed: [{at:[x,y] | rect:[x,y,w,h], tile}] pins cells; border: {tile, thickness (default 1)}; forbidden: [tile]; required: [tile] (at least one each); counts: [{tile, min?, max?}]. A tile is a glyph of an ASCII sample, a tile number (-1 = empty) or a terrain name (tiled); a list = any of them. Contradictions are reported before generating, with the JSON pointer.","properties":{"fixed":{"type":"array","items":{"type":"object"}},"border":{"type":"object"},"forbidden":{"type":"array"},"required":{"type":"array"},"counts":{"type":"array","items":{"type":"object"}}}},
+               "reachability":{"type":"object","description":"The level must be playable: {from:[x,y], to:[x,y] | [[x,y]...], toTiles:[tile] (every cell with one must be reachable), allConnected:true, solidTiles:[tile numbers that block] (default: Tilemap.solidTiles of `into`, then of the sample), costs:{tile:cost|null}, diagonals:bool}. Same walking rules as nav.find_tile_path. A grid that fails restarts with the next derived seed. The result's `reachability` reports unreachable cells and areas and the path lengths.","properties":{"from":{"type":"array","items":{"type":"integer"}},"to":{"type":"array"},"toTiles":{"type":["array","string","integer"]},"allConnected":{"type":"boolean"},"solidTiles":{"type":"array","items":{"type":"integer"}},"costs":{"type":"object"},"diagonals":{"type":"boolean"}}},
                "into":{"type":"string","description":"Id of an entity with a Tilemap to write the result into (its tiles, width and height are replaced; tileset, tileSize and solidTiles stay). RUNNING world only."},
                "rows":{"type":"boolean","description":"Return the level as ASCII `rows`. Default: true without `into`, false with it."},
                "terrains":{"type":"array","items":{"type":"object"},"description":"Tiled model: autotile rules to use instead of the Tilemap's own (same objects as Tilemap.terrains)."}}})json"),
@@ -336,8 +947,9 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
                 if (a.contains("symmetry") && symmetry != 1 && symmetry != 2 && symmetry != 4 && symmetry != 8)
                     bad_arg("'symmetry' is " + std::to_string(symmetry) + " but it must be 1, 2, 4 or 8", "1 = as drawn, 2 = also mirrored left-right, 4 = also turned, 8 = turned and mirrored.");
             }
-            const int maxAttempts = int_arg(a, "maxAttempts", kDefaultMaxAttempts, 1, wfc::kMaxAttempts,
-                                            "Each attempt restarts from the next derived seed. 10 is the default; a few hundred only helps a very strict sample.");
+            const bool strict = a.contains("constraints") || a.contains("reachability");
+            const int maxAttempts = int_arg(a, "maxAttempts", strict ? kDefaultConstraintAttempts : kDefaultMaxAttempts, 1, wfc::kMaxAttempts,
+                                            "Each attempt restarts from the next derived seed. 10 is the default (50 with `constraints` or `reachability`, which refuse many grids); a few hundred only helps a very strict sample.");
             long long maxWork = kDefaultMaxWork;
             if (a.contains("maxWork") && (!whole_number(a["maxWork"], maxWork) || maxWork < 1 || maxWork > kMaxWorkLimit))
                 bad_arg("'maxWork' must be a whole number between 1 and " + std::to_string(kMaxWorkLimit) + ", got " + describe_json_value(a["maxWork"]),
@@ -469,6 +1081,16 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
                 symbolTile = built->tileValues;
             }
 
+            // ---- constraints and reachability (checked against the model before anything is generated)
+            ModelView view;
+            view.tiled = tiled;
+            view.sample = &sample;
+            view.symbolTile = &symbolTile;
+            view.terrains = &terrains;
+            view.symbolCount = (!tiled && sample.ascii) ? int(sample.glyphs.glyphs.size()) : int(symbolTile.size());
+            Constraints cons = parse_constraints(a, view, width, height);
+            ReachSpec reach = parse_reachability(a, view, sample, into, cons, width, height);
+
             // The tiles a grid of symbols becomes: the sample's tiles, or the model's tile values re-tiled with the autotile rules.
             auto tiles_of = [&](const std::vector<int>& symbols) {
                 std::vector<int> t(symbols.size(), -1);
@@ -488,6 +1110,17 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
             go.periodic = periodic;
             go.seed = seed;
             go.maxAttempts = maxAttempts;
+            go.forbidden = cons.forbidden;
+            go.cellRules = cons.cellRules;
+            go.counts = cons.counts;
+            Json reachReport;
+            if (reach.enabled)
+                go.accept = [&](const std::vector<int>& symbols, std::string& why) {
+                    ReachResult r = check_reachability(reach, width, height, tiles_of(symbols), symbols);
+                    reachReport = r.report;
+                    why = r.why;
+                    return r.ok;
+                };
             auto gen = wfc::Generator::create(patternModel, go);
             if (!gen.ok()) throw_error(gen.error());
             wfc::Generator& g = **gen;
@@ -570,8 +1203,23 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
             const wfc::GenStats& st = g.stats();
             out["stats"] = Json::object({{"attempts", st.attempts}, {"contradictions", st.contradictions}, {"rejected", st.rejected}, {"patterns", st.patterns},
                                          {"cells", st.cells}, {"observations", st.observations}, {"propagations", st.propagations}, {"work", st.work},
-                                         {"ms", std::round(st.ms * 10.0) / 10.0}, {"memoryBytes", st.memoryBytes},
+                                         {"pinned", st.pinned}, {"ms", std::round(st.ms * 10.0) / 10.0}, {"memoryBytes", st.memoryBytes},
                                          {"peakBytes", st.peakBytes}});
+            if (cons.any()) {
+                Json counted = Json::array();
+                for (std::size_t k = 0; k < cons.counts.size(); ++k) {
+                    const wfc::CountRule& rule = cons.counts[k];
+                    const std::set<int> symbols(rule.symbols.begin(), rule.symbols.end());
+                    int found = 0;
+                    for (int sym : cellsOut) found += symbols.count(sym) ? 1 : 0;
+                    Json entry = Json::object({{"tile", cons.countLabels[k]}, {"found", found}});
+                    if (rule.min > 0) entry["min"] = rule.min;
+                    if (rule.max >= 0) entry["max"] = rule.max;
+                    counted.push_back(entry);
+                }
+                out["constraints"] = Json::object({{"fixedCells", cons.fixedCells}, {"forbiddenTiles", cons.forbidden.size()}, {"counts", counted}, {"pinnedCells", st.pinned}});
+            }
+            if (reach.enabled) out["reachability"] = reachReport;
             if (!warnings.empty()) out["warnings"] = warnings;
             return out;
         });
