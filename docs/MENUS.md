@@ -287,9 +287,9 @@ What the command does, file by file; do it by hand when you want to see each fil
 - **Start from the system's accessibility settings.** `game.accessibility` is `{ textScale, reduceMotion, highContrast,
   screenReader }` as the player's operating system has them (`textScale` 1 = 100 %; read when the game starts and again
   when the window regains focus; every value is `1` / `false` where the system cannot say: docs/SCRIPTING.md lists what
-  each platform reads). The engine applies none of them. `settings.js` starts its options from them for a player who
-  never chose: text size from `textScale` (`ui.textScale`), `reducedEffects` from `reduceMotion` (your screen shake, flashes
-  and particles check it), "Read menus aloud" from `screenReader`. The first `save()` stores every setting, so the
+  each platform reads). The engine applies none of them except the game feel effects (GAME_FEEL.md), which follow `reduceMotion`. `settings.js` starts its options from them for a player who
+  never chose: text size from `textScale` (`ui.textScale`), `reducedEffects` from `reduceMotion` (`applyFeel` passes it to the engine's
+  `feel.reduceMotion` / `feel.reducedEffects`, which turn down shake, squash, hit-stop and flashes; your own particles check it), "Read menus aloud" from `screenReader`. The first `save()` stores every setting, so the
   player's own choice wins from then on. Tests set the system with `game.setAccessibility({ textScale: 1.5 })`
   (`tests/accessibility.test.js` checks the first-run values and that a saved choice wins).
 - **Captions (subtitles).** A `Captions` component on one entity of the scene (`captions` in the kit's menu and level
@@ -896,7 +896,7 @@ writes.
 // @ts-check
 // The player's settings (volumes, video, interface size, colour filter, controls, language), kept in storage under "settings" and applied once per run.
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
-import { storage, audio, window, input, session, i18n, world, ui, game } from "factoria";
+import { storage, audio, window, input, session, i18n, world, ui, game, feel } from "factoria";
 
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
@@ -936,7 +936,7 @@ function defaults() {
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
     uiScale: null, // the interface size (ui.scale), or null: keep the factoria.json ui.scale
-    reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: the effects code checks it
+    reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: applyFeel() gives it to the engine's feel effects, your own effects check it
     subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
     textSpeed: system.reduceMotion ? 0 : 45, // dialogue text reveal in characters per second (TEXT_SPEEDS), 0 = a whole line at once
   };
@@ -988,10 +988,17 @@ export function applyScene(s = load()) {
   applySubtitles(s);
 }
 
-/** Puts `s` into effect: bus volumes, colour filter, subtitles, text size, interface size, language, rebound controls and, when the game has a real window, the video settings. */
+/** The game feel effects (docs/GAME_FEEL.md) follow the player's "reduced effects" choice: less shake and squash, shorter hit-stops, faint flashes. Settings outlive scene loads, so once per run is enough. */
+export function applyFeel(s = load()) {
+  feel.reduceMotion = !!s.reducedEffects;
+  feel.reducedEffects = !!s.reducedEffects;
+}
+
+/** Puts `s` into effect: bus volumes, colour filter, game feel, subtitles, text size, interface size, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
   applyScene(s);
+  applyFeel(s);
   ui.textScale = s.textScale;
   if (s.uiScale !== null) ui.scale = s.uiScale;
   if (s.language && s.language !== i18n.language) {

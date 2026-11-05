@@ -1848,6 +1848,21 @@ Photographs: `render.captureTexture({ entity | rect, space: "world", scale })` d
 the world into a transparent texture of `ceil(size * scale)` pixels (at most 4096 a side), with no frame drawn first. The HUD is
 not in it. Details in RENDERING.md, "Off-screen capture".
 
+### 9.31 Game feel: shake, hit-stop, flash, knockback, squash
+
+Full guide: `docs_read {"name":"game-feel"}` ([GAME_FEEL.md](GAME_FEEL.md)). A hit in four lines, none of which changes a Transform:
+
+```js
+enemy.flash({ color: "#ffffff", duration: 0.1 });   // drawn white for 0.1 s (sprites, shapes, 3D meshes)
+enemy.knockback(dirAwayFromHit, { speed: 7 });      // body impulse, else a decaying velocity; enemy.isKnockedBack = no control
+camera.shake(0.35);                                 // trauma, squared; deterministic, 2D and 3D
+time.hitStop(0.07);                                 // real seconds; UI and audio keep going; overlapping calls do not add up
+```
+
+`entity.squash({ amount: 0.3 })` keeps the volume and springs back to exactly the entity's scale. The player's reduce motion
+and reduced effects are honoured by the engine (`feel.reduceMotion`, `feel.reducedEffects`); tools and tests use the
+`feel.*` commands (`feel.state` shows what is running).
+
 ## 10. Tests
 
 Each test file starts with fresh module state, an empty `session` and storage, and the project's start scene and seed, so results are deterministic. Drive the game through inputs and assert on the result:
@@ -2042,6 +2057,7 @@ the game must show itself to them. Keep these in place as the game grows:
 
 - `factoria docs read scripting` (MCP `docs_read {"name":"scripting"}`): the full JavaScript API, tools and tests.
 - `factoria api --md` and `factoria commands` (MCP `docs_components` and `docs_commands`): generated references for this build.
+- `factoria docs read game-feel` (MCP `docs_read {"name":"game-feel"}`): camera shake, hit-stop, flash, knockback and squash and stretch, their clocks and accessibility.
 - `factoria docs read animation` (MCP `docs_read {"name":"animation"}`): the Animator component (clips, cross-fades, events, state machine) and `tween` / `ease`.
 - `factoria docs read extending` (MCP `docs_read {"name":"extending"}`): how to add project tools, native plugins (C/C++ for one game) and engine commands.
 - `factoria docs read cli` (MCP `docs_read {"name":"cli"}`): every command and flag.
