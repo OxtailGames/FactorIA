@@ -1065,6 +1065,27 @@ A video on the screen (docs/MENUS.md, "Studio intro"): plays an .mpg file (MPEG-
 | `time` | float | `0.0` | Runtime: seconds into the video, 0 .. duration. Assign to seek (the picture and the sound jump there). Range 0.0..1000000.0. Runtime-only (not saved). |
 | `duration` | float | `0.0` | Runtime: length of the video in seconds; 0 while the file is not open. Read-only. Runtime-only (not saved). |
 
+## 2D
+
+### Vfx
+
+Not released yet (on main after 0.16.1).
+
+A visual effect placed in the scene, like a prefab (docs/PARTICLES.md, "Effect documents"): plays the effect document `effect` (a *.vfx.json that bundles emitters, a light flash, sounds and commands such as a camera shake on one timeline). Its emitters and lights become child entities when their time comes; a sound plays once; a command is called once. The effect starts when the scene starts (`autoplay`) and runs to its end; `loop` starts it again, setting `playing` to true after it ended replays it. It follows this entity: put it under a moving entity, or move it. `vfx.play` (a command; `vfx.play()` in scripts) makes one of these at a position with `autoDestroy` on, so a hit effect is one call. The timeline follows the game clock (it pauses with time.scale 0) and uses no clock or random numbers of its own: the same effects at the same steps do the same on every run. At most 64 effects play at once.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `effect` | asset (vfx) | `""` | Project path of the effect document, e.g. "assets/vfx/hit.vfx.json". Changing it starts that effect from the beginning. A file that is missing or has errors is logged once with the JSON pointer of the first problem (`vfx.check` lists them all) and nothing plays. |
+| `autoplay` | bool | `true` | True (default): the effect starts by itself the first time the system sees this entity (scene start, or spawn). False: it waits until a script (or `scene.set_component`) sets `playing` to true. |
+| `playing` | bool | `false` | Runtime: true while the timeline advances. Set true to play (from the start when it had ended), false to pause. Becomes false when the effect ends. Runtime-only (not saved). |
+| `loop` | bool | `false` | True: at the end the effect starts again from the beginning (its emitters keep their own particles until they empty). False (default): it ends and `playing` becomes false. |
+| `autoDestroy` | bool | `false` | True: this entity is removed once the effect ended and its emitters have no particles left. `vfx.play` sets it. False (default, for an effect placed in a scene): it stays, ready to play again. |
+| `speed` | float | `1.0` | Speed of the timeline: 1 (default) = as written, 2 = twice as fast, 0.5 = half. It moves the parts' start times and the light fades; the particles of an emitter keep their own speed. Range 0.05..20.0. |
+| `time` | float | `0.0` | Runtime: seconds into the effect (before `speed`: the document's own clock). Assign to seek forward. Range 0.0..1000000.0. Runtime-only (not saved). |
+| `duration` | float | `0.0` | Runtime: length of the effect in seconds, from the document; 0 until the document is read. Read-only. Runtime-only (not saved). |
+
+## UI
+
 ### CameraView
 
 Since 0.3.0.
@@ -7426,6 +7447,59 @@ Moves the children of each picked <g> out into the group's parent, at the group'
 | `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
 | `elements` | any | yes | The elements to work on: an SVG id, a selector, or a list of them. A group is one element. Selectors: #id, .class, tag, [attr=value], g > path, :nth-child(2), lists with commas. |
 
+## game
+
+### `vfx.check`
+
+Not released yet (on main after 0.16.1).
+
+Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix.
+
+Returns {ok, path, duration, parts: [{index, name, type, at, duration}], errors: [{pointer, message, hint}], warnings: [...]}. Errors stop the effect from playing; warnings (a `rate` with no duration, too many live particles) do not. A sound whose file is missing is an error. Example: vfx.check {"path":"assets/vfx/hit.vfx.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project path of the effect document, e.g. "assets/vfx/hit.vfx.json". |
+
+### `vfx.list`
+
+Not released yet (on main after 0.16.1).
+
+The effects that play now, and the limits of an effect.
+
+Returns {playing: [{id, effect, time, duration, loop, speed}], count, max, limits}. `time` is seconds into the effect (the document's own clock), `duration` its length. Use it in a test to see that an effect started and ended: game.step, then vfx.list. Example: vfx.list {}.
+
+### `vfx.play` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Play an effect document (*.vfx.json) at a position, or on an entity.
+
+Makes an entity with a Vfx component (autoDestroy on) that plays the effect: its emitters and light flash become children of it, its sounds and commands (a camera shake, a hit-stop...) fire at their times. Without `entity` the effect is in world space at `position`; with `entity` it is that entity's child at the local `position`, so it follows it. The file is read and checked now: an invalid one is an error naming the JSON pointer. At most 64 effects play at once: past that the call returns {"id": null, "dropped": true} (logged once). The effect advances with the game clock (game.step, time.scale), so the same calls at the same steps give the same result. Example: vfx.play {"effect":"assets/vfx/hit.vfx.json","position":[120,64]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `effect` | string | yes | Project path of the effect document, e.g. "assets/vfx/hit.vfx.json" (docs/PARTICLES.md, "Effect documents"). |
+| `position` | array | no | [x, y] or [x, y, z]: world position, or relative to `entity` when that is given. Default [0, 0]. |
+| `entity` | string | no | Entity (id or name) the effect follows: it becomes the effect's parent. |
+| `rotation` | number | no | Degrees around z (2D). Default 0. |
+| `scale` | number | no | Scale of the effect's entity: the offsets of its parts and the spawn shape of its emitters grow with it; the sizes written in the file (particle size, light radius) do not. 1 = as written. Default 1. |
+| `speed` | number | no | Speed of the timeline: 2 plays the parts' times twice as fast. The particles keep their own speed. Default 1. |
+| `loop` | boolean | no | Start again at the end until vfx.stop. Default false. |
+
+### `vfx.stop` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+End an effect started by vfx.play (or a Vfx entity).
+
+`immediate` true removes the effect's entity and its children at once (particles vanish); the default lets the emitters stop emitting and their particles finish, ends the lights, and the parts that had not started never do. Example: vfx.stop {"id":"vfx_hit_3"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The entity (id or name) with the Vfx, as vfx.play returned it. |
+| `immediate` | boolean | no | Remove it now instead of letting its particles finish. Default false. |
+
 
 ## Scripting API (TypeScript declarations)
 
@@ -9969,6 +10043,28 @@ declare module "factoria" {
   }
 
   /**
+   * Effect documents (*.vfx.json, docs/PARTICLES.md "Effect documents"). The same as the vfx.* commands.
+   * @since unreleased
+   */
+  export interface VfxAPI {
+    /**
+     * Plays the effect document at `position` in the world (default [0, 0]), or at that local position under `entity` so it follows it. Returns the entity that plays it (autoDestroy: it goes when the effect and its particles are done), or null when 64 effects already play. `rotation` is degrees around z, `scale` sizes the whole effect, `speed` plays its timeline faster or slower, `loop` repeats it until vfx.stop. The file is read and checked now: an unreadable or invalid one throws with the JSON pointer of the problem. The effect follows the game clock: it waits at time.scale 0.
+     * @since unreleased
+     */
+    play(effect: string, options?: { position?: number[] | Vec2 | Vec3; entity?: Entity | string; rotation?: number; scale?: number; speed?: number; loop?: boolean }): Entity | null;
+    /**
+     * Ends an effect that play returned. By default its emitters stop emitting and their particles finish, its lights end and parts that had not started never do; `immediate` removes it and its particles at once.
+     * @since unreleased
+     */
+    stop(entity: Entity | string, options?: { immediate?: boolean }): void;
+    /**
+     * The effects that play now: the entity id, the document, seconds into it, its length, whether it loops and its speed.
+     * @since unreleased
+     */
+    playing(): { id: string; effect: string; time: number; duration: number; loop: boolean; speed: number }[];
+  }
+
+  /**
    * What a ui.on callback receives: one widget event (Button, Toggle, Slider, TextField, Interactable).
    * @since 0.1.6
    */
@@ -11423,6 +11519,12 @@ declare module "factoria" {
    * Particle helpers.
    */
   export const particles: ParticlesAPI;
+
+  /**
+   * Effect documents (*.vfx.json): several emitters, a light flash, sounds and commands on one timeline, played with one call.
+   * @since unreleased
+   */
+  export const vfx: VfxAPI;
 
   /**
    * Game UI events and focus, text measurement.
@@ -16130,6 +16232,54 @@ declare module "factoria" {
     readonly duration: number;
   }
   /**
+   * A visual effect placed in the scene, like a prefab (docs/PARTICLES.md, "Effect documents"): plays the effect document `effect` (a *.vfx.json that bundles emitters, a light flash, sounds and commands such as a camera shake on one timeline). Its emitters and lights become child entities when their time comes; a sound plays once; a command is called once. The effect starts when the scene starts (`autoplay`) and runs to its end; `loop` starts it again, setting `playing` to true after it ended replays it. It follows this entity: put it under a moving entity, or move it. `vfx.play` (a command; `vfx.play()` in scripts) makes one of these at a position with `autoDestroy` on, so a hit effect is one call. The timeline follows the game clock (it pauses with time.scale 0) and uses no clock or random numbers of its own: the same effects at the same steps do the same on every run. At most 64 effects play at once.
+   * 
+   * Category: 2D
+   * @since unreleased
+   */
+  export interface VfxComponent {
+    /**
+     * Project path of the effect document, e.g. "assets/vfx/hit.vfx.json". Changing it starts that effect from the beginning. A file that is missing or has errors is logged once with the JSON pointer of the first problem (`vfx.check` lists them all) and nothing plays. (asset path: vfx)
+     * @since unreleased
+     */
+    effect: string;
+    /**
+     * True (default): the effect starts by itself the first time the system sees this entity (scene start, or spawn). False: it waits until a script (or `scene.set_component`) sets `playing` to true.
+     * @since unreleased
+     */
+    autoplay: boolean;
+    /**
+     * Runtime: true while the timeline advances. Set true to play (from the start when it had ended), false to pause. Becomes false when the effect ends.
+     * @since unreleased
+     */
+    playing: boolean;
+    /**
+     * True: at the end the effect starts again from the beginning (its emitters keep their own particles until they empty). False (default): it ends and `playing` becomes false.
+     * @since unreleased
+     */
+    loop: boolean;
+    /**
+     * True: this entity is removed once the effect ended and its emitters have no particles left. `vfx.play` sets it. False (default, for an effect placed in a scene): it stays, ready to play again.
+     * @since unreleased
+     */
+    autoDestroy: boolean;
+    /**
+     * Speed of the timeline: 1 (default) = as written, 2 = twice as fast, 0.5 = half. It moves the parts' start times and the light fades; the particles of an emitter keep their own speed.
+     * @since unreleased
+     */
+    speed: number;
+    /**
+     * Runtime: seconds into the effect (before `speed`: the document's own clock). Assign to seek forward.
+     * @since unreleased
+     */
+    time: number;
+    /**
+     * Runtime: length of the effect in seconds, from the document; 0 until the document is read. Read-only.
+     * @since unreleased
+     */
+    readonly duration: number;
+  }
+  /**
    * A 3D (or 2D) view inside the UI (docs/MENUS.md, "A camera inside the UI"): draws the camera named by `camera` into this entity's rectangle, so an item turning on a stage, a character portrait or a map lives in a menu with the clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the modal Panel of any widget. The camera is rendered into an image of the size of the rectangle (its aspect follows it; Camera.viewport is ignored) before the frame's UI is drawn, then that image is drawn in the rectangle. Give the camera primary = false, or it also draws in the main view; the camera and the widget must both be active. The background is drawn at `layer`, the picture at `layer` + 1: a widget meant to sit over the picture needs a layer of at least `layer` + 2. Camera.lighting = "studio" lights it with its own key, fill and rim lights, wherever it stands. bloom and colorFilter of the camera are ignored (the frame has one set of post effects). A pointer press, drag, release and the wheel over it are the game event `ui.viewPointer` ({id, phase, x, y, u, v, dx, dy, wheel}; `ui.on("viewPointer", fn)` in scripts) so a script can turn what it shows. It is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. Costs one more render pass per view per frame, and the image per view: keep it as small as the picture needs (see `resolution`). Defaults: 320 x 240, no background colour.
    * 
    * Category: UI
@@ -16522,6 +16672,7 @@ declare module "factoria" {
     TouchButton: TouchButtonComponent;
     Captions: CaptionsComponent;
     Video: VideoComponent;
+    Vfx: VfxComponent;
     CameraView: CameraViewComponent;
     Chart: ChartComponent;
     Script: ScriptComponent;
@@ -16572,6 +16723,7 @@ declare module "factoria" {
     TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; textColor?: ColorLike; touchOnly?: boolean };
     Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
     Video: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; path?: string; autoplay?: boolean; loop?: boolean; volume?: number; bus?: string; fit?: "contain" | "cover" | "stretch"; tint?: ColorLike; playing?: boolean; time?: number };
+    Vfx: { effect?: string; autoplay?: boolean; playing?: boolean; loop?: boolean; autoDestroy?: boolean; speed?: number; time?: number };
     CameraView: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; camera?: string; tint?: ColorLike; pointerEvents?: boolean; captureWheel?: boolean; resolution?: number };
     Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };

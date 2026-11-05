@@ -2537,6 +2537,28 @@ declare module "factoria" {
   }
 
   /**
+   * Effect documents (*.vfx.json, docs/PARTICLES.md "Effect documents"). The same as the vfx.* commands.
+   * @since unreleased
+   */
+  export interface VfxAPI {
+    /**
+     * Plays the effect document at `position` in the world (default [0, 0]), or at that local position under `entity` so it follows it. Returns the entity that plays it (autoDestroy: it goes when the effect and its particles are done), or null when 64 effects already play. `rotation` is degrees around z, `scale` sizes the whole effect, `speed` plays its timeline faster or slower, `loop` repeats it until vfx.stop. The file is read and checked now: an unreadable or invalid one throws with the JSON pointer of the problem. The effect follows the game clock: it waits at time.scale 0.
+     * @since unreleased
+     */
+    play(effect: string, options?: { position?: number[] | Vec2 | Vec3; entity?: Entity | string; rotation?: number; scale?: number; speed?: number; loop?: boolean }): Entity | null;
+    /**
+     * Ends an effect that play returned. By default its emitters stop emitting and their particles finish, its lights end and parts that had not started never do; `immediate` removes it and its particles at once.
+     * @since unreleased
+     */
+    stop(entity: Entity | string, options?: { immediate?: boolean }): void;
+    /**
+     * The effects that play now: the entity id, the document, seconds into it, its length, whether it loops and its speed.
+     * @since unreleased
+     */
+    playing(): { id: string; effect: string; time: number; duration: number; loop: boolean; speed: number }[];
+  }
+
+  /**
    * What a ui.on callback receives: one widget event (Button, Toggle, Slider, TextField, Interactable).
    * @since 0.1.6
    */
@@ -3991,6 +4013,12 @@ declare module "factoria" {
    * Particle helpers.
    */
   export const particles: ParticlesAPI;
+
+  /**
+   * Effect documents (*.vfx.json): several emitters, a light flash, sounds and commands on one timeline, played with one call.
+   * @since unreleased
+   */
+  export const vfx: VfxAPI;
 
   /**
    * Game UI events and focus, text measurement.
@@ -8698,6 +8726,54 @@ declare module "factoria" {
     readonly duration: number;
   }
   /**
+   * A visual effect placed in the scene, like a prefab (docs/PARTICLES.md, "Effect documents"): plays the effect document `effect` (a *.vfx.json that bundles emitters, a light flash, sounds and commands such as a camera shake on one timeline). Its emitters and lights become child entities when their time comes; a sound plays once; a command is called once. The effect starts when the scene starts (`autoplay`) and runs to its end; `loop` starts it again, setting `playing` to true after it ended replays it. It follows this entity: put it under a moving entity, or move it. `vfx.play` (a command; `vfx.play()` in scripts) makes one of these at a position with `autoDestroy` on, so a hit effect is one call. The timeline follows the game clock (it pauses with time.scale 0) and uses no clock or random numbers of its own: the same effects at the same steps do the same on every run. At most 64 effects play at once.
+   * 
+   * Category: 2D
+   * @since unreleased
+   */
+  export interface VfxComponent {
+    /**
+     * Project path of the effect document, e.g. "assets/vfx/hit.vfx.json". Changing it starts that effect from the beginning. A file that is missing or has errors is logged once with the JSON pointer of the first problem (`vfx.check` lists them all) and nothing plays. (asset path: vfx)
+     * @since unreleased
+     */
+    effect: string;
+    /**
+     * True (default): the effect starts by itself the first time the system sees this entity (scene start, or spawn). False: it waits until a script (or `scene.set_component`) sets `playing` to true.
+     * @since unreleased
+     */
+    autoplay: boolean;
+    /**
+     * Runtime: true while the timeline advances. Set true to play (from the start when it had ended), false to pause. Becomes false when the effect ends.
+     * @since unreleased
+     */
+    playing: boolean;
+    /**
+     * True: at the end the effect starts again from the beginning (its emitters keep their own particles until they empty). False (default): it ends and `playing` becomes false.
+     * @since unreleased
+     */
+    loop: boolean;
+    /**
+     * True: this entity is removed once the effect ended and its emitters have no particles left. `vfx.play` sets it. False (default, for an effect placed in a scene): it stays, ready to play again.
+     * @since unreleased
+     */
+    autoDestroy: boolean;
+    /**
+     * Speed of the timeline: 1 (default) = as written, 2 = twice as fast, 0.5 = half. It moves the parts' start times and the light fades; the particles of an emitter keep their own speed.
+     * @since unreleased
+     */
+    speed: number;
+    /**
+     * Runtime: seconds into the effect (before `speed`: the document's own clock). Assign to seek forward.
+     * @since unreleased
+     */
+    time: number;
+    /**
+     * Runtime: length of the effect in seconds, from the document; 0 until the document is read. Read-only.
+     * @since unreleased
+     */
+    readonly duration: number;
+  }
+  /**
    * A 3D (or 2D) view inside the UI (docs/MENUS.md, "A camera inside the UI"): draws the camera named by `camera` into this entity's rectangle, so an item turning on a stage, a character portrait or a map lives in a menu with the clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the modal Panel of any widget. The camera is rendered into an image of the size of the rectangle (its aspect follows it; Camera.viewport is ignored) before the frame's UI is drawn, then that image is drawn in the rectangle. Give the camera primary = false, or it also draws in the main view; the camera and the widget must both be active. The background is drawn at `layer`, the picture at `layer` + 1: a widget meant to sit over the picture needs a layer of at least `layer` + 2. Camera.lighting = "studio" lights it with its own key, fill and rim lights, wherever it stands. bloom and colorFilter of the camera are ignored (the frame has one set of post effects). A pointer press, drag, release and the wheel over it are the game event `ui.viewPointer` ({id, phase, x, y, u, v, dx, dy, wheel}; `ui.on("viewPointer", fn)` in scripts) so a script can turn what it shows. It is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. Costs one more render pass per view per frame, and the image per view: keep it as small as the picture needs (see `resolution`). Defaults: 320 x 240, no background colour.
    * 
    * Category: UI
@@ -9090,6 +9166,7 @@ declare module "factoria" {
     TouchButton: TouchButtonComponent;
     Captions: CaptionsComponent;
     Video: VideoComponent;
+    Vfx: VfxComponent;
     CameraView: CameraViewComponent;
     Chart: ChartComponent;
     Script: ScriptComponent;
@@ -9140,6 +9217,7 @@ declare module "factoria" {
     TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; textColor?: ColorLike; touchOnly?: boolean };
     Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
     Video: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; path?: string; autoplay?: boolean; loop?: boolean; volume?: number; bus?: string; fit?: "contain" | "cover" | "stretch"; tint?: ColorLike; playing?: boolean; time?: number };
+    Vfx: { effect?: string; autoplay?: boolean; playing?: boolean; loop?: boolean; autoDestroy?: boolean; speed?: number; time?: number };
     CameraView: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; camera?: string; tint?: ColorLike; pointerEvents?: boolean; captureWheel?: boolean; resolution?: number };
     Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
