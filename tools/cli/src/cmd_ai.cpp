@@ -1,5 +1,6 @@
 // ai doctor | providers | config | run
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -32,18 +33,28 @@ ai::ResolvedAiConfig resolve_or_throw(const std::string& projectDir = {}) {
 ai::AiConfig load_config_or_throw(const std::string& projectDir = {}) { return resolve_or_throw(projectDir).config; }
 
 // The project a command that takes --project (or none) looks at: the flag, else the current folder when it is a project.
-std::string ambient_project_dir(const Context& ctx) {
-    std::string projectDir = ctx.args.str("project");
-    if (projectDir.empty() && fsys::exists(fsys::path(kProjectFileName))) projectDir = fsys::current_path().string();
-    return projectDir.empty() ? projectDir : absolute_path(projectDir);
-}
+std::string ambient_project_dir(const Context& ctx) { return find_project_dir_or_empty(ctx, 99); }
 
 // What `ai doctor` says about the project's AI settings: "" when the project has none. The file may have come with a copied
 // project: everything it contributes is printed with its control characters escaped.
 std::string project_settings_line(const ai::ResolvedAiConfig& resolved) {
     if (!resolved.fileExists) return {};
     std::string out = "Project AI settings: " + ai::escape_control_chars(resolved.projectFile);
-    if (resolved.applied) return out + " (applied)\n";
+    if (resolved.applied) {
+        out += " (applied). It sets:\n";
+        // The overrides, one line each: pointer = value (what the file says, escaped: it may have come with a copied project).
+        std::vector<std::pair<std::string, Json>> leaves;
+        std::function<void(const Json&, const std::string&)> walk = [&](const Json& j, const std::string& at) {
+            if (j.is_object()) {
+                for (auto it = j.begin(); it != j.end(); ++it) walk(it.value(), at + "/" + it.key());
+            } else {
+                leaves.emplace_back(at, j);
+            }
+        };
+        walk(resolved.overrides, "");
+        for (const auto& [pointer, value] : leaves) out += "  " + ai::escape_control_chars(pointer + " = " + value.dump()) + "\n";
+        return out;
+    }
     if (resolved.invalidError) {
         out += " (INVALID and not accepted: it has no effect, the project runs with your settings):\n  " + resolved.invalidError->message;
         if (!resolved.invalidError->hint.empty()) out += "\n  " + resolved.invalidError->hint;
@@ -115,7 +126,7 @@ Command make_ai_command() {
     doctor.name = "doctor";
     doctor.summary = "Check which AI providers are usable (CLIs installed, keys visible). Never prints keys.";
     doctor.flags = {{"json", "", "Machine-readable output."},
-                    {"project", "DIR", "Project folder whose extensions and Claude Code deny rules to check (default: the current folder when it is a project)."}};
+                    {"project", "DIR", "Project folder whose AI settings, extensions and Claude Code deny rules to check (default: the project containing the current folder)."}};
     doctor.examples = {"factoria ai doctor", "factoria ai doctor --json", "factoria ai doctor --project examples/pong"};
     doctor.run = [](Context& ctx) {
         const std::string projectDir = ambient_project_dir(ctx);
@@ -136,7 +147,7 @@ Command make_ai_command() {
     providers.name = "providers";
     providers.summary = "List the configured providers, their availability and the role mapping.";
     providers.flags = {{"json", "", "Machine-readable output."},
-                       {"project", "DIR", "Project folder whose AI settings apply (default: the current folder when it is a project)."}};
+                       {"project", "DIR", "Project folder whose AI settings apply (default: the project containing the current folder)."}};
     providers.examples = {"factoria ai providers --json"};
     providers.run = [](Context& ctx) {
         const ai::ResolvedAiConfig resolved = resolve_or_throw(ambient_project_dir(ctx));
@@ -162,7 +173,7 @@ Command make_ai_command() {
     config.name = "config";
     config.summary = "Show where the AI config lives, the effective settings (keys redacted) and an example.";
     config.flags = {{"json", "", "Machine-readable output."},
-                    {"project", "DIR", "Project folder whose AI settings apply (default: the current folder when it is a project)."}};
+                    {"project", "DIR", "Project folder whose AI settings apply (default: the project containing the current folder)."}};
     config.examples = {"factoria ai config"};
     config.run = [](Context& ctx) {
         const ai::ResolvedAiConfig resolved = resolve_or_throw(ambient_project_dir(ctx));
@@ -250,7 +261,10 @@ Command make_ai_command() {
             dir = resolve_project_dir(ctx, 99);
         }
         ai::AiConfig cfg = load_config_or_throw(dir);
-        if (!cfg.role_enabled(role)) throw UsageError(ai::role_off_message(role) + ".", ai::role_off_hint(role));
+        if (!cfg.role_enabled(role)) {
+            const Error off = ai::role_off_error(role, dir);
+            throw UsageError(off.message + ".", off.hint);
+        }
         std::string provider = a.str("provider");
         if (!provider.empty() && !cfg.provider(provider)) {
             std::vector<std::string> names;

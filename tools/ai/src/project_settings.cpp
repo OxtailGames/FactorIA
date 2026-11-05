@@ -7,6 +7,7 @@
 #include <cstring>
 #include <optional>
 #include <set>
+#include <stdexcept>
 
 #include "fa/ai/extensions.h"
 #include "fa/core/fs.h"
@@ -921,6 +922,81 @@ Result<void> accept_project_settings(std::string_view projectDir, std::string_vi
     if (!user) return user.error();
     if (auto ok = validate_project_settings(file.overrides, *user, file.path); !ok) return ok;
     return trust_project_ai_settings(trust_path_for(userPath), projectDir, file.hash);
+}
+
+
+Result<void> set_user_setting(std::string_view pointer, const Json& value, std::string_view aiConfigPath, const EnvLookup& env) {
+    const std::string userPath = aiConfigPath.empty() ? default_config_path(env) : std::string(aiConfigPath);
+    auto user = load_config(userPath, env);
+    if (!user) return user.error();
+    // The segments of the pointer, unescaped. A malformed one is an error, never an exception.
+    std::vector<std::string> parts;
+    try {
+        const Json::json_pointer ptr{std::string(pointer)};
+        Json probe = Json::object();
+        probe[ptr] = 0;  // checks the escapes and that the pointer does not index an array
+        std::string rest(pointer);
+        if (rest.empty() || rest.front() != '/') throw std::invalid_argument("it must start with /");
+        std::size_t at = 1;
+        while (at <= rest.size()) {
+            std::size_t next = rest.find('/', at);
+            if (next == std::string::npos) next = rest.size();
+            std::string seg = rest.substr(at, next - at);
+            for (std::size_t i = 0; (i = seg.find("~1", i)) != std::string::npos;) seg.replace(i, 2, "/");
+            for (std::size_t i = 0; (i = seg.find("~0", i)) != std::string::npos;) seg.replace(i, 2, "~");
+            parts.push_back(std::move(seg));
+            at = next + 1;
+        }
+    } catch (const std::exception& e) {
+        return make_error("'" + escape_control_chars(pointer) + "' is not a valid JSON pointer: " + e.what(),
+                          "Write it like /roles/artist/enabled; inside a key write ~0 for ~ and ~1 for /.");
+    }
+    Json raw = read_raw_user(userPath);
+    if (value.is_null()) {
+        // The key in ai.json: servers and extensions are switched with their "enabled".
+        std::vector<std::string> path = parts;
+        if ((path.size() == 2 && path[0] == "mcpServers") || (path.size() == 3 && path[0] == "extensions")) path.push_back("enabled");
+        std::vector<Json*> chain{&raw};
+        for (const std::string& seg : path) {
+            Json* cur = chain.back();
+            if (!cur->is_object() || !cur->contains(seg)) { chain.clear(); break; }
+            chain.push_back(&(*cur)[seg]);
+        }
+        if (chain.empty()) return {};  // not in the file: already the default
+        const std::size_t n = path.size();
+        chain[n - 1]->erase(path[n - 1]);
+        for (std::size_t k = n - 1; k >= 1; --k) {  // an object the removal left empty goes too
+            if (!chain[k]->empty()) break;
+            chain[k - 1]->erase(path[k - 1]);
+        }
+    } else {
+        Json ov = Json::object();
+        try {
+            ov[Json::json_pointer(std::string(pointer))] = value;
+        } catch (const std::exception& e) {
+            return make_error("'" + escape_control_chars(pointer) + "' cannot be set: " + e.what(), "Use the pointer of one value, like /roles/artist/enabled.");
+        }
+        if (auto ok = validate_project_settings(ov, *user, userPath); !ok) return ok;
+        raw = merged_json(raw, ov, *user);
+    }
+    if (auto parsed = parse_config(raw, userPath); !parsed) return parsed.error();
+    return write_private_file(userPath, dump_json(raw));
+}
+
+Error role_off_error(std::string_view role, std::string_view projectDir, std::string_view aiConfigPath, const EnvLookup& env) {
+    Error e{role_off_message(role), role_off_hint(role)};
+    if (projectDir.empty() || is_review_role(role)) return e;
+    auto resolved = resolve_ai_config(projectDir, aiConfigPath, env);
+    if (!resolved || resolved->config.role_enabled(role)) return e;
+    const std::string pointer = "/roles/" + std::string(role) + "/enabled";
+    if (resolved->source_of(pointer) != SettingSource::Project) return e;
+    const std::string name = role_display_name(role);
+    e.message = "The " + name + " role is off in this project's AI settings (" + resolved->projectFile + "): the orchestrator does that work itself";
+    e.hint = "Do the work yourself (as the orchestrator), or ask the user to turn the role on for this project: in the editor (AI > Roles..., tick \"Enabled\" "
+             "with this project open) or by removing the override with ai.settings.set {\"scope\":\"project\",\"pointer\":\"" + pointer +
+             "\",\"value\":null}; the user then accepts the changed file in the editor's AI settings if it asks. Your own default for the role "
+             "(roles." + std::string(role) + ".enabled in ~/.factoria/ai.json) is not what turned it off.";
+    return e;
 }
 
 }  // namespace fa::ai

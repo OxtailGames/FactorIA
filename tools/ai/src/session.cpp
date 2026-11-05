@@ -9,6 +9,7 @@
 
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/hooks.h"
+#include "fa/ai/project_settings.h"
 #include "fa/ai/savers.h"
 #include "fa/ai/tool_catalog.h"
 #include "fa/core/date.h"
@@ -601,7 +602,9 @@ ToolResult AgentSession::execute_tool(const ToolCall& original, const std::strin
                         "agent_delegate needs role (\"worker\", \"fast\", \"artist\" or \"audio\") and a non-empty task", "");
         }
         if (!config_.role_enabled(r)) {
-            return fail("role_off", role_off_message(r), role_off_hint(r));
+            // When the project's AI settings turned it off, the refusal names that setting and how to change it.
+            const Error off = role_off_error(r, opt_.projectDir, config_.sourcePath);
+            return fail("role_off", off.message, off.hint);
         }
         AgentEvent info;
         info.type = AgentEvent::Type::Info;
