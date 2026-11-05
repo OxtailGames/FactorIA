@@ -2,6 +2,7 @@
 // roles, the keys a project file may not hold, unknown names with suggestions, the trust of a file the user did not save, the
 // writer that keeps only what differs, and that a project without the file behaves as before.
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 
 #include "fa/ai/extensions.h"
@@ -46,11 +47,18 @@ struct Setup {
     void copy_in(const std::string& text) const { write_file(settings_path(), text); }
     Result<ResolvedAiConfig> resolve() const { return resolve_ai_config(proj.str(), ai, kNoEnv); }
     Result<AiConfig> load() const { return load_resolved_config(proj.str(), ai, kNoEnv); }
-    Result<void> save(const Json& overrides) const { return save_project_settings(proj.str(), overrides, ai, kNoEnv); }
+    // Saves like the editor does on the user's behalf: the acceptance is recorded (the default of the function is not to).
+    Result<void> save(const Json& overrides, bool recordTrust = true) const {
+        return save_project_settings(proj.str(), overrides, ai, kNoEnv, recordTrust);
+    }
+    // What is wrong with a file that came with the project (so it is not accepted): it has no effect, the resolution succeeds as
+    // without the file and says what is wrong. "" when the file is fine.
     std::string error_of(const std::string& text) const {
         copy_in(text);
         auto r = resolve();
-        return r ? std::string() : r.error().message + " | " + r.error().hint;
+        if (!r) return "resolve failed: " + r.error().message;
+        if (!r->invalidError) return std::string();
+        return r->invalidError->message + " | " + r->invalidError->hint;
     }
 };
 
@@ -194,9 +202,18 @@ TEST_CASE("project settings: keys that define a provider, server or extension ar
         CHECK(has(err, "not allowed in a project's AI settings file"));
         CHECK(has(err, "~/.factoria/ai.json"));
         CHECK(has(err, s.settings_path()));
-        // An invalid file is an error even before the user accepted it, so it is seen.
-        CHECK_FALSE(s.resolve());
-        CHECK_FALSE(s.load());
+        // An invalid file that was not accepted has no effect, not even failing: it is reported, not thrown.
+        auto r = s.resolve();
+        REQUIRE(r);
+        CHECK(r->pendingTrust);
+        CHECK_FALSE(r->applied);
+        CHECK(r->invalidError.has_value());
+        CHECK(r->pending.empty());
+        CHECK(settings_view(r->config) == settings_view(r->inherited));
+        auto loaded = s.load();
+        REQUIRE(loaded);
+        CHECK(settings_view(*loaded) == settings_view(r->inherited));
+        CHECK_FALSE(accept_project_settings(s.proj.str(), "", s.ai, kNoEnv));
     }
     // The error teaches for the on/off form too.
     CHECK(has(s.error_of(R"({"mcpServers": {"scenario": {"enabled": false}}})"), "write the boolean itself"));
@@ -269,6 +286,9 @@ TEST_CASE("project settings: a file the user did not save applies only after it 
     CHECK(accepted->applied);
     CHECK_FALSE(accepted->pendingTrust);
     CHECK(accepted->config.limits.maxTurns == 5);
+    const std::string trustPath = extensions_trust_path(s.ai);
+    const std::string trustBefore = read_file(trustPath);
+    CHECK_FALSE(trustBefore.empty());
 
     // An edit (an unzipped update, a pasted line) needs a new acceptance.
     s.copy_in(R"({"limits": {"maxTurns": 6}})");
@@ -277,11 +297,17 @@ TEST_CASE("project settings: a file the user did not save applies only after it 
     CHECK_FALSE(edited->applied);
     CHECK(edited->pendingTrust);
     CHECK(edited->config.limits.maxTurns == 30);
-    // The old record is gone: going back to the old text is not trusted either.
-    s.copy_in(R"({"limits": {"maxTurns": 5}, "roles": {"artist": {"enabled": false}}})");
+    // Reading wrote nothing: the record of the text the user accepted is still there, so that exact text is accepted again; any
+    // other text is not.
     CHECK_FALSE(s.resolve()->applied);
+    CHECK(read_file(trustPath) == trustBefore);
+    s.copy_in(R"({"limits": {"maxTurns": 5}, "roles": {"artist": {"enabled": false}}})");
+    CHECK(s.resolve()->applied);
+    s.copy_in(R"({"limits": {"maxTurns": 7}})");
+    CHECK_FALSE(s.resolve()->applied);
+    CHECK(read_file(trustPath) == trustBefore);
 
-    // A file with an error is reported, not applied silently, and cannot be accepted.
+    // A file with an error cannot be accepted.
     s.copy_in(R"({"providers": {}})");
     CHECK_FALSE(accept_project_settings(s.proj.str(), "", s.ai, kNoEnv));
     // No file, nothing to accept.
@@ -418,6 +444,150 @@ TEST_CASE("project settings: asset routes are named from the user's providers") 
     CHECK(r->source_of("/assets/image/provider") == SettingSource::Project);
     // A provider that cannot make that kind is refused by the same rule ai.json has.
     CHECK_FALSE(s.save(Json::parse(R"({"assets": {"model3d": {"provider": "openrouter"}}})")));
+}
+
+TEST_CASE("project settings: a friend's file naming a provider you lack does not stop you, an accepted one that turned invalid does") {
+    Setup s;
+    // Came inside a copied project: names a provider this computer has no entry for.
+    s.copy_in(R"({"roles": {"worker": {"provider": "friends-gateway"}}, "limits": {"maxTurns": 3}})");
+    auto r = s.resolve();
+    REQUIRE(r);
+    CHECK(r->fileExists);
+    CHECK_FALSE(r->applied);
+    CHECK(r->pendingTrust);
+    CHECK(r->pending.empty());
+    REQUIRE(r->invalidError.has_value());
+    CHECK(has(r->invalidError->message, "no provider named 'friends-gateway'"));
+    CHECK(has(r->invalidError->message, "/roles/worker/provider"));
+    CHECK(has(r->invalidError->message, s.settings_path()));
+    CHECK_FALSE(r->invalidError->hint.empty());
+    CHECK(settings_view(r->config) == settings_view(r->inherited));  // nothing of the file, not even the valid limit
+    CHECK(r->config.limits.maxTurns == 30);
+    const bool warned = std::any_of(r->config.warnings.begin(), r->config.warnings.end(), [&](const std::string& w) {
+        return has(w, s.settings_path()) && has(w, "no effect") && has(w, "friends-gateway");
+    });
+    CHECK(warned);
+    auto loaded = s.load();  // what every runtime path reads: it runs
+    REQUIRE(loaded);
+    CHECK(loaded->limits.maxTurns == 30);
+    CHECK_FALSE(fsys::exists(fsys::path(extensions_trust_path(s.ai))));  // none of this wrote ai-trust.json
+    CHECK_FALSE(accept_project_settings(s.proj.str(), "", s.ai, kNoEnv));
+
+    // The user's own file, accepted, then ai.json changes so the file names something that is gone: that is an error to see.
+    Setup t;
+    REQUIRE(t.save(Json::parse(R"({"mcpServers": {"scenario": false}})")));
+    REQUIRE(t.resolve());
+    CHECK(t.resolve()->applied);
+    write_file(t.ai, R"({"limits": {"maxTurns": 30}})");  // the tool server 'scenario' is no longer defined
+    auto gone = t.resolve();
+    REQUIRE_FALSE(gone);
+    CHECK(has(gone.error().message, "no tool server named 'scenario'"));
+    CHECK_FALSE(t.load());
+}
+
+TEST_CASE("project settings: reading never writes ai-trust.json, and save does not accept unless told to") {
+    Setup s;
+    const std::string trust = extensions_trust_path(s.ai);
+    REQUIRE(s.save(Json::parse(R"({"limits": {"maxTurns": 9}})")));
+    const std::string before = read_file(trust);
+    REQUIRE_FALSE(before.empty());
+    s.copy_in(R"({"limits": {"maxTurns": 8}})");  // the file changed since the acceptance
+    CHECK_FALSE(s.resolve()->applied);
+    CHECK_FALSE(s.load()->limits.maxTurns == 8);
+    CHECK(read_file(trust) == before);
+    // A reset of a file that is not accepted reads the trust and does not add to it.
+    s.copy_in(R"({"limits": {"maxTurns": 8, "maxCostUsd": 1}})");
+    REQUIRE(reset_project_setting(s.proj.str(), "/limits/maxCostUsd", s.ai, kNoEnv));
+    CHECK(read_file(trust) == before);
+
+    // The default of the writer: saved, but not accepted. A second save without the flag over an accepted file un-accepts it.
+    Setup t;
+    REQUIRE(save_project_settings(t.proj.str(), Json::parse(R"({"limits": {"maxTurns": 4}})"), t.ai, kNoEnv));
+    auto r = t.resolve();
+    REQUIRE(r);
+    CHECK(r->fileExists);
+    CHECK_FALSE(r->applied);
+    CHECK(r->pendingTrust);
+    CHECK(r->config.limits.maxTurns == 30);
+    CHECK_FALSE(fsys::exists(fsys::path(extensions_trust_path(t.ai))));
+    REQUIRE(accept_project_settings(t.proj.str(), r->fileHash, t.ai, kNoEnv));
+    CHECK(t.resolve()->config.limits.maxTurns == 4);
+    REQUIRE(t.save(Json::parse(R"({"limits": {"maxTurns": 5}})"), false));
+    CHECK_FALSE(t.resolve()->applied);
+}
+
+TEST_CASE("project settings: what an untrusted file says is printed with its control characters escaped") {
+    Setup s;
+    const std::string err = s.error_of("{\"limit\\u001b[2Js\": {}}");
+    REQUIRE_FALSE(err.empty());
+    CHECK(err.find('\x1b') == std::string::npos);
+    CHECK(has(err, "\\x1b"));
+    CHECK(escape_control_chars(std::string("a\x1b[31mb\x7f\n\tc")) == "a\\x1b[31mb\\x7f\n\tc");
+    // The same in the pointer of a change.
+    SettingChange c{"/roles/a\x1b", Json(nullptr), Json(1)};
+    CHECK(c.text().find('\x1b') == std::string::npos);
+}
+
+TEST_CASE("project settings: a pointer that is not valid JSON pointer syntax is an error, not an exception") {
+    Setup s;
+    REQUIRE(s.save(Json::parse(R"({"limits": {"maxCostUsd": 2}})")));
+    Result<void> bad = make_error("unset");
+    CHECK_NOTHROW(bad = reset_project_setting(s.proj.str(), "/a~2", s.ai, kNoEnv));
+    REQUIRE_FALSE(bad);
+    CHECK(has(bad.error().message, "not a valid JSON pointer"));
+    CHECK(has(bad.error().hint, "~0"));
+    CHECK(fsys::exists(s.settings_path()));  // untouched
+}
+
+TEST_CASE("project settings: resolve_ai_config_over applies the file on a config in memory, as the file on disk would") {
+    Setup s;
+    const std::string overrides = R"({"limits": {"maxCostUsd": 4}, "roles": {"orchestrator": {"provider": "openrouter", "model": "x/y"},
+                                                                          "worker": {"enabled": false}}, "mcpServers": {"scenario": false}})";
+    REQUIRE(s.save(Json::parse(overrides)));
+    auto disk = s.resolve();
+    REQUIRE(disk);
+    REQUIRE(disk->applied);
+    auto user = load_config(s.ai, kNoEnv);
+    REQUIRE(user);
+    auto mem = resolve_ai_config_over(s.proj.str(), *user, s.ai, kNoEnv);
+    REQUIRE(mem);
+    CHECK(mem->applied);
+    CHECK(settings_view(mem->config) == settings_view(disk->config));
+    CHECK(mem->config.role("artist").provider == "openrouter");  // follows the orchestrator, as on disk
+    CHECK(mem->source_of("/limits/maxCostUsd") == SettingSource::Project);
+    // The config in memory is the source for the user's side: an unsaved edit of the editor shows through.
+    AiConfig edited = *user;
+    edited.limits.maxTurns = 11;
+    edited.limits.stuckAfterSeconds = 60;
+    auto over = resolve_ai_config_over(s.proj.str(), edited, s.ai, kNoEnv);
+    REQUIRE(over);
+    CHECK(over->applied);
+    CHECK(over->config.limits.maxTurns == 11);
+    CHECK(over->config.limits.stuckAfterSeconds == 60);
+    CHECK(over->config.limits.maxCostUsd == 4);
+    CHECK(over->inherited.limits.maxTurns == 11);
+    // A role the user turned off in memory stays off; nothing but the sourcePath of the user's file locates the trust.
+    AiConfig artistOff = *user;
+    artistOff.roles["artist"].enabled = false;
+    auto off = resolve_ai_config_over(s.proj.str(), artistOff, "", kNoEnv);
+    REQUIRE(off);
+    CHECK_FALSE(off->config.role_enabled("artist"));
+    // No project: the config comes back as it is. No file: the same.
+    auto none = resolve_ai_config_over("", edited, s.ai, kNoEnv);
+    REQUIRE(none);
+    CHECK(settings_view(none->config) == settings_view(edited));
+    TempDir bare;
+    auto nofile = resolve_ai_config_over(bare.str(), edited, s.ai, kNoEnv);
+    REQUIRE(nofile);
+    CHECK_FALSE(nofile->fileExists);
+    CHECK(settings_view(nofile->config) == settings_view(edited));
+    // An invalid file that is not accepted is reported the same way.
+    Setup bad;
+    bad.copy_in(R"({"roles": {"worker": {"provider": "nope"}}})");
+    auto badr = resolve_ai_config_over(bad.proj.str(), *user, bad.ai, kNoEnv);
+    REQUIRE(badr);
+    CHECK(badr->invalidError.has_value());
+    CHECK(settings_view(badr->config) == settings_view(*user));
 }
 
 TEST_CASE("project settings: an invalid ai.json is the user's error, not the project's") {

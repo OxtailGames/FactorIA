@@ -36,8 +36,25 @@ std::vector<SchemaError> validate_project_settings_json(const Json& j) {
     return validate_json(schema, j);
 }
 
+std::string escape_control_chars(std::string_view text) {
+    static const char* const hex = "0123456789abcdef";
+    std::string out;
+    out.reserve(text.size());
+    for (char ch : text) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if ((c < 0x20 && c != '\n' && c != '\t') || c == 0x7f) {
+            out += "\\x";
+            out += hex[c >> 4];
+            out += hex[c & 15];
+        } else {
+            out += ch;
+        }
+    }
+    return out;
+}
+
 std::string SettingChange::text() const {
-    return pointer + ": " + (from.is_null() ? std::string("(not set)") : dump(from)) + " -> " + dump(to);
+    return escape_control_chars(pointer) + ": " + (from.is_null() ? std::string("(not set)") : dump(from)) + " -> " + dump(to);
 }
 
 SettingSource ResolvedAiConfig::source_of(std::string_view pointer) const {
@@ -299,7 +316,7 @@ std::string join_problems(const std::vector<Problem>& problems, std::string_view
     std::string out;
     for (const Problem& p : problems) {
         if (!out.empty()) out += "\n";
-        out += std::string(source) + ": " + (p.pointer.empty() ? std::string("/") : p.pointer) + ": " + p.message;
+        out += escape_control_chars(std::string(source) + ": " + (p.pointer.empty() ? std::string("/") : p.pointer) + ": " + p.message);
     }
     return out;
 }
@@ -392,11 +409,11 @@ Result<void> validate_project_settings(const Json& file, const AiConfig& user, s
                                                   " A project can only name a provider ~/.factoria/ai.json defines (AI settings > Providers)."});
     };
     if (const Json* roles = child(file, "roles"); roles && roles->is_object()) {
-        for (auto it = roles->begin(); it != roles->end(); ++it) check_provider(it.value(), "/roles/" + it.key());
+        for (auto it = roles->begin(); it != roles->end(); ++it) check_provider(it.value(), "/roles/" + pointer_escape(it.key()));
     }
     if (const Json* assets = child(file, "assets"); assets && assets->is_object()) {
         for (auto it = assets->begin(); it != assets->end(); ++it) {
-            const std::string at = "/assets/" + it.key();
+            const std::string at = "/assets/" + pointer_escape(it.key());
             check_provider(it.value(), at);
             if (!it.value().contains("provider") && user.assets.find(it.key()) == user.assets.end()) {
                 MediaKind kind = MediaKind::Image;
@@ -569,16 +586,43 @@ std::string trust_path_for(const std::string& userPath) { return extensions_trus
 
 }  // namespace
 
-Result<ResolvedAiConfig> resolve_ai_config(std::string_view projectDir, std::string_view aiConfigPath, const EnvLookup& env) {
-    const std::string userPath = aiConfigPath.empty() ? default_config_path(env) : std::string(aiConfigPath);
-    auto user = load_config(userPath, env);
-    if (!user) return user.error();
+namespace {
 
+// ai.json as the editor holds it in memory, as the JSON `merged_json` merges into. artist, audio, artCritic and reviewer that only
+// follow another role (their values are what parse_config derives from the rest) are left out, so a project that changes the
+// orchestrator's provider moves them along, exactly as with the file on disk.
+Json raw_from_config(const AiConfig& cfg) {
+    Json raw = config_to_json(cfg, false);
+    if (!raw.contains("roles") || !raw["roles"].is_object()) return raw;
+    Json withoutDerived = raw;
+    for (const char* r : kExtraRoles) withoutDerived["roles"].erase(r);
+    auto derived = parse_config(withoutDerived, "<memory>");
+    if (!derived) return raw;  // cannot happen for a config that came from parse_config; keep every role explicit
+    Json out = std::move(withoutDerived);
+    for (const char* r : kExtraRoles) {
+        auto have = cfg.roles.find(r);
+        auto would = derived->roles.find(r);
+        const bool same = have != cfg.roles.end() && would != derived->roles.end() &&
+                          have->second.provider == would->second.provider && have->second.model == would->second.model &&
+                          have->second.effort == would->second.effort && have->second.enabled == would->second.enabled &&
+                          have->second.maxTokens == would->second.maxTokens &&
+                          have->second.maxContextTokens == would->second.maxContextTokens &&
+                          have->second.toolGroups == would->second.toolGroups;
+        if (!same && raw["roles"].contains(r)) out["roles"][r] = raw["roles"][r];
+    }
+    return out;
+}
+
+Error sanitized(const Error& e) { return make_error(escape_control_chars(e.message), escape_control_chars(e.hint)); }
+
+// The resolution proper. `user` is the config the project inherits, `raw` its JSON form (what the overrides merge into),
+// `rawLeaves` the leaves the user's own file sets (for the "you" source) and `trustPath` the ai-trust.json that holds the acceptance.
+Result<ResolvedAiConfig> resolve_core(std::string_view projectDir, const AiConfig& user, const Json& raw,
+                                      const std::set<std::string>& rawLeaves, const std::string& trustPath) {
     ResolvedAiConfig out;
-    out.inherited = *user;
-    out.config = *user;
+    out.inherited = user;
+    out.config = user;
     out.projectDir = std::string(projectDir);
-    Json raw = read_raw_user(userPath);
 
     Json overrides = Json::object();
     if (!projectDir.empty()) {
@@ -587,21 +631,36 @@ Result<ResolvedAiConfig> resolve_ai_config(std::string_view projectDir, std::str
         out.fileExists = file.exists;
         out.fileHash = file.hash;
         if (file.exists) {
+            // Trust first: a file that was not accepted has no effect, so it may not fail anything either. Read-only: the
+            // record of a file that changed is left where it is (only accepting or forgetting writes ai-trust.json).
+            const bool trusted = project_ai_settings_trusted(trustPath, projectDir, file.hash, nullptr, false);
+            std::optional<Error> problem;
+            Result<AiConfig> applied = make_error("not resolved");
             if (!file.error.empty()) {
-                return make_error(file.error, "Fix the file or delete it (" + file.path + "): it is this project's AI settings, see docs/AI_PROVIDERS.md, \"Per project\".");
-            }
-            if (auto ok = validate_project_settings(file.overrides, *user, file.path); !ok) return ok.error();
-            auto applied = apply_overrides(raw, file.overrides, *user, file.path);
-            if (!applied) return applied.error();
-            out.overrides = file.overrides;
-            overrides = file.overrides;
-            const bool trusted = project_ai_settings_trusted(trust_path_for(userPath), projectDir, file.hash);
-            if (trusted) {
-                out.config = *applied;
-                out.applied = true;
+                problem = make_error(file.error, "Fix the file or delete it (" + file.path + "): it is this project's AI settings, see docs/AI_PROVIDERS.md, \"Per project\".");
+            } else if (auto ok = validate_project_settings(file.overrides, user, file.path); !ok) {
+                problem = ok.error();
             } else {
+                applied = apply_overrides(raw, file.overrides, user, file.path);
+                if (!applied) problem = applied.error();
+            }
+            if (problem && trusted) return *problem;  // accepted before, invalid now (ai.json changed): the user must see it
+            if (problem) {
                 out.pendingTrust = true;
-                out.pending = diff_views(settings_view(*user), settings_view(*applied));
+                out.invalidError = sanitized(*problem);
+                std::string first = out.invalidError->message.substr(0, out.invalidError->message.find('\n'));
+                out.config.warnings.push_back("The AI settings of this project (" + escape_control_chars(file.path) + ") are invalid and have no effect: " + first +
+                                              (out.invalidError->hint.empty() ? std::string() : " " + out.invalidError->hint));
+            } else {
+                out.overrides = file.overrides;
+                overrides = file.overrides;
+                if (trusted) {
+                    out.config = *applied;
+                    out.applied = true;
+                } else {
+                    out.pendingTrust = true;
+                    out.pending = diff_views(settings_view(user), settings_view(*applied));
+                }
             }
         }
     }
@@ -609,10 +668,9 @@ Result<ResolvedAiConfig> resolve_ai_config(std::string_view projectDir, std::str
     // Where each value comes from.
     const Json view = settings_view(out.config);
     const auto resolvedLeaves = leaves_of(view);
-    const auto inheritedLeaves = leaves_of(settings_view(*user));
+    const auto inheritedLeaves = leaves_of(settings_view(user));
     const auto defaultLeaves = leaves_of(settings_view(default_config()));
     const auto touched = out.applied ? leaves_of(overrides) : std::map<std::string, Json>{};
-    const std::set<std::string> rawLeaves = raw_leaf_pointers(raw);
     for (const auto& [pointer, value] : resolvedLeaves) {
         if (out.applied) {
             auto in = inheritedLeaves.find(pointer);
@@ -628,9 +686,29 @@ Result<ResolvedAiConfig> resolve_ai_config(std::string_view projectDir, std::str
     return out;
 }
 
+}  // namespace
+
+Result<ResolvedAiConfig> resolve_ai_config(std::string_view projectDir, std::string_view aiConfigPath, const EnvLookup& env) {
+    const std::string userPath = aiConfigPath.empty() ? default_config_path(env) : std::string(aiConfigPath);
+    auto user = load_config(userPath, env);
+    if (!user) return user.error();
+    const Json raw = read_raw_user(userPath);
+    return resolve_core(projectDir, *user, raw, raw_leaf_pointers(raw), trust_path_for(userPath));
+}
+
+Result<ResolvedAiConfig> resolve_ai_config_over(std::string_view projectDir, const AiConfig& inherited, std::string_view aiConfigPath,
+                                                const EnvLookup& env) {
+    std::string userPath = std::string(aiConfigPath);
+    if (userPath.empty()) userPath = inherited.sourcePath.empty() ? default_config_path(env) : inherited.sourcePath;
+    // Without a project file nothing is built from the config: `inherited` comes back as it is.
+    if (projectDir.empty()) return resolve_core(projectDir, inherited, Json::object(), {}, trust_path_for(userPath));
+    return resolve_core(projectDir, inherited, raw_from_config(inherited), {}, trust_path_for(userPath));
+}
+
 Result<AiConfig> load_resolved_config(std::string_view projectDir, std::string_view aiConfigPath, const EnvLookup& env) {
     // Without a project file there is nothing to resolve: exactly what load_config returns.
-    if (projectDir.empty() || !fsys::is_regular_file(fsys::path(settings_path(projectDir)))) {
+    std::error_code ec;
+    if (projectDir.empty() || !fsys::is_regular_file(fsys::path(settings_path(projectDir)), ec)) {
         return load_config(aiConfigPath, env);
     }
     auto resolved = resolve_ai_config(projectDir, aiConfigPath, env);
@@ -723,7 +801,8 @@ Result<void> write_overrides(const std::string& projectDir, const std::string& u
     if (overrides.empty()) {
         std::error_code ec;
         fs::remove_file(fsys::path(path), ec);
-        if (ec && fsys::exists(fsys::path(path))) {
+        std::error_code existsEc;
+        if (ec && fsys::exists(fsys::path(path), existsEc)) {
             return make_error("Cannot remove '" + path + "': " + ec.message(), "Close any program that has the file open, then try again.");
         }
         (void)forget_project_ai_settings_trust(trustPath, projectDir);
@@ -771,7 +850,8 @@ Json project_overrides_from(const AiConfig& wanted, const AiConfig& inherited) {
     return ordered(out);
 }
 
-Result<void> save_project_settings(std::string_view projectDir, const Json& overrides, std::string_view aiConfigPath, const EnvLookup& env) {
+Result<void> save_project_settings(std::string_view projectDir, const Json& overrides, std::string_view aiConfigPath, const EnvLookup& env,
+                                   bool recordTrust) {
     if (projectDir.empty()) {
         return make_error("Cannot save the AI settings of a project: no project is open", "Open a project first; without one the settings are your defaults (ai.json).");
     }
@@ -786,7 +866,7 @@ Result<void> save_project_settings(std::string_view projectDir, const Json& over
     if (!normalized.empty()) {
         if (auto trial = apply_overrides(read_raw_user(userPath), normalized, *user, path); !trial) return trial.error();
     }
-    return write_overrides(std::string(projectDir), userPath, normalized, true);
+    return write_overrides(std::string(projectDir), userPath, normalized, recordTrust);
 }
 
 Result<void> reset_project_setting(std::string_view projectDir, std::string_view pointer, std::string_view aiConfigPath, const EnvLookup& env) {
@@ -802,20 +882,27 @@ Result<void> reset_project_setting(std::string_view projectDir, std::string_view
     const bool wasAccepted = project_ai_settings_trusted(trust_path_for(userPath), projectDir, file.hash, nullptr, false);
 
     Json ov = file.overrides;
-    const Json::json_pointer ptr(std::string{pointer});
-    auto drop = [&](const Json::json_pointer& p) {
-        if (!ov.contains(p)) return;
-        Json::json_pointer parent = p.parent_pointer();
-        const std::string key = p.back();
-        Json& holder = ov[parent];
-        if (holder.is_object()) holder.erase(key);
-    };
-    if (!ov.contains(ptr)) return {};
-    drop(ptr);
-    // The provider and what follows it go together.
-    if (ptr.back() == "provider") {
-        const Json::json_pointer parent = ptr.parent_pointer();
-        for (const char* k : {"model", "effort", "voice"}) drop(parent / k);
+    // A JSON pointer from a caller (a command, a window) can be malformed ("/a~2"): nlohmann throws on it, and nothing may throw
+    // across this module's boundary.
+    try {
+        const Json::json_pointer ptr{std::string(pointer)};
+        auto drop = [&](const Json::json_pointer& p) {
+            if (!ov.contains(p)) return;
+            Json::json_pointer parent = p.parent_pointer();
+            const std::string key = p.back();
+            Json& holder = ov[parent];
+            if (holder.is_object()) holder.erase(key);
+        };
+        if (!ov.contains(ptr)) return {};
+        drop(ptr);
+        // The provider and what follows it go together.
+        if (ptr.back() == "provider") {
+            const Json::json_pointer parent = ptr.parent_pointer();
+            for (const char* k : {"model", "effort", "voice"}) drop(parent / k);
+        }
+    } catch (const std::exception& e) {
+        return make_error("'" + escape_control_chars(pointer) + "' is not a valid JSON pointer: " + e.what(),
+                          "Write it like /roles/artist/enabled (a leaf) or /roles/artist (a whole branch); inside a key write ~0 for ~ and ~1 for /.");
     }
     prune_empty(ov);
     return write_overrides(std::string(projectDir), userPath, ordered(ov), wasAccepted);

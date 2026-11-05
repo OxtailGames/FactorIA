@@ -23,11 +23,13 @@ namespace {
 
 // The AI config the command runs with: ai.json, and the settings of `projectDir` (<project>/.factoria/ai/settings.json) when it is
 // a project. "" = no project: the user file alone.
-ai::AiConfig load_config_or_throw(const std::string& projectDir = {}) {
-    auto cfg = ai::load_resolved_config(projectDir);
-    if (!cfg.ok()) throw CliError("AI configuration is invalid: " + cfg.error().message, cfg.error().hint);
-    return *cfg;
+// An invalid project file that was not accepted is not an error here: the project runs without it and the resolution says why.
+ai::ResolvedAiConfig resolve_or_throw(const std::string& projectDir = {}) {
+    auto resolved = ai::resolve_ai_config(projectDir);
+    if (!resolved.ok()) throw CliError("AI configuration is invalid: " + resolved.error().message, resolved.error().hint);
+    return std::move(*resolved);
 }
+ai::AiConfig load_config_or_throw(const std::string& projectDir = {}) { return resolve_or_throw(projectDir).config; }
 
 // The project a command that takes --project (or none) looks at: the flag, else the current folder when it is a project.
 std::string ambient_project_dir(const Context& ctx) {
@@ -36,15 +38,33 @@ std::string ambient_project_dir(const Context& ctx) {
     return projectDir.empty() ? projectDir : absolute_path(projectDir);
 }
 
-// One line about the project's AI settings for `ai doctor`: "" when the project has none.
-std::string project_settings_line(const std::string& projectDir) {
-    if (projectDir.empty()) return {};
-    auto resolved = ai::resolve_ai_config(projectDir);
-    if (!resolved.ok() || !resolved->fileExists) return {};
-    std::string out = "Project AI settings: " + resolved->projectFile;
-    if (resolved->applied) return out + " (applied)\n";
+// What `ai doctor` says about the project's AI settings: "" when the project has none. The file may have come with a copied
+// project: everything it contributes is printed with its control characters escaped.
+std::string project_settings_line(const ai::ResolvedAiConfig& resolved) {
+    if (!resolved.fileExists) return {};
+    std::string out = "Project AI settings: " + ai::escape_control_chars(resolved.projectFile);
+    if (resolved.applied) return out + " (applied)\n";
+    if (resolved.invalidError) {
+        out += " (INVALID and not accepted: it has no effect, the project runs with your settings):\n  " + resolved.invalidError->message;
+        if (!resolved.invalidError->hint.empty()) out += "\n  " + resolved.invalidError->hint;
+        return out + "\n";
+    }
     out += " (NOT applied: it was not saved on this computer; the project runs with your settings until you accept it in the editor's AI settings). It would change:\n";
-    for (const auto& c : resolved->pending) out += "  " + c.text() + "\n";
+    for (const auto& c : resolved.pending) out += "  " + c.text() + "\n";
+    return out;
+}
+
+// The same for --json: null when the project has no file of its own.
+Json project_settings_json(const ai::ResolvedAiConfig& resolved) {
+    if (!resolved.fileExists) return nullptr;
+    Json pending = Json::array();
+    for (const auto& c : resolved.pending) pending.push_back(Json::object({{"pointer", c.pointer}, {"from", c.from}, {"to", c.to}}));
+    Json out = Json::object({{"file", resolved.projectFile},
+                             {"applied", resolved.applied},
+                             {"pendingTrust", resolved.pendingTrust},
+                             {"pending", pending},
+                             {"overrides", resolved.overrides}});
+    if (resolved.invalidError) out["invalidError"] = Json::object({{"message", resolved.invalidError->message}, {"hint", resolved.invalidError->hint}});
     return out;
 }
 
@@ -99,20 +119,16 @@ Command make_ai_command() {
     doctor.examples = {"factoria ai doctor", "factoria ai doctor --json", "factoria ai doctor --project examples/pong"};
     doctor.run = [](Context& ctx) {
         const std::string projectDir = ambient_project_dir(ctx);
-        ai::AiConfig cfg = load_config_or_throw(projectDir);
+        const ai::ResolvedAiConfig resolved = resolve_or_throw(projectDir);
+        const ai::AiConfig& cfg = resolved.config;
         if (ctx.args.has("json")) {
             Json rep = providers_report(cfg, true);
             rep["extensions"] = ai::extensions_report(cfg, ai::make_extension_context(cfg, projectDir, ai::system_env()));
-            if (auto resolved = ai::resolve_ai_config(projectDir); !projectDir.empty() && resolved.ok() && resolved->fileExists) {
-                rep["projectSettings"] = Json::object({{"file", resolved->projectFile},
-                                                       {"applied", resolved->applied},
-                                                       {"pendingTrust", resolved->pendingTrust},
-                                                       {"overrides", resolved->overrides}});
-            }
+            if (Json settings = project_settings_json(resolved); !settings.is_null()) rep["projectSettings"] = std::move(settings);
             print_json(ctx.out, rep);
             return 0;
         }
-        ctx.out << ai::format_doctor_report(cfg, ai::detect_providers(cfg), ai::system_env(), projectDir) << project_settings_line(projectDir);
+        ctx.out << ai::format_doctor_report(cfg, ai::detect_providers(cfg), ai::system_env(), projectDir) << project_settings_line(resolved);
         return 0;
     };
 
@@ -123,12 +139,15 @@ Command make_ai_command() {
                        {"project", "DIR", "Project folder whose AI settings apply (default: the current folder when it is a project)."}};
     providers.examples = {"factoria ai providers --json"};
     providers.run = [](Context& ctx) {
-        ai::AiConfig cfg = load_config_or_throw(ambient_project_dir(ctx));
+        const ai::ResolvedAiConfig resolved = resolve_or_throw(ambient_project_dir(ctx));
+        const ai::AiConfig& cfg = resolved.config;
         Json rep = providers_report(cfg, false);
+        if (Json settings = project_settings_json(resolved); !settings.is_null()) rep["projectSettings"] = std::move(settings);
         if (ctx.args.has("json")) {
             print_json(ctx.out, rep);
             return 0;
         }
+        ctx.out << project_settings_line(resolved);
         ctx.out << "roles:\n";
         for (const auto& [role, v] : rep["roles"].items())
             ctx.out << "  " << role << ": " << v["provider"].get<std::string>() << " / " << v["model"].get<std::string>() << "\n";
@@ -146,7 +165,8 @@ Command make_ai_command() {
                     {"project", "DIR", "Project folder whose AI settings apply (default: the current folder when it is a project)."}};
     config.examples = {"factoria ai config"};
     config.run = [](Context& ctx) {
-        ai::AiConfig cfg = load_config_or_throw(ambient_project_dir(ctx));
+        const ai::ResolvedAiConfig resolved = resolve_or_throw(ambient_project_dir(ctx));
+        const ai::AiConfig& cfg = resolved.config;
         std::string path = ai::default_config_path();
         std::error_code ec;
         bool exists = fsys::exists(path, ec);
@@ -164,11 +184,13 @@ Command make_ai_command() {
   "limits": { "maxTurns": 40, "maxCostUsd": 5 }
 })";
         if (ctx.args.has("json")) {
-            print_json(ctx.out, Json::object({{"path", path}, {"exists", exists}, {"effective", ai::config_to_json(cfg, true)},
-                                              {"example", Json::parse(example)}}));
+            Json rep = Json::object({{"path", path}, {"exists", exists}, {"effective", ai::config_to_json(cfg, true)},
+                                     {"example", Json::parse(example)}});
+            if (Json settings = project_settings_json(resolved); !settings.is_null()) rep["projectSettings"] = std::move(settings);
+            print_json(ctx.out, rep);
             return 0;
         }
-        ctx.out << "Config file: " << path << (exists ? "" : "  (does not exist yet; defaults are used)") << "\n"
+        ctx.out << project_settings_line(resolved) << "Config file: " << path << (exists ? "" : "  (does not exist yet; defaults are used)") << "\n"
                 << "Override the location with FACTORIA_AI_CONFIG. API keys come from environment variables\n"
                 << "(ANTHROPIC_API_KEY, OPENAI_API_KEY, ...) or this user file, never from a game project.\n"
                 << "Schema: schemas/ai-config.schema.json (factoria docs read ai-providers)\n\nExample:\n" << example << "\n";

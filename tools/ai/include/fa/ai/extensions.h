@@ -140,12 +140,13 @@ Result<void> trust_project_extensions(std::string_view trustPath, std::string_vi
 Result<void> forget_project_trust(std::string_view trustPath, std::string_view projectDir);
 
 // The trust of a project's .factoria/ai/settings.json (project_settings.h) is kept in the same file, per project path and per
-// hash of that file, and is dropped when the file changes. Only the editor (and C++ callers) grant it, and the engine's own writer
-// records it for a file the user just saved on this computer: no command does.
+// hash of that file, and does not count when the file changes. Only the editor (and C++ callers) grant it, the engine's own writer
+// records it only when its caller asks (save_project_settings, recordTrust), and no command does. Reads (the resolution of a
+// project's config) pass dropStale=false: they never write ai-trust.json.
 // The key of the project in the file: canonical_project_key, in lower case on Windows and macOS (names there ignore case).
 std::string ai_settings_trust_key(std::string_view projectDir);
-// True when the settings file with this `hash` ("" = no file: false) was accepted for `projectDir`. A record for another hash is
-// removed (`dropped` says it was there) unless `dropStale` is false.
+// True when the settings file with this `hash` ("" = no file: false) was accepted for `projectDir`. A record for another hash
+// (`dropped` says it was there) is removed only when `dropStale` is true, which WRITES ai-trust.json: a read passes false.
 bool project_ai_settings_trusted(std::string_view trustPath, std::string_view projectDir, std::string_view hash,
                                  bool* dropped = nullptr, bool dropStale = true);
 Result<void> trust_project_ai_settings(std::string_view trustPath, std::string_view projectDir, std::string_view hash);

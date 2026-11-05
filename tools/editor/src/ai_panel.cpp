@@ -437,39 +437,91 @@ bool Editor::ai_running() const {
 }
 
 int Editor::ai_max_runs() {
-    auto cfg = ai_project_config();
-    if (cfg) return std::clamp(cfg->limits.maxConcurrentRuns, 1, ai::kMaxConcurrentRunsCap);
-    std::lock_guard<std::mutex> lock(aiMu_);
-    return std::clamp(aiConfig_.limits.maxConcurrentRuns, 1, ai::kMaxConcurrentRunsCap);
+    int limit = 1;
+    if (!ai_with_project_config([&](const ai::AiConfig& cfg) { limit = cfg.limits.maxConcurrentRuns; })) {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        limit = aiConfig_.limits.maxConcurrentRuns;
+    }
+    return std::clamp(limit, 1, ai::kMaxConcurrentRunsCap);
+}
+
+// The project's config: the editor's in-memory ai.json with the project's settings file on top (ai::resolve_ai_config_over), so
+// the editor has one source for the user's side. A project without a settings file runs with aiConfig_ exactly as it is, passed
+// by reference (no copy: the panels ask every frame). With a file, the resolution is cached for a second (the panels share it) and
+// a run (`fresh`) resolves again. The existence of the file is checked at most once a second as well, not per frame and panel.
+bool Editor::ai_with_project_config(const std::function<void(const ai::AiConfig&)>& use, Error* error, bool fresh) {
+    const long long nowMs = now_ms();
+    std::string key;
+    bool hasFile = false;
+    std::shared_ptr<const ai::AiConfig> cached;  // a resolution from the last second
+    bool cacheHit = false;
+    Error cachedError;
+    {
+        std::lock_guard<std::mutex> lock(aiProjMu_);
+        if (!projectDir_.empty() && (fresh || aiProjFileDir_ != projectDir_ || nowMs - aiProjFileAtMs_ >= 1000)) {
+            std::error_code ec;  // never the throwing overload: this runs on the UI thread every frame
+            aiProjFileDir_ = projectDir_;
+            aiProjFileAtMs_ = nowMs;
+            aiProjHasFile_ = std::filesystem::is_regular_file(utf8_path(projectDir_) / ".factoria" / "ai" / "settings.json", ec);
+        }
+        hasFile = !projectDir_.empty() && aiProjHasFile_;
+        key = projectDir_;
+        if (hasFile && !fresh && aiProjKey_ == key && nowMs - aiProjAtMs_ < 1000) {
+            cacheHit = true;
+            cached = aiProjConfig_;
+            cachedError = aiProjError_;
+        }
+    }
+    if (cacheHit) {  // `use` runs without the cache lock: it may ask for the config again
+        if (!cached) {
+            if (error) *error = cachedError;
+            return false;
+        }
+        use(*cached);
+        return true;
+    }
+    if (!hasFile) {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        if (aiConfig_.providers.empty()) {
+            const ai::AiConfig defaults = ai::default_config();
+            use(defaults);
+        } else {
+            use(aiConfig_);
+        }
+        return true;
+    }
+    ai::AiConfig inherited;
+    {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        inherited = aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
+    }
+    auto resolved = ai::resolve_ai_config_over(key, inherited);
+    std::shared_ptr<const ai::AiConfig> config;
+    {
+        std::lock_guard<std::mutex> lock(aiProjMu_);
+        aiProjKey_ = key;
+        aiProjAtMs_ = nowMs;
+        if (resolved) {
+            aiProjConfig_ = std::make_shared<const ai::AiConfig>(std::move(resolved->config));
+            config = aiProjConfig_;
+        } else {
+            aiProjConfig_.reset();
+            aiProjError_ = resolved.error();
+        }
+    }
+    if (!config) {
+        if (error) *error = resolved.error();
+        return false;
+    }
+    use(*config);
+    return true;
 }
 
 Result<ai::AiConfig> Editor::ai_project_config(bool fresh) {
-    ai::AiConfig user;
-    {
-        std::lock_guard<std::mutex> lock(aiMu_);
-        user = aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
-    }
-    // A project without a settings file runs with the editor's config exactly as it is (nothing is read or rewritten).
-    if (projectDir_.empty() || !std::filesystem::exists(utf8_path(projectDir_) / ".factoria" / "ai" / "settings.json")) return user;
-    const std::string key = projectDir_ + "|" + user.sourcePath;
-    const long long nowMs = now_ms();
-    {
-        std::lock_guard<std::mutex> lock(aiProjMu_);
-        if (!fresh && aiProjKey_ == key && nowMs - aiProjAtMs_ < 1000) {
-            if (aiProjConfig_) return *aiProjConfig_;
-            return aiProjError_;
-        }
-    }
-    auto resolved = ai::load_resolved_config(projectDir_, user.sourcePath);
-    std::lock_guard<std::mutex> lock(aiProjMu_);
-    aiProjKey_ = key;
-    aiProjAtMs_ = nowMs;
-    if (resolved) aiProjConfig_ = *resolved;
-    else {
-        aiProjConfig_.reset();
-        aiProjError_ = resolved.error();
-    }
-    return resolved;
+    std::optional<ai::AiConfig> copy;
+    Error error;
+    if (!ai_with_project_config([&](const ai::AiConfig& cfg) { copy = cfg; }, &error, fresh)) return error;
+    return std::move(*copy);
 }
 
 // The chat tabs belong to the open project (<project>/.factoria/ai/chats): when the project changed (boot() stopped the
