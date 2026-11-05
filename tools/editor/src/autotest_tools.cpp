@@ -7744,6 +7744,8 @@ void Editor::at_build_tools_script() {
             inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, particle_time_pos(ps->len * 0.25, 0.12));
         });
         step(2, [this, ps] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, particle_time_pos(ps->len * 0.25, 0.12)); });
+        step(2, [] {});   // the frames in which the panel sees the mouse and seeks
+        wait_until([this] { return particle_.preview && !particle_.preview->catching_up(); });   // the preview rebuilds a share of its steps per frame
         step(3, [this, ps] {
             const ParticlePreview& pv = *particle_.preview;
             at_check(particle_.scrubbing && !particle_.playing, "pressing on the timeline picks up the playhead");
@@ -7755,11 +7757,15 @@ void Editor::at_build_tools_script() {
             at_check(ps->count > 0, "...where the burst is still alive");
             inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, particle_time_pos(ps->len * 0.95, 0.12));
         });
+        step(2, [] {});
+        wait_until([this] { return !particle_.preview->catching_up(); });
         step(3, [this, ps] {
             at_check(particle_.preview->time() > ps->len * 0.85, "dragging to the right end moved the playhead there");
             at_check(particle_.preview->live_particles() == 0, "...where every particle is gone");
             inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, particle_time_pos(ps->len * 0.25, 0.12));
         });
+        step(2, [] {});
+        wait_until([this] { return !particle_.preview->catching_up(); });
         step(3, [this, ps] {
             const ParticlePreview& pv = *particle_.preview;
             at_check(pv.time() == ps->t1, "dragging back to the same pixel gave the same time");

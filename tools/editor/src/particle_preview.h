@@ -2,8 +2,12 @@
 // World that holds one Vfx entity) with every emitter stepped by its own fa::ParticleSim, the code a game runs. It draws nothing; it hands the
 // panel the dots and lights of the moment as plain numbers.
 //
-// Repeatable: the world is built again for every seek, the step is a fixed 1/60 s and the seeds come from the part number and the preview seed,
-// so the same time shows the same particles however it was reached (playing, dragging the scrubber back and forth, a redo). The document is
+// Repeatable: a seek to an earlier moment (or after the document or the seed changed) builds the world again, the step is a fixed 1/60 s and
+// the seeds come from the part number and the preview seed, so the same time shows the same particles however it was reached (playing,
+// dragging the scrubber back and forth, a redo). A seek to a later moment goes on from where the preview is. A seek never blocks the UI thread:
+// each call (and each catch_up) does a bounded amount of work, counted in steps and live particles, never in seconds, so the same seek takes the
+// same number of calls on every machine; the preview shows the moment it has reached (time()) until it has caught up with the one asked for
+// (target_time()). The document is
 // played from memory (VfxHost::load), so an edit shows at once without waiting for a file's modification time. Sounds and commands of the
 // document are NOT run (a preview must not shake the editor or play a clip); they are listed in `fired()` for the timeline's markers.
 #pragma once
@@ -22,6 +26,11 @@ namespace fa::editor {
 
 inline constexpr double kPreviewStep = 1.0 / 60.0;   // seconds per simulation step
 inline constexpr double kPreviewMaxTime = 30.0;      // the scrubber never goes past this
+// Work one call of seek/catch_up may do: at most kPreviewStepBudget steps, and fewer when the particles are many (a step costs
+// kPreviewStepCost + the live particles of all the emitters; the call stops once the sum reaches kPreviewWorkBudget). One step is always done.
+inline constexpr int kPreviewStepBudget = 240;
+inline constexpr int kPreviewStepCost = 16;
+inline constexpr long kPreviewWorkBudget = 30000;
 
 struct PreviewDot {
     float x = 0, y = 0;      // world units, +y DOWN (screen orientation); the emitter's matrix is applied
@@ -49,11 +58,20 @@ public:
     void set_seed(std::uint32_t seed);
     std::uint32_t seed() const { return seed_; }
 
-    // Builds the world again and steps to `t` seconds (0..timeline_length()). Deterministic.
+    // Asks for the moment `t` seconds (0..kPreviewMaxTime) and does the first bounded share of the work to get there. Deterministic.
     void seek(double t);
-    // Steps forward by `dt` seconds of playing (a whole number of fixed steps; the remainder waits for the next call).
+    // Does the next bounded share of a seek that has not finished (call it once per frame). Nothing to do when caught up.
+    void catch_up();
+    // Runs catch_up() until the asked-for moment is reached. NOT bounded: for tests and tools, never for the UI thread.
+    void settle();
+    // The seek has not reached target_time() yet.
+    bool catching_up() const { return steps_ < targetSteps_; }
+    // Steps forward by `dt` seconds of playing (a whole number of fixed steps; the remainder waits for the next call). While a seek is
+    // catching up this continues the seek instead.
     void advance(double dt);
+    // The moment the shown particles are at, and the moment the last seek asked for (the same when caught up).
     double time() const { return time_; }
+    double target_time() const { return double(targetSteps_) * kPreviewStep; }
 
     // Seconds the scrubber covers: the document's duration plus the time its longest-lived particles need to die, at least 0.25 and at most
     // kPreviewMaxTime.
@@ -70,7 +88,7 @@ public:
 
 private:
     void rebuild();
-    void step_once();
+    long step_once();   // returns the work it cost (see kPreviewStepCost)
     void snapshot();
 
     std::shared_ptr<const VfxDoc> doc_;
@@ -81,6 +99,8 @@ private:
     double time_ = 0.0;
     double carry_ = 0.0;
     int steps_ = 0;
+    int targetSteps_ = 0;     // the step the last seek asked for
+    bool stale_ = true;       // the world does not belong to the current document and seed: the next seek builds it again
     int emitters_ = 0;
     std::vector<PreviewDot> dots_;
     std::vector<PreviewLight> lights_;
