@@ -64,7 +64,7 @@ void read_node_rest(const cgltf_node& n, SkelNode& out) {
         Vec3 sc;
         for (int i = 0; i < 3; ++i) {
             const float l = std::sqrt(m[i * 4] * m[i * 4] + m[i * 4 + 1] * m[i * 4 + 1] + m[i * 4 + 2] * m[i * 4 + 2]);
-            (&sc.x)[i] = l;
+            sc[i] = l;
             const float inv = l > 1e-8f ? 1.0f / l : 0.0f;
             for (int j = 0; j < 3; ++j) c[i][j] = m[i * 4 + j] * inv;
         }

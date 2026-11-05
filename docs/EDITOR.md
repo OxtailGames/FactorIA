@@ -1048,7 +1048,8 @@ The icon of a game is its own (`factoria.json` `icon`, docs/EXPORTING.md), not t
   draws nothing to take a screenshot of) but out of your way: see-through, without a Dock icon, clicks reach the windows
   below and the app you were using keeps the keyboard, so you can go on working while ctest runs it.
   `FA_EDITOR_AUTOTEST_SHOW=1` shows the window, to watch a run. `FA_EDITOR_AUTOTEST_SIZE=1024x642` runs it in a smaller
-  window, the size of the macOS CI runner's display.
+  window, the size of the macOS CI runner's display. A step on a widget that is drawn but scrolled out of its window
+  scrolls the window to it and runs again on the next frame; only a widget that scrolling cannot bring in fails.
   A manual end-to-end check of the CMake button: `FA_EDITOR_AUTOTEST_REAL_CMAKE=1` makes the autotest run one script only: it
   presses **Install** of the CMake component and lets it download and unpack the real CMake (about 50 MB from Kitware) into
   the autotest's own `factoria_home`; ctest never sets it.

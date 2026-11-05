@@ -166,8 +166,7 @@ void Editor::draw_modeler_panel() {
         }
     }
 
-    ImGui::SetNextWindowPos(ImVec2(240, 110), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(1100, 700), ImGuiCond_FirstUseEver);
+    first_floating_window(ImVec2(240, 110), ImVec2(1100, 700));
     if (!ImGui::Begin("Model", &showModeler_)) {
         u.focused = false;
         ImGui::End();

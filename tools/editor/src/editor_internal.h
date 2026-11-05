@@ -1130,6 +1130,11 @@ public:
     };
     std::deque<AtStep> atSteps_;
     int atStepAt_ = 0;
+    // A step aims at a widget that is drawn but scrolled out of its window (a small screen): at_widget names it here, at_track
+    // scrolls its window to it, and the step runs again once it is shown. A second miss on the same widget is a failure.
+    bool atInStep_ = false;
+    bool atStepRetry_ = false;
+    std::string atScrollTo_;
     std::vector<std::function<void()>> atPostFrame_;       // run once after the UI was drawn (swapchain read-back)
     Image atShotBefore_;
     std::uint64_t atAudioAfter_ = 0;
@@ -1189,6 +1194,17 @@ extern Editor* g_editor;
 inline ImVec2 fit_work_area(ImVec2 wanted) {
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     return ImVec2(std::min(wanted.x, vp->WorkSize.x * 0.96f), std::min(wanted.y, vp->WorkSize.y * 0.96f));
+}
+// The first place of a large panel that floats the first time it opens (Image, Sound, Music, Modeler): `pos` (from the
+// work area's corner) and `wanted`, the size made to fit the work area and the place moved up and left so the whole
+// window is on screen, its right-hand inspector included, on a small display (the macOS CI runner's is 1024 x 642).
+inline void first_floating_window(ImVec2 pos, ImVec2 wanted) {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const ImVec2 size = fit_work_area(wanted);
+    const float x = std::max(0.0f, std::min(pos.x, vp->WorkSize.x - size.x));
+    const float y = std::max(0.0f, std::min(pos.y, vp->WorkSize.y - size.y));
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + x, vp->WorkPos.y + y), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(size, ImGuiCond_FirstUseEver);
 }
 // Status colours of the Export and Platform settings windows.
 inline const ImVec4 kStatusReady(0.5f, 0.9f, 0.55f, 1), kStatusFailed(1, 0.45f, 0.4f, 1), kStatusWarn(1, 0.8f, 0.35f, 1);

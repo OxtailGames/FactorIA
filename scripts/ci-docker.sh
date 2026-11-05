@@ -20,7 +20,10 @@
 # Environment:
 #   FA_CI_JOBS          parallel build jobs inside the container (default: the CPUs Docker has)
 #   FA_CI_DOCKER_PLATFORM  image platform (default linux/amd64)
-#   FA_CI_DOCKER_RESET=1   delete the volumes (build trees, ccache, Wine prefix) before running
+#   FA_CI_DOCKER_RESET=1   delete the volumes (this checkout's build trees, ccache, Wine prefix) before running
+#
+# Each checkout (a git worktree too) has its own build-tree volumes, factoria-ci-{linux,windows}-<hash of its path>; those of a
+# removed worktree stay until `docker volume prune` (or `docker volume ls -q -f name=factoria-ci- | xargs docker volume rm`).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -63,13 +66,22 @@ ensure_image() {
         || { tail -n 40 "$LOGDIR/docker-image.log"; echo "ci-docker: the image build failed (log: $LOGDIR/docker-image.log)" >&2; exit 1; }
 }
 
+# The build trees are one volume per checkout: Ninja compares file times, so a tree built from another checkout (a git
+# worktree on another branch, whose files can be older than the objects) would link stale objects. ccache, in the shared
+# home volume, still makes a new checkout's first build warm.
+CHECKOUT_ID="$(printf '%s' "$ROOT" | { if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi; } | cut -c1-12)"
+
 reset_volumes() {
-    docker volume rm -f factoria-ci-home factoria-ci-linux factoria-ci-windows >/dev/null
+    docker volume rm -f factoria-ci-home "factoria-ci-linux-$CHECKOUT_ID" "factoria-ci-windows-$CHECKOUT_ID" \
+        factoria-ci-linux factoria-ci-windows >/dev/null
 }
 
 run_container_job() {
     local job="$1" build_volume
-    case "$job" in linux) build_volume="factoria-ci-linux:/src/build/ci-linux" ;; windows) build_volume="factoria-ci-windows:/src/build/ci-windows-mingw" ;; esac
+    case "$job" in
+        linux) build_volume="factoria-ci-linux-$CHECKOUT_ID:/src/build/ci-linux" ;;
+        windows) build_volume="factoria-ci-windows-$CHECKOUT_ID:/src/build/ci-windows-mingw" ;;
+    esac
     local cpus; cpus="${FA_CI_JOBS:-$(docker info --format '{{.NCPU}}' 2>/dev/null || echo 4)}"
     # /root is a volume: ccache (~/.cache/ccache), ~/.factoria (the shader compiler) and the Wine prefix survive runs.
     # CCACHE_BASEDIR/NOHASHDIR make the cache independent of the checkout's path, as in build-sniper.sh.

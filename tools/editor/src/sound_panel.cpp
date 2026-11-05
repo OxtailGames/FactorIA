@@ -194,8 +194,7 @@ void Editor::draw_sound_panel() {
     u.player->update(double(ImGui::GetIO().DeltaTime));
     if (!u.player->playing() && u.heard != 0) u.heard = 0;
 
-    ImGui::SetNextWindowPos(ImVec2(200, 90), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(1080, 760), ImGuiCond_FirstUseEver);
+    first_floating_window(ImVec2(200, 90), ImVec2(1080, 760));
     if (!ImGui::Begin("Sound", &showSound_)) {
         u.focused = false;
         ImGui::End();
