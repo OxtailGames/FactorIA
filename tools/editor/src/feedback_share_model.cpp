@@ -260,10 +260,11 @@ SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::
                        const std::vector<SendChoice>& choices) {
     SendApplied out;
     const ShareSettings settings = load_share_settings(env);
-    out.mode = settings.mode;
-    if (settings.mode != ShareMode::Always && settings.mode != ShareMode::Ask) {
-        out.error = settings.mode == ShareMode::Never ? "Sharing is off (File > Feedback Settings turns it on): nothing was sent."
-                                                      : "Sharing is not set up yet: nothing was sent.";
+    const ShareMode mode = effective_share_mode(settings, projectDir);
+    out.mode = mode;
+    if (mode != ShareMode::Always && mode != ShareMode::Ask) {
+        out.error = mode == ShareMode::Never ? "Sharing is off for this project (File > Feedback Settings turns it on): nothing was sent."
+                                             : "Sharing is not set up yet: nothing was sent.";
         return out;
     }
     auto loaded = load_feedback(file);
@@ -319,7 +320,7 @@ SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::
                 out.rows.push_back(std::move(r));
             }
             // Pressing Send is the answer ask mode waits for.
-            if (settings.mode == ShareMode::Ask && !keys.empty()) (void)share_confirm(env, keys);
+            if (mode == ShareMode::Ask && !keys.empty()) (void)share_confirm(env, keys);
         }
     }
     if (!toSkip.empty()) {

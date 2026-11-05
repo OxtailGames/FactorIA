@@ -1005,3 +1005,160 @@ TEST_CASE("share sign-in: refusal, expiry, no client id, an unreachable server")
         CHECK(load_share_settings(s.env).credential.empty());
     }
 }
+
+// ------------------------------------------------------------------------------------------------ a mode per project
+
+TEST_CASE("share per project: its own mode wins over the default, clearing falls back") {
+    Share s;
+    const std::string proj = s.project();
+    const std::string file = s.feedback_file(proj);
+    s.mode(ShareMode::Always);
+    CHECK(effective_share_mode(load_share_settings(s.env), proj) == ShareMode::Always);
+    CHECK(std::string(effective_share_source(load_share_settings(s.env), proj)) == "default");
+
+    REQUIRE(set_project_share_mode(s.env, proj, ShareMode::Never).ok());
+    ShareSettings st = load_share_settings(s.env);
+    CHECK(st.mode == ShareMode::Always);  // the default did not move
+    CHECK(effective_share_mode(st, proj) == ShareMode::Never);
+    CHECK(std::string(effective_share_source(st, proj)) == "project");
+    auto q = share_queue(s.env, file, proj, engine_names());
+    REQUIRE(q.ok());
+    CHECK(q->skipped == 1);
+    CHECK(load_outbox(s.env).items.empty());
+    const Json prev = share_preview(s.env, file, proj, engine_names());
+    CHECK(prev["mode"] == "never");
+    const Json status = share_status(s.env, proj);
+    CHECK(status["mode"] == "never");
+    CHECK(status["default"] == "always");
+    CHECK(status["project"]["source"] == "project");
+    CHECK(share_status(s.env)["mode"] == "always");  // without a project: the default
+
+    REQUIRE(set_project_share_mode(s.env, proj, std::nullopt).ok());
+    st = load_share_settings(s.env);
+    CHECK(st.projects.empty());
+    CHECK_FALSE(load_share_settings(s.env).raw.contains("projects"));
+    CHECK(effective_share_mode(st, proj) == ShareMode::Always);
+    CHECK(share_status(s.env, proj)["project"]["source"] == "default");
+}
+
+TEST_CASE("share per project: a project can share while the default is off or unset") {
+    Share s;
+    const std::string proj = s.project();
+    const std::string file = s.feedback_file(proj);
+    s.mode(ShareMode::Never);
+    REQUIRE(set_project_share_mode(s.env, proj, ShareMode::Always).ok());
+    auto q = share_queue(s.env, file, proj, engine_names());
+    REQUIRE(q.ok());
+    CHECK(q->queued == 1);
+    s.script = {reply(200, s.answer_ok({{"FB-0001", "accepted"}}))};
+    const FlushResult f = share_flush(s.env);
+    CHECK(f.outcome == "sent");
+    CHECK(f.sent == 1);
+}
+
+TEST_CASE("share per project: never blocks what is already in the outbox, and the status says so") {
+    Share s;
+    const std::string proj = s.project();
+    const std::string file = s.feedback_file(proj);
+    s.mode(ShareMode::Always);
+    REQUIRE(share_queue(s.env, file, proj, engine_names()).ok());
+    REQUIRE(load_outbox(s.env).items.size() == 1);
+    // The choice is written straight into the file (a person edited it): the item stays and is blocked.
+    ShareSettings st = load_share_settings(s.env);
+    st.projects[share_project_key(proj)] = ShareMode::Never;
+    REQUIRE(save_share_settings(s.env, st).ok());
+    CHECK_FALSE(share_has_due(s.env));
+    const FlushResult f = share_flush(s.env);
+    CHECK(f.outcome == "idle");  // the default allows sending, but nothing allowed is due
+    CHECK(f.notAllowed == 1);
+    CHECK(f.sent == 0);
+    CHECK(s.requests.empty());
+    CHECK(load_outbox(s.env).items.size() == 1);
+    const Json status = share_status(s.env, proj);
+    CHECK(status["outbox"]["blocked"] == 1);
+    CHECK(status["outbox"]["queued"] == 0);
+    // Back to the default: it goes.
+    REQUIRE(set_project_share_mode(s.env, proj, std::nullopt).ok());
+    CHECK(share_has_due(s.env));
+}
+
+TEST_CASE("share per project: one project's never does not stop another project's items") {
+    Share s;
+    const std::string a = s.project();
+    const std::string fileA = s.feedback_file(a);
+    const std::string b = s.dir.sub("game2");
+    testing::write_all(b + "/factoria.json", R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"s.scene.json"})");
+    const std::string fileB = s.feedback_file(b);
+    s.mode(ShareMode::Always);
+    REQUIRE(share_queue(s.env, fileA, a, engine_names()).ok());
+    REQUIRE(share_queue(s.env, fileB, b, engine_names()).ok());
+    REQUIRE(load_outbox(s.env).items.size() == 2);
+    REQUIRE(set_project_share_mode(s.env, a, ShareMode::Never).ok());  // setting never also drops that project's items
+    const Outbox box = load_outbox(s.env);
+    REQUIRE(box.items.size() == 1);
+    CHECK(box.items[0].file == fileB);
+    CHECK(load_feedback(fileA).value()["entries"][0]["shared"]["status"] == "skipped");
+    s.script = {reply(200, s.answer_ok({{"FB-0001", "accepted"}}))};
+    CHECK(share_flush(s.env).sent == 1);
+}
+
+TEST_CASE("share per project: keys are normalized, and case-insensitive where paths are") {
+    CHECK(share_project_key("/Games/Puzzle/", false) == share_project_key("/Games/Puzzle", false));
+    CHECK(share_project_key("/Games/./Puzzle/../Puzzle", false) == share_project_key("/Games/Puzzle", false));
+    CHECK(share_project_key("/Games/Puzzle", false) != share_project_key("/games/puzzle", false));
+    CHECK(share_project_key("/Games/Puzzle", true) == share_project_key("/games/PUZZLE", true));
+    CHECK(share_project_key("", true).empty());
+    // A project folder given relative and absolute is the same project.
+    Share s;
+    const std::string proj = s.project();
+    REQUIRE(set_project_share_mode(s.env, proj + "/../game", ShareMode::Ask).ok());
+    CHECK(effective_share_mode(load_share_settings(s.env), proj) == ShareMode::Ask);
+}
+
+TEST_CASE("share per project: the folder of a feedback file is the nearest project folder") {
+    Share s;
+    const std::string proj = s.project();
+    testing::write_all(proj + "/docs/notes.txt", "x");
+    CHECK(share_project_key(share_project_dir_of_file(proj + "/docs/FEEDBACK.json")) == share_project_key(proj));
+    CHECK(share_project_key(share_project_dir_of_file(proj + "/ENGINE_FEEDBACK.json")) == share_project_key(proj));
+}
+
+TEST_CASE("share per project: an old file without `projects` reads as before; unknown keys and bad values are kept or ignored") {
+    Share s;
+    const std::string proj = s.project();
+    testing::write_all(share_settings_path(s.env), R"({"mode":"ask","installId":"11111111-2222-4333-8444-555555555555","future":{"a":1}})");
+    ShareSettings st = load_share_settings(s.env);
+    CHECK(st.mode == ShareMode::Ask);
+    CHECK(st.projects.empty());
+    CHECK(st.warning.empty());
+    CHECK(effective_share_mode(st, proj) == ShareMode::Ask);
+    CHECK(effective_share_mode(st, "") == ShareMode::Ask);
+    // A project choice is written next to the unknown keys; a bad value reads as "follow the default" with a warning.
+    REQUIRE(set_project_share_mode(s.env, proj, ShareMode::Never).ok());
+    const Json raw = load_share_settings(s.env).raw;
+    CHECK(raw["future"]["a"] == 1);
+    CHECK(raw["projects"].size() == 1);
+    testing::write_all(share_settings_path(s.env), R"({"mode":"always","projects":{"/x/y":"sometimes"}})");
+    st = load_share_settings(s.env);
+    CHECK(st.projects.empty());
+    CHECK_FALSE(st.warning.empty());
+}
+
+TEST_CASE("share per project: feedback.report and feedback.share_status use the project's mode") {
+    Share s;
+    ScopedShareEnv scoped(s.env);
+    const std::string proj = s.project();
+    const std::string file = s.feedback_file(proj);
+    s.mode(ShareMode::Always);
+    REQUIRE(set_project_share_mode(s.env, proj, ShareMode::Never).ok());
+    const Json summary = share_report_summary(s.env, file, proj, "FB-0001", nullptr, true);
+    CHECK(summary["status"] == "off");
+    CHECK(summary["message"].get<std::string>().find("this project") != std::string::npos);
+    CHECK(s.requests.empty());
+    CommandRegistry reg;
+    register_feedback_commands(reg, proj);
+    auto r = reg.call("feedback.share_status", Json::object());
+    REQUIRE(r.ok);
+    CHECK(r.result["mode"] == "never");
+    CHECK(r.result["default"] == "always");
+}

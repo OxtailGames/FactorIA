@@ -295,7 +295,8 @@ public:
     void send_window_apply();                   // Send: store and queue the checked rows, leave the others out, flush
     void send_window_finished(int sent, const std::string& message);  // the flush Send asked for is over
     void share_fill_consent_preview(const std::string& file, const Json& doc);
-    void share_choose_mode(ShareMode mode);
+    void share_choose_mode(ShareMode mode);                        // the default
+    void share_choose_project_mode(std::optional<ShareMode> mode);  // this project's own (nullopt = follow the default)
     void share_start_flush(bool force, std::uint64_t session = 0);
     void share_start_verdicts(const std::string& feedbackFile);  // ask the server what the engine developers decided (a thread)
     void share_start_sign_in();

@@ -62,7 +62,7 @@ void Editor::share_choose_mode(ShareMode mode) {
         notify(r.error().to_string(), 2);
         return;
     }
-    share_.mode = mode;
+    share_.mode = effective_share_mode(load_share_settings(share_env()), projectDir_);
     share_.consentOpen = false;
     share_.tickAt = -10;      // the next tick queues what the mode allows
     share_.flushAt = -100;    // ...and sends it at once
@@ -77,6 +77,27 @@ void Editor::share_choose_mode(ShareMode mode) {
     const bool after = share_.sendAfterConsent;
     share_.sendAfterConsent = false;
     if (after && (mode == ShareMode::Always || mode == ShareMode::Ask)) open_send_window();
+}
+
+// This project's own choice (nullopt = follow the default). Like share_choose_mode, only a person's click gets here.
+void Editor::share_choose_project_mode(std::optional<ShareMode> mode) {
+    if (projectDir_.empty()) return;
+    if (auto r = set_project_share_mode(share_env(), projectDir_, mode); !r) {
+        notify(r.error().to_string(), 2);
+        return;
+    }
+    share_.mode = effective_share_mode(load_share_settings(share_env()), projectDir_);
+    share_.tickAt = -10;
+    share_.flushAt = -100;
+    share_.settingsPolled = -10;
+    const std::string name = fs::filename(projectDir_);
+    if (!mode) notify("Feedback sharing for " + name + " follows your default again.", 0);
+    else if (*mode == ShareMode::Never) notify("Feedback sharing is off for " + name + ". Nothing of this project leaves this computer.", 0);
+    else if (*mode == ShareMode::Ask) notify("Feedback sharing for " + name + ": you are asked before anything is sent.", 0);
+    else notify("Feedback sharing for " + name + ": always.", 0);
+    const bool after = share_.sendAfterConsent;
+    share_.sendAfterConsent = false;
+    if (after && (share_.mode == ShareMode::Always || share_.mode == ShareMode::Ask)) open_send_window();
 }
 
 // ---------------------------------------------------------------------------------------------------------------- threads
@@ -325,7 +346,7 @@ void Editor::feedback_share_tick() {
     s.tickAt = time_;
     const ShareEnv& env = share_env();
     const ShareSettings settings = load_share_settings(env);
-    s.mode = settings.mode;
+    s.mode = effective_share_mode(settings, projectDir_);  // this project's own choice, else the default
     s.sharingAvailable = !share_endpoint(env, settings).empty();
     const bool haveProject = engine_ && !projectDir_.empty();
 
@@ -536,7 +557,7 @@ void Editor::open_send_window() {
     if (!engine_ || projectDir_.empty()) return;
     const ShareEnv& env = share_env();
     const ShareSettings settings = load_share_settings(env);
-    s.mode = settings.mode;
+    s.mode = effective_share_mode(settings, projectDir_);  // this project's own choice, else the default
     s.sharingAvailable = !share_endpoint(env, settings).empty();
     if (!s.sharingAvailable) {
         notify(share_unavailable_message(), 1);
@@ -817,7 +838,7 @@ void Editor::draw_share_settings_window() {
     if (time_ - s.settingsPolled > 1.0) {
         s.settingsPolled = time_;
         s.settings = load_share_settings(env);
-        s.status = share_status(env);
+        s.status = share_status(env, projectDir_);
     }
     ImGui::SetNextWindowSize(ImVec2(560, 560), ImGuiCond_FirstUseEver);
     if (s.settingsFocus) {
@@ -845,7 +866,7 @@ void Editor::draw_share_settings_window() {
         ImGui::PopTextWrapPos();
     }
 
-    ImGui::SeparatorText("Mode");
+    ImGui::SeparatorText(projectDir_.empty() ? "Mode" : "Default (every project that has no choice of its own)");
     struct Choice {
         ShareMode mode;
         const char* name;
@@ -862,6 +883,35 @@ void Editor::draw_share_settings_window() {
         ImGui::SetItemTooltip("%s", c.tip);
     }
     if (s.settings.mode == ShareMode::Unset) ImGui::TextDisabled("Not chosen yet: nothing is sent.");
+
+    if (engine_ && !projectDir_.empty()) {
+        const std::string title = "This project: " + fs::filename(projectDir_);
+        ImGui::SeparatorText(title.c_str());
+        at_track("share:settings:project");
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("This project can have its own choice (never for a game under NDA). It is kept in your own settings file, "
+                            "not in the project, and belongs to this folder: moving the folder drops it back to the default.");
+        ImGui::PopTextWrapPos();
+        const std::optional<ShareMode> own = share_project_mode(s.settings, projectDir_);
+        struct ProjectChoice {
+            std::optional<ShareMode> mode;
+            const char* name;
+            const char* track;
+        };
+        const ProjectChoice pchoices[] = {{std::nullopt, "Follow default", "default"},
+                                          {ShareMode::Always, "Always##project", "always"},
+                                          {ShareMode::Ask, "Ask me each time##project", "ask"},
+                                          {ShareMode::Never, "Never##project", "never"}};
+        for (const ProjectChoice& c : pchoices) {
+            if (ImGui::RadioButton(c.name, own == c.mode) && own != c.mode) share_choose_project_mode(c.mode);
+            at_track(std::string("share:settings:project:") + c.track);
+            ImGui::SameLine();
+        }
+        ImGui::NewLine();
+        ImGui::TextDisabled("Applies now: %s (%s).", share_mode_name(effective_share_mode(s.settings, projectDir_)),
+                            own ? "this project's choice" : "your default");
+        at_track("share:settings:project:effective");
+    }
 
     ImGui::SeparatorText("Installation id");
     ImGui::PushTextWrapPos(0);
@@ -948,6 +998,12 @@ void Editor::draw_share_settings_window() {
     const int queued = outbox.value("queued", 0), waiting = outbox.value("waitingForConfirmation", 0);
     ImGui::Text("%d to send, %d waiting for your answer (Send feedback)", queued, waiting);
     at_track("share:settings:outbox");
+    if (outbox.value("blocked", 0) > 0) {
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextColored(kAmber, "%d not sent: their project's sharing is never (or not chosen yet).", outbox.value("blocked", 0));
+        ImGui::PopTextWrapPos();
+        at_track("share:settings:blocked");
+    }
     if (waiting > 0) {
         ImGui::SameLine();
         if (ImGui::SmallButton("Review")) open_send_window();
@@ -968,13 +1024,13 @@ void Editor::draw_share_settings_window() {
         ImGui::PopTextWrapPos();
     }
     {
-        const bool canSend = available && (s.settings.mode == ShareMode::Always || s.settings.mode == ShareMode::Ask) && queued > 0 &&
-                             !s.flushRunning;
+        const ShareMode applied = effective_share_mode(s.settings, projectDir_);
+        const bool canSend = available && (applied == ShareMode::Always || applied == ShareMode::Ask) && queued > 0 && !s.flushRunning;
         ImGui::BeginDisabled(!canSend);
         if (ImGui::Button("Send now")) share_start_flush(true);
         at_track("share:settings:sendnow");
         ImGui::EndDisabled();
-        ImGui::SetItemTooltip("%s", s.settings.mode == ShareMode::Ask
+        ImGui::SetItemTooltip("%s", applied == ShareMode::Ask
                                         ? "Sends what you confirmed, now, without waiting for a retry time."
                                         : "Sends what waits in the outbox, now, without waiting for a retry time.");
         if (s.flushRunning) {

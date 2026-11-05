@@ -174,6 +174,29 @@ Settings; docs/EDITOR.md, "Sharing feedback") or in your terminal:
 In the editor the three choices are **Always**, **Ask me each time** and **Never**, with a preview of the next report exactly as
 it would leave the computer.
 
+### One project can choose differently
+
+The mode above is your **default**. A project can have its own: **never** for a game under NDA, **always** for one you want to
+share, **ask**, or no choice (it follows the default). Type it in the project (or give its folder):
+
+| Command | Effect |
+|---|---|
+| `factoria feedback sharing never --project .` | This project sends nothing, whatever the default is. Its outbox items are dropped and its entries marked `skipped`. |
+| `factoria feedback sharing always --project ../puzzle` | That project shares even when your default is `never` or not chosen. |
+| `factoria feedback sharing default --project .` (or `--clear`) | Removes the project's choice: it follows your default again. |
+| `factoria feedback sharing` | Shows your default and the effective mode of the project you are in, with its source (`its own choice` or `follows your default`). |
+
+The effective mode of a project is its own choice if it has one, else your default. Queueing, sending, the outbox, the verdict
+check, `feedback.share_preview`, `feedback.share_status` (`mode` is the effective one; `default` and `project{mode, source}` say
+where it comes from) and the answer of `feedback.report` about sharing all use it. If a project is `never` (or not set up, with
+no default) while items of it are in the outbox, they are not sent and `feedback.share_status` counts them in
+`outbox.blocked`; going back to a mode that sends lets them go.
+
+The choice is stored in YOUR `feedback-sharing.json` (`"projects": {"<project folder path>": "never"}`), never inside the
+project, so a project you copy or download can never turn sharing on. The key is the folder's absolute path (symlinks resolved,
+forward slashes, no trailing slash, case-insensitive on Windows). **Moving or renaming the project folder drops its choice back to
+your default**; set it again from the new place. No command an AI can call sets it.
+
 In the editor you never write a share text. The Engine Feedback panel has two buttons. **Add feedback** opens a form
 (category, severity, title, what is missing, workaround, suggestion) that only records the entry. **Send feedback** opens a
 window that lists every entry that would go (open, not sent yet, not refused by the server), all checked, each with the exact
