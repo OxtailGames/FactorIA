@@ -337,9 +337,9 @@ Command make_feedback_command() {
         const std::string id = pos.back();
         const std::string dir = pos.size() > 1 ? absolute_path(pos[0]) : resolve_project_dir(ctx, 99);
         const std::string path = feedback_path(dir);
-        auto r = delete_feedback_file(path, id);
+        // The outbox is cleaned first, and the entry stays when that fails: a deleted entry must never stay sendable.
+        auto r = delete_feedback_file(path, id, [&] { return share_discard(share_env(), path, {id}); });
         if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
-        share_discard(share_env(), path, {id});
         if (ctx.args.has("json")) print_json(ctx.out, Json::object({{"deleted", id}, {"title", r->value("title", std::string())}}));
         else ctx.out << "Deleted " << id << ": " << r->value("title", std::string()) << "\n";
         return 0;

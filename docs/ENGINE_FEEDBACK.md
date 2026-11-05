@@ -166,13 +166,65 @@ Settings; docs/EDITOR.md, "Sharing feedback") or in your terminal:
 
 | Command | Effect |
 |---|---|
-| `factoria feedback sharing always` | New shareable entries are sent as they are recorded. |
-| `factoria feedback sharing ask` | They wait in the outbox; `factoria feedback share` shows them and sends what you confirm. |
-| `factoria feedback sharing never` | Nothing is sent; the outbox is emptied and its entries are marked `skipped`. |
+| `factoria feedback sharing always` | New shareable entries are sent as they are recorded; entries that waited for your answer are sent too. |
+| `factoria feedback sharing ask` | They wait in the outbox; `factoria feedback share` shows them and sends what you confirm. Items queued but not sent yet go back to waiting. |
+| `factoria feedback sharing never` | Nothing is sent; the outbox items of every project that follows your default are dropped and their entries marked `skipped`. A project with its own choice keeps its items and its mode. |
 | `factoria feedback sharing` | Shows the mode, the server, whether you are signed in and the outbox. |
 
 In the editor the three choices are **Always**, **Ask me each time** and **Never**, with a preview of the next report exactly as
 it would leave the computer.
+
+### One project can choose differently
+
+The mode above is your **default**. A project can have its own: **never** for a game under NDA, **always** for one you want to
+share, **ask**, or no choice (it follows the default). Type it in the project (or give its folder):
+
+| Command | Effect |
+|---|---|
+| `factoria feedback sharing never --project .` | This project sends nothing, whatever the default is. Its outbox items are dropped and its entries marked `skipped`. |
+| `factoria feedback sharing always --project ../puzzle` | That project shares even when your default is `never` or not chosen. Choosing `always` for a project is a yes for what waited there, also what waited under the default. |
+| `factoria feedback sharing ask --project .` | That project asks, whatever the default is; its queued items go back to waiting for your answer. |
+| `factoria feedback sharing default --project .` (or `--clear`, alone) | Removes the project's choice: it follows your default again, and its queued items are handled as that default says (a default of `never` drops them). Removing a choice is not a yes: what waited for your answer under the project's `ask` stays waiting even when your default is `always` (the command and the editor say so) until you confirm it with `factoria feedback share`. |
+| `factoria feedback sharing` | Shows your default and the effective mode of the project you are in, with its source (`its own choice` or `follows your default`). |
+
+`--project <path>` takes the project's folder or any folder inside it (the nearest `factoria.json` upwards is the project); a folder
+that is not in a project is an error that says so, and the command prints the project it used. `--clear` with a mode is a usage
+error.
+
+The effective mode of a project is its own choice if it has one, else your default. Queueing, sending, the outbox, the verdict
+check, `feedback.share_preview`, `feedback.share_status` (`mode` is the effective one; `default` and `project{mode, source}` say
+where it comes from) and the answer of `feedback.report` about sharing all use it. If a project is `never` (or not set up, with
+no default) while items of it are in the outbox, they are not sent and `feedback.share_status` counts them in
+`outbox.blocked`; going back to a mode that sends lets them go. Each outbox item stores the key of the project it came from when
+it is queued, and every later decision (send, wait, drop) uses that key, so changing your default never moves the items of a
+project with its own choice: a default of `always` does not send what a project set to `ask` or `never` holds, and a default of
+`never` does not drop what a project set to `always` holds. Items written by an older version have no key: they wait (as in `ask`)
+until you decide in the editor or with `factoria feedback share`. Queueing again never releases an item that waits: only you do (a
+confirmation, or choosing `always`). Each queued item also remembers whether `always` or you confirmed it: before it is sent, an item
+queued by `always` is checked against the settings as they are at that moment, and if its project is no longer on `always` (you changed
+it in another window, or edited the file) it goes back to waiting instead of leaving. `never` stops every batch that was not sent yet; a
+batch whose upload had already started when you chose it finishes, and the editor and the command say so. `factoria feedback share`
+only handles the project you are in: with no ENGINE_FEEDBACK.json there, or outside a project, it says so and sends nothing (not even
+what another project left in the outbox).
+
+If the folder of a project cannot be resolved (a permission, a disconnected volume), its mode reads as `ask`, never as your default;
+`feedback.share_status` says `unresolved`. The same holds for an item in the outbox whose project folder no longer exists (deleted,
+moved, an unplugged drive) and that has no choice of its own listed under that exact path: it waits for your answer instead of following
+the default. Another spelling of the same folder in your settings file (another case on a volume that
+ignores it, NFC against NFD on macOS, a symlink) finds the same choice. The settings and the outbox are changed under a lock file
+(`feedback-share.lock` next to them), so the editor, the terminal and the MCP server never undo each other's changes: a lock left by
+a program that died (its file not refreshed for 10 seconds, or dated in the future) is taken over, and a change that finds the lock
+busy for 12 seconds fails with a message and changes nothing. That holds for every change: choosing a mode, skipping, dropping,
+confirming or discarding an entry (`feedback.delete` and `factoria feedback discard` keep the entry when the outbox cannot be updated, so
+a deleted entry never stays sendable), and the command line says so and exits with an error. The editor never waits more than a third
+of a second for it: it tells you ("could not be queued for sharing yet", or the action's own message) and tries again.
+
+The choice is stored in YOUR `feedback-sharing.json` (`"projects": {"<project folder path>": "never"}`), never inside the
+project, so a project you copy or download does not inherit the choice: it follows your default. The key is the folder's absolute
+path (symlinks resolved, UTF-8, forward slashes, no trailing slash, lower-cased on Windows and on a volume that ignores case, as
+macOS does by default). If the file has two keys for the same folder (edited by hand), the most restrictive mode wins and a warning
+says so; the next save writes one entry. **Moving or renaming the project folder drops its choice back to
+your default**; set it again from the new place. No command an AI can call sets it.
 
 In the editor you never write a share text. The Engine Feedback panel has two buttons. **Add feedback** opens a form
 (category, severity, title, what is missing, workaround, suggestion) that only records the entry. **Send feedback** opens a

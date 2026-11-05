@@ -114,7 +114,7 @@ Since 0.10.0.
 
 Sharing with the engine developer: the mode, the server, whether the user signed in, and the outbox.
 
-Reports the mode the USER chose (unset, always, ask or never; no command changes it), whether this build has a feedback server, whether the user signed in with GitHub, and the outbox: entries queued, waiting for the user's confirmation, and failed ones with their reason and when they are retried. Use it to tell the user why a report was not sent.
+Reports the mode that applies to this project (unset, always, ask or never): its own choice if the user made one, else the user's default (`default` and `project` say which; no command changes either). Also whether this build has a feedback server, whether the user signed in with GitHub, and the outbox: entries queued, waiting for the user's confirmation, and failed ones with their reason and when they are retried. Use it to tell the user why a report was not sent.
 
 ## `feedback.update` (modifies state)
 

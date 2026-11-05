@@ -290,6 +290,20 @@ TEST_CASE("mcp: ai.plugin_install is neither listed nor callable (only the user 
     CHECK_FALSE(is_user_only_command("ai.run"));
 }
 
+TEST_CASE("mcp: a tools/call runs its command as an MCP client's call (command_caller), the library call as the user's") {
+    Fixture f;
+    CommandInfo i;
+    i.name = "test.who_calls";
+    i.summary = "Says who the caller of the running command is.";
+    f.registry.add(i, [](const Json&) { return Json::object({{"caller", command_caller_name(command_caller())}}); });
+    f.initialize();
+    const Json viaMcp = f.call("test_who_calls");
+    REQUIRE(viaMcp["result"]["isError"] == false);
+    CHECK(viaMcp["result"]["structuredContent"]["caller"] == "an MCP client");
+    CHECK(command_caller() == CommandCaller::User);  // the scope ended with the call
+    CHECK(f.registry.call("test.who_calls").result["caller"] == "the user");
+}
+
 TEST_CASE("mcp: $image results add an image content block") {
     Fixture f;
     Json res = f.call("test_shot")["result"];

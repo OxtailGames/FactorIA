@@ -1,7 +1,10 @@
 #include "fa/core/command.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <cstdlib>
+#include <string_view>
 
 #include "fa/core/json_schema.h"
 #include "fa/core/log.h"
@@ -22,6 +25,8 @@ CommandResult fail(std::string code, std::string message, std::string hint = {})
 }
 
 thread_local CommandProgressSink t_progress_sink;
+thread_local CommandCaller t_caller = CommandCaller::User;
+std::atomic<int> g_caller_floor{static_cast<int>(CommandCaller::User)};  // CommandCallerFloor: the process-wide minimum
 
 }  // namespace
 
@@ -30,6 +35,39 @@ CommandProgressScope::CommandProgressScope(CommandProgressSink sink) : previous_
 }
 
 CommandProgressScope::~CommandProgressScope() { t_progress_sink = std::move(previous_); }
+
+CommandCallerScope::CommandCallerScope(CommandCaller caller) : previous_(t_caller) {
+    if (command_caller() == CommandCaller::User) t_caller = caller;  // never loosened: an agent inside an MCP call stays refused
+}
+
+CommandCallerScope::~CommandCallerScope() { t_caller = previous_; }
+
+CommandCallerFloor::CommandCallerFloor(CommandCaller floor) : previous_(static_cast<CommandCaller>(g_caller_floor.load())) {
+    if (static_cast<int>(floor) > static_cast<int>(previous_)) g_caller_floor.store(static_cast<int>(floor));
+}
+
+CommandCallerFloor::~CommandCallerFloor() { g_caller_floor.store(static_cast<int>(previous_)); }
+
+std::optional<CommandCaller> command_caller_from_env_value(const char* value) {
+    if (!value || !*value) return std::nullopt;
+    if (std::string_view(value) == "mcp") return CommandCaller::Mcp;
+    return CommandCaller::Agent;
+}
+
+std::optional<CommandCaller> command_caller_from_env() { return command_caller_from_env_value(std::getenv(kCallerEnvVar)); }
+
+CommandCaller command_caller() {
+    return static_cast<CommandCaller>(std::max(static_cast<int>(t_caller), g_caller_floor.load()));
+}
+
+const char* command_caller_name(CommandCaller caller) {
+    switch (caller) {
+        case CommandCaller::User: return "the user";
+        case CommandCaller::Agent: return "an AI agent";
+        case CommandCaller::Mcp: return "an MCP client";
+    }
+    return "the user";
+}
 
 bool command_progress_active() { return static_cast<bool>(t_progress_sink); }
 

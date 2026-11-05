@@ -619,7 +619,7 @@ bool feedback_entry_deletable(const Json& e, std::string* whyNot) {
     return false;
 }
 
-Result<Json> delete_feedback_file(const std::string& path, std::string_view id) {
+Result<Json> delete_feedback_file(const std::string& path, std::string_view id, const std::function<Result<void>()>& beforeWrite) {
     auto loaded = load_feedback(path);
     if (!loaded.ok()) return loaded.error();
     Json doc = std::move(loaded.value());
@@ -655,6 +655,8 @@ Result<Json> delete_feedback_file(const std::string& path, std::string_view id) 
     std::string why;
     if (!feedback_entry_deletable(entry, &why))
         return make_error(why, "feedback.update { \"id\": \"" + std::string(id) + "\", \"status\": \"rejected\", \"statusReason\": \"...\" } closes it.");
+    if (beforeWrite)
+        if (auto pre = beforeWrite(); !pre.ok()) return pre.error();
     int number = 0;
     const std::string eid = entry.value("id", std::string());
     if (eid.rfind("FB-", 0) == 0) {
@@ -1245,9 +1247,9 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             const std::string path = feedback_path_for(projectDir);
             const std::string id = arg_string(args, "id", true);
             if (!stdfs::exists(path)) throw CommandError("not_found", "No ENGINE_FEEDBACK.json yet.", "Nothing to delete.");
-            auto r = delete_feedback_file(path, id);
+            // The outbox is cleaned first, and the entry stays when that fails: a deleted entry must never stay sendable.
+            auto r = delete_feedback_file(path, id, [&] { return share_discard(share_env(), path, {id}); });
             if (!r.ok()) throw CommandError("invalid_argument", r.error().message, r.error().hint);
-            share_discard(share_env(), path, {id});
             return Json::object({{"deleted", id}, {"title", r->value("title", std::string())},
                                  {"status", r->value("status", std::string("open"))}});
         });

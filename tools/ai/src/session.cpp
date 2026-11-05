@@ -9,6 +9,7 @@
 
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/hooks.h"
+#include "fa/ai/project_settings.h"
 #include "fa/ai/savers.h"
 #include "fa/ai/tool_catalog.h"
 #include "fa/core/date.h"
@@ -601,7 +602,9 @@ ToolResult AgentSession::execute_tool(const ToolCall& original, const std::strin
                         "agent_delegate needs role (\"worker\", \"fast\", \"artist\" or \"audio\") and a non-empty task", "");
         }
         if (!config_.role_enabled(r)) {
-            return fail("role_off", role_off_message(r), role_off_hint(r));
+            // When the project's AI settings turned it off, the refusal names that setting and how to change it.
+            const Error off = role_off_error(r, opt_.projectDir, config_.sourcePath);
+            return fail("role_off", off.message, off.hint);
         }
         AgentEvent info;
         info.type = AgentEvent::Type::Info;
@@ -633,7 +636,11 @@ ToolResult AgentSession::execute_tool(const ToolCall& original, const std::strin
     Json callInput = call.input.is_object() ? call.input : Json::object();
     // A skill is read as the role that asks: the skills switched off for it are not readable (docs/SKILLS.md).
     if (it->second == "skills.read" || it->second == "skills.list") callInput["role"] = role;
-    CommandResult cr = registry_.call(it->second, callInput);
+    CommandResult cr;
+    {
+        CommandCallerScope caller(CommandCaller::Agent);  // the model's call, not the user's (ai.settings.set scope "user" refuses it)
+        cr = registry_.call(it->second, callInput);
+    }
     if (!cr.ok) {
         // A command the model has not seen the definition of (listed in the catalog, not offered in full): the schema comes
         // with the error, so one failed call is enough to learn the arguments.

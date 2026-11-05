@@ -830,6 +830,8 @@
     "ai.saver_group": "0.11.0",
     "ai.savers": "0.11.0",
     "ai.session_timeline": "0.9.0",
+    "ai.settings.get": "unreleased",
+    "ai.settings.set": "unreleased",
     "ai.tool_plan": "0.11.0",
     "ai.tool_servers": "0.8.0",
     "anim.add_event": "0.7.0",
