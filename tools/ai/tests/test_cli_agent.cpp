@@ -5,6 +5,7 @@
 
 #include "fa/ai/cli_agent.h"
 #include "fa/ai/provider.h"
+#include "fa/core/command.h"
 #include "fa/core/date.h"
 #include "fa/core/strings.h"
 #include "test_common.h"
@@ -45,6 +46,20 @@ static ProviderConfig claude_cfg() {
     ProviderConfig c = default_config().providers["claude-code"];
     c.command = script("fake_claude.sh");
     return c;
+}
+
+TEST_CASE("cli agents are started with FACTORIA_CALLER=agent (a factoria they run is an AI's call), unless one is already set") {
+    ProviderConfig cfg = claude_cfg();
+    auto po = cli_process_options(cfg);
+    REQUIRE(po);
+    if (!command_caller_from_env()) {  // a runner that exports it keeps its own value: the child inherits that one
+        REQUIRE(po->env.count(kCallerEnvVar) == 1);
+        CHECK(po->env.at(kCallerEnvVar) == "agent");
+    }
+    cfg.env[kCallerEnvVar] = "mcp";  // the provider's own value is not overwritten
+    po = cli_process_options(cfg);
+    REQUIRE(po);
+    CHECK(po->env.at(kCallerEnvVar) == "mcp");
 }
 
 TEST_CASE("claude-code agent: stream-json events, usage, MCP config, argv") {

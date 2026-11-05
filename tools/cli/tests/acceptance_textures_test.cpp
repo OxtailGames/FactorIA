@@ -10,6 +10,7 @@
 // levels. The bound below is what that costs on this scene (measured, below), with room for another GPU's rounding.
 #include <doctest.h>
 
+#include <cstdlib>
 #include <filesystem>
 
 #include "common.h"  // tools/cli/src: Session

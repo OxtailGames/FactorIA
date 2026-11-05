@@ -27,8 +27,10 @@
 #include <ctime>
 #include <string_view>
 
+#include "ai_project_edit.h"
 #include "editor_internal.h"
 #include "fa/ai/commands.h"
+#include "fa/ai/project_settings.h"
 #include "fa/mcp/server.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
@@ -364,6 +366,7 @@ void Editor::ai_refresh_providers() {
             aiStatus_ = st;
             aiConfigError_ = err;
         }
+        ai_project_invalidate();  // the project's resolution is over the config just read
         aiDetected_ = true;
         // The models each available provider offers (the Roles window's lists): asked of the providers themselves, so new
         // releases show up. Claude Code starts its CLI for this, a local server may be down: hence after the detection.
@@ -401,11 +404,19 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry(AiRun& run) {
     // ai.run: a CLI orchestrator delegates with it over MCP. It runs on the caller's thread (an MCP connection), not
     // through the queue: the sub-agent's own commands come back through this proxy, so the main thread stays free.
     ai::AiCommandOptions ao;
-    ao.loadConfig = [this]() -> Result<ai::AiConfig> {
-        std::lock_guard<std::mutex> lock(aiMu_);
-        return aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
-    };
+    ao.loadConfig = [this]() -> Result<ai::AiConfig> { return ai_project_config(true); };
     ao.projectDir = [dir = projectDir_] { return dir; };
+    // ai.settings.get/set read and write the same ai.json the editor loaded, and tell the editor when a command changed a file so the
+    // windows do not keep showing (and later saving over) the old values.
+    ao.aiConfigPath = ai_user_config().sourcePath;
+    ao.onUserConfigChanged = [this] {
+        ai_project_invalidate();
+        aiUserFileChanged_ = true;
+    };
+    ao.onProjectConfigChanged = [this] {
+        ai_project_invalidate();
+        aiProjectFileChanged_ = true;
+    };
     ao.providerFactory = aiFactory_;
     ao.cancel = &r->cancel;
     ao.cancelCause = [r] { return r->cancel_cause(); };
@@ -439,8 +450,91 @@ bool Editor::ai_running() const {
 }
 
 int Editor::ai_max_runs() {
-    std::lock_guard<std::mutex> lock(aiMu_);
-    return std::clamp(aiConfig_.limits.maxConcurrentRuns, 1, ai::kMaxConcurrentRunsCap);
+    int limit = 1;
+    if (!ai_with_project_config([&](const ai::AiConfig& cfg) { limit = cfg.limits.maxConcurrentRuns; })) {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        limit = aiConfig_.limits.maxConcurrentRuns;
+    }
+    return std::clamp(limit, 1, ai::kMaxConcurrentRunsCap);
+}
+
+// The project's config: the editor's in-memory ai.json with the project's settings file on top (ai::resolve_ai_config_over), so
+// the editor has one source for the user's side. A project without a settings file runs with aiConfig_ exactly as it is, passed
+// by reference (no copy: the panels ask every frame). With a file, the resolution is cached for a second (the panels share it) and
+// a run (`fresh`) resolves again. The existence of the file is checked at most once a second as well, not per frame and panel.
+bool Editor::ai_with_project_config(const std::function<void(const ai::AiConfig&)>& use, Error* error, bool fresh) {
+    const long long nowMs = now_ms();
+    std::string key;
+    bool hasFile = false;
+    std::shared_ptr<const ai::AiConfig> cached;  // a resolution from the last second
+    bool cacheHit = false;
+    Error cachedError;
+    {
+        std::lock_guard<std::mutex> lock(aiProjMu_);
+        if (!projectDir_.empty() && (fresh || aiProjFileDir_ != projectDir_ || nowMs - aiProjFileAtMs_ >= 1000)) {
+            std::error_code ec;  // never the throwing overload: this runs on the UI thread every frame
+            aiProjFileDir_ = projectDir_;
+            aiProjFileAtMs_ = nowMs;
+            aiProjHasFile_ = std::filesystem::is_regular_file(utf8_path(projectDir_) / ".factoria" / "ai" / "settings.json", ec);
+        }
+        hasFile = !projectDir_.empty() && aiProjHasFile_;
+        key = projectDir_;
+        if (hasFile && !fresh && aiProjKey_ == key && nowMs - aiProjAtMs_ < 1000) {
+            cacheHit = true;
+            cached = aiProjConfig_;
+            cachedError = aiProjError_;
+        }
+    }
+    if (cacheHit) {  // `use` runs without the cache lock: it may ask for the config again
+        if (!cached) {
+            if (error) *error = cachedError;
+            return false;
+        }
+        use(*cached);
+        return true;
+    }
+    if (!hasFile) {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        if (aiConfig_.providers.empty()) {
+            const ai::AiConfig defaults = ai::default_config();
+            use(defaults);
+        } else {
+            use(aiConfig_);
+        }
+        return true;
+    }
+    ai::AiConfig inherited;
+    {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        inherited = aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
+    }
+    auto resolved = ai::resolve_ai_config_over(key, inherited);
+    std::shared_ptr<const ai::AiConfig> config;
+    {
+        std::lock_guard<std::mutex> lock(aiProjMu_);
+        aiProjKey_ = key;
+        aiProjAtMs_ = nowMs;
+        if (resolved) {
+            aiProjConfig_ = std::make_shared<const ai::AiConfig>(std::move(resolved->config));
+            config = aiProjConfig_;
+        } else {
+            aiProjConfig_.reset();
+            aiProjError_ = resolved.error();
+        }
+    }
+    if (!config) {
+        if (error) *error = resolved.error();
+        return false;
+    }
+    use(*config);
+    return true;
+}
+
+Result<ai::AiConfig> Editor::ai_project_config(bool fresh) {
+    std::optional<ai::AiConfig> copy;
+    Error error;
+    if (!ai_with_project_config([&](const ai::AiConfig& cfg) { copy = cfg; }, &error, fresh)) return error;
+    return std::move(*copy);
 }
 
 // The chat tabs belong to the open project (<project>/.factoria/ai/chats): when the project changed (boot() stopped the
@@ -582,12 +676,22 @@ void Editor::ai_launch(AiRun& run, const std::string& prompt, const std::vector<
         return;
     }
     if (run.thread.joinable()) run.thread.join();
-    ai::AiConfig cfg;
-    {
-        std::lock_guard<std::mutex> lock(aiMu_);
-        cfg = aiConfig_;
-        if (cfg.providers.empty()) cfg = ai::default_config();
+    auto resolved = ai_project_config(true);
+    if (!resolved) {
+        // The project's AI settings file is invalid (or ai.json is): the run ends with the error that names the file, the JSON
+        // pointer and the fix, instead of running with settings the user did not mean.
+        ai::SessionResult res;
+        res.ok = false;
+        res.stopReason = "error";
+        res.error = resolved.error().message;
+        res.hint = resolved.error().hint;
+        run.running = true;
+        run.lastActivityMs = now_ms();
+        run.turn_ended(std::move(res));
+        return;
     }
+    ai::AiConfig cfg = std::move(*resolved);
+    run.stuckAfterSeconds = cfg.limits.stuckAfterSeconds;
     ai::SessionOptions opt;
     opt.projectDir = projectDir_;
     // The orchestrator hands the work to the other roles itself (the "AI roles" popup). A review (ai_review.cpp) runs a critic or
@@ -743,8 +847,15 @@ void Editor::ai_check_activity(AiRun& run) {
         }
     }
     {
-        std::lock_guard<std::mutex> lock(aiMu_);
-        if (aiConfig_.limits.stuckAfterSeconds > 0) stuckAfter = aiConfig_.limits.stuckAfterSeconds;
+        int configured = run.stuckAfterSeconds.load();
+        if (configured < 0) {  // the project's limit (its settings file may change it), else ai.json's
+            configured = 180;
+            if (!ai_with_project_config([&](const ai::AiConfig& cfg) { configured = cfg.limits.stuckAfterSeconds; })) {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                configured = aiConfig_.limits.stuckAfterSeconds;
+            }
+        }
+        if (configured > 0) stuckAfter = configured;
     }
     ai::ActivityInput in;
     in.runSeconds = static_cast<double>(nowM - run.startMs.load()) / 1000.0;
@@ -1000,7 +1111,16 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
         for (const char* name : kRoleNames) aiRolesEdit_[name] = cfg.role(name);
         aiRolesOpen_ = false;
     }
-    ImGui::BeginChild("##rolesbody", ImVec2(0, 0));
+    // With a project open the roles are the project's (cfg is its resolved config): each row says where its value comes from and Save
+    // writes the project's file. `res` is a copy: Reset and Save re-resolve while the rows are drawn.
+    const bool projectMode = ai_project_open();
+    std::optional<ai::ResolvedAiConfig> res;
+    if (projectMode) {
+        if (const AiProjectUi& proj = ai_project_refresh(); proj.have) res = proj.resolved;
+    }
+    const bool locked = projectMode && ai_project_locked();
+    const int columns = res ? 7 : 6;
+    ImGui::BeginChild("##rolesbody", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
     ImGui::TextUnformatted(kRolesBlurb);
     ImGui::Spacing();
     std::map<std::string, ProviderModels> models;  // a copy: the detection thread replaces them
@@ -1010,14 +1130,15 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
     }
     for (int group = 0; group < ai::kRoleGroupCount; ++group) {
       ImGui::SeparatorText(ai::role_group_title(group));
-      if (ImGui::BeginTable(("##roles" + std::to_string(group)).c_str(), 6, ImGuiTableFlags_SizingFixedFit)) {
-        // Fixed widths so the three tables line up like one.
-        ImGui::TableSetupColumn("Enabled", ImGuiTableColumnFlags_WidthFixed, 64);
-        ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_WidthFixed, 96);
-        ImGui::TableSetupColumn("Provider", ImGuiTableColumnFlags_WidthFixed, 180);
-        ImGui::TableSetupColumn("Model", ImGuiTableColumnFlags_WidthFixed, 270);
-        ImGui::TableSetupColumn("Effort", ImGuiTableColumnFlags_WidthFixed, 90);
-        ImGui::TableSetupColumn("Context", ImGuiTableColumnFlags_WidthFixed, 90);
+      if (ImGui::BeginTable(("##roles" + std::to_string(group)).c_str(), columns, ImGuiTableFlags_SizingFixedFit)) {
+        // Fixed widths so the three tables line up like one (narrower with the "From" column, so it fits the window).
+        ImGui::TableSetupColumn("Enabled", ImGuiTableColumnFlags_WidthFixed, res ? 56 : 64);
+        ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_WidthFixed, res ? 84 : 96);
+        ImGui::TableSetupColumn("Provider", ImGuiTableColumnFlags_WidthFixed, res ? 150 : 180);
+        ImGui::TableSetupColumn("Model", ImGuiTableColumnFlags_WidthFixed, res ? 176 : 270);
+        ImGui::TableSetupColumn("Effort", ImGuiTableColumnFlags_WidthFixed, res ? 96 : 90);
+        ImGui::TableSetupColumn("Context", ImGuiTableColumnFlags_WidthFixed, res ? 76 : 90);
+        if (res) ImGui::TableSetupColumn("From", ImGuiTableColumnFlags_WidthFixed, 150);
         ImGui::TableHeadersRow();
         for (const char* name : kRoleNames) {
             if (ai::role_group(name) != group) continue;
@@ -1044,7 +1165,7 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", ai::role_summary(name));
             ImGui::BeginDisabled(!orchestrator && !r.enabled);  // an off role keeps its settings but they are not used
             ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(170);
+            ImGui::SetNextItemWidth(res ? 140 : 170);
             if (ImGui::BeginCombo("##provider", r.provider.c_str())) {
                 for (const auto& [pname, pc] : cfg.providers) {
                     if (ai::is_asset_only_kind(pc.kind)) continue;  // they generate assets, they cannot play a role
@@ -1060,7 +1181,7 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
                 ImGui::EndCombo();
             }
             ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(260);
+            ImGui::SetNextItemWidth(res ? 166 : 260);
             const auto rstatus = std::ranges::find(status, r.provider, &ai::ProviderStatus::name);
             const auto listed = models.find(r.provider);
             const bool listOk = listed != models.end() && listed->second.error.empty();
@@ -1117,7 +1238,7 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
                                       listed != models.end() ? listed->second.error.c_str() : "");
             }
             ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(90);
+            ImGui::SetNextItemWidth(res ? 88 : 90);
             if (ImGui::BeginCombo("##effort", r.effort.empty() ? "default" : r.effort.c_str())) {
                 for (const char* e : kEfforts) {
                     if (ImGui::Selectable(*e ? e : "default", r.effort == e)) r.effort = e;
@@ -1126,7 +1247,7 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
             }
             ImGui::SetItemTooltip("How hard the model thinks (API providers). CLI agents use their own setting.");
             ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(80);
+            ImGui::SetNextItemWidth(res ? 68 : 80);
             const auto context_label = [](u64 n) { return n == 0 ? std::string("full") : format_tokens(n); };
             if (ImGui::BeginCombo("##context", context_label(r.maxContextTokens).c_str())) {
                 for (const u64 n : kContextLimits) {
@@ -1138,14 +1259,58 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
                                   "conversation is replaced by a summary, so each message reads (and costs) less.\n"
                                   "full = the model's whole window. Claude Code and the Anthropic API; other providers ignore it.");
             ImGui::EndDisabled();
+            if (res) {
+                ImGui::TableNextColumn();
+                const ai::SettingSource source = ai_group_source(*res, std::string("/roles/") + name);
+                ImGui::AlignTextToFramePadding();
+                // A role the file does not name but that follows one it does (the artist and the audio role follow the worker): its value is
+                // the project's, and the way back is to reset the role it follows.
+                const bool named = res->overrides.is_object() && res->overrides.contains("roles") && res->overrides["roles"].is_object() &&
+                                   res->overrides["roles"].contains(name);
+                if (source == ai::SettingSource::Project && !named) {
+                    ImGui::TextColored(kProjectBlue, "%s", ai_source_label(source));
+                    ImGui::SetItemTooltip("This role is not in the project's file: it follows another role that this project sets (the Worker or the\n"
+                                          "Orchestrator). Reset that role to bring this one back to your defaults.");
+                } else if (source == ai::SettingSource::Project) {
+                    ImGui::TextColored(kProjectBlue, "%s", ai_source_label(source));
+                    ImGui::SetItemTooltip("This project's file sets this role. Reset to my defaults goes back to: %s%s.",
+                                          res->inherited.role_enabled(name) ? "" : "off, ",
+                                          (res->inherited.role(name).provider + " / " + (res->inherited.role(name).model.empty() ? "default" : res->inherited.role(name).model)).c_str());
+                    ImGui::SameLine();
+                    ImGui::BeginDisabled(locked);
+                    if (ImGui::SmallButton("Reset")) {
+                        if (auto done = ai_project_reset(std::string("/roles/") + name); !done) {
+                            notify(done.error().to_string(), 2);
+                        } else {
+                            aiRolesEdit_[name] = ai_window_config().role(name);  // this row only: the other rows keep their unsaved edits
+                            aiRolesTyping_.erase(name);
+                        }
+                    }
+                    at_track(std::string("ai:roles:reset:") + name, !locked);
+                    ImGui::SetItemTooltip("Reset to my defaults: this role goes back to what your ai.json gives it.");
+                    ImGui::EndDisabled();
+                } else {
+                    ImGui::TextDisabled("%s", ai_source_label(source));
+                    ImGui::SetItemTooltip("%s", source == ai::SettingSource::You ? "From your ai.json: every project that does not change it uses it."
+                                                                                : "The engine's own value (your ai.json does not set it).");
+                }
+            }
             ImGui::PopID();
         }
         ImGui::EndTable();
       }
     }
-    const std::string path = cfg.sourcePath.empty() ? ai::default_config_path() : cfg.sourcePath;
-    ImGui::TextDisabled("Saved in %s", path.c_str());
-    ImGui::SameLine();
+    const std::string userSource = ai_user_config().sourcePath;
+    const std::string path = userSource.empty() ? ai::default_config_path() : userSource;
+    if (projectMode) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("Saved in %s, this project's own file (not part of the game). Only what differs from your defaults is written.",
+                           ai_project_settings_path().c_str());
+        ImGui::PopStyleColor();
+    } else {
+        ImGui::TextDisabled("Saved in %s", path.c_str());
+    }
+    fit_same_line("Refresh models");
     const bool checking = aiDetecting_.load();
     ImGui::BeginDisabled(checking);
     if (ImGui::SmallButton("Refresh models")) ai_refresh_providers();
@@ -1157,41 +1322,93 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
         ImGui::SameLine();
         ImGui::TextDisabled("Checking models...");
     }
-    if (ImGui::Button("Save")) {
-        // A role the user did not change is not written: artist, audio, artCritic and reviewer follow the orchestrator's and
-        // the worker's provider until they are set here (docs/AI_PROVIDERS.md), and writing them would pin today's values.
-        std::map<std::string, ai::RoleConfig> toSave = aiRolesEdit_;
-        for (const char* extra : ai::kExtraRoles) {
-            const ai::RoleConfig was = cfg.role(extra), now = toSave[extra];
-            if (was.provider == now.provider && was.model == now.model && was.effort == now.effort &&
-                was.maxContextTokens == now.maxContextTokens && was.enabled == now.enabled)
-                toSave.erase(extra);
-        }
-        if (auto saved = ai::save_roles(toSave, path); !saved) {
-            notify(saved.error().to_string(), 2);
-        } else {
-            auto loaded = ai::load_config(path);  // the file now says what the roles are, with the defaults filled in
-            {
-                std::lock_guard<std::mutex> lock(aiMu_);
-                if (loaded) aiConfig_ = std::move(*loaded);
-                aiConfigError_ = loaded ? std::string() : loaded.error().to_string();
+    ImGui::BeginDisabled(locked);
+    const bool saveRetried = projectMode && ai_project_save_retry("roles");  // the user confirmed replacing the ignored file
+    if (ImGui::Button("Save") || saveRetried) {
+        if (projectMode && !ai_project_replace_allowed("roles")) {
+            // the confirmation popup was requested; Replace presses this Save again
+        } else if (projectMode) {
+            // The project's file keeps only what differs from your defaults; a role you did not touch is not pinned.
+            auto overrides = ai_project_overrides_for(*res, &aiRolesEdit_, nullptr, nullptr);
+            if (!overrides) {
+                notify(overrides.error().to_string(), 2);
+            } else if (auto saved = ai_project_save(*overrides); !saved) {
+                notify(saved.error().to_string(), 2);
+            } else {
+                notify("AI roles saved for this project. The next message uses them.");
+                aiRolesOpen_ = true;  // the edits restart from the resolved config
             }
-            notify("AI roles saved. The next message uses them.");
-            aiRolesOpen_ = true;  // the edits restart from the file
+        } else {
+            // A role the user did not change is not written: artist, audio, artCritic and reviewer follow the orchestrator's and
+            // the worker's provider until they are set here (docs/AI_PROVIDERS.md), and writing them would pin today's values.
+            const std::map<std::string, ai::RoleConfig> toSave = ai_roles_for_defaults(cfg, aiRolesEdit_);
+            if (auto saved = ai::save_roles(toSave, path); !saved) {
+                notify(saved.error().to_string(), 2);
+            } else {
+                auto loaded = ai::load_config(path);  // the file now says what the roles are, with the defaults filled in
+                {
+                    std::lock_guard<std::mutex> lock(aiMu_);
+                    if (loaded) aiConfig_ = std::move(*loaded);
+                    aiConfigError_ = loaded ? std::string() : loaded.error().to_string();
+                }
+                ai_project_invalidate();
+                notify("AI roles saved. The next message uses them.");
+                aiRolesOpen_ = true;  // the edits restart from the file
+            }
         }
     }
-    at_track("ai:roles:save");
-    ImGui::SameLine();
+    at_track("ai:roles:save", !locked);
+    ImGui::SetItemTooltip("%s", projectMode ? "Save these roles for this project only. The next message uses them."
+                                            : "Save these roles in your ai.json. The next message uses them.");
+    ImGui::EndDisabled();
+    if (locked && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Accept or ignore the project's settings file at the top of this window first.");
+    }
+    fit_same_line("Revert");
     if (ImGui::Button("Revert")) aiRolesOpen_ = true;
     at_track("ai:roles:revert");
     ImGui::SetItemTooltip("Throw away the changes made here since the last Save.");
+    if (projectMode) {
+        fit_same_line("Reset tab to my defaults");
+        ImGui::BeginDisabled(locked || !res || ai_group_source(*res, "/roles") != ai::SettingSource::Project);
+        if (ImGui::Button("Reset tab to my defaults")) {
+            if (auto done = ai_project_reset("/roles"); !done) {
+                notify(done.error().to_string(), 2);
+            } else {
+                aiRolesOpen_ = true;
+                notify("The roles of this project are back to your defaults.");
+            }
+        }
+        at_track("ai:roles:reset-tab", !(locked || !res || ai_group_source(*res, "/roles") != ai::SettingSource::Project));
+        ImGui::SetItemTooltip("Remove every role override of this project: all seven roles use your ai.json again (the limits and assets stay as they are).");
+        ImGui::EndDisabled();
+        fit_same_line("Save as my defaults");
+        if (ImGui::Button("Save as my defaults")) {
+            const ai::AiConfig wanted = ai_apply_edits(res ? res->config : cfg, &aiRolesEdit_, nullptr, nullptr);
+            const std::map<std::string, ai::RoleConfig> toSave = ai_roles_for_defaults(res ? res->inherited : cfg, aiRolesEdit_);
+            if (auto saved = ai::save_roles(toSave, path); !saved) {
+                notify(saved.error().to_string(), 2);
+            } else if (auto loaded = ai_user_config_reload(); !loaded) {
+                notify("Saved, but ai.json no longer loads: " + loaded.error().to_string(), 2);
+            } else {
+                if (auto kept = ai_project_after_defaults(wanted); !kept) notify(kept.error().to_string(), 2);
+                else notify("These roles are now your defaults: new projects start from them.");
+                aiRolesOpen_ = true;
+            }
+        }
+        at_track("ai:roles:save-defaults");
+        ImGui::SetItemTooltip("Write these roles into your ai.json (%s), so every project that does not change them, and every new project,\n"
+                              "starts from them. This project keeps only what still differs.", path.c_str());
+    }
     ImGui::EndChild();
 }
 
 // The current roles, one per line: the tooltip of Roles... in the AI menu.
 std::string Editor::ai_roles_summary() {
     ai::AiConfig cfg;
-    {
+    if (auto resolved = ai_project_config()) {  // the open project's roles
+        cfg = std::move(*resolved);
+    } else {
         std::lock_guard<std::mutex> lock(aiMu_);
         cfg = aiConfig_;
     }
@@ -1222,6 +1439,9 @@ void Editor::draw_ai_panel() {
         status = aiStatus_;
         cfg = aiConfig_;
         cfgErr = aiConfigError_;
+    }
+    if (!projectDir_.empty() && !cfg.providers.empty()) {  // the panel's roles and provider are the open project's
+        if (auto resolved = ai_project_config()) cfg = std::move(*resolved);
     }
     const bool detected = aiDetected_.load();
     bool anyAvailable = false;
@@ -1384,8 +1604,9 @@ void Editor::draw_ai_panel() {
     const float noticeH = playNotice_.empty() ? 0.0f : ImGui::GetFrameHeightWithSpacing();
     // The run's status lines (below the transcript): the pulse, "worker still running", the stuck warning.
     const bool showDetached = isRunTab && run->detached.load();
-    const bool showStuck = isRunTab && cfg.limits.stuckAfterSeconds > 0 &&
-                           static_cast<double>(now_ms() - run->lastActivityMs.load()) / 1000.0 >= cfg.limits.stuckAfterSeconds &&
+    const int stuckSeconds = isRunTab && run->stuckAfterSeconds.load() >= 0 ? run->stuckAfterSeconds.load() : cfg.limits.stuckAfterSeconds;
+    const bool showStuck = isRunTab && stuckSeconds > 0 &&
+                           static_cast<double>(now_ms() - run->lastActivityMs.load()) / 1000.0 >= stuckSeconds &&
                            now_seconds() >= run->snoozeUntil;
     const float statusH = !isRunTab ? 0.0f : ImGui::GetFrameHeightWithSpacing() * (1.0f + (showDetached ? 2.0f : 0.0f) + (showStuck ? 2.0f : 0.0f));
     const float footer = stripH + noticeH + statusH + kGripH + ImGui::GetStyle().ItemSpacing.y + inputH +

@@ -315,7 +315,13 @@ Json McpServer::run_tool(const Json& params) {
                                               progressThrottle_, progressHeartbeat_);
     std::optional<CommandProgressScope> scope;
     if (pump) scope.emplace([p = pump.get()](std::string_view message) { return p->report(message); });
-    CommandResult r = host_.commands().call(command, args);
+    // A tools/call is an AI client's call (Claude Code, a CLI agent attached to the editor): commands that only the user may run
+    // with some arguments (ai.settings.set, scope "user") refuse it.
+    CommandResult r;
+    {
+        CommandCallerScope caller(CommandCaller::Mcp);
+        r = host_.commands().call(command, args);
+    }
     scope.reset();
     pump.reset();  // no progress after the reply
     if (!r.ok) {

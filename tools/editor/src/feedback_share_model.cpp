@@ -6,6 +6,12 @@
 
 namespace fa::editor {
 
+ShareEnv ui_share_env() {
+    ShareEnv env = share_env();
+    env.lockWaitSec = std::min(env.lockWaitSec, 0.3);
+    return env;
+}
+
 namespace {
 std::string shared_status(const Json& entry) {
     if (!entry.contains("shared") || !entry["shared"].is_object()) return {};
@@ -260,10 +266,11 @@ SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::
                        const std::vector<SendChoice>& choices) {
     SendApplied out;
     const ShareSettings settings = load_share_settings(env);
-    out.mode = settings.mode;
-    if (settings.mode != ShareMode::Always && settings.mode != ShareMode::Ask) {
-        out.error = settings.mode == ShareMode::Never ? "Sharing is off (File > Feedback Settings turns it on): nothing was sent."
-                                                      : "Sharing is not set up yet: nothing was sent.";
+    const ShareMode mode = effective_share_mode(settings, projectDir);
+    out.mode = mode;
+    if (mode != ShareMode::Always && mode != ShareMode::Ask) {
+        out.error = mode == ShareMode::Never ? "Sharing is off for this project (File > Feedback Settings turns it on): nothing was sent."
+                                             : "Sharing is not set up yet: nothing was sent.";
         return out;
     }
     auto loaded = load_feedback(file);
@@ -308,7 +315,7 @@ SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::
                     if (rep.status == "queued" || rep.status == "waiting") {
                         r.status = "queued";
                         r.message.clear();
-                        keys.push_back(file + "#" + id);
+                        keys.push_back(share_item_key(file, id));
                     } else if (rep.status == "rejected") {
                         r.status = "rejected";
                         r.message = rep.reason;
@@ -318,13 +325,26 @@ SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::
                 }
                 out.rows.push_back(std::move(r));
             }
-            // Pressing Send is the answer ask mode waits for.
-            if (settings.mode == ShareMode::Ask && !keys.empty()) (void)share_confirm(env, keys);
+            // Pressing Send is the answer an item that waits needs (ask mode; under always, an item queued earlier or by an older version).
+            if ((mode == ShareMode::Ask || mode == ShareMode::Always) && !keys.empty()) {
+                if (auto confirmed = share_confirm(env, keys); !confirmed.ok()) {
+                    // The entries are in the outbox but the yes was not saved: they would not be sent (ask) or are sent by the next
+                    // pass of `always`; say so instead of showing them as queued for sending.
+                    for (SendRowResult& r : out.rows)
+                        if (r.status == "queued")
+                            r = {r.id, "failed", "it is stored, but your confirmation could not be saved (" + confirmed.error().message +
+                                                    "); it waits in the outbox. Press Send again."};
+                }
+            }
         }
     }
     if (!toSkip.empty()) {
-        share_skip(env, file, toSkip, "left out in Send feedback");
-        for (const std::string& id : toSkip) out.rows.push_back({id, "skipped", {}});
+        if (auto skipped = share_skip(env, file, toSkip, "left out in Send feedback"); !skipped.ok()) {
+            for (const std::string& id : toSkip)
+                out.rows.push_back({id, "failed", "it could not be left out of the outbox (" + skipped.error().message + "); it is still offered"});
+        } else {
+            for (const std::string& id : toSkip) out.rows.push_back({id, "skipped", {}});
+        }
     }
     return out;
 }

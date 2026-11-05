@@ -13,6 +13,7 @@
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/mcp_client.h"
 #include "fa/ai/plugin_install.h"
+#include "fa/ai/project_settings.h"
 #include "fa/ai/review.h"
 #include "fa/ai/savers.h"
 #include "fa/ai/skills.h"
@@ -20,6 +21,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "feedback_review.h"
+#include "settings_commands.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -83,13 +85,15 @@ Json review_json(const Review& r, bool withText) {
 
 void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
     auto opts = std::make_shared<AiCommandOptions>(std::move(options));
-    auto load = [opts]() -> Result<AiConfig> {
-        if (opts->loadConfig) return opts->loadConfig();
-        return load_config();
-    };
     auto project_dir = [opts]() -> std::string {
         if (opts->projectDir) return opts->projectDir();
         return fs::project_root().string();
+    };
+    // The config of the open project: ai.json with the project's own settings applied (project_settings.h). A project without
+    // a settings file gets exactly load_config().
+    auto load = [opts, project_dir]() -> Result<AiConfig> {
+        if (opts->loadConfig) return opts->loadConfig();
+        return load_resolved_config(project_dir(), opts->aiConfigPath, opts->runtime.env ? opts->runtime.env : system_env());
     };
 
     {
@@ -423,8 +427,9 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "dryRun":{"type":"boolean","description":"Report the commands and whether each is needed; install nothing."}},
             "additionalProperties":false})");
         info.readOnly = false;
-        registry.add(std::move(info), [load](const Json& args) -> Json {
-            auto cfg = load();
+        registry.add(std::move(info), [opts](const Json& args) -> Json {
+            // It writes the entry into ai.json: it starts from the user's file, not from what this project switched on or off.
+            auto cfg = opts->loadConfig ? opts->loadConfig() : load_config();
             if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
             PluginInstallRequest req;
             if (const std::string preset = str(args, "preset"); !preset.empty()) {
@@ -545,7 +550,11 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             if (!is_known_role(so.role)) {
                 throw CommandError("unknown_role", "No role named '" + so.role + "'", fa::did_you_mean(so.role, std::vector<std::string>{"orchestrator", "worker", "fast", "artist", "audio"}));
             }
-            if (!cfg->role_enabled(so.role)) throw CommandError("role_off", role_off_message(so.role), role_off_hint(so.role));
+            if (!cfg->role_enabled(so.role)) {
+                // When this project's AI settings turned it off, the refusal says which setting and how to change it.
+                const Error off = role_off_error(so.role, so.projectDir, opts->aiConfigPath, opts->runtime.env ? opts->runtime.env : system_env());
+                throw CommandError("role_off", off.message, off.hint);
+            }
             so.providerOverride = str(args, "provider");
             so.modelOverride = str(args, "model");
             so.maxTurns = static_cast<int>(num(args, "maxTurns"));
@@ -816,6 +825,8 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             return out;
         });
     }
+    register_settings_commands(registry, project_dir, opts->aiConfigPath, opts->runtime.env ? opts->runtime.env : system_env(),
+                               opts->onUserConfigChanged, opts->onProjectConfigChanged);
     register_asset_commands(registry, load, project_dir, opts->runtime, opts->cancel);
     register_image_provider_commands(registry, load, project_dir, opts->runtime, opts->cancel);
     register_assets_review(registry, load, project_dir, *opts);
