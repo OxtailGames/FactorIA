@@ -5742,7 +5742,7 @@ declare module "factoria" {
     occludesLight: boolean;
   }
   /**
-   * Emits short-lived particles (smoke, sparks, explosions). Particles interpolate size and color over their lifetime.
+   * Emits short-lived particles (smoke, sparks, explosions, fire, trails). Particles interpolate size and color over their lifetime, or follow a colour gradient and curves for size, speed and alpha; they can turn and spin, feel drag and turbulence, be born on a shape (circle, box, cone, edge, a 3D mesh surface), play a flipbook, leave ribbon trails, bounce on a plane or a Tilemap, and spawn sub-emitters when they are born, die or hit something. Pixel mode draws hard-edged squares in the project palette. The simulation is deterministic (the same seed gives the same particles) and capped at 10000 live particles per emitter; docs/PARTICLES.md has the budgets and worked examples (hit spark, smoke puff, pixel-art fire). Every field added after startColor/endColor has a default that changes nothing, so an older emitter looks the same.
    * 
    * Category: 2D
    */
@@ -5848,6 +5848,211 @@ declare module "factoria" {
      * @since 0.2.0
      */
     safeArea: boolean;
+    /**
+     * Colour over the particle's life, alpha included: a list of [position, colour] keys, position 0 = born, 1 = dies, blended linearly: [[0, "#ffffff"], [0.4, "#ffcc33"], [1, "#ff220000"]] (a colour is "#rrggbb", "#rrggbbaa", a name or [r, g, b, a]). At most 16 keys. [] (default) = startColor -> endColor. A form that does not parse is reported with the right form, and the emitter falls back to startColor -> endColor. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    colorGradient: any;
+    /**
+     * Multiplies the size over life: [[0, 0.2], [0.2, 1], [1, 0]] pops in and shrinks away. Keys are [position, value]; {"keys": [...], "interp": "smooth"} eases between them (interp: linear, smooth, step); a plain number is a constant. It multiplies startSize -> endSize, so [] (default) leaves the size as it was. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    sizeCurve: any;
+    /**
+     * Multiplies how fast a particle flies over its life, in the same form as sizeCurve: [[0, 1], [1, 0]] slows it to a stop. The particle's velocity is not changed, only the distance it covers per second, so gravity and drag still act on the real velocity. [] (default) = 1. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    speedCurve: any;
+    /**
+     * Multiplies the alpha over life, in the same form as sizeCurve: [[0, 0], [0.1, 1], [1, 0]] fades in and out whatever the colours are. [] (default) = 1. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    alphaCurve: any;
+    /**
+     * Random +- fraction of the size, chosen once per particle (0.3 = between 70% and 130%). Default 0.
+     * @since unreleased
+     */
+    sizeVariance: number;
+    /**
+     * Flipbook: how many columns of frames the texture holds (1 = the texture is one picture). Frames are numbered along the rows from the top-left.
+     * @since unreleased
+     */
+    flipbookColumns: number;
+    /**
+     * Flipbook: how many rows of frames the texture holds (1 = one row).
+     * @since unreleased
+     */
+    flipbookRows: number;
+    /**
+     * Flipbook: how many of the columns * rows cells are frames (the last cells of a sheet may be empty). 0 (default) = all of them.
+     * @since unreleased
+     */
+    flipbookFrames: number;
+    /**
+     * Flipbook: frames per second, looping from the first frame (or the random start). 0 (default) = the frames play once over the particle's life, so a 16-frame explosion sheet ends with the particle.
+     * @since unreleased
+     */
+    flipbookFps: number;
+    /**
+     * Flipbook: each particle starts at a random frame. With flipbookFps 0 it then keeps that one frame (variety in a puff of smoke); with fps it plays on from there.
+     * @since unreleased
+     */
+    flipbookRandomStart: boolean;
+    /**
+     * [min, max] degrees a particle starts turned by, random in between ([0, 360] = any way up). Counter-clockwise on screen, like Transform.rotation. Default [0, 0]. Billboards of is3D emitters turn in the screen plane.
+     * @since unreleased
+     */
+    get startRotation(): Vec2;
+    set startRotation(value: Vec2Like);
+    /**
+     * [min, max] degrees per second a particle turns, random in between ([-90, 90] turns either way). Default [0, 0].
+     * @since unreleased
+     */
+    get spin(): Vec2;
+    set spin(value: Vec2Like);
+    /**
+     * true: the particle's +x axis points where it flies (streaks, arrows, sparks stretch along their path); startRotation and spin turn it on top of that. Default false.
+     * @since unreleased
+     */
+    alignToVelocity: boolean;
+    /**
+     * How fast the velocity fades, per second: velocity is divided by 1 + drag * dt each step (0 = none, 2 = loses most of its speed in a second). Default 0.
+     * @since unreleased
+     */
+    drag: number;
+    /**
+     * Turbulence: acceleration (world units/s^2) from a smooth random field that depends on where the particle is, so neighbours drift together (smoke, embers). Seeded: the same seed gives the same wind on every platform. 0 (default) = off.
+     * @since unreleased
+     */
+    noiseStrength: number;
+    /**
+     * Turbulence: the size of one eddy, in world units. Larger = broader, lazier swirls. Default 64.
+     * @since unreleased
+     */
+    noiseScale: number;
+    /**
+     * Turbulence: how fast the field changes, in eddies per second (0 = frozen field). Default 0.5.
+     * @since unreleased
+     */
+    noiseSpeed: number;
+    /**
+     * Fraction of the emitter's own velocity (how fast its position moves) added to every new particle, so a moving emitter throws what it emits forward (1 = the particle starts as fast as the emitter). worldSpace emitters only; a teleport counts as one very fast frame. Default 0.
+     * @since unreleased
+     */
+    inheritVelocity: number;
+    /**
+     * Where particles are born, relative to the entity's Transform (rotation and scale apply). point (default): at the position. circle: a disc of radius shapeSize.x (a sphere when is3D). box: a rectangle shapeSize.x * shapeSize.y (a box with .z when is3D). cone: a base of radius shapeSize.x across the emission direction, which spreads by `spread` (see shapeDirection). edge: a line of length shapeSize.x along local x. mesh (3D): the surface of the mesh named by shapeMesh, chosen by area; the emitter's Transform places and scales the mesh.
+     * @since unreleased
+     */
+    shape: "point" | "circle" | "box" | "cone" | "edge" | "mesh";
+    /**
+     * Size of the emission shape in world units: circle radius = x; box = [width, height, depth] (depth only when is3D); edge length = x; cone base radius = x. Default [32, 32, 32].
+     * @since unreleased
+     */
+    get shapeSize(): Vec3;
+    set shapeSize(value: Vec3Like);
+    /**
+     * volume (default): anywhere inside the shape, evenly. edge: only on its outline (the circle's rim, the box's perimeter or faces, the cone base's rim, the edges of the mesh triangles).
+     * @since unreleased
+     */
+    shapeFrom: "volume" | "edge";
+    /**
+     * direction (default): particles fly along `direction` +- `spread`, wherever on the shape they are born. outward: away from the shape (a circle or box: from its centre; mesh: along the surface normal; cone: fanning out across the spread; edge and point: no change), +- `spread`.
+     * @since unreleased
+     */
+    shapeDirection: "direction" | "outward";
+    /**
+     * shape "mesh" only: the mesh whose surface particles are born on: a primitive name ("sphere", "cube", ...), a .gltf/.glb path or a procedural "mesh:N" id. A mesh that cannot be read logs why once and the particles are born at the point. (asset path: mesh)
+     * @since unreleased
+     */
+    shapeMesh: string;
+    /**
+     * none (default). particle: each particle drags a ribbon of the path it flew, trailTime seconds long (at most 32 points) and gone when the particle dies. emitter: one ribbon behind the emitter itself while it is emitting (a sword swing, a comet; worldSpace only).
+     * @since unreleased
+     */
+    trail: "none" | "particle" | "emitter";
+    /**
+     * How many seconds of path a trail keeps. Default 0.5.
+     * @since unreleased
+     */
+    trailTime: number;
+    /**
+     * Width of the ribbon at its head, in world units (design pixels on screen). Default 4. A ribbon is camera-facing in 3D.
+     * @since unreleased
+     */
+    trailWidth: number;
+    /**
+     * Multiplies trailWidth along the ribbon, position 0 = the head, 1 = the oldest point: [[0, 1], [1, 0]] (also what [] means) tapers to a point; [[0, 1], [1, 1]] keeps it as wide. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    trailWidthCurve: any;
+    /**
+     * Colour along the ribbon, position 0 = the head, 1 = the oldest point, in the form of colorGradient. [] (default) = the particle's own colour fading to transparent at the tail. The particle's alphaCurve and the entity's tint multiply it. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    trailGradient: any;
+    /**
+     * Particles that spawn other particles. An object with the events "birth", "death" and "collision", each a sub-emitter {"count": 6, "emitter": {...ParticleEmitter fields...}} or a list of them. Instead of "emitter" a sub-emitter can name "prefab": "prefabs/spark.prefab.json" (the first ParticleEmitter in it) or "entity": "<id>" (that entity's ParticleEmitter, followed live). Also "inherit" (fraction of the parent's velocity the children start with, default 0) and "chance" (0..1, default 1). The children are born where the parent was, live in the parent's space, and ignore their own rate, burst and emitting. A collision child's direction is relative to the surface (90 = along the normal). Limits: 2 levels deep, 32 particles per event, 8 sub-emitters per emitter, 256 sub-emitter particles per step, and each sub-emitter's own maxParticles; what does not fit is not born. Default {}. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    subEmitters: any;
+    /**
+     * What particles bounce on. none (default). plane: the plane collisionPlane. tilemap: the solidTiles of a Tilemap (collisionTilemap), 2D. worldSpace emitters only. A particle that starts behind a surface passes through it.
+     * @since unreleased
+     */
+    collision: "none" | "plane" | "tilemap";
+    /**
+     * collision "plane": [nx, ny, nz, d] = the plane dot(n, p) = d; particles stay on the side n points to. [0, 1, 0, 0] is the floor y = 0, [0, 1, 0, -120] a floor at y = -120.
+     * @since unreleased
+     */
+    get collisionPlane(): Vec3 & { w: number };
+    set collisionPlane(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * collision "tilemap": the entity of the Tilemap whose solidTiles stop the particles. None = the first active Tilemap in the scene that has solidTiles.
+     * @since unreleased
+     */
+    get collisionTilemap(): Entity | null;
+    set collisionTilemap(value: EntityLike);
+    /**
+     * Fraction of the speed into the surface that comes back out: 0 = sticks, 0.5 = default, 1 = a perfect bounce.
+     * @since unreleased
+     */
+    collisionBounce: number;
+    /**
+     * Fraction of the speed along the surface lost on every hit: 0 (default) = slides on, 1 = stops dead.
+     * @since unreleased
+     */
+    collisionFriction: number;
+    /**
+     * Fraction of its whole lifetime a particle loses on every hit (0.5: two hits kill it). Default 0. A particle resting on the surface is not hitting it again.
+     * @since unreleased
+     */
+    collisionLifetimeLoss: number;
+    /**
+     * true: a particle dies on its first hit (rain splashes through the "collision" sub-emitter, sparks that burn out on the floor). Default false.
+     * @since unreleased
+     */
+    collisionKill: boolean;
+    /**
+     * true: particles are hard-edged squares whose position and size snap to a grid of pixelSize world units, and whose colours are the nearest entries of the palette (no soft blending, no texture): fire and sparks for pixel art. Default false.
+     * @since unreleased
+     */
+    pixelMode: boolean;
+    /**
+     * Pixel mode: the size of one pixel in world units (design pixels on screen). Match the pixel size of the art (a 4x scaled game: 4). Default 1.
+     * @since unreleased
+     */
+    pixelSize: number;
+    /**
+     * Pixel mode: the colours to snap to, ["#1a1c2c", "#b13e53", "#ffcd75"]; the alpha of a particle is kept. [] (default) = the project's palette (assets.json style.palette); with neither, colours are only snapped in alpha steps. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    palette: any;
+    /**
+     * 0 (default): the random run is derived from the entity's stable id. Another number gives another run, and the same number always the same one, on every platform. Read when the emitter first appears.
+     * @since unreleased
+     */
+    seed: number;
   }
   /**
    * Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal maps; glTF materials are read). Needs a perspective Camera and (unless unlit) a Light to be visible.
@@ -8906,7 +9111,7 @@ declare module "factoria" {
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
-    ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
+    ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; colorGradient?: any; sizeCurve?: any; speedCurve?: any; alphaCurve?: any; sizeVariance?: number; flipbookColumns?: number; flipbookRows?: number; flipbookFrames?: number; flipbookFps?: number; flipbookRandomStart?: boolean; startRotation?: Vec2Like; spin?: Vec2Like; alignToVelocity?: boolean; drag?: number; noiseStrength?: number; noiseScale?: number; noiseSpeed?: number; inheritVelocity?: number; shape?: "point" | "circle" | "box" | "cone" | "edge" | "mesh"; shapeSize?: Vec3Like; shapeFrom?: "volume" | "edge"; shapeDirection?: "direction" | "outward"; shapeMesh?: string; trail?: "none" | "particle" | "emitter"; trailTime?: number; trailWidth?: number; trailWidthCurve?: any; trailGradient?: any; subEmitters?: any; collision?: "none" | "plane" | "tilemap"; collisionPlane?: readonly number[] | { x: number; y: number; z: number; w: number }; collisionTilemap?: EntityLike; collisionBounce?: number; collisionFriction?: number; collisionLifetimeLoss?: number; collisionKill?: boolean; pixelMode?: boolean; pixelSize?: number; palette?: any; seed?: number };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
     Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
