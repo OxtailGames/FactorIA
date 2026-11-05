@@ -319,8 +319,8 @@ SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::
                 }
                 out.rows.push_back(std::move(r));
             }
-            // Pressing Send is the answer ask mode waits for.
-            if (mode == ShareMode::Ask && !keys.empty()) (void)share_confirm(env, keys);
+            // Pressing Send is the answer an item that waits needs (ask mode; under always, an item queued earlier or by an older version).
+            if ((mode == ShareMode::Ask || mode == ShareMode::Always) && !keys.empty()) (void)share_confirm(env, keys);
         }
     }
     if (!toSkip.empty()) {

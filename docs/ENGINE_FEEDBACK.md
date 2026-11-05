@@ -182,9 +182,9 @@ share, **ask**, or no choice (it follows the default). Type it in the project (o
 | Command | Effect |
 |---|---|
 | `factoria feedback sharing never --project .` | This project sends nothing, whatever the default is. Its outbox items are dropped and its entries marked `skipped`. |
-| `factoria feedback sharing always --project ../puzzle` | That project shares even when your default is `never` or not chosen. |
+| `factoria feedback sharing always --project ../puzzle` | That project shares even when your default is `never` or not chosen. Choosing `always` for a project is a yes for what waited there, also what waited under the default. |
 | `factoria feedback sharing ask --project .` | That project asks, whatever the default is; its queued items go back to waiting for your answer. |
-| `factoria feedback sharing default --project .` (or `--clear`, alone) | Removes the project's choice: it follows your default again, and its waiting or queued items are handled as that default says (a default of `never` drops them). |
+| `factoria feedback sharing default --project .` (or `--clear`, alone) | Removes the project's choice: it follows your default again, and its queued items are handled as that default says (a default of `never` drops them). Removing a choice is not a yes: what waited for your answer under the project's `ask` stays waiting even when your default is `always` (the command and the editor say so) until you confirm it with `factoria feedback share`. |
 | `factoria feedback sharing` | Shows your default and the effective mode of the project you are in, with its source (`its own choice` or `follows your default`). |
 
 `--project <path>` takes the project's folder or any folder inside it (the nearest `factoria.json` upwards is the project); a folder
@@ -199,7 +199,20 @@ no default) while items of it are in the outbox, they are not sent and `feedback
 it is queued, and every later decision (send, wait, drop) uses that key, so changing your default never moves the items of a
 project with its own choice: a default of `always` does not send what a project set to `ask` or `never` holds, and a default of
 `never` does not drop what a project set to `always` holds. Items written by an older version have no key: they wait (as in `ask`)
-until you decide in the editor or with `factoria feedback share`.
+until you decide in the editor or with `factoria feedback share`. Queueing again never releases an item that waits: only you do (a
+confirmation, or choosing `always`). Each queued item also remembers whether `always` or you confirmed it: before it is sent, an item
+queued by `always` is checked against the settings as they are at that moment, and if its project is no longer on `always` (you changed
+it in another window, or edited the file) it goes back to waiting instead of leaving. `never` stops every batch that was not sent yet; a
+batch whose upload had already started when you chose it finishes, and the editor and the command say so. `factoria feedback share`
+only handles the project you are in: with no ENGINE_FEEDBACK.json there, or outside a project, it says so and sends nothing (not even
+what another project left in the outbox).
+
+If the folder of a project cannot be resolved (a permission, a disconnected volume), its mode reads as `ask`, never as your default;
+`feedback.share_status` says `unresolved`. Another spelling of the same folder in your settings file (another case on a volume that
+ignores it, NFC against NFD on macOS, a symlink) finds the same choice. The settings and the outbox are changed under a lock file
+(`feedback-share.lock` next to them), so the editor, the terminal and the MCP server never undo each other's changes: a lock left by
+a program that died is taken over after 10 seconds, and a change that finds the lock busy for 12 seconds fails with a message and
+changes nothing.
 
 The choice is stored in YOUR `feedback-sharing.json` (`"projects": {"<project folder path>": "never"}`), never inside the
 project, so a project you copy or download does not inherit the choice: it follows your default. The key is the folder's absolute

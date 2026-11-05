@@ -142,8 +142,17 @@ void add_feedback_share_commands(Command& group) {
             auto r = set_project_share_mode(share_env(), projectDir, std::nullopt);
             if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
             if (ctx.args.has("json")) print_json(ctx.out, share_status(share_env(), projectDir));
-            else ctx.out << "Project: " << projectDir << "\nThis project follows your default again ('"
-                         << share_mode_name(load_share_settings(share_env()).mode) << "').\n";
+            else {
+                const ShareSettings now = load_share_settings(share_env());
+                ctx.out << "Project: " << projectDir << "\nThis project follows your default again ('" << share_mode_name(now.mode) << "').\n";
+                // Removing the choice is not a yes: what waited for your answer under `ask` keeps waiting, even if your default is `always`.
+                const std::size_t waiting = share_waiting(share_env(), feedback_path(projectDir)).size();
+                if (waiting > 0 && now.mode == ShareMode::Always)
+                    ctx.out << waiting << (waiting == 1 ? " entry of this project waits" : " entries of this project wait")
+                            << " for your confirmation (they were queued while this project asked): they are not sent until you say yes. "
+                               "Run `factoria feedback share` to review and confirm "
+                            << (waiting == 1 ? "it" : "them") << ".\n";
+            }
             return 0;
         }
         auto mode = parse_share_mode(word);
@@ -160,7 +169,7 @@ void add_feedback_share_commands(Command& group) {
             }
             ctx.out << "Project: " << projectDir << "\nSharing for this project is now '" << share_mode_name(*mode) << "' (your default stays '"
                     << share_mode_name(load_share_settings(share_env()).mode) << "').\n";
-            if (*mode == ShareMode::Never) ctx.out << "Nothing of this project is sent and its outbox items were dropped.\n";
+            if (*mode == ShareMode::Never) ctx.out << "Nothing of this project is sent and its outbox items were dropped (a batch that was already being uploaded by a running editor finishes).\n";
             if (*mode == ShareMode::Ask) ctx.out << "Its items that were queued wait for your yes again: run `factoria feedback share` to confirm them.\n";
             ctx.out << "The choice belongs to this folder's path: moving the project drops it back to your default.\n";
             return 0;
@@ -174,7 +183,7 @@ void add_feedback_share_commands(Command& group) {
         ctx.out << "Your default sharing is now '" << share_mode_name(*mode) << "'.\n";
         if (*mode == ShareMode::Always) ctx.out << "New feedback with a `share` is sent as soon as it is recorded. Preview: factoria feedback share --preview\n";
         if (*mode == ShareMode::Ask) ctx.out << "New feedback with a `share` waits for you: run `factoria feedback share` to see it and confirm.\n";
-        if (*mode == ShareMode::Never) ctx.out << "Nothing is sent and the outbox items of the projects that follow your default were dropped.\n";
+        if (*mode == ShareMode::Never) ctx.out << "Nothing is sent and the outbox items of the projects that follow your default were dropped (a batch that was already being uploaded by a running editor finishes).\n";
         if (*mode != ShareMode::Never && share_endpoint(share_env(), load_share_settings(share_env())).empty())
             ctx.out << "Note: " << share_unavailable_message() << "\n";
         return 0;
@@ -200,6 +209,8 @@ void add_feedback_share_commands(Command& group) {
         const ShareEnv& env = share_env();
         const std::string dir = project_for_share(ctx);
         if (!dir.empty() && !ctx.args.has("json")) ctx.out << "Project: " << dir << "\n";
+        // The project's feedback file: "" when the project has none (or there is no project). Without a file nothing is flushed:
+        // share_flush reads an empty file as "every project", and this command is only about the project it was run for.
         std::string file;
         if (!dir.empty()) {
             file = feedback_path(dir);
@@ -240,30 +251,40 @@ void add_feedback_share_commands(Command& group) {
             }
             return 0;
         }
+        if (file.empty()) {
+            if (dir.empty())
+                return report_failure(ctx, "Not inside a FactorIA project, so there is no feedback to share.",
+                                      "Run the command inside the project, or pass its folder: factoria feedback share <project>. Nothing was sent.");
+            return report_failure(ctx, "No " + std::string(fsys::path(feedback_path(dir)).filename().string()) + " in " + dir + ": this project has no feedback to share.",
+                                  "Record feedback first (the feedback.report command, or `factoria feedback add`), or pass the folder of the project that has it. Nothing was sent.");
+        }
         const ShareSettings settings = load_share_settings(env);
         const ShareMode mode = effective_share_mode(settings, dir);
         if (mode != ShareMode::Always && mode != ShareMode::Ask) {
-            FlushOptions offOptions;
-            offOptions.file = file;
-            const FlushResult off = share_flush(env, offOptions);
+            // Off for this project: say so, and flush nothing (not even the other projects' items).
+            const bool own = std::string(effective_share_source(settings, dir)) == "project";
+            FlushResult off;
+            off.outcome = "off";
+            off.message = mode == ShareMode::Never
+                              ? std::string("Sharing is off for this project") + (own ? " (your choice for it is never)" : " (your default is never)") + ": nothing is sent."
+                              : "Sharing is not set up: nothing is sent. Choose with `factoria feedback sharing always|ask|never` (add --project . to choose for this project only).";
             print_report(ctx, nullptr, &off, nullptr);
             return mode == ShareMode::Unset ? 1 : 0;
         }
         if (share_endpoint(env, settings).empty()) return report_failure(ctx, share_unavailable_message());
-        QueueResult queued;
-        if (!file.empty()) {
-            auto q = share_queue(env, file, dir, engine);
-            if (!q.ok()) return report_failure(ctx, q.error().message, q.error().hint);
-            queued = std::move(q.value());
+        auto q = share_queue(env, file, dir, engine);
+        if (!q.ok()) return report_failure(ctx, q.error().message, q.error().hint);
+        QueueResult queued = std::move(q.value());
+        // Entries that wait for your answer: this project's only (another project has its own mode and its own answer to give).
+        // Under `always` some can still wait (queued before the mode was always, or by an older version): queueing never answers yes
+        // for them, so they are shown here like under `ask`.
+        const std::vector<OutboxItem> waiting = share_waiting(env, file);
+        if (waiting.empty() && mode == ShareMode::Ask) {
+            ctx.out << "Nothing waits for your confirmation.\n";
+            print_report(ctx, &queued, nullptr, nullptr);
+            return 0;
         }
-        if (mode == ShareMode::Ask) {
-            // Only this project's entries: another project has its own mode and its own answer to give.
-            const std::vector<OutboxItem> waiting = file.empty() ? std::vector<OutboxItem>{} : share_waiting(env, file);
-            if (waiting.empty()) {
-                ctx.out << "Nothing waits for your confirmation.\n";
-                print_report(ctx, &queued, nullptr, nullptr);
-                return 0;
-            }
+        if (!waiting.empty()) {
             bool yes = ctx.args.has("yes");
             if (!yes && !ctx.args.has("json")) {
                 ctx.out << waiting.size() << " entr" << (waiting.size() == 1 ? "y waits" : "ies wait") << " to be sent to the engine developer:\n";
@@ -273,19 +294,20 @@ void add_feedback_share_commands(Command& group) {
                 std::getline(ctx.in, answer);
                 yes = !answer.empty() && (answer[0] == 'y' || answer[0] == 'Y');
                 if (!yes) {
-                    ctx.out << "Nothing was sent. The entries stay waiting.\n";
-                    return 0;
+                    ctx.out << (mode == ShareMode::Ask ? "Nothing was sent. The entries stay waiting.\n" : "Those entries were not sent and stay waiting.\n");
+                    if (mode == ShareMode::Ask) return 0;  // under always the rest of the outbox still goes
                 }
-            }
-            if (!yes) {
+            } else if (!yes) {
                 Json arr = Json::array();
                 for (const OutboxItem& it : waiting) arr.push_back(Json::object({{"id", it.localId}, {"entry", it.entry}}));
                 print_json(ctx.out, Json::object({{"waiting", arr}, {"note", "Run again with --yes to send them."}}));
                 return 0;
             }
-            std::vector<std::string> keys;
-            for (const OutboxItem& it : waiting) keys.push_back(it.key);
-            share_confirm(env, keys);
+            if (yes) {
+                std::vector<std::string> keys;
+                for (const OutboxItem& it : waiting) keys.push_back(it.key);
+                share_confirm(env, keys);
+            }
         }
         FlushOptions fo;
         fo.file = file;  // this project's items only (the others follow their own mode and were not asked about)

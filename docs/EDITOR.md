@@ -389,7 +389,7 @@ server address, where there is nothing to send.
   `feedback-sharing.json`, keyed by the project folder's path, never inside the project (a copied or downloaded project does not inherit it and follows the
   default); moving the folder drops it back to the default. The four choices wrap onto more lines in a narrow window. Changing the
   project's choice acts on its waiting items: Ask puts queued ones back to waiting, Never drops them (entries marked skipped), and
-  Follow default applies the default to them. A default of Always or Never never touches a project that has its own choice. The Engine Feedback panel's "sharing:" label, the consent dialog,
+  Follow default applies the default to them, except that it never answers yes for what waited (a note says so when the default is Always: those entries stay in Send feedback until you confirm them). After Never, a batch whose upload had already started finishes (the notice says so); nothing after it is sent. A default of Always or Never never touches a project that has its own choice. The Engine Feedback panel's "sharing:" label, the consent dialog,
   Send feedback, the outbox and the sending all use the project's mode. The outbox line says how many items are not sent because
   their project is Never. The consent dialog (shown while no mode is chosen at all) sets the default; ask mode's question is
   per project, because the waiting entries and the Review notification belong to the project's feedback file.

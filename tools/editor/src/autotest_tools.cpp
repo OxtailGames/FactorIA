@@ -4992,6 +4992,9 @@ void Editor::at_build_tools_script() {
             at_check(shared_of(x->projectSentId) == "sent" && load_share_settings(share_env()).mode == ShareMode::Never,
                      "with the default Never and the project Always, the project's new report was sent");
         });
+        // The flush that sent the report above may still be applying its results (the outbox is saved after the entry is marked
+        // sent): on a slow machine clicking Ask now would race with it. Wait until it is done and the outbox is empty.
+        wait_until([this] { return !share_.flushRunning.load() && load_outbox(share_env()).items.empty(); });
         // Ask: a new report is queued with the project's key and waits; nothing goes until the person says yes.
         scroll_to("share:settings:project:ask", "Feedback Settings###share-settings");
         click("share:settings:project:ask");

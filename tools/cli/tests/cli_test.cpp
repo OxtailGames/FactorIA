@@ -751,6 +751,82 @@ TEST_CASE("feedback share: --preview sends nothing; always sends; ask asks first
     }
 }
 
+TEST_CASE("feedback share: a project without ENGINE_FEEDBACK.json, or no project, flushes nothing (not another project's items)") {
+    CliShare s;
+    const std::string proj = s.project();
+    const std::filesystem::path other = s.dir / "game2";
+    std::filesystem::create_directories(other);
+    std::ofstream(other / "factoria.json") << R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"scenes/main.scene.json"})";
+    // The other project has an entry that waits in the outbox; `proj` has no feedback file at all.
+    REQUIRE(run(add_args(other.string())).code == 0);
+    REQUIRE(run({"feedback", "sharing", "ask"}).code == 0);
+    REQUIRE(run({"feedback", "share", other.string()}, "n\n").code == 0);
+    REQUIRE(fa::load_outbox(s.env).items.size() == 1);
+    REQUIRE(run({"feedback", "sharing", "always", "--project", other.string()}).code == 0);
+    SUBCASE("always, with no ENGINE_FEEDBACK.json in the project") {
+        REQUIRE(run({"feedback", "sharing", "always"}).code == 0);
+        auto r = run({"feedback", "share", proj});
+        CHECK(r.code == 1);
+        CHECK(r.err.find("No ENGINE_FEEDBACK.json in ") != std::string::npos);
+        CHECK(r.err.find("Nothing was sent") != std::string::npos);
+        CHECK(s.requests.empty());
+        CHECK(fa::load_outbox(s.env).items.size() == 1);
+    }
+    SUBCASE("ask, with --yes: still nothing") {
+        auto r = run({"feedback", "share", proj, "--yes"});
+        CHECK(r.code == 1);
+        CHECK(s.requests.empty());
+    }
+    SUBCASE("outside a project") {
+        REQUIRE(run({"feedback", "sharing", "always"}).code == 0);
+        const std::string nowhere = (s.dir / "nowhere").string();
+        std::filesystem::create_directories(nowhere);
+        auto r = run({"feedback", "share", nowhere});
+        CHECK(r.code == 1);
+        CHECK(s.requests.empty());
+        CHECK(fa::load_outbox(s.env).items.size() == 1);
+    }
+}
+
+TEST_CASE("feedback share: with sharing off for the project it says so and flushes nothing") {
+    CliShare s;
+    const std::string proj = s.project();
+    REQUIRE(run(add_args(proj)).code == 0);
+    REQUIRE(run({"feedback", "sharing", "always"}).code == 0);
+    REQUIRE(run({"feedback", "sharing", "never", "--project", proj}).code == 0);
+    auto r = run({"feedback", "share", proj});
+    CHECK(r.code == 0);
+    CHECK(r.out.find("off for this project") != std::string::npos);
+    CHECK(r.out.find("your choice for it is never") != std::string::npos);
+    CHECK(s.requests.empty());
+    REQUIRE(run({"feedback", "sharing", "--clear", "--project", proj}).code == 0);
+    REQUIRE(run({"feedback", "sharing", "never"}).code == 0);
+    auto d = run({"feedback", "share", proj});
+    CHECK(d.out.find("your default is never") != std::string::npos);
+    CHECK(s.requests.empty());
+}
+
+TEST_CASE("feedback sharing --clear: entries that waited under the project's ask keep waiting while the default is always") {
+    CliShare s;
+    const std::string proj = s.project();
+    REQUIRE(run(add_args(proj)).code == 0);
+    REQUIRE(run({"feedback", "sharing", "always"}).code == 0);
+    REQUIRE(run({"feedback", "sharing", "ask", "--project", proj}).code == 0);
+    REQUIRE(run({"feedback", "share", proj}, "n\n").code == 0);
+    REQUIRE(fa::load_outbox(s.env).items.size() == 1);
+    auto clear = run({"feedback", "sharing", "--clear", "--project", proj});
+    CHECK(clear.code == 0);
+    CHECK(clear.out.find("waits for your confirmation") != std::string::npos);
+    CHECK(s.requests.empty());
+    const fa::Outbox box = fa::load_outbox(s.env);
+    REQUIRE(box.items.size() == 1);
+    CHECK(box.items[0].state == fa::OutboxState::Waiting);
+    // Saying yes is the user's decision: it goes out.
+    auto yes = run({"feedback", "share", proj, "--yes"});
+    CHECK_MESSAGE(yes.code == 0, yes.err);
+    CHECK(s.requests.size() == 1);
+}
+
 TEST_CASE("feedback signout and signin: unknown provider is a usage error; signout is idempotent") {
     CliShare s;
     CHECK(run({"feedback", "signin", "gitlab"}).code == 2);
