@@ -1088,6 +1088,7 @@
     "storage.list": "0.4.0",
     "tilemap.cell_at": "0.3.0",
     "tilemap.cell_to_world": "0.3.0",
+    "tilemap.generate": "unreleased",
     "tilemap.paint_terrain": "0.16.0",
     "tilemap.retile": "0.16.0",
     "tilemap.set_terrains": "0.16.0",

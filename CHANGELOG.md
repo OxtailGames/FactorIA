@@ -2,6 +2,13 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- **For game authors and AIs:** new command `tilemap.generate` (MCP `tilemap_generate`) makes a level from an example by Wave Function Collapse, in FactorIA's own code. `sample` is a Tilemap entity or ASCII rows with a legend (the `scene.import_ascii` format); `model` `overlapping` (default) only uses the `n` x `n` patterns (2..5) of the sample, with `symmetry` 1/2/4/8 and `periodic`, and `tiled` takes which tiles may touch from the autotile rules (`Tilemap.terrains`). The result is written into a Tilemap (`into`) or returned as `rows` + `legend`, with `stats` (`attempts`, `contradictions`, `patterns`, `ms`). The same arguments give the same level on every platform (integer weights and entropy, the engine RNG); a dead end restarts with the next derived seed up to `maxAttempts`, and the final error names the cell, the attempts and what to try. (docs/AI_GUIDE.md, section 9.8)
+- **Engine developers:** the solver is `fa/scene/wfc.h` (`wfc::build_overlapping_model`, `wfc::build_terrain_model`, `wfc::Generator` with `step(budget)` and hooks for fixed cells and tile-count checks); `retile_terrain_grid` in `fa/scene/autotile.h` re-tiles a plain grid.
+
 ## 0.16.1
 
 FactorIA 0.16.1 makes engine feedback trustworthy: feedback that claims a gap the engine does not have is caught, rejected with a reason the person can read, and can be deleted. A weak model filed "No one-way platforms" although `Collider2D.oneWay` exists, because it copied the example in the `feedback.report` docs.
