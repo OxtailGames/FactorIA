@@ -57,8 +57,9 @@ struct AnimChannel {
 // A game event a clip sends when its time passes `time` (the clip files of anim3d.h carry them; glTF animations have none).
 struct AnimClipEvent {
     float time = 0.0f;
-    std::string name;
+    std::string name;                  // "" = the event only runs its `feel` actions
     Json data = Json::object();
+    std::vector<Json> feel;            // game feel actions (feel.h), already checked
 };
 
 struct AnimClip {

@@ -1,6 +1,8 @@
 #include <doctest.h>
 
 #include "fa/core/asset_manifest.h"
+#include "fa/scene/components.h"
+#include "fa/scene/feel.h"
 #include "fa/scene/sprite_animator.h"
 #include "fa/scene/world.h"
 
@@ -170,4 +172,94 @@ TEST_CASE("sprite animator: the sheet pivot counts from the top, only for a spri
     s.pivot = {0.5f, 0.5f};
     a.sheetPivot = false;
     CHECK(sprite_effective_pivot(s, a, plan).x == doctest::Approx(0.5f));
+}
+
+namespace {
+// An entity with the animator, stepped like the renderer does: step, then run the frame events.
+struct EventRig {
+    World world;
+    Entity e;
+    SpriteAnimator* a = nullptr;
+    SpriteAnimPlan plan;
+    explicit EventRig(const char* clip, const char* events) {
+        ensure_builtin_components();
+        e = world.create("hero", "hero");
+        a = &world.add<SpriteAnimator>(e);
+        a->clip = clip;
+        a->events = Json::parse(events);
+        plan = resolve_sprite_animator(*a, "t.png", test_sheet());
+    }
+    void step(float dt) {
+        sprite_animator_step(*a, plan, dt);
+        sprite_animator_fire_events(world, e, *a, plan);
+    }
+    int sounds() { return int(feel_take_sounds(world).size()); }
+    std::vector<int> game_frames() {
+        std::vector<int> frames;
+        for (const GameEvent& g : world.events().game) frames.push_back(g.data["frame"].get<int>());
+        world.events().game.clear();
+        return frames;
+    }
+};
+}  // namespace
+
+TEST_CASE("sprite animator events: a frame fires once per pass, with its game event and its feel actions") {
+    EventRig r("spin", R"([{"frame":2,"name":"hit","data":{"hand":"left"},"feel":{"action":"sound","path":"audio/hit.wav"}}])");
+    for (int i = 0; i < 12; ++i) r.step(0.1f);  // 3 loops of the 4 frames
+    CHECK(r.game_frames() == std::vector<int>{2, 2, 2});
+    CHECK(r.sounds() == 3);
+}
+
+TEST_CASE("sprite animator events: a long frame time skips no event, in order, and a nameless event sends no game event") {
+    EventRig r("spin", R"([{"frame":1,"feel":{"action":"sound","path":"audio/a.wav"}},{"frame":3,"name":"end"},{"frame":0,"name":"start"}])");
+    r.step(0.05f);  // frame 0
+    CHECK(r.game_frames() == std::vector<int>{0});
+    r.world.events().game.clear();
+    r.step(0.46f);  // 0.51 s: steps 1..5, frames 1 2 3 0 1
+    std::vector<std::string> names;
+    for (const GameEvent& g : r.world.events().game) names.push_back(g.name);
+    CHECK(names == std::vector<std::string>{"end", "start"});  // frame 1 has only feel actions; its two passes: 1 and 5
+    CHECK(r.sounds() == 2);
+}
+
+TEST_CASE("sprite animator events: pingpong shows its middle frames twice, a rewind fires nothing for the jump, clip scopes an event") {
+    EventRig p("spin", R"([{"frame":2,"name":"mid"},{"clip":"pop","frame":4,"name":"pop"}])");
+    p.a->mode = SpriteAnimMode::PingPong;
+    p.plan = resolve_sprite_animator(*p.a, "t.png", test_sheet());
+    for (int i = 0; i < 12; ++i) p.step(0.1f);  // two passes of 0 1 2 3 2 1
+    CHECK(p.game_frames() == std::vector<int>{2, 2, 2, 2});  // frame 2 is shown twice per pass; the event of clip "pop" never fires
+    EventRig r("spin", R"([{"frame":2,"name":"mid"}])");
+    for (int i = 0; i < 3; ++i) r.step(0.1f);
+    CHECK(r.game_frames().size() == 1);
+    r.a->time = 0.0f;  // a script seeks back
+    r.step(0.001f);
+    CHECK(r.game_frames().empty());
+    for (int i = 0; i < 3; ++i) r.step(0.1f);  // and the clip plays on: the frame fires again
+    CHECK(r.game_frames().size() == 1);
+}
+
+TEST_CASE("sprite animator events: a clip that does not loop fires each frame once and nothing after its end") {
+    EventRig r("pop", R"([{"frame":6,"name":"last"},{"frame":4,"name":"first"}])");
+    for (int i = 0; i < 10; ++i) r.step(0.1f);
+    CHECK(r.game_frames() == std::vector<int>{4, 6});
+}
+
+TEST_CASE("sprite animator events: the checks name the pointer, the key and the fix") {
+    const auto sheet = test_sheet();
+    auto issues = check_sprite_events(Json::parse(R"([{"frame":1,"name":"a"},{"frme":2,"name":"b"},{"frame":-1,"name":"c"},
+        {"frame":1},{"frame":1,"clip":"spn","name":"d"},{"frame":2,"feel":{"action":"flsh"}},5])"), "/events", sheet);
+    auto has = [&](const std::string& pointer, const std::string& word) {
+        for (const ClipIssue& i : issues)
+            if (i.pointer == pointer && (i.message + " " + i.hint).find(word) != std::string::npos) return true;
+        return false;
+    };
+    CHECK(has("/events/1/frme", "frame"));        // did you mean
+    CHECK(has("/events/1/frame", "needs"));
+    CHECK(has("/events/2/frame", "whole number"));
+    CHECK(has("/events/3", "name"));              // neither name nor feel
+    CHECK(has("/events/4/clip", "spin"));         // the sheet's clips
+    CHECK(has("/events/5/feel", "flash"));
+    CHECK(has("/events/6", "object"));
+    CHECK(check_sprite_events(Json::parse(R"([{"frame":1,"name":"a"}])"), "/events", sheet).empty());
+    CHECK_FALSE(check_sprite_events(Json::parse(R"({"frame":1})"), "/events", sheet).empty());
 }

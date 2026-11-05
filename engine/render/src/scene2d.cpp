@@ -320,6 +320,9 @@ void update_animators(World& world, Frame& f, bool advance) {
             FA_WARN("render", "entity '{}': {}", world.id_of(e), plan.error);
         // The draw pass (advance false) only re-applies the frame; the clip events belong to the step that reached the end.
         const bool ended = sprite_animator_step(a, plan, dt);
+        // Frame events (SpriteAnimator::events) run before clipEnded; they only queue effects and game events, so nothing below
+        // changes the world while this loop walks it (a `spawn` instantiates its prefab in feel_update).
+        if (advance) sprite_animator_fire_events(world, e, a, plan);
         if (ended && advance) world.events().game.push_back(GameEvent{"clipEnded", Json::object({{"id", world.id_of(e)}, {"clip", a.clip}}), e});
         TextureAsset* tex = f.assets->texture(s.texture);
         s.region = sprite_frame_rect(plan, a.frame, tex->width, tex->height);

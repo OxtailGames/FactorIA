@@ -112,6 +112,7 @@ struct Anim3DUi {
     std::string eventName = "footstep";
     std::string eventText, eventTextKey;      // the picked event's name as edited, and the (clip, index, revision) it was read for
     std::string eventData, eventDataError;    // its data as JSON text
+    std::string eventFeel, eventFeelError;    // its game feel actions as JSON text (an object or an array)
     float eventTime = 0;
     std::array<float, 4> keyVals{};            // the picked key's value as edited
     Key3D keyShown;                            // the key keyVals was read from

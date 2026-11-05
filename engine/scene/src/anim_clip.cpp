@@ -1,4 +1,5 @@
 #include "fa/scene/anim_clip.h"
+#include "fa/scene/feel.h"
 
 #include <algorithm>
 #include <cmath>
@@ -433,6 +434,92 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
 
 }  // namespace
 
+bool read_event_feel(const Json& event, const std::string& pointer, std::vector<Json>& out, std::vector<ClipIssue>& issues) {
+    auto it = event.find("feel");
+    if (it == event.end()) return true;
+    const std::string fp = pointer + "/feel";
+    const std::string example = "Write {\"action\": \"hitStop\", \"duration\": 0.06} or an array of such objects; the actions are " +
+                                join(feel_action_names(), ", ") + " (docs/GAME_FEEL.md, \"Effects as data\").";
+    bool ok = true;
+    auto one = [&](const Json& a, const std::string& ap) {
+        if (auto r = feel_check_action(a); !r.ok()) {
+            issues.push_back({ap, r.error().message, r.error().hint.empty() ? example : r.error().hint});
+            ok = false;
+        } else {
+            out.push_back(a);
+        }
+    };
+    if (it->is_array()) {
+        if (it->empty()) {
+            issues.push_back({fp, "feel is an empty array", example});
+            return false;
+        }
+        for (std::size_t i = 0; i < it->size(); ++i) one((*it)[i], fp + "/" + std::to_string(i));
+    } else if (it->is_object()) {
+        one(*it, fp);
+    } else {
+        issues.push_back({fp, "feel must be an action object or an array of them, got " + describe_json_value(*it), example});
+        ok = false;
+    }
+    return ok;
+}
+
+bool read_clip_event(const Json& ej, const std::string& ep, float duration, bool durationKnown, ClipEvent& ev,
+                     std::vector<ClipIssue>& issues) {
+    if (!ej.is_object()) {
+        issues.push_back({ep, "an event is an object, got " + describe_json_value(ej),
+                          "Write {\"t\": 0.25, \"name\": \"footstep\", \"data\": {}} or {\"t\": 0.25, \"feel\": {\"action\": \"hitStop\"}}."});
+        return false;
+    }
+    bool ok = true;
+    const std::vector<std::string> allowed = {"t", "name", "data", "feel"};
+    for (auto it = ej.begin(); it != ej.end(); ++it) {
+        if (std::find(allowed.begin(), allowed.end(), it.key()) != allowed.end()) continue;
+        issues.push_back({ep + "/" + it.key(), "unknown key '" + it.key() + "'", did_you_mean(it.key(), allowed)});
+        ok = false;  // the file is rejected as before: a misspelt key would otherwise silently lose the event's data
+    }
+    if (auto it = ej.find("t"); it == ej.end() || !read_number(*it, ev.t)) {
+        issues.push_back({ep + "/t", it == ej.end() ? "an event needs `t`" : "t must be a number of seconds, got " + describe_json_value(*it),
+                          "Write t in seconds from the start of the clip."});
+        ok = false;
+    } else if (ev.t < 0 || (durationKnown && ev.t > duration + 1e-6f)) {
+        issues.push_back({ep + "/t", std::format("t is {}, outside the clip (0 to {})", ev.t, duration), "Move the event inside the clip, or raise `duration`."});
+        ok = false;
+    }
+    ev.feel.clear();
+    if (!read_event_feel(ej, ep, ev.feel, issues)) ok = false;
+    const bool hasFeel = ej.contains("feel");
+    if (auto it = ej.find("name"); it != ej.end()) {
+        if (!it->is_string() || it->get<std::string>().empty()) {
+            issues.push_back({ep + "/name", "name must be a non-empty string, got " + describe_json_value(*it),
+                              "The name is the game event world.on(name, fn) listens to."});
+            ok = false;
+        } else {
+            ev.name = it->get<std::string>();
+        }
+    } else if (!hasFeel) {
+        issues.push_back({ep + "/name", "an event needs `name` or `feel`",
+                          "The name is the game event world.on(name, fn) listens to; `feel` runs game feel actions (docs/GAME_FEEL.md)."});
+        ok = false;
+    }
+    if (auto it = ej.find("data"); it != ej.end()) {
+        if (!it->is_object()) {
+            issues.push_back({ep + "/data", "data must be an object, got " + describe_json_value(*it), "Write {\"foot\": \"left\"}."});
+            ok = false;
+        } else {
+            for (const char* reserved : {"id", "clip", "time"})
+                if (it->contains(reserved)) {
+                    issues.push_back({ep + "/data/" + reserved,
+                                      std::string("data cannot use the key '") + reserved + "': the engine sends {id, clip, time} with every clip event",
+                                      "Rename the key."});
+                    ok = false;
+                }
+            ev.data = *it;
+        }
+    }
+    return ok;
+}
+
 Result<std::shared_ptr<const ClipAsset>> parse_anim_clip(const Json& json, std::string_view fileView, std::vector<ClipIssue>* issuesOut) {
     Parser p;
     p.file = std::string(fileView);
@@ -487,39 +574,8 @@ Result<std::shared_ptr<const ClipAsset>> parse_anim_clip(const Json& json, std::
             for (std::size_t i = 0; i < eit->size(); ++i) {
                 const Json& ej = (*eit)[i];
                 const std::string ep = "/events/" + std::to_string(i);
-                if (!ej.is_object()) { p.err(ep, "an event is an object, got " + describe_json_value(ej), "Write {\"t\": 0.25, \"name\": \"footstep\", \"data\": {}}."); continue; }
-                p.unknown_keys(ej, ep, {"t", "name", "data"});
                 ClipEvent ev;
-                bool evOk = true;
-                if (auto it = ej.find("t"); it == ej.end() || !read_number(*it, ev.t)) {
-                    p.err(ep + "/t", it == ej.end() ? "an event needs `t`" : "t must be a number of seconds, got " + describe_json_value(*it), "Write t in seconds from the start of the clip.");
-                    evOk = false;
-                } else if (ev.t < 0 || (durationOk && ev.t > duration + 1e-6f)) {
-                    p.err(ep + "/t", std::format("t is {}, outside the clip (0 to {})", ev.t, duration), std::format("Move the event inside the clip, or raise `duration`."));
-                    evOk = false;
-                }
-                if (auto it = ej.find("name"); it == ej.end() || !it->is_string() || it->get<std::string>().empty()) {
-                    p.err(ep + "/name", it == ej.end() ? "an event needs `name`" : "name must be a non-empty string, got " + describe_json_value(*it),
-                          "The name is the game event world.on(name, fn) listens to.");
-                    evOk = false;
-                } else {
-                    ev.name = it->get<std::string>();
-                }
-                if (auto it = ej.find("data"); it != ej.end()) {
-                    if (!it->is_object()) {
-                        p.err(ep + "/data", "data must be an object, got " + describe_json_value(*it), "Write {\"foot\": \"left\"}.");
-                        evOk = false;
-                    } else {
-                        for (const char* reserved : {"id", "clip", "time"})
-                            if (it->contains(reserved)) {
-                                p.err(ep + "/data/" + reserved, std::string("data cannot use the key '") + reserved + "': the engine sends {id, clip, time} with every clip event",
-                                      "Rename the key.");
-                                evOk = false;
-                            }
-                        ev.data = *it;
-                    }
-                }
-                if (evOk) clip->events.push_back(std::move(ev));
+                if (read_clip_event(ej, ep, duration, durationOk, ev, p.issues)) clip->events.push_back(std::move(ev));
             }
             std::stable_sort(clip->events.begin(), clip->events.end(), [](const ClipEvent& a, const ClipEvent& b) { return a.t < b.t; });
         }

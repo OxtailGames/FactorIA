@@ -1,6 +1,8 @@
 #include "validate_anim.h"
 
+#include <format>
 #include <map>
+#include <string>
 #include <vector>
 
 #include "fa/core/fs.h"
@@ -8,9 +10,11 @@
 #include "fa/scene/anim3d.h"
 #include "fa/scene/anim_clip.h"
 #include "fa/scene/components.h"
+#include "fa/scene/feel.h"
 #include "fa/scene/ik3d.h"
 #include "fa/scene/rig3d.h"
 #include "fa/scene/skeleton.h"
+#include "fa/scene/sprite_animator.h"
 
 namespace fa::validate_detail {
 
@@ -36,6 +40,88 @@ std::vector<std::string> project_clip_files() {
         if (!skip) out.push_back(f);
     }
     return out;
+}
+
+// The files a clip event's game feel actions name (a spawn's prefab, a sound's path) must exist. `event` is the event object,
+// `pointer` its place in `file`.
+void check_feel_files(const std::string& file, const std::string& pointer, const Json& event, ValidationReport& report) {
+    if (!event.is_object() || !event.contains("feel")) return;
+    const Json& feel = event["feel"];
+    std::size_t index = 0;
+    auto one = [&](const Json& action) {
+        const std::string ap = feel.is_array() ? pointer + "/feel/" + std::to_string(index) : pointer + "/feel";
+        ++index;
+        if (!action.is_object()) return;
+        const std::string kind = action.value("action", std::string());
+        const char* key = kind == "spawn" ? "prefab" : kind == "sound" ? "path" : nullptr;
+        if (!key || !action.contains(key) || !action[key].is_string()) return;
+        const std::string path = action[key].get<std::string>();
+        if (path.empty() || fs::exists(path)) return;
+        std::vector<std::string> existing;
+        if (kind == "spawn") {
+            for (const std::string& f : fs::list(".", true, ".json"))
+                if (ends_with(to_lower(f), ".prefab.json")) existing.push_back(f);
+        } else {
+            for (const char* ext : {".wav", ".ogg", ".mp3", ".flac"})
+                for (const std::string& f : fs::list(".", true, ext)) existing.push_back(f);
+        }
+        report.errors.push_back({file, ap + "/" + key, std::format("the {} '{}' does not exist. {}", kind == "spawn" ? "prefab" : "sound", path, did_you_mean(path, existing)),
+                                 kind == "spawn" ? "Name an existing prefab (prefabs/*.prefab.json)." : "Name an existing sound file of the project (audio/*.wav, .ogg, .mp3)."});
+    };
+    if (feel.is_array()) {
+        for (const Json& a : feel) one(a);
+    } else {
+        one(feel);
+    }
+}
+
+// Clip events written inside scenes and prefabs: the `events` of an Animator ({clip, time, name?, feel?}) and of a SpriteAnimator
+// ({frame, clip?, name?, data?, feel?}) are checked like the ones of a clip file, and the files their actions name must exist.
+void check_inline_events(const std::string& file, const World& world, const Json& source, ValidationReport& report) {
+    std::map<std::string, std::string> pointers;
+    if (source.is_object()) {
+        if (source.contains("entities") && source["entities"].is_array()) {
+            int i = 0;
+            for (const Json& e : source["entities"]) collect_pointers(e, "/entities/" + std::to_string(i++), pointers);
+        }
+        if (source.contains("entity")) collect_pointers(source["entity"], "/entity", pointers);
+    }
+    auto base_of = [&](Entity e) {
+        auto at = pointers.find(world.id_of(e));
+        return at == pointers.end() ? std::string() : at->second;
+    };
+    for (Entity e : world.entities_with(TypeRegistry::global().of<Animator>())) {
+        const Animator* an = world.get<Animator>(e);
+        if (!an || !an->events.is_array()) continue;
+        const std::string base = base_of(e) + "/components/Animator/events";
+        for (std::size_t i = 0; i < an->events.size(); ++i) {
+            const Json& ev = an->events[i];
+            if (!ev.is_object()) continue;
+            const std::string ep = base + "/" + std::to_string(i);
+            if (!ev.contains("name") && !ev.contains("feel")) {
+                report.errors.push_back({file, ep, "Animator '" + world.id_of(e) + "': the event needs `name` or `feel`, so it does nothing.",
+                                         "`name` sends the game event world.on(name, fn) listens to; `feel` runs game feel actions (docs/GAME_FEEL.md, \"Effects as data\")."});
+                continue;
+            }
+            if (!ev.contains("feel")) continue;
+            std::vector<Json> actions;
+            std::vector<ClipIssue> issues;
+            read_event_feel(ev, ep, actions, issues);
+            for (const ClipIssue& p : issues) report.errors.push_back({file, p.pointer, "Animator '" + world.id_of(e) + "': " + p.message, p.hint});
+            if (issues.empty()) check_feel_files(file, ep, ev, report);
+        }
+    }
+    for (Entity e : world.entities_with(TypeRegistry::global().of<SpriteAnimator>())) {
+        const SpriteAnimator* sa = world.get<SpriteAnimator>(e);
+        if (!sa || !sa->events.is_array() || sa->events.empty()) continue;
+        const std::string base = base_of(e) + "/components/SpriteAnimator/events";
+        const Sprite* sprite = world.get<Sprite>(e);
+        const auto sheet = sprite && !sprite->texture.empty() ? assets::sheet(sprite->texture) : nullptr;
+        const std::vector<ClipIssue> issues = check_sprite_events(sa->events, base, sheet);
+        for (const ClipIssue& p : issues) report.errors.push_back({file, p.pointer, "SpriteAnimator '" + world.id_of(e) + "': " + p.message, p.hint});
+        if (issues.empty())
+            for (std::size_t i = 0; i < sa->events.size(); ++i) check_feel_files(file, base + "/" + std::to_string(i), sa->events[i], report);
+    }
 }
 
 // The glTF an Animator plays: its `model`, else the mesh of the MeshRenderer on the same entity ("" when it has none).
@@ -98,6 +184,7 @@ void check_animator_clips(const std::string& file, const World& world, const Jso
         }
         if (source.contains("entity")) collect_pointers(source["entity"], "/entity", pointers);
     }
+    check_inline_events(file, world, source, report);
     const TypeInfo* type = TypeRegistry::global().of<Animator>();
     const std::vector<std::string> existing = project_clip_files();
     for (Entity e : world.entities_with(type)) {
@@ -198,7 +285,12 @@ void check_clip_files(const std::set<std::string>& named, ValidationReport& repo
             ok = clip.ok();
             if (!ok) { message = clip.error().message; hint = clip.error().hint; }
         }
-        if (ok) continue;
+        if (ok) {
+            if (json->is_object() && json->contains("events") && (*json)["events"].is_array())
+                for (std::size_t i = 0; i < (*json)["events"].size(); ++i)
+                    check_feel_files(f, "/events/" + std::to_string(i), (*json)["events"][i], report);
+            continue;
+        }
         if (issues.empty()) report.errors.push_back({f, "", message, hint});
         for (const ClipIssue& i : issues) report.errors.push_back({f, i.pointer, i.message, i.hint});
     }

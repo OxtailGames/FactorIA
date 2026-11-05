@@ -178,8 +178,10 @@ struct SpriteAnimator {
     std::string clip;                 // name of a clip of the texture's sheet entry; "" = the numeric fields alone
     SpriteAnimMode mode = SpriteAnimMode::Forward;
     bool sheetPivot = true;           // the sheet's / clip's pivot sets the pivot of a Sprite whose own pivot is the default centre
+    Json events = Json::array();      // frame events: [{"clip": "attack", "frame": 9, "name": "hit", "feel": {"action": "hitStop"}}]
     bool ended = false;               // runtime: a non-looping clip reached its end and sent clipEnded
     std::string playedClip;           // runtime: the clip `time` belongs to (a change of `clip` restarts the animation)
+    std::int32_t eventStep = -1;      // runtime, not reflected: the last step of the pass whose frame events ran (-1 = none yet)
 };
 
 // ----------------------------------------------------------- 2D bones ---

@@ -1863,6 +1863,11 @@ time.hitStop(0.07);                                 // real seconds; UI and audi
 and reduced effects are honoured by the engine (`feel.reduceMotion`, `feel.reducedEffects`); tools and tests use the
 `feel.*` commands (`feel.state` shows what is running).
 
+The same effects, plus `spawn` (a prefab, with a `lifetime`) and `sound`, are JSON actions that an animation event can carry, so a
+hit lands on the frame the sword does: `{ "t": 0.3, "feel": [{ "action": "hitStop", "duration": 0.06 }, { "action": "sound", "path":
+"audio/hit.wav" }] }` in a clip file (2D or 3D), in `Animator.events` (`{clip, time, feel}`) or in `SpriteAnimator.events`
+(`{frame, clip?, feel}`). An event needs a `name`, `feel` or both. `anim.add_event` and `anim3d.add_event` take `feel`.
+
 ## 10. Tests
 
 Each test file starts with fresh module state, an empty `session` and storage, and the project's start scene and seed, so results are deterministic. Drive the game through inputs and assert on the result:

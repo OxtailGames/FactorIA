@@ -4017,6 +4017,22 @@ void Editor::at_build_tools_script() {
             at_check(at_visible("anim:event:0"), "...and the ruler shows it");
         });
 
+        // ---- an event that runs a game feel action: a preset button fills the box, the command checks it and the clip keeps it
+        scroll_until_at([] { return std::string("anim:addevent"); }, 6, rows_point, 100000, -1e9f);
+        click_widget("anim:addevent");
+        wait_until([this] { return at_visible("anim:event:fx:shake"); });
+        click_widget("anim:event:fx:shake");
+        click_widget("anim:event:ok");
+        step(5, [this, clip_now] {
+            const auto clip = clip_now();
+            at_check(clip && clip->events.size() == 2, "a second event is added");
+            bool found = false;
+            if (clip)
+                for (const ClipEvent& ev : clip->events)
+                    found = found || (ev.feel.size() == 1 && ev.feel[0].value("action", std::string()) == "shake");
+            at_check(found, "the Shake preset writes a game feel action into the event, which the clip loads");
+        });
+
         // ---- onion skin
         scroll_until_at([] { return std::string("anim:onion"); }, 6, rows_point, 100000, -1e9f);
         click_widget("anim:onion");

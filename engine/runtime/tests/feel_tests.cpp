@@ -105,7 +105,7 @@ struct Game {
 TEST_CASE("feel commands: documented, closed, and an unknown option is refused with a hint") {
     Game g("commands");
     for (const char* name : {"feel.shake", "feel.hitStop", "feel.flash", "feel.knockback", "feel.squash", "feel.cancel", "feel.settings",
-                             "feel.state"}) {
+                             "feel.spawn", "feel.sound", "feel.state"}) {
         INFO(name);
         const CommandInfo* info = g.e.commands().info(name);
         REQUIRE(info != nullptr);
@@ -343,4 +343,29 @@ TEST_CASE("feel commands run the effects, and a scene load drops them but keeps 
     CHECK(g.state()["entities"].empty());
     CHECK(g.state()["hitStop"]["running"] == 0);
     CHECK(g.state()["reduceMotion"] == true);
+}
+
+TEST_CASE("feel.spawn and feel.sound: queued for the frame, a spawn appears at the entity and ends with its lifetime") {
+    Game g("spawn_sound");
+    g.p.write("prefabs/spark.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"spark","components":{"Transform":{}}}})");
+    g.e.step(1);
+    g.call("feel.spawn", R"({"entity":"crate","prefab":"prefabs/spark.prefab.json","offset":[1,2],"lifetime":0.2})");
+    CHECK(g.state()["queued"]["spawns"] == 1);
+    CHECK(g.num("world.find('spark') ? 1 : 0") == 0);  // not inside the call: the frame's feel pass makes it
+    g.e.step(1);
+    REQUIRE(g.num("world.find('spark') ? 1 : 0") == 1);
+    CHECK(g.num("world.find('spark').position.x") == doctest::Approx(11.0));
+    CHECK(g.num("world.find('spark').position.y") == doctest::Approx(7.0));
+    CHECK(g.state()["queued"]["spawnLifetimes"] == 1);
+    g.e.step(30);  // 0.5 s
+    CHECK(g.num("world.find('spark') ? 1 : 0") == 0);
+    CHECK(g.state()["queued"]["spawnLifetimes"] == 0);
+
+    // a wrong option is refused with the option names; a good sound waits for the audio update
+    auto bad = g.e.commands().call("feel.sound", Json::parse(R"({"path":"audio/hit.wav","volum":0.5})"));
+    CHECK_FALSE(bad.ok);
+    auto bad2 = g.e.commands().call("feel.spawn", Json::parse(R"({"offset":[0,0]})"));
+    CHECK_FALSE(bad2.ok);
+    g.call("feel.sound", R"({"path":"audio/hit.wav","volume":0.5})");
+    CHECK(g.state()["queued"]["sounds"] == 1);
 }

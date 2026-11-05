@@ -1,7 +1,7 @@
 // Game feel: the short effects that make a hit, a jump or an explosion read on screen. Camera shake, hit-stop, a flash of
 // colour, knockback, and squash and stretch. docs/GAME_FEEL.md is the guide; this header is the C++ side that the script
-// API (camera.shake, time.hitStop, entity.flash / knockback / squash), the `feel.*` commands and (M62.2) the clip events of
-// the Animator and the timeline all call, so there is one implementation of each effect.
+// API (camera.shake, time.hitStop, entity.flash / knockback / squash), the `feel.*` commands and the clip events of the
+// Animator, the SpriteAnimator and the clip files (M62.2) all call, so there is one implementation of each effect.
 //
 // WHERE THE STATE LIVES. Not in components: an effect is a moment, not part of a scene file. World owns one FeelState
 // (World::feel()); World::clear() (every scene load that is not additive) drops the effects, hit-stop included, and keeps the
@@ -27,7 +27,9 @@
 
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "fa/core/json.h"
@@ -79,11 +81,29 @@ struct KnockbackOptions {
     std::optional<float> speed;
     float lockTime = 0.25f;   // seconds `isKnockedBack` stays true (the loss of control)
     float decay = 8.0f;       // entities WITHOUT a dynamic body: the velocity falls by exp(-decay * dt) per second
+    bool local = false;       // true: `direction` is in the entity's own space (its world matrix turns it, a mirrored sprite flips x)
 };
 
 struct HitStopOptions {
     float duration = 0.08f;   // real seconds
     float scale = 0.0f;       // game-time scale during the stop: 0 = frozen, 0.2 = slow motion
+};
+
+// Makes an effect appear: a prefab instantiated at the entity (plus `offset`) the next time feel_update runs.
+struct SpawnOptions {
+    std::string prefab;       // project-relative path of the prefab (required)
+    Vec3 offset{0, 0, 0};     // added to the world position of the entity the action belongs to
+    bool local = false;       // true: `offset` is in the entity's own space (a mirrored sprite flips x)
+    float lifetime = 0.0f;    // seconds on the game clock after which the spawned entity is destroyed; 0 = the prefab ends itself
+};
+
+// Plays a sound once. The sound goes to a queue that Audio::update drains (the audio module sits above this one).
+struct SoundOptions {
+    std::string path;         // project-relative path of the clip (required)
+    float volume = 1.0f;      // 0..4
+    float pitch = 1.0f;       // 0.1..4
+    float pan = 0.0f;         // -1 left .. 1 right
+    std::string bus = "sfx";  // "sfx", "music", "ui" or a bus of the project
 };
 
 // ------------------------------------------------------------------------------------------------------------- state
@@ -142,6 +162,22 @@ struct FeelHitStop {
     float scale = 0.0f;
 };
 
+// A sound waiting for the audio system (FeelState::sounds).
+struct FeelSound {
+    SoundOptions options;
+    std::string source;       // id of the entity whose action asked for it ("" when none)
+};
+
+// An effect prefab waiting to be instantiated, and a spawned entity that is destroyed when its time is up.
+struct FeelSpawn {
+    SpawnOptions options;
+    Vec3 position{};          // where, in the world: computed when the action ran
+};
+struct FeelLifetime {
+    std::uint64_t entity = 0; // Entity::bits()
+    float remaining = 0.0f;
+};
+
 class FeelState {
 public:
     // The per-entity records, keyed by Entity::bits() (ordered, so output and iteration are deterministic).
@@ -151,6 +187,10 @@ public:
     std::size_t poseCount = 0;           // records with hasPose: 0 = drawn_matrix is world_matrix
     float pixelsPerMeter = 100.0f;       // factoria.json physics.pixelsPerMeter, pushed by the runtime: the 2D default of knockback
     bool warnedNoCamera = false;         // a shake with no camera in the scene was ignored and said so (once per scene)
+    std::vector<FeelSound> sounds;       // `sound` actions since the audio system last drained them (feel_take_sounds)
+    std::vector<FeelSpawn> spawns;       // `spawn` actions waiting for feel_update (a spawn never happens inside an iteration)
+    std::vector<FeelLifetime> lifetimes; // spawned effects with a `lifetime`
+    std::set<std::string> warnedClipActions;  // clip-event actions that failed and said so (once each per scene)
 
     // The player's choices; they survive World::clear() (they are not part of a scene). null = follow the system.
     std::optional<bool> reduceMotionSetting;
@@ -183,15 +223,36 @@ Result<void> feel_hit_stop(World& w, const HitStopOptions& o);
 Result<void> feel_flash(World& w, Entity e, const FlashOptions& o);
 Result<void> feel_knockback(World& w, Entity e, const KnockbackOptions& o);
 Result<void> feel_squash(World& w, Entity e, const SquashOptions& o);
+// Queues the spawn of `o.prefab` at `e`'s position (+ offset), or at `o.offset` when `e` is null; feel_update instantiates it. The prefab path is checked when it
+// is instantiated (a missing file is logged once), not here.
+Result<void> feel_spawn(World& w, Entity e, const SpawnOptions& o);
+// Queues a sound for Audio::update. `source` is the entity the action belongs to (null = none).
+Result<void> feel_sound(World& w, Entity source, const SoundOptions& o);
+// The sounds queued since the last call, oldest first; the audio system plays them. At most kMaxQueuedSounds wait (a world
+// that nobody drains, e.g. a headless test without audio, does not grow without limit: the oldest are dropped).
+std::vector<FeelSound> feel_take_sounds(World& w);
+inline constexpr std::size_t kMaxQueuedSounds = 64;
 // Stops everything of `e` (null = every effect of the world, hit-stops included). Flash, squash and shake end at once.
 void feel_cancel(World& w, Entity e);
 
 // The action as JSON, what clip events and the `feel.*` commands pass: {"action": "shake" | "hitStop" | "flash" | "knockback" |
-// "squash", ...the options of that action by their field names}. `target` is the entity of flash, knockback and squash (and the
-// camera of shake, null = main). Unknown keys and wrong types are errors with a "did you mean".
+// "push" | "squash" | "spawn" | "sound", ...the options of that action by their field names}. "push" is "knockback". `target`
+// is the entity of flash, knockback, squash, spawn and sound (and the camera of shake, null = main). Unknown keys and wrong
+// types are errors with a "did you mean".
 Result<void> feel_apply_action(World& w, Entity target, const Json& action);
+// Checks an action as feel_apply_action would (keys, types, ranges) without a world and without doing anything: what a clip
+// file's load and `validate` use, so a typo in a clip is found before the game runs.
+Result<void> feel_check_action(const Json& action);
 // The names feel_apply_action accepts for "action".
 const std::vector<std::string>& feel_action_names();
+
+// The actions of one clip event (what `feel` of an event holds, already split into single actions), run for the entity that
+// plays the clip: shake goes to that entity when it is a camera, else to the main one. A failing action is logged once per
+// scene with `where` ("Animator 'hero' clip 'attack' at 0.3 s") and the rest still run: an event never stops an animation.
+void feel_run_clip_actions(World& w, Entity player, const std::vector<Json>& actions, std::string_view where);
+// The `feel` of an event object as a list of actions (one object = a list of one); empty when it has none or it is not an object
+// or array. No checking: read_event_feel (anim_clip.h) checks, this is what the playback of an inline event reads.
+std::vector<Json> feel_event_actions(const Json& event);
 
 // Camera default for ShakeOptions::maxOffset: 2.5% of the visible height of an orthographic camera (16 units when its size is
 // design-height based), 0.3 for a perspective one.
