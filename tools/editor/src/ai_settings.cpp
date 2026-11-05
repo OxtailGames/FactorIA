@@ -194,6 +194,8 @@ void Editor::ai_settings_save_assets(bool asDefaults) {
         return;
     }
     const bool project = ai_project_open();
+    // Before anything is written (the providers' fields go to ai.json first): Save over an ignored file asks, Replace presses Save again.
+    if (project && !asDefaults && !ai_project_replace_allowed("assets")) return;
     const ai::AiConfig user = ai_user_config();
     const ai::AiConfig wanted = ai_apply_edits(cfg, nullptr, &d.routes, &d.sources);
     ai::AssetSettings forUser = *built;
@@ -690,7 +692,8 @@ void Editor::draw_ai_settings_window() {
     }
     const bool canSave = cfgErr.empty() && !locked;
     ImGui::BeginDisabled(!canSave);
-    if (ImGui::Button("Save")) ai_settings_save_assets(false);
+    const bool saveRetried = projectMode && ai_project_save_retry("assets");  // the user confirmed replacing the ignored file
+    if (ImGui::Button("Save") || saveRetried) ai_settings_save_assets(false);
     ImGui::EndDisabled();
     at_track("aiset:save", canSave);
     ImGui::SetItemTooltip("%s", projectMode ? "Save these routes and sites for this project only. The next asset the AI makes uses them."

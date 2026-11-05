@@ -636,7 +636,11 @@ ToolResult AgentSession::execute_tool(const ToolCall& original, const std::strin
     Json callInput = call.input.is_object() ? call.input : Json::object();
     // A skill is read as the role that asks: the skills switched off for it are not readable (docs/SKILLS.md).
     if (it->second == "skills.read" || it->second == "skills.list") callInput["role"] = role;
-    CommandResult cr = registry_.call(it->second, callInput);
+    CommandResult cr;
+    {
+        CommandCallerScope caller(CommandCaller::Agent);  // the model's call, not the user's (ai.settings.set scope "user" refuses it)
+        cr = registry_.call(it->second, callInput);
+    }
     if (!cr.ok) {
         // A command the model has not seen the definition of (listed in the catalog, not offered in full): the schema comes
         // with the error, so one failed call is enough to learn the arguments.

@@ -3579,9 +3579,10 @@ void Editor::at_build_tools_script() {
     // file shows its error and no Accept. ai.json is a scratch file (FACTORIA_AI_CONFIG, put back at the end).
     {
         struct Q2State {
-            std::string root, userPath, dirA, dirB, fixtureDir, previousEnv, nameA = "Q2 Project A", nameB = "Q2 Project B";
+            std::string root, userPath, dirA, dirB, fixtureDir, previousEnv, cameWith, nameA = "Q2 Project A", nameB = "Q2 Project B";
             bool hadEnv = false;
             std::vector<ai::ProviderStatus> savedStatus;
+            std::unique_ptr<AiRun> run;  // the run whose proxy registry the ai.settings.set checks call
         };
         auto st = std::make_shared<Q2State>();
         auto set_env = [](const char* name, const std::string& value) {
@@ -3837,8 +3838,122 @@ void Editor::at_build_tools_script() {
             at_check(run_model("worker") == "b-worker-model", "...and it changes nothing the project runs with (" + run_model("worker") + ")");
         });
         snap("editor_ai_project_invalid.png");
+        // Delete the file: it asks first (Cancel keeps the file), and Delete removes it and forgets that it was accepted.
+        step(2, [this, st] {
+            const Json trust = Json::parse(read_file(st->root + "/ai-trust.json"), nullptr, false);
+            at_check(trust.is_object() && trust.contains("aiSettings") && trust["aiSettings"].contains(ai::ai_settings_trust_key(st->dirA)),
+                     "(before Delete) the project's file was accepted here once: ai-trust.json has its record");
+            aiSettingsTab_ = 1;  // the Roles tab again: the Save of the next flow lives there
+        });
+        click("aiset:project:delete");
+        step(4, [this, st] {
+            at_check(at_visible("aiset:project:delete-ok") && at_visible("aiset:project:delete-cancel"),
+                     "Delete the file asks for a confirmation (the popup is on screen)");
+            at_check(stdfs::exists(st->dirA + "/.factoria/ai/settings.json"), "...and nothing was deleted yet");
+        });
+        snap("editor_ai_project_delete_confirm.png");
+        click("aiset:project:delete-cancel");
+        step(4, [this, st] {
+            at_check(!at_visible("aiset:project:delete-ok") && stdfs::exists(st->dirA + "/.factoria/ai/settings.json"),
+                     "Cancel closes the popup and keeps the file");
+        });
+        click("aiset:project:delete");
+        step(4, [this] { at_check(at_visible("aiset:project:delete-ok"), "Delete the file opens the confirmation again"); });
+        click("aiset:project:delete-ok");
+        step(1, [this, st] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, st] {
+                return !stdfs::exists(st->dirA + "/.factoria/ai/settings.json") && aiProj_.have && !aiProj_.resolved.fileExists;
+            };
+        });
+        step(4, [this, st, run_model] {
+            const Json trust = Json::parse(read_file(st->root + "/ai-trust.json"), nullptr, false);
+            at_check(!trust.is_object() || !trust.contains("aiSettings") || !trust["aiSettings"].contains(ai::ai_settings_trust_key(st->dirA)),
+                     "Delete removes the file and forgets its acceptance in ai-trust.json");
+            at_check(run_model("worker") == "b-worker-model" && aiProj_.actionError.empty(), "...the project runs with the user's defaults, no error");
+        });
+        // Save after Ignore replaces a file that came with the project: it asks, and keeps a copy of that file.
+        step(2, [this, st] {
+            st->cameWith = R"({ "roles": { "worker": { "model": "came-with-project" } } })";
+            write_file(st->dirA + "/.factoria/ai/settings.json", st->cameWith);
+            ai_project_invalidate();
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] {
+                return aiProj_.have && aiProj_.resolved.pendingTrust && !aiProj_.resolved.invalidError && at_visible("aiset:project:ignore") &&
+                       !aiRolesOpen_;
+            };
+        });
+        click("aiset:project:ignore");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("aiset:project:review") && at_enabled("ai:roles:save"); };
+        });
+        step(2, [this] { aiRolesEdit_["worker"].model = "my-own-model"; });
+        click("ai:roles:save");
+        step(4, [this, st] {
+            at_check(at_visible("aiset:project:replace-ok") && at_visible("aiset:project:replace-cancel"),
+                     "Save after Ignore asks before it replaces the file that came with the project");
+            at_check(read_file(st->dirA + "/.factoria/ai/settings.json") == st->cameWith && !stdfs::exists(st->dirA + "/.factoria/ai/settings.replaced.json"),
+                     "...and nothing was written yet");
+        });
+        snap("editor_ai_project_replace_confirm.png");
+        click("aiset:project:replace-cancel");
+        step(4, [this, st] {
+            at_check(!at_visible("aiset:project:replace-ok") && read_file(st->dirA + "/.factoria/ai/settings.json") == st->cameWith,
+                     "Cancel closes the popup and leaves the file as it came");
+        });
+        click("ai:roles:save");
+        step(4, [this] { at_check(at_visible("aiset:project:replace-ok"), "Save asks again"); });
+        click("aiset:project:replace-ok");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiProj_.have && !aiProj_.resolved.pendingTrust && aiProj_.resolved.applied && !aiRolesOpen_; };
+        });
+        step(4, [this, st, run_model] {
+            const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
+            at_check(file.is_object() && file["roles"]["worker"]["model"] == "my-own-model", "Replace saves the user's roles into the project's file");
+            at_check(read_file(st->dirA + "/.factoria/ai/settings.replaced.json") == st->cameWith,
+                     "...and the file that came with the project is kept as settings.replaced.json");
+            at_check(run_model("worker") == "my-own-model", "...the next run uses the saved model (" + run_model("worker") + ")");
+        });
+        // ai.settings.set from an AI (the proxy registry of a run, as MCP and the agent use it): an MCP client cannot change the user's
+        // defaults, a project-scope change reaches the windows, and a change the user's own caller makes (no scope) reloads them.
+        step(2, [this, st] {
+            st->run = std::make_unique<AiRun>("autotest-q2");
+            auto proxy = make_proxy_registry(*st->run);
+            const std::string before = read_file(st->userPath);
+            CommandResult refused;
+            {
+                CommandCallerScope as(CommandCaller::Mcp);
+                refused = proxy->call("ai.settings.set", Json::object({{"scope", "user"}, {"pointer", "/roles/orchestrator/model"}, {"value", "by-mcp"}}));
+            }
+            at_check(!refused.ok && refused.error.value("code", "") == "user_only" && read_file(st->userPath) == before,
+                     "an MCP client cannot change the user's defaults (ai.json is untouched)");
+            CommandResult project = proxy->call("ai.settings.set", Json::object({{"scope", "project"}, {"pointer", "/roles/artist/enabled"}, {"value", false}}));
+            at_check(project.ok && project.result.value("needsAcceptance", false), "...but it can change the project's file (it then waits for the user)");
+            CommandResult user = proxy->call("ai.settings.set", Json::object({{"scope", "user"}, {"pointer", "/roles/orchestrator/model"}, {"value", "by-user"}}));
+            at_check(user.ok, "the user's own caller can change the user's defaults" + (user.ok ? std::string() : ": " + user.error.dump()));
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] {
+                return !aiDetecting_.load() && !aiRolesOpen_ && aiProj_.have && aiProj_.resolved.pendingTrust && !aiProj_.resolved.invalidError;
+            };
+        });
+        step(4, [this, run_model] {
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                at_check(aiConfig_.role("orchestrator").model == "by-user", "the editor reloaded ai.json after the command wrote it");
+            }
+            at_check(run_model("orchestrator") == "by-user" && aiRolesEdit_["orchestrator"].model == "by-user",
+                     "...the next run and the Roles tab have the new value (" + run_model("orchestrator") + ")");
+            at_check(aiProj_.resolved.pendingTrust, "...and a project-scope change shows up as a file that waits for Accept (the cache was dropped)");
+        });
         // Put everything back.
         step(2, [this, st, set_env] {
+            st->run.reset();
             showAiSettings_ = false;
             ai_settings_discard();
             set_env("FACTORIA_AI_CONFIG", st->hadEnv ? st->previousEnv : std::string());

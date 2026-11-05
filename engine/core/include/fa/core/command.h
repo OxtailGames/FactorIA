@@ -71,6 +71,29 @@ bool command_progress_active();
 // Sends `message` to the installed sink; returns false if there is none or it reported that nobody listens.
 bool report_command_progress(std::string_view message);
 
+// Who is behind the call that is running on this thread. A handler that must not do something on an AI's say-so (ai.settings.set
+// with scope "user" changes the user's own defaults) asks command_caller(). The code that hands a call to the registry on an AI's
+// behalf installs a CommandCallerScope: the MCP server (every tools/call, so the editor's per-run endpoint and `factoria mcp`) and
+// the agent session (each tool call of the in-engine agents and their delegates). Callers that install nothing are the user's own
+// (`factoria call`, the editor's console, the AI settings window). The scope is per thread and only gets stricter: a scope inside
+// another one that is not User keeps the outer one. A handler that moves work to another thread (the editor's main-thread queue
+// does) hands command_caller() over and installs it there again.
+enum class CommandCaller { User, Agent, Mcp };
+
+class CommandCallerScope {
+public:
+    explicit CommandCallerScope(CommandCaller caller);
+    ~CommandCallerScope();
+    CommandCallerScope(const CommandCallerScope&) = delete;
+    CommandCallerScope& operator=(const CommandCallerScope&) = delete;
+
+private:
+    CommandCaller previous_;
+};
+
+CommandCaller command_caller();                         // the caller of the command running on this thread (User outside any scope)
+const char* command_caller_name(CommandCaller caller);  // "the user", "an AI agent", "an MCP client"
+
 // Outcome of a call. `result` is the handler's JSON on success; on failure
 // `error` = {"code": .., "message": .., "hint": ..}.
 struct CommandResult {

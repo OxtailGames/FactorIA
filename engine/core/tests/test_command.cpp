@@ -144,6 +144,30 @@ TEST_CASE("command progress: reports reach the sink of the calling thread's scop
     CHECK(inner == std::vector<std::string>{"two"});
 }
 
+TEST_CASE("command caller: the user outside any scope, the stricter caller inside nested ones, per thread") {
+    CHECK(command_caller() == CommandCaller::User);
+    {
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        CHECK(command_caller() == CommandCaller::Mcp);
+        {
+            CommandCallerScope agent(CommandCaller::Agent);  // inside an MCP call: still refused as an MCP client
+            CHECK(command_caller() == CommandCaller::Mcp);
+        }
+        CHECK(command_caller() == CommandCaller::Mcp);
+        CommandCaller other = CommandCaller::Mcp;
+        std::thread t([&] { other = command_caller(); });
+        t.join();
+        CHECK(other == CommandCaller::User);  // per thread
+    }
+    CHECK(command_caller() == CommandCaller::User);
+    {
+        CommandCallerScope agent(CommandCaller::Agent);
+        CHECK(command_caller() == CommandCaller::Agent);
+    }
+    CHECK(command_caller() == CommandCaller::User);
+    CHECK(std::string(command_caller_name(CommandCaller::Agent)) == "an AI agent");
+}
+
 TEST_CASE("CommandRegistry interceptor: refuse, change the arguments, add to the result, skip what it does not want") {
     CommandRegistry reg;
     for (const char* name : {"t.echo", "t.skipped", "t.refused"}) {

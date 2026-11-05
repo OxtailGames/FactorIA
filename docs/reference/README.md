@@ -101,7 +101,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ai.savers`](commands/ai.md#aisavers): Show the engine's token savers (loop guard, learned tool groups, project facts), what this project's runs learned and the proposals waiting for an answer. _Since 0.11.0._
 - [`ai.session_timeline`](commands/ai.md#aisession_timeline): Show where the time of a recorded AI session went: the long gaps and what was going on in each. _Since 0.9.0._
 - [`ai.settings.get`](commands/ai.md#aisettingsget): Show the AI settings (roles, limits, assets, savers, tool servers, extensions) with where each value comes from: this project, your defaults or the engine. _Not released yet._
-- [`ai.settings.set`](commands/ai.md#aisettingsset-modifies-state): Change one AI setting of this project (or of your defaults); a project change waits for the user to accept it in the editor. _Not released yet._
+- [`ai.settings.set`](commands/ai.md#aisettingsset-modifies-state): Change one AI setting of this project; a project change waits for the user to accept it in the editor. Your own defaults (scope user) only the user changes. _Not released yet._
 - [`ai.tool_plan`](commands/ai.md#aitool_plan): Show which commands the built-in AI agent of a role gets as tools in full and which only as catalog lines. _Since 0.11.0._
 - [`ai.tool_servers`](commands/ai.md#aitool_servers): List the external tool servers (MCP) the user configured in ai.json, and optionally test them. _Since 0.8.0._
 

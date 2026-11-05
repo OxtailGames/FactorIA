@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <map>
 #include <set>
+#include <utility>
+#include <vector>
 
 #include "fa/ai/project_settings.h"
 #include "fa/core/strings.h"
@@ -62,12 +65,27 @@ Json project_state(const ResolvedAiConfig& r) {
     return out;
 }
 
+// Every setting whose value differs between two configs: [{pointer, from, to}] (null where a side has no such setting).
+Json changed_json(const AiConfig& before, const AiConfig& after) {
+    std::vector<std::pair<std::string, Json>> a, b;
+    collect_leaves(settings_view(before), "", a);
+    collect_leaves(settings_view(after), "", b);
+    std::map<std::string, std::pair<Json, Json>> both;
+    for (auto& [pointer, value] : a) both[pointer].first = value;
+    for (auto& [pointer, value] : b) both[pointer].second = value;
+    Json out = Json::array();
+    for (const auto& [pointer, values] : both) {
+        if (values.first != values.second) out.push_back(Json::object({{"pointer", pointer}, {"from", values.first}, {"to", values.second}}));
+    }
+    return out;
+}
+
 [[noreturn]] void fail(const std::string& code, const Error& e) { throw CommandError(code, e.message, e.hint); }
 
 }  // namespace
 
 void register_settings_commands(CommandRegistry& registry, std::function<std::string()> projectDir, std::string aiConfigPath,
-                                EnvLookup env) {
+                                EnvLookup env, std::function<void()> onUserConfigChanged, std::function<void()> onProjectConfigChanged) {
     if (!env) env = system_env();
     {
         CommandInfo info;
@@ -124,35 +142,47 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
         CommandInfo info;
         info.name = "ai.settings.set";
         info.category = "ai";
-        info.summary = "Change one AI setting of this project (or of your defaults); a project change waits for the user to accept it in the editor.";
+        info.summary = "Change one AI setting of this project; a project change waits for the user to accept it in the editor. Your own defaults (scope user) only the user changes.";
         info.description =
             "Writes ONE value, named by its JSON pointer as ai.settings.get lists them (/roles/artist/enabled, /roles/worker/model, "
             "/limits/maxCostUsd, /savers/loopGuard, /assets/image/provider, /assetSources/images, /mcpServers/<name> true or false, "
             "/extensions/plugins/<name> true or false). scope \"project\" writes <project>/.factoria/ai/settings.json (only what "
-            "differs from your defaults is kept); scope \"user\" writes your ~/.factoria/ai.json defaults. `value` null removes the "
+            "differs from your defaults is kept). scope \"user\" writes the user's own ~/.factoria/ai.json defaults and is only for the user "
+            "(`factoria call`): an AI agent or MCP client that asks for it gets the error user_only, and the user changes "
+            "them in the editor's AI settings window (Your defaults). `value` null removes the "
             "setting: from the project file (it goes back to your default) or from ai.json (it goes back to the engine's). A new "
             "provider for a role or asset route drops its model, effort and voice. A project can only NAME providers, tool servers and "
             "extensions that your ai.json defines, and never holds a command, address, header, environment or key: such keys, "
             "and pointers that are not settings, are refused with where they belong and a \"did you mean\" (errors unknown_pointer, "
             "rejected_key, invalid_setting). "
-            "IMPORTANT: this command NEVER accepts a project file. A project file written here is NOT applied until the user accepts it "
-            "once in the editor (AI settings, with this project open); until then the project runs with the user's settings. Changing "
-            "an already accepted file makes the whole file wait for acceptance again (removing a value from an accepted file does "
-            "not: it only gets smaller). The result says so: needsAcceptance true plus a hint. Returns {ok, scope, pointer, "
+            "IMPORTANT: this command NEVER accepts a project file: setting a value never writes ai-trust.json. A project file written here is "
+            "NOT applied until the user accepts it once in the editor (AI settings, with this project open); until then the project runs with "
+            "the user's settings. Setting a value in an already accepted file makes the whole file wait for acceptance again. Removing a "
+            "value (null) from an accepted file keeps it accepted (it only gets smaller; its acceptance is updated to the smaller file), and a "
+            "removal that empties the file deletes it and forgets its acceptance; removing a value from a file that is not accepted leaves it "
+            "waiting. The result says so: needsAcceptance true plus a hint. Returns {ok, scope, pointer, "
             "removed, value (what you asked for), runsWith (what the project runs with right now, which is unchanged while its file waits), source "
-            "(where runsWith comes from), file, needsAcceptance, applied, hint}. Example: {\"scope\":\"project\",\"pointer\":\"/roles/artist/enabled\",\"value\":false}";
+            "(where runsWith comes from), file, needsAcceptance, applied, hint}; scope \"user\" also returns changed: [{pointer, from, to}], "
+            "every setting whose value is different now (a new provider for a role also drops its model, effort and voice). Example: {\"scope\":\"project\",\"pointer\":\"/roles/artist/enabled\",\"value\":false}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
-            "scope":{"type":"string","enum":["project","user"],"description":"project: this project's file (waits for the user's acceptance). user: your ai.json defaults."},
+            "scope":{"type":"string","enum":["project","user"],"description":"project: this project's file (waits for the user's acceptance). user: the user's ai.json defaults; refused for an AI agent or MCP client (only the user changes them)."},
             "pointer":{"type":"string","description":"JSON pointer of one value, like /roles/artist/enabled (ai.settings.get lists them)."},
             "value":{"description":"The new value (boolean, number, string, or an array for /assetSources/<category>). null removes the setting."}},
             "required":["scope","pointer","value"],"additionalProperties":false})");
         info.readOnly = false;
-        registry.add(std::move(info), [projectDir, aiConfigPath, env](const Json& args) -> Json {
+        registry.add(std::move(info), [projectDir, aiConfigPath, env, onUserConfigChanged, onProjectConfigChanged](const Json& args) -> Json {
             const std::string scope = str(args, "scope");
             const std::string pointer = str(args, "pointer");
             const Json value = args.contains("value") ? args["value"] : Json(nullptr);
             if (scope != "project" && scope != "user") {
                 throw CommandError("invalid_arguments", "scope must be \"project\" or \"user\"", "Use \"project\" for this project's file, \"user\" for your ai.json defaults.");
+            }
+            if (scope == "user" && command_caller() != CommandCaller::User) {
+                throw CommandError("user_only",
+                                   std::string("scope \"user\" changes the user's own defaults (their ai.json), which only the user does: refused for ") +
+                                       command_caller_name(command_caller()),
+                                   "Tell the user which setting you want and ask the user to change it in the editor's AI settings window (Your defaults). "
+                                   "scope \"project\" changes this project's file instead (the user accepts it in the editor).");
             }
             std::string dir = projectDir ? projectDir() : std::string();
             if (scope == "project" && !is_project(dir)) {
@@ -165,15 +195,7 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
             const AiConfig& base = before->inherited;
 
             // The pointers that are settings: every leaf of the view, a role's toolGroups, the fields of an asset route.
-            std::vector<std::string> allowed;
-            {
-                std::vector<std::pair<std::string, Json>> leaves;
-                collect_leaves(settings_view(base), "", leaves);
-                for (const auto& l : leaves) allowed.push_back(l.first);
-                for (const char* role : kAllRoles) allowed.push_back(std::string("/roles/") + role + "/toolGroups");
-                for (MediaKind k : kMediaKinds)
-                    for (const char* f : {"provider", "model", "voice"}) allowed.push_back(std::string("/assets/") + media_kind_name(k) + "/" + f);
-            }
+            const std::vector<std::string> allowed = setting_pointers(base);
             bool known = std::find(allowed.begin(), allowed.end(), pointer) != allowed.end();
             if (!known && pointer.rfind("/mcpServers/", 0) == 0 && pointer.find('/', 12) == std::string::npos && pointer.size() > 12) known = true;
             if (!known && pointer.rfind("/extensions/", 0) == 0) {
@@ -208,6 +230,7 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
             Json out = Json::object({{"scope", scope}, {"pointer", pointer}});
             if (scope == "user") {
                 if (auto ok = set_user_setting(pointer, value, aiConfigPath, env); !ok) fail("invalid_setting", ok.error());
+                if (onUserConfigChanged) onUserConfigChanged();  // the file is written: the editor reloads before anything below can fail
                 auto after = resolve_ai_config("", aiConfigPath, env);
                 if (!after) throw CommandError("invalid_config", after.error().message, after.error().hint);
                 out["ok"] = true;
@@ -220,6 +243,7 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
                 out["file"] = after->config.sourcePath.empty() ? (aiConfigPath.empty() ? default_config_path(env) : aiConfigPath) : after->config.sourcePath;
                 out["needsAcceptance"] = false;
                 out["applied"] = true;
+                out["changed"] = changed_json(before->config, after->config);
                 out["hint"] = "Saved in your ai.json: it is the default of every project that does not set it itself.";
                 return out;
             }
@@ -239,6 +263,7 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
                 // recordTrust false: a command never accepts what it wrote.
                 if (auto ok = save_project_settings(dir, ov, aiConfigPath, env, false); !ok) fail("invalid_setting", ok.error());
             }
+            if (onProjectConfigChanged) onProjectConfigChanged();
             auto after = resolve_ai_config(dir, aiConfigPath, env);
             if (!after) throw CommandError("invalid_config", after.error().message, after.error().hint);
             out["ok"] = true;

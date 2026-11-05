@@ -825,7 +825,8 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             return out;
         });
     }
-    register_settings_commands(registry, project_dir, opts->aiConfigPath, opts->runtime.env ? opts->runtime.env : system_env());
+    register_settings_commands(registry, project_dir, opts->aiConfigPath, opts->runtime.env ? opts->runtime.env : system_env(),
+                               opts->onUserConfigChanged, opts->onProjectConfigChanged);
     register_asset_commands(registry, load, project_dir, opts->runtime, opts->cancel);
     register_image_provider_commands(registry, load, project_dir, opts->runtime, opts->cancel);
     register_assets_review(registry, load, project_dir, *opts);

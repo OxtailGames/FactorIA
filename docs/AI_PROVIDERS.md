@@ -238,13 +238,22 @@ write these settings by JSON pointer (`/roles/artist/enabled`, `/limits/maxCostU
   your `ai.json` view (`you` or `default`).
 * `set` writes one value. Scope `project` writes the project's file, scope `user` your `ai.json` defaults. `value` null removes the
   setting (the project's override, so the value goes back to yours; or the key of `ai.json`, so it goes back to the engine's). It checks
-  what the file rules check: a pointer that is not a setting is `unknown_pointer` with a "Did you mean", a key that would define a provider,
-  server or extension, or hold a command, address or key, is `rejected_key` (with where it belongs), a name you do not have or a wrong
-  value is refused before anything is written.
+  what the file rules check: a pointer that is not a setting is `unknown_pointer` with a "Did you mean" (also when `value` is null: a typo
+  is never "already the default"), a key that would define a provider, server or extension, or hold a command, address or key, is
+  `rejected_key` (with where it belongs), a name you do not have or a wrong value is refused before anything is written.
 * **`set` never accepts a project file.** The file it writes is NOT applied until you accept it in the editor (AI settings, with the project
   open): the result says `needsAcceptance: true` and `applied: false`, with a hint, and `runsWith` is what the project still runs with.
-  Changing a file you had accepted makes the whole file wait again; removing a value (null) from an accepted file only makes it smaller and
-  it stays accepted. Scope `user` has nothing to accept: it is your own file. Neither scope writes `ai-trust.json` when it sets a value.
+  Setting a value never writes `ai-trust.json`: changing a file you had accepted makes the whole file wait again (the record still holds
+  the old content). Removing a value (null) from an accepted file leaves it accepted: the file only got smaller, so its record is updated
+  to the new content. Removing a value from a file nobody accepted leaves it waiting. When the last value goes, the file is deleted and its
+  record forgotten.
+* **Scope `user` is the user's own call.** An AI cannot change your defaults: through MCP (`ai_settings_set`, every client including the
+  editor's endpoint) and from the built-in agent (and its delegates), `ai.settings.set` with scope `user` is refused with
+  `user_only`, and the error says to ask you to change it in the editor's AI settings window (Your defaults). It stays available to
+  `factoria call ai.settings.set` (the editor's console has no `ai.*` commands). `ai.settings.get` is open to everyone. What a scope `user` call changed is in
+  its result: `changed: [{pointer, from, to}]` (a new provider for a role also drops its model, so the model shows up too).
+  In the editor, a change a command makes to your `ai.json` or to the project's file reloads the AI settings window, the Roles window and
+  the provider list on the next frame, so a Save there never writes over it.
 
 ## Roles
 
@@ -718,8 +727,11 @@ With a project open the window (and the Roles window) is titled **AI settings - 
   project, starts from them.
 * **A project file you have not accepted** (it came with a copied, unzipped or pulled project): the window says so at the top and lists
   what it would change. **Accept** is the call `accept_project_settings`; **Ignore** leaves the file alone and works with your settings
-  (**Review it** brings the list back); **Delete the file** removes it. While the box is shown, Save and the resets are disabled, since the
-  project behaves as without the file; after Ignore they work again, and Save then replaces the file with what you chose. A file that cannot be accepted (invalid)
+  (**Review it** brings the list back); **Delete the file** asks first ("Delete the project's AI settings file?"), then removes the file and
+  forgets that you accepted it. While the box is shown, Save and the resets are disabled, since the project behaves as without the file;
+  after Ignore they work again, and Save then replaces the file with what you chose: it asks first ("Replace the project's AI settings
+  file?": Save replaces the AI settings file that came with the project) and keeps the file it replaced as
+  `<project>/.factoria/ai/settings.replaced.json` (the last one; nothing reads it). A file that cannot be accepted (invalid)
   shows `invalidError` and no Accept, only Ignore and Delete. A file you had accepted that no longer resolves is shown with its error and
   Delete. Warnings of the resolution are listed under it (five at most; `factoria ai doctor` has them all).
 * **Switching project** reloads the roles and the asset settings the window shows (and drops a pending Ignore and unsaved edits).
