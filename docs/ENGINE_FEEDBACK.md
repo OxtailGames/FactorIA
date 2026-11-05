@@ -81,6 +81,7 @@ An open entry that fails the check is not a gap. It gets the status `rejected`, 
   tooling, ai-integration, docs, platform, performance, networking, other.
 - `severity`: `blocker` (could not build it), `major` (big or fragile workaround), `minor` (small
   workaround), `nice-to-have`.
+- `kind`: `gap` (the default: what the engine lacks or gets wrong) or `efficiency` (see Efficiency feedback, which has more fields).
 - `title`: short noun phrase; reuse the same wording for the same gap.
 - `missing`, `workaround`: required. `workaroundFiles`, `suggestion`, `effort` (small/medium/large), `distinctFrom` (ids never merged with),
   `reporter` ({kind, agent, model}): optional.
@@ -95,6 +96,72 @@ A new report is merged into an existing **open** entry with the same `category` 
 distance). The entry's `occurrences` increases, the new workaround is appended to `notes`, the severity
 is raised if the new report is more severe, and the longer `suggestion` wins. The command returns
 `{id, merged: true}`.
+
+## Efficiency feedback
+
+The other kind of entry: the engine lacked nothing and nothing was wrong, but the work took many more steps, minutes or tokens than a
+doc, a guide, an example or a command option could have made it ("with a guide for X this game would have taken 40 fewer steps").
+File it with `feedback.report` and `kind: "efficiency"` (CLI `factoria feedback add --kind efficiency`). The retrospective
+(`ai.retrospective`, docs/AI_PROVIDERS.md, "Retrospective") finds the candidates for you; you can also file one by hand. An efficiency
+entry has the same `category` list, and is only worth filing when it is **measured** and **worth its fix**.
+
+```json
+{
+  "kind": "efficiency",
+  "category": "scene",
+  "title": "Tilemap collision setup",
+  "waste": "Learning how Tilemap layers become colliders took 40 steps of reading components and trying values.",
+  "evidence": [{"session": "20261014-153012-main", "fromStep": 12, "toStep": 52}],
+  "fixType": "guide",
+  "expectedSaving": {"share": 0.7, "why": "a guide gives the three calls that took the other 30 steps to find"},
+  "appliesTo": "every-game",
+  "suggestion": "A tilemap topic guide: layers, colliders, one-way tiles."
+}
+```
+
+(Invented, like the example above: file only what your own transcripts show.)
+
+- **Measured, not guessed.** `evidence` names the steps of a transcript (`.factoria/ai/sessions/<id>.jsonl`; `ai.session_timeline` lists
+  the steps). The engine computes `measured` from them, `{steps, toolCalls, minutes, tokens, costUsd, estimated}`, and `saving` =
+  `measured` times `expectedSaving.share`; the AI never writes the numbers. A step is one model call of the built-in agent (its own
+  tokens and cost); for Claude Code, Codex and other CLI agents a step is one model turn, its tokens are estimated from the bytes (as
+  `ai.session_timeline` does), the cost is not known and `estimated` is true. The minutes of a span run from the end of the step
+  before it to the end of its last step. At most 10 spans per report; spans must not overlap.
+- **The cheapest fix that removes the waste wins.** `fixType` is, cheapest first, `doc`, `guide`, `example`, `commandOption`,
+  `newCommand`, `engineChange`. From a command option up, `whyNotCheaper` must say why a doc, a guide and an example would not have done.
+- **Text loaded on every step costs on every step.** A fix that adds text to AGENTS.md or the system prompt must give `everyStepTokens`
+  and save more than that times the steps of the named sessions; most fixes belong in an on-demand guide (`fixType: guide`).
+- **Only what helps other games.** `appliesTo` is `every-game`, `genre`, `feature` (one feature of the engine) or `this-game`. A lesson
+  true only for this game is a project fact (`savers.projectFacts`), not feedback: the report is refused with `project_fact`. A different
+  model, effort or limit is the user's setting: refused with `user_setting`.
+- **The saving must reach the threshold of its fix**, per game where it applies:
+
+| Fix type | Saving per game where it applies | Applies to | What the fix is |
+|---|---|---|---|
+| `doc` | 10 minutes or 100k tokens | any engine feature | a section in an existing doc, or its title and keywords |
+| `guide` | 10 minutes or 100k tokens | any engine feature | an on-demand topic guide (a skill), not text loaded on every step |
+| `example` | 15 minutes or 200k tokens | any engine feature | an example project or scene to copy |
+| `commandOption` | 30 minutes or 500k tokens | every game or a genre (wider than one feature) | an option on a command that exists |
+| `newCommand` | 30 minutes or 500k tokens | every game or a genre (wider than one feature) | a command that does in one call what takes several |
+| `engineChange` | 60 minutes or $5 | every game or a genre (wider than one feature) | a change to the engine (a candidate for triage) |
+
+  A saving under the threshold is refused with `below_threshold`, and the refusal says which fix types that saving does justify.
+  An `engineChange` is only a **candidate**: it goes on the roadmap when the reports that ask for it add up, across games, to $1000 or
+  20 hours.
+- **A "missing guide" for a doc that exists is refused** (`exists_in_docs`): the gate runs `docs.search` with the words of the report's
+  title and suggestion, and a section of the docs that carries them is the answer. If you could not FIND it, it is a findability
+  report: list in `searched` the words you gave `docs.search`; they are accepted only when they do NOT find that section, the entry
+  stores `existingDoc` (where it is) and the fix is that section's title and keywords.
+
+A refusal says the field (a JSON pointer such as `/evidence/0/toStep`), what is wrong and what to do; its `code` is `invalid_argument`,
+`no_evidence`, `not_cheapest`, `costs_every_step`, `project_fact`, `user_setting`, `exists_in_docs` or `below_threshold`. Nothing is
+written when a report is refused. An accepted one answers `{id, kind, merged, alreadyCounted, occurrences, measured, saving, message}`.
+
+**Deduplication by fix.** An efficiency entry is merged into an open efficiency entry with the same category, the same `fixType` and a
+similar `title` or `suggestion`: `occurrences` goes up, the `measured` and `saving` numbers of the new spans are ADDED, and a note is
+appended. Reporting steps the entry already counts changes nothing (`alreadyCounted: true`), so a retry or a second retrospective of the
+same session never counts twice. `feedback.list` and `factoria feedback list` take `kind` / `--kind` (`gap` or `efficiency`) and show the
+saving of efficiency entries.
 
 ## Archive
 

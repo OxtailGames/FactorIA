@@ -26,6 +26,7 @@
 #include "fa/core/json.h"
 #include "fa/core/json_schema.h"
 #include "fa/core/types.h"
+#include "fa/tooling/efficiency.h"
 
 namespace fa {
 
@@ -33,6 +34,9 @@ inline constexpr const char* kFeedbackFormat = "factoria.feedback/1";
 
 const std::vector<std::string>& feedback_categories();
 const std::vector<std::string>& feedback_severities();  // blocker, major, minor, nice-to-have
+// "gap" (the engine lacked something or got it wrong: the default, never written to the file) and "efficiency" (the AI could have done
+// the same work in fewer steps, minutes or tokens: fa/tooling/efficiency.h).
+const std::vector<std::string>& feedback_kinds();
 const std::vector<std::string>& feedback_statuses();    // open, fixed-in-engine, wont-fix, duplicate, rejected
 // Who set a status: "engine" (the check found the gap already exists), "user" (a person, the default) or "developer" (the engine
 // developer rejected the shared report; the sharing tick writes it).
@@ -66,6 +70,12 @@ struct FeedbackInput {
     // only (fa/tooling/feedback_share.h). Null = none. A malformed or out-of-limits one is not stored (FeedbackAddResult::shareProblem).
     Json share;
     std::optional<bool> reviewed;  // the reporter checked against the docs that the gap is real and about the engine
+    // Efficiency entries (kind "efficiency"): the severity may be empty (minor), `missing` and `workaround` too (the waste and "none:
+    // the work went on with it" are stored). `efficiency` is what file_efficiency_feedback builds after the gate: {waste, evidence[],
+    // spans[] (evidence with each span's `measured`: used to merge, never stored), fixType, expectedSaving, appliesTo, measured, saving,
+    // whyNotCheaper?, searched?, existingDoc?, everyStepTokens?, candidate?}.
+    std::string kind;  // "" or "gap", or "efficiency"
+    Json efficiency;
 };
 
 struct FeedbackAddResult {
@@ -73,6 +83,7 @@ struct FeedbackAddResult {
     bool merged = false;  // true when folded into an existing open entry (or an archived fixed one, then `reopened`)
     bool reopened = false;  // true when the report matched an archived fixed-in-engine entry: it is open again, in the file
     int occurrences = 1;
+    bool alreadyCounted = false;  // an efficiency report whose evidence the entry already counts: merged, nothing added (idempotent)
     Json entry;  // the stored entry
     std::string shareProblem;  // why `share` was not stored ("" = stored or not given)
 };
@@ -88,11 +99,26 @@ double feedback_entry_similarity(const Json& a, const Json& b);
 // Modifies `doc` in place; validates the input (errors teach valid values). `archive` (optional) is the archive document of
 // the same file: new ids continue after its ids, and a report matching an archived fixed-in-engine entry (same category,
 // similar title, no open match) moves that entry back into `doc`, open, with occurrences + 1 and a note
-// "reported again with engine X: regression?" (result.reopened).
+// "reported again with engine X: regression?" (result.reopened). An efficiency entry (input.kind) merges only with an open efficiency
+// entry of the same category and fix type whose title or suggestion is similar (>= 0.7): the measured numbers add up, evidence the
+// entry already holds is not counted twice (result.alreadyCounted when none of it is new), and it is never matched with a gap.
 Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& input, Json* archive = nullptr);
 // Load (or create) `path` (and its archive, when there is one), add, save what changed.
 Result<FeedbackAddResult> add_feedback_entry_to_file(const std::string& path, const FeedbackInput& input,
                                                      std::string_view projectNameIfNew = {});
+
+struct EfficiencyFiling {
+    std::optional<EfficiencyRefusal> refusal;  // set: the gate refused (or the file could not be written) and nothing was written
+    FeedbackAddResult added;
+    EfficiencyVerdict verdict;
+};
+// Files an efficiency report: `args` carries the fields of efficiency_input_from_json (waste, evidence, fixType, expectedSaving, appliesTo,
+// whyNotCheaper?, searched?, everyStepTokens?); `base` the entry's category, title, suggestion, reporter, severity? and share?. The gate runs
+// (check_efficiency_report: the numbers come from the transcripts of `projectDir`), then the entry is written to `feedbackFile`
+// under the cross-process lock (a read-modify-write of a file that the editor, the CLI and a retrospective may write at once).
+// Merging is by fix: see add_feedback_entry.
+EfficiencyFiling file_efficiency_feedback(const std::string& projectDir, const std::string& feedbackFile, FeedbackInput base, const Json& args,
+                                          std::string_view projectNameIfNew = {});
 
 struct FeedbackFilter {
     std::string status;    // "" = any

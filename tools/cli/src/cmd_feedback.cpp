@@ -1,6 +1,10 @@
 // feedback init|add|list|validate|collect, docs list|read|search
+#include <algorithm>
+#include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 
 #include "common.h"
@@ -49,6 +53,93 @@ std::vector<std::string> split_list(const std::vector<std::string>& values) {
     return out;
 }
 
+bool contains_kind(const std::string& k) {
+    const auto& v = feedback_kinds();
+    return std::find(v.begin(), v.end(), k) != v.end();
+}
+
+// `feedback add --kind efficiency`: the flags (or the keys of --json, the same as feedback.report's) become the report's arguments; the gate
+// measures the evidence and refuses with a reason; the entry is written under the cross-process lock.
+int add_efficiency(Context& ctx, const std::string& dir, const Json& src, const std::function<std::string(const char*)>& get) {
+    const Args& a = ctx.args;
+    Json args = src;
+    for (const auto& [flag, key] : {std::pair<const char*, const char*>{"category", "category"}, {"title", "title"}, {"waste", "waste"},
+                                    {"suggestion", "suggestion"}, {"fix-type", "fixType"}, {"applies-to", "appliesTo"},
+                                    {"why-not-cheaper", "whyNotCheaper"}})
+        if (a.has(flag)) args[key] = a.str(flag);
+    if (a.has("saving-share") || a.has("saving-why")) {
+        Json e = args.contains("expectedSaving") && args["expectedSaving"].is_object() ? args["expectedSaving"] : Json::object();
+        if (a.has("saving-share")) e["share"] = a.number("saving-share", 0);
+        if (a.has("saving-why")) e["why"] = a.str("saving-why");
+        args["expectedSaving"] = e;
+    }
+    if (a.has("every-step-tokens")) args["everyStepTokens"] = a.uinteger("every-step-tokens", 0);
+    if (!a.all("evidence").empty()) {
+        Json spans = Json::array();
+        for (const std::string& text : a.all("evidence")) {
+            const std::size_t colon = text.rfind(':');
+            const std::size_t dash = colon == std::string::npos ? std::string::npos : text.find('-', colon);
+            int from = 0, to = 0;
+            bool ok = colon != std::string::npos && dash != std::string::npos && colon > 0;
+            if (ok) {
+                try {
+                    std::size_t used = 0;
+                    const std::string f = text.substr(colon + 1, dash - colon - 1), t = text.substr(dash + 1);
+                    from = std::stoi(f, &used);
+                    ok = used == f.size();
+                    to = std::stoi(t, &used);
+                    ok = ok && used == t.size();
+                } catch (const std::exception&) {
+                    ok = false;
+                }
+            }
+            if (!ok)
+                throw UsageError("--evidence '" + text + "' is not SESSION:FROM-TO.",
+                                 "Example: --evidence 20261014-153012-main:12-52 (steps count from 1; `factoria call ai.session_timeline` shows them).");
+            spans.push_back(Json::object({{"session", text.substr(0, colon)}, {"fromStep", from}, {"toStep", to}}));
+        }
+        args["evidence"] = spans;
+    }
+    if (!a.all("searched").empty()) args["searched"] = a.all("searched");
+    FeedbackInput base;
+    base.category = get("category");
+    base.title = get("title");
+    base.suggestion = get("suggestion");
+    base.severity = get("severity");
+    base.missing = get("missing");
+    base.workaround = get("workaround");
+    base.effort = get("effort");
+    const std::string kind = a.str("reporter", src.contains("reporter") && src["reporter"].is_object() ? src["reporter"].value("kind", std::string("human")) : "human");
+    base.reporter = Json::object({{"kind", kind}});
+    if (a.has("agent")) base.reporter["agent"] = a.str("agent");
+    if (a.has("model")) base.reporter["model"] = a.str("model");
+    {
+        Json share = src.contains("share") && src["share"].is_object() ? src["share"] : Json::object();
+        for (const char* k : {"title", "missing", "suggestion", "workaround"})
+            if (a.has(std::string("share-") + k)) share[k] = a.str(std::string("share-") + k);
+        if (!share.empty()) base.share = share;
+        if (a.has("reviewed")) base.reviewed = true;
+        else if (src.contains("reviewed") && src["reviewed"].is_boolean()) base.reviewed = src["reviewed"].get<bool>();
+    }
+    const std::string path = feedback_path(dir);
+    EfficiencyFiling f = file_efficiency_feedback(dir, path, base, args, project_name(dir));
+    if (f.refusal) return report_failure(ctx, f.refusal->message, f.refusal->hint);
+    const FeedbackAddResult& r = f.added;
+    char numbers[160];
+    std::snprintf(numbers, sizeof numbers, "measured %.1f minutes, %llu tokens%s", f.verdict.measured.minutes,
+                  static_cast<unsigned long long>(f.verdict.measured.tokens), f.verdict.measured.estimated ? " (estimated)" : "");
+    if (r.alreadyCounted) ctx.out << "Already counted: " << r.id << " holds this evidence; nothing was added.\n";
+    else ctx.out << (r.merged ? "Merged into " : "Added ") << r.id << " (efficiency, " << numbers << "; occurrences: " << r.occurrences << ")\n";
+    if (!f.verdict.existingDoc.empty()) ctx.out << "Findability: the doc exists at " << f.verdict.existingDoc << "; the fix is its title and keywords.\n";
+    if (f.verdict.candidateOnly) ctx.out << "An engine change is only a candidate for triage.\n";
+    if (!r.shareProblem.empty()) ctx.out << "The share text was not stored: " << r.shareProblem << ".\n";
+    else if (!base.share.is_null() && !r.alreadyCounted) {
+        const Json summary = share_report_summary(share_env(), path, dir, r.id, nullptr, true);
+        if (summary.is_object()) ctx.out << summary.value("message", std::string()) << "\n";
+    }
+    return 0;
+}
+
 }  // namespace
 
 Command make_feedback_command() {
@@ -77,11 +168,21 @@ Command make_feedback_command() {
     };
 
     Command add = project_flag_cmd("add", "Add an entry (similar open entries are merged).");
-    add.usage = "--category C --severity S --title T --missing TEXT --workaround TEXT [options]";
+    add.usage = "--category C --severity S --title T --missing TEXT --workaround TEXT [options]\n"
+                "       factoria feedback add --kind efficiency --category C --title T --waste TEXT --evidence SESSION:FROM-TO --fix-type F\n"
+                "           --saving-share N --saving-why TEXT --applies-to A --suggestion TEXT [options]";
     add.details =
         "category: rendering-2d, rendering-3d, physics, audio, input, ui, scripting, scene, assets, animation, tooling,\n"
         "ai-integration, docs, platform, performance, networking, other.\n"
-        "severity: blocker, major, minor, nice-to-have.";
+        "severity: blocker, major, minor, nice-to-have.\n"
+        "\n"
+        "--kind efficiency files the other kind of report: the engine lacked nothing, but the work took many more steps, minutes or\n"
+        "tokens than a doc, an example or a command option could have made it. The engine measures the span of the transcript you name\n"
+        "(--evidence session:from-to, steps count from 1, `ai.session_timeline` shows them) and refuses, with the reason, a report with no\n"
+        "evidence, a saving under the threshold of its fix, a fix that is not the cheapest that works, a missing guide for a doc that\n"
+        "docs.search finds, a lesson only true for this game, or a model/effort/limit setting. docs/ENGINE_FEEDBACK.md, \"Efficiency feedback\".\n"
+        "fix-type: doc, guide, example, commandOption, newCommand, engineChange (cheapest first). applies-to: every-game, genre, feature,\n"
+        "this-game (refused: that is a project fact).";
     add.flags.insert(add.flags.end(), {{"category", "C", "Engine area."},
                                        {"severity", "S", "blocker | major | minor | nice-to-have."},
                                        {"title", "T", "Short noun phrase; reuse wording for the same gap."},
@@ -98,10 +199,24 @@ Command make_feedback_command() {
                                        {"share-suggestion", "TEXT", "For sharing: the engine change that would fix it."},
                                        {"share-workaround", "TEXT", "For sharing: the kind of workaround, without project details."},
                                        {"reviewed", "", "You checked against the docs that the gap is real and about the engine."},
-                                       {"json", "JSON", "Entry as a JSON object instead of flags (same keys as the flags; `share` is {title, missing, suggestion?, workaround?}, `reviewed` a boolean)."}});
+                                       {"kind", "K", "gap (default) or efficiency."},
+                                       {"waste", "TEXT", "Efficiency: what took the time, in engine terms."},
+                                       {"evidence", "SESSION:FROM-TO", "Efficiency: a span of a transcript where the waste happened (steps from 1); repeat for more spans.", true},
+                                       {"fix-type", "F", "Efficiency: doc | guide | example | commandOption | newCommand | engineChange."},
+                                       {"saving-share", "N", "Efficiency: 0.01 to 1, the share of the measured span the fix removes."},
+                                       {"saving-why", "TEXT", "Efficiency: one line on why the fix removes that share."},
+                                       {"applies-to", "A", "Efficiency: every-game | genre | feature | this-game."},
+                                       {"why-not-cheaper", "TEXT", "Efficiency, commandOption/newCommand/engineChange: why a doc, a guide and an example would not do."},
+                                       {"searched", "WORDS", "Efficiency, findability: words given to docs.search that did not find the doc that exists.", true},
+                                       {"every-step-tokens", "N", "Efficiency: tokens the fix adds to every step (AGENTS.md, system prompt)."},
+                                       {"json", "JSON", "Entry as a JSON object instead of flags (same keys as the flags; `share` is {title, missing, suggestion?, workaround?}, `reviewed` a boolean; efficiency: the fields of feedback.report)."}});
     add.examples = {"factoria feedback add --category physics --severity major --title \"No fluid simulation\" \\\n"
                     "    --missing \"There is no liquid solver\" --workaround \"scripts/water.js fakes a surface\" --files scripts/water.js",
-                    "factoria feedback add --json '{\"category\":\"docs\",\"severity\":\"minor\",\"title\":\"...\",\"missing\":\"...\",\"workaround\":\"...\"}'"};
+                    "factoria feedback add --json '{\"category\":\"docs\",\"severity\":\"minor\",\"title\":\"...\",\"missing\":\"...\",\"workaround\":\"...\"}'",
+                    "factoria feedback add --kind efficiency --category scene --title \"Tilemap collision setup\" \\\n"
+                    "    --waste \"Learning how Tilemap layers become colliders took 40 steps\" --evidence 20261014-153012-main:12-52 \\\n"
+                    "    --fix-type guide --saving-share 0.7 --saving-why \"a guide gives the three calls\" --applies-to every-game \\\n"
+                    "    --suggestion \"A tilemap topic guide: layers, colliders, one-way tiles\""};
     add.run = [](Context& ctx) {
         const Args& a = ctx.args;
         std::string dir = resolve_project_dir(ctx, 0);
@@ -113,6 +228,10 @@ Command make_feedback_command() {
             src = *j;
         }
         auto get = [&](const char* key) { return a.has(key) && std::string(key) != "json" ? a.str(key) : src.value(key, std::string()); };
+        const std::string entryKind = get("kind");
+        if (!entryKind.empty() && !contains_kind(entryKind))
+            throw UsageError("Invalid --kind '" + entryKind + "'. " + did_you_mean(entryKind, feedback_kinds()), "gap (default) or efficiency.");
+        if (entryKind == "efficiency") return add_efficiency(ctx, dir, src, get);
         FeedbackInput in;
         in.category = get("category");
         in.severity = get("severity");
@@ -169,11 +288,12 @@ Command make_feedback_command() {
     };
 
     Command list = project_flag_cmd("list", "List entries.");
-    list.usage = "[project] [--status S] [--category C] [--severity V] [--archive] [--json]";
+    list.usage = "[project] [--status S] [--category C] [--severity V] [--kind K] [--archive] [--json]";
     list.details = "The file holds what is still open; closed entries live in ENGINE_FEEDBACK.archive.json (see 'feedback archive').";
     list.flags.insert(list.flags.end(), {{"status", "S", "open | fixed-in-engine | wont-fix | duplicate | rejected."},
                                          {"category", "C", "Filter by category."},
                                          {"severity", "V", "Filter by severity."},
+                                         {"kind", "K", "gap or efficiency."},
                                          {"archive", "", "Also list the archived (closed) entries."},
                                          {"json", "", "Machine-readable output."}});
     list.examples = {"factoria feedback list --status open", "factoria feedback list --json"};
@@ -188,14 +308,31 @@ Command make_feedback_command() {
                 e["archived"] = true;
                 entries.push_back(std::move(e));
             }
+        if (const std::string kind = ctx.args.str("kind"); !kind.empty()) {
+            if (!contains_kind(kind))
+                throw UsageError("Invalid --kind '" + kind + "'. " + did_you_mean(kind, feedback_kinds()), "gap or efficiency.");
+            Json kept = Json::array();
+            for (auto& e : entries)
+                if (e.value("kind", std::string("gap")) == kind) kept.push_back(std::move(e));
+            entries = std::move(kept);
+        }
         if (ctx.args.has("json")) {
             print_json(ctx.out, entries);
             return 0;
         }
         if (entries.empty()) ctx.out << "No entries.\n";
-        for (const auto& e : entries)
+        for (const auto& e : entries) {
             ctx.out << e.value("id", std::string()) << " [" << e.value("severity", std::string()) << "] " << e.value("category", std::string()) << " x"
-                    << e.value("occurrences", 1) << " (" << e.value("status", std::string()) << (e.value("archived", false) ? ", archived" : "") << ") " << e.value("title", std::string()) << "\n";
+                    << e.value("occurrences", 1) << " (" << e.value("status", std::string()) << (e.value("archived", false) ? ", archived" : "") << ") " << e.value("title", std::string());
+            if (e.value("kind", std::string("gap")) == "efficiency" && e.contains("saving") && e["saving"].is_object()) {
+                const Json& sv = e["saving"];
+                char buf[96];
+                std::snprintf(buf, sizeof buf, "  [efficiency: saves %.1f min, %llu tokens]", sv.value("minutes", 0.0),
+                              static_cast<unsigned long long>(sv.value("tokens", static_cast<std::uint64_t>(0))));
+                ctx.out << buf;
+            }
+            ctx.out << "\n";
+        }
         return 0;
     };
 
