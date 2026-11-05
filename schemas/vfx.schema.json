@@ -121,7 +121,7 @@
           },
           "command": {
             "type": "string",
-            "description": "command parts, required: the command to call, by its exact name: feel.shake, feel.hitStop, feel.flash, feel.knockback, feel.squash, feel.spawn, feel.sound, audio.bus, audio.snapshot or audio.music. Any other command is an error, so an effect file cannot write files or change settings (audio.bake, audio.create, feel.settings and the rest are refused)."
+            "description": "command parts, required: the command to call, by its exact name: feel.shake, feel.hitStop, feel.flash, feel.knockback, feel.squash, feel.spawn, feel.sound, audio.bus, audio.snapshot or audio.music. Any other command is an error, so an effect file cannot write files (audio.bus, audio.snapshot and audio.music change the runtime mix, never the player's saved settings; audio.bake, audio.create, feel.settings and the rest are refused)."
           },
           "args": {
             "type": "object",
