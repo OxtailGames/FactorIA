@@ -686,7 +686,9 @@ and 1 everywhere else, so an optimized build keeps the tight budget.
 
 `--wsl` fetches the commit into its own clone `~/FactorIA-preflight` in WSL (made by the first run, from the PC's
 `repo.git`); your `~/FactorIA` there is not used. It needs the WSL set-up of "Continuous integration" above, with
-`ANDROID_NDK_HOME` exported in `~/.profile` for the android job.
+`ANDROID_NDK_HOME` exported in `~/.profile` for the android job. The linux job runs its tests under `xvfb-run` whenever it is
+installed (WSL sets `DISPLAY=:0` in an SSH session where no X server answers) and with `LP_NUM_THREADS=4`, like the CI job's
+4 vCPUs: llvmpipe's memory grows with its threads, and the examples' `peakMemoryMB` baselines were measured with four.
 
 ## Troubleshooting
 
