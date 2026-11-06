@@ -8,7 +8,8 @@
 //
 // Stuck and broken detection (docs/DEBUGGING.md, "Let the game play itself"): the run ends and a mark with a screenshot and the
 // step is written when nothing moves for `stuckSeconds`, when a menu has nobody to press it, when a script raises errors every
-// second, when the player falls out of the world or gets a position that is not a number. input.json is the bot's input in the
+// second, when something pulled by gravity falls out of the world or gets a position that is not a number, or when scripts/autoplay.js
+// cannot be loaded. input.json is the bot's input in the
 // replay format, so `factoria run --headless --input` plays the problem again.
 #pragma once
 
@@ -34,7 +35,8 @@ struct PlayAutoOptions {
     bool useHook = true;          // false: ignore scripts/autoplay.js and play with the generic explorer
     bool screenshots = true;      // false: no pictures (the session says so in its notes)
     std::string sessionName;      // folder name under .factoria/sessions ("" = the clock, then "-auto")
-    double wallSecondsCap = 900;  // real seconds: a safety net far above normal use; the run ends "aborted" when it passes
+    bool hookRequired = false;    // true (bot "hook"): a project whose scripts/autoplay.js registers no bot ends "broken" instead of using the explorer
+    double wallSecondsCap = 800;  // real seconds: a safety net far above normal use (and below the 900 s of the child process that may host the run); the run ends "aborted" when it passes
 };
 
 // Plays the project of `config` (its projectDir, scene, language...; the determinism settings are forced: headless, no audio

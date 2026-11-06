@@ -92,6 +92,7 @@ struct Tracked {
     std::uint64_t bits = 0;
     Vec3 pos;
     bool is2d = false;
+    bool falls = false;  // gravity pulls it (a dynamic body with gravity in the scene, or a character controller): only these can fall out of the world
 };
 enum class FocusKind { Player, Bodies, Scripts, None };
 struct Snapshot {
@@ -112,6 +113,10 @@ Snapshot take_snapshot(World& w) {
         t.bits = e.bits();
         t.pos = w.world_position(e);
         t.is2d = w.has<RigidBody2D>(e) || w.has<Collider2D>(e);
+        const SceneSettings& st = w.settings();
+        if (const RigidBody2D* b = w.get<RigidBody2D>(e)) t.falls = b->type == BodyType::Dynamic && b->gravityScale != 0.0f && (st.gravity2D.x != 0.0f || st.gravity2D.y != 0.0f);
+        else if (const RigidBody3D* b3 = w.get<RigidBody3D>(e)) t.falls = b3->type == BodyType::Dynamic && b3->gravityScale != 0.0f && (st.gravity3D.x != 0.0f || st.gravity3D.y != 0.0f || st.gravity3D.z != 0.0f);
+        else t.falls = w.has<CharacterController3D>(e);  // the controller has no gravity of its own: the game's script adds it
         s.items.push_back(t);
         s.names.push_back(w.info(e).id);
     };
@@ -151,6 +156,78 @@ bool moved_since(const Snapshot& ref, const Snapshot& now, float pixelsPerMeter)
 std::uint64_t mix(std::uint64_t h, std::uint64_t v) {
     h ^= v + 0x9E3779B97F4A7C15ull + (h << 6) + (h >> 2);
     return h;
+}
+
+std::uint64_t hash_text(std::uint64_t h, const std::string& text) {
+    for (unsigned char c : text) h = (h ^ c) * 1099511628211ull;
+    return h;
+}
+
+// What the screen says: the text of every visible Text and Button (the first kMaxTracked). A turn-based game that only changes
+// its score line or its board labels is making progress even though nothing moves.
+std::uint64_t ui_text_hash(World& w) {
+    std::uint64_t h = 1469598103934665603ull;
+    std::size_t n = 0;
+    w.each<Text>([&](Entity e, Text& t) {
+        if (n >= kMaxTracked || !w.active_in_hierarchy(e)) return;
+        ++n;
+        h = hash_text(mix(h, e.bits()), t.text);
+    });
+    w.each<Button>([&](Entity e, Button& b) {
+        if (n >= kMaxTracked || !w.active_in_hierarchy(e)) return;
+        ++n;
+        h = hash_text(mix(h, e.bits()), b.text);
+    });
+    return h;
+}
+
+// The scene's extent for the fall limit: every entity that is not itself a falling body (floors, walls, tilemaps, markers). A world that
+// is generated after the start (a tilemap filled by a script, a WFC level) changes it: `worldSignature` tells when to measure again.
+struct WorldExtent {
+    bool any = false;
+    double lowest = 0, highest = 0;
+    bool any2d = false;
+};
+std::uint64_t world_signature(World& w) {
+    std::uint64_t h = mix(mix(1469598103934665603ull, w.scene_generation()), std::uint64_t(w.entity_count()));
+    w.each<Tilemap>([&](Entity, Tilemap& t) { h = mix(mix(h, std::uint64_t(t.width)), std::uint64_t(t.height)); });
+    return h;
+}
+WorldExtent measure_world(World& w, const Snapshot& cur) {
+    WorldExtent x;
+    std::set<std::uint64_t> falling;
+    for (const Tracked& t : cur.items) {
+        if (t.falls) falling.insert(t.bits);
+        x.any2d = x.any2d || t.is2d;
+    }
+    auto add = [&](double y) {
+        if (!std::isfinite(y)) return;
+        x.lowest = x.any ? std::min(x.lowest, y) : y;
+        x.highest = x.any ? std::max(x.highest, y) : y;
+        x.any = true;
+    };
+    for (Entity e : w.entities()) {
+        if (falling.count(e.bits())) continue;
+        const double y = double(w.world_position(e).y);
+        add(y);
+        if (const Tilemap* m = w.get<Tilemap>(e)) {  // the map hangs from its origin or stands on it: take both ends
+            const double h = double(std::max(m->height, 0)) * double(m->tileSize.y);
+            add(y - h);
+            add(y + h);
+        }
+    }
+    return x;
+}
+
+// A command line argument: plain text as it is, anything with a space or a shell character in double quotes.
+std::string shell_word(const std::string& text) {
+    if (!text.empty() && text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-:") == std::string::npos) return text;
+    std::string out = "\"";
+    for (char c : text) {
+        if (c == '"' || c == '\\') out += '\\';
+        out += c;
+    }
+    return out + "\"";
 }
 
 std::string describe_pos(const Vec3& p) { return std::format("({:.1f}, {:.1f}, {:.1f})", p.x, p.y, p.z); }
@@ -197,6 +274,7 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     if (opt.useHook) hookError = engine.scripts().autoplay_begin(true, &hookFound);
     else engine.scripts().autoplay_begin(false, nullptr);
     const bool useHook = opt.useHook && hookFound;
+    const bool hookFileExists = opt.useHook && fs::exists("scripts/autoplay.js");
     Explorer explorer(opt.seed);
     PlaySession s;
     s.source = "auto";
@@ -205,9 +283,19 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     auto note = [&](const std::string& text) {
         if (notes.size() < kMaxNotes) notes.push_back(text);
     };
-    if (!hookError.empty()) note("scripts/autoplay.js did not load, so the generic explorer played: " + hookError);
-    else if (!opt.useHook) note("The hook was switched off (bot \"explorer\"): the generic explorer played.");
-    else if (!hookFound) note("The project has no scripts/autoplay.js (game.autoplay), so the generic explorer played: it holds the declared actions in seeded patterns. Write a hook to make the bot play the game, see docs/SCRIPTING.md, \"The bot\".");
+    // A hook that is there but cannot be loaded is a problem of the game, never a reason to play with another bot unseen: the run ends
+    // "broken" before the first step (below) and the session says why. A project with no hook file falls back to the explorer, and so does
+    // a file that never calls game.autoplay unless the caller demanded the hook (bot "hook").
+    std::string hookProblem;
+    if (!hookError.empty()) hookProblem = "scripts/autoplay.js could not be loaded: " + hookError;
+    else if (opt.useHook && !hookFound && opt.hookRequired)
+        hookProblem = hookFileExists ? "scripts/autoplay.js never called game.autoplay(fn), so the project has no bot; call game.autoplay((bot) => [...]) at the top level of the file (docs/SCRIPTING.md, \"The bot\")"
+                                     : "the project has no scripts/autoplay.js";
+    if (!opt.useHook) note("The hook was switched off (bot \"explorer\"): the generic explorer played.");
+    else if (hookProblem.empty() && !hookFound && hookFileExists)
+        note("scripts/autoplay.js never called game.autoplay(fn), so the generic explorer played: it holds the declared actions in seeded patterns. Call game.autoplay((bot) => [...]) at the top level of the file, see docs/SCRIPTING.md, \"The bot\".");
+    else if (hookProblem.empty() && !hookFound)
+        note("The project has no scripts/autoplay.js (game.autoplay), so the generic explorer played: it holds the declared actions in seeded patterns. Write a hook to make the bot play the game, see docs/SCRIPTING.md, \"The bot\".");
 
     std::vector<std::string> actions, uiActions;
     if (I.project.inputActions.is_object())
@@ -228,7 +316,7 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     }
     s.name = name;
     const std::string relDir = std::string(kPlaySessionsDir) + "/" + name;
-    const std::string absDir = fs::resolve(relDir).generic_string();
+    const std::string absDir = fs::path_to_utf8(fs::resolve(relDir));  // UTF-8, never the Windows code page: it goes into JSON
     bool canShoot = opt.screenshots && engine.renderer() != nullptr;
     if (!opt.screenshots) {
         note("Screenshots were switched off.");
@@ -242,7 +330,7 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     bool pictureCapNoted = false;
     auto shoot = [&](const std::string& file) -> std::string {
         if (!canShoot) return {};
-        if (pictures >= kPlayAutoMaxPictures && file != "end.png") {
+        if (pictures >= kPlayAutoMaxPictures && file != "end.png") {  // the end picture is the one that is always kept
             if (!pictureCapNoted) note(std::format("The run took {} screenshots, the most a session keeps: later phases and problems have none.", kPlayAutoMaxPictures));
             pictureCapNoted = true;
             return {};
@@ -329,11 +417,12 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     std::uint64_t refSig = 0;
     double fallLimit = 0, sceneLowest = 0;
     bool haveFallLimit = false;
-    std::uint64_t limitGeneration = ~std::uint64_t(0);
+    std::uint64_t limitSignature = 0;
     std::uint64_t errorEventsSeen = engine.scripts().error_events();
     std::int64_t secondStart = 0;
     int badSeconds = 0;
     int phaseMarks = 0;  // game.phase marks seen: part of the signature
+    std::vector<std::string> scriptErrorsExtra;  // problems of the hook itself, listed with the script errors
 
     auto signature = [&]() {
         std::uint64_t h = 1469598103934665603ull;
@@ -341,9 +430,15 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
         h = mix(h, std::uint64_t(phaseMarks));
         h = mix(h, std::uint64_t(hasScore ? std::llround(score.get<double>() * 1000.0) : -1));
         h = mix(h, I.ui.focused().bits());
+        h = mix(h, std::uint64_t(world.entity_count()));  // something spawned or went away
         return h;
     };
-    refSig = signature();
+    // The text on screen counts as a change too (a turn-based game shows its progress in labels), unless it changes more than twice a game
+    // second, which is a clock or an animation and would hide every stuck screen.
+    std::vector<std::int64_t> textChangeSteps;
+    std::uint64_t refTextEpoch = 0;
+    std::uint64_t lastText = ui_text_hash(world);
+    refSig = mix(signature(), refTextEpoch);
 
     auto add_problem = [&](const char* kind, const std::string& text, const char* endedAs) {
         if (int(s.marks.size()) >= kMaxMarks) return;
@@ -365,6 +460,11 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
         const auto& errs = engine.scripts().errors();
         return errs.empty() ? std::string() : errs.back().to_string();
     };
+
+    if (!hookProblem.empty()) {
+        add_problem("hook", hookProblem, "broken");
+        scriptErrorsExtra.push_back(hookProblem);
+    }
 
     while (ended.empty()) {
         if (steps >= totalSteps) {
@@ -483,27 +583,14 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
         // ---- stuck / broken: looks at the player (or what moves) every 0.1 game seconds
         if (steps % checkEvery < opt.speed || frames == 1) {
             Snapshot cur = take_snapshot(world);
-            if (world.scene_generation() != limitGeneration && world.time() >= 0.1) {
-                limitGeneration = world.scene_generation();
+            if (const std::uint64_t ws = world_signature(world); ws != limitSignature) {  // the scene, or what a script generated in it, changed
+                limitSignature = ws;
+                const WorldExtent x = measure_world(world, cur);
                 haveFallLimit = false;
-                double lowest = 0, highest = 0;
-                bool any = false, any2d = false;
-                std::set<std::uint64_t> trackedBits;
-                for (const Tracked& t : cur.items) {
-                    trackedBits.insert(t.bits);
-                    any2d = any2d || t.is2d;
-                }
-                for (Entity e : world.entities()) {
-                    const float y = world.world_position(e).y;
-                    if (!std::isfinite(y)) continue;
-                    lowest = any ? std::min(lowest, double(y)) : double(y);
-                    highest = any ? std::max(highest, double(y)) : double(y);
-                    any = true;
-                }
-                if (any && (cur.kind == FocusKind::Player || cur.kind == FocusKind::Bodies)) {
-                    const double unit = any2d ? 10.0 * double(I.project.pixelsPerMeter) : 10.0;
-                    sceneLowest = lowest;
-                    fallLimit = lowest - std::max(highest - lowest, unit);
+                if (x.any) {
+                    const double unit = x.any2d ? 10.0 * double(I.project.pixelsPerMeter) : 10.0;
+                    sceneLowest = x.lowest;
+                    fallLimit = x.lowest - std::max(x.highest - x.lowest, unit);
                     haveFallLimit = true;
                 }
             }
@@ -513,14 +600,21 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
                 if (!finite3(t.pos)) {
                     add_problem("not finite", std::format("'{}' has a position that is not a number ({}): a division by zero or a NaN in a script or the physics", cur.names[i], describe_pos(t.pos)), "broken");
                     broken = true;
-                } else if (haveFallLimit && cur.kind != FocusKind::Scripts && double(t.pos.y) < fallLimit) {
+                } else if (haveFallLimit && t.falls && double(t.pos.y) < fallLimit) {
                     add_problem("fall", std::format("'{}' fell out of the world: its y is {:.0f}, below the limit {:.0f} (the lowest thing in the scene is at y {:.0f})",
                                                     cur.names[i], t.pos.y, fallLimit, sceneLowest), "broken");
                     broken = true;
                 }
             }
             if (broken) break;
-            const std::uint64_t sig = signature();
+            std::uint64_t sig = signature();
+            if (const std::uint64_t text = ui_text_hash(world); text != lastText) {
+                lastText = text;
+                textChangeSteps.push_back(steps);
+                while (!textChangeSteps.empty() && textChangeSteps.front() < steps - std::int64_t(hz)) textChangeSteps.erase(textChangeSteps.begin());
+                if (textChangeSteps.size() <= 2) refTextEpoch += 1;  // a real change: the reference moves on
+            }
+            sig = mix(sig, refTextEpoch);
             if (sig != refSig || moved_since(ref, cur, I.project.pixelsPerMeter)) {
                 ref = std::move(cur);
                 refSig = sig;
@@ -550,6 +644,8 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     Json scriptErrors = Json::array();
     {
         std::set<std::string> distinct;
+        for (const std::string& e : scriptErrorsExtra)
+            if (scriptErrors.size() < 20 && distinct.insert(e).second) scriptErrors.push_back(e);
         for (const ScriptError& e : engine.scripts().errors())
             if (scriptErrors.size() < 20 && distinct.insert(e.to_string()).second) scriptErrors.push_back(e.to_string());
     }
@@ -573,9 +669,9 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     if (opt.speed > 1) s.input["timing"] = replayTiming;
     const std::string replayCommand =
         std::format("factoria run --headless --frames {} --input {}/input.json --seed {}{}", frames, relDir, opt.seed,
-                    config.scene.empty() ? std::string() : " --scene " + config.scene);
+                    config.scene.empty() ? std::string() : " --scene " + shell_word(config.scene));
     s.autoInfo = Json::object({{"bot", useHook ? "hook" : "explorer"}, {"seed", opt.seed}, {"speed", opt.speed}, {"secondsAsked", round3(opt.seconds)},
-                               {"stuckSeconds", round3(opt.stuckSeconds)}, {"steps", steps}, {"scriptErrorEvents", logErrors}, {"replay", replayCommand}});
+                               {"stuckSeconds", round3(opt.stuckSeconds)}, {"steps", steps}, {"errorsLogged", logErrors}, {"replay", replayCommand}});
     engine.scripts().autoplay_end();
     engine.shutdown();
 
@@ -608,7 +704,7 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     out["notes"] = notes;
     out["avgFrameMs"] = std::round(s.perf.avgMs * 10.0) / 10.0;
     out["maxFrameMs"] = std::round(s.perf.maxMs * 10.0) / 10.0;
-    out["screenshots"] = pictures + (s.endScreenshot.empty() ? 0 : 1);
+    out["screenshots"] = pictures;  // shoot() counts the end picture too
     out["endScreenshot"] = s.endScreenshot.empty() ? std::string() : absDir + "/" + s.endScreenshot;
     out["replay"] = replayCommand;
     out["next"] = "play.report {\"session\":\"" + name + "\"} has the numbers, the logs and every picture; the replay command plays the same input again.";

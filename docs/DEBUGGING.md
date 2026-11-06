@@ -269,7 +269,7 @@ factoria call --project games/x play.report '{}'
 
 The hook is the game's own `scripts/autoplay.js` ([SCRIPTING.md](SCRIPTING.md#the-bot-gameautoplay)); without one a generic explorer presses
 the declared input actions in patterns drawn from `seed`. Never `Math.random` and never the clock: time is game time (fixed steps), and the real
-clock only stops a run that takes far longer than any normal one (`aborted`).
+clock only stops a run that takes far longer than any normal one (`aborted` after 800 real seconds, a safety net that no normal run reaches).
 
 The result and the session hold:
 
@@ -277,16 +277,19 @@ The result and the session hold:
   something fell out of the world), `quit` (the game asked to close) or `aborted`. `score` is the last score the hook reported.
 - `phases`: the scenes the run loaded and the `game.phase(name)` marks, each with its game time and a screenshot; `end.png` is the picture when it ended.
   A session keeps at most 60 phases and 40 pictures; the notes say when it dropped some.
-- The frame times, the slowest frames, the warnings, errors and script errors, as in an editor session.
+- The frame times, the slowest frames, the warnings, errors and script errors, as in an editor session. The frame times are the engine's simulation
+  and script time per frame: a run draws only when it takes a picture (nobody watches), so they do not include rendering; measure that with
+  `perf.measure`.
 - `problems`: one mark for each thing found, with a screenshot and the fixed `step` it happened at.
 
 | Problem | Found when |
 |---|---|
-| `stuck` | the player (an entity tagged or named `player`, else the bodies that move, else the scripts) stays put and the world does not change for `stuckSeconds`. |
-| `menu` | the same, on a screen without a player: a menu with nothing the bot can press to leave it (a soft lock). |
+| `stuck` | the player (an entity tagged or named `player`, else the bodies that move, else the scripts) stays put for `stuckSeconds` and nothing else changes: no new scene or `game.phase`, no new score from the hook, no entity spawned or removed, no other text on screen (a text that changes more than twice a second, like a clock, does not count as a change). |
+| `menu` | the same, when there is no player and nothing moves, or a modal panel or a focused control is open: a menu with nothing the bot can press to leave it (a soft lock). |
 | `exception loop` | at least 5 script errors in each of 3 game seconds in a row (a hook that throws every step counts). |
-| `fall` | an entity is far below everything in the scene (it fell out of the world). |
+| `fall` | something pulled by gravity (a dynamic body whose scene has gravity, or a `CharacterController3D`) is far below everything else in the scene. The limit is measured again whenever the scene, its entity count or a tilemap's size changes, so a level a script generates later is fine; a top-down game without gravity never "falls". |
 | `not finite` | an entity's position is NaN or infinite. |
+| `hook` | `scripts/autoplay.js` could not be loaded (a syntax error, a failed import), or with `bot: "hook"` it never called `game.autoplay`. The run ends before the first step with the message in `scriptErrors`, and the explorer does not play instead. |
 
 A run ends at its first problem. `input.json` of the session is the bot's input in the replay format, and the result's `replay` is the
 command that plays it again, so a problem is reproduced without the bot: `factoria run --headless --frames N --input .factoria/sessions/<name>/input.json --seed S`.

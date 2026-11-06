@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 
 #include "assets_shots.h"
 #include "fa/core/fs.h"
@@ -22,19 +23,20 @@ namespace stdfs = std::filesystem;
     throw CommandError("invalid_argument", pointer + ": " + message, hint);
 }
 
-// A path from UTF-8 text (never through the ANSI code page on Windows).
-stdfs::path path_of_text(const std::string& text) { return stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size())); }
+// `projectDir` is the folder as the rest of the tooling carries it (a native string: the engine builds its project root from it the same
+// way); arguments and results that are JSON are UTF-8 text and go through fs::path_from_utf8 / fs::path_to_utf8, never the Windows code page.
+stdfs::path project_root_path(const std::string& projectDir) { return stdfs::path(projectDir); }
 
 // The scene files under the project, project-relative, for the "did you mean" of a wrong scene argument.
 std::vector<std::string> scene_candidates(const std::string& projectDir) {
     std::vector<std::string> out;
     std::error_code ec;
-    const stdfs::path root = fs::os_path(path_of_text(projectDir));
+    const stdfs::path root = fs::os_path(project_root_path(projectDir));
     stdfs::recursive_directory_iterator it(root, stdfs::directory_options::skip_permission_denied, ec), end;
     int visited = 0;
     for (; !ec && it != end && visited < 5000; it.increment(ec), ++visited) {
-        if (it->path().filename().generic_string().find(".scene.json") == std::string::npos) continue;
-        out.push_back(stdfs::relative(it->path(), root, ec).generic_string());
+        if (fs::path_to_utf8(it->path().filename()).find(".scene.json") == std::string::npos) continue;
+        out.push_back(fs::path_to_utf8(stdfs::relative(it->path(), root, ec)));
     }
     std::sort(out.begin(), out.end());
     return out;
@@ -44,7 +46,7 @@ double number_arg(const Json& a, const char* key, double def, double lo, double 
     auto it = a.find(key);
     if (it == a.end() || it->is_null()) return def;
     if (!it->is_number() || !(it->get<double>() >= lo) || !(it->get<double>() <= hi))
-        bad(std::string("/") + key, "must be a number from " + std::to_string(lo) + " to " + std::to_string(hi) + ".", hint);
+        bad(std::string("/") + key, std::format("must be a number from {} to {}.", lo, hi), hint);
     return it->get<double>();
 }
 
@@ -52,13 +54,14 @@ Json run_play_auto(const Json& a, const std::string& projectDir) {
     tooling_detail::require_project_dir(projectDir, "play.auto");
     PlayAutoOptions opt;
     opt.seconds = number_arg(a, "seconds", 60.0, 0.1, kPlayAutoMaxSeconds, "A minute of play is 60; the longest run is an hour of game time.");
-    // Not given: 10 game seconds, or half of a shorter run (a short run could never call a game stuck otherwise).
-    opt.stuckSeconds = number_arg(a, "stuckSeconds", std::max(0.5, std::min(10.0, opt.seconds / 2.0)), 0.5, kPlayAutoMaxSeconds, "10 game seconds without anything moving is long enough for a platformer; slow games need more.");
+    // Not given: 10 game seconds, or half of a shorter run (a short run could never call a game stuck otherwise); never more than the run.
+    opt.stuckSeconds = number_arg(a, "stuckSeconds", std::min(opt.seconds, std::max(0.5, std::min(10.0, opt.seconds / 2.0))), 0.5, kPlayAutoMaxSeconds,
+                                  "10 game seconds without anything moving is long enough for a platformer; slow games need more.");
     {
         auto it = a.find("speed");
         if (it != a.end() && !it->is_null()) {
             if (!it->is_number_integer() || it->get<long long>() < 1 || it->get<long long>() > kPlayAutoMaxSpeed)
-                bad("/speed", "must be a whole number from 1 to " + std::to_string(kPlayAutoMaxSpeed) + ".", "It is how many fixed steps one frame runs; 1 plays every step, 4 is about four times as fast.");
+                bad("/speed", std::format("must be a whole number from 1 to {}.", kPlayAutoMaxSpeed), "It is how many fixed steps one frame runs; 1 plays every step, 4 is about four times as fast.");
             opt.speed = int(it->get<long long>());
         }
         it = a.find("seed");
@@ -69,20 +72,22 @@ Json run_play_auto(const Json& a, const std::string& projectDir) {
         }
     }
     if (opt.stuckSeconds > opt.seconds)
-        bad("/stuckSeconds", "is " + std::to_string(opt.stuckSeconds) + " game seconds but the run only lasts " + std::to_string(opt.seconds) + ", so a stuck game could never be told apart from a short run.",
+        bad("/stuckSeconds", std::format("is {} game seconds but the run only lasts {}, so a stuck game could never be told apart from a short run.", opt.stuckSeconds, opt.seconds),
             "Ask for more seconds, or lower stuckSeconds below seconds.");
     const std::string botKind = tooling_detail::arg_string(a, "bot", false, "auto");
     if (botKind != "auto" && botKind != "hook" && botKind != "explorer")
         bad("/bot", "must be \"auto\", \"hook\" or \"explorer\", got \"" + botKind + "\". " + did_you_mean(botKind, std::vector<std::string>{"auto", "hook", "explorer"}),
             "auto uses scripts/autoplay.js when there is one, else the generic explorer.");
-    const bool hasHookFile = stdfs::exists(fs::os_path(path_of_text(projectDir) / "scripts" / "autoplay.js"));
+    const bool hasHookFile = stdfs::exists(fs::os_path(project_root_path(projectDir) / "scripts" / "autoplay.js"));
     if (botKind == "hook" && !hasHookFile)
         bad("/bot", "\"hook\" needs scripts/autoplay.js, and the project has none.",
             "Create it with game.autoplay((bot) => [...]) (docs/SCRIPTING.md, \"The bot\"), or leave bot out to let the generic explorer play.");
     opt.useHook = botKind != "explorer";
+    opt.hookRequired = botKind == "hook";
     opt.screenshots = tooling_detail::arg_bool(a, "screenshots", true);
     const std::string scene = tooling_detail::arg_string(a, "scene", false);
-    if (!scene.empty() && !stdfs::exists(fs::os_path(path_of_text(tooling_detail::project_path(projectDir, scene))))) {
+    const stdfs::path scenePath = scene.empty() ? stdfs::path() : (fs::is_absolute(scene) ? fs::path_from_utf8(scene) : project_root_path(projectDir) / fs::path_from_utf8(scene));
+    if (!scene.empty() && !stdfs::exists(fs::os_path(scenePath))) {
         const std::vector<std::string> scenes = scene_candidates(projectDir);
         bad("/scene", "the scene '" + scene + "' does not exist in the project. " + did_you_mean(scene, scenes),
             "Pass a project-relative path such as scenes/level1.scene.json, or leave scene out for the project's mainScene.");
@@ -96,7 +101,7 @@ Json run_play_auto(const Json& a, const std::string& projectDir) {
     if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
     Json out = r.value();
     const std::string endShot = out.value("endScreenshot", std::string());
-    if (!endShot.empty() && stdfs::exists(fs::os_path(path_of_text(endShot))))
+    if (!endShot.empty() && stdfs::exists(fs::os_path(fs::path_from_utf8(endShot))))
         out["$image"] = Json::object({{"path", endShot}, {"mimeType", "image/png"}});
     return out;
 }
@@ -115,7 +120,7 @@ void register_play_auto_commands(CommandRegistry& registry, const std::string& p
         "scripts/autoplay.js calls game.autoplay(fn) and fn(bot) answers, every step, the input actions to hold (docs/SCRIPTING.md, \"The bot\"; the project templates ship one that finishes their sample level). "
         "Without that file a generic explorer holds the declared input actions in seeded patterns (and taps the menu actions when the scene has buttons), so any game still gets smoke-played; bot \"explorer\" forces it. "
         "The run ends with `ended`: \"won\" or \"lost\" (the hook returned { end } or the game called game.phase(name, { ends })), \"timeout\" (the seconds passed), \"quit\" (the game quit), \"stuck\" (nothing moved and nothing changed for "
-        "stuckSeconds, or a menu has nobody to press it), \"broken\" (a script raised errors every second for 3 seconds, the player fell out of the world, or a position became NaN) or \"aborted\" (a real-time safety limit of 15 minutes). "
+        "stuckSeconds, or a menu has nobody to press it), \"broken\" (a script raised errors every second for 3 seconds, something pulled by gravity fell out of the world, a position became NaN, or scripts/autoplay.js could not be loaded) or \"aborted\" (a real-time safety net of 800 seconds, far above any normal run). "
         "Each problem becomes a mark with its `kind`, the `step`, a screenshot and a one-line note. The session is written to .factoria/sessions/<name>/ with \"source\": \"auto\" next to the editor's: session.json (perf, spikes, warnings, errors, marks, "
         "`phases` = the scenes and the game.phase(\"boss\") marks with their game time and a screenshot, `score`, `ended`, `endedWhy`, `notes`, `scriptErrors`, `auto`), input.json (the bot's input in the replay format) and the pictures. "
         "Returns {session, dir, ended, endedWhy, score, gameSeconds, steps, frames, bot (\"hook\" or \"explorer\"), seed, speed, phases, problems, scriptErrors, warningsAndErrorsLogged, notes, avgFrameMs, maxFrameMs, screenshots, endScreenshot, replay, next} "

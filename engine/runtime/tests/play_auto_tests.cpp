@@ -1,5 +1,6 @@
 // play.auto's engine side (fa/runtime/play_auto.h): the bot hook and the explorer, the session it writes, determinism, replay,
 // and the stuck / broken detection. Every run here is a few game seconds and no GPU, far below any time cap.
+#include <cstdio>
 #include <filesystem>
 #include <set>
 
@@ -36,9 +37,11 @@ game.autoplay((bot) => {
 )";
 
 struct AutoProject {
-    stdfs::path dir = fs::make_temp_dir("fa_play_auto");
-    // groundY: where the ground is; a ground "none" leaves the player to fall.
-    explicit AutoProject(bool ground = true, const char* hook = nullptr) {
+    stdfs::path root = fs::make_temp_dir("fa_play_auto");
+    stdfs::path dir = root;
+    // ground false leaves the player to fall; `folder` names the project folder inside the temp one (accents: the project of a user).
+    explicit AutoProject(bool ground = true, const char* hook = nullptr, const stdfs::path& folder = {}) {
+        if (!folder.empty()) dir /= folder;
         stdfs::create_directories(dir / "scenes");
         stdfs::create_directories(dir / "scripts");
         write("factoria.json", R"({"format":"factoria.project/1","name":"Auto","id":"com.example.auto","mainScene":"scenes/main.scene.json",
@@ -57,7 +60,7 @@ struct AutoProject {
     }
     ~AutoProject() {
         std::error_code ec;
-        stdfs::remove_all(dir, ec);
+        stdfs::remove_all(root, ec);
     }
     void write(const char* rel, const std::string& text) const { REQUIRE(fs::write_text((dir / rel).generic_string(), text).ok()); }
     EngineConfig config(bool graphics = false) const {
@@ -173,8 +176,8 @@ TEST_CASE("play.auto: without a hook the explorer plays and says so") {
     CHECK(notes_contain(r, "no scripts/autoplay.js"));
     CHECK(p.read_input(r)["frames"].size() > 0);  // it pressed something
 
-    const Json forced = run(AutoProject(true, kWalkHook), {.seconds = 2});  // bot "explorer" asks to ignore a hook that exists
-    CHECK(forced["bot"] == "hook");
+    const Json withHook = run(AutoProject(true, kWalkHook), {.seconds = 2});  // the default (useHook) plays a hook that exists
+    CHECK(withHook["bot"] == "hook");
     AutoProject h(true, kWalkHook);
     PlayAutoOptions o;
     o.seconds = 2;
@@ -365,4 +368,209 @@ TEST_CASE("play.report: an automatic session lists its marks and phases, and pha
     auto far = e.commands().call("play.report", Json{{"session", r["session"]}, {"phase", 9}});
     CHECK_FALSE(far.ok);
     e.shutdown();
+}
+
+// ---- the review round: paths, false falls, a hook that does not load, signs of progress, pictures --------------------------------------
+
+namespace {
+constexpr const char* kNoHook = "import { game } from \"factoria\";\ngame.autoplay(() => []);\n";
+const char* kEmptyScene = R"({"format":"factoria.scene/1","settings":{"gravity2D":[0,0]},"entities":[)";
+}  // namespace
+
+TEST_CASE("play.auto: a project folder with accents gives UTF-8 paths that exist and a result that dumps") {
+    AutoProject p(true, kWalkHook, stdfs::path(u8"Cañón niño"));
+    const Json r = run(p, {.seconds = 30});
+    CHECK(r["ended"] == "won");
+    const std::string dump = r.dump();  // throws on a byte sequence that is not UTF-8
+    CHECK_FALSE(dump.empty());
+    const std::string dir = r["dir"].get<std::string>();
+    CHECK(dir.find("Ca\xC3\xB1\xC3\xB3n ni\xC3\xB1o") != std::string::npos);  // the folder's name as UTF-8, not the code page's version
+    std::error_code ec;
+    CHECK(stdfs::exists(fs::os_path(fs::path_from_utf8(dir)) / "session.json", ec));
+    CHECK(stdfs::exists(fs::os_path(fs::path_from_utf8(dir)) / "input.json", ec));
+    CHECK_FALSE(p.read_session(r).dump().empty());
+
+    Engine e;
+    EngineConfig c = p.config();
+    c.headless = true;
+    c.hotReload = false;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    auto rep = e.commands().call("play.report", Json{{"session", r["session"]}});
+    REQUIRE(rep.ok);
+    CHECK_FALSE(rep.result.dump().empty());
+    CHECK(rep.result["replay"].get<std::string>().find("Ca\xC3\xB1\xC3\xB3n ni\xC3\xB1o") != std::string::npos);
+    CHECK(stdfs::exists(fs::os_path(fs::path_from_utf8(rep.result["replay"].get<std::string>())), ec));
+}
+
+TEST_CASE("play.auto: a top-down game without gravity never falls out of the world") {
+    AutoProject p(false, kNoHook);
+    p.write("scenes/main.scene.json", std::string(kEmptyScene) + R"({"id":"cam","components":{"Camera":{}}},
+        {"id":"p","name":"Player","tags":["player"],"components":{"Transform":{"position":[0,0,0]},
+          "RigidBody2D":{"type":"dynamic","fixedRotation":true},"Collider2D":{"shape":"box","size":[20,20]},"Script":{"path":"scripts/player.js"}}}]})");
+    p.write("scripts/player.js", R"(
+import { Behaviour } from "factoria";
+export default class P extends Behaviour {
+  onStart() { this.body = this.entity.get("RigidBody2D"); }
+  onUpdate() { this.body.velocity.y = -400; }   // walks down for ever: 4 pixels a step, far below the start in 5 seconds
+}
+)");
+    PlayAutoOptions o;
+    o.seconds = 6;
+    o.stuckSeconds = 5;
+    const Json r = run(p, o);
+    CHECK(r["ended"] == "timeout");
+    CHECK(r["problems"].size() == 0);
+}
+
+TEST_CASE("play.auto: a world a script generates after the start moves the fall limit") {
+    AutoProject p(false, kNoHook);
+    p.write("scenes/main.scene.json", R"({"format":"factoria.scene/1","settings":{"gravity2D":[0,-980]},"entities":[
+        {"id":"cam","components":{"Camera":{},"Script":{"path":"scripts/generator.js"}}},
+        {"id":"p","name":"Player","tags":["player"],"components":{"Transform":{"position":[0,20,0]},
+          "RigidBody2D":{"type":"dynamic","fixedRotation":true},"Collider2D":{"shape":"box","size":[20,20]}}}]})");
+    // The deep floor appears half a second in; the player passes the first guess of the limit (y -1000) on its way down.
+    p.write("scripts/generator.js", R"(
+import { Behaviour, world } from "factoria";
+export default class G extends Behaviour {
+  onUpdate() {
+    this.n = (this.n || 0) + 1;
+    if (this.n === 30) world.spawn({ id: "deep", components: { Transform: { position: [0, -3010, 0] },
+      RigidBody2D: { type: "static" }, Collider2D: { shape: "box", size: [4000, 20] } } });
+  }
+}
+)");
+    PlayAutoOptions o;
+    o.seconds = 6;
+    o.stuckSeconds = 5;
+    const Json r = run(p, o);
+    CHECK(r["problems"].size() == 0);
+    CHECK(r["ended"] == "timeout");
+}
+
+TEST_CASE("play.auto: a hook that cannot be loaded ends the run broken, and the explorer does not play in its place") {
+    AutoProject p(true, "import { game } from \"factoria\";\ngame.autoplay((bot) => { return [ ;\n");  // a syntax error
+    PlayAutoOptions o;
+    o.seconds = 5;
+    const Json r = run(p, o);
+    CHECK(r["ended"] == "broken");
+    CHECK(r["bot"] == "explorer");
+    REQUIRE(r["problems"].size() == 1);
+    CHECK(r["problems"][0]["kind"] == "hook");
+    CHECK(r["problems"][0]["step"] == 0);
+    CHECK(r["gameSeconds"].get<double>() == doctest::Approx(0.0));
+    REQUIRE(r["scriptErrors"].size() >= 1);
+    CHECK(r["scriptErrors"][0].get<std::string>().find("scripts/autoplay.js could not be loaded") != std::string::npos);
+    CHECK_FALSE(r["endedWhy"].get<std::string>().empty());
+}
+
+TEST_CASE("play.auto: a hook file that never calls game.autoplay says so; bot hook makes it a problem") {
+    AutoProject p(true, "// nothing here\n");
+    PlayAutoOptions o;
+    o.seconds = 2;
+    const Json r = run(p, o);
+    CHECK(r["bot"] == "explorer");
+    CHECK(r["ended"] == "timeout");
+    CHECK(notes_contain(r, "never called game.autoplay"));
+    CHECK_FALSE(notes_contain(r, "has no scripts/autoplay.js"));
+
+    o.hookRequired = true;
+    const Json strict = run(p, o);
+    CHECK(strict["ended"] == "broken");
+    REQUIRE(strict["problems"].size() == 1);
+    CHECK(strict["problems"][0]["kind"] == "hook");
+
+    AutoProject none;
+    PlayAutoOptions req;
+    req.seconds = 2;
+    req.hookRequired = true;
+    const Json missing = run(none, req);
+    CHECK(missing["ended"] == "broken");
+    CHECK(missing["endedWhy"].get<std::string>().find("no scripts/autoplay.js") != std::string::npos);
+}
+
+namespace {
+// A screen with no player whose label changes every `every` frames.
+void label_project(AutoProject& p, int every) {
+    p.write("scenes/main.scene.json", std::string(kEmptyScene) + R"({"id":"cam","components":{"Camera":{}}},
+        {"id":"t","components":{"Transform":{"position":[0,0,0]},"Text":{"text":"turn 0"},"Script":{"path":"scripts/turns.js"}}}]})");
+    p.write("scripts/turns.js", std::string("import { Behaviour } from \"factoria\";\nexport default class T extends Behaviour {\n"
+                                           "  onUpdate() { this.n = (this.n || 0) + 1; if (this.n % ") + std::to_string(every) +
+                                           " === 0) this.entity.get(\"Text\").text = \"turn \" + this.n; }\n}\n");
+}
+}  // namespace
+
+TEST_CASE("play.auto: a label that changes is progress, a clock that ticks all the time is not") {
+    PlayAutoOptions o;
+    o.seconds = 8;
+    o.stuckSeconds = 2;
+    {
+        AutoProject turns(false, kNoHook);
+        label_project(turns, 54);  // a turn every 0.9 s
+        const Json r = run(turns, o);
+        CHECK(r["ended"] == "timeout");
+        CHECK(r["problems"].size() == 0);
+    }
+    {
+        AutoProject clock(false, kNoHook);
+        label_project(clock, 6);  // ten times a second
+        const Json r = run(clock, o);
+        CHECK(r["ended"] == "stuck");
+        REQUIRE(r["problems"].size() == 1);
+        CHECK(r["problems"][0]["kind"] == "menu");
+    }
+}
+
+TEST_CASE("play.auto: the replay command quotes a scene path with spaces") {
+    AutoProject p(true, kNoHook);
+    stdfs::copy_file(p.dir / "scenes/main.scene.json", p.dir / "scenes/my level.scene.json");
+    EngineConfig c = p.config();
+    c.scene = "scenes/my level.scene.json";
+    PlayAutoOptions o;
+    o.seconds = 1;
+    o.stuckSeconds = 1;
+    o.screenshots = false;
+    auto r = play_auto(c, o);
+    REQUIRE(r.ok());
+    CHECK(r.value()["replay"].get<std::string>().find("--scene \"scenes/my level.scene.json\"") != std::string::npos);
+}
+
+TEST_CASE("play.auto: pictures per phase and at the end, the cap of 40, and play.report {phase} shows one (needs a graphics device)") {
+    AutoProject p(true, "import { game } from \"factoria\";\n"
+                        "let n = 0;\ngame.autoplay((bot) => { if (n < 45) game.phase(\"stage \" + (++n)); return [\"move_right\"]; });\n");
+    PlayAutoOptions o;
+    o.seconds = 3;
+    o.stuckSeconds = 3;
+    o.screenshots = true;
+    auto result = play_auto(p.config(true), o);
+    REQUIRE(result.ok());
+    const Json r = result.value();
+    if (notes_contain(r, "No screenshots")) {
+        MESSAGE("no graphics device on this machine: the picture checks are skipped");
+        CHECK(r["screenshots"] == 0);
+        return;
+    }
+    CHECK(r["screenshots"] == kPlayAutoMaxPictures + 1);  // the cap, and the end picture that is always kept
+    CHECK(notes_contain(r, "most a session keeps"));
+    const stdfs::path folder = p.dir / ".factoria" / "sessions" / r["session"].get<std::string>();
+    int files = 0;
+    std::error_code ec;
+    for (const auto& f : stdfs::directory_iterator(folder, ec))
+        if (f.path().extension() == ".png") ++files;
+    CHECK(files == kPlayAutoMaxPictures + 1);
+    CHECK(stdfs::exists(folder / "end.png"));
+    CHECK(r["endScreenshot"].get<std::string>().size() > 0);
+    REQUIRE(r["phases"].size() == 46);
+    CHECK(r["phases"][1]["screenshot"].get<std::string>() == "phase-2.png");
+
+    Engine e;
+    EngineConfig c = p.config();
+    c.headless = true;
+    c.hotReload = false;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    auto rep = e.commands().call("play.report", Json{{"session", r["session"]}, {"phase", 2}});
+    REQUIRE(rep.ok);
+    REQUIRE(rep.result.contains("$image"));
+    CHECK(stdfs::exists(fs::path_from_utf8(rep.result["$image"]["path"].get<std::string>()), ec));
 }

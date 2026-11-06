@@ -417,6 +417,12 @@ TEST_CASE("play.auto: runs on a project made from each template and writes a ses
             REQUIRE_MESSAGE(rep.ok, rep.error.dump());
             CHECK(rep.result["source"] == "auto");
             CHECK(rep.result["ended"] == r.result["ended"]);
+            // A very short run never asks for more stuck time than it lasts (the default is clamped to `seconds`), and an explicit one says so.
+            auto shortRun = session->registry().call("play.auto", fa::Json{{"seconds", 0.3}, {"screenshots", false}});
+            CHECK_MESSAGE(shortRun.ok, shortRun.error.dump());
+            auto tooLong = session->registry().call("play.auto", fa::Json{{"seconds", 1}, {"stuckSeconds", 2}, {"screenshots", false}});
+            REQUIRE_FALSE(tooLong.ok);
+            CHECK(tooLong.error.dump().find("/stuckSeconds") != std::string::npos);
             // A bad argument names its JSON pointer.
             auto bad = session->registry().call("play.auto", fa::Json{{"scene", "scenes/nope.scene.json"}});
             CHECK_FALSE(bad.ok);

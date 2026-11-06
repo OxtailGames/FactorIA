@@ -153,7 +153,7 @@ std::vector<std::string> play_session_names() {
     std::vector<std::string> names;
     std::error_code ec;
     for (const auto& e : std::filesystem::directory_iterator(fs::resolve(kPlaySessionsDir), ec))
-        if (e.is_directory(ec) && std::filesystem::exists(e.path() / "session.json", ec)) names.push_back(e.path().filename().string());
+        if (e.is_directory(ec) && std::filesystem::exists(e.path() / "session.json", ec)) names.push_back(fs::path_to_utf8(e.path().filename()));
     std::sort(names.rbegin(), names.rend());
     return names;
 }
@@ -224,7 +224,7 @@ void register_play_session_commands(Engine&, Engine::Impl& I) {
               auto r = load_json_file(rel + "/session.json");
               if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
               Json out = r.value();
-              const std::string absDir = fs::resolve(rel).generic_string();
+              const std::string absDir = fs::path_to_utf8(fs::resolve(rel));  // UTF-8: it goes into JSON
               out["session"] = name;
               out["replay"] = absDir + "/input.json";
               if (out.contains("auto") && out["auto"].is_object() && out["auto"].contains("replay") && out["auto"]["replay"].is_string())
@@ -240,7 +240,7 @@ void register_play_session_commands(Engine&, Engine::Impl& I) {
               std::string picture;
               auto exists = [](const std::string& path) {
                   std::error_code ec;
-                  return !path.empty() && std::filesystem::exists(fs::os_path(std::filesystem::path(path)), ec);
+                  return !path.empty() && std::filesystem::exists(fs::os_path(fs::path_from_utf8(path)), ec);
               };
               if (out.contains("marks") && out["marks"].is_array()) {
                   for (Json& m : out["marks"]) absolute(m, "screenshot");
