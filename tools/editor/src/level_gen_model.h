@@ -63,6 +63,7 @@ public:
     bool running() const { return state_ == State::Running; }
     double progress() const { return progress_; }          // 0..1 while Running
     const LevelGenPreview& preview() const { return preview_; }   // valid when Ready; kept from the last good run while Running / Failed
+    int job() const { return job_; }                        // the engine's job id while Running, else 0
     const std::string& error() const { return error_; }    // Failed: what went wrong
     const std::string& hint() const { return hint_; }      // Failed: how to fix it
     const std::vector<LevelGenTry>& tries() const { return tries_; }   // oldest first, at most kMaxTries
@@ -74,8 +75,9 @@ public:
     bool tick(const LevelGenCaller& call, double budgetMs);
     // Stops a running generation and frees the engine's memory for it.
     void cancel(const LevelGenCaller& call);
-    // Forgets the preview and the history (a different project or sample).
-    void clear();
+    // Forgets the preview and the history (a different sample). A running generation is cancelled first through `call`, so its job
+    // (and its solver memory) does not stay in the engine; pass an empty function only when the engine itself is gone.
+    void clear(const LevelGenCaller& call);
 
 private:
     void fail(const std::string& error, const std::string& hint);

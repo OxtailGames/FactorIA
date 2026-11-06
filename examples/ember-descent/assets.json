@@ -25,7 +25,7 @@
         "provider": "factoria assets.animate_svg",
         "license": "CC0-1.0",
         "notes": "3 frames of 32x32 baked from module 'art/tiles.sheet.js'.",
-        "date": "2026-11-05",
+        "date": "2026-11-06",
         "recipe": {
           "command": "assets.animate_svg",
           "args": {
@@ -48,7 +48,7 @@
           "inputs": [
             {
               "path": "art/tiles.sheet.js",
-              "sha256": "3fad38a52f3410e3450fa0b86d178a6ad91c55e37d8b26124c8b847fcde7a9d9"
+              "sha256": "df14289bdbf56c7cb22a5acbe4df791b6d925c1863c41327b89ef0e130ad7d47"
             }
           ]
         },

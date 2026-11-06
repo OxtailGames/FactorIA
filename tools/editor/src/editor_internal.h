@@ -585,6 +585,7 @@ public:
     LevelGenCaller level_gen_caller();
     void level_gen_keep();
     void level_gen_save();
+    void level_gen_write(bool overwrite);   // fs.write of the level file; without overwrite an existing file opens the Replace popup
     void level_gen_refresh_sample();   // the selection's Tilemap and the sample's solid tiles, for the buttons and the preview colours
     void draw_project_dialog();
     // AI panel text: the right-click menu of the InputText just submitted on `text` (Cut/Copy/Paste/Select all), and a
@@ -799,6 +800,8 @@ public:
     LevelGenOptions levelGenOpt_;
     std::string levelGenKeepName_ = "generated", levelGenSavePath_ = "levels/generated.json", levelGenMessage_;
     bool levelGenMessageBad_ = false;
+    std::string levelGenSaveTarget_, levelGenSaveContent_;   // the file Save asked about and what it would write (the Replace popup repeats it)
+    bool levelGenReplaceOpen_ = false;                       // open the "Replace <file>?" popup this frame
     std::vector<int> levelGenSolid_;   // solid tile numbers of the sample, for the preview colours
     std::string levelGenSelId_;        // the selection levelGenSelTilemap_ was read for
     bool levelGenSelTilemap_ = false;  // the selected entity has a Tilemap

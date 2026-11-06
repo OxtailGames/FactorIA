@@ -3,6 +3,7 @@
 // The same commands the panel calls, so these are also the tests of what the window shows. GPU-free.
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 #include "doctest.h"
 #include "fa/core/fs.h"
@@ -288,10 +289,44 @@ TEST_CASE("level generator: clear forgets the preview and the history") {
     g.start(entity_options(1), s.caller());
     REQUIRE(s.finish(g) >= 0);
     REQUIRE(g.preview().valid);
-    g.clear();
+    g.clear(s.caller());
     CHECK_FALSE(g.preview().valid);
     CHECK(g.tries().empty());
     CHECK(g.state() == LevelGenSession::State::Idle);
+}
+
+TEST_CASE("level generator: clear cancels a running job: no leaked job, all 8 slots free") {
+    Session s;
+    LevelGenSession g;
+    LevelGenOptions big = entity_options(1);
+    big.width = 400;
+    big.height = 400;
+    g.start(big, s.caller());
+    REQUIRE(g.running());
+    const int job = g.job();
+    REQUIRE(job != 0);
+    g.tick(s.caller(), 0.5);
+    REQUIRE(g.running());
+    g.clear(s.caller());
+    CHECK(g.state() == LevelGenSession::State::Idle);
+    CHECK(g.job() == 0);
+    // The old job is gone from the engine ...
+    const CommandResult stale = s.caller()("tilemap.generate_step", Json::object({{"job", job}, {"budgetMs", 1.0}}));
+    CHECK_FALSE(stale.ok);
+    // ... and it did not take one of the 8 slots: 8 new jobs start (a leaked one would make the 8th refuse).
+    LevelGenOptions small = big;   // eight 400 x 400 solvers would pass the 256 MB the jobs may hold together: the count is what is tested
+    small.width = 60;
+    small.height = 60;
+    Result<Json> args = level_gen_arguments(small);
+    REQUIRE(args.ok());
+    std::vector<int> jobs;
+    for (int i = 0; i < 8; ++i) {
+        const CommandResult r = s.caller()("tilemap.generate_start", args.value());
+        INFO("job " << i << ": " << r.error.dump());
+        REQUIRE(r.ok);
+        jobs.push_back(r.result.value("job", 0));
+    }
+    for (int j : jobs) s.caller()("tilemap.generate_cancel", Json::object({{"job", j}}));
 }
 
 TEST_CASE("level generator: the preview's cells follow the legend") {
