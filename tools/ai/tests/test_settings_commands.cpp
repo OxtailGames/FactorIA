@@ -552,3 +552,44 @@ TEST_CASE("ai.settings.set: null for a setting the file does not hold says remov
     CHECK(set.result["removed"] == true);
     CHECK(has(set.result["hint"], "Saved in your ai.json"));
 }
+
+TEST_CASE("ai.settings.set user: removing a tool server or a plugin switch says removed true only when ai.json held its \"enabled\"") {
+    World w;
+    write_file(w.ai, R"({
+      "mcpServers": {"scenario": {"type": "http", "url": "https://mcp.example.com/mcp", "enabled": false},
+                     "plain": {"type": "http", "url": "https://mcp.example.com/plain"}},
+      "extensions": {"plugins": {"notes": {"path": ")" + (w.home.path / "notes").generic_string() + R"(", "note": "keeps notes", "enabled": false}}}
+    })");
+    fsys::create_directories(w.home.path / "notes");
+    auto read = [&] {
+        auto file = fa::parse_json(*fa::fs::read_text(w.ai), "f");
+        REQUIRE(file);
+        return *file;
+    };
+    // a tool server whose definition holds its switch: the switch goes, the definition stays
+    auto server = w.set("user", "/mcpServers/scenario", nullptr);
+    REQUIRE(server.ok);
+    CHECK(server.result["removed"] == true);
+    CHECK(has(server.result["hint"], "Saved in your ai.json"));
+    Json file = read();
+    CHECK(file.contains("/mcpServers/scenario/url"_json_pointer));
+    CHECK_FALSE(file.contains("/mcpServers/scenario/enabled"_json_pointer));
+    CHECK(file.contains("/extensions/plugins/notes/enabled"_json_pointer));  // the plugin is untouched
+    // the same for a plugin
+    auto plugin = w.set("user", "/extensions/plugins/notes", nullptr);
+    REQUIRE(plugin.ok);
+    CHECK(plugin.result["removed"] == true);
+    file = read();
+    CHECK(file.contains("/extensions/plugins/notes/path"_json_pointer));
+    CHECK_FALSE(file.contains("/extensions/plugins/notes/enabled"_json_pointer));
+    // a definition without a switch, and a switch that is already gone: nothing was taken out
+    for (const char* pointer : {"/mcpServers/plain", "/mcpServers/scenario", "/extensions/plugins/notes"}) {
+        const std::string before = *fa::fs::read_text(w.ai);
+        auto none = w.set("user", pointer, nullptr);
+        INFO(pointer);
+        REQUIRE(none.ok);
+        CHECK(none.result["removed"] == false);
+        CHECK(has(none.result["hint"], "Nothing changed"));
+        CHECK(*fa::fs::read_text(w.ai) == before);
+    }
+}

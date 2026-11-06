@@ -6,7 +6,9 @@
 #include <cfloat>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -112,13 +114,31 @@ Result<void> Editor::ai_project_keep_replaced_copy() {
                      "Press Save again and confirm, or Accept the file first."};
     }
     const std::string file = ai_project_settings_path();
-    const std::string copy = utf8_string(utf8_path(file).parent_path() / "settings.replaced.json");
-    auto bytes = fs::read_bytes(file);
-    Result<void> kept = bytes ? fs::write_bytes(copy, bytes->data(), bytes->size()) : Result<void>(bytes.error());
-    if (!kept) {
+    // std::filesystem paths from utf8_path: fs::read_bytes / fs::write_bytes take a std::string path that Windows reads in the ANSI code page.
+    const std::filesystem::path from = utf8_path(file);
+    const std::filesystem::path copy = from.parent_path() / "settings.replaced.json";
+    std::string failure;
+    {
+        std::ifstream in(from, std::ios::binary);
+        std::ostringstream bytes;
+        if (!in) {
+            failure = "cannot read " + file;
+        } else {
+            bytes << in.rdbuf();
+            if (in.bad()) failure = "cannot read " + file;
+        }
+        if (failure.empty()) {
+            std::ofstream out(copy, std::ios::binary | std::ios::trunc);
+            const std::string data = bytes.str();
+            if (out) out.write(data.data(), static_cast<std::streamsize>(data.size()));
+            out.flush();
+            if (!out) failure = "cannot write " + utf8_string(copy);
+        }
+    }
+    if (!failure.empty()) {
         aiProj_.replaceOk = false;
-        return Error{"Cannot keep a copy of the file that Save would replace: " + kept.error().message,
-                     "Nothing was changed. Free the folder " + utf8_string(utf8_path(file).parent_path()) + " or Delete the file instead."};
+        return Error{"Cannot keep a copy of the file that Save would replace: " + failure,
+                     "Nothing was changed. Free the folder " + utf8_string(from.parent_path()) + " or Delete the file instead."};
     }
     return {};
 }

@@ -2,8 +2,12 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <map>
+#include <optional>
 #include <set>
+#include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -19,6 +23,15 @@ namespace fsys = std::filesystem;
 namespace {
 
 const char* const kExtensionGroupNames[] = {"plugins", "skills", "hooks"};
+
+// The bytes of a file, nullopt when it cannot be read (it does not exist).
+std::optional<std::string> read_text_if_any(const std::string& file) {
+    std::ifstream in(fsys::path(file), std::ios::binary);
+    if (!in) return std::nullopt;
+    std::ostringstream text;
+    text << in.rdbuf();
+    return text.str();
+}
 
 void collect_leaves(const Json& j, const std::string& pointer, std::vector<std::pair<std::string, Json>>& out) {
     if (j.is_object()) {
@@ -230,13 +243,17 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
 
             Json out = Json::object({{"scope", scope}, {"pointer", pointer}});
             if (scope == "user") {
+                // What ai.json holds before, to tell afterwards whether a removal took anything out of it: the file is only rewritten when a
+                // key was erased (a server's or plugin's pointer erases its "enabled" switch, which a definition may not hold).
+                const std::string userFile = aiConfigPath.empty() ? default_config_path(env) : aiConfigPath;
+                const std::optional<std::string> fileBefore = value.is_null() ? read_text_if_any(userFile) : std::nullopt;
                 if (auto ok = set_user_setting(pointer, value, aiConfigPath, env); !ok) fail("invalid_setting", ok.error());
                 if (onUserConfigChanged) onUserConfigChanged();  // the file is written: the editor reloads before anything below can fail
                 auto after = resolve_ai_config("", aiConfigPath, env);
                 if (!after) throw CommandError("invalid_config", after.error().message, after.error().hint);
                 out["ok"] = true;
                 // `removed` says a value was taken out of ai.json: null for a setting the file did not set removes nothing.
-                const bool removed = value.is_null() && before->source_of(pointer) == SettingSource::You;
+                const bool removed = value.is_null() && fileBefore && read_text_if_any(userFile) != fileBefore;
                 out["removed"] = removed;
                 const Json view = settings_view(after->config);
                 const Json::json_pointer jp{pointer};
@@ -247,9 +264,13 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
                 out["needsAcceptance"] = false;
                 out["applied"] = true;
                 out["changed"] = changed_json(before->config, after->config);
+                // A tool server's or extension's pointer is its on/off switch: null removes "enabled" from its entry, never the entry.
+                const bool isSwitch = pointer.rfind("/mcpServers/", 0) == 0 || pointer.rfind("/extensions/", 0) == 0;
                 out["hint"] = value.is_null() && !removed
-                                  ? "Nothing changed: your ai.json does not set " + escape_control_chars(pointer) + ", so there was nothing to remove (it is "
-                                    "the engine's own value)."
+                                  ? (isSwitch ? "Nothing changed: your ai.json holds no \"enabled\" switch for " + escape_control_chars(pointer) +
+                                                    ", so there was nothing to remove (null removes the switch, never the server's or extension's entry)."
+                                              : "Nothing changed: your ai.json does not set " + escape_control_chars(pointer) +
+                                                    ", so there was nothing to remove (it is the engine's own value).")
                                   : "Saved in your ai.json: it is the default of every project that does not set it itself.";
                 return out;
             }
