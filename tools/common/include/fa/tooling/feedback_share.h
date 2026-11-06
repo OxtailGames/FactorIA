@@ -143,8 +143,9 @@ Result<void> update_share_settings(const ShareEnv& env, const std::function<void
 class ShareLock {
 public:
     explicit ShareLock(const ShareEnv& env);
-    // The same lock in another folder (FeedbackFileLock's project lock). The wait and stale times are those of `env`.
-    ShareLock(const ShareEnv& env, const std::filesystem::path& folder);
+    // The same lock in another folder (FeedbackFileLock's project lock). The wait and stale times are those of `env`;
+    // `reportedWaitSec` (when not negative) is the wait a busy-lock message names, for a caller whose wait began earlier.
+    ShareLock(const ShareEnv& env, const std::filesystem::path& folder, double reportedWaitSec = -1);
     ~ShareLock();
     ShareLock(const ShareLock&) = delete;
     ShareLock& operator=(const ShareLock&) = delete;
@@ -160,8 +161,8 @@ public:
     static void keep_alive();
 
 private:
-    void init(const ShareEnv& env, const std::filesystem::path& folder);
-    void acquire(const ShareEnv& env, const std::filesystem::path& folder);
+    void init(const ShareEnv& env, const std::filesystem::path& folder, double reportedWaitSec);
+    void acquire(const ShareEnv& env, const std::filesystem::path& folder, double reportedWaitSec);
     void refresh();
     bool held_ = false, nested_ = false, unwritable_ = false;
     double staleSec_ = 10.0;
@@ -174,8 +175,10 @@ private:
 // the project's own `.factoria` folder (next to the feedback file). The project's lock is always taken, so a process that can write
 // ~/.factoria and one that cannot (a sandbox, a read-only home) still exclude each other; a process that cannot write the user's
 // folder takes only the project's, so the report of a gap does not need ~/.factoria. Only when the project's folder cannot hold a
-// lock either while the user's is held is the user's lock alone enough. held() / error() say whether the lock was taken; error()
-// names the folder when none could be.
+// lock either while the user's is held is the user's lock alone enough. The two share ONE wait (ShareEnv::lockWaitSec, or the
+// ShareWaitCap of the thread): the second lock waits only for what the first left. held() / error() say whether the lock was
+// taken; error() names the folder when none could be. When the feedback file's folder does not exist nothing is taken or made
+// (no folder, no `.factoria`): held() is true, there is no file to protect, and the caller's own read or write reports the path.
 class FeedbackFileLock {
 public:
     // `projectOnly` takes the project's lock without the user's: for the one write that must go through while another program holds the
@@ -192,6 +195,7 @@ public:
 private:
     std::unique_ptr<ShareLock> user_, local_;
     std::string error_;
+    bool noFolder_ = false;
 };
 // For the span of its life no lock taken by this thread waits longer than `sec`, whatever ShareEnv::lockWaitSec says. The editor's UI
 // thread uses it around commands it runs on its own thread (feedback.delete) so a frame never stalls on another process.

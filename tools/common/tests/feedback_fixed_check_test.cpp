@@ -52,6 +52,7 @@ TEST_CASE("fixed list: validation says where the problem is") {
 }
 
 TEST_CASE("fixed list: a matching open entry is closed with the version; others are left alone") {
+    testing::ScratchShareHome scratchHome;  // the lock of the sharing files goes to a scratch user folder, never ~/.factoria
     testing::TempDir dir;
     const std::string file = file_with(dir, {{"physics", "No one-way platforms"}, {"audio", "No one-way platforms"}, {"ui", "Dropdown has no search box"}});
     const Json list = list_with(R"([{"category":"physics","titles":["No one-way platforms","One-way platform support"],"fixedIn":"0.11.0"}])");
@@ -75,6 +76,7 @@ TEST_CASE("fixed list: a matching open entry is closed with the version; others 
 }
 
 TEST_CASE("fixed list: the same family counts, and the share title is matched too") {
+    testing::ScratchShareHome scratchHome;  // the lock of the sharing files goes to a scratch user folder, never ~/.factoria
     testing::TempDir dir;
     const std::string file = dir.sub("game") + "/ENGINE_FEEDBACK.json";
     Json doc = create_empty_feedback("g");

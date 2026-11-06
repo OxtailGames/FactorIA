@@ -922,6 +922,9 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
 }
 
 void Editor::on_frame(double dt) {
+    // Everything the UI thread does in a frame (the panels, the share tick, the commands it runs for the AI and MCP) waits at most
+    // 0.3 s for a feedback lock another program holds; the caller shows "busy, try again" and the next tick retries.
+    const ShareWaitCap uiWait(0.3);
     atHeartbeat_.fetch_add(1, std::memory_order_relaxed);  // the autotest's watchdog sees the editor alive
     time_ += dt;
     poll_disk_update();

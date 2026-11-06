@@ -401,16 +401,20 @@ confirming or discarding an entry (`feedback.delete` and `factoria feedback disc
 a deleted entry never stays sendable), and the command line says so and exits with an error. The editor never waits more than a third
 of a second for it: it tells you ("could not be queued for sharing yet", or the action's own message) and tries again.
 
-Writing `ENGINE_FEEDBACK.json` itself takes a lock too, so two programs writing the file at once never lose an entry. Every
-function that rewrites the file or its archive holds it from the read to the write: a report, an efficiency entry a retrospective
+Writing a project's `ENGINE_FEEDBACK.json` itself takes a lock too, so two programs writing the file at once never lose an entry.
+Every engine function that rewrites the project's file or its archive holds it from the read to the write: a report, an efficiency entry a retrospective
 files, the note of a fix check, a status change (`feedback.update`, the Status box of the editor), the archive of closed entries
 (the editor runs it when it opens the project), the share text, a delete, the sharing queue and the answer of the engine
 developers. The lock is two of the same kind, taken in this order: the one in your user folder (`~/.factoria`) and then one in the
 project's own `.factoria` folder. The project's is always taken, so a program that can write your user folder and one that cannot
 (an AI inside a sandbox, with a read-only home) still wait for each other; the one that cannot write the user folder holds only
 the project's, so a report never needs `~/.factoria`. Only when neither folder can be written does a write fail, with a message
-that names both. The editor waits at most a third of a second for a lock another program holds, then says nothing was changed and
-to try again; the terminal and the commands wait up to 12 seconds.
+that names both (a home that cannot be written and a project lock that is only busy gets the busy message). The two locks share one
+wait: the editor waits at most a third of a second in all for a lock another program holds, then says nothing was changed and to
+try again; the terminal and the commands wait up to 12 seconds in all. A path whose folder does not exist is given no lock and no
+folder (the command's own read says the file is not there). The engine developer's inbox (`feedback pull`, the quarantine, the
+cursor, `triage`) is not covered: one person's commands write those files, one at a time; only the status changes that go through
+`feedback.update` take the lock.
 
 The choice is stored in YOUR `feedback-sharing.json` (`"projects": {"<project folder path>": "never"}`), never inside the
 project, so a project you copy or download does not inherit the choice: it follows your default. The key is the folder's absolute
