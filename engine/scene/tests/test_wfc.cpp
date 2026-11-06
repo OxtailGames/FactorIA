@@ -550,7 +550,8 @@ TEST_CASE("wfc: weights above 2^32 and an oversized tiled adjacency table are re
     REQUIRE_FALSE(zero.ok());
     CHECK(message(zero.error()).find("weight 0") != std::string::npos);
 
-    // The tiled model has the same adjacency limit as the overlapping one: 20000 tiles of a terrain are far over it.
+    // The tiled model has the same adjacency limit as the overlapping one: 12000 tiles of a terrain are over it (the table is filled
+    // until it passes 48 million entries, about 3 s of Debug CPU, which is the price of testing that limit; nothing here has a time cap).
     Terrain wide;
     wide.name = "wide";
     wide.mode = AutotileMode::Basic16;
@@ -803,4 +804,131 @@ TEST_CASE("wfc memory: the estimate saturates and is checked before anything is 
     auto g = wfc::Generator::create(model, go);
     REQUIRE_FALSE(g.ok());
     CHECK(g.error().message.find("cells are fixed") != std::string::npos);
+}
+
+TEST_CASE("wfc phases: a step ends within one chunk of its budget, even while an attempt starts or finishes") {
+    auto model = overlapping(kMap16, 3, 1, true);
+    auto go = options_for(160, 160, 3, 10);
+    go.periodic = true;
+    // A big grid: resetting its 25600 cells, building the output and counting it each used to be one piece of work.
+    go.counts.push_back({{0}, 1, -1, "ground"});
+    auto g = make_generator(model, go);
+    std::int64_t before = 0, widest = 0;
+    int steps = 0;
+    while (g->step(1) == wfc::GenStatus::Running) {
+        widest = std::max(widest, g->stats().work - before);
+        before = g->stats().work;
+        ++steps;
+    }
+    REQUIRE(g->status() == wfc::GenStatus::Done);
+    CHECK(steps > 100);
+    // One chunk is about 16384 units; a propagated cell or an observed cell is small beside it.
+    CHECK(widest <= 2 * 16384 + 4096);
+    // and the cut does not change the level
+    auto whole = make_generator(model, go);
+    REQUIRE(whole->run() == wfc::GenStatus::Done);
+    CHECK(whole->output() == g->output());
+    CHECK(whole->stats().work == g->stats().work);
+}
+
+TEST_CASE("wfc phases: the first flush of a fresh attempt (every cell dirty) is cut into chunks on a big grid") {
+    auto model = overlapping(kMap16, 3, 1, true);
+    auto go = options_for(256, 256, 3, 1);   // 65536 cells: far more than one chunk of 16384
+    go.periodic = true;
+    auto g = make_generator(model, go);
+    std::int64_t before = 0, widest = 0;
+    int steps = 0;
+    // up to the first observed cell: the reset, the rules and the flush that gives every cell its heap entry
+    while (g->status() == wfc::GenStatus::Running && g->stats().observations == 0 && steps < 100000) {
+        g->step(1);
+        widest = std::max(widest, g->stats().work - before);
+        before = g->stats().work;
+        ++steps;
+    }
+    REQUIRE(g->stats().observations > 0);
+    CHECK(g->stats().heapPeak >= 65536u);   // every cell did get its entry
+    // 65536 cells in one piece would be 65536 units (stamps) and again as many (entries); a chunk is about 16384
+    CHECK(widest <= 2 * 16384 + 4096);
+    CHECK(steps > 4 * 4);
+}
+
+TEST_CASE("wfc check: a GridCheck runs in pieces, counts its work and can refuse") {
+    struct Walls : wfc::GridCheck {
+        int begun = 0, steps = 0;
+        std::size_t seen = 0;
+        const std::vector<int>* grid = nullptr;
+        void begin(const std::vector<int>& cells) override {
+            ++begun;
+            grid = &cells;
+            seen = 0;
+        }
+        Verdict step(std::int64_t chunk, std::string& why, std::int64_t& work) override {
+            ++steps;
+            const std::size_t to = std::min(grid->size(), seen + std::size_t(std::min<std::int64_t>(chunk, 100)));   // 100 cells at a time
+            work += std::int64_t(to - seen);
+            seen = to;
+            if (seen < grid->size()) return Verdict::More;
+            int walls = 0;
+            for (int c : *grid) walls += c == 1;
+            if (walls >= 40) return Verdict::Accepted;
+            why = "only " + std::to_string(walls) + " wall cells";
+            return Verdict::Refused;
+        }
+    };
+    auto model = overlapping(kRooms, 3, 1, false);
+    auto check = std::make_shared<Walls>();
+    auto go = options_for(30, 20, 2, 400);
+    go.check = check;
+    auto g = make_generator(model, go);
+    while (g->step(5) == wfc::GenStatus::Running) {
+    }
+    REQUIRE_MESSAGE(g->status() == wfc::GenStatus::Done, g->failure_message());
+    CHECK(count_of(g->output(), 1) >= 40);
+    CHECK(check->begun == g->stats().attempts - g->stats().contradictions);   // asked once per finished grid
+    CHECK(check->steps >= check->begun * 6);                                  // 600 cells, 100 per call: it said More five times each
+    CHECK(g->stats().attempts == g->stats().contradictions + g->stats().rejected + 1);
+
+    // the same level whether stepped finely or run
+    auto again = std::make_shared<Walls>();
+    auto go2 = options_for(30, 20, 2, 400);
+    go2.check = again;
+    auto h = make_generator(model, go2);
+    REQUIRE(h->run() == wfc::GenStatus::Done);
+    CHECK(h->output() == g->output());
+    CHECK(h->stats().work == g->stats().work);
+
+    // always refusing: Failed with the check's reason
+    struct Never : wfc::GridCheck {
+        void begin(const std::vector<int>&) override {}
+        Verdict step(std::int64_t, std::string& why, std::int64_t&) override {
+            why = "not enough treasure";
+            return Verdict::Refused;
+        }
+    };
+    auto go3 = options_for(12, 12, 1, 3);
+    go3.check = std::make_shared<Never>();
+    auto n = make_generator(model, go3);
+    CHECK(n->run() == wfc::GenStatus::Failed);
+    CHECK(n->failure_message().find("not enough treasure") != std::string::npos);
+}
+
+TEST_CASE("wfc constraints: pinMissing false leaves a missed minimum to the retries") {
+    Rows rare = kRooms;
+    rare[3][4] = 'o';
+    auto rareModel = overlapping(rare, 3, 1, false);
+    int pinned = 0, pinnedOff = 0;
+    for (std::uint64_t seed = 1; seed <= 5; ++seed) {
+        auto go = options_for(24, 16, seed, 300);
+        go.counts.push_back({{2}, 3, -1, "pillar"});
+        auto on = make_generator(rareModel, go);
+        on->run();
+        pinned += on->stats().pinned;
+        go.pinMissing = false;
+        auto off = make_generator(rareModel, go);
+        off->run();
+        pinnedOff += off->stats().pinned;
+        if (off->status() == wfc::GenStatus::Done) CHECK(count_of(off->output(), 2) >= 3);   // a grid with 3 turned up by chance
+    }
+    CHECK(pinned > 0);
+    CHECK(pinnedOff == 0);
 }

@@ -30,17 +30,21 @@
 // `peakBytes` are byte counts of this compiler's containers: they differ between runs and machines and are NOT part of the
 // determinism promise; `work` and the other counters are.
 // WORK is the one deterministic measure of effort. A unit is about one step of an inner loop: one pattern removed from a cell and one
-// look at each neighbouring pattern it supported (so the adjacency lists of the model count), one heap entry per cell that changed,
+// look at each neighbouring pattern it supported (so the adjacency lists of the model count), one stamp and one heap entry per cell that changed,
 // one pattern per observed cell, the state reset of every cell when an attempt starts, one pattern tested against one cell for the edge and
-// forbidden patterns, n * n * patterns for every fixed cell, and what `accept` reports (one per cell it visits, per pass and per path
-// searched). GenerateOptions::maxWork caps the total over all attempts: the run fails with GenFailure::workLimit when the count passes
+// forbidden patterns, n * n * patterns for every fixed cell, one per cell for building the output and one more for counting it, and what
+// `accept` / `check` reports (one per cell it visits, per pass and per path searched). An attempt is a chain of phases (reset, edge
+// rules, forbidden, fixed cells, pins, solve, output, counts, check) and each advances in chunks of about 16384 units, so one call of step()
+// ends within a chunk of its budget (the solve flushes the cells that changed in chunks too; the one piece that is not cut is the
+// rebuild of a heap that is at its allowance, a pass over at most 4 entries per cell); the chunks do not depend on the budget. GenerateOptions::maxWork caps the total over all attempts: the run fails with GenFailure::workLimit when the count passes
 // it, at the same point on every machine and however the calls to step() are sized. A time limit is only a safety net the caller adds
 // on top: a result must never depend on speed.
 //
 // CONSTRAINTS. `forbidden` symbols never appear (the patterns that contain them are removed), a CellRule fixes or restricts one
 // output cell, a CountRule says how many cells of some symbols the finished grid must hold (min / max): a grid that misses a
 // minimum is refused and the next attempt pins the missing cells at positions drawn from its own seed, so a rare tile still
-// turns up. `accept` is the last word (reachability, ...). All of it is deterministic.
+// turns up (`pinMissing: false` turns that repair off); a maximum is only checked on the finished grid, which is refused when it is over.
+// `accept` is the last word (reachability, ...). All of it is deterministic.
 #pragma once
 
 #include <cstddef>
@@ -140,6 +144,20 @@ struct CountRule {
     std::string name;                            // for messages ("treasure"); empty = the symbol ids
 };
 
+// A check on a finished grid that runs in pieces (the reachability check): begin() hands it the grid, then step() is called, each
+// call doing about `chunk` units of work, until it says Accepted or Refused. A check that is one call long uses
+// GenerateOptions::accept instead. Must be deterministic. The generator keeps the pointer; one check serves one generator.
+class GridCheck {
+public:
+    enum class Verdict { More, Accepted, Refused };
+    virtual ~GridCheck() = default;
+    // A new finished grid (width * height symbols): forget any earlier one. The vector stays alive until the verdict.
+    virtual void begin(const std::vector<int>& cells) = 0;
+    // Does about `chunk` units of work. Adds what it did to `work` (one unit per cell visited per pass and per path searched: width *
+    // height each, never time) and, with Refused, says why. Called again while it returns More.
+    virtual Verdict step(std::int64_t chunk, std::string& why, std::int64_t& work) = 0;
+};
+
 struct GenerateOptions {
     int width = 0;                               // output cells
     int height = 0;
@@ -155,6 +173,12 @@ struct GenerateOptions {
     // with the next seed and, after maxAttempts, fails with the last reason. Must be deterministic. Add to `work` the units the
     // check cost (one per cell visited per pass and per path searched: width * height each), never its time: it counts toward maxWork.
     std::function<bool(const std::vector<int>& cells, std::string& why, std::int64_t& work)> accept;
+    // The same asked in pieces, so a big grid does not make one step() long. Used instead of `accept` when set.
+    std::shared_ptr<GridCheck> check;
+    // A count rule's minimum that a finished grid missed is repaired on the next attempt by pinning the missing cells (see CountRule).
+    // false: the grid is only refused and the next attempt starts from scratch. A maximum is never repaired either way: it is checked
+    // on the finished grid and a grid over it is refused.
+    bool pinMissing = true;
 };
 
 enum class GenStatus { Running, Done, Failed };
@@ -213,7 +237,7 @@ public:
     static Result<std::unique_ptr<Generator>> create(std::shared_ptr<const PatternModel> model, GenerateOptions options);
 
     // Does at most `workBudget` units of work (see WORK above) and returns where it stands. The budget may be overshot by one step of the
-    // algorithm (all the removals pending in one cell, starting an attempt, finishing one with its `accept` check).
+    // algorithm: the removals pending in one cell, one chunk of a phase, one call of a one-shot `accept`, one step of a `check`.
     GenStatus step(std::int64_t workBudget);
     // step() until Done or Failed.
     GenStatus run();

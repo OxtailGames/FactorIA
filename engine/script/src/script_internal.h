@@ -99,6 +99,7 @@ struct ScriptSystem::Impl {
 
     Preloader preload;  // scene.preload / assets.preload jobs (preload.h); ticked by dispatch_platform
     int generateJobs = 0;  // tilemap.generate generations the script side still advances (tilemap API in factoria.js); dispatch_platform calls its generateTick while it is above 0
+    std::vector<int> wfcJobIds;  // the jobs tilemap.generate_start answered to calls of the script (ScriptHost::drop_script_jobs)
     std::vector<ScriptPlugin> plugins;  // set_plugins: the `plugins` object of scripts
     Json plugins_json() const;          // [{name, error?, functions: [{name, doc}]}] (script_api.cpp)
 

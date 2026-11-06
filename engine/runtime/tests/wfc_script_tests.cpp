@@ -130,6 +130,30 @@ TEST_CASE("tilemap.generate (script): the level and the work are those of the co
     CHECK(s.frames_until_done() == frames);
 }
 
+TEST_CASE("tilemap.generate (script): the per-frame budget is shared by the running generations") {
+    Session s;
+    const std::string a = args_js("size: [56, 40], seed: 9, n: 3");
+    // alone, a generation gets the whole frame (500000 units without a window)...
+    s.eval("globalThis.job = tilemap.generate(" + a + ")");
+    s.engine.step(1);
+    const long long alone = s.eval("globalThis.job.work").get<long long>();
+    CHECK(alone >= 400000);
+    CHECK(alone <= 520000);
+    s.eval("globalThis.job.cancel()");
+    // ...four together get a quarter each, so a frame never does more than the same 500000 in all
+    s.eval("globalThis.jobs = [1, 2, 3, 4].map((i) => tilemap.generate(" + args_js("size: [56, 40], seed: 9 + i, n: 3") + "))");
+    s.engine.step(1);
+    long long together = 0;
+    for (int i = 0; i < 4; ++i) {
+        const long long w = s.eval("globalThis.jobs[" + std::to_string(i) + "].work").get<long long>();
+        CHECK(w <= 150000);   // a quarter of the frame plus one chunk (16384) of overshoot
+        CHECK(w > 0);
+        together += w;
+    }
+    CHECK(together <= 520000);
+    s.eval("globalThis.jobs.forEach((j) => j.cancel())");
+}
+
 TEST_CASE("tilemap.generate (script): place builds the Tilemap and one entity per marker, the way scene.import_ascii does") {
     Session s;
     s.eval("globalThis.job = tilemap.generate(" +
@@ -221,6 +245,28 @@ TEST_CASE("tilemap.generate (script): cancel, caps and mistakes teach") {
     r = s.run("tilemap.generate(" + args_js("size: [8, 8], place: { rows: ['#'] }") + ")");
     CHECK_FALSE(r.ok);
     CHECK(contains(r.error.dump(), "place.rows"));
+    // `place` is checked when called, not after a finished generation: unknown key (with a suggestion), types, anchor
+    r = s.run("tilemap.generate(" + args_js("size: [8, 8], place: { entiy: 'level' }") + ")");
+    REQUIRE_FALSE(r.ok);
+    CHECK(contains(r.error.dump(), "place.entiy"));
+    CHECK(contains(r.error.dump(), "entity"));
+    r = s.run("tilemap.generate(" + args_js("size: [8, 8], place: { entity: 5 }") + ")");
+    REQUIRE_FALSE(r.ok);
+    CHECK(contains(r.error.dump(), "place.entity"));
+    r = s.run("tilemap.generate(" + args_js("size: [8, 8], place: { position: [1] }") + ")");
+    REQUIRE_FALSE(r.ok);
+    CHECK(contains(r.error.dump(), "place.position"));
+    r = s.run("tilemap.generate(" + args_js("size: [8, 8], place: { anchor: 'centre' }") + ")");
+    REQUIRE_FALSE(r.ok);
+    CHECK(contains(r.error.dump(), "center"));
+    r = s.run("tilemap.generate(" + args_js("size: [8, 8], place: { replace: 'yes' }") + ")");
+    REQUIRE_FALSE(r.ok);
+    CHECK(contains(r.error.dump(), "place.replace"));
+    r = s.run("tilemap.generate(" + args_js("size: [8, 8], place: { tilemap: [] }") + ")");
+    REQUIRE_FALSE(r.ok);
+    CHECK(contains(r.error.dump(), "place.tilemap"));
+    // none of them queued a job
+    CHECK(s.call("tilemap.generate_cancel", Json::object({{"job", 1}})).result["cancelled"] == false);
     r = s.run("tilemap.generate('level')");
     CHECK_FALSE(r.ok);
     CHECK(contains(r.error.dump(), "expects an object"));

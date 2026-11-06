@@ -8404,6 +8404,7 @@ void Editor::at_build_tools_script() {
         step(3, [this, ps] {
             const LevelGenPreview& p = levelGen_.preview();
             at_check(p.valid && p.width == 20 && p.height == 12 && p.rows.size() == 12, "Generate fills the preview: a 20 x 12 level");
+            at_check(p.cells.size() == 240, "...with a table of its 240 cells, built once when the generation ended");
             at_check(p.seed == 1, "...for the seed in the window");
             ps->first = p.rows;
             ps->firstSeed = p.seed;
@@ -8412,7 +8413,7 @@ void Editor::at_build_tools_script() {
         snap("editor_level_generator.png");
         click("levelgen:next");
         wait_ready();
-        step(3, [this, ps] {
+        step(3, [this] {
             at_check(levelGenOpt_.seed == 2 && levelGen_.preview().seed == 2, "Next seed generates the level of seed 2 at once");
             at_check(levelGen_.tries().size() >= 2, "...and the history keeps both seeds");
         });
