@@ -522,7 +522,9 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         info.category = "ai";
         info.summary = "Run an AI agent on a task in the current project (blocks until it finishes).";
         info.description =
-            "Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchestrator). CLI providers "
+            "Uses the provider/model mapped to `role` in ~/.factoria/ai.json with this project's AI settings laid over it (the "
+            "project's .factoria/ai/settings.json, once the user accepted it; ai.settings.get says what the project runs with) "
+            "(default role orchestrator). CLI providers "
             "(claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in "
             "tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role \"worker\" (code), "
             "\"fast\" (small edits), \"artist\" (all the art) or \"audio\" (all the sound) and a self-contained task; the "

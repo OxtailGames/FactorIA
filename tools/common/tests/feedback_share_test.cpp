@@ -6,6 +6,7 @@
 #include <chrono>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <optional>
 #include <thread>
 
@@ -1498,11 +1499,11 @@ TEST_CASE("share lock: a busy lock makes the others fail after the wait, with a 
     Share s;
     s.env.lockWaitSec = 0.2;
     s.env.lockStaleSec = 60.0;
-    std::string lockPath;
+    std::filesystem::path lockPath;
     {
         ShareLock first(s.env);
         REQUIRE(first.held());
-        lockPath = first.path();
+        lockPath = first.file();  // the path itself: path() is UTF-8 text, which Windows does not read back as the same name
         CHECK(std::filesystem::exists(lockPath));
         // The same thread may take it again (nested use).
         ShareLock nested(s.env);
@@ -1712,6 +1713,10 @@ TEST_CASE("share keys: a key stored through a symlink or in another case is foun
         st.projects[link] = ShareMode::Never;  // a hand-written key with another spelling of the folder
         REQUIRE(save_share_settings(s.env, st).ok());
         st = load_share_settings(s.env);
+        // The folder's own key is not stored: only the symlink's spelling is, so the answers below can only come from same_folder
+        // (the file system's "these are one folder"), not from an exact key.
+        REQUIRE(key != link);
+        REQUIRE(st.projects.count(key) == 0);
         CHECK(effective_share_mode(st, proj) == ShareMode::Never);
         CHECK(effective_share_mode(st, link) == ShareMode::Never);
         CHECK(std::string(effective_share_source(st, proj)) == "project");
@@ -1914,11 +1919,11 @@ TEST_CASE("share lock: many threads take over one stale lock, and only one holds
 
 TEST_CASE("share lock: a lock that was taken over is not deleted by its old holder") {
     Share s;
-    std::string lockPath;
+    std::filesystem::path lockPath;
     {
         ShareLock mine(s.env);
         REQUIRE(mine.held());
-        lockPath = mine.path();
+        lockPath = mine.file();
         // Somebody took it over (we looked dead): the file now holds their token.
         testing::write_all(lockPath, "the new owner");
     }
@@ -1928,7 +1933,7 @@ TEST_CASE("share lock: a lock that was taken over is not deleted by its old hold
     std::filesystem::remove(lockPath, ec);
 }
 
-TEST_CASE("share lock: a lock file dated in the future counts as stale") {
+TEST_CASE("share lock: a lock file dated far in the future counts as stale, one only a little ahead does not") {
     Share s;
     s.env.lockStaleSec = 2.0;
     s.env.lockWaitSec = 5.0;
@@ -1937,11 +1942,99 @@ TEST_CASE("share lock: a lock file dated in the future counts as stale") {
     const std::string lockPath = (std::filesystem::path(s.env.config_dir()) / kFeedbackShareLockFile).string();
     testing::write_all(lockPath, "from a clock that was ahead");
     set_old_mtime(lockPath, -3600);  // an hour from now
-    ShareLock lock(s.env);
-    CHECK(lock.held());
-    // A time only a little ahead (clock jitter between machines) is not stale.
-    ShareLock second(s.env);  // nested: held without touching the file
-    CHECK(second.held());
+    {
+        ShareLock lock(s.env);
+        CHECK(lock.held());
+    }
+    // A time only a little ahead (clock jitter between machines: 1 s against a stale time of 2 s) is a live holder: the wait ends.
+    s.env.lockWaitSec = 0.2;
+    testing::write_all(lockPath, "alive, on a clock a second ahead");
+    set_old_mtime(lockPath, -1);
+    ShareLock busy(s.env);
+    CHECK_FALSE(busy.held());
+    CHECK(std::filesystem::exists(lockPath));
+    std::filesystem::remove(lockPath, ec);
+}
+
+TEST_CASE("share lock: a lock file that reads empty for a moment is still deleted by its holder, and one that holds another token is not") {
+    Share s;
+    s.env.lockStaleSec = 600.0;
+    std::filesystem::path file;
+    {
+        // A virus scanner (Windows) holds the file, or it reads "" for a moment: the holder reads again before it decides.
+        auto lock = std::make_unique<ShareLock>(s.env);
+        REQUIRE(lock->held());
+        file = lock->file();
+        const std::string token = testing::read_all(file);
+        REQUIRE_FALSE(token.empty());
+        testing::write_all(file, "");
+        const auto begin = std::chrono::steady_clock::now();
+        std::chrono::steady_clock::time_point restoredAt;
+        std::thread restore([&] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            testing::write_all(file, token);
+            restoredAt = std::chrono::steady_clock::now();
+        });
+        lock.reset();  // reads "" first, then the token: deletes the file
+        restore.join();
+        if (restoredAt - begin > std::chrono::milliseconds(120)) {
+            MESSAGE("skipped: this machine is so loaded that the file was restored after the holder's retries (" << (restoredAt - begin).count() << ")");
+            std::error_code ec;
+            std::filesystem::remove(file, ec);
+            return;
+        }
+    }
+    CHECK_FALSE(std::filesystem::exists(file));  // deleted: it was ours all along
+    {
+        ShareLock lock(s.env);
+        REQUIRE(lock.held());
+        testing::write_all(lock.file(), "another token");
+    }
+    CHECK(std::filesystem::exists(file));  // left to its new owner
+    std::error_code ec;
+    std::filesystem::remove(file, ec);
+}
+
+TEST_CASE("share lock: the same folder under another spelling is the same lock for one thread (it does not wait for itself)") {
+    Share s;
+    s.env.lockStaleSec = 600.0;
+    s.env.lockWaitSec = 0.5;  // a nested lock that waited for its outer one would fail after this
+    const std::filesystem::path dir = std::filesystem::path(s.dir.sub("locks"));
+    std::error_code ec;
+    std::filesystem::create_directories(dir / "sub", ec);
+    ShareLock outer(s.env, dir);
+    REQUIRE_MESSAGE(outer.held(), outer.error());
+    SUBCASE("dot-dot and dot segments") {
+        ShareLock inner(s.env, dir / "sub" / ".." / ".");
+        CHECK_MESSAGE(inner.held(), inner.error());
+    }
+    SUBCASE("a symlink to the folder") {
+        const std::filesystem::path link = std::filesystem::path(s.dir.sub("link-to-locks"));
+        std::filesystem::create_directory_symlink(dir, link, ec);
+        if (ec) {
+            MESSAGE("skipped: this system cannot make a symlink here (" << ec.message() << ")");
+            return;
+        }
+        ShareLock inner(s.env, link);
+        CHECK_MESSAGE(inner.held(), inner.error());
+    }
+    SUBCASE("another case on a volume that ignores it") {
+        std::string swapped = dir.filename().string();
+        for (char& c : swapped) c = (c >= 'a' && c <= 'z') ? char(c - 32) : c;
+        const std::filesystem::path other = dir.parent_path() / swapped;
+        if (!(std::filesystem::exists(other, ec) && std::filesystem::equivalent(dir, other, ec))) {
+            MESSAGE("skipped: this volume tells upper and lower case apart");
+            return;
+        }
+        ShareLock inner(s.env, other);
+        CHECK_MESSAGE(inner.held(), inner.error());
+    }
+    SUBCASE("another folder is another lock") {
+        std::filesystem::create_directories(dir / "other", ec);
+        ShareLock inner(s.env, dir / "other");
+        CHECK_MESSAGE(inner.held(), inner.error());
+        CHECK(std::filesystem::exists(inner.file()));
+    }
 }
 
 TEST_CASE("share lock: keep_alive refreshes the file of a lock this thread holds, only while the file is its own") {
@@ -2094,6 +2187,41 @@ TEST_CASE("share flush: when the lock stays busy after a request, what was sent 
     CHECK(t.box().items.empty());
 }
 
+TEST_CASE("share flush: when the lock stays busy after a 429, the backoff the server asked for is kept and written later") {
+    TwoProjects t;
+    t.s.env.lockStaleSec = 600.0;
+    t.s.env.lockWaitSec = 0.1;  // the patient wait is five times this
+    t.s.mode(ShareMode::Always);
+    REQUIRE(share_queue(t.s.env, t.fileA, t.a, engine_names()).ok());
+    const std::string lockPath = (std::filesystem::path(t.s.env.config_dir()) / kFeedbackShareLockFile).string();
+    int posts = 0;
+    t.s.env.transport = [&](const HttpRequest& r) {
+        t.s.requests.push_back(r);
+        ++posts;
+        testing::write_all(lockPath, "another process");  // it takes the lock while the request is on its way, and keeps it
+        return reply(429, Json::object({{"ok", false}, {"error", Json::object({{"code", "rate_limited"}, {"message", "slow down"}})}}),
+                     {{"retry-after", "7200"}});
+    };
+    FlushOptions fo;
+    fo.file = t.fileA;
+    const FlushResult first = share_flush(t.s.env, fo);
+    CHECK(first.outcome == "rate_limited");
+    CHECK(t.box().items[0].attempts == 0);  // the lock was busy: the file could not say so
+    std::error_code ec;
+    std::filesystem::remove(lockPath, ec);
+    // This process still knows: nothing is due until the time the server asked for, and the next flush writes it down.
+    CHECK_FALSE(share_has_due(t.s.env));
+    const FlushResult second = share_flush(t.s.env, fo);
+    CHECK(second.requests == 0);
+    CHECK(posts == 1);
+    const Outbox box = t.box();
+    REQUIRE(box.items.size() == 1);
+    CHECK(box.items[0].attempts == 1);
+    CHECK(box.items[0].nextAttempt == t.s.clock + 7200);
+    t.s.clock += 7200;
+    CHECK(share_has_due(t.s.env));
+}
+
 TEST_CASE("share per project: an item whose folder is gone and has no entry of its own reads as ask") {
     TwoProjects t;
     t.s.mode(ShareMode::Always);
@@ -2137,4 +2265,57 @@ TEST_CASE("share per project: a project's own mode applies to its items whicheve
     REQUIRE(set_project_share_mode(s.env, proj, ShareMode::Never).ok());
     CHECK(load_outbox(s.env).items.empty());  // dropped although its stored key is not equal to the project's key
     CHECK(load_feedback(file).value()["entries"][0]["shared"]["status"] == "skipped");
+}
+
+TEST_CASE("share keys: a ShareKeyCache keeps the folder facts between calls until its time is up or it is cleared") {
+    Share s;
+    const std::string proj = s.project();
+    const std::string other = s.dir.sub("other-game");
+    std::error_code ec;
+    std::filesystem::create_directories(other, ec);
+    const std::string link = s.dir.sub("link");
+    std::filesystem::create_directory_symlink(proj, link, ec);
+    if (ec) {
+        MESSAGE("skipped: this system cannot make a symlink here (" << ec.message() << ")");
+        return;
+    }
+    const std::string keyOfProject = share_project_key(proj);
+    const std::string keyOfOther = share_project_key(other);
+    REQUIRE(keyOfProject != keyOfOther);
+    ShareKeyCache cache(600.0);
+    {
+        const ShareKeyCacheScope scope(cache);
+        CHECK(share_project_key(link) == keyOfProject);
+    }
+    // The link is moved to another folder: a call inside a scope of the same cache still has the old answer, one outside any scope does not.
+    std::filesystem::remove(link, ec);
+    std::filesystem::create_directory_symlink(other, link, ec);
+    REQUIRE_FALSE(ec);
+    CHECK(share_project_key(link) == keyOfOther);
+    {
+        const ShareKeyCacheScope scope(cache);
+        CHECK(share_project_key(link) == keyOfProject);
+        // A scope inside it joins it.
+        const ShareKeyCacheScope inner(cache);
+        CHECK(share_project_key(link) == keyOfProject);
+    }
+    cache.clear();
+    {
+        const ShareKeyCacheScope scope(cache);
+        CHECK(share_project_key(link) == keyOfOther);
+    }
+    // A cache whose time is up is dropped when the next scope opens.
+    ShareKeyCache quick(0.0);
+    {
+        const ShareKeyCacheScope scope(quick);
+        CHECK(share_project_key(link) == keyOfOther);
+    }
+    std::filesystem::remove(link, ec);
+    std::filesystem::create_directory_symlink(proj, link, ec);
+    REQUIRE_FALSE(ec);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    {
+        const ShareKeyCacheScope scope(quick);
+        CHECK(share_project_key(link) == keyOfProject);
+    }
 }

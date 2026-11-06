@@ -228,6 +228,17 @@ void Editor::share_start_ai_checks() {
         return aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
     };
     ao.projectDir = [dir = projectDir_] { return dir; };
+    // The same hooks as the AI panel's run: ai.settings.get/set read and write the ai.json the editor loaded, and the editor is told when
+    // a command changed a file, so the AI settings window does not keep showing (and later saving over) the old values.
+    ao.aiConfigPath = ai_user_config().sourcePath;
+    ao.onUserConfigChanged = [this] {
+        ai_project_invalidate();
+        aiUserFileChanged_ = true;
+    };
+    ao.onProjectConfigChanged = [this] {
+        ai_project_invalidate();
+        aiProjectFileChanged_ = true;
+    };
     ao.providerFactory = aiFactory_;
     ai::register_ai_commands(*reg, ao);
     s.aiRunning = true;
@@ -371,6 +382,7 @@ void Editor::feedback_share_tick() {
     }
     if (time_ - s.tickAt < 1.0) return;
     s.tickAt = time_;
+    const ShareKeyCacheScope folderFacts(s.folderCache);  // the per-item stat calls of the outbox are not repeated every second
     const ShareEnv env = ui_share_env();  // a busy lock is waited for 0.3 s at most: the tick tries again in a second
     const ShareSettings settings = load_share_settings(env);
     s.mode = effective_share_mode(settings, projectDir_);  // this project's own choice, else the default
@@ -412,7 +424,7 @@ void Editor::feedback_share_tick() {
                     for (const Json& e : doc["entries"])
                         if (e.value("status", std::string("open")) != "open") anyClosed = true;
                     if (anyClosed) {
-                        const ShareWaitCap shortWait(0.3);  // the UI thread does not wait seconds for a lock another program holds
+                        const ShareWaitCap shortWait(ui_lock_wait_sec());  // the UI thread does not wait seconds for a lock another program holds
                         if (auto moved = archive_closed_feedback_file(file); moved && moved->moved > 0) {
                             if (auto again = load_feedback(file); again && again->contains("entries") && (*again)["entries"].is_array()) doc = *again;
                             stamp = fs::modified_time(engine_->project().feedbackFile);

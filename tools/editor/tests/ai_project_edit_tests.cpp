@@ -14,15 +14,18 @@ namespace {
 
 struct TempProject {
     stdfs::path dir = fs::make_temp_dir("fa_ai_project_edit");
+    stdfs::path home = fs::make_temp_dir("fa_ai_project_edit_home");  // where ai.json and ai-trust.json would be: never the real ~/.factoria
     ~TempProject() {
         std::error_code ec;
         stdfs::remove_all(dir, ec);
+        stdfs::remove_all(home, ec);
     }
+    std::string aiConfigPath() const { return (home / "ai.json").string(); }
 };
 
 // The resolution of a project that has no settings file over `inherited`.
 ai::ResolvedAiConfig resolve_plain(const TempProject& p, const ai::AiConfig& inherited) {
-    auto r = ai::resolve_ai_config_over(p.dir.string(), inherited);
+    auto r = ai::resolve_ai_config_over(p.dir.string(), inherited, p.aiConfigPath());
     if (!r) FAIL(r.error().to_string());
     return std::move(*r);
 }
@@ -139,4 +142,60 @@ TEST_CASE("Save as my defaults leaves out the roles that still follow the orches
     // One that was changed is kept.
     edits["artist"].model = "a-model";
     CHECK(ai_roles_for_defaults(user, edits).count("artist") == 1);
+}
+
+TEST_CASE("a reload keeps the role rows that were edited and takes the new value for the others") {
+    ai::AiConfig shown = ai::default_config();
+    ai::AiConfig now = shown;
+    now.roles["worker"].model = "new-worker";
+    now.roles["fast"].model = "new-fast";
+    std::map<std::string, ai::RoleConfig> edits;
+    for (const char* name : ai::kAllRoles) edits[name] = shown.role(name);
+    CHECK(!ai_roles_edited(edits, shown));
+    edits["worker"].model = "typed-worker";  // changed by the person, and by the file: the person's stays
+    edits["orchestrator"].effort = "high";   // changed by the person only
+    CHECK(ai_roles_edited(edits, shown));
+    const auto out = ai_roles_keep_edits(edits, shown, now);
+    CHECK(out.size() == std::size(ai::kAllRoles));
+    CHECK(out.at("worker").model == "typed-worker");
+    CHECK(out.at("orchestrator").effort == "high");
+    CHECK(out.at("fast").model == "new-fast");  // not touched: shows the file's value
+    // Turning a role off is an edit too.
+    edits["artist"].enabled = false;
+    CHECK(!ai_roles_keep_edits(edits, shown, now).at("artist").enabled);
+}
+
+TEST_CASE("a reload keeps the asset routes and the site lists that were edited, each on its own") {
+    ai::AiConfig shown = ai::default_config();
+    shown.assets["image"] = ai::AssetRoute{"openai", "", ""};
+    shown.assetSources.images.push_back({"a.org", ""});
+    ai::AiConfig now = shown;
+    now.assets["image"].model = "file-model";
+    now.assets["sound"] = ai::AssetRoute{"elevenlabs", "", ""};
+    now.assetSources.images.push_back({"b.org", ""});
+    now.assetSources.fonts.push_back({"fonts.org", ""});
+    now.assetSources.onlyListed = true;
+
+    std::map<std::string, ai::AssetRoute> routes;
+    for (ai::MediaKind k : ai::kMediaKinds) {
+        const auto it = shown.assets.find(ai::media_kind_name(k));
+        routes[ai::media_kind_name(k)] = it == shown.assets.end() ? ai::AssetRoute{} : it->second;
+    }
+    routes["music"] = ai::AssetRoute{"openai", "typed", ""};  // typed by the person
+    const auto keptRoutes = ai_routes_keep_edits(routes, shown, now);
+    CHECK(keptRoutes.at("music").model == "typed");   // edited: stays
+    CHECK(keptRoutes.at("image").model == "file-model");  // not edited: the file's value
+    CHECK(keptRoutes.at("sound").provider == "elevenlabs");
+
+    ai::AssetSources sources = shown.assetSources;
+    sources.models.push_back({"typed.org", "note"});
+    const ai::AssetSources keptSources = ai_sources_keep_edits(sources, shown, now);
+    CHECK(keptSources.models.size() == 1);   // edited list stays
+    CHECK(keptSources.images.size() == 2);   // untouched list: the file's
+    CHECK(keptSources.fonts.size() == 1);
+    CHECK(keptSources.onlyListed);           // the switch was not touched
+    // The person switched "only these sites" on while the file (now) says off: theirs stays.
+    ai::AiConfig fileOff = shown;
+    sources.onlyListed = true;
+    CHECK(ai_sources_keep_edits(sources, shown, fileOff).onlyListed);
 }

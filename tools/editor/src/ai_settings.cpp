@@ -66,6 +66,8 @@ void Editor::open_ai_settings(bool rolesTab) {
 void Editor::ai_settings_discard() {
     if (aiSettings_.tools.tests) aiSettings_.tools.tests->cancel = true;  // a running Test stops waiting
     aiSettings_ = AiSettingsDraft{};
+    aiRolesKeepEdits_ = false;
+    aiRolesBase_.reset();
 }
 
 void Editor::ai_settings_load(const ai::AiConfig& cfg, bool keepAssets, bool keepTools) {
@@ -80,6 +82,7 @@ void Editor::ai_settings_load(const ai::AiConfig& cfg, bool keepAssets, bool kee
     d.path = cfg.sourcePath.empty() ? ai::default_config_path() : cfg.sourcePath;
     // The asset routes and sites are the open project's (its resolved config); the providers, servers and extensions are the user's.
     const ai::AiConfig effective = ai_window_config();
+    d.base = effective;
     for (ai::MediaKind k : ai::kMediaKinds) {
         const auto it = effective.assets.find(ai::media_kind_name(k));
         d.routes[ai::media_kind_name(k)] = it == effective.assets.end() ? ai::AssetRoute{} : it->second;
@@ -107,6 +110,47 @@ void Editor::ai_settings_load(const ai::AiConfig& cfg, bool keepAssets, bool kee
         d.saveError = std::move(old.saveError);
     }
     if (keepTools) d.tools = std::move(old.tools);
+}
+
+bool Editor::ai_settings_reload_keeping_edits(bool userChanged) {
+    AiSettingsDraft& d = aiSettings_;
+    aiRolesOpen_ = true;
+    if (!d.loaded) return false;
+    const bool rolesEdited = aiRolesBase_ && ai_roles_edited(aiRolesEdit_, *aiRolesBase_);
+    const bool edited = rolesEdited || ai_settings_dirty(d.base);
+    if (rolesEdited) aiRolesKeepEdits_ = true;
+    // What the person typed, taken before the reload replaces the draft.
+    const ai::AiConfig shown = d.base;
+    const std::map<std::string, ai::AssetRoute> routes = d.routes;
+    const ai::AssetSources sources = d.sources;
+    const auto keys = d.keys;
+    const auto removeKey = d.removeKey;
+    const auto command = d.command;
+    const auto args = d.args;
+    const auto newUrl = d.newUrl;
+    const auto newNote = d.newNote;
+    const std::string siteError = d.siteError;
+    // ai.json unchanged: the draft's own parts (typed keys, programs, the Extensions tab) stay as they are. ai.json changed: they load again.
+    ai_settings_load(ai_user_config(), !userChanged, !userChanged);
+    const ai::AiConfig now = d.base;
+    d.routes = ai_routes_keep_edits(routes, shown, now);
+    d.sources = ai_sources_keep_edits(sources, shown, now);
+    if (userChanged) {
+        d.keys = keys;  // a key is never in the file: what was typed stays
+        d.removeKey = removeKey;
+        d.newUrl = newUrl;
+        d.newNote = newNote;
+        d.siteError = siteError;
+        for (const auto& [name, program] : command) {  // a program the person changed stays; one they did not touch follows the file
+            const ai::ProviderConfig* was = shown.provider(name);
+            const auto line = args.find(name);
+            const bool programEdited = !was || trim(program) != was->command;
+            const bool argsEdited = !was || (line != args.end() && ai::split_args(line->second) != was->argv);
+            if (programEdited) d.command[name] = program;
+            if (argsEdited && line != args.end()) d.args[name] = line->second;
+        }
+    }
+    return edited;
 }
 
 // What the draft would write, or the reason it cannot be written yet.
@@ -196,6 +240,13 @@ void Editor::ai_settings_save_assets(bool asDefaults) {
     const bool project = ai_project_open();
     // Before anything is written (the providers' fields go to ai.json first): Save over an ignored file asks, Replace presses Save again.
     if (project && !asDefaults && !ai_project_replace_allowed("assets")) return;
+    // The copy of the file Save is about to replace comes before any write, ai.json's included: when it cannot be made nothing changed.
+    if (project && !asDefaults) {
+        if (auto kept = ai_project_keep_replaced_copy(); !kept) {
+            d.saveError = kept.error().to_string();
+            return;
+        }
+    }
     const ai::AiConfig user = ai_user_config();
     const ai::AiConfig wanted = ai_apply_edits(cfg, nullptr, &d.routes, &d.sources);
     ai::AssetSettings forUser = *built;
@@ -203,6 +254,24 @@ void Editor::ai_settings_save_assets(bool asDefaults) {
         forUser.routes = user.assets;
         forUser.sources = user.assetSources;
     }
+    // What the project's file would say is worked out BEFORE ai.json is written (the write below changes what "differs from your defaults"
+    // means only for the providers' own fields, but a failure here must leave both files as they were).
+    Json projectOverrides;
+    if (project && !asDefaults) {
+        const AiProjectUi& now = ai_project_refresh();
+        if (!now.have) {
+            d.saveError = "This project's AI settings file cannot be used yet: fix or delete it first.";
+            return;
+        }
+        auto overrides = ai_project_overrides_for(now.resolved, nullptr, &d.routes, &d.sources);
+        if (!overrides) {
+            d.saveError = overrides.error().to_string();
+            return;
+        }
+        projectOverrides = std::move(*overrides);
+    }
+    // Two files, written in this order: ai.json (the providers' fields, and with Save as my defaults the routes and sites) and then the
+    // project's file. When the second write fails the first stays written, and the message says so.
     const bool touchesUser = !project || asDefaults || !built->providers.empty();
     if (touchesUser) {
         if (auto saved = ai::save_asset_settings(forUser, d.path); !saved) {
@@ -214,24 +283,17 @@ void Editor::ai_settings_save_assets(bool asDefaults) {
             return;
         }
     }
+    const std::string userWritten = !touchesUser ? std::string()
+                                    : asDefaults ? "Your defaults were saved in " + d.path + ". "
+                                                 : "The providers' keys and programs were saved in " + d.path + ". ";
     if (project && asDefaults) {
         if (auto kept = ai_project_after_defaults(wanted); !kept) {
-            d.saveError = kept.error().to_string();
+            d.saveError = userWritten + "This project's AI settings file was not updated: " + kept.error().to_string();
             return;
         }
     } else if (project) {
-        const AiProjectUi& now = ai_project_refresh();
-        if (!now.have) {
-            d.saveError = "This project's AI settings file cannot be used yet: fix or delete it first.";
-            return;
-        }
-        auto overrides = ai_project_overrides_for(now.resolved, nullptr, &d.routes, &d.sources);
-        if (!overrides) {
-            d.saveError = overrides.error().to_string();
-            return;
-        }
-        if (auto saved = ai_project_save(*overrides); !saved) {
-            d.saveError = saved.error().to_string();
+        if (auto saved = ai_project_save(projectOverrides); !saved) {
+            d.saveError = userWritten + "This project's routes and sites were not saved: " + saved.error().to_string();
             return;
         }
     }
@@ -267,8 +329,8 @@ void Editor::draw_ai_settings_window() {
     }
     bool open = true;
     d.title = ai_settings_title(projectMode, projectName_);
-    const std::string title = d.title + "###AiSettings";
-    const bool visible = ImGui::Begin(title.c_str(), &open, ImGuiWindowFlags_NoDocking);
+    const std::string windowTitle = d.title + "###AiSettings";
+    const bool visible = ImGui::Begin(windowTitle.c_str(), &open, ImGuiWindowFlags_NoDocking);
     if (!open) {
         showAiSettings_ = false;
         ai_settings_discard();  // a typed key does not outlive the window
@@ -604,10 +666,10 @@ void Editor::draw_ai_settings_window() {
                        "and writes down each asset's source and license.");
     ImGui::Checkbox("Use only these sites", &d.sources.onlyListed);
     at_track("aiset:only-listed");
-    source_tag("/assetSources/onlyListed", "aiset:reset:only-listed");
     ImGui::SetItemTooltip("On: the AI searches and fetches ONLY the listed sites, never the open internet. Claude Code is held to it\n"
                           "(WebFetch of other sites is denied and WebSearch is off); for the other providers it is an instruction.\n"
                           "Off: it looks at the listed sites first and may search the internet too, as it does without a list.");
+    source_tag("/assetSources/onlyListed", "aiset:reset:only-listed");
     if (d.sources.empty()) {
         ImGui::TextDisabled("No site yet: the AI searches the internet as it wishes.");
     } else if (d.sources.onlyListed) {
@@ -707,10 +769,19 @@ void Editor::draw_ai_settings_window() {
                                                  ai_group_source(*res, "/assetSources") == ai::SettingSource::Project);
         ImGui::BeginDisabled(!canReset);
         if (ImGui::Button("Reset tab to my defaults")) {
+            // Two resets, the routes first: when the second fails the first is done, and the draft shows what really is in the file.
             auto done = ai_project_reset("/assets");
-            if (done) done = ai_project_reset("/assetSources");
+            Result<void> sitesDone;
+            if (done) sitesDone = ai_project_reset("/assetSources");
             if (!done) {
                 d.saveError = done.error().to_string();
+            } else if (!sitesDone) {
+                const ai::AiConfig now = ai_window_config();
+                for (ai::MediaKind k : ai::kMediaKinds) {
+                    const auto it = now.assets.find(ai::media_kind_name(k));
+                    d.routes[ai::media_kind_name(k)] = it == now.assets.end() ? ai::AssetRoute{} : it->second;
+                }
+                d.saveError = "The routes of this project are back to your defaults, but its sites are not: " + sitesDone.error().to_string();
             } else {
                 const ai::AiConfig now = ai_window_config();  // typed keys and programs stay: only routes and sites go back
                 for (ai::MediaKind k : ai::kMediaKinds) {
@@ -730,8 +801,9 @@ void Editor::draw_ai_settings_window() {
         if (ImGui::Button("Save as my defaults")) ai_settings_save_assets(true);
         ImGui::EndDisabled();
         at_track("aiset:save-defaults", cfgErr.empty());
-        ImGui::SetItemTooltip("Write these routes and sites into your ai.json (%s), so every project that does not change them, and every new\n"
-                              "project, starts from them. This project keeps only what still differs.", d.path.c_str());
+        ImGui::SetItemTooltip("Write every route and site you see here, the ones this project sets and the ones that come from your defaults,\n"
+                              "into your ai.json (%s), so every project that does not change them, and every new project, starts from\n"
+                              "them. This project keeps only what still differs. The keys and programs you typed are saved too.", d.path.c_str());
     }
     fit_same_line("Close");
     if (ImGui::Button("Close")) {

@@ -184,7 +184,7 @@ void Editor::draw_feedback_panel() {
     if (feedbackDoc_.is_null()) {
         ImGui::TextWrapped("No feedback file yet.");
         if (ImGui::Button("Create ENGINE_FEEDBACK.json")) {
-            const ShareWaitCap shortWait(0.3);  // the UI thread never waits seconds for another program's lock
+            const ShareWaitCap shortWait(ui_lock_wait_sec());  // the UI thread never waits seconds for another program's lock
             if (auto r = create_feedback_file(path, projectName_); !r) notify(feedback_busy_text(r.error()), 2);
             feedbackMtime_ = INT64_MIN;
             feedbackPolled_ = -10;
@@ -387,7 +387,7 @@ void Editor::draw_feedback_actions(const Json& en, const std::string& path) {
             fbAsk_ = FbAsk{id, "rejected", en.value("statusReason", std::string()), {}, true};
             ImGui::OpenPopup("Reject this entry?###fb-reject");
         } else {
-            const ShareWaitCap shortWait(0.3);  // the UI thread never waits seconds for another program's lock
+            const ShareWaitCap shortWait(ui_lock_wait_sec());  // the UI thread never waits seconds for another program's lock
             if (auto r = update_feedback_file(path, id, st[size_t(cur)], ""); !r) {
                 notify(feedback_busy_text(r.error()), 2);
             } else if (st[size_t(cur)] != "open") {
@@ -434,7 +434,7 @@ void Editor::draw_feedback_actions(const Json& en, const std::string& path) {
             const bool ready = !sanitize_status_reason(fbAsk_.reason).empty() && chars <= kFeedbackReasonMax;
             ImGui::BeginDisabled(!ready);
             if (ImGui::Button("Reject", ImVec2(110, 0))) {
-                const ShareWaitCap shortWait(0.3);  // the UI thread never waits seconds for another program's lock
+                const ShareWaitCap shortWait(ui_lock_wait_sec());  // the UI thread never waits seconds for another program's lock
                 if (auto r = update_feedback_file(path, id, "rejected", "", "", fbAsk_.reason, "user"); !r) {
                     fbAsk_.error = feedback_busy_text(r.error());
                 } else {
@@ -468,7 +468,7 @@ void Editor::draw_feedback_actions(const Json& en, const std::string& path) {
             ImGui::PopTextWrapPos();
             if (!fbAsk_.error.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", fbAsk_.error.c_str());
             if (ImGui::Button("Delete", ImVec2(110, 0))) {
-                const ShareWaitCap shortWait(0.3);  // the command takes the sharing lock; the UI thread never waits seconds for it
+                const ShareWaitCap shortWait(ui_lock_wait_sec());  // the command takes the sharing lock; the UI thread never waits seconds for it
                 const CommandResult r = engine_->commands().call("feedback.delete", Json::object({{"id", id}}));
                 if (!r.ok) {
                     fbAsk_.error = command_error_text(r.error);
@@ -684,7 +684,7 @@ void Editor::draw_feedback_add_window() {
             Result<FeedbackAddResult> r = make_error(claim.message(), claim.hint());
             if (!claim.refused()) {
                 // Under the lock the other writers take; this is the UI thread, so a busy lock is waited for 0.3 s at most.
-                const ShareWaitCap shortWait(0.3);
+                const ShareWaitCap shortWait(ui_lock_wait_sec());
                 FeedbackFileLock lock(ui_share_env(), path);
                 r = lock.held() ? add_feedback_entry_to_file(path, in, projectName_) : Result<FeedbackAddResult>(make_error(lock.error(), "Try again in a moment."));
             }

@@ -209,6 +209,36 @@ public:
 private:
     double previous_;
 };
+// What the folder checks of the sharing functions (the key of a project's folder, whether a stored folder exists, whether two keys are
+// one folder) cost the file system. Every call remembers them while it runs; a program that calls several times a second (the editor's
+// once-a-second tick over every outbox item) keeps one ShareKeyCache across the calls and opens a ShareKeyCacheScope around them. The
+// answers are dropped after `ttlSec`, so a folder that appears or goes away is noticed within that time; they are answers of the file
+// system only, never modes (a mode change is seen at once). One thread uses a cache at a time. A scope made while another is open
+// (on the same thread) joins the outer one.
+struct ShareKeyCacheData;
+class ShareKeyCache {
+public:
+    explicit ShareKeyCache(double ttlSec = 30.0);
+    ~ShareKeyCache();
+    ShareKeyCache(const ShareKeyCache&) = delete;
+    ShareKeyCache& operator=(const ShareKeyCache&) = delete;
+    void clear();
+
+private:
+    friend class ShareKeyCacheScope;
+    std::unique_ptr<ShareKeyCacheData> data_;
+    double ttlSec_;
+};
+class ShareKeyCacheScope {
+public:
+    explicit ShareKeyCacheScope(ShareKeyCache& cache);
+    ~ShareKeyCacheScope();
+    ShareKeyCacheScope(const ShareKeyCacheScope&) = delete;
+    ShareKeyCacheScope& operator=(const ShareKeyCacheScope&) = delete;
+
+private:
+    bool owner_;
+};
 // Only a person calls these (the CLI, the editor's Settings): there is no command for them.
 // Changes the default, and the outbox items of the projects that FOLLOW it (a project with its own mode keeps its items as
 // they are): `never` drops them and marks their entries skipped, `always` confirms the ones waiting for a yes (the person who

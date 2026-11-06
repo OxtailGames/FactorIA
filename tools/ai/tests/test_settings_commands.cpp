@@ -521,3 +521,75 @@ TEST_CASE("write_private_file: owner-only, a symlinked file is written through, 
     }
 #endif
 }
+
+TEST_CASE("ai.settings.set: null for a setting the file does not hold says removed false with a hint that nothing changed") {
+    World w;
+    // project: the project has no file at all, then a file that holds another value
+    auto none = w.set("project", "/limits/maxTurns", nullptr);
+    REQUIRE(none.ok);
+    CHECK(none.result["removed"] == false);
+    CHECK(has(none.result["hint"], "Nothing changed"));
+    CHECK(has(none.result["hint"], "/limits/maxTurns"));
+    CHECK_FALSE(fsys::exists(w.settings_file()));  // nothing was written
+    REQUIRE(save_project_settings(w.proj.str(), Json::parse(R"({"roles":{"artist":{"enabled":false}}})"), w.ai, fake_env({}), true));
+    auto other = w.set("project", "/limits/maxTurns", nullptr);
+    REQUIRE(other.ok);
+    CHECK(other.result["removed"] == false);
+    CHECK(has(other.result["hint"], "Nothing changed"));
+    auto real = w.set("project", "/roles/artist/enabled", nullptr);
+    REQUIRE(real.ok);
+    CHECK(real.result["removed"] == true);
+    CHECK_FALSE(has(real.result["hint"], "Nothing changed"));
+
+    // user: ai.json sets maxTurns, not artist.enabled
+    auto notSet = w.set("user", "/roles/artist/enabled", nullptr);
+    REQUIRE(notSet.ok);
+    CHECK(notSet.result["removed"] == false);
+    CHECK(has(notSet.result["hint"], "Nothing changed"));
+    CHECK(notSet.result["changed"].empty());
+    auto set = w.set("user", "/limits/maxTurns", nullptr);
+    REQUIRE(set.ok);
+    CHECK(set.result["removed"] == true);
+    CHECK(has(set.result["hint"], "Saved in your ai.json"));
+}
+
+TEST_CASE("ai.settings.set user: removing a tool server or a plugin switch says removed true only when ai.json held its \"enabled\"") {
+    World w;
+    write_file(w.ai, R"({
+      "mcpServers": {"scenario": {"type": "http", "url": "https://mcp.example.com/mcp", "enabled": false},
+                     "plain": {"type": "http", "url": "https://mcp.example.com/plain"}},
+      "extensions": {"plugins": {"notes": {"path": ")" + (w.home.path / "notes").generic_string() + R"(", "note": "keeps notes", "enabled": false}}}
+    })");
+    fsys::create_directories(w.home.path / "notes");
+    auto read = [&] {
+        auto file = fa::parse_json(*fa::fs::read_text(w.ai), "f");
+        REQUIRE(file);
+        return *file;
+    };
+    // a tool server whose definition holds its switch: the switch goes, the definition stays
+    auto server = w.set("user", "/mcpServers/scenario", nullptr);
+    REQUIRE(server.ok);
+    CHECK(server.result["removed"] == true);
+    CHECK(has(server.result["hint"], "Saved in your ai.json"));
+    Json file = read();
+    CHECK(file.contains("/mcpServers/scenario/url"_json_pointer));
+    CHECK_FALSE(file.contains("/mcpServers/scenario/enabled"_json_pointer));
+    CHECK(file.contains("/extensions/plugins/notes/enabled"_json_pointer));  // the plugin is untouched
+    // the same for a plugin
+    auto plugin = w.set("user", "/extensions/plugins/notes", nullptr);
+    REQUIRE(plugin.ok);
+    CHECK(plugin.result["removed"] == true);
+    file = read();
+    CHECK(file.contains("/extensions/plugins/notes/path"_json_pointer));
+    CHECK_FALSE(file.contains("/extensions/plugins/notes/enabled"_json_pointer));
+    // a definition without a switch, and a switch that is already gone: nothing was taken out
+    for (const char* pointer : {"/mcpServers/plain", "/mcpServers/scenario", "/extensions/plugins/notes"}) {
+        const std::string before = *fa::fs::read_text(w.ai);
+        auto none = w.set("user", pointer, nullptr);
+        INFO(pointer);
+        REQUIRE(none.ok);
+        CHECK(none.result["removed"] == false);
+        CHECK(has(none.result["hint"], "Nothing changed"));
+        CHECK(*fa::fs::read_text(w.ai) == before);
+    }
+}

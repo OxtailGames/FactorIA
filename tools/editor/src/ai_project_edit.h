@@ -40,4 +40,16 @@ Result<Json> ai_project_overrides_for(const ai::ResolvedAiConfig& resolved, cons
 std::map<std::string, ai::RoleConfig> ai_roles_for_defaults(const ai::AiConfig& inherited,
                                                             const std::map<std::string, ai::RoleConfig>& edits);
 
+// "Unsaved edits survive a reload" (the project's file or ai.json changed while the window was open, or Accept changed what the project
+// sets). `shown` is the config the window displayed when the edits were made, `now` the one it shows after the reload. A row the
+// person changed (it differs from `shown`) stays as typed; a row they did not touch takes the value of `now`.
+bool ai_same_role(const ai::RoleConfig& a, const ai::RoleConfig& b);
+bool ai_roles_edited(const std::map<std::string, ai::RoleConfig>& edits, const ai::AiConfig& shown);  // any role differs from `shown`
+std::map<std::string, ai::RoleConfig> ai_roles_keep_edits(const std::map<std::string, ai::RoleConfig>& edits, const ai::AiConfig& shown,
+                                                          const ai::AiConfig& now);
+std::map<std::string, ai::AssetRoute> ai_routes_keep_edits(const std::map<std::string, ai::AssetRoute>& edits, const ai::AiConfig& shown,
+                                                           const ai::AiConfig& now);
+// Per list: each category's sites and the "only these sites" switch are kept or replaced on their own.
+ai::AssetSources ai_sources_keep_edits(const ai::AssetSources& edits, const ai::AiConfig& shown, const ai::AiConfig& now);
+
 }  // namespace fa::editor

@@ -469,8 +469,10 @@ bool Editor::ai_with_project_config(const std::function<void(const ai::AiConfig&
     std::shared_ptr<const ai::AiConfig> cached;  // a resolution from the last second
     bool cacheHit = false;
     Error cachedError;
+    std::uint64_t generation = 0;  // the invalidation count the resolution below starts from
     {
         std::lock_guard<std::mutex> lock(aiProjMu_);
+        generation = aiProjGen_;
         if (!projectDir_.empty() && (fresh || aiProjFileDir_ != projectDir_ || nowMs - aiProjFileAtMs_ >= 1000)) {
             std::error_code ec;  // never the throwing overload: this runs on the UI thread every frame
             aiProjFileDir_ = projectDir_;
@@ -512,14 +514,19 @@ bool Editor::ai_with_project_config(const std::function<void(const ai::AiConfig&
     std::shared_ptr<const ai::AiConfig> config;
     {
         std::lock_guard<std::mutex> lock(aiProjMu_);
-        aiProjKey_ = key;
-        aiProjAtMs_ = nowMs;
-        if (resolved) {
-            aiProjConfig_ = std::make_shared<const ai::AiConfig>(std::move(resolved->config));
-            config = aiProjConfig_;
-        } else {
-            aiProjConfig_.reset();
-            aiProjError_ = resolved.error();
+        // Resolved without the lock: if ai_project_invalidate() ran meanwhile (a save, an Accept, a changed ai.json) this answer was
+        // read from files that may have changed since, and is used by this call only, never kept for the next second.
+        const bool stillCurrent = generation == aiProjGen_;
+        if (resolved) config = std::make_shared<const ai::AiConfig>(std::move(resolved->config));
+        if (stillCurrent) {
+            aiProjKey_ = key;
+            aiProjAtMs_ = nowMs;
+            if (resolved) {
+                aiProjConfig_ = config;
+            } else {
+                aiProjConfig_.reset();
+                aiProjError_ = resolved.error();
+            }
         }
     }
     if (!config) {
@@ -1106,9 +1113,21 @@ std::string Editor::ai_editing_note() {
 // start from the loaded roles whenever aiRolesOpen_ is set (the window opening, "Roles..." in the AI menu, Save, Revert).
 void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status) {
     if (aiRolesOpen_) {
-        aiRolesEdit_.clear();
-        aiRolesTyping_.clear();
-        for (const char* name : kRoleNames) aiRolesEdit_[name] = cfg.role(name);
+        std::set<std::string> typing;
+        std::map<std::string, ai::RoleConfig> restarted;
+        if (aiRolesKeepEdits_ && aiRolesBase_) {  // the files changed under the window: the rows the person changed stay as typed
+            restarted = ai_roles_keep_edits(aiRolesEdit_, *aiRolesBase_, cfg);
+            for (const std::string& name : aiRolesTyping_) {
+                const auto was = aiRolesEdit_.find(name);
+                if (was != aiRolesEdit_.end() && !ai_same_role(was->second, aiRolesBase_->role(name))) typing.insert(name);
+            }
+        } else {
+            for (const char* name : kRoleNames) restarted[name] = cfg.role(name);
+        }
+        aiRolesEdit_ = std::move(restarted);
+        aiRolesTyping_ = std::move(typing);
+        aiRolesBase_ = cfg;
+        aiRolesKeepEdits_ = false;
         aiRolesOpen_ = false;
     }
     // With a project open the roles are the project's (cfg is its resolved config): each row says where its value comes from and Save
@@ -1391,14 +1410,19 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
             } else if (auto loaded = ai_user_config_reload(); !loaded) {
                 notify("Saved, but ai.json no longer loads: " + loaded.error().to_string(), 2);
             } else {
-                if (auto kept = ai_project_after_defaults(wanted); !kept) notify(kept.error().to_string(), 2);
-                else notify("These roles are now your defaults: new projects start from them.");
+                if (auto kept = ai_project_after_defaults(wanted); !kept) {
+                    notify("Your defaults were saved in " + path + ", but this project's AI settings file was not updated: " + kept.error().to_string(), 2);
+                } else {
+                    notify("These roles are now your defaults: new projects start from them.");
+                }
                 aiRolesOpen_ = true;
             }
         }
         at_track("ai:roles:save-defaults");
-        ImGui::SetItemTooltip("Write these roles into your ai.json (%s), so every project that does not change them, and every new project,\n"
-                              "starts from them. This project keeps only what still differs.", path.c_str());
+        ImGui::SetItemTooltip("Write every role you see here, the ones this project sets and the ones that come from your defaults, into your\n"
+                              "ai.json (%s), so every project that does not change them, and every new project, starts from them. This project\n"
+                              "keeps only what still differs. Artist, Audio, Art critic and Reviewer are not written while they still follow\n"
+                              "the Orchestrator and the Worker.", path.c_str());
     }
     ImGui::EndChild();
 }
