@@ -10,6 +10,7 @@ import { Behaviour, input, rng, ui, world, tilemap } from "factoria";
 
 const FLOORS = 4;
 const LIVES = 3;
+const FLOOR_RETRIES = 3; // fresh seeds tried for one floor before the run gives up
 const COIN_SCORE = 10;
 const FLOOR_SCORE = 50;
 const SIZE = [36, 18]; // cells of a floor: 1152 x 576 px, leaves room for the HUD above and the help below
@@ -71,6 +72,7 @@ export default class Dungeon extends Behaviour {
     this.floorSeeds = [];
     for (let i = 0; i < FLOORS; i++) this.floorSeeds.push(draw.int(0, 2147483647));
     this.floorNumber = 1;
+    this.floorRetries = 0;
     this.lives = LIVES;
     this.coins = 0;
     this.score = 0;
@@ -114,6 +116,15 @@ export default class Dungeon extends Behaviour {
     if (!job) return;
     if (job.error !== "") {
       this.job = null;
+      // A seed whose floor will not grow within its attempts is rare: dig again from a seed drawn from it (still
+      // deterministic: the same run seed retries the same way) before giving up on the run.
+      if (this.floorRetries < FLOOR_RETRIES) {
+        this.floorRetries++;
+        const i = this.floorNumber - 1;
+        this.floorSeeds[i] = rng.create(this.floorSeeds[i]).int(0, 2147483647);
+        this.startFloor();
+        return;
+      }
       this.state = "failed";
       this.showBanner(`The floor would not grow: ${job.error}\nPress Space or click for another dungeon`);
       return;
@@ -128,6 +139,7 @@ export default class Dungeon extends Behaviour {
 
   /** The generator has placed the tiles, the coins, the traps, the player and the stairs: read where the player stands. */
   buildFloor() {
+    this.floorRetries = 0;
     this.floor = world.find("floor");
     this.player = world.findByTag("player")[0];
     this.stairs = world.findByTag("stairs")[0];

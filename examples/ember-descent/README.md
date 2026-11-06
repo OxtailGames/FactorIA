@@ -17,7 +17,8 @@ dungeon again (same seed). Space, a click or a tap starts a new dungeon after yo
 
 - Rules: 3 lives; a spike costs a life and is spent; a coin is 10 points; each floor left is 50. The stairs are the floor cell
   farthest from the start by walking; spikes are scattered, so a way around them is the usual case (the tests walk one on
-  eight run seeds) but the generator does not promise it.
+  eight run seeds) but the generator does not promise it. A floor that will not grow within its 40 attempts (about one
+  run seed in thirty) is dug again from a seed drawn from it, up to 3 times, before the run gives up.
 - `levels/sample.json`: the example the generator learns from, in the `scene.import_ascii` format (rows + legend):
   `#` wall, `.` and `,` floor, `o` coin, `x` spikes, and two glyphs that are only in the `legend`, `@` (the player) and `>`
   (the stairs): the rows never draw them, `constraints.place` puts them on the finished floor. It is an open cave with
@@ -28,7 +29,8 @@ dungeon again (same seed). Space, a click or a tap starts a new dungeon after yo
 - `art/tiles.sheet.js` + `assets/tiles.png`: the three tiles (wall, floor, cracked floor), drawn by code with
   `assets.animate_svg`; `assets.json` has their provenance. The player, coin, spikes and stairs are `Shape2D` prefabs.
 - `tests/dungeon.test.js`: the game headless: border, free start and stairs, the stairs farthest from the start, a
-  trap-free route to them on eight run seeds (and a count over thirty more: floors with no way around the spikes, seeds whose floor does not grow), determinism (same seed, same dungeon), moves,
+  trap-free route to them on eight run seeds (and over thirty more: floors with no way around the spikes are counted,
+  and every seed must reach play), determinism (same seed, same dungeon), moves,
   coins, spikes and the loss, four floors to a win, R, R and a reload while a floor is growing, and a tap.
 - `ENGINE_FEEDBACK.json`: engine gaps found while building this game.
 
