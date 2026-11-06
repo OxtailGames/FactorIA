@@ -134,6 +134,30 @@ test("the stairs can be reached without crossing a trap, on many run seeds", () 
   }
 });
 
+test("a trap-free way to the stairs is the usual case: it is counted over thirty run seeds, not promised", () => {
+  // The README says the generator does not promise a way around the spikes (nor that every seed grows a floor within its
+  // attempts). So this does not need every seed to have one: it counts the floors without (a breadth-first walk from the entrance
+  // that never steps on a spike) and the seeds whose floor would not grow, and fails only when they stop being the exception.
+  const trapped = [];
+  const notGrown = [];
+  const seeds = Array.from({ length: 30 }, (_, i) => 100 + i * 37);
+  for (const seed of seeds) {
+    game.load("scenes/main.scene.json");
+    dungeon().runSeed = seed;
+    for (let i = 0; i < 600 && !(dungeon().state === "playing" && players().length === 1) && dungeon().state !== "failed"; i++) game.step(1);
+    if (dungeon().state === "failed") {
+      notGrown.push(seed);
+      continue;
+    }
+    expect(dungeon().state).toBe("playing");
+    const f = floorState();
+    if (route(f, f.player, f.stairs) === null) trapped.push(seed);
+  }
+  console.log(`of ${seeds.length} seeds: no trap-free way to the stairs ${JSON.stringify(trapped)}, floor not grown ${JSON.stringify(notGrown)}`);
+  expect(trapped.length).toBeLessThanOrEqual(3);
+  expect(notGrown.length).toBeLessThanOrEqual(3);
+});
+
 test("constraints.place puts the stairs on the cell that is farthest from the player by walking", () => {
   for (const seed of [1, 42, 2026]) {
     start(seed);

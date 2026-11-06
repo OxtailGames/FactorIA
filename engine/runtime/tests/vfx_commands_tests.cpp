@@ -10,6 +10,7 @@
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
 #include "fa/scene/vfx.h"
+#include "fa/scene/vfx_budget.h"
 #include "../src/engine_impl.h"  // Engine::Impl::vfxHost: the host an effect runs its commands with
 
 using namespace fa;
@@ -459,7 +460,7 @@ TEST_CASE("vfx.budget: a 3D emitter's overdraw is measured through the main came
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["camera"]["used"] == true);
     CHECK(r.result["camera"]["projection"] == "perspective");
-    CHECK(r.result["camera"]["distance"] == 5.0);
+    CHECK(r.result["camera"]["distance"] == kVfxDefaultCameraDistance);
     CHECK(r.result["camera"]["fov"] == 90.0);
     // 25 / (10 * 10 * 320 / 180) of the design view (320 x 180): the aspect is the design size's.
     CHECK(r.result["peakOverdraw"].get<double>() == doctest::Approx(25.0 / (10.0 * 10.0 * 320.0 / 180.0)).epsilon(0.01));
