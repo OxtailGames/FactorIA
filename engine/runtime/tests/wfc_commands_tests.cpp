@@ -317,7 +317,10 @@ const char* kDungeon = R"(["################",
 const char* kDungeonLegend = R"({"#":0,".":1,"$":2,"E":3})";
 
 Json dungeon_call(const std::string& extra) {
-    return Json::parse(std::string(R"({"sample":)") + kDungeon + R"(,"legend":)" + kDungeonLegend + R"(,"n":3,"size":[24,16],"maxAttempts":100,)" + extra + "}");
+    // The extras are merged over the defaults, so a call can give its own "maxAttempts" without a duplicated key.
+    Json call = Json::parse(std::string(R"({"sample":)") + kDungeon + R"(,"legend":)" + kDungeonLegend + R"(,"n":3,"size":[24,16],"maxAttempts":100})");
+    call.update(Json::parse("{" + extra + "}"));
+    return call;
 }
 
 std::vector<std::string> rows_of(const CommandResult& r) {
@@ -648,4 +651,133 @@ TEST_CASE("tilemap.generate: model must be text, and n and symmetry are ignored 
         "sample":["aa","aa"],"legend":{"a":{"tile":3,"flipX":true}}})"));
     REQUIRE_MESSAGE(flipped.ok, error_text(flipped));
     CHECK_FALSE(flipped.result.contains("warnings"));
+}
+
+TEST_CASE("tilemap.generate: unknown arguments are refused with a suggestion, before any work") {
+    Session s;
+    auto typo = s.call("tilemap.generate", dungeon_call(R"("seed":1,"maxAtempts":5)"));
+    REQUIRE_FALSE(typo.ok);
+    CHECK_MESSAGE(contains(error_text(typo), "/maxAtempts"), error_text(typo));
+    CHECK_MESSAGE(contains(error_text(typo), "maxAttempts"), error_text(typo));   // did you mean
+    CHECK_MESSAGE(contains(error_text(typo), "invalid_argument"), error_text(typo));
+    // `place` is an option of the script API only
+    auto place = s.call("tilemap.generate", dungeon_call(R"("seed":1,"place":true)"));
+    REQUIRE_FALSE(place.ok);
+    CHECK_MESSAGE(contains(error_text(place), "/place"), error_text(place));
+    CHECK_MESSAGE(contains(error_text(place), "Valid:"), error_text(place));
+    // generate_start reads the same arguments
+    auto start = s.call("tilemap.generate_start", dungeon_call(R"("seed":1,"sed":3)"));
+    REQUIRE_FALSE(start.ok);
+    CHECK_MESSAGE(contains(error_text(start), "seed"), error_text(start));
+    // nothing was left running
+    CHECK(s.call("tilemap.generate_step", Json::object({{"job", 1}})).error.value("code", std::string()) == "not_found");
+}
+
+TEST_CASE("tilemap.generate reachability: `costs` takes numbers of 0 or more, or null") {
+    Session s;
+    auto fails = [&](const std::string& costs, const std::string& text) {
+        auto r = s.call("tilemap.generate", dungeon_call(R"("seed":1,"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[0],"costs":)" + costs + "}"));
+        INFO(costs);
+        REQUIRE_FALSE(r.ok);
+        CHECK_MESSAGE(contains(error_text(r), "/reachability/costs/"), error_text(r));
+        CHECK_MESSAGE(contains(error_text(r), text), error_text(r));
+    };
+    fails(R"({"1":-2})", "finite number of 0 or more");
+    fails(R"({"1":"cheap"})", "a number of 0 or more");
+    fails(R"({"1":true})", "a number of 0 or more");
+    fails(R"({"1":1e300})", "finite");   // more than a float holds
+    auto ok = s.call("tilemap.generate", dungeon_call(R"("seed":1,"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[0],"costs":{"1":0,"2":2.5,"3":null}})"));
+    CHECK_MESSAGE(ok.ok, error_text(ok));
+}
+
+TEST_CASE("tilemap.generate constraints: `repair` is optional, and a maximum is only checked on the finished grid") {
+    Session s;
+    // The rules of the test above, with and without the repair of a missed minimum. Whichever way, a level that comes out meets them:
+    // the repair pins cells for a minimum and never for a maximum, which is only checked on the finished grid.
+    const std::string counts = R"("counts":[{"tile":"E","min":2,"max":4},{"tile":"$","max":1}])";
+    auto repaired = s.call("tilemap.generate", dungeon_call(R"("seed":9,"constraints":{)" + counts + "}"));
+    REQUIRE_MESSAGE(repaired.ok, error_text(repaired));
+    const auto rowsA = rows_of(repaired);
+    CHECK(count_char(rowsA, 'E') >= 2);
+    CHECK(count_char(rowsA, 'E') <= 4);
+    CHECK(count_char(rowsA, '$') <= 1);
+
+    auto plain = s.call("tilemap.generate", dungeon_call(R"("seed":9,"maxAttempts":300,"constraints":{"repair":false,)" + counts + "}"));
+    if (plain.ok) {
+        const auto rowsB = rows_of(plain);
+        CHECK(count_char(rowsB, 'E') >= 2);
+        CHECK(count_char(rowsB, 'E') <= 4);
+        CHECK(count_char(rowsB, '$') <= 1);
+    } else {
+        // without the repair a rare minimum can use up the attempts: that is why the option is on by default
+        CHECK_MESSAGE(contains(error_text(plain), "maxAttempts"), error_text(plain));
+    }
+    // the option is a boolean
+    auto bad = s.call("tilemap.generate", dungeon_call(R"("seed":9,"constraints":{"repair":"no"})"));
+    REQUIRE_FALSE(bad.ok);
+    CHECK_MESSAGE(contains(error_text(bad), "repair"), error_text(bad));
+}
+
+TEST_CASE("tilemap.generate_start: when other generations hold the memory, the error says so and the map is not blamed") {
+    Session s;
+    // Measure what one dungeon costs per cell, then ask for two runs that fit alone and not together.
+    auto probe = s.call("tilemap.generate_start", dungeon_call(R"("seed":1,"size":[64,64])"));
+    REQUIRE_MESSAGE(probe.ok, error_text(probe));
+    const double perCell = double(probe.result["memoryBytes"].get<long long>()) / (64.0 * 64.0);
+    s.call("tilemap.generate_cancel", Json::object({{"job", probe.result["job"]}}));
+    const int side = int(std::sqrt(0.6 * 256.0 * 1024.0 * 1024.0 / perCell));
+    const std::string size = "\"size\":[" + std::to_string(side) + "," + std::to_string(side) + "]";
+    auto first = s.call("tilemap.generate_start", dungeon_call("\"seed\":1," + size));
+    REQUIRE_MESSAGE(first.ok, error_text(first));
+    auto second = s.call("tilemap.generate_start", dungeon_call("\"seed\":2," + size));
+    REQUIRE_FALSE(second.ok);
+    const std::string t = error_text(second);
+    CHECK_MESSAGE(contains(t, "other generation"), t);
+    CHECK_MESSAGE(contains(t, "tilemap.generate_cancel"), t);
+    // once the first is dropped the same request fits
+    CHECK(s.call("tilemap.generate_cancel", Json::object({{"job", first.result["job"]}})).result["cancelled"] == true);
+    auto again = s.call("tilemap.generate_start", dungeon_call("\"seed\":2," + size));
+    CHECK_MESSAGE(again.ok, error_text(again));
+}
+
+TEST_CASE("tilemap.generate reachability: the path costs are those nav.find_tile_path finds on the written level, with the same `costs`") {
+    Session s;
+    // Floor costs 1.75, the enemy tile is walkable at 4 and the treasure blocks (null): the generator and nav share one cost rule.
+    const char* costs = R"({"1":1.75,"3":4,"2":null})";
+    auto r = s.call("tilemap.generate", dungeon_call(std::string(R"("seed":6,"into":"terrain","rows":true,"constraints":{"fixed":[{"at":[1,1],"tile":"."},{"at":[22,14],"tile":"."}]},
+        "reachability":{"from":[1,1],"to":[[22,14],[12,8]],"solidTiles":[0],"costs":)") + costs + "}"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    const Json& rep = r.result["reachability"];
+    REQUIRE(rep["paths"].size() >= 1);
+    for (const Json& p : rep["paths"]) {
+        auto nav = s.call("nav.find_tile_path", Json{{"tilemap", "terrain"}, {"from", Json::array({1, 1})}, {"to", p["to"]}, {"costs", Json::parse(R"({"0":null,"1":1.75,"3":4,"2":null})")}});
+        REQUIRE_MESSAGE(nav.ok, error_text(nav));
+        CHECK(nav.result["found"] == true);
+        CHECK(nav.result["cost"].get<double>() == doctest::Approx(p["cost"].get<double>()).epsilon(1e-4));
+        CHECK(nav.result["cells"].size() == p["steps"].get<std::size_t>() + 1);
+    }
+}
+
+TEST_CASE("tilemap.generate_step: on a big level a step stays within a chunk of its work, reachability included (path searches apart)") {
+    Session s;
+    const int side = 160;   // 25600 cells: more than one chunk (16384) of every phase
+    const std::string size = "\"size\":[" + std::to_string(side) + "," + std::to_string(side) + "]";
+    auto start = s.call("tilemap.generate_start", dungeon_call(size + R"(,"seed":4,"maxAttempts":3,"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[0]})"));
+    REQUIRE_MESSAGE(start.ok, error_text(start));
+    const Json job = start.result["job"];
+    long long before = 0, widest = 0;
+    int steps = 0;
+    for (; steps < 200000; ++steps) {
+        auto r = s.call("tilemap.generate_step", Json::object({{"job", job}, {"work", 1}}));
+        if (!r.ok) break;   // a seed that never makes a connected level ends with an error: the bound is what this test is about
+        const long long work = r.result["work"].get<long long>();
+        widest = std::max(widest, work - before);
+        before = work;
+        if (r.result["done"] == true) break;
+    }
+    // a chunk is about 16384 units (a propagated cell, an observed cell or a reachability pass are small beside it); the one piece
+    // that is not cut is a path search, and with `allConnected` and no `to` none is made
+    CHECK(widest <= 2 * 16384 + 4096);
+    CHECK(steps > 10);
+    s.call("tilemap.generate_cancel", Json::object({{"job", job}}));
 }

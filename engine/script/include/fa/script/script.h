@@ -123,10 +123,16 @@ public:
         (void)language;
         return "this host has no localization (set_language is not implemented)";
     }
-    // How many milliseconds a frame may spend on scene.preload / assets.preload work, and on each running tilemap.generate. 0 (the
-    // default: tests, headless runs, replays) means a FIXED amount, four files per frame and 500000 units of generator work, so a run
+    // How many milliseconds a frame may spend on scene.preload / assets.preload work, and on all running tilemap.generate jobs together
+    // (shared equally). 0 (the default: tests, headless runs, replays) means a FIXED amount, four files per frame and 500000 units of
+    // generator work (shared equally by the running jobs), so a run
     // does not depend on how fast the machine is; a game with a window returns a few milliseconds.
     virtual double preload_time_budget_ms() const { return 0.0; }
+    // Forgets the tilemap.generate jobs the script side started (`jobs`: the numbers tilemap.generate_start answered to its calls;
+    // frees their solver memory). The script system calls it when its JavaScript context is created or closed: the handles that
+    // would cancel those jobs die with the context, and nothing else would ever step them. A job started by the console, the MCP
+    // server or the editor is not in the list and is left alone.
+    virtual void drop_script_jobs(const std::vector<int>& jobs) { (void)jobs; }
     // Deferred to the end of the current frame.
     virtual void request_scene_change(std::string_view scenePath) = 0;
     // Scene props (scene.load(path, { props }), game.sceneProps()): plain JSON the new scene's scripts read from their first

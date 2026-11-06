@@ -167,6 +167,16 @@ TEST_CASE("level generator: the arguments it builds, and the mistakes it names")
         o.extra = forbidden;
         CHECK_FALSE(level_gen_arguments(o).ok());
     }
+    // The fields of the window own sample, size, seed, model, n, symmetry and periodic: a value in the options would change the level
+    // without the history and the preview knowing, so each is refused and the field to use is named.
+    for (const char* key : {"sample", "size", "seed", "model", "n", "symmetry", "periodic"}) {
+        o.extra = std::string("{\"") + key + "\": 5}";
+        Result<Json> r = level_gen_arguments(o);
+        INFO(o.extra);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find(std::string("'") + key + "'") != std::string::npos);
+        CHECK(r.error().hint.find("and use ") != std::string::npos);   // the window control to use
+    }
 }
 
 TEST_CASE("level generator: a generation runs in steps and ends with a preview; the same seed gives the same level") {
@@ -279,8 +289,54 @@ TEST_CASE("level generator: cancel frees the job; a scene load ends a running on
     REQUIRE(load.ok);
     s.engine.step(1);
     CHECK_FALSE(g.tick(s.caller(), 4.0));
-    CHECK(g.state() == LevelGenSession::State::Failed);   // a job belongs to the scene that started it
-    CHECK_FALSE(g.error().empty());
+    // A job belongs to the scene that started it: the engine dropped it, which is a note and not a failure of the options.
+    CHECK(g.state() == LevelGenSession::State::Idle);
+    CHECK(g.error().empty());
+    CHECK_FALSE(g.notice().empty());
+    CHECK(g.tries().empty());
+    // A new run clears the note.
+    g.start(entity_options(2), s.caller());
+    CHECK(g.notice().empty());
+    g.cancel(s.caller());
+}
+
+TEST_CASE("level generator: the preview reads a command answer with odd types and glyphs beyond ASCII without throwing") {
+    LevelGenSession g;
+    int steps = 0;
+    const LevelGenCaller fake = [&](const std::string& name, const Json&) {
+        CommandResult r;
+        r.ok = true;
+        if (name == "tilemap.generate_start") {
+            r.result = Json::object({{"job", 1}});
+        } else if (name == "tilemap.generate_step") {
+            ++steps;
+            r.result = Json::parse(R"({"done":true,"progress":1,"result":{"width":"4","height":null,"seed":"x","rows":["\u00e9#\u00e9.","#\u00e9..",5],
+                "legend":{"\u00e9":{"tile":3,"prefab":"p.prefab.json"},"#":0,".":-1},"stats":{"attempts":"many"}}})");
+        }
+        return r;
+    };
+    g.start(entity_options(9), fake);
+    REQUIRE(g.running());
+    CHECK_FALSE(g.tick(fake, 4.0));
+    REQUIRE(g.state() == LevelGenSession::State::Ready);
+    const LevelGenPreview& p = g.preview();
+    CHECK(p.seed == 9);                 // a seed of the wrong type is the one the run was started with
+    CHECK(p.width == 4);                // "4" is not a number: the longest row (4 cells) gives the width
+    CHECK(p.height == 3);               // null: the number of rows
+    REQUIRE(p.cells.size() == 12);
+    const LevelGenCell e = level_gen_cell(p, 0, 0);
+    CHECK(e.glyph == U'\u00e9');
+    CHECK(e.tile == 3);
+    CHECK(e.marker);
+    CHECK(level_gen_glyph_text(e) == "\xC3\xA9");   // two bytes, one cell
+    CHECK(level_gen_cell(p, 1, 0).tile == 0);
+    CHECK(level_gen_cell(p, 1, 0).glyph == U'#');
+    CHECK(level_gen_cell(p, 2, 0).marker);   // the second \u00e9 of the row, not the second byte of the first
+    CHECK(level_gen_cell(p, 3, 0).tile == -1);
+    CHECK(level_gen_cell(p, 1, 1).marker);
+    CHECK(level_gen_cell(p, 0, 2).tile == -1);   // a row that is not text has no cells
+    CHECK(level_gen_cell(p, 0, 2).glyph == 0);
+    CHECK(steps == 1);
 }
 
 TEST_CASE("level generator: clear forgets the preview and the history") {
@@ -332,12 +388,16 @@ TEST_CASE("level generator: clear cancels a running job: no leaked job, all 8 sl
 TEST_CASE("level generator: the preview's cells follow the legend") {
     Session s;
     LevelGenSession g;
-    g.start(file_options(2), s.caller());
+    LevelGenOptions withCoin = file_options(2);
+    withCoin.extra = R"({"constraints": {"required": ["o"]}})";   // the sample draws one coin: the level has at least one marker
+    g.start(withCoin, s.caller());
     REQUIRE(s.finish(g) >= 0);
+    REQUIRE_MESSAGE(g.state() == LevelGenSession::State::Ready, g.error());
     const LevelGenPreview& p = g.preview();
     REQUIRE(p.valid);
+    CHECK(p.cells.size() == std::size_t(p.width) * std::size_t(p.height));
     CHECK(p.legend.contains("#"));
-    int walls = 0, markers = 0, open = 0;
+    int walls = 0, markers = 0, open = 0, coinGlyphs = 0;
     for (int row = 0; row < p.height; ++row)
         for (int col = 0; col < p.width; ++col) {
             const LevelGenCell c = level_gen_cell(p, col, row);
@@ -346,11 +406,17 @@ TEST_CASE("level generator: the preview's cells follow the legend") {
                 ++walls;
             }
             markers += c.marker ? 1 : 0;
+            if (p.rows[std::size_t(row)][std::size_t(col)] == 'o') {
+                CHECK(c.marker);   // the coin glyph carries a prefab
+                ++coinGlyphs;
+            }
+            CHECK(c.glyph == char32_t(static_cast<unsigned char>(p.rows[std::size_t(row)][std::size_t(col)])));
             open += c.tile < 0 && !c.marker ? 1 : 0;
         }
     CHECK(walls > 0);
     CHECK(open > 0);
-    CHECK(markers >= 0);
+    CHECK(markers >= 1);
+    CHECK(markers == coinGlyphs);   // only the coin glyph is a marker
     CHECK(level_gen_cell(p, -1, 0).tile == -1);
     CHECK(level_gen_cell(p, 0, p.height).tile == -1);
     CHECK(level_gen_cell(p, p.width, 0).tile == -1);
@@ -440,10 +506,13 @@ TEST_CASE("level generator: the level file is the format scene.import_ascii and 
     again.sampleFile = "levels/generated.json";
     again.width = 10;
     again.height = 10;
+    again.n = 2;
     LevelGenSession g2;
     g2.start(again, s.caller());
-    if (g2.running()) s.finish(g2);
-    CHECK((g2.state() == LevelGenSession::State::Ready || g2.state() == LevelGenSession::State::Failed));
+    REQUIRE_MESSAGE(g2.running(), g2.error());
+    REQUIRE(s.finish(g2) >= 0);
+    CHECK_MESSAGE(g2.state() == LevelGenSession::State::Ready, g2.error());
+    CHECK(g2.preview().width == 10);
 }
 
 TEST_CASE("level generator: names for kept entities and files") {

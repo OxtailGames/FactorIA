@@ -605,6 +605,7 @@ bool Editor::boot(const std::string& dirIn) {
     levelGenOpt_.sampleFile.clear();
     levelGenMessage_.clear();
     levelGenSelId_.clear();
+    levelGenSampleStale_ = true;
     levelGenSelTilemap_ = false;
     levelGenSolid_.clear();
     bootError_.clear();
@@ -1019,6 +1020,8 @@ bool Editor::command_edits_scene(const std::string& name, const Json& args) cons
 
 void Editor::after_command(const std::string& name, const Json& args, const CommandResult& r) {
     if (!r.ok || !engine_) return;
+    // The Level generator window reads its sample's Tilemap again (it never does it on a timer).
+    if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly) levelGenSampleStale_ = true;
     // A clip file changed (the Console, the AI or the panel): the pose on screen is out of date.
     if (name.rfind("anim.", 0) == 0 && command_edits_scene(name, args) == false && name != "anim.check" && name != "anim.filmstrip") anim_.dirtyPose = true;
     // Commands that write or delete project files: the Project panel reads the folder again (it never walks the disk per frame).
@@ -1195,6 +1198,7 @@ void Editor::begin_edit(const std::string& key) {
 
 void Editor::undo() {
     if (play_ != PlayState::Edit || undo_.empty() || !engine_) return;
+    levelGenSampleStale_ = true;   // the Level generator window reads its sample again
     if (undo_.back().is_object() && undo_.back().contains("$clip")) {  // a step of a clip file (anim_panel.cpp)
         Json entry = std::move(undo_.back());
         undo_.pop_back();
@@ -1261,6 +1265,7 @@ void Editor::undo() {
 
 void Editor::redo() {
     if (play_ != PlayState::Edit || redo_.empty() || !engine_) return;
+    levelGenSampleStale_ = true;   // the Level generator window reads its sample again
     if (redo_.back().is_object() && redo_.back().contains("$clip")) {
         Json entry = std::move(redo_.back());
         redo_.pop_back();
