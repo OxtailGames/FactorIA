@@ -201,5 +201,61 @@ TEST_CASE("vfx_measure: a 3D emitter counts its particles and says its overdraw 
     REQUIRE(b.notes.size() == 1);
     CHECK(b.notes[0].find("sparks") != std::string::npos);
     CHECK(b.notes[0].find("3D") != std::string::npos);
+    CHECK(b.notes[0].find("not measured") != std::string::npos);
     CHECK(b.findings.empty());
+}
+
+TEST_CASE("vfx_measure: with a camera a 3D emitter's quads are projected through it and counted as overdraw") {
+    // One still particle of 5 units, 5 m in front of a 90 degree camera: the view is 10 units tall and 10 * 1280/720 wide, so the quad
+    // covers 25 / (10 * 17.78) = 0.14 of the screen.
+    const auto d = doc_of(R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"orb","emitter":{"is3D":true,"burst":1,"rate":0,"lifetime":0.5,
+        "lifetimeVariance":0,"startSize":5,"endSize":5,"speed":0,"speedVariance":0,"maxParticles":4}}]})");
+    VfxBudgetOptions o;
+    o.camera = VfxBudgetCamera{};
+    o.camera->fovDegrees = 90.0;
+    const VfxBudget b = vfx_measure(*d, o);
+    CHECK(b.camera3d);
+    CHECK(b.peakParticles == 1);
+    CHECK(b.peakOverdraw == doctest::Approx(0.14).epsilon(0.001));
+    REQUIRE(b.notes.size() == 1);
+    CHECK(b.notes[0].find("main camera") != std::string::npos);
+    CHECK(b.notes[0].find("5.0 m") != std::string::npos);
+    CHECK(b.notes[0].find("perspective") != std::string::npos);
+    // Twice as far, a quarter of the area; a narrower lens covers more.
+    o.cameraDistance = 10.0;
+    CHECK(vfx_measure(*d, o).peakOverdraw == doctest::Approx(0.04).epsilon(0.03));
+    o.cameraDistance = 5.0;
+    o.camera->fovDegrees = 45.0;
+    CHECK(vfx_measure(*d, o).peakOverdraw > b.peakOverdraw);
+    // Repeatable, like the 2D numbers.
+    CHECK(vfx_measure(*d, o).peakOverdraw == vfx_measure(*d, o).peakOverdraw);
+    // An orthographic camera 4 units tall: the quad covers 25 / (4 * 7.11) screens, which is more than the whole view.
+    VfxBudgetOptions ortho;
+    ortho.camera = VfxBudgetCamera{};
+    ortho.camera->perspective = false;
+    ortho.camera->orthoHalfHeight = 2.0;
+    const VfxBudget ob = vfx_measure(*d, ortho);
+    CHECK(ob.camera3d);
+    CHECK(ob.peakOverdraw == doctest::Approx(25.0 / (4.0 * 4.0 * 1280.0 / 720.0)).epsilon(0.01));
+    CHECK(ob.notes[0].find("orthographic") != std::string::npos);
+    // Behind the camera (or not past its near plane) nothing is drawn: no overdraw.
+    VfxBudgetOptions behind = o;
+    behind.cameraDistance = -3.0;
+    CHECK(vfx_measure(*d, behind).peakOverdraw == 0.0);
+    // Big, close quads are a finding like any other overdraw.
+    const auto big = doc_of(R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"fog","emitter":{"is3D":true,"burst":6,"rate":0,"lifetime":0.5,
+        "lifetimeVariance":0,"startSize":8,"endSize":8,"speed":0,"speedVariance":0,"maxParticles":8}}]})");
+    const VfxBudget bb = vfx_measure(*big, o);
+    REQUIRE(bb.findings.size() == 1);
+    CHECK(bb.findings[0].kind == "overdraw");
+    CHECK(vfx_measure(*big).findings.empty());   // without the camera there is nothing to compare
+}
+
+TEST_CASE("vfx_measure: without a camera the note says there is nothing to project through") {
+    const auto d = doc_of(R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"sparks","emitter":{"is3D":true,"burst":3,"lifetime":0.5}}]})");
+    const VfxBudget b = vfx_measure(*d);
+    CHECK_FALSE(b.camera3d);
+    REQUIRE(b.notes.size() == 1);
+    CHECK(b.notes[0].find("no camera") != std::string::npos);
+    CHECK(b.notes[0].find("primary Camera") != std::string::npos);
 }
