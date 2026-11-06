@@ -94,6 +94,7 @@ TEST_CASE("asset_type_of: one classifier for every asset file") {
     CHECK(asset_type_of("scenes/main.scene.json") == "scene");
     CHECK(asset_type_of("p/enemy.prefab.json") == "prefab");
     CHECK(asset_type_of("m/water.material.json") == "material");
+    CHECK(asset_type_of("fx/Hit.VFX.json") == "vfx");
     CHECK(asset_type_of("data.json") == "other");
     CHECK(asset_type_of("dir.png/readme") == "other");
 }

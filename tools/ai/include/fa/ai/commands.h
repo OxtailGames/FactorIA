@@ -23,6 +23,12 @@ struct AiCommandOptions {
     // The user's ai.json, for the project-aware paths (the resolution of the project's settings, ai.settings.get/set, the refusal of
     // a role the project turned off). "" = default_config_path(env). Its ai-trust.json lies next to it (tests point both at a temp dir).
     std::string aiConfigPath;
+    // Called after ai.settings.set (scope "user") wrote the user's ai.json, on the thread that ran the command (an AI or MCP thread in
+    // the editor: hand the work to the UI thread). The editor reloads its copy of ai.json and its AI windows from it.
+    std::function<void()> onUserConfigChanged;
+    // Called after ai.settings.set (scope "project") wrote or removed the project's settings file; same thread rules. The editor drops
+    // its cache of the project's resolution.
+    std::function<void()> onProjectConfigChanged;
     // Receives events while ai.run executes (CLI progress output).
     EventHandler onEvent;
     // Used instead of the real providers (tests).

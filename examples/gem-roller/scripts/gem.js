@@ -1,6 +1,6 @@
 // @ts-check
-// Spinning, bobbing collectible gem (trigger). Plays a sound and bursts particles when the ball touches it.
-import { Behaviour, audio } from "factoria";
+// Spinning, bobbing collectible gem (trigger). Plays its pickup effect (sparks, a flash and the sound) when the ball touches it.
+import { Behaviour, vfx } from "factoria";
 
 export default class Gem extends Behaviour {
   spinSpeed = 120;
@@ -21,9 +21,9 @@ export default class Gem extends Behaviour {
   onTriggerEnter(other) {
     if (this.taken || !other.hasTag("player")) return;
     this.taken = true;
-    audio.play("assets/sfx/gem.wav", { volume: 0.8 });
-    // One-shot sparkle: the prefab's emitter bursts on creation and destroys itself when the last particle dies.
-    this.world.spawnPrefab("prefabs/gem_burst.prefab.json", { position: this.entity.worldPosition.clone() });
+    // One call plays the whole pickup: the sparks, the flash of light and the sound are parts of one effect document, which
+    // removes itself when its last particle has died.
+    vfx.play("assets/vfx/gem_burst.vfx.json", { position: this.entity.worldPosition });
     this.world.emit("gem_collected", { id: this.entity.id });
     this.entity.destroy();
   }

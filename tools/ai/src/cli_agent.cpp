@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include "fa/core/command.h"
 #include "fa/core/strings.h"
 #include "util.h"
 
@@ -104,6 +105,10 @@ Result<ProcessOptions> cli_process_options(const ProviderConfig& cfg) {
     ProcessOptions po;
     po.env = cfg.env;
     po.unsetEnv = cfg.unsetEnv;
+    // A `factoria` this agent runs from its shell (`factoria call ai.settings.set ...`) is the agent's call, not the user's:
+    // it reads this variable (CommandCallerFloor). A value the user already put in the environment stays (it can only be a
+    // stricter or equal one: the CLI maps any value to Agent or Mcp), and so does one in the provider's own "env".
+    if (!po.env.contains(kCallerEnvVar) && !command_caller_from_env()) po.env[kCallerEnvVar] = "agent";
     if (which(command).empty() && !po.env.contains("PATH")) {
         // Found outside PATH: its folder goes first, so a script CLI (npm's `claude` is `#!/usr/bin/env node`) finds the
         // node installed next to it.

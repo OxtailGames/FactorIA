@@ -9,6 +9,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/scene/bounds.h"
+#include "fa/scene/particles.h"
 #include "fa/scene/tilemap.h"
 
 namespace fa {
@@ -489,6 +490,13 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
                 error(cptr + "/Sprite/slice", "Sprite.slice has a negative border [" + std::to_string(sp->slice.x) + ", " + std::to_string(sp->slice.y) +
                       ", " + std::to_string(sp->slice.z) + ", " + std::to_string(sp->slice.w) + "]",
                       "slice is [left, top, right, bottom] in texture pixels, each 0 or more. Example: \"slice\": [8, 8, 8, 8].");
+        }
+        if (const ParticleEmitter* pe = world_.get<ParticleEmitter>(e)) {
+            for (const ParticleProblem& issue : particle_emitter_problems(*pe)) {
+                std::string pptr = cptr + "/ParticleEmitter" + issue.pointer;
+                if (issue.error) error(pptr, issue.message, issue.hint);
+                else warn(pptr, issue.message, issue.hint);
+            }
         }
         if (const Camera* cam = world_.get<Camera>(e)) {
             const std::string problem = camera_viewport_problem(cam->viewport);

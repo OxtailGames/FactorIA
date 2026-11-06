@@ -214,6 +214,18 @@ Json settings_view(const AiConfig& cfg) {
     return view;
 }
 
+std::vector<std::string> setting_pointers(const AiConfig& cfg) {
+    std::vector<std::string> out;
+    for (const auto& [pointer, value] : leaves_of(settings_view(cfg))) out.push_back(pointer);
+    for (const char* role : kAllRoles) out.push_back(std::string("/roles/") + role + "/toolGroups");
+    for (MediaKind k : kMediaKinds) {
+        for (const char* f : {"provider", "model", "voice"}) out.push_back(std::string("/assets/") + media_kind_name(k) + "/" + f);
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
 namespace {
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -953,6 +965,20 @@ Result<void> set_user_setting(std::string_view pointer, const Json& value, std::
     }
     Json raw = read_raw_user(userPath);
     if (value.is_null()) {
+        // Removing needs a real setting as much as writing does: a typo must not look like "already the default".
+        const std::vector<std::string> known = setting_pointers(*user);
+        if (std::find(known.begin(), known.end(), std::string(pointer)) == known.end()) {
+            Json probe = Json::object();
+            probe[Json::json_pointer(std::string(pointer))] = true;
+            std::string suggestion = fa::did_you_mean(pointer, known);
+            if (auto ok = validate_project_settings(probe, *user, userPath); !ok) {
+                Error e = ok.error();
+                if (e.hint.find("Did you mean") == std::string::npos) e.hint += (e.hint.empty() ? "" : " ") + suggestion;
+                return e;
+            }
+            return make_error("'" + escape_control_chars(pointer) + "' is not an AI setting, so there is nothing to remove",
+                              "Pointers look like /roles/artist/enabled (ai.settings.get lists them all). " + suggestion);
+        }
         // The key in ai.json: servers and extensions are switched with their "enabled".
         std::vector<std::string> path = parts;
         if ((path.size() == 2 && path[0] == "mcpServers") || (path.size() == 3 && path[0] == "extensions")) path.push_back("enabled");

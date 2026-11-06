@@ -17,7 +17,7 @@ inline constexpr const char* kAssetPayload = "FA_ASSET";
 
 struct BrowserFile {
     std::string path;      // project-relative, forward slashes
-    std::string type;      // asset_type_of(path): texture, audio, font, mesh, script, scene, prefab, material, other
+    std::string type;      // asset_type_of(path): texture, audio, font, mesh, script, scene, prefab, material, vfx, other
     std::uint64_t size = 0;
 };
 
