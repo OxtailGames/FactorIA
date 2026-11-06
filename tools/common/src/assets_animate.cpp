@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
 #include <format>
 #include <set>
 
@@ -31,6 +32,7 @@ constexpr int kMaxCell = 1024;        // a frame side
 constexpr int kMaxSheetSide = 8192;   // the PNG's side
 constexpr int kMaxFrames = 2048;
 constexpr std::size_t kMaxRampColours = 32;
+constexpr double kMaxBakeBytes = 1024.0 * 1024.0 * 1024.0;   // the pictures of all layers and their sheets, held at once
 
 // The layers of a baked effect, in the order they are stacked: behind the character, in front of it, and an additive light pass.
 const std::vector<std::string>& layer_names() {
@@ -40,8 +42,8 @@ const std::vector<std::string>& layer_names() {
 
 // "assets/art/hit.png" + "back" -> "assets/art/hit_back.png".
 std::string layer_path(const std::string& rel, const std::string& layer) {
-    stdfs::path p(rel);
-    return p.replace_filename(p.stem().string() + "_" + layer + p.extension().string()).generic_string();
+    const std::string dir = fs::parent(rel);
+    return (dir.empty() ? std::string() : dir + "/") + fs::stem(rel) + "_" + layer + fs::extension(rel);
 }
 
 // The colour a brightness (0 dark .. 1 bright) has on a ramp: the ramp's colours blended between neighbours.
@@ -365,6 +367,15 @@ Json animate(const std::string& projectDir, const Json& a) {
     for (const std::string& lr : layerRels)
         if (!overwrite && stdfs::exists(project_file(projectDir, lr), ec)) fail("exists", "'" + lr + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
     require_usable_manifest(projectDir);
+    {
+        // every layer holds its frames until its sheet is built, and a layered bake keeps the sheets for the picture of the result
+        const double perLayer = double(total) * frameW * frameH * 4.0 + double(sheetW) * double(sheetH) * 4.0;
+        if (perLayer * double(layerList.size()) > kMaxBakeBytes)
+            fail("invalid_argument",
+                 std::format("Baking {} layer(s) of {} frames of {}x{} px into {}x{} px sheets would need about {} MB of memory; the most is {} MB.", layerList.size(), total, frameW, frameH,
+                             sheetW, sheetH, std::llround(perLayer * double(layerList.size()) / (1024.0 * 1024.0)), std::llround(kMaxBakeBytes / (1024.0 * 1024.0))),
+                 "Bake fewer layers in one call (a layer can be baked on its own with the same `path`), draw fewer or smaller frames, or lower frameWidth/frameHeight.");
+    }
 
     // ---- draw every frame of every layer ----
     std::unique_ptr<AnimModule> module;
@@ -377,6 +388,7 @@ Json animate(const std::string& projectDir, const Json& a) {
     for (std::size_t c = 0; c < clips.size(); ++c)
         for (int f = 0; f < clips[c].frames; ++f) jobs.push_back({int(c), f, int(jobs.size())});
 
+    std::set<std::string> unsupportedSaid;
     std::vector<std::vector<Image>> layerPictures(layerList.size());
     std::vector<std::vector<bool>> layerEmpty(layerList.size(), std::vector<bool>(jobs.size(), false));
     for (std::size_t li = 0; li < layerList.size(); ++li) {
@@ -426,9 +438,9 @@ Json animate(const std::string& projectDir, const Json& a) {
                 picture.width = frameW;
                 picture.height = frameH;
                 picture.rgba.assign(std::size_t(frameW) * frameH * 4, 0);
-                for (const std::string& w : local) warn(w);
+                // the same complaint comes back for every frame and every layer: say it once, where it first happened
                 const std::string what = e.what();
-                if (what.find("not supported") != std::string::npos) warn(where + ": " + what);
+                if (what.find("not supported") != std::string::npos && unsupportedSaid.insert(what).second) warn(where + ": " + what);
             }
             for (const std::string& w : local) warn(w);
             if (rampMap) picture = map_to_ramp(picture, ramp);
@@ -473,11 +485,17 @@ Json animate(const std::string& projectDir, const Json& a) {
     }
     if (std::max(sheetW, sheetH) > 4096)
         warn(std::format("The sheet is {}x{} px; many mobile GPUs cannot sample a texture over 4096 px.", sheetW, sheetH));
-    if (!ramp.empty() && !rampMap && module) {
-        bool reads = false;  // a module that never names `ramp` ignores it: say so
-        for (const std::string& f : module->files())
-            if (auto text = tooling_detail::read_file(project_file(projectDir, f)); text && text->find("ramp") != std::string::npos) reads = true;
-        if (!reads) warn("`ramp` is given but the module never reads `ramp` or `rampAt`, so the colours did not change. Use rampAt(u) in the module (u from 0 dark to 1 bright), or pass \"rampMap\": true to recolour the frames by brightness.");
+    if (module && ((!ramp.empty() && !rampMap) || layered)) {
+        // a module that never names `ramp` (or `layer`) ignores it: say so
+        const auto module_names = [&](const char* word) {
+            for (const std::string& f : module->files())
+                if (auto text = tooling_detail::read_file(project_file(projectDir, f)); text && text->find(word) != std::string::npos) return true;
+            return false;
+        };
+        if (!ramp.empty() && !rampMap && !module_names("ramp"))
+            warn("`ramp` is given but the module never reads `ramp` or `rampAt`, so the colours did not change. Use rampAt(u) in the module (u from 0 dark to 1 bright), or pass \"rampMap\": true to recolour the frames by brightness.");
+        if (layered && layerList.size() > 1 && !module_names("layer"))
+            warn("`layers` is given but the module never reads `layer`, so every layer is the same drawing. Return a different SVG for each layer: frame({layer}) { if (layer === 'back') ... } (the argument of frame() has `layer`).");
     }
 
     // ---- the sheets ----
@@ -497,13 +515,16 @@ Json animate(const std::string& projectDir, const Json& a) {
         }
     }
     const Json sheet = sheet_entry(columns, rows, frameW, frameH, total, sheetClips, padding, pivot);
+    // Every sheet is composed and encoded before the first file is written, so a picture that cannot be encoded leaves the project as it was,
+    // and the frames of a layer are freed as soon as its sheet exists. Only a layered bake keeps the sheets (for the picture of the result).
     std::vector<Image> sheetImages;
+    std::vector<std::vector<std::uint8_t>> pngs;
     for (std::size_t li = 0; li < layerList.size(); ++li) {
         Image sheetImage;
         sheetImage.width = int(sheetW);
         sheetImage.height = int(sheetH);
         sheetImage.rgba.assign(std::size_t(sheetW) * std::size_t(sheetH) * 4, 0);
-        const std::vector<Image>& pictures = layerPictures[li];
+        std::vector<Image>& pictures = layerPictures[li];
         for (std::size_t i = 0; i < pictures.size(); ++i) {
             const int col = int(i) % columns, row = int(i) / columns;
             const int x0 = padding + col * cellW, y0 = padding + row * cellH;
@@ -511,10 +532,32 @@ Json animate(const std::string& projectDir, const Json& a) {
                 std::copy_n(&pictures[i].rgba[std::size_t(y) * frameW * 4], std::size_t(frameW) * 4,
                             &sheetImage.rgba[((std::size_t(y0 + y) * sheetImage.width) + x0) * 4]);
         }
-        const std::vector<std::uint8_t> png = encode_png(sheetImage);
+        std::vector<Image>().swap(pictures);
+        pngs.push_back(encode_png(sheetImage));
+        if (layered) sheetImages.push_back(std::move(sheetImage));
+    }
+    const int imageW = int(sheetW), imageH = int(sheetH);
+    std::vector<bool> existed;   // whether a layer's file was already there: a file this call made is taken back if a later one fails
+    for (const std::string& lr : layerRels) existed.push_back(stdfs::exists(project_file(projectDir, lr), ec));
+    std::vector<std::string> written;
+    for (std::size_t li = 0; li < layerList.size(); ++li) {
         std::string err;
-        if (!tooling_detail::write_file(project_file(projectDir, layerRels[li]), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
-        sheetImages.push_back(std::move(sheetImage));
+        if (tooling_detail::write_file(project_file(projectDir, layerRels[li]), std::string_view(reinterpret_cast<const char*>(pngs[li].data()), pngs[li].size()), &err)) {
+            written.push_back(layerRels[li]);
+            continue;
+        }
+        std::vector<std::string> replaced;   // written over an earlier file: that one is gone
+        for (std::size_t k = 0; k < written.size(); ++k) {
+            if (existed[k]) {
+                replaced.push_back(written[k]);
+                continue;
+            }
+            std::error_code rm;
+            if (!fs::remove_file(project_file(projectDir, written[k]), rm)) replaced.push_back(written[k]);   // could not be taken back either
+        }
+        fail("failed", err + (replaced.empty() ? " Nothing else was changed: the sheets written before it were removed again, and assets.json was not touched."
+                                               : " assets.json was not touched, but these sheets were already written over the earlier ones: " + join(replaced, ", ") + "."),
+             "Check that the folder is writable and the files are not open in another program, then call again with overwrite: true.");
     }
 
     // ---- the record: provenance and recipe ----
@@ -576,7 +619,12 @@ Json animate(const std::string& projectDir, const Json& a) {
             e["sheet"] = sheet;
             e["provenance"] = provenance;
         });
-        if (!r.ok()) fail("failed", "The sheet was written, but assets.json was not updated: " + r.error().message, r.error().hint);
+        if (!r.ok()) {
+            const std::vector<std::string> recorded(layerRels.begin(), layerRels.begin() + std::ptrdiff_t(li));
+            fail("failed", "The sheet" + std::string(layered ? "s were" : " was") + " written, but assets.json was not updated for " + layerRels[li] + (recorded.empty() ? "" : " (it has the entries of " + join(recorded, ", ") + ")") +
+                               ": " + r.error().message,
+                 r.error().hint);
+        }
         if (layered) {
             const char* use = layer == "back"    ? "a Sprite behind the character: a Sprite.layer lower than the character's"
                               : layer == "front" ? "a Sprite in front of the character: a Sprite.layer higher than the character's"
@@ -585,11 +633,35 @@ Json animate(const std::string& projectDir, const Json& a) {
         }
     }
 
+    // ---- sheets of an earlier bake of this same effect with other layers ----
+    // hit_light.png of a bake with three layers is stale once the effect is baked with two (or none): its recipe would remake the old effect.
+    // Only a sheet that this command made for this `path` goes (its recipe says so); a file of the same name made by anything else stays.
+    for (const std::string& name : layer_names()) {
+        if (std::find(layerList.begin(), layerList.end(), name) != layerList.end()) continue;
+        const std::string stale = layer_path(rel, name);
+        ProjectRootGuard root(projectDir);
+        const Json entry = assets::entry(stale);
+        const auto member = [](const Json& obj, const char* key) { return obj.is_object() && obj.contains(key) ? obj[key] : Json(); };
+        const Json recipe = member(member(entry, "provenance"), "recipe");
+        if (member(recipe, "command") != Json(kCommand) || member(member(recipe, "args"), "path") != Json(rel)) continue;
+        std::error_code rm;
+        const std::filesystem::path file = project_file(projectDir, stale);
+        if (stdfs::exists(file, rm) && !fs::remove_file(file, rm)) {
+            warn("The sheet '" + stale + "' is left over from an earlier bake of this effect with the layer \"" + name + "\", and it could not be deleted: " + rm.message() + ". Delete it, or it keeps its recipe.");
+            continue;
+        }
+        if (auto r = assets::update_entry(stale, [](Json& e) { e = Json::object(); }); !r.ok()) {
+            warn("The sheet '" + stale + "' (the layer \"" + name + "\" of an earlier bake) was deleted, but its assets.json entry could not be removed: " + r.error().message);
+            continue;
+        }
+        warn("Removed '" + stale + "': the layer \"" + name + "\" of an earlier bake of this effect, which this bake does not make.");
+    }
+
     Json layout = Json::object({{"columns", columns}, {"rows", rows}, {"frameWidth", frameW}, {"frameHeight", frameH}, {"padding", padding},
-                                {"cellWidth", cellW}, {"cellHeight", cellH}, {"imageWidth", sheetImages[0].width}, {"imageHeight", sheetImages[0].height},
+                                {"cellWidth", cellW}, {"cellHeight", cellH}, {"imageWidth", imageW}, {"imageHeight", imageH},
                                 {"frames", total}, {"clips", sheet.value("clips", Json::array())}});
     if (pivot) layout["pivot"] = sheet["pivot"];
-    Json result = Json::object({{"path", layerRels[0]}, {"width", sheetImages[0].width}, {"height", sheetImages[0].height}, {"layout", layout}, {"sheet", sheet},
+    Json result = Json::object({{"path", layerRels[0]}, {"width", imageW}, {"height", imageH}, {"layout", layout}, {"sheet", sheet},
                                 {"provenance", firstProvenance}});
     if (layered) result["layers"] = layerInfo;
     if (!ramp.empty()) result["ramp"] = Json(rampHex);
@@ -660,6 +732,8 @@ void register_animate_svg_command(CommandRegistry& registry, const std::string& 
         "from one module that receives `layer` and returns the SVG of that layer (an empty <svg/> is a layer idle in that frame). The sheets have the same grid, frames, fps, clips, pivot and padding, "
         "so they stay in step when each plays on its own entity: `back` goes behind the character (a lower Sprite.layer), `front` in front of it (a higher one) and `light` is an additive pass (a Sprite with blend additive, "
         "its colours add to what is under it: draw soft bright glows). Every layer of a frame draws from the same random stream. The result lists the layers and returns them stacked on a dark ground. "
+        "A module that never reads `layer` gets a warning (every layer would be the same drawing). The layers of a call are held in memory together (their frames and sheets, at most 1024 MB): a bake over that is refused before drawing, so bake fewer layers per call. "
+        "All sheets are encoded before the first is written; if a write fails, the sheets this call made are removed again. Sheets of an earlier bake of the same `path` with other layers (hit_light.png after baking only back and front) are deleted with their entries when this command made them. "
         "The result returns the sheet as an image, the layout (columns, rows, cell size, clips) and warnings: frames that draw nothing, shapes touching the edge of the cell, a loop whose last frame jumps from the first (or repeats it), SMIL not sampled. "
         "Provenance (origin generated, ai true: the calling agent wrote the code; pass ai: false with author and license for art a person drew) carries a recipe (this command, its arguments, the module and the files it imported with their SHA-256), "
         "so the sheet can be made again, byte for byte. Use this for motion that follows rules (spin, bob, pulse, sparkle, flame, waves, loaders); for an engine-drawn entity use assets.bake_sheet, for painted frame-by-frame art ask an image provider. "
