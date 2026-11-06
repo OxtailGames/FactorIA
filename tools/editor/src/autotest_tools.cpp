@@ -7884,8 +7884,15 @@ void Editor::at_build_tools_script() {
             at_check(particle_.model->conflict(), "Redo of a file that was changed outside the editor was refused");
             at_check(read_text(rel) == ps->original + "\n", "...the other program's change is still in the file");
             at_check(int(redo_.size()) == ps->count, "...and the step stays on the Redo stack");
-            particle_.model->reload();
+        });
+        // The panel polls the file every 20 frames: it must not take the change by itself while the warning is up (Reload decides).
+        step(45, [this] {});
+        step(2, [this, ps] {
+            at_check(particle_.model->conflict(), "...and the warning is still there after the panel polled the file");
+            at_check(int(redo_.size()) == ps->count, "...with the step on the Redo stack");
+            particle_reload();
             at_check(!particle_.model->conflict(), "Reload took the file as it is and cleared the warning");
+            at_check(int(redo_.size()) == ps->count - 1, "...and dropped the step that cannot be applied any more, so Undo and Redo are not stuck");
         });
 
         step(2, [this, rel] {
@@ -8116,7 +8123,9 @@ void Editor::at_build_tools_script() {
         step(3, [this, os] {
             at_check(undo_depth() == os->undo && anim3d_.newEventError.find("JSON") != std::string::npos, "feel actions that are not JSON were refused, naming JSON");
         });
-        click("a3:event:newfeel");   // the click on Add took the focus away: back in the box, the cursor at the end of the text
+        click("a3:event:newfeel");   // the click on Add took the focus away: back in the box; a click puts the cursor where it lands, so End first
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_END); });
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_END); });
         step(3, [this] {
             for (char c : std::string(",\"duration\":0.05}]")) inject_char(unsigned(static_cast<unsigned char>(c)));
         });

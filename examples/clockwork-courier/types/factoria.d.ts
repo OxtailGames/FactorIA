@@ -9667,6 +9667,11 @@ declare module "factoria" {
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).
    */
   export interface PluginsAPI {
+    /**
+     * Native plugin 'apple' (not loaded when these typings were generated, so its functions are not listed: build it, then run `factoria api --dts` again; `factoria validate` says why it did not load).
+     */
+    readonly apple: {
+    };
     readonly [plugin: string]: Record<string, (...args: any[]) => any> | undefined;
   }
 }

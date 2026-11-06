@@ -157,11 +157,30 @@ void Editor::particle_edited(const ParticleEditOutcome& out) {
         return;
     }
     if (out.step <= 0 || !particle_.model) return;
+    particle_drop_stale_step();   // an edit made on top of the outside change: the refused step cannot be applied any more
     undo_.push_back(Json::object({{"$particle", Json::object({{"step", out.step}})}}));
     if (undo_.size() > 100) undo_.erase(undo_.begin());
     redo_.clear();
     lastEditKey_.clear();
     particle_collect_steps();
+}
+
+void Editor::particle_drop_stale_step() {
+    if (!particle_.model) return;
+    const int id = particle_.model->take_stale_step();
+    if (id <= 0) return;
+    for (auto* stack : {&undo_, &redo_})
+        stack->erase(std::remove_if(stack->begin(), stack->end(), [id](const Json& e) {
+                         return e.is_object() && e.contains("$particle") && e["$particle"].is_object() && e["$particle"].value("step", 0) == id;
+                     }), stack->end());
+    lastEditKey_.clear();
+    particle_collect_steps();
+}
+
+void Editor::particle_reload() {
+    if (!particle_.model) return;
+    particle_.model->reload();
+    particle_drop_stale_step();
 }
 
 void Editor::particle_collect_steps() {
@@ -233,7 +252,7 @@ void Editor::draw_particle_panel() {
     if (m.is_open() && m.conflict()) {
         ImGui::TextColored(kWarn, "The file changed outside the editor: undo and redo would overwrite that change.");
         ImGui::SameLine();
-        if (ImGui::Button("Reload##conflict")) m.reload();
+        if (ImGui::Button("Reload##conflict")) particle_reload();
         ImGui::SameLine();
         ImGui::TextDisabled("(Reload takes the file as it is on disk)");
     }
@@ -354,7 +373,7 @@ void Editor::draw_particle_toolbar(ParticleModel& m) {
     at_track("pt:loop");
     hint("Start again a moment after the last particle is gone.");
     row.next("Reload");
-    if (ImGui::Button("Reload")) m.reload();
+    if (ImGui::Button("Reload")) particle_reload();
     at_track("pt:reload");
     hint("Reads the file again; the undo steps stay.");
 

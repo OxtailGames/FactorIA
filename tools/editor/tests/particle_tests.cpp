@@ -262,6 +262,34 @@ TEST_CASE("particle model: undo and redo refuse to overwrite a file that was cha
     CHECK(p.model->conflict());
 }
 
+TEST_CASE("particle model: while an undo conflict is shown, polling does not read the file; Reload does and names the stale step once") {
+    FxProject p;
+    p.open();
+    const ParticleEditOutcome first = p.model->set_field("/parts/0/emitter/burst", 41, "Edit burst");
+    const ParticleEditOutcome second = p.model->set_field("/parts/0/emitter/burst", 42, "Edit burst again");
+    REQUIRE_MESSAGE((first.ok && second.ok), (first.error + second.error));
+    Json outside = p.file();
+    outside["doc"] = "edited in another program";
+    std::ofstream(p.dir / kFx, std::ios::binary | std::ios::trunc) << outside.dump(2) << "\n\n";
+    CHECK_FALSE(p.model->apply_step(second.step, false));
+    REQUIRE(p.model->conflict());
+    for (int i = 0; i < 5; ++i) {
+        CHECK_FALSE(p.model->poll_external());
+        CHECK(p.model->conflict());
+    }
+    CHECK(p.model->doc()->description != "edited in another program");   // nothing was read
+    CHECK(p.model->step_count() == 2);
+    CHECK(p.model->reload());
+    CHECK_FALSE(p.model->conflict());
+    CHECK(p.model->doc()->description == "edited in another program");
+    CHECK(p.model->take_stale_step() == second.step);
+    CHECK(p.model->take_stale_step() == 0);
+    p.model->retain_steps({first.step});   // the editor's stacks, without the stale step
+    CHECK(p.model->step_count() == 1);
+    CHECK(p.model->step(second.step) == nullptr);
+    CHECK_FALSE(p.model->poll_external());   // polling works again, and finds nothing new
+}
+
 TEST_CASE("particle preview: the timeline counts the sub-emitters and the trail, like the effect system") {
     FxProject p;
     p.open();

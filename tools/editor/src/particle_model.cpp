@@ -126,7 +126,8 @@ void ParticleModel::parse_shown() {
 }
 
 bool ParticleModel::poll_external() {
-    if (!is_open() || preview_) return false;
+    // After a refused undo/redo the user decides (Reload): reading the file here would clear the warning in whatever frame the poll falls.
+    if (!is_open() || preview_ || conflict_) return false;
     auto abs = resolve_project_path(projectDir_, rel_);
     std::error_code ec;
     if (!abs.ok()) return false;
@@ -147,6 +148,12 @@ bool ParticleModel::reload() {
     load_from_disk();
     status_ = "Reloaded.";
     return true;
+}
+
+int ParticleModel::take_stale_step() {
+    const int id = staleStep_;
+    staleStep_ = 0;
+    return id;
 }
 
 std::vector<ParticlePartInfo> ParticleModel::parts() const {
@@ -302,6 +309,7 @@ bool ParticleModel::apply_step(int id, bool forward) {
     // that edit away: refuse, and let the user choose Reload (take the file as it is) or fix it themselves.
     if (read_text() != (forward ? s->before : s->after)) {
         conflict_ = true;
+        staleStep_ = id;
         status_ = std::string("Cannot ") + (forward ? "redo" : "undo") + " '" + s->label + "': " + rel_ +
                   " was changed outside the editor since, and this would overwrite that change. Press Reload to take the file as it is.";
         return false;
