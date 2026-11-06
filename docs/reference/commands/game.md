@@ -161,7 +161,7 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 
 ## `vfx.budget`
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 What an effect document costs on a phone: live particles and the screen they cover, with the fixes.
 
@@ -176,7 +176,7 @@ Plays the document in a scratch world with the same timeline and particle sim a 
 
 ## `vfx.check`
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix.
 
@@ -188,7 +188,7 @@ Returns {ok, path, duration, parts: [{index, name, type, at, duration}], errors:
 
 ## `vfx.filmstrip` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once.
 
@@ -208,7 +208,7 @@ Plays the effect at `position` (default: in a 2D game the world point in the mid
 
 ## `vfx.list`
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 The effects that play now, and the limits of an effect.
 
@@ -216,7 +216,7 @@ Returns {playing: [{id, effect, time, duration, loop, speed}], count, max, limit
 
 ## `vfx.play` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Play an effect document (*.vfx.json) at a position, or on an entity.
 
@@ -234,7 +234,7 @@ Makes an entity with a Vfx component (autoDestroy on) that plays the effect: its
 
 ## `vfx.review` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 A cheap one-shot vision review of an effect: its filmstrip graded for readability, timing, palette and overdraw, with vfx.edit fixes.
 
@@ -251,7 +251,7 @@ The last look of the make, film, grade, fix loop for effects (docs/PARTICLES.md 
 
 ## `vfx.stop` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 End an effect started by vfx.play (or a Vfx entity).
 

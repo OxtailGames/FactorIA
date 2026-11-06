@@ -3382,7 +3382,7 @@ Moves the children of each picked <g> out into the group's parent, at the group'
 
 ## `vfx.create` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Write a new effect document (*.vfx.json) with one burst emitter, as a starting point to edit.
 
@@ -3396,7 +3396,7 @@ Writes `path` (under assets/, ending in .vfx.json; format factoria.vfx/1, docs/P
 
 ## `vfx.edit` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Change one field of an effect document by JSON pointer (set, remove, add to an array, move inside an array); the result must still be a valid effect.
 

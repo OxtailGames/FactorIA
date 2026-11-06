@@ -4,7 +4,7 @@
 
 ## `feel.cancel` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything.
 
@@ -16,7 +16,7 @@ Without `entity` it ends every effect of the scene, hit-stops included. The enti
 
 ## `feel.flash` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Draws an entity in one colour for a moment (a hit flash): sprites, shapes and 3D meshes, fading or square.
 
@@ -32,7 +32,7 @@ The same as `entity.flash(opts)`. The entity's own colour, material and Transfor
 
 ## `feel.hitStop` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Hit-stop: freezes or slows gameplay for a moment of real time; UI, audio and the stop's own timer keep going.
 
@@ -45,7 +45,7 @@ The same as `time.hitStop(seconds, opts)`. Physics, onUpdate/onFixedUpdate, time
 
 ## `feel.knockback` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Pushes an entity away and holds `isKnockedBack` for a moment: an impulse on its physics body, else a decaying velocity.
 
@@ -62,7 +62,7 @@ The same as `entity.knockback(direction, opts)`. A dynamic RigidBody2D/RigidBody
 
 ## `feel.settings` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 The accessibility choices of the game feel effects: reduceMotion and reducedEffects.
 
@@ -75,7 +75,7 @@ The same as `feel.reduceMotion` / `feel.reducedEffects` in a script. true or fal
 
 ## `feel.shake` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Camera shake: adds trauma to a camera (2D and 3D); it stacks up to `cap` and dies out over `duration`.
 
@@ -93,7 +93,7 @@ The same as `camera.shake(amount, opts)` in a script. Adds `amount` (0..1) of tr
 
 ## `feel.sound` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Plays a sound once through the audio system (the same one a clip event's "sound" action uses).
 
@@ -110,7 +110,7 @@ The sound starts on the next audio update, on its bus, and shows in `audio.log` 
 
 ## `feel.spawn` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Makes an effect appear: instantiates a prefab at an entity (or at a point) the next frame.
 
@@ -126,7 +126,7 @@ The same as the "spawn" action of a clip event (docs/GAME_FEEL.md, "Effects as d
 
 ## `feel.squash` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Squash and stretch: a short scale pulse that keeps the volume and springs back to exactly the entity's scale.
 
@@ -141,7 +141,7 @@ The same as `entity.squash(opts)`. The pulse is drawn on top of the entity's own
 
 ## `feel.state`
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 What the game feel effects are doing now: hit-stop, and per entity its shake, flash, squash, knockback and drawn pose.
 

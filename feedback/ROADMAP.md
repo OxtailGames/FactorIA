@@ -1741,7 +1741,7 @@ A complete game whose every picture, model, sound and song is made with the comm
 no imported asset. It measures what the AI reaches with these tools against the reference games that used providers,
 records every gap in its `ENGINE_FEEDBACK.json`, and a triage milestone turns them into packages, as after M21-M32.
 
-## M61. Roles and AI settings per project (L; 4 packages) — the user, 2026-11-05
+## M61. Roles and AI settings per project (L; 4 packages) — DONE (0.17.0)
 
 Asked by the user: the choice of roles is made for each project, not once for every project, and the same goes for
 every other setting that belongs to a project. Today everything the AI settings window edits lives in the user's
@@ -1789,7 +1789,7 @@ and nothing is shipped "in case a game uses it" (a repository can disappear or c
 engine is a capability that helps make games: commands, a script API, a generator, an AI loop, and a few worked
 examples written for the docs. Each milestone names its reference so a worker can read it, not copy it.
 
-## M62. Game feel and effects drawn as code (L; 4 packages)
+## M62. Game feel and effects drawn as code (L; 4 packages) — DONE (0.17.0)
 
 Reference: pixelfx (github.com/patch-gg/pixelfx): every hit is acted (wind-up, freeze on contact, the target rocking
 back, recovery), effects take a palette ramp, and its skill draws, renders, looks and refines. Today the engine has no
@@ -1813,7 +1813,7 @@ camera shake, hit-stop or flash: Kindlewatch wrote its own shake (`examples/kind
   worked examples written by us in docs (an impact, a pickup, a fire loop): no effect library. An example game adopts
   M62.1-M62.3 and records the gaps in its `ENGINE_FEEDBACK.json`.
 
-## M63. Level generation from an example (L; 4 packages)
+## M63. Level generation from an example (L; 4 packages) — DONE (0.17.0)
 
 Reference: WaveFunctionCollapse (github.com/mxgmn/WaveFunctionCollapse), a published algorithm: levels that only
 contain the NxN patterns of a small example, filled cell by cell from the one with the fewest options. And a puzzle
@@ -1836,7 +1836,7 @@ write a level generator script, and there is nothing in its place for roguelikes
   when to write the ASCII level by hand; an example game (a roguelike floor or a replayable puzzle) uses it and
   records the gaps.
 
-## M64. Richer particles, effect documents and a particle editor (L; 4 packages)
+## M64. Richer particles, effect documents and a particle editor (L; 4 packages) — DONE (0.17.0)
 
 Reference: effekseer-vfx-skill (a coding agent builds game effects, films them and a second agent grades the
 filmstrip). Effekseer itself is not integrated. Today `ParticleEmitter` has one start and one end colour and size, no
@@ -1856,7 +1856,7 @@ curves, no animated textures, no turbulence and no sub-emitters, and the particl
   (readability, timing, palette, overdraw) with concrete fixes; a budget check (particles alive, overdraw) for phones.
   Docs (ANIMATION.md or a new VFX.md) and an example game that remakes its effects with it.
 
-## M65. Efficiency feedback: how game-making AIs could work cheaper (L; 4 packages) — the user, 2026-11-05
+## M65. Efficiency feedback: how game-making AIs could work cheaper (L; 4 packages) — DONE (0.17.0)
 
 Today ENGINE_FEEDBACK holds what the engine lacks or gets wrong. The AI that makes a game also knows where its own work
 went: a system it understood only after forty steps, a doc it read five times, a command it called ten times where one

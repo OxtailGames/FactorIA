@@ -271,7 +271,7 @@ Returns {id, col, row, x, y} for the Tilemap on entity `id`: the world position 
 
 ## `tilemap.generate` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Generate a level from an example with Wave Function Collapse: a grid that only contains the patterns of the sample.
 
@@ -300,7 +300,7 @@ Learns from a small example level and makes a new, bigger one that looks like it
 
 ## `tilemap.generate_cancel` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Drop a generation started with tilemap.generate_start and free its memory.
 
@@ -312,7 +312,7 @@ Idempotent: an unknown job (finished, failed, already cancelled, or dropped by a
 
 ## `tilemap.generate_start` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Check the arguments of tilemap.generate and start a generation that you advance yourself with tilemap.generate_step.
 
@@ -341,7 +341,7 @@ Takes exactly the arguments of tilemap.generate, checks them at once (the same e
 
 ## `tilemap.generate_step` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Advance a generation started with tilemap.generate_start by a bounded amount of work.
 
