@@ -401,6 +401,22 @@ struct Generator::Impl {
     bool attemptRunning = false;
     int attempt = 0;  // attempts started
 
+    // Where the attempt stands. An attempt is a chain of phases and every phase advances in chunks of at most kChunkWork units, so a
+    // call of step() never does more than one chunk past its budget (a 2048 x 2048 grid used to reset, extract and check in one
+    // piece). The chunk boundaries do not depend on the budget: the work counter, and so the work cap, stops at the same point however
+    // step() is called.
+    enum class Phase { Reset, Special, Forbidden, Rules, Pins, Run, Extract, Output, Counts, Accept };
+    Phase phase = Phase::Reset;
+    std::size_t cursor = 0;                    // position inside the phase: a cell, a cell rule or an output cell
+    std::uint64_t totalW = 0;                  // sum of the weights / of weight * log2(weight): every fresh cell starts with them
+    std::int64_t totalWL = 0;
+    Rng pinRng;
+    std::size_t pinRule = 0;
+    int pinTries = 0, pinPlaced = 0;
+    std::vector<std::int64_t> perSymbol;       // Counts: cells per symbol of the finished grid
+    bool acceptBegun = false;
+    static constexpr std::int64_t kChunkWork = 16384;
+
     GenStatus status = GenStatus::Running;
     std::vector<int> output;
     GenStats stats;
@@ -475,7 +491,10 @@ struct Generator::Impl {
             }
     }
 
-    // Starts an attempt and charges its work. It stops early once the work cap is passed (the attempt is then never run).
+    // Cells of one chunk when a cell costs `perCell` units (at least one cell).
+    static std::size_t chunk_cells(std::int64_t perCell) { return std::size_t(std::max<std::int64_t>(1, kChunkWork / std::max<std::int64_t>(1, perCell))); }
+
+    // Starts an attempt: the per-attempt values, then the Reset phase resets the cells chunk by chunk.
     void begin_attempt() {
         ++attempt;
         ++stats.attempts;
@@ -483,36 +502,56 @@ struct Generator::Impl {
         contradiction = false;
         stats.seedUsed = derive_attempt_seed(opt.seed, attempt - 1);
         rng.reseed(stats.seedUsed);
-        const std::size_t patternBits = T;
-        std::fill(wave.begin(), wave.end(), ~std::uint64_t(0));
-        if (patternBits % 64 != 0)
-            for (std::size_t c = 0; c < cells; ++c) wave[c * words + words - 1] = (std::uint64_t(1) << (patternBits % 64)) - 1;
-        std::uint64_t totalW = 0;
-        std::int64_t totalWL = 0;
+        totalW = 0;
+        totalWL = 0;
         for (std::size_t p = 0; p < T; ++p) {
             totalW += model->weights[p];
             totalWL += std::int64_t(model->weights[p]) * logw[p];
         }
-        std::fill(remaining.begin(), remaining.end(), std::uint32_t(T));
-        std::fill(sumW.begin(), sumW.end(), totalW);
-        std::fill(sumWL.begin(), sumWL.end(), totalWL);
-        for (std::size_t c = 0; c < cells; ++c) std::copy(supportInit.begin(), supportInit.end(), support.begin() + std::ptrdiff_t(c * T * kDirs));
-        for (std::size_t c = 0; c < cells; ++c) noise[c] = rng.next_u32();
-        std::fill(stamp.begin(), stamp.end(), 0u);
-        std::fill(dirtyFlag.begin(), dirtyFlag.end(), char(0));
-        std::fill(pending.begin(), pending.end(), std::uint64_t(0));
-        std::fill(queued.begin(), queued.end(), char(0));
         dirty.clear();
         heap.clear();
         queue.clear();
         undecided = T > 1 ? cells : 0;
-        for (std::size_t c = 0; c < cells; ++c) touch(c);
-        charge(std::int64_t(cells) + std::int64_t(cells) * std::int64_t(T) / 16);   // resetting the state of every cell
+        phase = Phase::Reset;
+        cursor = 0;
+        acceptBegun = false;
+    }
 
-        // Patterns that cannot stand where the map has a neighbour (no pattern may follow them) or where it has none (the edge rules).
-        charge(std::int64_t(cells) * std::int64_t(special.size()));
-        if (over_cap()) return;
-        for (std::size_t c = 0; c < cells && !contradiction; ++c)
+    // One chunk of the state reset of every cell. The noise comes from the attempt's rng in cell order, so cutting the reset into
+    // chunks draws the same numbers.
+    void reset_chunk() {
+        const std::int64_t perCell = 1 + std::int64_t(T) / 16;
+        const std::size_t from = cursor, to = std::min(cells, cursor + chunk_cells(perCell));
+        for (std::size_t c = from; c < to; ++c) {
+            for (std::size_t wi = 0; wi < words; ++wi) wave[c * words + wi] = ~std::uint64_t(0);
+            if (T % 64 != 0) wave[c * words + words - 1] = (std::uint64_t(1) << (T % 64)) - 1;
+            remaining[c] = std::uint32_t(T);
+            sumW[c] = totalW;
+            sumWL[c] = totalWL;
+            std::copy(supportInit.begin(), supportInit.end(), support.begin() + std::ptrdiff_t(c * T * kDirs));
+            noise[c] = rng.next_u32();
+            stamp[c] = 0;
+            for (std::size_t wi = 0; wi < words; ++wi) pending[c * words + wi] = 0;
+            queued[c] = 0;
+            dirtyFlag[c] = 1;   // every cell gets its heap entry
+            dirty.push_back(std::uint32_t(c));
+        }
+        charge(std::int64_t(to - from) * perCell);   // resetting the state of every cell
+        cursor = to;
+        if (cursor >= cells) enter(Phase::Special);
+    }
+
+    void enter(Phase next) {
+        phase = next;
+        cursor = 0;
+    }
+
+    // Patterns that cannot stand where the map has a neighbour (no pattern may follow them) or where it has none (the edge rules).
+    void special_chunk() {
+        if (special.empty()) return enter(Phase::Forbidden);
+        const std::size_t from = cursor, to = std::min(cells, cursor + chunk_cells(std::int64_t(special.size())));
+        charge(std::int64_t(to - from) * std::int64_t(special.size()));
+        for (std::size_t c = from; c < to && !contradiction; ++c)
             for (std::uint32_t p : special) {
                 for (int d = 0; d < kDirs; ++d) {
                     std::size_t nb = 0;
@@ -522,39 +561,68 @@ struct Generator::Impl {
                     }
                 }
             }
-        // Forbidden symbols: the patterns that hold one anywhere are out of every cell.
-        charge(std::int64_t(cells) * std::int64_t(forbiddenPatterns.size()));
-        if (over_cap()) return;
-        for (std::size_t c = 0; c < cells && !contradiction; ++c)
+        cursor = to;
+        if (cursor >= cells || contradiction) enter(Phase::Forbidden);
+    }
+
+    // Forbidden symbols: the patterns that hold one anywhere are out of every cell.
+    void forbidden_chunk() {
+        if (forbiddenPatterns.empty()) return enter(Phase::Rules);
+        const std::size_t from = cursor, to = std::min(cells, cursor + chunk_cells(std::int64_t(forbiddenPatterns.size())));
+        charge(std::int64_t(to - from) * std::int64_t(forbiddenPatterns.size()));
+        for (std::size_t c = from; c < to && !contradiction; ++c)
             for (std::uint32_t p : forbiddenPatterns) ban(c, p);
-        // Cell rules: every wave cell that covers the output cell loses the patterns that put another symbol there.
-        const std::int64_t perRule = std::int64_t(model->n) * model->n * std::int64_t(T);
-        for (std::size_t r = 0; r < opt.cellRules.size() && !contradiction; ++r) {
-            charge(perRule);
-            if (over_cap()) return;
-            restrict_output_cell(opt.cellRules[r].x, opt.cellRules[r].y, ruleMask[r]);
-        }
-        // A minimum the last finished grid missed: pin the missing cells at positions drawn from this attempt's seed.
-        const std::size_t outCells = std::size_t(opt.width) * std::size_t(opt.height);
-        bool anyPin = false;
-        for (int need : pendingPins) anyPin = anyPin || need > 0;
-        if (anyPin && !contradiction) {
-            Rng pinRng(derive_attempt_seed(stats.seedUsed, 0x7F31));
-            pinTaken.assign(outCells, 0);
-            for (std::size_t r = 0; r < pendingPins.size() && !contradiction; ++r) {
-                int placed = 0;
-                for (int tries = 0; placed < pendingPins[r] && tries < pendingPins[r] * 16 + 64 && !contradiction; ++tries) {
-                    const std::size_t at = std::size_t(pinRng.next_u32()) % outCells;
-                    if (ruleCell[at] || pinTaken[at]) continue;
-                    charge(perRule);
-                    if (over_cap()) return;
-                    pinTaken[at] = 1;
-                    restrict_output_cell(int(at % std::size_t(opt.width)), int(at / std::size_t(opt.width)), countMask[r]);
-                    ++placed;
-                    ++stats.pinned;
-                }
+        cursor = to;
+        if (cursor >= cells || contradiction) enter(Phase::Rules);
+    }
+
+    std::int64_t per_rule_work() const { return std::int64_t(model->n) * model->n * std::int64_t(T); }
+
+    // Cell rules, one per chunk: every wave cell that covers the output cell loses the patterns that put another symbol there.
+    void rules_chunk() {
+        if (cursor >= opt.cellRules.size() || contradiction) {
+            // A minimum the last finished grid missed (and pinMissing allows): pin the missing cells at positions drawn from this
+            // attempt's seed, one try per chunk.
+            bool anyPin = false;
+            if (opt.pinMissing)
+                for (int need : pendingPins) anyPin = anyPin || need > 0;
+            if (anyPin && !contradiction) {
+                pinRng.reseed(derive_attempt_seed(stats.seedUsed, 0x7F31));
+                pinTaken.assign(std::size_t(opt.width) * std::size_t(opt.height), 0);
+                pinRule = 0;
+                pinTries = 0;
+                pinPlaced = 0;
+                return enter(Phase::Pins);
             }
+            return enter(Phase::Run);
         }
+        charge(per_rule_work());
+        restrict_output_cell(opt.cellRules[cursor].x, opt.cellRules[cursor].y, ruleMask[cursor]);
+        ++cursor;
+    }
+
+    // One try at placing one missing cell of a count rule.
+    void pins_chunk() {
+        if (pinRule >= pendingPins.size() || contradiction) return enter(Phase::Run);
+        const int need = pendingPins[pinRule];
+        if (!(pinPlaced < need && pinTries < need * 16 + 64)) {
+            ++pinRule;
+            pinTries = 0;
+            pinPlaced = 0;
+            return;
+        }
+        ++pinTries;
+        const std::size_t outCells = std::size_t(opt.width) * std::size_t(opt.height);
+        const std::size_t at = std::size_t(pinRng.next_u32()) % outCells;
+        if (ruleCell[at] || pinTaken[at]) {
+            charge(1);
+            return;
+        }
+        charge(per_rule_work());
+        pinTaken[at] = 1;
+        restrict_output_cell(int(at % std::size_t(opt.width)), int(at / std::size_t(opt.width)), countMask[pinRule]);
+        ++pinPlaced;
+        ++stats.pinned;
     }
 
     // Propagates the removals pending in the cell on top of the queue; returns the work it took.
@@ -710,62 +778,114 @@ struct Generator::Impl {
         failure.workLimit = true;
     }
 
-    void finish_attempt() {
+    // One step of the solve itself: the removals of one cell, or the choice of the next cell.
+    void run_chunk() {
+        if (!queue.empty()) {
+            charge(propagate_cell());
+            return;
+        }
+        charge(std::int64_t(dirty.size()));   // one heap entry per cell that changed
+        flush_dirty();
+        std::size_t cell = 0;
+        if (!pick_cell(cell)) return begin_extract();
+        observe(cell);
+        charge(std::int64_t(words) + 1);
+    }
+
+    // The solved wave becomes the output grid in chunks. Extract: the pattern each solver cell holds (kept in `noise`, which the next
+    // attempt overwrites anyway: no extra array); Output: the symbol of every output cell.
+    void begin_extract() {
         output.assign(std::size_t(opt.width) * std::size_t(opt.height), 0);
-        charge(std::int64_t(output.size() + cells));
-        std::vector<std::uint32_t> chosen(cells);
-        for (std::size_t c = 0; c < cells; ++c)
+        enter(Phase::Extract);
+    }
+
+    void extract_chunk() {
+        const std::size_t from = cursor, to = std::min(cells, cursor + chunk_cells(std::int64_t(words) + 1));
+        for (std::size_t c = from; c < to; ++c) {
+            noise[c] = 0;
             for (std::size_t wi = 0; wi < words; ++wi) {
                 const std::uint64_t w = wave[c * words + wi];
                 if (w) {
-                    chosen[c] = std::uint32_t(wi * 64 + std::size_t(std::countr_zero(w)));
+                    noise[c] = std::uint32_t(wi * 64 + std::size_t(std::countr_zero(w)));
                     break;
                 }
             }
-        for (int y = 0; y < opt.height; ++y)
-            for (int x = 0; x < opt.width; ++x) {
-                const int cx = x < wc ? x : wc - 1, cy = y < hc ? y : hc - 1;
-                output[std::size_t(y) * std::size_t(opt.width) + std::size_t(x)] =
-                    model->symbol_at(chosen[std::size_t(cy) * std::size_t(wc) + std::size_t(cx)], x - cx, y - cy);
-            }
-        if (!opt.counts.empty()) {
-            std::vector<std::int64_t> perSymbol(std::size_t(model->symbolCount), 0);
-            for (int sym : output) ++perSymbol[std::size_t(sym)];
-            std::string why;
-            int firstBad = -1;
-            for (std::size_t r = 0; r < opt.counts.size(); ++r) {
-                const CountRule& rule = opt.counts[r];
-                std::int64_t found = 0;
-                for (int sym : rule.symbols) found += perSymbol[std::size_t(sym)];
-                const std::string name = count_rule_name(rule);
-                if (found < rule.min) {
-                    pendingPins[r] = int(std::min<std::int64_t>(rule.min - found, kMaxPins));
-                    if (firstBad < 0) {
-                        firstBad = int(r);
-                        why = "only " + std::to_string(found) + " cell(s) hold " + name + ", at least " + std::to_string(rule.min) + " are required";
-                    }
-                } else {
-                    pendingPins[r] = 0;
-                    if (rule.max >= 0 && found > rule.max && firstBad < 0) {
-                        firstBad = int(r);
-                        why = std::to_string(found) + " cells hold " + name + ", at most " + std::to_string(rule.max) + " are allowed";
-                    }
+        }
+        charge(std::int64_t(to - from));
+        cursor = to;
+        if (cursor >= cells) enter(Phase::Output);
+    }
+
+    void output_chunk() {
+        const std::size_t total = output.size();
+        const std::size_t from = cursor, to = std::min(total, cursor + std::size_t(kChunkWork));
+        for (std::size_t i = from; i < to; ++i) {
+            const int x = int(i % std::size_t(opt.width)), y = int(i / std::size_t(opt.width));
+            const int cx = x < wc ? x : wc - 1, cy = y < hc ? y : hc - 1;
+            output[i] = model->symbol_at(noise[std::size_t(cy) * std::size_t(wc) + std::size_t(cx)], x - cx, y - cy);
+        }
+        charge(std::int64_t(to - from));
+        cursor = to;
+        if (cursor < total) return;
+        if (opt.counts.empty()) return enter(Phase::Accept);
+        perSymbol.assign(std::size_t(model->symbolCount), 0);
+        enter(Phase::Counts);
+    }
+
+    // Counts the finished grid per symbol in chunks, then judges every count rule.
+    void counts_chunk() {
+        const std::size_t total = output.size();
+        const std::size_t from = cursor, to = std::min(total, cursor + std::size_t(kChunkWork));
+        for (std::size_t i = from; i < to; ++i) ++perSymbol[std::size_t(output[i])];
+        charge(std::int64_t(to - from));
+        cursor = to;
+        if (cursor < total) return;
+        std::string why;
+        int firstBad = -1;
+        for (std::size_t r = 0; r < opt.counts.size(); ++r) {
+            const CountRule& rule = opt.counts[r];
+            std::int64_t found = 0;
+            for (int sym : rule.symbols) found += perSymbol[std::size_t(sym)];
+            const std::string name = count_rule_name(rule);
+            if (found < rule.min) {
+                // A missed minimum is repaired on the next attempt by pinning cells (GenerateOptions::pinMissing); a maximum is
+                // only ever checked here, on the finished grid: the solver has no way to keep a count down while it collapses.
+                pendingPins[r] = opt.pinMissing ? int(std::min<std::int64_t>(rule.min - found, kMaxPins)) : 0;
+                if (firstBad < 0) {
+                    firstBad = int(r);
+                    why = "only " + std::to_string(found) + " cell(s) hold " + name + ", at least " + std::to_string(rule.min) + " are required";
+                }
+            } else {
+                pendingPins[r] = 0;
+                if (rule.max >= 0 && found > rule.max && firstBad < 0) {
+                    firstBad = int(r);
+                    why = std::to_string(found) + " cells hold " + name + ", at most " + std::to_string(rule.max) + " are allowed";
                 }
             }
-            if (firstBad >= 0) {
-                fail_attempt(-1, -1, why, false, firstBad);
-                return;
-            }
         }
-        if (opt.accept) {
+        if (firstBad >= 0) return fail_attempt(-1, -1, why, false, firstBad);
+        enter(Phase::Accept);
+    }
+
+    // The caller's check on the finished grid: a GridCheck in chunks, or the one-shot `accept`.
+    void accept_chunk() {
+        if (opt.check) {
+            if (!acceptBegun) {
+                opt.check->begin(output);
+                acceptBegun = true;
+            }
+            std::string why;
+            std::int64_t work = 0;
+            const GridCheck::Verdict v = opt.check->step(kAcceptChunk, why, work);
+            charge(std::max<std::int64_t>(work, 1));
+            if (v == GridCheck::Verdict::More) return;
+            if (v == GridCheck::Verdict::Refused) return fail_attempt(-1, -1, why.empty() ? "the finished level was refused" : why, false);
+        } else if (opt.accept) {
             std::string why;
             std::int64_t acceptWork = 0;
             const bool ok = opt.accept(output, why, acceptWork);
             charge(std::max<std::int64_t>(acceptWork, 0));
-            if (!ok) {
-                fail_attempt(-1, -1, why.empty() ? "the finished level was refused" : why, false);
-                return;
-            }
+            if (!ok) return fail_attempt(-1, -1, why.empty() ? "the finished level was refused" : why, false);
         }
         stats.symbolCounts.assign(std::size_t(model->symbolCount), 0);
         for (int s : output) ++stats.symbolCounts[std::size_t(s)];
@@ -774,6 +894,7 @@ struct Generator::Impl {
         status = GenStatus::Done;
     }
 
+    static constexpr std::int64_t kAcceptChunk = 65536;
     static constexpr std::int64_t kMaxPins = 1 << 20;
 
     std::string count_rule_name(const CountRule& rule) const {
@@ -808,19 +929,18 @@ struct Generator::Impl {
                 fail_attempt(int(contradictionCell % std::uint32_t(wc)), int(contradictionCell / std::uint32_t(wc)), "contradiction", true);
                 continue;
             }
-            if (!queue.empty()) {
-                charge(propagate_cell());
-                continue;
+            switch (phase) {
+                case Phase::Reset: reset_chunk(); break;
+                case Phase::Special: special_chunk(); break;
+                case Phase::Forbidden: forbidden_chunk(); break;
+                case Phase::Rules: rules_chunk(); break;
+                case Phase::Pins: pins_chunk(); break;
+                case Phase::Extract: extract_chunk(); break;
+                case Phase::Output: output_chunk(); break;
+                case Phase::Counts: counts_chunk(); break;
+                case Phase::Accept: accept_chunk(); break;
+                case Phase::Run: run_chunk(); break;
             }
-            charge(std::int64_t(dirty.size()));   // one heap entry per cell that changed
-            flush_dirty();
-            std::size_t cell = 0;
-            if (!pick_cell(cell)) {
-                finish_attempt();
-                continue;
-            }
-            observe(cell);
-            charge(std::int64_t(words) + 1);
         }
         stats.peakBytes = std::max(stats.peakBytes, bytes_held());
         stats.ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
