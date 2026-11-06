@@ -1,14 +1,22 @@
 #include "feedback_share_model.h"
 
 #include <algorithm>
+#include <atomic>
 
 #include "fa/core/strings.h"
 
 namespace fa::editor {
 
+namespace {
+std::atomic<double> g_uiLockWaitSec{0.3};
+}
+
+double ui_lock_wait_sec() { return g_uiLockWaitSec.load(); }
+void set_ui_lock_wait_sec(double sec) { g_uiLockWaitSec = sec; }
+
 ShareEnv ui_share_env() {
     ShareEnv env = share_env();
-    env.lockWaitSec = std::min(env.lockWaitSec, 0.3);
+    env.lockWaitSec = std::min(env.lockWaitSec, ui_lock_wait_sec());
     return env;
 }
 
@@ -295,7 +303,7 @@ SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::
             continue;
         }
         if (auto edit = share_edit_for_send(e, c.text, c.reviewPassed)) {
-            const ShareWaitCap shortWait(0.3);  // the UI thread does not wait seconds for a lock another program holds
+            const ShareWaitCap shortWait(ui_lock_wait_sec());  // the UI thread does not wait seconds for a lock another program holds
             if (auto r = set_feedback_share_file(file, c.id, *edit); !r) {
                 out.rows.push_back({c.id, "failed", "the share text could not be stored: " + r.error().message});
                 continue;
@@ -329,12 +337,16 @@ SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::
             // Pressing Send is the answer an item that waits needs (ask mode; under always, an item queued earlier or by an older version).
             if ((mode == ShareMode::Ask || mode == ShareMode::Always) && !keys.empty()) {
                 if (auto confirmed = share_confirm(env, keys); !confirmed.ok()) {
-                    // The entries are in the outbox but the yes was not saved: they would not be sent (ask) or are sent by the next
-                    // pass of `always`; say so instead of showing them as queued for sending.
+                    // The entries are in the outbox but the yes was not saved. Under `ask` they would not be sent; under `always` the
+                    // next pass sends them anyway (the yes is only what an item that waits needs). Say which, instead of showing
+                    // them as queued for sending or as lost.
+                    const std::string why = confirmed.error().message;
                     for (SendRowResult& r : out.rows)
                         if (r.status == "queued")
-                            r = {r.id, "failed", "it is stored, but your confirmation could not be saved (" + confirmed.error().message +
-                                                    "); it waits in the outbox. Press Send again."};
+                            r = {r.id, "failed",
+                                 mode == ShareMode::Always
+                                     ? "it is in the outbox and, because this project shares always, it goes out with the next pass; your confirmation could not be saved (" + why + ")."
+                                     : "it is stored, but your confirmation could not be saved (" + why + "); it waits in the outbox. Press Send again."};
                 }
             }
         }

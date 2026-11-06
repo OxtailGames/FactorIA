@@ -98,7 +98,8 @@ what was removed, so the preview can show it.
   exact entry in `projects`: it reads as `ask` (a deleted project must not be sent because the default says `always`).
   `set_project_share_mode` applies the new mode to the items whose project is the same folder under any spelling, not only the
   ones whose stored key is equal. The facts about a folder (its key, whether it exists, whether two keys are one folder) are
-  asked of the file system once per call.
+  asked of the file system once per call (the editor's once-a-second tick keeps them for 30 s: `ShareKeyCache`, so a folder that
+  appears or goes away is noticed within that time, while a change of mode is seen at once).
 - **Lock**: every read-modify-write of the settings and the outbox (a flush's save, `set_share_mode`,
   `set_project_share_mode`, queueing, confirming, dropping, sign-in and sign-out, creating the installation id) runs under
   `feedback-share.lock` in the config folder, a file made with an exclusive create (`O_EXCL` on POSIX, `CREATE_NEW` on
@@ -107,7 +108,11 @@ what was removed, so the preview can show it.
   still holds its own token, so a lock that was taken over is never deleted under its new owner. A lock file not written for
   10 s was left by a process that died (or is dated more than 10 s in the future: a clock set back, a shared folder) and is
   taken over, one waiter at a time: the takeover itself needs a second exclusive-create file (`feedback-share.lock.takeover`),
-  and the age is checked again inside it, so two waiters never both take it. A long change (many entries written) refreshes the
+  and the age is checked again inside it (and again on the file that was moved aside, which goes back when it turns out to be
+  fresh), so two waiters do not both take it; what remains is a window of microseconds between that look and the rename, in
+  which a holder that finished and a new lock made at that very moment could meet a takeover, so the lock is "one holder at a
+  time" in practice, not a proof. A lock file that exists but reads empty (a virus scanner on Windows holds it for a moment) is
+  read again for up to 0.2 s before the holder decides; only another token leaves it alone. A long change (many entries written) refreshes the
   file's time (`ShareLock::keep_alive`), so a live holder never looks dead. A busy lock is waited for at most 12 s and then the
   change fails with a message (nothing is changed), so nothing blocks for good; on Windows an `access denied` answer to the
   exclusive create (a virus scanner, a file being deleted) counts as busy until that time, and the message names the code, while a
