@@ -26,6 +26,8 @@
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/savers.h"
 #include "fa/core/date.h"
+#include "fa/tooling/net.h"
+#include "fa/tooling/qr.h"
 #include "sokol_app.h"
 #include "imgui_internal.h"
 #include "ui_backend.h"
@@ -8773,6 +8775,146 @@ void Editor::at_build_tools_script() {
             levelGen_.clear(level_gen_caller());
             std::error_code ec;
             stdfs::remove(project_file("levels/at-generated.json"), ec);
+        });
+    }
+
+    // ----------------------------------------------------------------------------------------- T2. Play on phone
+    section("T2");
+    // File > Play on Phone... (docs/EDITOR.md, "Play on Phone"): Start without a web player says how to get one; with a stand-in player the
+    // server answers on its token, the window shows the LAN address as a QR code (or says there is none), a log line POSTed like the
+    // phone's page does lands in the log with category "phone", a changed file exports again, Stop closes the port. Every wait is a state.
+    {
+        struct Ps {
+            int port = 0;
+            std::string base;
+            std::uint64_t version = 0;
+        };
+        auto ps = std::make_shared<Ps>();
+        // One request to the server on this computer, the reply's first line and body ("" = could not connect).
+        auto http = [](int port, const std::string& request) {
+            net::Socket s = net::connect_loopback(static_cast<std::uint16_t>(port));
+            if (s == net::kNoSocket) return std::string();
+            net::set_io_timeouts(s, 20000, 20000);
+            net::send_all(s, request);
+            std::string all;
+            char buf[4096];
+            std::ptrdiff_t n;
+            while ((n = net::recv_some(s, buf, sizeof(buf))) > 0) all.append(buf, static_cast<size_t>(n));
+            net::close_socket(s);
+            return all;
+        };
+        step(2, [this] {
+            web_server().stop();
+            // A stand-in for the web player: the two files the export copies. No build fingerprint, so the window is told to accept it.
+            const std::string dir = atOutDir_ + "/phone-player";
+            std::error_code ec;
+            stdfs::create_directories(dir, ec);
+            { std::ofstream(dir + "/factoria_player.js", std::ios::binary) << "// stand-in glue\n"; }
+            { std::ofstream(dir + "/factoria_player.wasm", std::ios::binary) << std::string("\0asm\1\0\0\0", 8) << std::string(512, 'w'); }
+            phonePlayer_ = atOutDir_ + "/no-web-player-here";
+            phoneAllowMismatch_ = true;
+        });
+        click("menu:file");
+        step(3, [] {});
+        click("menu:play-phone");
+        step(4, [this] {
+            at_check(showPhone_, "File > Play on Phone... opens the Play on phone window");
+            at_check(at_shown("phone:start") && at_enabled("phone:start"), "...with a Start button on screen");
+            at_check(!at_visible("phone:stop") && !at_visible("phone:qr"), "...and no Stop button or code before it starts");
+            at_check(at_visible("phone:help"), "...and the checklist for a phone that cannot connect");
+            const std::vector<std::string>& help = phone_help_lines();
+            auto mentions = [&help](const char* word) {
+                return std::any_of(help.begin(), help.end(), [word](const std::string& l) { return l.find(word) != std::string::npos; });
+            };
+            at_check(mentions("same Wi-Fi") && mentions("firewall") && mentions("Windows") && mentions("macOS") && mentions("Guest Wi-Fi") + mentions("guest Wi-Fi") > 0,
+                     "...which names the same Wi-Fi, the firewall prompt on Windows and macOS and guest networks");
+        });
+        click("phone:start");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !phone_.busy() && !phoneError_.empty(); };
+        });
+        step(3, [this] {
+            at_check(!web_server().running(), "Start without a web player does not start a server");
+            at_check(phoneError_.find("not found") != std::string::npos, "...and the window says why (" + phoneError_ + ")");
+            at_check(phoneHint_.find("factoria_player") != std::string::npos, "...and how to fix it (" + phoneHint_ + ")");
+            at_check(at_shown("phone:start"), "...Start stays available");
+            phonePlayer_ = atOutDir_ + "/phone-player";
+        });
+        click("phone:start");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [] { return web_server().status().state == "ready" || web_server().status().state == "failed"; };
+        });
+        step(4, [this, ps] {
+            const ServeWebStatus st = web_server().status();
+            at_check(st.running && st.state == "ready", "Start with a player exports the web build and serves it (" + st.state + " " + st.error + ")");
+            at_check(phoneError_.empty() && at_shown("phone:stop") && !at_visible("phone:start"), "...the window offers Stop now");
+            at_check(st.lan && st.localUrl.rfind("http://127.0.0.1:", 0) == 0, "...for the Wi-Fi, with a token in the address");
+            ps->port = st.port;
+            ps->base = st.localUrl.substr(st.localUrl.find('/', 8));
+            ps->version = st.version;
+            if (!st.lanUrls.empty()) {
+                const std::string url = st.lanUrls.front();
+                auto expect = qr_encode(url, QrEcc::Medium);
+                at_check(phoneQr_.has_value() && expect.ok() && phoneQr_->size == expect->size && phoneQr_->modules == expect->modules && phoneQrUrl_ == url,
+                         "...the LAN address is drawn as its QR code");
+                at_check(at_shown("phone:qr") && at_shown("phone:url") && at_shown("phone:copy"), "...with the address and Copy address on screen");
+                at_check(phoneQr_.has_value() && phoneQr_->version <= 6, "...a code a phone camera reads at a glance (version " + std::to_string(phoneQr_ ? phoneQr_->version : 0) + ")");
+            } else {
+                at_check(at_visible("phone:no-lan") && !phoneQr_.has_value(), "No Wi-Fi address on this computer: the window says so instead of drawing a code");
+            }
+            at_check(at_shown("phone:open") && at_visible("phone:state"), "...Open on this computer and the state line are there");
+        });
+        snap("editor_play_phone.png");
+        // The phone's page: it asks for its files and POSTs what it logs.
+        step(3, [this, ps, http] {
+            const std::string page = http(ps->port, "GET " + ps->base + " HTTP/1.1\r\nHost: x\r\n\r\n");
+            at_check(page.rfind("HTTP/1.1 200", 0) == 0 && page.find("__fa/client.js") != std::string::npos, "The address serves the page with the reload and log script");
+            at_check(http(ps->port, "GET /wrong-token/ HTTP/1.1\r\n\r\n").rfind("HTTP/1.1 404", 0) == 0, "...and a path without the token is a 404");
+            const std::string body = R"([{"l":"error","t":"T2 phone says hello"}])";
+            const std::string reply = http(ps->port, "POST " + ps->base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body);
+            at_check(reply.rfind("HTTP/1.1 204", 0) == 0, "A log line POSTed like the phone's page does is accepted");
+            bool found = false;
+            for (const LogEntry& e : recent_logs(200, LogLevel::Trace))
+                if (e.category == "phone" && e.message == "T2 phone says hello" && e.level == LogLevel::Error) found = true;
+            at_check(found, "...and comes back to the console as an error of category \"phone\"");
+            at_check(web_server().status().phoneLogLines >= 1, "...and is counted in the window");
+        });
+        // A changed file: exported again, the version moves (what makes the page reload).
+        step(2, [this] {
+            std::error_code ec;
+            stdfs::create_directories(projectDir_ + "/assets", ec);
+            std::ofstream(projectDir_ + "/assets/t2-live.txt", std::ios::binary) << "changed while the phone page is open";
+            web_server().refresh();
+        });
+        step(1, [this, ps] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [ps] { return web_server().status().version > ps->version && web_server().status().state == "ready"; };
+        });
+        step(3, [this, ps, http] {
+            at_check(web_server().status().version > ps->version, "A new file in the project exports the web build again (the page reloads on the new version)");
+            const std::string pak = http(ps->port, "GET " + ps->base + "game.pak HTTP/1.1\r\n\r\n");
+            at_check(pak.rfind("HTTP/1.1 200", 0) == 0 && pak.find("application/octet-stream") != std::string::npos, "...and the new build is served");
+        });
+        click("phone:stop");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !phone_.busy() && !web_server().running(); };
+        });
+        step(4, [this, ps, http] {
+            at_check(!web_server().running(), "Stop ends the server");
+            at_check(http(ps->port, "GET " + ps->base + " HTTP/1.1\r\n\r\n").empty(), "...its port refuses connections");
+            at_check(at_shown("phone:start") && !at_visible("phone:stop") && !at_visible("phone:qr"), "...the window offers Start again and no code");
+        });
+        // ---- leave the editor as the other sections expect it
+        step(2, [this] {
+            showPhone_ = false;
+            phonePlayer_.clear();
+            phoneAllowMismatch_ = false;
+            std::error_code ec;
+            stdfs::remove(projectDir_ + "/assets/t2-live.txt", ec);
+            stdfs::remove_all(projectDir_ + "/build/serve-web", ec);
         });
     }
 
