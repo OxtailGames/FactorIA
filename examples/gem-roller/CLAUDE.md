@@ -9,7 +9,7 @@ is text; you never need a GUI.
 1. **Read** what exists: `factoria docs list`, then `factoria docs read ai-guide` / `scripting` /
    `components`. (With MCP: tools `docs_list`, `docs_read`, `docs_search`.) Read before guessing
    component or API names.
-2. **Edit** scenes (`scenes/*.scene.json`), prefabs, `scripts/*.js`, `tools/*.js`, `factoria.json`.
+2. **Edit** scenes (`scenes/*.scene.json`), effects (`assets/vfx/*.vfx.json`), `scripts/*.js`, `tools/*.js`, `factoria.json`.
 3. **Validate**: `factoria validate` (MCP: `project_validate`). Fix every error; each one has a
    file, a JSON pointer and a hint.
 4. **Run and LOOK**: `factoria run --headless --frames 120 --screenshot-at 119` (MCP: `game_step`,
@@ -27,7 +27,7 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 |---|---|
 | `factoria.json` | project settings: name, display size, main scene, physics, input actions |
 | `scenes/*.scene.json` | levels: entities with components (format `factoria.scene/1`) |
-| `prefabs/*.prefab.json` | reusable entities (`factoria.prefab/1`), spawn with `world.spawnPrefab`; here `gem_burst`, the one-shot sparkle of a picked-up gem |
+| `assets/vfx/*.vfx.json` | effect documents (`factoria.vfx/1`): emitters, a light flash and sounds on one timeline, played with `vfx.play`; here `gem_burst`, the pickup effect of a gem. Grade one with `vfx.check`, `vfx.budget` and `vfx.filmstrip` (in this 3D game it plays the effect a few metres in front of the main camera unless you give a `position`; `vfx.budget` projects the 3D emitters through that camera) |
 | `materials/*.material.json`, `shaders/*.surface.glsl` | custom material of the gems (`gem`: emission pulsing with `fa_time`), named by `MeshRenderer.material` in `tools/scatter_gems.js`. It is compiled by sokol-shdc: `factoria setup shaders` once, then `factoria validate` compiles it for every platform |
 | `scripts/*.js` | behaviours attached to entities via the `Script` component |
 | `tools/*.js` | project commands, become `project.<name>` / MCP tool `project_<name>` |
@@ -50,8 +50,8 @@ Do not emulate these in JavaScript (earlier versions did; the engine now covers 
   are needed to stop the ball hitting itself.
 - **HUD.** Screen-space items use `anchor` and `pivot` (top-left `[0, 0]`, top-right `[1, 0]`, centre `[0.5, 0.5]`), so
   `position` is an offset from that point and never needs half a size added by hand (AI guide 9.4).
-- **One-shot effects.** `prefabs/gem_burst.prefab.json` is a `ParticleEmitter` with `emitting: false`, `burst` and
-  `autoDestroy: true`: spawn it and forget it. No timer cleans it up.
+- **One-shot effects.** `assets/vfx/gem_burst.vfx.json` bundles the sparks, a flash of light and the pickup sound:
+  `vfx.play(path, { position })` and forget it. No timer cleans it up.
 - **Ids.** `world.destroy()` frees an id at once: spawn with the plain id (`gem_1`), no `_rN` suffixes.
 - **Scenes** are saved in the compact layout by the engine. After editing `scenes/main.scene.json` by hand, run
   `factoria call scene.save '{}' --scene scenes/main.scene.json` to normalise it. It only drops default values, and
@@ -103,6 +103,8 @@ had a bug and you built a workaround or dropped the feature, record it immediate
   `workaround` (what you did, with `workaroundFiles`), `suggestion` (how the engine could fix it).
 - Reporting the same gap again merges into the existing entry (counts occurrences), so do not
   worry about duplicates. Not reporting is the only wrong choice.
+- Time or tokens wasted that a doc, guide or command option would have saved: `factoria ai retrospective` files it as `kind: "efficiency"`
+  (measured, at most three; never a model choice or a rewrite). Rules: `docs_read {"name":"engine-feedback","heading":"Efficiency feedback"}`.
 - Examples worth reporting: a component field you expected is missing; an error message did not
   say how to fix the problem; a doc was wrong or absent; a command you wanted does not exist; a
   crash; slow or flaky headless runs; anything you had to emulate in JS.

@@ -3,10 +3,12 @@
 
 #include <algorithm>
 #include <iostream>
+#include <optional>
 #include <sstream>
 
 #include "common.h"
 #include "fa/core/build_info.h"
+#include "fa/core/command.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 
@@ -164,6 +166,13 @@ int cli_main(const std::vector<std::string>& args, std::ostream& out, std::ostre
             throw UsageError("Unknown log level '" + parsed.str("log-level") + "'.", "Valid: trace, debug, info, warn, error.");
         set_log_level(level);
         Context ctx{out, err, in, std::move(parsed), cmd, path};
+        // Started by an AI agent (FACTORIA_CALLER, set on the CLI agents factoria launches): every command this process runs
+        // is the agent's call, not the user's, on any thread (`factoria call ai.settings.set` with scope "user" is refused).
+        // The editor is the user's own tool: one an agent opens is still the user's window.
+        std::optional<CommandCallerFloor> floor;
+        if (cmd->name != "editor") {
+            if (const auto fromEnv = command_caller_from_env()) floor.emplace(*fromEnv);
+        }
         return cmd->run(ctx);
     } catch (const UsageError& e) {
         if (json) print_json_error(out, "invalid_argument", e.what(), e.hint);

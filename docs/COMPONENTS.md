@@ -130,7 +130,7 @@ A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their 
 
 ### SpriteAnimator
 
-Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}.
+Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -144,6 +144,7 @@ Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entit
 | `clip` | string | `""` | Name of a clip of the Sprite texture's `sheet` entry in assets.json ("run"); "" = none, the numeric fields alone. Changing it restarts the animation. A name the sheet does not have is an error that lists the clips ("did you mean"): `factoria validate` finds it in scenes, a script's play(name) throws it, a running game logs it once and shows the first frame. (since 0.6.0) |
 | `mode` | enum: forward \\| reverse \\| pingpong | `"forward"` | Order of the frames: forward (first to last), reverse (last to first) or pingpong (first to last and back, without repeating the end frames). A pingpong clip that does not loop stops back on the first frame. (since 0.6.0) |
 | `sheetPivot` | bool | `true` | true = the pivot recorded in the sheet entry (or the clip's own pivot) is used as Sprite.pivot while the Sprite's own pivot is the default centre [0.5, 0.5]; a Sprite that sets another pivot keeps it. The sheet stores it from the TOP-left of the frame, Sprite.pivot counts from the bottom-left, so y is flipped. false = never touch the pivot. (since 0.6.0) |
+| `events` | json | `[]` | Frame events, an array of {frame, clip?, name?, data?, feel?}: every time the animation shows grid frame `frame` (the same row-major number as firstFrame and lastFrame) the game event `name` is sent with {id, clip, frame, ...data}, and the game feel actions of `feel` run (one action object or an array of them, in the form of `feel.do(action)` in scripts: shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, "Effects as data"). With `clip` (a name of the sheet's clips) the event belongs to that clip only. An event needs `name` or `feel`. A frame is shown once per pass over the clip, so a looping clip fires it once per loop, a frame that a long frame time skips still fires, and pingpong shows its middle frames twice. Example: [{"clip": "attack", "frame": 9, "feel": [{"action": "hitStop", "duration": 0.06}, {"action": "shake", "amount": 0.3}]}]. (since 0.17.0) |
 | `ended` | bool | `false` | Runtime state: a non-looping clip reached its end (clipEnded was sent). Runtime-only (not saved). (since 0.6.0) |
 | `playedClip` | string | `""` | Runtime state: the clip `time` counts in. Runtime-only (not saved). (since 0.6.0) |
 | `time` | float | `0.0` | Runtime state: seconds elapsed in the current clip. Runtime-only (not saved). |
@@ -275,7 +276,7 @@ A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is t
 
 ### ParticleEmitter
 
-Emits short-lived particles (smoke, sparks, explosions). Particles interpolate size and color over their lifetime.
+Emits short-lived particles (smoke, sparks, explosions, fire, trails). Particles interpolate size and color over their lifetime, or follow a colour gradient and curves for size, speed and alpha; they can turn and spin, feel drag and turbulence, be born on a shape (circle, box, cone, edge, a 3D mesh surface), play a flipbook, leave ribbon trails, bounce on a plane or a Tilemap, and spawn sub-emitters when they are born, die or hit something. Pixel mode draws hard-edged squares in the project palette. The simulation is deterministic (the same seed gives the same particles) and capped at 10000 live particles per emitter; docs/PARTICLES.md has the budgets and worked examples (hit spark, smoke puff, pixel-art fire). Every field added after startColor/endColor has a default that changes nothing, so an older emitter looks the same.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -303,6 +304,46 @@ Emits short-lived particles (smoke, sparks, explosions). Particles interpolate s
 | `space` | enum: world \\| screen | `"world"` | world: affected by cameras. screen: HUD/UI effects (menu sparks, score bursts) in design pixels, origin TOP-LEFT, +Y down, unaffected by cameras and drawn in the screen-space pass (so with Camera.bloomScreenSpace = false they are not bloomed). direction, gravity and speed keep their world meaning on screen: 90 = up, negative gravity y falls down the screen. Ignored (treated as world) when is3D is true. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen space only: screen point the position is relative to ([0,0] top-left, [1,0] top-right, [0.5,0.5] center, [1,1] bottom-right). |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false. (since 0.2.0) |
+| `colorGradient` | json | `[]` | Colour over the particle's life, alpha included: a list of [position, colour] keys, position 0 = born, 1 = dies, blended linearly: [[0, "#ffffff"], [0.4, "#ffcc33"], [1, "#ff220000"]] (a colour is "#rrggbb", "#rrggbbaa", a name or [r, g, b, a]). At most 16 keys. [] (default) = startColor -> endColor. A form that does not parse is reported with the right form, and the emitter falls back to startColor -> endColor. (since 0.17.0) |
+| `sizeCurve` | json | `[]` | Multiplies the size over life: [[0, 0.2], [0.2, 1], [1, 0]] pops in and shrinks away. Keys are [position, value]; {"keys": [...], "interp": "smooth"} eases between them (interp: linear, smooth, step); a plain number is a constant. It multiplies startSize -> endSize, so [] (default) leaves the size as it was. (since 0.17.0) |
+| `speedCurve` | json | `[]` | Multiplies how fast a particle flies over its life, in the same form as sizeCurve: [[0, 1], [1, 0]] slows it to a stop. The particle's velocity is not changed, only the distance it covers per second, so gravity and drag still act on the real velocity. [] (default) = 1. (since 0.17.0) |
+| `alphaCurve` | json | `[]` | Multiplies the alpha over life, in the same form as sizeCurve: [[0, 0], [0.1, 1], [1, 0]] fades in and out whatever the colours are. [] (default) = 1. (since 0.17.0) |
+| `sizeVariance` | float | `0.0` | Random +- fraction of the size, chosen once per particle (0.3 = between 70% and 130%). Default 0. Range 0.0..1.0. (since 0.17.0) |
+| `flipbookColumns` | int | `1` | Flipbook: how many columns of frames the texture holds (1 = the texture is one picture). Frames are numbered along the rows from the top-left. Range 1.0..64.0. (since 0.17.0) |
+| `flipbookRows` | int | `1` | Flipbook: how many rows of frames the texture holds (1 = one row). Range 1.0..64.0. (since 0.17.0) |
+| `flipbookFrames` | int | `0` | Flipbook: how many of the columns * rows cells are frames (the last cells of a sheet may be empty). 0 (default) = all of them. Range 0.0..4096.0. (since 0.17.0) |
+| `flipbookFps` | float | `0.0` | Flipbook: frames per second, looping from the first frame (or the random start). 0 (default) = the frames play once over the particle's life, so a 16-frame explosion sheet ends with the particle. Range 0.0..240.0. (since 0.17.0) |
+| `flipbookRandomStart` | bool | `false` | Flipbook: each particle starts at a random frame. With flipbookFps 0 it then keeps that one frame (variety in a puff of smoke); with fps it plays on from there. (since 0.17.0) |
+| `startRotation` | vec2 | `[0.0,0.0]` | [min, max] degrees a particle starts turned by, random in between ([0, 360] = any way up). Counter-clockwise on screen, like Transform.rotation. Default [0, 0]. Billboards of is3D emitters turn in the screen plane. (since 0.17.0) |
+| `spin` | vec2 | `[0.0,0.0]` | [min, max] degrees per second a particle turns, random in between ([-90, 90] turns either way). Default [0, 0]. (since 0.17.0) |
+| `alignToVelocity` | bool | `false` | true: the particle's +x axis points where it flies (streaks, arrows, sparks stretch along their path); startRotation and spin turn it on top of that. Default false. (since 0.17.0) |
+| `drag` | float | `0.0` | How fast the velocity fades, per second: velocity is divided by 1 + drag * dt each step (0 = none, 2 = loses most of its speed in a second). Default 0. Range 0.0..1000.0. (since 0.17.0) |
+| `noiseStrength` | float | `0.0` | Turbulence: acceleration (world units/s^2) from a smooth random field that depends on where the particle is, so neighbours drift together (smoke, embers). Seeded: the same seed gives the same wind on every platform. 0 (default) = off. (since 0.17.0) |
+| `noiseScale` | float | `64.0` | Turbulence: the size of one eddy, in world units. Larger = broader, lazier swirls. Default 64. Range 0.001..100000.0. (since 0.17.0) |
+| `noiseSpeed` | float | `0.5` | Turbulence: how fast the field changes, in eddies per second (0 = frozen field). Default 0.5. (since 0.17.0) |
+| `inheritVelocity` | float | `0.0` | Fraction of the emitter's own velocity (how fast its position moves) added to every new particle, so a moving emitter throws what it emits forward (1 = the particle starts as fast as the emitter). worldSpace emitters only; a teleport counts as one very fast frame. Default 0. (since 0.17.0) |
+| `shape` | enum: point \\| circle \\| box \\| cone \\| edge \\| mesh | `"point"` | Where particles are born, relative to the entity's Transform (rotation and scale apply). point (default): at the position. circle: a disc of radius shapeSize.x (a sphere when is3D). box: a rectangle shapeSize.x * shapeSize.y (a box with .z when is3D). cone: a base of radius shapeSize.x across the emission direction, which spreads by `spread` (see shapeDirection). edge: a line of length shapeSize.x along local x. mesh (3D): the surface of the mesh named by shapeMesh, chosen by area; the emitter's Transform places and scales the mesh. (since 0.17.0) |
+| `shapeSize` | vec3 | `[32.0,32.0,32.0]` | Size of the emission shape in world units: circle radius = x; box = [width, height, depth] (depth only when is3D); edge length = x; cone base radius = x. Default [32, 32, 32]. (since 0.17.0) |
+| `shapeFrom` | enum: volume \\| edge | `"volume"` | volume (default): anywhere inside the shape, evenly. edge: only on its outline (the circle's rim, the box's perimeter or faces, the cone base's rim, the edges of the mesh triangles). (since 0.17.0) |
+| `shapeDirection` | enum: direction \\| outward | `"direction"` | direction (default): particles fly along `direction` +- `spread`, wherever on the shape they are born. outward: away from the shape (a circle or box: from its centre; mesh: along the surface normal; cone: fanning out across the spread; edge and point: no change), +- `spread`. (since 0.17.0) |
+| `shapeMesh` | asset (mesh) | `""` | shape "mesh" only: the mesh whose surface particles are born on: a primitive name ("sphere", "cube", ...), a .gltf/.glb path or a procedural "mesh:N" id. A mesh that cannot be read logs why once and the particles are born at the point. (since 0.17.0) |
+| `trail` | enum: none \\| particle \\| emitter | `"none"` | none (default). particle: each particle drags a ribbon of the path it flew, trailTime seconds long (at most 32 points) and gone when the particle dies. emitter: one ribbon behind the emitter itself while it is emitting (a sword swing, a comet; worldSpace only). (since 0.17.0) |
+| `trailTime` | float | `0.5` | How many seconds of path a trail keeps. Default 0.5. Range 0.001..60.0. (since 0.17.0) |
+| `trailWidth` | float | `4.0` | Width of the ribbon at its head, in world units (design pixels on screen). Default 4. A ribbon is camera-facing in 3D. Range 0.0..100000.0. (since 0.17.0) |
+| `trailWidthCurve` | json | `[]` | Multiplies trailWidth along the ribbon, position 0 = the head, 1 = the oldest point: [[0, 1], [1, 0]] (also what [] means) tapers to a point; [[0, 1], [1, 1]] keeps it as wide. (since 0.17.0) |
+| `trailGradient` | json | `[]` | Colour along the ribbon, position 0 = the head, 1 = the oldest point, in the form of colorGradient. [] (default) = the particle's own colour fading to transparent at the tail. The particle's alphaCurve and the entity's tint multiply it. (since 0.17.0) |
+| `subEmitters` | json | `{}` | Particles that spawn other particles. An object with the events "birth", "death" and "collision", each a sub-emitter {"count": 6, "emitter": {...ParticleEmitter fields...}} or a list of them. Instead of "emitter" a sub-emitter can name "prefab": "prefabs/spark.prefab.json" (the first ParticleEmitter in it) or "entity": "<id>" (that entity's ParticleEmitter, followed live). Also "inherit" (fraction of the parent's velocity the children start with, default 0) and "chance" (0..1, default 1). The children are born where the parent was, live in the parent's space, and ignore their own rate, burst and emitting. A collision child's direction is relative to the surface (90 = along the normal). Limits: 2 levels deep, 32 particles per event, 8 sub-emitters per emitter, 256 sub-emitter particles per step, and each sub-emitter's own maxParticles; what does not fit is not born. Default {}. (since 0.17.0) |
+| `collision` | enum: none \\| plane \\| tilemap | `"none"` | What particles bounce on. none (default). plane: the plane collisionPlane. tilemap: the solidTiles of a Tilemap (collisionTilemap), 2D. worldSpace emitters only. A particle that starts behind a surface passes through it. (since 0.17.0) |
+| `collisionPlane` | vec4 | `[0.0,1.0,0.0,0.0]` | collision "plane": [nx, ny, nz, d] = the plane dot(n, p) = d; particles stay on the side n points to. [0, 1, 0, 0] is the floor y = 0, [0, 1, 0, -120] a floor at y = -120. (since 0.17.0) |
+| `collisionTilemap` | entity |  | collision "tilemap": the entity of the Tilemap whose solidTiles stop the particles. None = the first active Tilemap in the scene that has solidTiles. (since 0.17.0) |
+| `collisionBounce` | float | `0.5` | Fraction of the speed into the surface that comes back out: 0 = sticks, 0.5 = default, 1 = a perfect bounce. Range 0.0..2.0. (since 0.17.0) |
+| `collisionFriction` | float | `0.0` | Fraction of the speed along the surface lost on every hit: 0 (default) = slides on, 1 = stops dead. A particle that slides or rests on the surface loses speed per second instead (the same at any frame rate): 1 slows it to a tenth in half a second. Range 0.0..1.0. (since 0.17.0) |
+| `collisionLifetimeLoss` | float | `0.0` | Fraction of its whole lifetime a particle loses on every hit (0.5: two hits kill it). Default 0. A particle resting on the surface is not hitting it again. Range 0.0..1.0. (since 0.17.0) |
+| `collisionKill` | bool | `false` | true: a particle dies on its first hit (rain splashes through the "collision" sub-emitter, sparks that burn out on the floor). Default false. (since 0.17.0) |
+| `pixelMode` | bool | `false` | true: particles are hard-edged squares whose position and size snap to a grid of pixelSize world units, and whose colours are the nearest entries of the palette (no soft blending, no texture): fire and sparks for pixel art. Default false. (since 0.17.0) |
+| `pixelSize` | float | `1.0` | Pixel mode: the size of one pixel in world units (design pixels on screen). Match the pixel size of the art (a 4x scaled game: 4). Default 1. Range 0.001..1000.0. (since 0.17.0) |
+| `palette` | json | `[]` | Pixel mode: the colours to snap to, ["#1a1c2c", "#b13e53", "#ffcd75"]; the alpha of a particle is kept. [] (default) = the project's palette (assets.json style.palette); with neither, colours are only snapped in alpha steps. (since 0.17.0) |
+| `seed` | int | `0` | 0 (default): the random run is derived from the entity's stable id. Another number gives another run, and the same number always the same one, on every platform. Read when the emitter first appears. (since 0.17.0) |
 
 ## 3D
 
@@ -361,7 +402,7 @@ Plays animation clips: the skeletal clips of a skinned glTF model (the model of 
 | `states` | json | `{}` | State machine states, an object name -> {clip, loop (default true), speed (default 1), onEnter}. `onEnter` is the name of a game event sent when the state starts (world.on). Example: {"idle": {"clip": "Idle"}, "run": {"clip": "Run", "onEnter": "started_running"}}. |
 | `transitions` | json | `[]` | State machine transitions, an array checked in order every step; the first that matches fires. Each: {from (a state, or "*"/omitted = any), to, when, fade (seconds, default 0.2), onFinish}. `when` is conditions joined by "&&": `speed > 0.1`, `grounded`, `!grounded`, `hp <= 0` (operators > >= < <= == !=). A parameter set with animator.trigger(name) is true for one step. onFinish: true fires when the current non-looping clip ended (alone or together with `when`). |
 | `layers` | json | `[]` | 2D clips only: layers played at the same time as the main clip, an array of {name, clip \| states (with transitions and state, like the Animator's own), weight (0..1, default 1), mode ("override" blends toward the layer's pose, "additive" adds the layer's change from its first pose; default override), mask (paths such as ["body/arm_l"]: the layer drives only the parts under them; empty = all), speed (default 1), loop}. Layers apply in order over the main clip. A layer at weight 0 is not playing; it starts from its first pose when its weight rises. Example: [{"name": "arms", "clip": "shoot", "mask": ["body/arm_l"]}]. (since 0.7.0) |
-| `events` | json | `[]` | Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. |
+| `events` | json | `[]` | Clip events, an array of {clip, time, name?, feel?}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). `feel` (one action object or an array, the form of `feel.do(action)`: shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, "Effects as data") runs game feel actions on this entity at the same moment. An event needs `name` or `feel`. Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}, {"clip": "Attack", "time": 0.2, "feel": {"action": "hitStop", "duration": 0.06}}]. |
 | `state` | string | `""` | State machine: the state the animator is in (the start state when set in the scene; empty = the first state of `states`). Updated as transitions fire. |
 | `time` | float | `0.0` | Runtime state: seconds into the current clip. Assigning it seeks (no events fire). Runtime-only (not saved). |
 | `values` | json | `{}` | Runtime state: current value of every state machine parameter. Runtime-only (not saved). |
@@ -1025,6 +1066,27 @@ A video on the screen (docs/MENUS.md, "Studio intro"): plays an .mpg file (MPEG-
 | `time` | float | `0.0` | Runtime: seconds into the video, 0 .. duration. Assign to seek (the picture and the sound jump there). Range 0.0..1000000.0. Runtime-only (not saved). |
 | `duration` | float | `0.0` | Runtime: length of the video in seconds; 0 while the file is not open. Read-only. Runtime-only (not saved). |
 
+## 2D
+
+### Vfx
+
+Since 0.17.0.
+
+A visual effect placed in the scene, like a prefab (docs/PARTICLES.md, "Effect documents"): plays the effect document `effect` (a *.vfx.json that bundles emitters, a light flash, sounds and commands such as a camera shake on one timeline). Its emitters and lights become child entities when their time comes; a sound plays once; a command is called once. The effect starts when the scene starts (`autoplay`) and runs to its end; `loop` starts it again, setting `playing` to true after it ended replays it. It follows this entity: put it under a moving entity, or move it. `vfx.play` (a command; `vfx.play()` in scripts) makes one of these at a position with `autoDestroy` on, so a hit effect is one call. The timeline follows the game clock (it pauses with time.scale 0) and uses no clock or random numbers of its own: the same effects at the same steps do the same on every run. At most 64 effects play at once.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `effect` | asset (vfx) | `""` | Project path of the effect document, e.g. "assets/vfx/hit.vfx.json". Changing it starts that effect from the beginning. A file that is missing or has errors is logged once with the JSON pointer of the first problem (`vfx.check` lists them all) and nothing plays. |
+| `autoplay` | bool | `true` | True (default): the effect starts by itself the first time the system sees this entity (scene start, or spawn). False: it waits until a script (or `scene.set_component`) sets `playing` to true. |
+| `playing` | bool | `false` | Runtime: true while the timeline advances. Set true to play (from the start when it had ended), false to pause. Becomes false when the effect ends. Runtime-only (not saved). |
+| `loop` | bool | `false` | True: at the end the effect starts again from the beginning (its emitters keep their own particles until they empty). False (default): it ends and `playing` becomes false. |
+| `autoDestroy` | bool | `false` | True: this entity is removed once the effect ended and its emitters have no particles left. `vfx.play` sets it. False (default, for an effect placed in a scene): it stays, ready to play again. |
+| `speed` | float | `1.0` | Speed of the timeline: 1 (default) = as written, 2 = twice as fast, 0.5 = half. It moves the parts' start times and the light fades; the particles of an emitter keep their own speed. Range 0.05..20.0. |
+| `time` | float | `0.0` | Runtime: seconds into the effect (before `speed`: the document's own clock). Assign to seek forward. Range 0.0..1000000.0. Runtime-only (not saved). |
+| `duration` | float | `0.0` | Runtime: length of the effect in seconds, from the document; 0 until the document is read. Read-only. Runtime-only (not saved). |
+
+## UI
+
 ### CameraView
 
 Since 0.3.0.
@@ -1209,6 +1271,20 @@ action "list" (default) shows providers and the role mapping from ~/.factoria/ai
 |---|---|---|---|
 | `action` | string ["list","doctor"] | no | list or doctor. Default "list". |
 
+### `ai.retrospective` (modifies state)
+
+Since 0.17.0.
+
+Look back at this project's recorded AI runs, find where they wasted steps, minutes or tokens and file at most three efficiency entries.
+
+Efficiency feedback without writing the report by hand (docs/ENGINE_FEEDBACK.md, "Efficiency feedback"; docs/AI_PROVIDERS.md, "Retrospective"). Step 1 is mechanical, no model: it reads the transcripts of <project>/.factoria/ai/sessions and measures the usual waste (the same command failing with the same code, the same doc or file read again and again, tool results over 40 KB, five or more screenshots in a row, calls that waited a minute or more, long edit-run-check loops, commands an open ENGINE_FEEDBACK workaround already names). The same transcripts always give the same candidates and numbers. Step 2 is one short call of the fast role that picks at most three candidates a fix in the ENGINE would remove and writes each as an entry; every entry goes through the same gate as feedback.report with kind "efficiency" (threshold per fix type, the cheapest fix, dedupe by fix), and what the gate refuses comes back in `dropped` with the reason. A lesson that is true only of this game becomes a project-fact proposal instead (ai.savers shows it; ai.saver_fact accepts it). Nothing is shared or sent: entries stay in ENGINE_FEEDBACK.json like any other. Evidence already counted by an open efficiency entry is skipped (`alreadyFiled`). It also checks the fixes of earlier entries: an efficiency entry the engine fixed (fixed-in-engine, with the version, the day and what one occurrence cost before) is compared with the same pattern in the transcripts since that day, when the engine of this build is at least the fixing version; the answer (waiting, gone, worked, partial, no_change) is returned in `fixChecks` and recorded on the entry (`fixCheck`, nothing is written with candidatesOnly), and a pattern a fix did not remove is filed again with `afterFix` set to that version. Returns {sessions:[{id, agent, steps, minutes, tokens, costUsd, estimated}], candidates:[{id, pattern, summary, count, spans, measured, maxShare, potentialSaving, suggestedFix, appliesTo, projectOnly}], alreadyFiled, fixChecks:[{entry, pattern, fixedIn, fixedAt, result, sessionsAfter, spansAfter, ratio, before, after?, text}], filed:[{candidate, id, merged, title, fixType, saving, measured}], dropped:[{candidate, code, reason}], skipped:[{id, reason}] (transcripts not read: over 64 MB, or past the 256 MB one pass reads), facts:[{candidate, id, line}], model, usage, costUsd (what the model call cost), note}. Without a model (no key, fast role off and no orchestrator) the candidates come back and `note` says why. It runs by itself after a long run when ai.json savers.retrospective is on (150 model calls or $3 by default). One runs at a time: a second call gets code busy. A Stop while it works returns code cancelled and files nothing. Spends tokens of the fast role. Example: {"since":"2026-11-01"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `sessions` | array | no | Transcripts to read, by file name in .factoria/ai/sessions (20261014-153012-orchestrator, with or without .jsonl; ai.session_timeline names them). Omit for the newest 40. |
+| `since` | string | no | Only transcripts that began at or after this UTC date (2026-11-01) or date and time (2026-11-01T09:30). Omit for all. |
+| `candidatesOnly` | boolean | no | Only the mechanical pass: no model is asked and nothing is filed. Free and repeatable. Default false. |
+
 ### `ai.review` (modifies state)
 
 Since 0.4.0.
@@ -1259,7 +1335,7 @@ Reads <project>/.factoria/ai/reviews/. Each entry has id, path, role, persona, t
 
 Run an AI agent on a task in the current project (blocks until it finishes).
 
-Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchestrator). CLI providers (claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role "worker" (code), "fast" (small edits), "artist" (all the art) or "audio" (all the sound) and a self-contained task; the result's finalText is the sub-agent's report. The roles artCritic and reviewer are refused here: only the user asks for reviews (ai.review). A role the user turned off (roles.<role>.enabled false in ai.json) is refused too (error role_off): do that work yourself. Example: {"task":"Add a pause menu","role":"orchestrator","maxCostUsd":2}
+Uses the provider/model mapped to `role` in ~/.factoria/ai.json with this project's AI settings laid over it (the project's .factoria/ai/settings.json, once the user accepted it; ai.settings.get says what the project runs with) (default role orchestrator). CLI providers (claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role "worker" (code), "fast" (small edits), "artist" (all the art) or "audio" (all the sound) and a self-contained task; the result's finalText is the sub-agent's report. The roles artCritic and reviewer are refused here: only the user asks for reviews (ai.review). A role the user turned off (roles.<role>.enabled false in ai.json) is refused too (error role_off): do that work yourself. Example: {"task":"Add a pause menu","role":"orchestrator","maxCostUsd":2}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1305,7 +1381,7 @@ Since 0.11.0.
 
 Show the engine's token savers (loop guard, learned tool groups, project facts), what this project's runs learned and the proposals waiting for an answer.
 
-The built-in agent loop (the API providers) has three savers, each with a switch in ai.json "savers" and in the editor's AI settings > Extensions tab (docs/AI_PROVIDERS.md, Token savers). Returns {switches:{loopGuard, loopGuardJudge, learnedToolGroups, projectFacts}, thresholds, projectFile:{path, exists} (.factoria/ai/savers.json), runs:{<role>:n}, groups:{<role>:{<group>:{runs, commands:{<command>:n}, status accepted|declined|""}}} (the commands the runs loaded from the tool catalog), acceptedGroups:{<role>:[group]}, facts:{<id>:{runs, status, line}}, proposals:{toolGroups:[{role, group, runs, commands, definitionBytes}], facts:[{id, command, code, runs, line}]}}. A proposal changes nothing until it is accepted with ai.saver_group or ai.saver_fact; nothing is ever denied. Read-only. Example: {}
+The engine has these savers, each with a switch in ai.json "savers" and in the editor's AI settings > Extensions tab (docs/AI_PROVIDERS.md, Token savers): the loop guard, learned tool groups and project facts of the built-in agent loop (the API providers) and the retrospective after a long run (ai.retrospective). Returns {switches:{loopGuard, loopGuardJudge, learnedToolGroups, projectFacts, retrospective, retrospectiveSteps, retrospectiveCostUsd}, thresholds, projectFile:{path, exists} (.factoria/ai/savers.json), runs:{<role>:n}, groups:{<role>:{<group>:{runs, commands:{<command>:n}, status accepted|declined|""}}} (the commands the runs loaded from the tool catalog), acceptedGroups:{<role>:[group]}, facts:{<id>:{runs, status, line}}, proposals:{toolGroups:[{role, group, runs, commands, definitionBytes}], facts:[{id, command, code, runs, line}]}}. A proposal changes nothing until it is accepted with ai.saver_group or ai.saver_fact; nothing is ever denied. Read-only. Example: {}
 
 ### `ai.session_timeline`
 
@@ -1319,6 +1395,32 @@ Reads one transcript of <project>/.factoria/ai/sessions/ (every event has "t", t
 |---|---|---|---|
 | `session` | string | no | File name of the session (20261014-153012-orchestrator or with .jsonl) in .factoria/ai/sessions. Omit for the newest. |
 | `minGapSeconds` | number | no | List only the gaps at least this long (seconds). Totals always count every gap. Default 30. |
+
+### `ai.settings.get`
+
+Since 0.17.0.
+
+Show the AI settings (roles, limits, assets, savers, tool servers, extensions) with where each value comes from: this project, your defaults or the engine.
+
+The AI settings of a project resolve key by key: the engine's defaults, then your ~/.factoria/ai.json, then the project's own file (<project>/.factoria/ai/settings.json), docs/AI_PROVIDERS.md "Per project". scope "resolved" (default) returns {scope, project (the folder, or null), values:[{pointer, value, source}], projectSettings} with the values the project runs with (JSON pointers like /roles/artist/enabled or /limits/maxTurns) and `source` "project", "you" or "default"; projectSettings is the file's state when the project has one. scope "project" returns the project file itself: {scope, project, file, exists, overrides (the raw file), applied, pendingTrust, pending:[{pointer, from, to}], invalidError}. A project file the user has not accepted on this computer (it came inside a copied project, or an AI wrote it with ai.settings.set) has no effect yet: pendingTrust is true and `pending` lists what it would change; an invalid one that is not accepted is in invalidError and has no effect either. scope "user" returns your own ai.json view: {scope, configPath, configFound, values} with source "you" (the file sets it, or it differs from the engine's) or "default". Read-only; providers and keys are never part of it. Example: {"scope":"resolved"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `scope` | string ["resolved","project","user"] | no | resolved: what this project runs with, each value with its source. project: the project's own file. user: your ai.json. Default "resolved". |
+
+### `ai.settings.set` (modifies state)
+
+Since 0.17.0.
+
+Change one AI setting of this project; a project change waits for the user to accept it in the editor. Your own defaults (scope user) only the user changes.
+
+Writes ONE value, named by its JSON pointer as ai.settings.get lists them (/roles/artist/enabled, /roles/worker/model, /limits/maxCostUsd, /savers/loopGuard, /assets/image/provider, /assetSources/images, /mcpServers/<name> true or false, /extensions/plugins/<name> true or false). scope "project" writes <project>/.factoria/ai/settings.json (only what differs from your defaults is kept). scope "user" writes the user's own ~/.factoria/ai.json defaults and is only for the user (`factoria call`): an AI agent or MCP client that asks for it gets the error user_only, and the user changes them in the editor's AI settings window (Your defaults). `value` null removes the setting: from the project file (it goes back to your default) or from ai.json (it goes back to the engine's). A new provider for a role or asset route drops its model, effort and voice. A project can only NAME providers, tool servers and extensions that your ai.json defines, and never holds a command, address, header, environment or key: such keys, and pointers that are not settings, are refused with where they belong and a "did you mean" (errors unknown_pointer, rejected_key, invalid_setting). IMPORTANT: this command NEVER accepts a project file: setting a value never writes ai-trust.json. A project file written here is NOT applied until the user accepts it once in the editor (AI settings, with this project open); until then the project runs with the user's settings. Setting a value in an already accepted file makes the whole file wait for acceptance again. Removing a value (null) from an accepted file keeps it accepted (it only gets smaller; its acceptance is updated to the smaller file), and a removal that empties the file deletes it and forgets its acceptance; removing a value from a file that is not accepted leaves it waiting. The result says so: needsAcceptance true plus a hint. Returns {ok, scope, pointer, removed (true only when a value was really taken out: null for a setting the file did not hold changes nothing, says removed false and a hint that nothing changed), value (what you asked for), runsWith (what the project runs with right now, which is unchanged while its file waits), source (where runsWith comes from), file, needsAcceptance, applied, hint}; scope "user" also returns changed: [{pointer, from, to}], every setting whose value is different now (a new provider for a role also drops its model, effort and voice). Example: {"scope":"project","pointer":"/roles/artist/enabled","value":false}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `scope` | string ["project","user"] | yes | project: this project's file (waits for the user's acceptance). user: the user's ai.json defaults; refused for an AI agent or MCP client (only the user changes them). |
+| `pointer` | string | yes | JSON pointer of one value, like /roles/artist/enabled (ai.settings.get lists them). |
+| `value` | any | yes | The new value (boolean, number, string, or an array for /assetSources/<category>). null removes the setting. |
 
 ### `ai.tool_plan`
 
@@ -1352,16 +1454,17 @@ The user's "mcpServers" (docs/AI_PROVIDERS.md, External tools): services such as
 
 Since 0.7.0.
 
-Add an event to a clip: a game event sent when the clip passes its time.
+Add an event to a clip: a game event and/or game feel actions run when the clip passes its time.
 
-The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: {path, event (index), undo}. Example: anim.add_event {"path":"anim/hero_walk.anim.json","t":0.2,"name":"footstep","data":{"foot":"left"}}
+The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. `feel` is one game feel action or an array of them (hitStop, shake, flash, knockback or push, squash, spawn, sound: docs/GAME_FEEL.md, "Effects as data"), run on the entity that plays the clip; they are checked now, so a typo is refused with the option names. An event needs `name` or `feel`. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: {path, event (index), undo}. Example: anim.add_event {"path":"anim/hero_attack.anim.json","t":0.3,"feel":[{"action":"hitStop","duration":0.06},{"action":"shake","amount":0.3}]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The clip file (.anim.json). |
 | `t` | number | yes | Seconds from the start of the clip. |
-| `name` | string | yes | The game event name. |
+| `name` | string | no | The game event name. Optional when `feel` is given. |
 | `data` | object | no | Extra fields sent with the event. |
+| `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}. |
 | `extendDuration` | boolean | no |  Default false. |
 
 ### `anim.add_track` (modifies state)
@@ -1410,7 +1513,7 @@ Creates the file with `duration` seconds, `loop`, and optionally its `tracks` an
 | `loop` | boolean | no | true repeats the clip, false stops on the last pose (anim.finished). Default true. |
 | `doc` | string | no | What the clip shows. |
 | `tracks` | array | no | Tracks [{path, component, field, keys:[{t, value, interp?}]}]; none = an empty clip to fill with anim.set_keys. |
-| `events` | array | no | Events [{t, name, data?}] sent to the game when the clip passes t. |
+| `events` | array | no | Events [{t, name?, data?, feel?}]: a game event and/or game feel actions run when the clip passes t. |
 | `overwrite` | boolean | no | Replace the file if it exists. Default false. |
 
 ### `anim.filmstrip`
@@ -1498,7 +1601,7 @@ Since 0.7.0.
 
 Remove an event from a clip.
 
-`event` is the event's index, or {t, name?}. Result: {path, removed: {t, name, data?}, undo}. Example: anim.remove_event {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"}}
+`event` is the event's index, or {t, name?}. Result: {path, removed: {t, name?, data?, feel?}, undo}. Example: anim.remove_event {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1565,16 +1668,17 @@ Give any of `duration` (seconds), `loop` and `doc`. A duration shorter than the 
 
 Since 0.7.0.
 
-Rename an event of a clip or replace its data.
+Rename an event of a clip, or replace its data or its game feel actions.
 
-`event` is the event's index, or {t, name?}. Give `name` and/or `data` (an object that REPLACES the event's data; {} clears it). Result: {path, event, undo}. Example: anim.set_event {"path":"anim/hero_walk.anim.json","event":0,"name":"step","data":{"foot":"right"}}
+`event` is the event's index, or {t, name?}. Give `name`, `data` (an object that REPLACES the event's data; {} clears it) and/or `feel` (an action or an array of actions that REPLACE the event's; null or [] removes them). `name` null removes the name; an event keeps `name` or `feel`. Result: {path, event, undo}. Example: anim.set_event {"path":"anim/hero_walk.anim.json","event":0,"name":"step","data":{"foot":"right"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The clip file (.anim.json). |
 | `event` | any | yes | Index of the event, or {t, name?}. |
-| `name` | string | no | The new event name. |
+| `name` | any | no | The new event name; null removes it (the event then needs `feel`). |
 | `data` | object | no | The new data object. |
+| `feel` | any | no | The new game feel action(s); null or [] removes them. |
 
 ### `anim.set_interp` (modifies state)
 
@@ -1612,16 +1716,17 @@ Add or replace keys of one track of a clip, creating the track if it is missing.
 
 Since 0.16.0.
 
-Add an event to a 3D clip: a game event the Animator sends when the clip passes its time.
+Add an event to a 3D clip: a game event and/or game feel actions the Animator runs when the clip passes its time.
 
-The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: the clip summary plus {event, undo}. Example: {"path":"anim/hero_walk.anim.json","t":0.2,"name":"footstep","data":{"foot":"left"}} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. `feel` is one game feel action or an array (hitStop, shake, flash, knockback or push, squash, spawn, sound: docs/GAME_FEEL.md, "Effects as data") run on the entity that plays the clip; they are checked now. An event needs `name` or `feel`. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: the clip summary plus {event, undo}. Example: {"path":"anim/hero_walk.anim.json","t":0.2,"name":"footstep","data":{"foot":"left"}} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
 | `t` | number | yes | Seconds from the start of the clip. |
-| `name` | string | yes | The game event name. |
+| `name` | string | no | The game event name. Optional when `feel` is given. |
 | `data` | object | no | Extra fields sent with the event. |
+| `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}; on set_event they replace the old ones, null or [] removes them. |
 | `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
 
 ### `anim3d.create`
@@ -1823,9 +1928,9 @@ Give any of `duration` (seconds; shorter than the last key or event is refused),
 
 Since 0.16.0.
 
-Move, rename or change the data of an event of a 3D clip.
+Move, rename or change the data or the game feel actions of an event of a 3D clip.
 
-`event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Give any of `t` (move it), `name` and `data` (an empty object or null clears it). Events stay sorted by t. Result: the clip summary plus {undo}. Example: {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"},"t":0.25} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+`event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Give any of `t` (move it), `name`, `data` (an empty object or null clears it) and `feel` (an action or an array that REPLACES the event's; null or [] removes them). Events stay sorted by t. Result: the clip summary plus {undo}. Example: {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"},"t":0.25} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1834,6 +1939,7 @@ Move, rename or change the data of an event of a 3D clip.
 | `t` | number | no | The new time in seconds. |
 | `name` | string | no | The new event name. |
 | `data` | object | no | The new data (replaces the old). |
+| `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}; on set_event they replace the old ones, null or [] removes them. |
 | `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
 
 ### `anim3d.set_interp`
@@ -1907,11 +2013,11 @@ Since 0.6.0.
 
 Draw an animation with code (a JS module that returns the SVG of each frame, or an SVG with SMIL) and bake it into a sprite sheet PNG plus its `sheet` entry, offline: no provider, no key.
 
-Writes a sprite sheet at `path` (under assets/, ending in .png) and its `sheet` entry in assets.json in one call, from an animation you write as code. Two ways to draw it. (1) `source`: a project JavaScript module, e.g. "art/coin_spin.anim.js", whose default export is `frame({t, frame, frames, fps, progress, params, rng, seed, rngFor, clip, sheetFrame, width, height}) => string`, the SVG of that frame. t is the time in seconds (frame / fps); frame counts from 0 inside the clip and frames is the clip's length; progress runs 0..1 through the clip (frame / frames for a looping clip, so the last frame leads into the first; frame / (frames - 1) for loop false, so the last frame is the end pose); params is the `params` argument (a clip's own params are merged over it); rng() is a seeded random number in 0..1 for this frame (also rng.range(a, b), rng.int(n), rng.pick(list), rng.chance(p), rng.gauss()), different on every frame; rngFor(key) is a random stream that is the SAME on every frame for one key (a sparkle that stays where it is); clip is the clip name with `clips`. The module runs in a sandboxed QuickJS context: the language only (Math, JSON, Array...), no engine bindings, no DOM, no timers, no files; it may `import` other project files with a relative path ("./shapes.js"). Math.random is a seeded stream and Date a fixed day moved to the frame's time, so the same module always draws the same frames. Loading and each frame have a time limit (`timeLimitMs`, 2000 by default) and the context a memory limit. A mistake is reported with the module's file, line and column, the source line, and the frame being drawn; console.log output comes back in `console`. (2) `svg` (text) or `source` ending in .svg: one SVG with SMIL animation (<animate>, <set>, <animateTransform>, <animateMotion> with values, keyTimes, keySplines, begin, dur, repeatCount, fill="freeze", additive, accumulate and `id.begin` sync-bases), sampled at t = frame / fps. Without `frames` the sheet takes one pass of the animation (cycle seconds * fps frames). What is not sampled (event begins such as click, CSS animations, the rest of SMIL) is a warning that names the element. Every frame is rasterized exactly as assets.rasterize_svg does (nanosvg: paths, shapes, gradients, strokes, clipPath, mask, pattern; no text or filters) into a transparent `frameWidth` x `frameHeight` cell (default 64 x 64; the SVG is fitted inside, aspect kept, centred), then the painterly `style` / `styleStrength` is applied (the style's seed is `seed`, the same for every frame, so the paper texture stays put while the drawing moves) and the pixels are snapped to `palette` (a list of "#rrggbb" or an image of the project). The frames go row by row in a grid of `columns` (default ceil(sqrt(frames))) with a transparent gutter of `padding` pixels around every cell (cell i starts at x = padding + column * (frameWidth + 2 * padding)). `pivot` ([x, y] in 0..1 from the top-left, default the centre) is recorded in the sheet entry. `clips` makes several named clips from one module: [{name, frames, fps, loop, params, pivot}], laid out one after another in the sheet (do not also give `frames`); the module receives `clip` and draws that animation; each clip becomes a clip of the sheet entry with its fps and loop. Without `clips` the sheet entry has one clip named like the file, so fps and loop are kept. The result returns the sheet as an image, the layout (columns, rows, cell size, clips) and warnings: frames that draw nothing, shapes touching the edge of the cell, a loop whose last frame jumps from the first (or repeats it), SMIL not sampled. Provenance (origin generated, ai true: the calling agent wrote the code; pass ai: false with author and license for art a person drew) carries a recipe (this command, its arguments, the module and the files it imported with their SHA-256), so the sheet can be made again, byte for byte. Use this for motion that follows rules (spin, bob, pulse, sparkle, flame, waves, loaders); for an engine-drawn entity use assets.bake_sheet, for painted frame-by-frame art ask an image provider. Example: {"path":"assets/art/coin_spin.png","source":"art/coin_spin.anim.js","frames":8,"fps":10,"frameWidth":64,"frameHeight":64,"padding":1} with art/coin_spin.anim.js = "export default function frame({progress}) { const w = Math.abs(Math.cos(progress * Math.PI * 2)) * 40; return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><ellipse cx='50' cy='50' rx='${w + 4}' ry='42' fill='#e8c66a' stroke='#8b6a1e' stroke-width='4'/></svg>`; }"
+Writes a sprite sheet at `path` (under assets/, ending in .png) and its `sheet` entry in assets.json in one call, from an animation you write as code. Two ways to draw it. (1) `source`: a project JavaScript module, e.g. "art/coin_spin.anim.js", whose default export is `frame({t, frame, frames, fps, progress, params, rng, seed, rngFor, clip, sheetFrame, width, height, ramp, rampAt, layer}) => string`, the SVG of that frame. t is the time in seconds (frame / fps); frame counts from 0 inside the clip and frames is the clip's length; progress runs 0..1 through the clip (frame / frames for a looping clip, so the last frame leads into the first; frame / (frames - 1) for loop false, so the last frame is the end pose); params is the `params` argument (a clip's own params are merged over it); rng() is a seeded random number in 0..1 for this frame (also rng.range(a, b), rng.int(n), rng.pick(list), rng.chance(p), rng.gauss()), different on every frame; rngFor(key) is a random stream that is the SAME on every frame for one key (a sparkle that stays where it is); clip is the clip name with `clips`. The module runs in a sandboxed QuickJS context: the language only (Math, JSON, Array...), no engine bindings, no DOM, no timers, no files; it may `import` other project files with a relative path ("./shapes.js"). Math.random is a seeded stream and Date a fixed day moved to the frame's time, so the same module always draws the same frames. Loading and each frame have a time limit (`timeLimitMs`, 2000 by default) and the context a memory limit. A mistake is reported with the module's file, line and column, the source line, and the frame being drawn; console.log output comes back in `console`. (2) `svg` (text) or `source` ending in .svg: one SVG with SMIL animation (<animate>, <set>, <animateTransform>, <animateMotion> with values, keyTimes, keySplines, begin, dur, repeatCount, fill="freeze", additive, accumulate and `id.begin` sync-bases), sampled at t = frame / fps. Without `frames` the sheet takes one pass of the animation (cycle seconds * fps frames). What is not sampled (event begins such as click, CSS animations, the rest of SMIL) is a warning that names the element. Every frame is rasterized exactly as assets.rasterize_svg does (nanosvg: paths, shapes, gradients, strokes, clipPath, mask, pattern; no text or filters) into a transparent `frameWidth` x `frameHeight` cell (default 64 x 64; the SVG is fitted inside, aspect kept, centred), then the painterly `style` / `styleStrength` is applied (the style's seed is `seed`, the same for every frame, so the paper texture stays put while the drawing moves) and the pixels are snapped to `palette` (a list of "#rrggbb" or an image of the project). The frames go row by row in a grid of `columns` (default ceil(sqrt(frames))) with a transparent gutter of `padding` pixels around every cell (cell i starts at x = padding + column * (frameWidth + 2 * padding)). `pivot` ([x, y] in 0..1 from the top-left, default the centre) is recorded in the sheet entry. `clips` makes several named clips from one module: [{name, frames, fps, loop, params, pivot}], laid out one after another in the sheet (do not also give `frames`); the module receives `clip` and draws that animation; each clip becomes a clip of the sheet entry with its fps and loop. Without `clips` the sheet entry has one clip named like the file, so fps and loop are kept. RECOLOUR WITHOUT TOUCHING THE CODE: `ramp` is the effect's colours from dark to bright (a list of 2 to 32 "#rrggbb", or the path of an image document with `ramps` and `rampIndex`, the ramps of image.palette). A module receives them as `ramp` (the list) and `rampAt(u)`, the colour at u from 0 (dark) to 1 (bright), blended between neighbours, so `fill='${rampAt(0.8)}'` is recoloured by changing the `ramp` argument; a module that never names `ramp` gets a warning. `rampMap: true` instead recolours the finished frames by brightness (the darkest pixel takes the first colour, the brightest the last, alpha kept), which also works for a SMIL SVG and for a module that draws in greys. LAYERS: `layers` is a list from back, front and light (module only). Each layer is baked as its own sheet next to `path` (assets/art/hit.png gives hit_back.png, hit_front.png, hit_light.png), from one module that receives `layer` and returns the SVG of that layer (an empty <svg/> is a layer idle in that frame). The sheets have the same grid, frames, fps, clips, pivot and padding, so they stay in step when each plays on its own entity: `back` goes behind the character (a lower Sprite.layer), `front` in front of it (a higher one) and `light` is an additive pass (a Sprite with blend additive, its colours add to what is under it: draw soft bright glows). Every layer of a frame draws from the same random stream. The result lists the layers and returns them stacked on a dark ground. `prefab` (with `layers`) also writes the entities that play them together: a parent with one child per layer, each a Sprite on its sheet (back below, front above, light additive) and a SpriteAnimator on the sheet's first clip, so the effect is one call; see its description for the options, and it is never written over an existing prefab unless `prefab.overwrite` is true. A module that never reads `layer` gets a warning (every layer would be the same drawing). The layers of a call are held in memory together (their frames and sheets, at most 1024 MB): a bake over that is refused before drawing, so bake fewer layers per call. All sheets are encoded before the first is written; if a write fails, the sheets this call made are removed again. Sheets of an earlier bake of the same `path` with other layers (hit_light.png after baking only back and front) are deleted with their entries when this command made them. The result returns the sheet as an image, the layout (columns, rows, cell size, clips) and warnings: frames that draw nothing, shapes touching the edge of the cell, a loop whose last frame jumps from the first (or repeats it), SMIL not sampled, a sheet over 4096 px, and, when factoria.json lists android or ios, a sheet whose width or height is not a multiple of 4 (GPU compression needs it; the warning names the `padding` or the frame size that gives one). Provenance (origin generated, ai true: the calling agent wrote the code; pass ai: false with author and license for art a person drew) carries a recipe (this command, its arguments, the module and the files it imported with their SHA-256), so the sheet can be made again, byte for byte. Use this for motion that follows rules (spin, bob, pulse, sparkle, flame, waves, loaders); for an engine-drawn entity use assets.bake_sheet, for painted frame-by-frame art ask an image provider. Example: {"path":"assets/art/coin_spin.png","source":"art/coin_spin.anim.js","frames":8,"fps":10,"frameWidth":64,"frameHeight":64,"padding":1} with art/coin_spin.anim.js = "export default function frame({progress}) { const w = Math.abs(Math.cos(progress * Math.PI * 2)) * 40; return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><ellipse cx='50' cy='50' rx='${w + 4}' ry='42' fill='#e8c66a' stroke='#8b6a1e' stroke-width='4'/></svg>`; }"
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Where to write the sheet, project-relative, under assets/ and ending in .png. |
+| `path` | string | yes | Where to write the sheet, project-relative, under assets/ and ending in .png. With `layers` it is the base name: hit.png gives hit_back.png, hit_front.png and hit_light.png. |
 | `source` | string | no | A project-relative JavaScript module whose default export draws one frame ("art/coin_spin.anim.js"), or an .svg file with SMIL animation. Give this or `svg`. |
 | `svg` | string | no | One SVG with SMIL animation as text, sampled at every frame. Give this or `source`. |
 | `frames` | integer | no | Number of frames. Required with a module; with SMIL the default is one pass of the animation. Not with `clips` (they give their own). |
@@ -1925,11 +2031,16 @@ Writes a sprite sheet at `path` (under assets/, ending in .png) and its `sheet` 
 | `clips` | array | no | Several named clips from one module, laid out one after another: [{name, frames, fps, loop, params, pivot}]. Module only. |
 | `pivot` | array | no | [x, y] in 0..1 from the top-left of the frame: the point that stays still. Recorded in the sheet entry. Default [0.5, 0.5]. |
 | `palette` | any | no | Snap every pixel to these colours: a list of "#rrggbb" strings, or the project-relative path of an image whose distinct opaque colours are the palette (at most 256). Alpha is kept. |
+| `ramp` | any | no | The effect's colours from dark to bright: a list of 2 to 32 "#rrggbb" strings, or the project path of an image document (*.image.json) that declares `ramps` (pick one with rampIndex). A module reads them as `ramp` and `rampAt(u)`; with rampMap the frames are recoloured by brightness. Change it and bake again to recolour the effect. |
+| `rampIndex` | integer | no | Which ramp of the image document named by `ramp` (0 is the first one image.palette lists). Only with a document. |
+| `rampMap` | boolean | no | Recolour the finished frames by brightness with `ramp` (dark pixels take its first colour, bright ones its last; alpha kept). Needed for a SMIL SVG; a module may use rampAt instead. Default false. |
+| `layers` | array | no | Bake one sheet per layer (back, front, light), module only: the module receives `layer`. The files are <path>_<layer>.png with the same grid, fps, clips and pivot. back is drawn behind the character, front in front of it, light is an additive glow. |
+| `prefab` | any | no | Needs `layers`. Also write the prefab that plays the layers together: the path of a .prefab.json ("prefabs/coin_sparkle.prefab.json"), or an object {path, name, tags, size, layers, pixelArt, overwrite}. It is a parent entity (name: `name`, default made from the file name; `tags`) with one child per layer (Back, Front, Light), each a Sprite on that layer's sheet (`size` [w, h] in world units, default one frame in pixels; `layers` {back, front, light} are the Sprite.layer numbers, default -1, 1 and 2, so put the character's layer between back and front; `pixelArt` default false) with a SpriteAnimator on the sheet's first clip; the light child is blend additive. The prefab is written after the sheets. An existing prefab is never replaced unless the object has overwrite: true (the call fails before baking anything): it may hold changes made by hand, and the command's `overwrite` is about the sheets. The prefab is not part of the recipe: assets.regenerate remakes the sheets and leaves the prefab as it is. |
 | `style` | string ["none","watercolor","ink","inkwash","paper"] | no | Default none. The painterly look of assets.rasterize_svg applied to every frame (watercolor, ink, inkwash, paper). The same seed for all frames, so the texture does not boil. |
 | `styleStrength` | number | no | How strong the `style` is, 0 to 1 (default 1). Ignored without a `style`. |
 | `padding` | integer | no | Transparent pixels around every cell: 1 or 2 keeps filtered frames from bleeding into each other. Recorded in the sheet entry. Default 0. |
 | `timeLimitMs` | integer | no | Milliseconds the module may take to load and, separately, to draw each frame; over it the call fails naming the frame. Default 2000. |
-| `overwrite` | boolean | no | Replace the sheet when it already exists. Default false. |
+| `overwrite` | boolean | no | Replace the sheet (every layer's sheet) when it already exists. It does not cover the prefab: see `prefab`. Default false. |
 | `ai` | boolean | no | Whether the code was written by an AI (the default, since the caller is an agent). Set false for art a person made; it then counts as original work in the AI disclosure. Default true. |
 | `author` | string | no | Who gets the credit in the provenance record. |
 | `license` | string | no | License of the sheet for the provenance record. Default "CC0-1.0". |
@@ -2319,7 +2430,7 @@ Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts 
 
 ### `assets.list`
 
-List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, other (by file name).
+List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, vfx, other (by file name).
 
 Example: assets.list {"folder":"assets","extension":".png"}
 
@@ -2973,6 +3084,7 @@ Check this before reporting to see what is already recorded. Filters are optiona
 | `status` | string ["open","fixed-in-engine","wont-fix","duplicate","rejected"] | no | Only entries with this status. |
 | `category` | string ["rendering-2d","rendering-3d","physics","audio","input","ui","scripting","scene","assets","animation","tooling","ai-integration","docs","platform","performance","networking","other"] | no | Only this category. |
 | `severity` | string ["blocker","major","minor","nice-to-have"] | no | Only this severity. |
+| `kind` | string ["gap","efficiency"] | no | Only this kind: gap or efficiency. |
 | `includeArchive` | boolean | no | Also list the archived (closed) entries, marked archived: true. |
 
 ### `feedback.report` (modifies state)
@@ -2985,20 +3097,30 @@ CHECK BEFORE YOU FILE: models often report as missing something the engine has (
 Write 'title' as a short noun phrase ("No fluid simulation"), 'missing' as what you needed and why, 'workaround' as what you did instead and where (list files in workaroundFiles), 'suggestion' as the concrete engine change that would remove the workaround.
 SHARE (optional, strongly recommended): `share` is the same gap written for the ENGINE DEVELOPER, who must never learn what the game is about. Write it in engine terms only: components, fields, commands and API names that exist (or that you propose), and NOTHING about the game: no game, character, level, scene, entity, asset or script names, no file names or paths, no quotes from the game, no story. {title (8-120 characters), missing (20-1500, at least 4 words), suggestion?, workaround? (the kind of workaround, without project details)}. Good (invented): {"title":"No fluid simulation","missing":"There is no liquid solver, so water cannot flow around bodies and fill a container.","suggestion":"Add a particle-based Fluid2D component.","workaround":"A script moves sprites to fake a water surface."}. Bad: "The knight in Dungeon of Ash cannot jump through scripts/ledge.js platforms" (names the game, a character and a file). Check the docs first (docs.search) so the gap is real and about the engine, then pass reviewed: true. An entry without `share` is never sent. Whether anything is sent is the USER's choice (mode always, ask or never): the result's `share` says what happened, and no command changes the mode, so do not try; if it says sharing is not set up, tell the user how to turn it on, once.
 Example (an invented gap, only to show the fields): {"category":"physics","severity":"major","title":"No fluid simulation","missing":"There is no liquid solver, so water cannot flow around bodies and fill a container.","workaround":"scripts/water.js moves sprites to fake a water surface.","workaroundFiles":["scripts/water.js"],"suggestion":"Add a particle-based Fluid2D component.","share":{"title":"No fluid simulation","missing":"There is no liquid solver, so water cannot flow around bodies and fill a container.","suggestion":"Add a particle-based Fluid2D component."},"reviewed":true}
+EFFICIENCY (kind "efficiency"): the engine did not lack anything, but the work took many more steps, minutes or tokens than a doc, an example or a command option could have made it (a system you understood only after forty steps, a doc read five times, ten calls where one with an extra option would do). File it only when it is MEASURED and worth its fix. Give: `waste` (what took the time, in engine terms), `evidence` ([{session, fromStep, toStep}]: the span of the transcripts in .factoria/ai/sessions where it happened; steps count from 1, one model call each; `ai.session_timeline` shows them), `fixType` (cheapest first: doc, guide, example, commandOption, newCommand, engineChange), `expectedSaving` ({share, why}: the share of the measured span the fix removes), `appliesTo` (every-game, genre, feature), `suggestion` (the fix itself), and category and title as for a gap. The ENGINE measures the span (steps, tool calls, minutes, tokens, cost; for Claude Code and Codex the tokens are estimated from bytes and the cost is unknown) and REFUSES, with the reason, a report with no evidence or a span that does not exist, a saving under the threshold of its fix type (docs/ENGINE_FEEDBACK.md, "Efficiency feedback": a doc or guide from 10 minutes or 100k tokens per game, a command option or command from 30 minutes or 500k tokens and every-game or genre, an engine change from 1 hour or $5 and only as a candidate), a fix that is not the cheapest that works (commandOption, newCommand and engineChange need `whyNotCheaper`), text loaded on every step (AGENTS.md, the system prompt) that costs more than it saves (`everyStepTokens`), a missing guide for a doc that docs.search finds with your own words (then it is a findability report: list the words you searched in `searched` and make the fix the doc's title and keywords), a lesson true only for this game (appliesTo this-game: it is a project fact, not engine feedback), and model, effort or limit settings (the user's, never filed). Entries of one fix merge and add their numbers. Example (invented): {"kind":"efficiency","category":"scripting","title":"Boss fight phases","waste":"Making a boss that changes at health thresholds took 40 steps of wiring states and timers by hand.","evidence":[{"session":"20261014-153012-main","fromStep":12,"toStep":52}],"fixType":"guide","expectedSaving":{"share":0.7,"why":"a guide gives the three calls that took the rest to find"},"appliesTo":"genre","suggestion":"A boss fight topic guide: phases at health thresholds, attack timers."}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `category` | string ["rendering-2d","rendering-3d","physics","audio","input","ui","scripting","scene","assets","animation","tooling","ai-integration","docs","platform","performance","networking","other"] | yes | Engine area of the gap. |
-| `severity` | string ["blocker","major","minor","nice-to-have"] | yes | blocker: could not build the feature at all; major: large/fragile workaround; minor: small workaround; nice-to-have: convenience. |
+| `severity` | string ["blocker","major","minor","nice-to-have"] | no | Required for a gap. blocker: could not build the feature at all; major: large/fragile workaround; minor: small workaround; nice-to-have: convenience. An efficiency entry may leave it out (minor). |
 | `title` | string | yes | Short noun phrase naming the gap; reuse wording for the same gap. |
-| `missing` | string | yes | What the engine lacked or got wrong, and what you were trying to do. |
-| `workaround` | string | yes | What you did instead (or 'none: feature dropped'). |
+| `missing` | string | no | Required for a gap: what the engine lacked or got wrong, and what you were trying to do. An efficiency entry may leave it out (its `waste` is stored). |
+| `workaround` | string | no | Required for a gap: what you did instead (or 'none: feature dropped'). An efficiency entry may leave it out. |
 | `workaroundFiles` | array | no | Project-relative files implementing the workaround. |
 | `suggestion` | string | no | How the engine could fix it (field, command, API). |
 | `effort` | string ["small","medium","large"] | no | Your estimate of the engine-side effort to fix it. |
 | `share` | object | no | The generic copy for the engine developer, in ENGINE TERMS ONLY: nothing about the game (no names, story, characters, assets, file names, paths or quotes). {title, missing, suggestion?, workaround?}. Without it the entry is never sent. |
 | `reviewed` | boolean | no | true when you checked against the docs (docs.search, docs.components) that the gap is real and about the engine. |
 | `reporter` | object | no | Who is reporting. Defaults to {"kind":"ai"}; include your agent and model if you know them. |
+| `kind` | string ["gap","efficiency"] | no | gap (default): the engine lacked something or got it wrong. efficiency: the same work could have taken fewer steps, minutes or tokens (see the description). |
+| `waste` | string | no | kind efficiency: what took the time, in engine terms (nothing about the game). |
+| `evidence` | array | no | kind efficiency: the spans of the session transcripts (.factoria/ai/sessions) where the waste happened. The engine measures them. Steps count from 1. |
+| `fixType` | string ["doc","guide","example","commandOption","newCommand","engineChange"] | no | kind efficiency: the fix, cheapest first. The cheapest one that removes the waste wins; commandOption, newCommand and engineChange need whyNotCheaper. |
+| `expectedSaving` | object | no | kind efficiency: how much of the measured span the fix removes. |
+| `appliesTo` | string ["every-game","genre","feature","this-game"] | no | kind efficiency: every-game (any game would hit it), genre (games of one kind), feature (one engine feature), this-game (refused: a project fact). |
+| `whyNotCheaper` | string | no | kind efficiency, fixType commandOption, newCommand or engineChange: why a doc section, a topic guide and an example would not have removed the waste. |
+| `searched` | array | no | kind efficiency, a findability report: the words you gave docs.search that did not answer with the doc that exists. |
+| `everyStepTokens` | integer | no | kind efficiency: the tokens the fix adds to every step of every run (text in AGENTS.md or the system prompt). It must save more than it adds. Leave out for an on-demand guide. |
 
 ### `feedback.share` (modifies state)
 
@@ -3030,7 +3152,7 @@ Since 0.10.0.
 
 Sharing with the engine developer: the mode, the server, whether the user signed in, and the outbox.
 
-Reports the mode the USER chose (unset, always, ask or never; no command changes it), whether this build has a feedback server, whether the user signed in with GitHub, and the outbox: entries queued, waiting for the user's confirmation, and failed ones with their reason and when they are retried. Use it to tell the user why a report was not sent.
+Reports the mode that applies to this project (unset, always, ask or never): its own choice if the user made one, else the user's default (`default` and `project` say which; no command changes either). Also whether this build has a feedback server, whether the user signed in with GitHub, and the outbox: entries queued, waiting for the user's confirmation, and failed ones with their reason and when they are retried. Use it to tell the user why a report was not sent.
 
 ### `feedback.update` (modifies state)
 
@@ -3052,6 +3174,153 @@ Since 0.16.1.
 Ask the feedback server what the engine developers decided about the reports this installation sent.
 
 Asks POST /v1/verdicts for the entries of this project's ENGINE_FEEDBACK.json (and its archive) that were sent, by their shareIds, authenticated by the installation header: only this installation's reports are answered. A report the engine developers rejected becomes status rejected (statusBy developer, statusReason = their reason, shared.status declined); a rejection they took back reopens it. The editor asks by itself about every 30 minutes. Needs the sharing mode always or ask; a server without verdicts changes nothing. Result: {outcome, checked, declined, restored, changed[], message}. Example: {}
+
+## feel
+
+### `feel.cancel` (modifies state)
+
+Since 0.17.0.
+
+Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything.
+
+Without `entity` it ends every effect of the scene, hit-stops included. The entity's Transform is not touched: effects never wrote to it, except the position a body-less knockback already moved. Example: feel.cancel {}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The entity (id or name). Default: everything. |
+
+### `feel.flash` (modifies state)
+
+Since 0.17.0.
+
+Draws an entity in one colour for a moment (a hit flash): sprites, shapes and 3D meshes, fading or square.
+
+The same as `entity.flash(opts)`. The entity's own colour, material and Transform never change. Children are flashed with it. Text, Tilemap, particles and UI are not flashed. With the player's reducedEffects on (feel.settings, else the system's reduce motion) the strength is capped at 0.35 and the flash always fades, never a full-bright strobe. Example: feel.flash {"entity":"enemy","color":"#ffffff","duration":0.1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The entity (id or name). |
+| `color` | any | no | The colour: "#rrggbb", a name or [r, g, b, a] in 0..1. Default white. Alpha is ignored. |
+| `duration` | number | no | Seconds. Default 0.12. |
+| `fade` | boolean | no | true: from `strength` down to 0; false: `strength` for the whole duration, then off. Default true. |
+| `strength` | number | no | How much of the colour replaces the entity's own (1 = solid). Default 1. |
+
+### `feel.hitStop` (modifies state)
+
+Since 0.17.0.
+
+Hit-stop: freezes or slows gameplay for a moment of real time; UI, audio and the stop's own timer keep going.
+
+The same as `time.hitStop(seconds, opts)`. Physics, onUpdate/onFixedUpdate, timers, particles and sprite animators stop (or slow to `scale`); the UI, audio, runWhilePaused behaviours, shake, flashes and squash keep running; `time.scale` and `game.paused` do not change. Overlapping calls do not add up: the longest wins and the smallest scale applies while they overlap. With reduceMotion on the duration is halved. The timer is REAL time: `game.step` frames count their fixed step. Example: feel.hitStop {"duration":0.08}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `duration` | number | no | Real seconds. Default 0.08. |
+| `scale` | number | no | Game-time scale during the stop: 0 freezes, 0.2 is slow motion. Default 0. |
+
+### `feel.knockback` (modifies state)
+
+Since 0.17.0.
+
+Pushes an entity away and holds `isKnockedBack` for a moment: an impulse on its physics body, else a decaying velocity.
+
+The same as `entity.knockback(direction, opts)`. A dynamic RigidBody2D/RigidBody3D gets `speed` added to its velocity; an entity without one moves with a velocity that decays by exp(-decay * dt) on the fixed clock. For `lockTime` seconds `entity.isKnockedBack` is true: the movement script leaves the player without control. A hit-stop freezes it. Example: feel.knockback {"entity":"player","direction":[-1,0.3],"speed":8}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The entity (id or name). |
+| `direction` | array | no | Which way, [x, y] or [x, y, z]; any length, it is normalised. Default [1,0]. |
+| `speed` | number | no | World units per second added at once. Default: 6 metres per second, which is 6 units for a 3D entity and 6 times physics.pixelsPerMeter (600 pixels per second at 100) for a 2D one. |
+| `lockTime` | number | no | Seconds isKnockedBack stays true. Default 0.25. |
+| `decay` | number | no | Entities without a dynamic body: the velocity falls by exp(-decay * dt) per second. Default 8. |
+| `local` | boolean | no | true: `direction` is in the entity's own space (a mirrored sprite is pushed the other way). Default false. |
+
+### `feel.settings` (modifies state)
+
+Since 0.17.0.
+
+The accessibility choices of the game feel effects: reduceMotion and reducedEffects.
+
+The same as `feel.reduceMotion` / `feel.reducedEffects` in a script. true or false is the player's choice, null follows the operating system's reduce motion again; a missing key stays as it is. reduceMotion shrinks shake and squash to a quarter and halves hit-stops; reducedEffects caps flashes at 0.35 and makes them fade. Applies to effects started afterwards. Returns the values in force. Example: feel.settings {"reduceMotion":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `reduceMotion` | any | no | true / false = the player's choice; null = follow the system. |
+| `reducedEffects` | any | no | true / false = the player's choice; null = follow the system. |
+
+### `feel.shake` (modifies state)
+
+Since 0.17.0.
+
+Camera shake: adds trauma to a camera (2D and 3D); it stacks up to `cap` and dies out over `duration`.
+
+The same as `camera.shake(amount, opts)` in a script. Adds `amount` (0..1) of trauma; the shake is trauma squared, smooth noise seeded from the world's RNG (deterministic), and only what is DRAWN moves: the camera's Transform does not change. A 2D camera moves in x, y and roll, a 3D one also looks a little around. With the player's reduceMotion on (feel.settings, else the system's) the amount is a quarter. Example: feel.shake {"amount":0.5,"duration":0.3}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name). Default: the first camera drawn (camera.main). |
+| `amount` | number | no | Trauma to add, 0..1. Default 0.4. |
+| `duration` | number | no | Seconds the shake takes to die out (a longer one already running is kept). Default 0.4. |
+| `frequency` | number | no | Noise samples per second: how jittery. Default 25. |
+| `maxOffset` | number | no | Largest offset at trauma 1, world units. Default: 2.5% of an orthographic camera's visible height, 0.3 for a perspective one. |
+| `maxAngle` | number | no | Largest turn at trauma 1, degrees. Default 2. |
+| `cap` | number | no | Trauma never goes above this: stacked hits stop here. Default 1. |
+
+### `feel.sound` (modifies state)
+
+Since 0.17.0.
+
+Plays a sound once through the audio system (the same one a clip event's "sound" action uses).
+
+The sound starts on the next audio update, on its bus, and shows in `audio.log` like any other play. Example: feel.sound {"path":"audio/hit.wav","volume":0.8,"pitch":1.1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The entity the sound belongs to (id or name); optional, only named in logs. |
+| `path` | string | yes | Project-relative path of the sound. |
+| `volume` | number | no | Volume. Default 1. |
+| `pitch` | number | no | Playback speed and pitch. Default 1. |
+| `pan` | number | no | -1 left to 1 right. Default 0. |
+| `bus` | string | no | "sfx", "music", "ui" or a bus of the project. Default "sfx". |
+
+### `feel.spawn` (modifies state)
+
+Since 0.17.0.
+
+Makes an effect appear: instantiates a prefab at an entity (or at a point) the next frame.
+
+The same as the "spawn" action of a clip event (docs/GAME_FEEL.md, "Effects as data"). The prefab appears at the entity's world position plus `offset`, or at `offset` itself without an entity, the next time the frame's game feel pass runs. Spawned entities are left out of saved scenes. Give `lifetime` to have it destroyed after that many seconds; without it the prefab has to end itself. Example: feel.spawn {"entity":"enemy","prefab":"prefabs/hit_spark.prefab.json","lifetime":0.4}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The entity the effect appears at (id or name). Default: the world origin plus `offset`. |
+| `prefab` | string | yes | Project-relative path of the prefab. |
+| `offset` | array | no | Added to the entity's world position, [x, y] or [x, y, z]. Default [0,0]. |
+| `local` | boolean | no | true: `offset` is in the entity's own space (a mirrored sprite puts it on the other side). Default false. |
+| `lifetime` | number | no | Seconds of game time until the spawned entity is destroyed (a hit-stop, time.scale 0 or a pause holds the count); 0 = the prefab ends itself. Default 0. |
+
+### `feel.squash` (modifies state)
+
+Since 0.17.0.
+
+Squash and stretch: a short scale pulse that keeps the volume and springs back to exactly the entity's scale.
+
+The same as `entity.squash(opts)`. The pulse is drawn on top of the entity's own scale (volume kept: x * y in 2D, x * y * z with a mesh); `entity.scale` is never written, so nothing is left behind. amount > 0 squashes, < 0 stretches. With reduceMotion on the amount is a quarter. Example: feel.squash {"entity":"player","amount":0.35,"duration":0.25}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The entity (id or name). |
+| `amount` | number | no | > 0 squashes (flatter and wider), < 0 stretches (taller and thinner). Default 0.3. |
+| `duration` | number | no | Seconds until the entity is back to its own scale. Default 0.3. |
+| `axis` | string ["x","y"] | no | The axis that gets shorter when amount > 0. Default "y". |
+
+### `feel.state`
+
+Since 0.17.0.
+
+What the game feel effects are doing now: hit-stop, and per entity its shake, flash, squash, knockback and drawn pose.
+
+Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: {remaining, scale, running}, queued: {sounds, spawns, spawnLifetimes} (sounds and spawns waiting for the next frame, spawned effects that will be destroyed), entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time (position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}
 
 ## fs
 
@@ -6383,6 +6652,90 @@ Returns {id, col, row, x, y} for the Tilemap on entity `id`: the world position 
 | `col` | integer | yes | Tile column, 0 = leftmost. |
 | `row` | integer | yes | Tile row, 0 = TOP row. |
 
+### `tilemap.generate` (modifies state)
+
+Since 0.17.0.
+
+Generate a level from an example with Wave Function Collapse: a grid that only contains the patterns of the sample.
+
+Learns from a small example level and makes a new, bigger one that looks like it, the same on every machine for the same arguments. `sample` is the example: the id of an entity with a Tilemap, ASCII rows (an array of strings, or a string with line breaks) with a `legend` in the format of scene.import_ascii (glyph -> tile index or {tile?, prefab?...}; '.' and ' ' are empty), an object {rows, legend?, legendFrom?}, or the path of a JSON file holding one. `size` is the output in cells ([width, height], {width, height} or one number). MODELS: `overlapping` (default) learns every n x n window of the sample (n 2..5, default 3) and fills the output cell by cell, always the one with the fewest options left, so every n x n window of the result also exists in the sample (with `symmetry` also in its rotations and mirrors); a bigger n copies larger pieces, a smaller n mixes more freely. `tiled` ignores n and symmetry (they are not even checked) and reads which tiles may touch from the autotile rules (Tilemap.terrains, tilemap.set_terrains, image.tileset.build) of the sample's Tilemap, of `into`, or from `terrains`; the sample only sets how often each tile is picked, and blob47 corners are fixed afterwards like tilemap.retile. Without rules it fails and says how to add them. `symmetry` 1 (default) uses the sample as drawn, 2 adds its mirror image, 4 its three turns, 8 turns and mirrors (use it for floors and walls, not for tiles that point somewhere). `periodic` true makes the output wrap around its edges (a tileable level) and, unless `periodicInput` says otherwise, also lets the sample wrap. `seed` (default 0) picks the level: same sample, seed and arguments, same level, on every platform. A dead end (a cell with no pattern left) restarts with the next derived seed, up to `maxAttempts` (default 10, 50 with `constraints` or `reachability`); when all fail the error says where, and what to try (a bigger or more varied sample, a smaller n, symmetry, periodic). Output: with `into` (the id of an entity with a Tilemap) the grid is written there (tileset, tileSize and solidTiles stay) in the RUNNING world; without it the grid comes back as `rows` + `legend`, ready for scene.import_ascii, and with `rows` true it comes back as well when `into` is given. Glyphs of an ASCII sample that spawn prefabs come back as the same glyph in `rows`; `into` writes only their tiles, so build objects with scene.import_ascii. A Tilemap sample is printed with generated glyphs ('.' = empty). CONSTRAINTS (`constraints`, checked before generating; each problem names its JSON pointer): `fixed` [{at:[x,y] | rect:[x,y,w,h], tile}] pins cells (an entrance, an exit), `border` {tile, thickness?} walls in the edge, `forbidden` [tile] never appear, `required` [tile] appear at least once, `counts` [{tile, min?, max?}], `place` [{tile, count?, where?, from?, on?}]. A `tile` is a glyph of an ASCII sample, a tile number (-1 = empty) or, for the tiled model, a terrain name; a list of them means any of them. A tile the sample never shows cannot be fixed, counted or forbidden. A missing minimum is repaired on the next attempt by pinning cells (positions drawn from the seed; `constraints.repair` false turns that off). A MAXIMUM STEERS THE SOLVER: once that many cells are decided to hold the tile, it is taken out of every cell still open, so a tile the sample draws once (an entrance '@', an exit '>') does not turn up two to four times and refuse attempt after attempt; a grid that is over a maximum anyway is refused and restarted, and so is any other miss. PLACE puts markers in the FINISHED level: {tile:'>', where:'farthest', from:'@', on:['.']} writes the exit on the floor cell with the longest WALKING distance from the entrance (`where`: farthest, nearest or random; `count` cells; the walk is the one `reachability` describes, so farthest / nearest need it). Entries run in order, so "entrance anywhere, exit farthest from it" is two entries (the second names the first's tile in `from`). The tile may be a legend glyph the sample rows never draw (then the solver never produces it and only `place` can: the usual way to get exactly one entrance and one exit); `on` says which tiles a marker may replace (left out: any walkable cell, never a fixed cell or an earlier marker). Every choice (random cells, ties) comes from the level's seed. An entry that finds too few cells refuses the attempt and the next seed is tried; the result's constraints.placed lists the cells (and distances). The counts and the reachability check judge the grid AFTER it is placed, so a marker that blocks the way is caught. (Not the script API's top-level `place`, which places the objects of the sample.) REACHABILITY (`reachability`): {from:[x,y], to:[x,y] | [[x,y]...], toTiles:[tile] (every cell holding one is a goal), allConnected:true (all walkable cells form one area), solidTiles:[tile numbers that block] (default: those of `into` or of the sample), costs:{tile: cost|null}, diagonals}. It uses the rules of nav.find_tile_path, on the finished level (`solidTiles` and `costs` are the final tile numbers, after the tiled model's blob47 corners are fixed; `counts` and `toTiles` look at the cells as the generator decided them, before that re-tiling); a grid that fails restarts with the next derived seed, so the level you get is playable. The report lists walkable cells, the cells and areas that were cut off (a few rects) and the path length to each goal. Everything derives from `seed`, never the clock. LIMITS: `maxWork` (default 600000000 units of work over all attempts, counted the same on every machine: it is what decides whether a level is too big) and `maxSeconds` (default 1800, a pure safety net far above the work cap: CPU seconds of the whole process counting every thread; on the web build wall-clock seconds) stop a level that cannot be solved with a teaching error. Returns {model, width, height, seed, rows?, legend, counts: {glyph: cells}, into?, warnings?, sample: {source, width, height}, constraints?: {fixedCells, forbiddenTiles, counts: [{tile, found, min?, max?}], pinnedCells, placed?: [{tile, where, count, at:[[x,y]...], distances?, from?}]}, reachability?, stats: {attempts, contradictions, rejected, patterns, cells, observations, propagations, work, pinned, ms, memoryBytes, peakBytes}}. The level and the counters (attempts, work...) are the same on every machine; stats.ms (the time it took), memoryBytes and peakBytes (bytes: they depend on the compiler and standard library) are not part of the determinism promise. Limits: output sides up to 2048, sample up to 262144 cells, 20000 patterns, about 256 MB of solver memory (checked first, before anything is built for the constraints; the error says what to shrink), 65536 fixed cells. An argument name that is not listed is refused with the valid ones (`place` belongs to the script API's tilemap.generate, which places the objects of the sample; with this command call scene.import_ascii on the returned rows and legend). Example: tilemap.generate {"sample":["........","..##....","..##..#.","......#.","..#.....","........"],"legend":{"#":0},"size":[32,20],"seed":7,"n":3,"symmetry":8,"constraints":{"border":{"tile":"#"},"fixed":[{"at":[1,1],"tile":"."}]},"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[0]}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `sample` | any | no | The example to learn from: the id of an entity with a Tilemap; ASCII rows (array of strings, or one string with line breaks) with `legend`; an object {rows, legend?, legendFrom?} (scene.import_ascii arguments); or a project-relative .json file with such an object. Required for model overlapping; for tiled it only sets the tile frequencies. |
+| `legend` | object | no | Glyph -> tile index or {tile?, rotate?, flipX?, flipY?, prefab?...}, as in scene.import_ascii; for ASCII rows given as an array or text. '.' and ' ' are empty unless defined here. |
+| `legendFrom` | string | no | Project-relative JSON file with a shared legend (see scene.import_ascii), merged under `legend`. |
+| `size` | any | yes | Output size in cells: [width, height], {width, height} or one number for a square. Each side 1..2048 (and at least n for overlapping). |
+| `seed` | integer | no | Picks the level. The same sample, seed and arguments always give the same level. Each restart after a dead end uses the next derived seed. Default 0. |
+| `model` | string ["overlapping","tiled"] | no | overlapping: learn the n x n patterns of the sample. tiled: tile adjacency from the autotile rules (Tilemap.terrains). Default "overlapping". |
+| `n` | integer | no | Overlapping model: side of the learned windows, 2..5 (checked only for the overlapping model). Bigger copies larger pieces of the sample; smaller mixes more. Ignored by tiled (not even checked). Default 3. |
+| `symmetry` | integer | no | One of 1, 2, 4, 8 (checked only for the overlapping model). 1 = the sample as drawn, 2 = also mirrored left-right, 4 = also turned 90/180/270 degrees, 8 = turned and mirrored. Only for tiles that look the same turned (floor, wall); overlapping model; ignored by tiled. Default 1. |
+| `periodic` | boolean | no | The output wraps around its edges (a tileable level). Also lets the sample wrap unless periodicInput is given. Default false. |
+| `periodicInput` | boolean | no | The sample wraps around its edges (patterns cross them). Default: the value of `periodic`. |
+| `maxAttempts` | integer | no | Attempts before giving up: a dead end (or a grid that breaks a constraint or is not reachable) restarts with the next derived seed. When `constraints` or `reachability` is given and this is left out, 50 attempts are made instead of the default, because those refuse many grids. Default 10. |
+| `maxWork` | integer | no | Cap on the work (stats.work of an earlier run shows what a level needs: pattern removals and the adjacency they touch, cells observed, the fixed cells and the reachability check) over all attempts. It counts the same on every machine, so a level either always fits or never does. Hit it and the call fails with how to shrink the level or raise the cap. Default 600000000. |
+| `maxSeconds` | number | no | Pure safety net on the CPU seconds the process may spend on this call (all threads count; the web build counts wall-clock seconds), about a hundred times what the default maxWork takes. The cap a result depends on is maxWork: this one only stops a machine that is stuck or far slower than any expected. Default 1800. |
+| `constraints` | object | no | Rules the level must follow. A tile is a glyph of an ASCII sample, a tile number (-1 = empty) or a terrain name (tiled); a list = any of them. Contradictions are reported before generating, with the JSON pointer. |
+| `reachability` | object | no | The level must be playable. Same walking rules as nav.find_tile_path (the rules are the same code): 4-way, or 8-way without cutting corners, entering a tile costs its cost. A grid that fails restarts with the next derived seed. The result's `reachability` reports unreachable cells and areas and the path lengths. |
+| `into` | string | no | Id of an entity with a Tilemap to write the result into (its tiles, width and height are replaced; tileset, tileSize and solidTiles stay). RUNNING world only. |
+| `rows` | boolean | no | Return the level as ASCII `rows`. Default: true without `into`, false with it. |
+| `terrains` | array | no | Tiled model: autotile rules to use instead of the Tilemap's own (same objects as Tilemap.terrains). |
+
+### `tilemap.generate_cancel` (modifies state)
+
+Since 0.17.0.
+
+Drop a generation started with tilemap.generate_start and free its memory.
+
+Idempotent: an unknown job (finished, failed, already cancelled, or dropped by a scene load) answers {cancelled:false}. Example: tilemap.generate_cancel {"job":1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `job` | integer | yes | The job tilemap.generate_start returned. |
+
+### `tilemap.generate_start` (modifies state)
+
+Since 0.17.0.
+
+Check the arguments of tilemap.generate and start a generation that you advance yourself with tilemap.generate_step.
+
+Takes exactly the arguments of tilemap.generate, checks them at once (the same errors, before anything is generated) and returns {job, width, height, seed, cells, patterns, memoryBytes} without generating. The sample is read and its pattern model is BUILT in this call (the cost of the sample, not of the level: milliseconds for a small one, longer for a 512 x 512 sample with n 5 and symmetry 8), so call it at a loading point or from a tool, not in the middle of a busy frame; everything after it, the solve included, is paced by tilemap.generate_step. Then call tilemap.generate_step {job} until it answers done: its `result` is what tilemap.generate returns, and `into` is written at that moment, not before. The level does not depend on how the steps are cut: any `work` or `budgetMs` gives the same level and the same stats.work for the same arguments. A job belongs to the scene that started it (a scene load drops it) and holds its solver memory until it finishes, fails or is cancelled; at most 8 run at once and their memory adds up under the same 256 MB limit. Scripts do not need this: `tilemap.generate(...)` in a Behaviour starts the job, advances it every frame within a budget and places the objects of the sample. Example: tilemap.generate_start {"sample":["#####","#...#","#####"],"legend":{"#":0},"size":[16,12],"seed":3}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `sample` | any | no | The example to learn from: the id of an entity with a Tilemap; ASCII rows (array of strings, or one string with line breaks) with `legend`; an object {rows, legend?, legendFrom?} (scene.import_ascii arguments); or a project-relative .json file with such an object. Required for model overlapping; for tiled it only sets the tile frequencies. |
+| `legend` | object | no | Glyph -> tile index or {tile?, rotate?, flipX?, flipY?, prefab?...}, as in scene.import_ascii; for ASCII rows given as an array or text. '.' and ' ' are empty unless defined here. |
+| `legendFrom` | string | no | Project-relative JSON file with a shared legend (see scene.import_ascii), merged under `legend`. |
+| `size` | any | yes | Output size in cells: [width, height], {width, height} or one number for a square. Each side 1..2048 (and at least n for overlapping). |
+| `seed` | integer | no | Picks the level. The same sample, seed and arguments always give the same level. Each restart after a dead end uses the next derived seed. Default 0. |
+| `model` | string ["overlapping","tiled"] | no | overlapping: learn the n x n patterns of the sample. tiled: tile adjacency from the autotile rules (Tilemap.terrains). Default "overlapping". |
+| `n` | integer | no | Overlapping model: side of the learned windows, 2..5 (checked only for the overlapping model). Bigger copies larger pieces of the sample; smaller mixes more. Ignored by tiled (not even checked). Default 3. |
+| `symmetry` | integer | no | One of 1, 2, 4, 8 (checked only for the overlapping model). 1 = the sample as drawn, 2 = also mirrored left-right, 4 = also turned 90/180/270 degrees, 8 = turned and mirrored. Only for tiles that look the same turned (floor, wall); overlapping model; ignored by tiled. Default 1. |
+| `periodic` | boolean | no | The output wraps around its edges (a tileable level). Also lets the sample wrap unless periodicInput is given. Default false. |
+| `periodicInput` | boolean | no | The sample wraps around its edges (patterns cross them). Default: the value of `periodic`. |
+| `maxAttempts` | integer | no | Attempts before giving up: a dead end (or a grid that breaks a constraint or is not reachable) restarts with the next derived seed. When `constraints` or `reachability` is given and this is left out, 50 attempts are made instead of the default, because those refuse many grids. Default 10. |
+| `maxWork` | integer | no | Cap on the work (stats.work of an earlier run shows what a level needs: pattern removals and the adjacency they touch, cells observed, the fixed cells and the reachability check) over all attempts. It counts the same on every machine, so a level either always fits or never does. Hit it and the call fails with how to shrink the level or raise the cap. Default 600000000. |
+| `maxSeconds` | number | no | Pure safety net on the CPU seconds the process may spend on this call (all threads count; the web build counts wall-clock seconds), about a hundred times what the default maxWork takes. The cap a result depends on is maxWork: this one only stops a machine that is stuck or far slower than any expected. Default 1800. |
+| `constraints` | object | no | Rules the level must follow. A tile is a glyph of an ASCII sample, a tile number (-1 = empty) or a terrain name (tiled); a list = any of them. Contradictions are reported before generating, with the JSON pointer. |
+| `reachability` | object | no | The level must be playable. Same walking rules as nav.find_tile_path (the rules are the same code): 4-way, or 8-way without cutting corners, entering a tile costs its cost. A grid that fails restarts with the next derived seed. The result's `reachability` reports unreachable cells and areas and the path lengths. |
+| `into` | string | no | Id of an entity with a Tilemap to write the result into (its tiles, width and height are replaced; tileset, tileSize and solidTiles stay). RUNNING world only. |
+| `rows` | boolean | no | Return the level as ASCII `rows`. Default: true without `into`, false with it. |
+| `terrains` | array | no | Tiled model: autotile rules to use instead of the Tilemap's own (same objects as Tilemap.terrains). |
+
+### `tilemap.generate_step` (modifies state)
+
+Since 0.17.0.
+
+Advance a generation started with tilemap.generate_start by a bounded amount of work.
+
+Does at most `work` units of work (default 500000, about 10 ms of a Debug build; the same unit as stats.work) or, with `budgetMs`, steps until that many milliseconds have passed (at least one step). Returns {done:false, progress, attempts, work, contradictions, rejected} while it runs (progress 0..1 follows the solver: inside an attempt it is the share of cells decided, scaled into that attempt's part of the bar (the first attempt covers 0 to 0.8, each retry a quarter of what is left), so it moves while the solver works and never goes down when an attempt restarts; it is 1 only when done) and {done:true, progress:1, result} when the level is finished, `result` being what tilemap.generate returns. A step can overshoot its budget by one unit of the algorithm: an attempt (its reset, the solve, the output, the counts and the reachability check) advances in chunks of about 16384 units, so a step stays near its budget. Three pieces are not cut and run to their end inside one step: the rebuild of the entropy heap when it is at its allowance (a pass over at most 4 entries per cell), the re-tiling of a terrain (Tiled) level by the reachability check (one pass over the grid) and each path search of the reachability check (one A* bounded by the grid, at most 16 per attempt). Errors (the generation failed, hit `maxWork`, the entity of `into` is gone) end the job. A job whose scene was unloaded no longer exists. Example: tilemap.generate_step {"job":1,"work":200000}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `job` | integer | yes | The job tilemap.generate_start returned. |
+| `work` | integer | no | Units of work to do in this call (stats.work counts the same units). Default 500000. |
+| `budgetMs` | number | no | Instead of `work`: step until this many milliseconds have passed (at least one step). How far a job gets in a call then depends on the machine, never the level. |
+
 ### `tilemap.paint_terrain` (modifies state)
 
 Since 0.16.0.
@@ -7386,6 +7739,146 @@ Moves the children of each picked <g> out into the group's parent, at the group'
 | `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
 | `elements` | any | yes | The elements to work on: an SVG id, a selector, or a list of them. A group is one element. Selectors: #id, .class, tag, [attr=value], g > path, :nth-child(2), lists with commas. |
 
+## game
+
+### `vfx.budget`
+
+Since 0.17.0.
+
+What an effect document costs on a phone: live particles and the screen they cover, with the fixes.
+
+Plays the document in a scratch world with the same timeline and particle sim a game runs (no renderer, no sound, the game is not touched, the same document and seed always give the same numbers) and returns {peakParticles, peakAt, peakOverdraw, peakOverdrawAt, meanOverdraw, settledAt, perEmitter: [{part, name, peakParticles, peakAt, peakOverdraw, maxParticles, capped}], timeline: [{t, particles, overdraw}], findings: [{kind, pointer, message, hint, fix: {command, args}}], notes, limits, ok}. `overdraw` is the sum of the particles' quads in screens (1.0 = as much quad area as the view has; stacked soft sprites are what a phone's GPU pays for). `findings` are what is over the `preset`'s budget (phone: 300 live particles, 1.5 screens, 5 emitters; desktop: 2000, 4.0, 8): each names the JSON pointer and, when one edit helps, carries a vfx.edit call (`fix`) that moves the effect toward it (run vfx.budget again to see where it lands; `fix` is null when no single edit would do). With 3D emitters the numbers also depend on that camera (its lens, and the scene that is loaded), so the same document can give other numbers in another scene. The numbers are the particles the sim keeps alive: a camera that does not see them, ribbon trails and glow passes are not counted. A 3D emitter's size is in world units, so its overdraw is measured through the project's main camera (the active primary Camera with the lowest depth in the loaded scene): its quads are projected with the effect 5 m in front of the camera, on its axis (a perspective or an orthographic camera; a quad partly outside the view counts whole). `camera` in the result says which was used ({used:true, projection, distance, fov | height}); when there is no camera (no scene loaded, or none in it) a 3D emitter's particles are counted but its overdraw is 0 and not measured, and `camera` is {used:false, reason} and `notes` says so. Example: vfx.budget {"path":"assets/vfx/hit.vfx.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project path of the effect document, e.g. "assets/vfx/hit.vfx.json". |
+| `preset` | string ["phone","desktop"] | no | Whose budget the findings use. Default "phone". |
+| `seed` | integer | no | Seed of the particle sim: a different seed is a different (equally valid) roll of the random spread. Default 1. |
+| `view` | array | no | [width, height] of the view in design pixels that overdraw is measured against. Default: the project's design size. |
+
+### `vfx.check`
+
+Since 0.17.0.
+
+Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix.
+
+Returns {ok, path, duration, parts: [{index, name, type, at, duration}], errors: [{pointer, message, hint}], warnings: [...]}. Errors stop the effect from playing; warnings (a `rate` with no duration, too many live particles) do not. A sound whose file is missing is an error. Example: vfx.check {"path":"assets/vfx/hit.vfx.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project path of the effect document, e.g. "assets/vfx/hit.vfx.json". |
+
+## assets
+
+### `vfx.create` (modifies state)
+
+Since 0.17.0.
+
+Write a new effect document (*.vfx.json) with one burst emitter, as a starting point to edit.
+
+Writes `path` (under assets/, ending in .vfx.json; format factoria.vfx/1, docs/PARTICLES.md "Effect documents") with one emitter part that bursts 16 soft dots, so there is something to see and edit. An existing file is an error unless `overwrite` is true. Change it with vfx.edit, play it with vfx.play, list its problems with vfx.check. The editor's Particle panel (View > Particles) edits the same file. Example: {"path":"assets/vfx/hit.vfx.json","doc":"A hit: sparks."}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The effect document, project-relative, under assets/ and ending in .vfx.json. |
+| `doc` | string | no | The file's `doc` text: what the effect is and where the game plays it. |
+| `overwrite` | boolean | no | Replace the file when it exists. Default false. |
+
+### `vfx.edit` (modifies state)
+
+Since 0.17.0.
+
+Change one field of an effect document by JSON pointer (set, remove, add to an array, move inside an array); the result must still be a valid effect.
+
+Edits `*.vfx.json` the way a hand edit would, but checked: the document is parsed again after the change (the same checks as vfx.check, without the files a sound names) and, when it would be invalid, nothing is written and the error lists the problems with their pointers. op `set` writes `value` at `pointer` (a field of an existing object, new or old); `remove` deletes the field or array element at `pointer`; `add` inserts `value` into the array at `pointer` (at `index`, default the end); `move` takes element `index` of the array at `pointer` to place `to`. The result has the effect's duration, its part count and the parser's warnings. Examples: {"path":"assets/vfx/hit.vfx.json","op":"set","pointer":"/parts/0/emitter/burst","value":24} and {"path":"assets/vfx/hit.vfx.json","op":"add","pointer":"/parts","value":{"type":"light","duration":0.1,"light":{"radius":80}}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The effect document, project-relative, ending in .vfx.json. |
+| `op` | string ["set","remove","add","move"] | yes | What to do. |
+| `pointer` | string | yes | JSON pointer into the document, e.g. /parts/0/emitter/burst or /parts. |
+| `value` | any | no | The new value (set) or the element to insert (add). Any JSON. |
+| `index` | integer | no | add: where to insert; move: the element to move. |
+| `to` | integer | no | move: the element's new place. |
+
+## game
+
+### `vfx.filmstrip` (modifies state)
+
+Since 0.17.0.
+
+Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once.
+
+Plays the effect at `position` (default: in a 2D game the world point in the middle of the view; in a 3D game the point 5 m in front of the main 3D camera, on its axis, which the result says in `positionNote`), steps the game and captures `region` at each step into one labelled grid PNG (label "f3 +100" = picture 3, 100 ms after the effect started), then removes the effect. THE GAME ADVANCES: the clock, the physics and the scripts run for the frames the strip takes (about 3 s at most by default), so film on a stage scene or a paused moment; the camera and the backdrop are the ones the game has, which is what the effect must read against. The first picture is the frame after the effect started. By default the strip covers the effect's length (from vfx.budget, at most 3 s) in `frames` pictures; `everyFrames` sets the game frames between two pictures instead. The view is `size` design pixels around the effect, `region` [x, y, width, height] overrides it, and `zoom` magnifies (default: a sheet about 1600 px wide). At most 64 pictures, a sheet at most 8192 px a side. Needs graphics. Without `path` the picture is temporary (the MCP server shows it then deletes the file). The effect's sound and command parts really act on the game (a feel.hitStop stretches the labelled times, an audio.music keeps playing, a feel.spawn leaves its prefab). A `position` the camera cannot project into the view fails (it is behind the camera: aim the camera or give `region`). Result: {path (only with `path`), effect, duration, width, height, frames: [{index, frame, t}], columns, rows, tileWidth, tileHeight, zoom, everyFrames, region, position: [x, y, z] (where it played), positionDefault (true when `position` was left out), positionNote (only then: which default was used), $image}. vfx.review gives the picture to a vision model with the budget numbers. Example: vfx.filmstrip {"effect":"assets/vfx/hit.vfx.json","position":[640,360],"frames":12}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `effect` | string | yes | Project path of the effect document, e.g. "assets/vfx/hit.vfx.json". |
+| `position` | array | no | [x, y] or [x, y, z]: where the effect plays, in world units. Default: the world point in the middle of the view in a 2D game; in a 3D game the point 5 m in front of the main camera on its axis (the result says which in `positionNote`). |
+| `frames` | integer | no | Pictures in the strip. Default 12. |
+| `everyFrames` | integer | no | Game frames between two pictures. Default: the effect's length (at most 3 s) divided over `frames`. |
+| `size` | number | no | Side, in design pixels, of the square around the effect that is filmed (ignored with `region`). Default 256. |
+| `region` | array | no | [x, y, width, height] in design pixels (origin top-left of the view). |
+| `zoom` | number | no | Magnification of the region (default: a sheet about 1600 px wide). |
+| `columns` | integer | no | Pictures per row (default: nearly square). |
+| `path` | string | no | Keep the PNG here (project-relative or absolute). |
+
+### `vfx.list`
+
+Since 0.17.0.
+
+The effects that play now, and the limits of an effect.
+
+Returns {playing: [{id, effect, time, duration, loop, speed}], count, max, limits}. `time` is seconds into the effect (the document's own clock), `duration` its length. An effect started by vfx.play counts at once, before the next step (time 0). Use it in a test to see that an effect started and ended: game.step, then vfx.list. Example: vfx.list {}.
+
+### `vfx.play` (modifies state)
+
+Since 0.17.0.
+
+Play an effect document (*.vfx.json) at a position, or on an entity.
+
+Makes an entity with a Vfx component (autoDestroy on) that plays the effect: its emitters and light flash become children of it, its sounds and commands (a camera shake, a hit-stop...) fire at their times. Without `entity` the effect is in world space at `position`; with `entity` it is that entity's child at the local `position`, so it follows it. The file is read and checked now: an invalid one is an error naming the JSON pointer. At most 64 effects play at once (an ended effect counts until its emitters' particles are gone): past that the call returns {"id": null, "dropped": true} (logged once). The effect advances with the game clock (game.step, time.scale), so the same calls at the same steps give the same result. Example: vfx.play {"effect":"assets/vfx/hit.vfx.json","position":[120,64]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `effect` | string | yes | Project path of the effect document, e.g. "assets/vfx/hit.vfx.json" (docs/PARTICLES.md, "Effect documents"). |
+| `position` | array | no | [x, y] or [x, y, z]: world position, or relative to `entity` when that is given. Default [0, 0]. |
+| `entity` | string | no | Entity (id or name) the effect follows: it becomes the effect's parent. |
+| `rotation` | number | no | Degrees around z (2D). Default 0. |
+| `scale` | number | no | Makes the whole effect that many times larger: positions and offsets, the emission shape, how fast and how far particles fly (start speed, gravity, turbulence), the size of particles and trails and the light radius. Times (lifetimes, the timeline) stay as written, and a command part (feel.shake, ...) calls its command with the arguments written in the file. A sub-emitter given as a prefab or an entity keeps its own size. 1 = as written. Default 1. |
+| `speed` | number | no | Speed of the timeline: 2 plays the parts' times twice as fast. The particles keep their own speed. Default 1. |
+| `loop` | boolean | no | Start again at the end until vfx.stop. Default false. |
+
+### `vfx.review` (modifies state)
+
+Since 0.17.0.
+
+A cheap one-shot vision review of an effect: its filmstrip graded for readability, timing, palette and overdraw, with vfx.edit fixes.
+
+The last look of the make, film, grade, fix loop for effects (docs/PARTICLES.md "Reviewing an effect"). It runs vfx.budget on the document and vfx.filmstrip on the running game (so THE GAME ADVANCES by about the length of the effect, at most 3 s, and the game must have graphics), then sends a vision model the filmstrip, the budget numbers and the document with a checklist: readability at game size, timing, palette, overdraw. It uses the model of the "fast" role of ai.json (the orchestrator when fast is off), so the model must accept pictures; with no provider, no key or a text-only model the error says what to set up (docs/AI_PROVIDERS.md) and you carry on with vfx.budget and vfx.filmstrip, which you can read yourself. One model call per review: call it once vfx.check passes and vfx.budget has no finding, not after every edit. Result: {verdict: good | fix | redo (never `good` while vfx.budget has a finding), summary, checklist: [{item, grade, note}], fixes: [{what, where, command}], budget: {peakParticles, peakOverdraw, findings, ...}, filmstrip: {frames, columns, rows, tileWidth, tileHeight, zoom, region, position (where it was filmed), positionDefault, positionNote}, role, provider, model, warnings, nextSteps}. A fix names a command, usually a vfx.edit call; one that names something this engine does not have is listed in `warnings`. The document is not changed. Pass `picturePath` to keep the filmstrip PNG. Example: {"effect":"assets/vfx/hit.vfx.json","position":[640,360],"focus":"does it read on the dark floor?"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `effect` | string | yes | Project path of the effect document, e.g. "assets/vfx/hit.vfx.json". |
+| `position` | array | no | [x, y] or [x, y, z]: where in the game the effect is filmed, in world units (as vfx.filmstrip). Default: the middle of the view in a 2D game, the point 5 m in front of the main camera in a 3D game (`filmstrip.position` and `filmstrip.positionNote` say which). |
+| `preset` | string ["phone","desktop"] | no | Whose budget the review uses (as vfx.budget). Default phone. |
+| `frames` | integer | no | Pictures in the filmstrip (as vfx.filmstrip). Default 12. |
+| `focus` | string | no | What you want judged ("does it read on the dark floor?", "is the hit too long?"). Optional. |
+| `picturePath` | string | no | Keep the filmstrip PNG here (project-relative or absolute). Without it the picture is deleted after the review. |
+
+### `vfx.stop` (modifies state)
+
+Since 0.17.0.
+
+End an effect started by vfx.play (or a Vfx entity).
+
+`immediate` true removes the effect's entity and its children at once (particles vanish); the default lets the emitters stop emitting and their particles finish, ends the lights, and the parts that had not started never do. Example: vfx.stop {"id":"vfx_hit_3"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The entity (id or name) with the Vfx, as vfx.play returned it. |
+| `immediate` | boolean | no | Remove it now instead of letting its particles finish. Default false. |
+
 
 ## Scripting API (TypeScript declarations)
 
@@ -7803,6 +8296,31 @@ declare module "factoria" {
      * Immediately spawns `count` particles at this entity's ParticleEmitter (works with emitting = false). No-op with a warning when there is no renderer (headless).
      */
     emitBurst(count?: number): void;
+    /**
+     * Draws this entity in one colour for a moment (sprites and 3D meshes; a Shape2D too; Text, Tilemap, particles and UI are not flashed): a hit flash. fade (default true) goes from `strength` down to 0 over `duration`; fade: false is a square flash. Calling it again restarts it. The entity's own colour, material and Transform never change, so nothing is left behind. With reducedEffects on (feel.reducedEffects) the strength is capped at 0.35 and the flash always fades. Example: enemy.flash({ color: "#ffffff", duration: 0.1 });
+     * @since 0.17.0
+     */
+    flash(opts?: FlashOptions): void;
+    /**
+     * Squash and stretch: a short scale pulse that keeps the volume (x * y constant in 2D) and springs back to exactly the entity's own scale (it is drawn multiplied, entity.scale is never written). amount > 0 squashes (flatter and wider, a landing), < 0 stretches (a jump); axis "y" (default) or "x". With reduceMotion on the amount is a quarter. Example: player.squash({ amount: 0.35, duration: 0.25 });
+     * @since 0.17.0
+     */
+    squash(opts?: SquashOptions): void;
+    /**
+     * Pushes the entity away: `speed` world units per second along `direction` (any length, it is normalised). A dynamic RigidBody2D/RigidBody3D gets the impulse on its velocity; an entity without one moves with a velocity that decays (opts.decay) and is integrated on the fixed clock. For opts.lockTime seconds isKnockedBack is true so your movement script can leave the player without control. Frozen by hit-stop like the rest of the simulation. Example: if (!me.isKnockedBack) move(); me.knockback(vec2(-1, 0.3), { speed: 8 });
+     * @since 0.17.0
+     */
+    knockback(direction: Vec3Like, opts?: KnockbackOptions): void;
+    /**
+     * True for the lockTime of the last knockback of this entity: read it in your movement code to ignore input (the loss of control).
+     * @since 0.17.0
+     */
+    readonly isKnockedBack: boolean;
+    /**
+     * Seconds left of the loss of control of the last knockback (0 = in control). Runs on the game clock, so a hit-stop and time.scale = 0 hold it.
+     * @since 0.17.0
+     */
+    readonly knockbackRemaining: number;
     /**
      * Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get("Animator") answers null instead.
      * @since 0.2.0
@@ -8998,6 +9516,223 @@ declare module "factoria" {
   }
 
   /**
+   * Options of camera.shake(amount, opts) and of the "shake" feel action (docs/GAME_FEEL.md).
+   * @since 0.17.0
+   */
+  export interface ShakeOptions {
+    /**
+     * Seconds the shake takes to die out (default 0.4).
+     * @since 0.17.0
+     */
+    duration?: number;
+    /**
+     * Noise samples per second: how jittery (default 25).
+     * @since 0.17.0
+     */
+    frequency?: number;
+    /**
+     * Largest offset at trauma 1, in world units. Default: 2.5% of the visible height of an orthographic camera, 0.3 for a perspective one.
+     * @since 0.17.0
+     */
+    maxOffset?: number;
+    /**
+     * Largest turn at trauma 1, in degrees (default 2).
+     * @since 0.17.0
+     */
+    maxAngle?: number;
+    /**
+     * Trauma never goes above this, 0..1 (default 1): stacking hits stop here.
+     * @since 0.17.0
+     */
+    cap?: number;
+    /**
+     * The camera to shake (default camera.main). Only for camera.shake.
+     * @since 0.17.0
+     */
+    camera?: Entity | string;
+  }
+
+  /**
+   * Options of entity.flash(opts) and of the "flash" feel action.
+   * @since 0.17.0
+   */
+  export interface FlashOptions {
+    /**
+     * The colour the entity is drawn in (default white); alpha is ignored.
+     * @since 0.17.0
+     */
+    color?: Color | string | [number, number, number, number?];
+    /**
+     * Seconds (default 0.12).
+     * @since 0.17.0
+     */
+    duration?: number;
+    /**
+     * true (default): from `strength` down to 0; false: `strength` for the whole duration, then off.
+     * @since 0.17.0
+     */
+    fade?: boolean;
+    /**
+     * 0..1: how much of the colour replaces the entity's own (default 1 = solid).
+     * @since 0.17.0
+     */
+    strength?: number;
+  }
+
+  /**
+   * Options of entity.squash(opts) and of the "squash" feel action.
+   * @since 0.17.0
+   */
+  export interface SquashOptions {
+    /**
+     * > 0 squashes (wider, flatter), < 0 stretches (taller, thinner); default 0.3.
+     * @since 0.17.0
+     */
+    amount?: number;
+    /**
+     * Seconds until the entity is back to exactly its own scale (default 0.3).
+     * @since 0.17.0
+     */
+    duration?: number;
+    /**
+     * The axis that gets shorter when amount > 0 (default "y").
+     * @since 0.17.0
+     */
+    axis?: "x" | "y";
+  }
+
+  /**
+   * Options of entity.knockback(direction, opts) and of the "knockback" feel action.
+   * @since 0.17.0
+   */
+  export interface KnockbackOptions {
+    /**
+     * World units per second added to the velocity at once. Default: 6 metres per second, so 6 units for a 3D entity and 6 times the project's physics.pixelsPerMeter (600 pixels per second at 100) for a 2D one: a speed you give is in world units (pixels in 2D), whatever the entity.
+     * @since 0.17.0
+     */
+    speed?: number;
+    /**
+     * Seconds isKnockedBack stays true (default 0.25).
+     * @since 0.17.0
+     */
+    lockTime?: number;
+    /**
+     * Entities WITHOUT a dynamic body only: the velocity falls by exp(-decay * dt) per second (default 8).
+     * @since 0.17.0
+     */
+    decay?: number;
+    /**
+     * true: `direction` is in the entity's own space, so a mirrored sprite (negative scale x) is pushed the other way and a turned entity pushes along its own axes. Default false: world directions. Meant for the "push" action of a clip, whose direction cannot know which way the character faces.
+     * @since 0.17.0
+     */
+    local?: boolean;
+  }
+
+  /**
+   * Options of the "spawn" feel action: an effect prefab appears at the target entity (without a target, at `offset` in the world) the next time the frame's feel pass runs. Spawned entities are left out of saved scenes.
+   * @since 0.17.0
+   */
+  export interface FeelSpawnOptions {
+    /**
+     * Project-relative path of the prefab to instantiate, e.g. "prefabs/hit_spark.prefab.json".
+     * @since 0.17.0
+     */
+    prefab: string;
+    /**
+     * Added to the world position of the target (default [0, 0, 0]).
+     * @since 0.17.0
+     */
+    offset?: Vec3Like;
+    /**
+     * true: `offset` is in the target's own space, so a mirrored sprite puts the effect on its other side. Default false.
+     * @since 0.17.0
+     */
+    local?: boolean;
+    /**
+     * Seconds of game time after which the spawned entity is destroyed (a hit-stop, time.scale 0 or a pause holds the count). Default 0: the prefab ends itself (a script, or a non-looping animation that destroys it); an effect with neither stays for the whole scene.
+     * @since 0.17.0
+     */
+    lifetime?: number;
+  }
+
+  /**
+   * Options of the "sound" feel action: plays a clip once through the audio system (the play log and audio.log show it).
+   * @since 0.17.0
+   */
+  export interface FeelSoundOptions {
+    /**
+     * Project-relative path of the sound, e.g. "audio/hit.wav".
+     * @since 0.17.0
+     */
+    path: string;
+    /**
+     * 0..4, default 1.
+     * @since 0.17.0
+     */
+    volume?: number;
+    /**
+     * 0.1..4, default 1.
+     * @since 0.17.0
+     */
+    pitch?: number;
+    /**
+     * -1 (left) to 1 (right), default 0.
+     * @since 0.17.0
+     */
+    pan?: number;
+    /**
+     * "sfx" (default), "music", "ui" or a bus of the project.
+     * @since 0.17.0
+     */
+    bus?: string;
+  }
+
+  /**
+   * Options of time.hitStop(seconds, opts) and of the "hitStop" feel action.
+   * @since 0.17.0
+   */
+  export interface HitStopOptions {
+    /**
+     * Game-time scale during the stop, 0..1: 0 (default) freezes, 0.2 is slow motion.
+     * @since 0.17.0
+     */
+    scale?: number;
+  }
+
+  /**
+   * A game feel effect as data: what the `feel` of Animator, SpriteAnimator and clip-file events, the feel.* commands and feel.do run. Same names as the options of the matching function; "push" is "knockback", "spawn" and "sound" have no function of their own (docs/GAME_FEEL.md, "Effects as data").
+   * @since 0.17.0
+   */
+  export type FeelAction = { action: "shake"; amount?: number } & ShakeOptions | { action: "hitStop"; duration?: number } & HitStopOptions | { action: "flash" } & FlashOptions | { action: "knockback" | "push"; direction?: Vec3Like } & KnockbackOptions | { action: "squash" } & SquashOptions | { action: "spawn" } & FeelSpawnOptions | { action: "sound" } & FeelSoundOptions;
+
+  /**
+   * Game feel settings and the data form of the effects (docs/GAME_FEEL.md). The effects themselves are camera.shake, time.hitStop, entity.flash, entity.knockback and entity.squash.
+   * @since 0.17.0
+   */
+  export interface FeelAPI {
+    /**
+     * Whether shake and squash are turned way down (a quarter) and hit-stops halved: the game's own choice when it set one, else the operating system's "reduce motion" (game.accessibility.reduceMotion). Assign true or false to set the player's choice (a settings menu), null to follow the system again. Applies to effects started afterwards.
+     * @since 0.17.0
+     */
+    reduceMotion: boolean;
+    /**
+     * Whether flashes are turned down: at most 0.35 strength and always fading, never a full-bright strobe. Same rule as reduceMotion: the game's choice, else the system's reduce motion. Assign true, false or null.
+     * @since 0.17.0
+     */
+    reducedEffects: boolean;
+    /**
+     * Runs one effect given as data on `target` (the entity of flash, knockback, squash, spawn and sound; the camera of shake, default camera.main; spawn without a target puts the effect at `offset`). Unknown keys and wrong types throw with a "did you mean".
+     * @since 0.17.0
+     */
+    do(action: FeelAction, target?: Entity | string): void;
+    /**
+     * Ends the flash, squash, shake and knockback of `target` at once; without an argument every effect of the scene, hit-stops included.
+     * @since 0.17.0
+     */
+    cancel(target?: Entity | string): void;
+  }
+
+  /**
    * Game clock.
    */
   export interface TimeAPI {
@@ -9012,7 +9747,7 @@ declare module "factoria" {
     readonly elapsed: number;
     readonly frame: number;
     /**
-     * Time scale for gameplay (>= 0, default 1): scales onUpdate/onFixedUpdate dt, timers, physics steps, particles and sprite animators. 0 freezes all of them (game.paused): only behaviours with runWhilePaused = true keep updating, and the UI keeps working. Audio is not scaled.
+     * Time scale for gameplay (>= 0, default 1): scales onUpdate/onFixedUpdate dt, timers, physics steps, particles and sprite animators. 0 freezes all of them (game.paused): only behaviours with runWhilePaused = true keep updating, and the UI keeps working. Audio is not scaled. A hit-stop (time.hitStop) slows these further for a moment without changing this value; time.dt shows the effective step.
      */
     scale: number;
     /**
@@ -9020,6 +9755,16 @@ declare module "factoria" {
      * @since 0.1.6
      */
     readonly unscaledDt: number;
+    /**
+     * Hit-stop: freezes (opts.scale 0, the default) or slows (scale 0.2 = slow motion) gameplay for `seconds` of REAL time, the pause that makes an impact land. Physics, behaviours' onUpdate/onFixedUpdate, timers, particles and sprite animators stop; the UI, the audio, runWhilePaused behaviours, camera shake, flashes and squash keep going, and time.scale / game.paused do not change. Overlapping calls do not add up: the longest one wins, and while several run the smallest scale applies; a longer stop than 5 s is an error (a unit mix-up). With reduceMotion on the duration is halved. Example: time.hitStop(0.08);
+     * @since 0.17.0
+     */
+    hitStop(seconds: number, opts?: HitStopOptions): void;
+    /**
+     * Real seconds left of the longest running hit-stop (0 = none).
+     * @since 0.17.0
+     */
+    readonly hitStopRemaining: number;
   }
 
   /**
@@ -9083,6 +9828,11 @@ declare module "factoria" {
      * @since 0.3.0
      */
     clampTo(rect: RectLike, options?: { camera?: Entity | string; margin?: number }): void;
+    /**
+     * Camera shake: adds `amount` (0..1, default 0.4) of trauma to a camera; trauma stacks up to opts.cap (default 1) and dies out over opts.duration seconds (a longer shake already running is kept), and the shake is trauma squared, so many small hits stay gentle and a big one is violent. The noise is smooth and seeded from the world's RNG (deterministic). 2D cameras move in x, y and roll; 3D ones also look a little around. Only what is drawn moves: the camera's Transform does not change, so a follow script never chases the shake, and screen-to-world conversions use the shaken view. opts.camera picks the camera (default camera.main). With reduceMotion on the amount is a quarter. Example: camera.shake(0.5, { duration: 0.3 });
+     * @since 0.17.0
+     */
+    shake(amount?: number, opts?: ShakeOptions): void;
   }
 
   /**
@@ -9126,6 +9876,172 @@ declare module "factoria" {
      * @since 0.3.0
      */
     readonly generation: number;
+  }
+
+  /**
+   * The arguments of tilemap.generate: the same as the command tilemap.generate (docs/AI_GUIDE.md, section 9.8), plus `place`. Arguments are checked when you call it, so a mistake throws at once with its JSON pointer; the generation itself runs over the next frames.
+   * @since 0.17.0
+   */
+  export interface TilemapGenerateOptions {
+    /**
+     * The example to learn from: an entity with a Tilemap, ASCII rows (an array of strings, or one string with line breaks) with `legend`, an object {rows, legend?, legendFrom?} or the path of a JSON file holding one. Required for the overlapping model. Glyphs whose legend entry has a `prefab` are the markers (spawn points, coins, enemies) that `place` turns into entities.
+     * @since 0.17.0
+     */
+    sample?: string | Entity | string[] | { rows: string[]; legend?: Json; legendFrom?: string };
+    /**
+     * Glyph -> tile index or {tile?, prefab?, id?, overrides?, offset?...}, the format of scene.import_ascii. "." and " " are empty unless defined here.
+     * @since 0.17.0
+     */
+    legend?: Json;
+    /**
+     * Project-relative JSON file with a shared legend, merged under `legend`.
+     * @since 0.17.0
+     */
+    legendFrom?: string;
+    /**
+     * Output size in cells; each side 1..2048 (a phone wants far less: the work grows with width x height x the patterns of the sample).
+     * @since 0.17.0
+     */
+    size: number | [number, number] | { width: number; height: number };
+    /**
+     * Picks the level: the same sample, seed and options give the same level on every platform. Take it from a generator of your own, `rng.create(runSeed).int(0, 2147483647)`, so that a stored `runSeed` rebuilds the level; never from the clock.
+     * @since 0.17.0
+     */
+    seed?: number;
+    /**
+     * overlapping (default) learns the n x n windows of the sample; tiled reads which tiles may touch from the autotile rules (Tilemap.terrains).
+     * @since 0.17.0
+     */
+    model?: "overlapping" | "tiled";
+    /**
+     * Overlapping model: side of the windows, 2..5 (default 3).
+     * @since 0.17.0
+     */
+    n?: number;
+    /**
+     * Overlapping model: 1 as drawn (default), 2 + mirror, 4 + turns, 8 turns and mirrors.
+     * @since 0.17.0
+     */
+    symmetry?: 1 | 2 | 4 | 8;
+    /**
+     * The level wraps around its edges.
+     * @since 0.17.0
+     */
+    periodic?: boolean;
+    /**
+     * The sample wraps around its edges (default: `periodic`).
+     * @since 0.17.0
+     */
+    periodicInput?: boolean;
+    /**
+     * Attempts before giving up (default 10, 50 with constraints or reachability).
+     * @since 0.17.0
+     */
+    maxAttempts?: number;
+    /**
+     * Cap on the work over all attempts (default 600000000 units); the level either always fits or never does, on any machine. Hitting it fails the generation with an error that says how to shrink the level.
+     * @since 0.17.0
+     */
+    maxWork?: number;
+    /**
+     * Safety net on the CPU seconds the generation may use in total (default 1800, at most 86400; maxWork is the cap a result depends on, this one only stops a machine far slower than expected). Frames spent doing something else do not count.
+     * @since 0.17.0
+     */
+    maxSeconds?: number;
+    /**
+     * {fixed: [{at:[x,y] | rect:[x,y,w,h], tile}], border: {tile, thickness?}, forbidden: [tile], required: [tile], counts: [{tile, min?, max?}], place: [{tile, count?, where?: 'farthest'|'nearest'|'random', from?, on?}], repair?: boolean}. A missed minimum is repaired on the next attempt by pinning cells unless repair is false; a maximum steers the solver (a tile that reached it is taken out of the other cells) and is checked again on the finished grid, never repaired. `place` puts markers (an entrance, an exit, a boss) on the finished level: this is the `constraints.place` of the command, not the `place` option below that builds entities. See the command tilemap.generate.
+     * @since 0.17.0
+     */
+    constraints?: Json;
+    /**
+     * {from:[x,y], to?, toTiles?, allConnected?, solidTiles?, costs?, diagonals?}: the finished level must be playable; see the command tilemap.generate.
+     * @since 0.17.0
+     */
+    reachability?: Json;
+    /**
+     * Tiled model: autotile rules to use instead of the Tilemap's own.
+     * @since 0.17.0
+     */
+    terrains?: Json[];
+    /**
+     * An entity with a Tilemap that gets the tiles when the level is ready (tileset, tileSize and solidTiles stay). Writes only tiles: no objects. Not together with `place`.
+     * @since 0.17.0
+     */
+    into?: string | Entity;
+    /**
+     * When the level is ready, build it in the running scene the way scene.import_ascii does: the Tilemap entity (`entity`, default "tilemap", created or updated, with the `tilemap` fields such as tileset and tileSize, at `position`/`anchor`) and one entity per glyph of the sample whose legend entry has a `prefab` (spawn points, coins, enemies), ids and tags as scene.import_ascii names them. The report of scene.import_ascii is in `result.placed`. With `replace` (default true) the objects of an earlier placement into the same entity are destroyed first. `true` uses the defaults. The level is placed in the scene that called tilemap.generate: if another scene is current when the level is ready, nothing is placed and the generation fails.
+     * @since 0.17.0
+     */
+    place?: boolean | { entity?: string; tilemap?: Json; position?: Vec2Like; anchor?: string; replace?: boolean };
+    /**
+     * Return the level as ASCII `rows` in the result (true when `place` is given; false with `into`, true otherwise).
+     * @since 0.17.0
+     */
+    rows?: boolean;
+  }
+
+  /**
+   * A level being generated by tilemap.generate. It works a little every frame (within a budget: 500000 units of work per frame in tests and headless runs, so the frames it takes never depend on the machine; about 4 ms per frame for each running generation in a game with a window; up to 8 can run at once, so up to about 32 ms of a frame: run one at a time), so the game keeps running and drawing while it works. Values change between frames only, never in the middle of your code. `stats.ms` and `memoryBytes` of its result are informative and not deterministic (they depend on the machine): never compare them. The level it ends with does not depend on how the work was cut into frames. A generation belongs to the scene that started it: when another scene is loaded it fails (error says so) and nothing is placed.
+   * @since 0.17.0
+   */
+  export interface TilemapGeneration {
+    /**
+     * How much of the level is decided, 0..1 (follows the solver inside the attempt that is running). Never goes down, 1 when the level is ready. It can stay put while a dead end restarts the attempt or while the finished grid is checked.
+     * @since 0.17.0
+     */
+    readonly progress: number;
+    /**
+     * True once the level is ready (see `result`) or the generation failed or was cancelled (see `error`).
+     * @since 0.17.0
+     */
+    readonly done: boolean;
+    /**
+     * Why it failed (no level fits the sample and constraints, it hit maxWork, the scene changed, cancelled...), or an empty string.
+     * @since 0.17.0
+     */
+    readonly error: string;
+    /**
+     * How to fix `error`, or an empty string.
+     * @since 0.17.0
+     */
+    readonly hint: string;
+    /**
+     * What the command tilemap.generate returns: {model, width, height, seed, rows, legend, counts, stats: {attempts, work, ...}, constraints?, reachability?, warnings?, placed?}; null until the level is ready.
+     * @since 0.17.0
+     */
+    readonly result: Json | null;
+    /**
+     * Attempts started so far (a dead end restarts with the next derived seed).
+     * @since 0.17.0
+     */
+    readonly attempts: number;
+    /**
+     * Units of work done so far, the unit of maxWork and stats.work.
+     * @since 0.17.0
+     */
+    readonly work: number;
+    /**
+     * Resolves with `result` when the level is ready (and placed, if `place` was given); rejects with an Error (message + hint) when the generation fails, is cancelled, or its scene is unloaded.
+     * @since 0.17.0
+     */
+    readonly promise: Promise<Json>;
+    /**
+     * Stops a generation that is still running and frees its memory; the Promise rejects. Nothing is written or placed.
+     * @since 0.17.0
+     */
+    cancel(): void;
+  }
+
+  /**
+   * Level generation from an example while the game runs (the global `tilemap`).
+   * @since 0.17.0
+   */
+  export interface TilemapGeneratorAPI {
+    /**
+     * Generates a level from a small example level with Wave Function Collapse: every n x n window of the result also exists in the sample, so it looks like the sample but is new for every seed. The arguments are checked at once (a mistake throws with a JSON pointer and a hint); the work is then spread over the next frames within a budget, so a phone does not stall, and the handle tells when the level is ready. It is the command tilemap.generate run in pieces: the same arguments give the same level, rows and stats.work as the command, on every platform, whatever the frame rate. With `place` the Tilemap and the sample's markers (spawn points, coins, enemies: the glyphs with a `prefab`) become entities in the running scene, as scene.import_ascii places them. A generation belongs to the scene that started it (a load rejects it); at most 8 run at once, they share the per-frame budget equally (starting more makes each one slower, never a frame longer), and their solver memory adds up under 256 MB. `place` is checked by this call (keys entity, tilemap, position, anchor, replace, and their types), so a mistake throws here and not after the whole generation. The call itself builds the model (one frame, longer for a big sample); after that an attempt advances in chunks of about 16384 work units, so a step stays near its budget; the rebuild of the entropy heap, the re-tiling of a terrain level and each path search of `reachability` are not cut and run to their end in one step. Keep levels for run time modest. Example: const level = rng.create(runSeed); const job = tilemap.generate({ sample: ["#####", "#...#", "#.o.#", "#####"], legend: { "#": 1, "o": { prefab: "prefabs/coin.prefab.json" } }, size: [40, 24], seed: level.int(0, 2147483647), constraints: { border: { tile: "#" } }, place: { entity: "level", tilemap: { tileset: "art/tiles.png", tileSize: [16, 16] } } }); job.promise.then((r) => console.log("ready after", r.stats.attempts, "attempt(s)")); or poll job.progress and job.done in onUpdate.
+     * @since 0.17.0
+     */
+    generate(options: TilemapGenerateOptions): TilemapGeneration;
   }
 
   /**
@@ -9926,6 +10842,28 @@ declare module "factoria" {
      * Immediately spawns `count` particles at the entity's ParticleEmitter (works with emitting = false). No-op with a warning without a renderer.
      */
     burst(entity: Entity | string, count?: number): void;
+  }
+
+  /**
+   * Effect documents (*.vfx.json, docs/PARTICLES.md "Effect documents"). The same as the vfx.* commands.
+   * @since 0.17.0
+   */
+  export interface VfxAPI {
+    /**
+     * Plays the effect document at `position` in the world (default [0, 0]), or at that local position under `entity` so it follows it. Returns the entity that plays it (autoDestroy: it goes when the effect and its particles are done), or null when 64 effects already play. `rotation` is degrees around z, `scale` makes the effect that many times larger (positions, particle speed and size, trails, light radius; not its times, and not the arguments of its command parts), `speed` plays its timeline faster or slower, `loop` repeats it until vfx.stop. The file is read and checked now: an unreadable or invalid one throws with the JSON pointer of the problem. The effect follows the game clock: it waits at time.scale 0.
+     * @since 0.17.0
+     */
+    play(effect: string, options?: { position?: number[] | Vec2 | Vec3; entity?: Entity | string; rotation?: number; scale?: number; speed?: number; loop?: boolean }): Entity | null;
+    /**
+     * Ends an effect that play returned. By default its emitters stop emitting and their particles finish, its lights end and parts that had not started never do; `immediate` removes it and its particles at once.
+     * @since 0.17.0
+     */
+    stop(entity: Entity | string, options?: { immediate?: boolean }): void;
+    /**
+     * The effects that play now: the entity id, the document, seconds into it, its length, whether it loops and its speed.
+     * @since 0.17.0
+     */
+    playing(): { id: string; effect: string; time: number; duration: number; loop: boolean; speed: number }[];
   }
 
   /**
@@ -11300,6 +12238,12 @@ declare module "factoria" {
   export const bt: BtAPI;
 
   /**
+   * Game feel settings and effects as data.
+   * @since 0.17.0
+   */
+  export const feel: FeelAPI;
+
+  /**
    * Game clock.
    */
   export const time: TimeAPI;
@@ -11318,6 +12262,12 @@ declare module "factoria" {
    * Scene control.
    */
   export const scene: SceneAPI;
+
+  /**
+   * Level generation (tilemap.generate). Not the tilemap of an entity: that is entity.tilemap.
+   * @since 0.17.0
+   */
+  export const tilemap: TilemapGeneratorAPI;
 
   /**
    * Game control.
@@ -11383,6 +12333,12 @@ declare module "factoria" {
    * Particle helpers.
    */
   export const particles: ParticlesAPI;
+
+  /**
+   * Effect documents (*.vfx.json): several emitters, a light flash, sounds and commands on one timeline, played with one call.
+   * @since 0.17.0
+   */
+  export const vfx: VfxAPI;
 
   /**
    * Game UI events and focus, text measurement.
@@ -12662,7 +13618,7 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}.
+   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
    * 
    * Category: 2D
    */
@@ -12710,6 +13666,11 @@ declare module "factoria" {
      * @since 0.6.0
      */
     sheetPivot: boolean;
+    /**
+     * Frame events, an array of {frame, clip?, name?, data?, feel?}: every time the animation shows grid frame `frame` (the same row-major number as firstFrame and lastFrame) the game event `name` is sent with {id, clip, frame, ...data}, and the game feel actions of `feel` run (one action object or an array of them, in the form of `feel.do(action)` in scripts: shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, "Effects as data"). With `clip` (a name of the sheet's clips) the event belongs to that clip only. An event needs `name` or `feel`. A frame is shown once per pass over the clip, so a looping clip fires it once per loop, a frame that a long frame time skips still fires, and pingpong shows its middle frames twice. Example: [{"clip": "attack", "frame": 9, "feel": [{"action": "hitStop", "duration": 0.06}, {"action": "shake", "amount": 0.3}]}]. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.17.0
+     */
+    events: any;
     /**
      * Runtime state: a non-looping clip reached its end (clipEnded was sent).
      * @since 0.6.0
@@ -13134,7 +14095,7 @@ declare module "factoria" {
     occludesLight: boolean;
   }
   /**
-   * Emits short-lived particles (smoke, sparks, explosions). Particles interpolate size and color over their lifetime.
+   * Emits short-lived particles (smoke, sparks, explosions, fire, trails). Particles interpolate size and color over their lifetime, or follow a colour gradient and curves for size, speed and alpha; they can turn and spin, feel drag and turbulence, be born on a shape (circle, box, cone, edge, a 3D mesh surface), play a flipbook, leave ribbon trails, bounce on a plane or a Tilemap, and spawn sub-emitters when they are born, die or hit something. Pixel mode draws hard-edged squares in the project palette. The simulation is deterministic (the same seed gives the same particles) and capped at 10000 live particles per emitter; docs/PARTICLES.md has the budgets and worked examples (hit spark, smoke puff, pixel-art fire). Every field added after startColor/endColor has a default that changes nothing, so an older emitter looks the same.
    * 
    * Category: 2D
    */
@@ -13240,6 +14201,211 @@ declare module "factoria" {
      * @since 0.2.0
      */
     safeArea: boolean;
+    /**
+     * Colour over the particle's life, alpha included: a list of [position, colour] keys, position 0 = born, 1 = dies, blended linearly: [[0, "#ffffff"], [0.4, "#ffcc33"], [1, "#ff220000"]] (a colour is "#rrggbb", "#rrggbbaa", a name or [r, g, b, a]). At most 16 keys. [] (default) = startColor -> endColor. A form that does not parse is reported with the right form, and the emitter falls back to startColor -> endColor. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.17.0
+     */
+    colorGradient: any;
+    /**
+     * Multiplies the size over life: [[0, 0.2], [0.2, 1], [1, 0]] pops in and shrinks away. Keys are [position, value]; {"keys": [...], "interp": "smooth"} eases between them (interp: linear, smooth, step); a plain number is a constant. It multiplies startSize -> endSize, so [] (default) leaves the size as it was. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.17.0
+     */
+    sizeCurve: any;
+    /**
+     * Multiplies how fast a particle flies over its life, in the same form as sizeCurve: [[0, 1], [1, 0]] slows it to a stop. The particle's velocity is not changed, only the distance it covers per second, so gravity and drag still act on the real velocity. [] (default) = 1. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.17.0
+     */
+    speedCurve: any;
+    /**
+     * Multiplies the alpha over life, in the same form as sizeCurve: [[0, 0], [0.1, 1], [1, 0]] fades in and out whatever the colours are. [] (default) = 1. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.17.0
+     */
+    alphaCurve: any;
+    /**
+     * Random +- fraction of the size, chosen once per particle (0.3 = between 70% and 130%). Default 0.
+     * @since 0.17.0
+     */
+    sizeVariance: number;
+    /**
+     * Flipbook: how many columns of frames the texture holds (1 = the texture is one picture). Frames are numbered along the rows from the top-left.
+     * @since 0.17.0
+     */
+    flipbookColumns: number;
+    /**
+     * Flipbook: how many rows of frames the texture holds (1 = one row).
+     * @since 0.17.0
+     */
+    flipbookRows: number;
+    /**
+     * Flipbook: how many of the columns * rows cells are frames (the last cells of a sheet may be empty). 0 (default) = all of them.
+     * @since 0.17.0
+     */
+    flipbookFrames: number;
+    /**
+     * Flipbook: frames per second, looping from the first frame (or the random start). 0 (default) = the frames play once over the particle's life, so a 16-frame explosion sheet ends with the particle.
+     * @since 0.17.0
+     */
+    flipbookFps: number;
+    /**
+     * Flipbook: each particle starts at a random frame. With flipbookFps 0 it then keeps that one frame (variety in a puff of smoke); with fps it plays on from there.
+     * @since 0.17.0
+     */
+    flipbookRandomStart: boolean;
+    /**
+     * [min, max] degrees a particle starts turned by, random in between ([0, 360] = any way up). Counter-clockwise on screen, like Transform.rotation. Default [0, 0]. Billboards of is3D emitters turn in the screen plane.
+     * @since 0.17.0
+     */
+    get startRotation(): Vec2;
+    set startRotation(value: Vec2Like);
+    /**
+     * [min, max] degrees per second a particle turns, random in between ([-90, 90] turns either way). Default [0, 0].
+     * @since 0.17.0
+     */
+    get spin(): Vec2;
+    set spin(value: Vec2Like);
+    /**
+     * true: the particle's +x axis points where it flies (streaks, arrows, sparks stretch along their path); startRotation and spin turn it on top of that. Default false.
+     * @since 0.17.0
+     */
+    alignToVelocity: boolean;
+    /**
+     * How fast the velocity fades, per second: velocity is divided by 1 + drag * dt each step (0 = none, 2 = loses most of its speed in a second). Default 0.
+     * @since 0.17.0
+     */
+    drag: number;
+    /**
+     * Turbulence: acceleration (world units/s^2) from a smooth random field that depends on where the particle is, so neighbours drift together (smoke, embers). Seeded: the same seed gives the same wind on every platform. 0 (default) = off.
+     * @since 0.17.0
+     */
+    noiseStrength: number;
+    /**
+     * Turbulence: the size of one eddy, in world units. Larger = broader, lazier swirls. Default 64.
+     * @since 0.17.0
+     */
+    noiseScale: number;
+    /**
+     * Turbulence: how fast the field changes, in eddies per second (0 = frozen field). Default 0.5.
+     * @since 0.17.0
+     */
+    noiseSpeed: number;
+    /**
+     * Fraction of the emitter's own velocity (how fast its position moves) added to every new particle, so a moving emitter throws what it emits forward (1 = the particle starts as fast as the emitter). worldSpace emitters only; a teleport counts as one very fast frame. Default 0.
+     * @since 0.17.0
+     */
+    inheritVelocity: number;
+    /**
+     * Where particles are born, relative to the entity's Transform (rotation and scale apply). point (default): at the position. circle: a disc of radius shapeSize.x (a sphere when is3D). box: a rectangle shapeSize.x * shapeSize.y (a box with .z when is3D). cone: a base of radius shapeSize.x across the emission direction, which spreads by `spread` (see shapeDirection). edge: a line of length shapeSize.x along local x. mesh (3D): the surface of the mesh named by shapeMesh, chosen by area; the emitter's Transform places and scales the mesh.
+     * @since 0.17.0
+     */
+    shape: "point" | "circle" | "box" | "cone" | "edge" | "mesh";
+    /**
+     * Size of the emission shape in world units: circle radius = x; box = [width, height, depth] (depth only when is3D); edge length = x; cone base radius = x. Default [32, 32, 32].
+     * @since 0.17.0
+     */
+    get shapeSize(): Vec3;
+    set shapeSize(value: Vec3Like);
+    /**
+     * volume (default): anywhere inside the shape, evenly. edge: only on its outline (the circle's rim, the box's perimeter or faces, the cone base's rim, the edges of the mesh triangles).
+     * @since 0.17.0
+     */
+    shapeFrom: "volume" | "edge";
+    /**
+     * direction (default): particles fly along `direction` +- `spread`, wherever on the shape they are born. outward: away from the shape (a circle or box: from its centre; mesh: along the surface normal; cone: fanning out across the spread; edge and point: no change), +- `spread`.
+     * @since 0.17.0
+     */
+    shapeDirection: "direction" | "outward";
+    /**
+     * shape "mesh" only: the mesh whose surface particles are born on: a primitive name ("sphere", "cube", ...), a .gltf/.glb path or a procedural "mesh:N" id. A mesh that cannot be read logs why once and the particles are born at the point. (asset path: mesh)
+     * @since 0.17.0
+     */
+    shapeMesh: string;
+    /**
+     * none (default). particle: each particle drags a ribbon of the path it flew, trailTime seconds long (at most 32 points) and gone when the particle dies. emitter: one ribbon behind the emitter itself while it is emitting (a sword swing, a comet; worldSpace only).
+     * @since 0.17.0
+     */
+    trail: "none" | "particle" | "emitter";
+    /**
+     * How many seconds of path a trail keeps. Default 0.5.
+     * @since 0.17.0
+     */
+    trailTime: number;
+    /**
+     * Width of the ribbon at its head, in world units (design pixels on screen). Default 4. A ribbon is camera-facing in 3D.
+     * @since 0.17.0
+     */
+    trailWidth: number;
+    /**
+     * Multiplies trailWidth along the ribbon, position 0 = the head, 1 = the oldest point: [[0, 1], [1, 0]] (also what [] means) tapers to a point; [[0, 1], [1, 1]] keeps it as wide. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.17.0
+     */
+    trailWidthCurve: any;
+    /**
+     * Colour along the ribbon, position 0 = the head, 1 = the oldest point, in the form of colorGradient. [] (default) = the particle's own colour fading to transparent at the tail. The particle's alphaCurve and the entity's tint multiply it. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.17.0
+     */
+    trailGradient: any;
+    /**
+     * Particles that spawn other particles. An object with the events "birth", "death" and "collision", each a sub-emitter {"count": 6, "emitter": {...ParticleEmitter fields...}} or a list of them. Instead of "emitter" a sub-emitter can name "prefab": "prefabs/spark.prefab.json" (the first ParticleEmitter in it) or "entity": "<id>" (that entity's ParticleEmitter, followed live). Also "inherit" (fraction of the parent's velocity the children start with, default 0) and "chance" (0..1, default 1). The children are born where the parent was, live in the parent's space, and ignore their own rate, burst and emitting. A collision child's direction is relative to the surface (90 = along the normal). Limits: 2 levels deep, 32 particles per event, 8 sub-emitters per emitter, 256 sub-emitter particles per step, and each sub-emitter's own maxParticles; what does not fit is not born. Default {}. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.17.0
+     */
+    subEmitters: any;
+    /**
+     * What particles bounce on. none (default). plane: the plane collisionPlane. tilemap: the solidTiles of a Tilemap (collisionTilemap), 2D. worldSpace emitters only. A particle that starts behind a surface passes through it.
+     * @since 0.17.0
+     */
+    collision: "none" | "plane" | "tilemap";
+    /**
+     * collision "plane": [nx, ny, nz, d] = the plane dot(n, p) = d; particles stay on the side n points to. [0, 1, 0, 0] is the floor y = 0, [0, 1, 0, -120] a floor at y = -120.
+     * @since 0.17.0
+     */
+    get collisionPlane(): Vec3 & { w: number };
+    set collisionPlane(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * collision "tilemap": the entity of the Tilemap whose solidTiles stop the particles. None = the first active Tilemap in the scene that has solidTiles.
+     * @since 0.17.0
+     */
+    get collisionTilemap(): Entity | null;
+    set collisionTilemap(value: EntityLike);
+    /**
+     * Fraction of the speed into the surface that comes back out: 0 = sticks, 0.5 = default, 1 = a perfect bounce.
+     * @since 0.17.0
+     */
+    collisionBounce: number;
+    /**
+     * Fraction of the speed along the surface lost on every hit: 0 (default) = slides on, 1 = stops dead. A particle that slides or rests on the surface loses speed per second instead (the same at any frame rate): 1 slows it to a tenth in half a second.
+     * @since 0.17.0
+     */
+    collisionFriction: number;
+    /**
+     * Fraction of its whole lifetime a particle loses on every hit (0.5: two hits kill it). Default 0. A particle resting on the surface is not hitting it again.
+     * @since 0.17.0
+     */
+    collisionLifetimeLoss: number;
+    /**
+     * true: a particle dies on its first hit (rain splashes through the "collision" sub-emitter, sparks that burn out on the floor). Default false.
+     * @since 0.17.0
+     */
+    collisionKill: boolean;
+    /**
+     * true: particles are hard-edged squares whose position and size snap to a grid of pixelSize world units, and whose colours are the nearest entries of the palette (no soft blending, no texture): fire and sparks for pixel art. Default false.
+     * @since 0.17.0
+     */
+    pixelMode: boolean;
+    /**
+     * Pixel mode: the size of one pixel in world units (design pixels on screen). Match the pixel size of the art (a 4x scaled game: 4). Default 1.
+     * @since 0.17.0
+     */
+    pixelSize: number;
+    /**
+     * Pixel mode: the colours to snap to, ["#1a1c2c", "#b13e53", "#ffcd75"]; the alpha of a particle is kept. [] (default) = the project's palette (assets.json style.palette); with neither, colours are only snapped in alpha steps. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.17.0
+     */
+    palette: any;
+    /**
+     * 0 (default): the random run is derived from the entity's stable id. Another number gives another run, and the same number always the same one, on every platform. Read when the emitter first appears.
+     * @since 0.17.0
+     */
+    seed: number;
   }
   /**
    * Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal maps; glTF materials are read). Needs a perspective Camera and (unless unlit) a Light to be visible.
@@ -13416,7 +14582,7 @@ declare module "factoria" {
      */
     layers: any;
     /**
-     * Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. Returns a plain-object COPY; assign a new value to write.
+     * Clip events, an array of {clip, time, name?, feel?}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). `feel` (one action object or an array, the form of `feel.do(action)`: shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, "Effects as data") runs game feel actions on this entity at the same moment. An event needs `name` or `feel`. Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}, {"clip": "Attack", "time": 0.2, "feel": {"action": "hitStop", "duration": 0.06}}]. Returns a plain-object COPY; assign a new value to write.
      * @since 0.2.0
      */
     events: any;
@@ -15885,6 +17051,54 @@ declare module "factoria" {
     readonly duration: number;
   }
   /**
+   * A visual effect placed in the scene, like a prefab (docs/PARTICLES.md, "Effect documents"): plays the effect document `effect` (a *.vfx.json that bundles emitters, a light flash, sounds and commands such as a camera shake on one timeline). Its emitters and lights become child entities when their time comes; a sound plays once; a command is called once. The effect starts when the scene starts (`autoplay`) and runs to its end; `loop` starts it again, setting `playing` to true after it ended replays it. It follows this entity: put it under a moving entity, or move it. `vfx.play` (a command; `vfx.play()` in scripts) makes one of these at a position with `autoDestroy` on, so a hit effect is one call. The timeline follows the game clock (it pauses with time.scale 0) and uses no clock or random numbers of its own: the same effects at the same steps do the same on every run. At most 64 effects play at once.
+   * 
+   * Category: 2D
+   * @since 0.17.0
+   */
+  export interface VfxComponent {
+    /**
+     * Project path of the effect document, e.g. "assets/vfx/hit.vfx.json". Changing it starts that effect from the beginning. A file that is missing or has errors is logged once with the JSON pointer of the first problem (`vfx.check` lists them all) and nothing plays. (asset path: vfx)
+     * @since 0.17.0
+     */
+    effect: string;
+    /**
+     * True (default): the effect starts by itself the first time the system sees this entity (scene start, or spawn). False: it waits until a script (or `scene.set_component`) sets `playing` to true.
+     * @since 0.17.0
+     */
+    autoplay: boolean;
+    /**
+     * Runtime: true while the timeline advances. Set true to play (from the start when it had ended), false to pause. Becomes false when the effect ends.
+     * @since 0.17.0
+     */
+    playing: boolean;
+    /**
+     * True: at the end the effect starts again from the beginning (its emitters keep their own particles until they empty). False (default): it ends and `playing` becomes false.
+     * @since 0.17.0
+     */
+    loop: boolean;
+    /**
+     * True: this entity is removed once the effect ended and its emitters have no particles left. `vfx.play` sets it. False (default, for an effect placed in a scene): it stays, ready to play again.
+     * @since 0.17.0
+     */
+    autoDestroy: boolean;
+    /**
+     * Speed of the timeline: 1 (default) = as written, 2 = twice as fast, 0.5 = half. It moves the parts' start times and the light fades; the particles of an emitter keep their own speed.
+     * @since 0.17.0
+     */
+    speed: number;
+    /**
+     * Runtime: seconds into the effect (before `speed`: the document's own clock). Assign to seek forward.
+     * @since 0.17.0
+     */
+    time: number;
+    /**
+     * Runtime: length of the effect in seconds, from the document; 0 until the document is read. Read-only.
+     * @since 0.17.0
+     */
+    readonly duration: number;
+  }
+  /**
    * A 3D (or 2D) view inside the UI (docs/MENUS.md, "A camera inside the UI"): draws the camera named by `camera` into this entity's rectangle, so an item turning on a stage, a character portrait or a map lives in a menu with the clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the modal Panel of any widget. The camera is rendered into an image of the size of the rectangle (its aspect follows it; Camera.viewport is ignored) before the frame's UI is drawn, then that image is drawn in the rectangle. Give the camera primary = false, or it also draws in the main view; the camera and the widget must both be active. The background is drawn at `layer`, the picture at `layer` + 1: a widget meant to sit over the picture needs a layer of at least `layer` + 2. Camera.lighting = "studio" lights it with its own key, fill and rim lights, wherever it stands. bloom and colorFilter of the camera are ignored (the frame has one set of post effects). A pointer press, drag, release and the wheel over it are the game event `ui.viewPointer` ({id, phase, x, y, u, v, dx, dy, wheel}; `ui.on("viewPointer", fn)` in scripts) so a script can turn what it shows. It is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. Costs one more render pass per view per frame, and the image per view: keep it as small as the picture needs (see `resolution`). Defaults: 320 x 240, no background colour.
    * 
    * Category: UI
@@ -16277,6 +17491,7 @@ declare module "factoria" {
     TouchButton: TouchButtonComponent;
     Captions: CaptionsComponent;
     Video: VideoComponent;
+    Vfx: VfxComponent;
     CameraView: CameraViewComponent;
     Chart: ChartComponent;
     Script: ScriptComponent;
@@ -16291,14 +17506,14 @@ declare module "factoria" {
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
-    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; ended?: boolean; playedClip?: string; time?: number; frame?: number };
+    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
     SpriteSkin: { bones?: any; weights?: any; bindPose?: any; outline?: boolean; outlineDetail?: number };
     IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd" };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
-    ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
+    ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; colorGradient?: any; sizeCurve?: any; speedCurve?: any; alphaCurve?: any; sizeVariance?: number; flipbookColumns?: number; flipbookRows?: number; flipbookFrames?: number; flipbookFps?: number; flipbookRandomStart?: boolean; startRotation?: Vec2Like; spin?: Vec2Like; alignToVelocity?: boolean; drag?: number; noiseStrength?: number; noiseScale?: number; noiseSpeed?: number; inheritVelocity?: number; shape?: "point" | "circle" | "box" | "cone" | "edge" | "mesh"; shapeSize?: Vec3Like; shapeFrom?: "volume" | "edge"; shapeDirection?: "direction" | "outward"; shapeMesh?: string; trail?: "none" | "particle" | "emitter"; trailTime?: number; trailWidth?: number; trailWidthCurve?: any; trailGradient?: any; subEmitters?: any; collision?: "none" | "plane" | "tilemap"; collisionPlane?: readonly number[] | { x: number; y: number; z: number; w: number }; collisionTilemap?: EntityLike; collisionBounce?: number; collisionFriction?: number; collisionLifetimeLoss?: number; collisionKill?: boolean; pixelMode?: boolean; pixelSize?: number; palette?: any; seed?: number };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
     Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
@@ -16327,6 +17542,7 @@ declare module "factoria" {
     TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; textColor?: ColorLike; touchOnly?: boolean };
     Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
     Video: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; path?: string; autoplay?: boolean; loop?: boolean; volume?: number; bus?: string; fit?: "contain" | "cover" | "stretch"; tint?: ColorLike; playing?: boolean; time?: number };
+    Vfx: { effect?: string; autoplay?: boolean; playing?: boolean; loop?: boolean; autoDestroy?: boolean; speed?: number; time?: number };
     CameraView: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; camera?: string; tint?: ColorLike; pointerEvents?: boolean; captureWheel?: boolean; resolution?: number };
     Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };

@@ -1,6 +1,7 @@
 #include "fa/ai/config.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
@@ -762,6 +763,11 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             flag("loopGuard", cfg.savers.loopGuard);
             flag("learnedToolGroups", cfg.savers.learnedToolGroups);
             flag("projectFacts", cfg.savers.projectFacts);
+            flag("retrospective", cfg.savers.retrospective);
+            if (const Json* v = child(*sv, "retrospectiveSteps"); v && v->is_number() && v->get<double>() >= 1)
+                cfg.savers.retrospectiveSteps = static_cast<int>(std::min(v->get<double>(), 1.0e6));
+            if (const Json* v = child(*sv, "retrospectiveCostUsd"); v && v->is_number() && v->get<double>() > 0)
+                cfg.savers.retrospectiveCostUsd = v->get<double>();
             cfg.savers.loopGuardJudge = str(*sv, "loopGuardJudge");
             if (!cfg.savers.loopGuardJudge.empty() && !is_known_role(cfg.savers.loopGuardJudge)) {
                 const std::vector<std::string> names(std::begin(kAllRoles), std::end(kAllRoles));
@@ -808,6 +814,9 @@ Json savers_to_json(const Savers& savers) {
     if (!savers.loopGuardJudge.empty()) out["loopGuardJudge"] = savers.loopGuardJudge;
     if (savers.learnedToolGroups != def.learnedToolGroups) out["learnedToolGroups"] = savers.learnedToolGroups;
     if (savers.projectFacts != def.projectFacts) out["projectFacts"] = savers.projectFacts;
+    if (savers.retrospective != def.retrospective) out["retrospective"] = savers.retrospective;
+    if (savers.retrospectiveSteps != def.retrospectiveSteps) out["retrospectiveSteps"] = savers.retrospectiveSteps;
+    if (savers.retrospectiveCostUsd != def.retrospectiveCostUsd) out["retrospectiveCostUsd"] = savers.retrospectiveCostUsd;
     return out;
 }
 
@@ -965,16 +974,25 @@ Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::str
 namespace {
 
 // Writes text where only the owner can read it, from the first byte: a temporary file made private BEFORE the key goes in,
-// then renamed over the target (fs::write_text makes its temporary file with the default permissions).
+// then renamed over the target (fs::write_text makes its temporary file with the default permissions). A symlinked target is
+// written through, as fs::write_bytes does (the link stays, the file it points to is replaced). The temporary file is named
+// after the process and a counter, so two writers (threads or processes) never share one.
+// Windows: this is fs::write_text. Nothing here sets an ACL: the file gets what its folder gives it (the user's profile folder,
+// where ~/.factoria lives, is normally readable by that user, SYSTEM and administrators only).
 Result<void> write_private(std::string_view path, const std::string& text) {
 #ifdef _WIN32
     return fs::write_text(path, text);
 #else
+    static std::atomic<unsigned> counter{0};
     fsys::path target(path);
     std::error_code ec;
     if (target.has_parent_path()) fsys::create_directories(target.parent_path(), ec);
+    if (fsys::is_symlink(fs::os_path(target), ec)) {
+        const fsys::path resolved = fsys::canonical(fs::os_path(target), ec);
+        if (!ec) target = resolved;  // a link that points nowhere (yet) is replaced by the file, as a plain write would
+    }
     fsys::path tmp = target;
-    tmp += ".fa-tmp" + std::to_string(static_cast<long long>(::getpid()));
+    tmp += ".fa-tmp" + std::to_string(static_cast<long long>(::getpid())) + "_" + std::to_string(counter++);
     {
         std::ofstream create(tmp, std::ios::binary | std::ios::trunc);
         if (!create) return make_error("Cannot write '" + std::string(path) + "'", "Check the directory exists and is writable.");
@@ -989,9 +1007,10 @@ Result<void> write_private(std::string_view path, const std::string& text) {
             return make_error("Cannot write '" + std::string(path) + "'", "Is the disk full?");
         }
     }
-    fsys::rename(tmp, target, ec);
+    fs::replace_file(tmp, target, ec);
     if (ec) {
-        fsys::remove(tmp, ec);
+        std::error_code ignored;
+        fsys::remove(tmp, ignored);
         return make_error("Cannot replace '" + std::string(path) + "'", "Check the file is writable.");
     }
     return {};

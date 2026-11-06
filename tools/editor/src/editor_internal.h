@@ -32,11 +32,13 @@
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
 #include "fa/ai/plugin_install.h"
+#include "fa/ai/project_settings.h"
 #include "fa/ai/provider.h"
 #include "fa/ai/review.h"
 #include "fa/ai/skills.h"
 #include "fa/ai/session.h"
 #include "fa/core/asset_manifest.h"
+#include "level_gen_model.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
@@ -64,6 +66,7 @@
 #include "image_ui.h"
 #include "vector_ui.h"
 #include "sound_ui.h"
+#include "particle_ui.h"
 #include "modeler_ui.h"
 #include "music_ui.h"
 #include "imgui.h"
@@ -109,6 +112,7 @@ private:
     struct Job {
         std::string name, tag;
         Json args;
+        CommandCaller caller = CommandCaller::User;  // who asked (command_caller() of the calling thread), installed again while it runs
         std::shared_ptr<std::promise<CommandResult>> promise;
         std::shared_ptr<std::atomic<bool>> abandoned;  // the caller gave up (Stop): the job is skipped, not run
     };
@@ -190,6 +194,7 @@ public:
     bool save_scene_now();
     void reload_scene_from_disk(bool keepUndo = false);   // keepUndo: Ctrl+Z brings back what was on screen before
     void restore_scene(const Json& snapshot);
+    void reset_feel_choices();   // feel.reduceMotion / reducedEffects back to following the system (a Play session starts and ends)
 
     // ---------------------------------------------------------------- play mode
     PlayState play_state() const { return play_; }
@@ -233,7 +238,7 @@ public:
     void run_console_line(const std::string& line);
     // Commands typed in the Console or called by the AI go through these two hooks (editor_app.cpp):
     // command_edits_scene() is false for commands that only write FILES (prefab.save, scene.format, scene.ascii_edit,
-    // scene.import_ascii with `path`), so they neither take an undo snapshot nor mark the scene dirty; after_command() reloads
+    // scene.import_ascii with `path`) and for the feel.* effects (a moment of the running game), so they neither take an undo snapshot nor mark the scene dirty; after_command() reloads
     // the scene when scene.import_ascii or scene.ascii_edit rebuilt the scene file that is open (Ctrl+Z brings back what was
     // on screen).
     bool command_edits_scene(const std::string& name, const Json& args) const;
@@ -278,9 +283,59 @@ public:
     void open_ai_settings(bool rolesTab = false);  // rolesTab: show the Roles tab (else the tab the window had)
     void draw_ai_settings_window();
     // Fills the draft from `cfg`. keepAssets / keepTools: carry that tab's unsaved edits over (a Save on the other tab).
+    // `cfg` is the user's config (ai.json as loaded): the tool servers, extensions and providers come from it; the asset routes and
+    // sites come from the open project's resolved config when a project is open (ai_window_config).
     void ai_settings_load(const ai::AiConfig& cfg, bool keepAssets = false, bool keepTools = false);
     Result<ai::AssetSettings> ai_settings_build(const ai::AiConfig& cfg) const;
     bool ai_settings_dirty(const ai::AiConfig& cfg) const;
+    // The AI settings of the open project (ai_project_ui.cpp; docs/EDITOR.md "AI settings", docs/AI_PROVIDERS.md "Per project"): with a
+    // project open the window edits <project>/.factoria/ai/settings.json (ai::resolve_ai_config_over says where each value comes
+    // from, ai_project_edit.h what to write); without one it edits ai.json. The editor is the only writer that records trust.
+    struct AiProjectUi {
+        bool have = false;                  // `resolved` is the resolution of `dir`
+        std::string dir;
+        ai::ResolvedAiConfig resolved;
+        std::optional<Error> error;         // the resolution failed: the project's file was accepted and is invalid now
+        long long atMs = 0;
+        std::string ignoredHash;            // the file the user chose to ignore (its hash): no banner, no effect, a Save replaces it
+        std::string actionError;            // why Accept / Reset / Save of the project's file failed
+        // Two confirmations (draw_ai_project_popups). The Save and Delete buttons live in child windows, so they only raise a request
+        // here and the banner, at the window's own ID level, opens the popup.
+        bool replaceAsk = false;            // open "Replace the project's AI settings file?": a Save would replace the file the user ignored
+        bool replaceOk = false;             // the user confirmed: the next ai_project_save may replace it (and clears this)
+        std::uint64_t okFrame = 0;          // the UI frame of that confirmation: it counts for the rest of that frame only
+        std::string askFrom, retryFrom;     // which Save asked ("roles", "assets"), and which one the confirmation presses again
+        bool deleteAsk = false;             // open "Delete the project's AI settings file?"
+    } aiProj_;
+    std::atomic<bool> aiProjStale_{true};   // the next ai_project_refresh() resolves again
+    void ai_project_invalidate();           // ANY thread: drop every cache of the project's resolution (a save, reset, accept, ai.json change, project switch)
+    const AiProjectUi& ai_project_refresh();  // main thread: the resolution of the open project (again when stale or older than a second)
+    ai::AiConfig ai_user_config();          // ai.json as the editor holds it (the engine's defaults when it was not read yet)
+    ai::AiConfig ai_window_config();        // what the AI settings window edits: the project's resolved config with a project open, else ai.json's
+    bool ai_project_open() const { return !projectDir_.empty(); }
+    bool ai_project_locked();               // a file that waits for Accept / Ignore, or one that cannot be read: nothing is saved or reset until then
+    void draw_ai_project_banner();          // the top of the window: where the values are edited, what waits for Accept, the file's problems
+    void ai_project_accept();
+    // Before a Save replaces the project's ignored file: its copy (settings.replaced.json), or the error that says Save must be confirmed or
+    // the copy could not be made. Nothing to do (ok) when no ignored file would be replaced. Called before anything else is written.
+    Result<void> ai_project_keep_replaced_copy();
+    Result<void> ai_project_save(const Json& overrides);   // save_project_settings(..., recordTrust=true): what the user chose here
+    // Save over a file the user ignored (it came with the project and was never accepted) replaces it: first ask. True = go ahead; false =
+    // the popup was requested (`from` is the Save that asked; ai_project_save_retry(from) is true on the frame after the confirmation).
+    bool ai_project_replace_allowed(const char* from);
+    bool ai_project_save_retry(const char* from);
+    void ai_project_delete_file();                         // removes the project's file and forgets its trust record (after the popup)
+    void draw_ai_project_popups();                         // the two confirmations, at the level of the window that draws the banner
+    Result<void> ai_project_reset(const std::string& pointer);
+    Result<void> ai_project_after_defaults(const ai::AiConfig& wanted);  // after Save as my defaults: the project's file keeps only what still differs
+    Result<void> ai_user_config_reload();   // load ai.json again into aiConfig_ (and drop the caches)
+    // ai.settings.set (run by an AI agent or an MCP client) wrote the user's ai.json (aiUserFileChanged_) or the
+    // project's file (aiProjectFileChanged_) behind the windows' back. The callbacks run on the calling thread: they drop the caches
+    // and raise the flag, and this (main thread, once per frame) does the rest: reload ai.json, detect the providers again (the key
+    // and program checks) and reload the AI settings window's Roles edits and draft, keeping the rows the person had changed.
+    std::atomic<bool> aiUserFileChanged_{false}, aiProjectFileChanged_{false};
+    void ai_settings_changed_elsewhere();
+    std::string ai_project_settings_path() const;
     void draw_feedback_panel();
     void draw_feedback_add_window();            // the Add feedback modal of the panel
     // Feedback sharing (feedback_share_ui.cpp; docs/EDITOR.md, "Sharing feedback"). share_choose_mode is the only place that sets the
@@ -295,7 +350,8 @@ public:
     void send_window_apply();                   // Send: store and queue the checked rows, leave the others out, flush
     void send_window_finished(int sent, const std::string& message);  // the flush Send asked for is over
     void share_fill_consent_preview(const std::string& file, const Json& doc);
-    void share_choose_mode(ShareMode mode);
+    void share_choose_mode(ShareMode mode);                        // the default
+    void share_choose_project_mode(std::optional<ShareMode> mode);  // this project's own (nullopt = follow the default)
     void share_start_flush(bool force, std::uint64_t session = 0);
     void share_start_verdicts(const std::string& feedbackFile);  // ask the server what the engine developers decided (a thread)
     void share_start_sign_in();
@@ -461,6 +517,32 @@ public:
     Vec2 sound_screen_pos(double seconds, double yFraction) const;   // the autotest drives the waveform
     SoundUi sound_;
     bool showSound_ = false;
+    // Particle panel (particle_panel.cpp; View > Particles, or a double click on a *.vfx.json in the Project panel): an effect document played
+    // by the engine's own timeline (update_vfx and one ParticleSim per emitter, ParticlePreview) with a time scrubber, a parts list and an
+    // inspector built from the emitter's reflected fields, with gradient and curve editors. The rules are in particle_model.h: every edit it
+    // keeps is a vfx.edit call, so the Console and an AI make the same edit.
+    ParticleModel& particle_ensure_model();                // makes the panel's model and preview on first use
+    void draw_particle_panel();
+    void draw_particle_toolbar(ParticleModel& m);
+    void draw_particle_canvas(ParticleModel& m);
+    void draw_particle_timeline(ParticleModel& m);
+    void draw_particle_parts(ParticleModel& m);
+    void draw_particle_inspector(ParticleModel& m);
+    void draw_particle_object_fields(ParticleModel& m, const std::string& base, const TypeInfo& type, const Json& patch, bool essentialsOnly);
+    bool draw_particle_row(ParticleModel& m, const std::string& key, const FieldInfo& f, const std::string& pointer, const Json& cur, bool present);
+    bool draw_particle_curve_field(ParticleModel& m, const std::string& pointer, const std::string& label, const Json& cur, float lo, float hi);
+    bool draw_particle_gradient_field(ParticleModel& m, const std::string& pointer, const std::string& label, const Json& cur);
+    bool open_particle_document(const std::string& rel);   // *.vfx.json; false and a toast on failure
+    void particle_edited(const ParticleEditOutcome& out);  // after an edit: the undo entry, a toast for an error
+    void particle_apply_undo(const Json& entry, bool forward);
+    void particle_reload();                                // Reload: takes the file as it is and drops the undo/redo step it made stale
+    void particle_drop_stale_step();                       // removes the refused step from both stacks (the file is no longer what it expects)
+    void particle_collect_steps();                         // drops the undo steps no stack entry points to
+    void particle_close_document();
+    Vec2 particle_time_pos(double seconds, double yFraction = 0.5) const;   // the autotest drives the timeline
+    Vec2 particle_canvas_pos(float worldX, float worldY) const;              // ...and the canvas
+    ParticleUi particle_;
+    bool showParticle_ = false;
     // Music panel (music_panel.cpp, music_mixer_panel.cpp; View > Music, or a double click on a *.song.json in the Project panel): a song as a
     // piano roll, a drum grid, an arrangement and a mixer, played by the same transport a game's entity.music uses (an intensity slider fades
     // the layers, a section can be looped). The rules are in music_model.h: every edit it keeps is a command call (music.edit, music.arpeggio,
@@ -548,6 +630,14 @@ public:
     void draw_animator_clips(Entity e, const std::string& id, const Json& current);
     void draw_material_params(Entity e, const Json& current);
     void draw_profiler_panel();
+    // Level generator window (level_gen_panel.cpp; the model, level_gen_model.h, has no ImGui).
+    void draw_level_gen_panel();
+    void draw_level_gen_preview(float height);
+    LevelGenCaller level_gen_caller();
+    void level_gen_keep();
+    void level_gen_save();
+    void level_gen_write(bool overwrite);   // fs.write of the level file; without overwrite an existing file opens the Replace popup
+    void level_gen_refresh_sample();   // the selection's Tilemap and the sample's solid tiles, for the buttons and the preview colours
     void draw_project_dialog();
     // AI panel text: the right-click menu of the InputText just submitted on `text` (Cut/Copy/Paste/Select all), and a
     // transcript message as a selectable read-only box (ai_panel.cpp)
@@ -635,7 +725,14 @@ public:
     bool ai_chat_busy(const std::string& chatId) const { return ai_run_of(chatId) != nullptr; }
     bool ai_chat_running(const std::string& chatId) const;              // that chat's run is going (or waits for its worker)
     int ai_run_count() const { return static_cast<int>(aiRuns_.size()); }
-    int ai_max_runs();                                                  // limits.maxConcurrentRuns of ai.json
+    int ai_max_runs();                                                  // limits.maxConcurrentRuns of ai.json (and the project's)
+    // The config a run of the open project uses: the editor's own (ai.json as loaded, or what a test put there) with the project's
+    // AI settings (<project>/.factoria/ai/settings.json) applied when it has them and the user accepted them. Any thread. A project
+    // with a settings file is re-read at most once a second unless `fresh` (a run starting): the panels ask every frame.
+    Result<ai::AiConfig> ai_project_config(bool fresh = false);
+    // The same without a copy: calls `use` with the config (valid during the call; `use` must not lock aiMu_). False, and the
+    // project file's problem in `error`, when the project's file was accepted and is invalid now (ai.json changed): `use` is not called.
+    bool ai_with_project_config(const std::function<void(const ai::AiConfig&)>& use, Error* error = nullptr, bool fresh = false);
     // What the Play button says while the assistant works: which chats.
     std::string ai_editing_note();
     int ai_last_revertable_run() const;                      // index of the active chat's newest Run item not reverted, or -1
@@ -749,6 +846,17 @@ public:
     bool showViewport_ = true;
     bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false, showProfiler_ = false, showProject_ = true;
     bool showAnimation_ = false, showBoneTools_ = false;
+    bool showLevelGen_ = false;
+    LevelGenSession levelGen_;
+    LevelGenOptions levelGenOpt_;
+    std::string levelGenKeepName_ = "generated", levelGenSavePath_ = "levels/generated.json", levelGenMessage_;
+    bool levelGenMessageBad_ = false;
+    std::string levelGenSaveTarget_, levelGenSaveContent_;   // the file Save asked about and what it would write (the Replace popup repeats it)
+    bool levelGenReplaceOpen_ = false;                       // open the "Replace <file>?" popup this frame
+    std::vector<int> levelGenSolid_;   // solid tile numbers of the sample, for the preview colours
+    std::string levelGenSelId_;        // the selection levelGenSelTilemap_ was read for
+    bool levelGenSelTilemap_ = false;  // the selected entity has a Tilemap
+    bool levelGenSampleStale_ = true; // read the selection and the sample's Tilemap again (selection change, a command, an undo, a sample change)
     ProjectBrowser projBrowser_;
     bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false;
     bool showQuitDialog_ = false, showReloadConfirm_ = false;
@@ -928,11 +1036,36 @@ public:
     bool fbAddOpen_ = false;        // the Add feedback modal is open
     int fbNewCategory_ = 0, fbNewSeverity_ = 1;
     std::string fbNewTitle_, fbNewMissing_, fbNewWorkaround_, fbNewSuggestion_, fbMessage_;
+    // The Retrospective button (feedback_panel.cpp): ai.retrospective on a thread of its own (it asks a model, which takes seconds), one at a
+    // time. The thread hands the answer over under `mu`; the panel applies it on the main thread and says what it filed.
+    struct FbRetro {
+        std::mutex mu;
+        bool running = false;
+        bool finished = false;       // an answer is waiting for the panel
+        bool ok = false;
+        std::string dir;             // the project the run was started for: an answer that arrives after another project was opened is dropped
+        Json result;                 // the answer of ai.retrospective
+        std::string message;         // why it failed (with the hint)
+        CancelFlag cancel{false};
+    };
+    std::shared_ptr<FbRetro> fbRetro_ = std::make_shared<FbRetro>();
+    std::thread fbRetroThread_;
+    void feedback_start_retrospective();   // the button: the whole retrospective of this project's runs, off the UI thread
+    void feedback_apply_retrospective();   // every frame: takes the answer of the thread, if there is one
 
     // AI
     MainThreadQueue queue_;
     std::mutex aiMu_;
     ai::AiConfig aiConfig_;
+    std::mutex aiProjMu_;                       // the cache of ai_with_project_config(); never held while aiMu_ is taken
+    std::string aiProjFileDir_;                 // the project whose settings file existence was checked ...
+    long long aiProjFileAtMs_ = 0;              // ... when (steady-clock ms) ...
+    bool aiProjHasFile_ = false;                // ... and what was found
+    std::string aiProjKey_;                     // the project of the last resolution
+    long long aiProjAtMs_ = 0;
+    std::shared_ptr<const ai::AiConfig> aiProjConfig_;  // null: the resolution failed (aiProjError_)
+    Error aiProjError_;
+    std::uint64_t aiProjGen_ = 0;               // counts ai_project_invalidate() calls: a resolution started under an older count is not cached
     std::string aiConfigError_;
     std::vector<ai::ProviderStatus> aiStatus_;
     struct ProviderModels {  // what ai::list_models said about one available provider
@@ -989,6 +1122,8 @@ public:
     std::vector<ChatHistoryEntry> aiHistory_;
     std::string aiHistoryDelete_;   // History row waiting for the second click on its Delete
     bool aiRolesOpen_ = false;      // request to restart the role edits from the loaded config this frame
+    std::optional<ai::AiConfig> aiRolesBase_;  // the config aiRolesEdit_ started from (what the Roles tab showed): an edit is a row that differs from it
+    bool aiRolesKeepEdits_ = false; // with aiRolesOpen_: the restart keeps the rows edited since aiRolesBase_ (a reload behind the window's back, Accept)
     float aiInputH_ = 0;            // the AI message box's height the user dragged it to (0 = 3 lines); kept in the layout file
     std::map<std::string, ai::RoleConfig> aiRolesEdit_;  // the roles being edited in the Roles tab
     std::set<std::string> aiRolesTyping_;                // roles whose model is a text box (Other... picked)
@@ -996,7 +1131,10 @@ public:
     int aiSettingsTab_ = 0;         // tab to select next frame in the AI settings window: 0 none, 1 Roles, 2 Assets, 3 External tools, 4 Extensions
     struct AiSettingsDraft {                       // the AI settings window's working copy (dropped when it closes: a typed key must not linger)
         bool loaded = false;
+        std::string title;                         // the window's title as drawn last ("AI settings - This project: <name>")
+        std::string project;                       // the project the draft was loaded for ("" = your defaults): a switch reloads it
         std::string path;                          // the ai.json it saves into
+        ai::AiConfig base;                         // the config the routes and sources started from: an edit is a row that differs from it
         std::map<std::string, ai::AssetRoute> routes;  // by media kind name; provider "" = none (made procedurally)
         ai::AssetSources sources;
         std::map<std::string, std::string> keys;   // API keys typed this session, by provider (never shown, never logged)
@@ -1064,7 +1202,12 @@ public:
     void ai_tool_form_open(int index);    // opens the form on server `index` (-1: a new one)
     Result<ai::ToolServer> ai_tool_form_build() const;  // the form as a server, validated like ai.json would
     void ai_tool_test(const ai::ToolServer& server);    // Test button: connects off the main thread, writes the draft's ToolTests
-    void ai_settings_discard();           // closes the draft (stops a running Test)
+    void ai_settings_discard();  // closes the draft (stops a running Test)
+    // Loads what the files say now into the open window without losing what the person typed (ai_project_edit.h, ai_*_keep_edits): the
+    // rows they changed stay, the others show the new values. userChanged: ai.json changed too, so the providers' programs and the External
+    // tools / Extensions tabs show the file again. true when something unsaved was kept.
+    bool ai_settings_reload_keeping_edits(bool userChanged);
+    void ai_settings_save_assets(bool asDefaults);  // Save / Save as my defaults of the Assets tab
     void draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable);  // ai_extensions.cpp
     // The Add TokenEconomizer section of that tab (ai_economizer.cpp): a dry run of ai::plugin_install says what is installed, the button
     // asks first, the install runs on its own thread and the result lands in the draft. One job at a time.
@@ -1189,6 +1332,15 @@ public:
 
 // Helpers shared across panel files.
 extern Editor* g_editor;
+// Puts the next button on the line of the previous item when it fits in the window, else on a new line: a row of buttons that
+// wraps in a small window instead of running out of it. Call it right before the button, after the previous item.
+inline void fit_same_line(const char* nextLabel) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float w = ImGui::CalcTextSize(nextLabel, nullptr, true).x + st.FramePadding.x * 2;
+    const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    if (ImGui::GetItemRectMax().x + st.ItemSpacing.x + w <= right) ImGui::SameLine();
+}
+
 // The first size of a window that is centred on the main viewport: `wanted`, made smaller to fit its work area so the
 // window's own buttons (Save, Close...) are never off screen on a small display.
 inline ImVec2 fit_work_area(ImVec2 wanted) {
@@ -1208,6 +1360,7 @@ inline void first_floating_window(ImVec2 pos, ImVec2 wanted) {
 }
 // Status colours of the Export and Platform settings windows.
 inline const ImVec4 kStatusReady(0.5f, 0.9f, 0.55f, 1), kStatusFailed(1, 0.45f, 0.4f, 1), kStatusWarn(1, 0.8f, 0.35f, 1);
+inline const ImVec4 kProjectBlue(0.55f, 0.75f, 1.0f, 1.0f);  // "This project" in the AI settings rows
 // The window title: "FactorIA <version> — <project name>", or "FactorIA <version>" with no project open (the Open or
 // create a project dialog). `version` is the engine's, FA_ENGINE_VERSION: what `factoria version` prints.
 std::string editor_window_title(std::string_view version, std::string_view projectName);

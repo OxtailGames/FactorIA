@@ -426,6 +426,7 @@ void Impl::reset_for_test_file() {
     quitDeferred = false;
     testSystemLanguages.clear();
     preload.reset();  // no job and no warm file of the earlier test file
+    generateJobs = 0;  // resetSession (below) rejects the handles of tilemap.generate and cancels their jobs
     owner->reset_app_state();  // focused, not suspended, the date the host started with (before the scene loads)
     if (PlatformServices* platform = host->platform_services()) platform->reset_session();  // a fresh fake store per test file
     // Every test file starts in the default language, like a headless run (before the scene loads, so it is translated).

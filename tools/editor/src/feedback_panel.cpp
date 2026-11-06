@@ -4,12 +4,21 @@
 #include <functional>
 
 #include "editor_internal.h"
+#include "fa/ai/commands.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/feedback_check.h"
 
 namespace fa::editor {
 
 namespace {
+// The text for an error of a change to the feedback file. A lock another program holds is waited for 0.3 s at most (the UI thread
+// does not stall), so the text says to try again.
+std::string feedback_busy_text(const Error& e) {
+    std::string text = e.to_string();
+    if (e.message.find("Another FactorIA process") != std::string::npos) text += " Nothing was changed: try again in a moment.";
+    return text;
+}
+
 // `onItem` (optional) is told each entry of the open list after it is drawn (the autotest finds them by it).
 bool combo_strings(const char* label, int* cur, const std::vector<std::string>& items, bool withAny,
                    const std::function<void(const std::string&)>& onItem = {}) {
@@ -109,7 +118,7 @@ void Editor::draw_feedback_panel() {
     }
     at_track("feedback:add");
     ImGui::SetItemTooltip("Write down something the engine lacked");
-    ImGui::SameLine();
+    fit_same_line("Send feedback");  // the row wraps in a narrow window instead of running out of it
     {
         const bool never = share_.mode == ShareMode::Never;
         const bool unavailable = !share_.sharingAvailable;
@@ -121,23 +130,62 @@ void Editor::draw_feedback_panel() {
                                       : never   ? "Sharing is off. Turn it on in File > Feedback Settings."
                                                 : "Choose which open entries go to the engine developers, and read exactly what is sent");
     }
-    ImGui::SameLine();
+    fit_same_line("Looking back...");  // the wider of the two labels the button has
+    {
+        bool running;
+        {
+            std::lock_guard<std::mutex> lock(fbRetro_->mu);
+            running = fbRetro_->running;
+        }
+        ImGui::BeginDisabled(running || feedbackDoc_.is_null() || projectDir_.empty());
+        if (ImGui::Button(running ? "Looking back..." : "Retrospective")) feedback_start_retrospective();
+        at_track("feedback:retrospective", !running && !feedbackDoc_.is_null() && !projectDir_.empty());
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip("Look back at this project's recorded AI runs: where they wasted steps, minutes or tokens. One short call of the fast role "
+                              "files at most three efficiency entries here (nothing is sent anywhere). It costs a model call.");
+    }
+    fit_same_line("[] closed");  // a checkbox: its box counts as one more character
     ImGui::Checkbox("closed", &fbShowClosed_);
     at_track("feedback:closed");
     ImGui::SetItemTooltip("Also list the closed entries: fixed in the engine, won't fix, duplicate and rejected. They live in %s.",
                           fs::filename(archivePath).c_str());
     if (!fbMessage_.empty() && !fbAddOpen_) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", fbMessage_.c_str());
+        // On its own line and wrapped: a retrospective's answer is a sentence or two, longer than the room left beside the buttons.
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("%s", fbMessage_.c_str());
+        ImGui::PopStyleColor();
         at_track("feedback:message");
     }
     draw_feedback_add_window();
+    feedback_apply_retrospective();
+    {  // what the open efficiency entries say a fix would save, per game (measured from the transcripts, never guessed)
+        int n = 0;
+        double minutes = 0;
+        double tokens = 0;
+        if (feedbackDoc_.is_object() && feedbackDoc_.contains("entries") && feedbackDoc_["entries"].is_array())
+            for (const Json& e : feedbackDoc_["entries"]) {
+                if (e.value("kind", std::string()) != "efficiency" || e.value("status", std::string("open")) != "open") continue;
+                const Json* sv = e.contains("saving") && e["saving"].is_object() ? &e["saving"] : nullptr;
+                if (!sv) continue;
+                ++n;
+                minutes += sv->value("minutes", 0.0);
+                tokens += sv->value("tokens", 0.0);
+            }
+        if (n > 0) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("Efficiency: %d open entr%s, fixes would save about %.0f min and %.0fk tokens per game", n, n == 1 ? "y" : "ies", minutes,
+                               tokens / 1000.0);
+            ImGui::PopStyleColor();
+            ImGui::SetItemTooltip("Added up over the open efficiency entries: what each fix would save, measured from the AI sessions' transcripts.");
+            at_track("feedback:saving");
+        }
+    }
 
     if (feedbackDoc_.is_null()) {
         ImGui::TextWrapped("No feedback file yet.");
         if (ImGui::Button("Create ENGINE_FEEDBACK.json")) {
-            Json doc = create_empty_feedback(projectName_);
-            if (auto r = save_feedback(path, doc); !r) notify(r.error().to_string(), 2);
+            const ShareWaitCap shortWait(ui_lock_wait_sec());  // the UI thread never waits seconds for another program's lock
+            if (auto r = create_feedback_file(path, projectName_); !r) notify(feedback_busy_text(r.error()), 2);
             feedbackMtime_ = INT64_MIN;
             feedbackPolled_ = -10;
         }
@@ -244,6 +292,66 @@ void Editor::draw_feedback_panel() {
     ImGui::End();
 }
 
+void Editor::feedback_start_retrospective() {
+    auto job = fbRetro_;
+    {
+        std::lock_guard<std::mutex> lock(job->mu);
+        if (job->running || projectDir_.empty()) return;
+        job->running = true;
+        job->finished = false;
+        job->cancel = false;
+        job->dir = projectDir_;
+    }
+    fbMessage_ = "Looking back at the AI runs of this project...";
+    if (fbRetroThread_.joinable()) fbRetroThread_.join();
+    auto reg = std::make_shared<CommandRegistry>();
+    ai::AiCommandOptions ao;
+    ao.loadConfig = [this]() -> Result<ai::AiConfig> { return ai_project_config(true); };
+    ao.projectDir = [dir = projectDir_] { return dir; };
+    ao.providerFactory = aiFactory_;
+    ao.cancel = &job->cancel;
+    ai::register_ai_commands(*reg, ao);
+    fbRetroThread_ = std::thread([job, reg] {
+        const CommandResult res = reg->call("ai.retrospective", Json::object());
+        std::lock_guard<std::mutex> lock(job->mu);
+        job->ok = res.ok;
+        job->result = res.ok ? res.result : Json();
+        job->message = res.ok ? std::string() : res.error.value("message", std::string("The retrospective failed.")) + " " + res.error.value("hint", std::string());
+        job->running = false;
+        job->finished = true;
+    });
+}
+
+void Editor::feedback_apply_retrospective() {
+    auto job = fbRetro_;
+    bool ok;
+    Json result;
+    std::string message, dir;
+    {
+        std::lock_guard<std::mutex> lock(job->mu);
+        if (!job->finished) return;
+        job->finished = false;
+        dir = job->dir;
+        ok = job->ok;
+        result = job->result;
+        message = job->message;
+    }
+    if (dir != projectDir_) return;  // another project is open now: this answer is about the one that was closed
+    if (!ok) {
+        fbMessage_ = message.rfind("cancelled", 0) == 0 ? "Retrospective stopped: nothing was filed." : "Retrospective failed: " + message;
+        return;
+    }
+    std::string text = result.value("note", std::string());
+    const double cost = result.value("costUsd", 0.0);
+    if (cost > 0) {
+        char buf[48];
+        std::snprintf(buf, sizeof buf, " (the model call cost $%.4f)", cost);
+        text += buf;
+    }
+    fbMessage_ = text;
+    if (!result.value("filed", Json::array()).empty()) feedback_reload_soon();
+}
+
 const Json* Editor::feedback_entry(const std::string& id) const {
     for (const Json* doc : {&feedbackDoc_, &fbArchive_}) {
         if (!doc->is_object() || !doc->contains("entries") || !(*doc)["entries"].is_array()) continue;
@@ -279,8 +387,9 @@ void Editor::draw_feedback_actions(const Json& en, const std::string& path) {
             fbAsk_ = FbAsk{id, "rejected", en.value("statusReason", std::string()), {}, true};
             ImGui::OpenPopup("Reject this entry?###fb-reject");
         } else {
+            const ShareWaitCap shortWait(ui_lock_wait_sec());  // the UI thread never waits seconds for another program's lock
             if (auto r = update_feedback_file(path, id, st[size_t(cur)], ""); !r) {
-                notify(r.error().to_string(), 2);
+                notify(feedback_busy_text(r.error()), 2);
             } else if (st[size_t(cur)] != "open") {
                 notify(id + " is " + st[size_t(cur)] + ": it moves to the archive next to " + engine_->project().feedbackFile + ".", 0);
             }
@@ -325,8 +434,9 @@ void Editor::draw_feedback_actions(const Json& en, const std::string& path) {
             const bool ready = !sanitize_status_reason(fbAsk_.reason).empty() && chars <= kFeedbackReasonMax;
             ImGui::BeginDisabled(!ready);
             if (ImGui::Button("Reject", ImVec2(110, 0))) {
+                const ShareWaitCap shortWait(ui_lock_wait_sec());  // the UI thread never waits seconds for another program's lock
                 if (auto r = update_feedback_file(path, id, "rejected", "", "", fbAsk_.reason, "user"); !r) {
-                    fbAsk_.error = r.error().to_string();
+                    fbAsk_.error = feedback_busy_text(r.error());
                 } else {
                     fbAsk_.open = false;
                     notify(id + " is rejected: it moves to the archive next to " + engine_->project().feedbackFile + ".", 0);
@@ -358,6 +468,7 @@ void Editor::draw_feedback_actions(const Json& en, const std::string& path) {
             ImGui::PopTextWrapPos();
             if (!fbAsk_.error.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", fbAsk_.error.c_str());
             if (ImGui::Button("Delete", ImVec2(110, 0))) {
+                const ShareWaitCap shortWait(ui_lock_wait_sec());  // the command takes the sharing lock; the UI thread never waits seconds for it
                 const CommandResult r = engine_->commands().call("feedback.delete", Json::object({{"id", id}}));
                 if (!r.ok) {
                     fbAsk_.error = command_error_text(r.error);
@@ -570,8 +681,13 @@ void Editor::draw_feedback_add_window() {
             in.reporter = Json::object({{"kind", "human"}, {"agent", "factoria-editor"}});
             // The same check as feedback.report and `factoria feedback add`: a gap the engine already covers is not filed.
             const ClaimResult claim = check_feedback_claim(ClaimInput{in.title, in.missing, in.suggestion}, &engine_->commands());
-            Result<FeedbackAddResult> r = claim.refused() ? Result<FeedbackAddResult>(make_error(claim.message(), claim.hint()))
-                                                          : add_feedback_entry_to_file(path, in, projectName_);
+            Result<FeedbackAddResult> r = make_error(claim.message(), claim.hint());
+            if (!claim.refused()) {
+                // Under the lock the other writers take; this is the UI thread, so a busy lock is waited for 0.3 s at most.
+                const ShareWaitCap shortWait(ui_lock_wait_sec());
+                FeedbackFileLock lock(ui_share_env(), path);
+                r = lock.held() ? add_feedback_entry_to_file(path, in, projectName_) : Result<FeedbackAddResult>(make_error(lock.error(), "Try again in a moment."));
+            }
             if (r) {
                 fbMessage_ = (r->merged ? "Merged into " : "Added ") + r->id + (r->merged ? " (occurrences " + std::to_string(r->occurrences) + ")" : "");
                 fbSelected_ = r->id;

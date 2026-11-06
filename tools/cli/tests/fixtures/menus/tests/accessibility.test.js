@@ -1,5 +1,5 @@
 import { test, expect, game } from "factoria:test";
-import { ui, input, storage, session, game as running } from "factoria";
+import { ui, input, storage, session, feel, game as running } from "factoria";
 import * as settings from "../scripts/settings.js";
 
 // The operating system's accessibility settings (game.accessibility) are only the first-run defaults of the options; the
@@ -40,7 +40,10 @@ test("first run: text size, reduced effects and reading aloud start from the sys
   expect(ui.textScale).toBeCloseTo(1.5);
   const s = settings.load();
   expect(s.textScale).toBeCloseTo(1.5);
-  expect(s.reducedEffects).toBe(true);
+  expect(s.reducedEffects).toBe(null); // nothing chosen: it follows the system, now and on every later run
+  expect(settings.reducedEffects(s)).toBe(true);
+  expect(feel.reduceMotion).toBe(true);
+  expect(feel.reducedEffects).toBe(true);
   expect(s.readAloud).toBe(true);
   ui.textScale = 1;
 });
@@ -48,7 +51,19 @@ test("first run: text size, reduced effects and reading aloud start from the sys
 test("a system without any of them keeps the plain defaults", () => {
   start();
   expect(ui.textScale).toBe(1);
-  expect(settings.load()).toMatchObject({ textScale: 1, reducedEffects: false, readAloud: false });
+  expect(settings.load()).toMatchObject({ textScale: 1, reducedEffects: null, readAloud: false });
+  expect(settings.reducedEffects()).toBe(false);
+});
+
+test("a player who never chose still follows the system after a save", () => {
+  start();
+  settings.save(settings.load()); // what the options menu does when any other row changes
+  game.setAccessibility({ reduceMotion: true });
+  expect(settings.load().reducedEffects).toBe(null);
+  expect(settings.reducedEffects()).toBe(true);
+  settings.applyFeel();
+  expect(feel.reduceMotion).toBe(true);
+  game.setAccessibility({ reduceMotion: false });
 });
 
 test("a saved choice wins over the system", () => {
@@ -56,5 +71,6 @@ test("a saved choice wins over the system", () => {
   start({ textScale: 1, reducedEffects: false, readAloud: false });
   expect(ui.textScale).toBe(1);
   expect(settings.load()).toMatchObject({ textScale: 1, reducedEffects: false, readAloud: false });
+  expect(feel.reduceMotion).toBe(false); // the player said no, whatever the system says
   ui.textScale = 1;
 });

@@ -17,6 +17,9 @@
 //          engine/render/src/gradient_ramp.h) instead of blended from color to color2: color2.r * 255 is the row, the position
 //          along the gradient is the u coordinate. This is how Shape2D gradientStops / gradientEase are drawn.
 // mode + 16 = (modes 0, 1, 2, 7 only) the same output, shaded by the 2D lights like mode 5 with a flat surface (lit Shape2D)
+// mode + 32 = (modes 0, 1, 2, 5, 6) the flash of docs/GAME_FEEL.md: after shading, the output colour is mixed towards color2.rgb
+//            by color2.a (full-bright, whatever the lights say); the alpha of the picture is kept. Not for modes 4 and 7, which
+//            use color2 or none.
 // mode + 8 = same shading, but the output is converted for MULTIPLY blending (dst * out.rgb):
 //            rgb = mix(1, rgb, alpha) so alpha fades the darkening in (blend: src=DST_COLOR, dst=ZERO).
 @module quad
@@ -179,6 +182,8 @@ vec4 shape_color() {
 
 void main() {
     float mode = params.x;
+    bool flash = mode > 31.5;
+    if (flash) mode -= 32.0;
     bool shade = mode > 15.5;
     if (shade) mode -= 16.0;
     bool mul = mode > 7.5;
@@ -210,6 +215,7 @@ void main() {
         }
         frag_color = vec4(shade ? lit_color(color, 5.0) : color.rgb, color.a * cov);
     }
+    if (flash) frag_color.rgb = mix(frag_color.rgb, color2.rgb, color2.a);
     if (mul) frag_color = vec4(mix(vec3(1.0), frag_color.rgb, frag_color.a), 1.0);
 }
 @end

@@ -196,5 +196,17 @@
         }
       ]
     }
+  ],
+  "events": [
+    {
+      "t": 0.0,
+      "feel": [
+        {
+          "action": "squash",
+          "amount": -0.22,
+          "duration": 0.2
+        }
+      ]
+    }
   ]
 }

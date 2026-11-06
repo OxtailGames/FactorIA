@@ -33,4 +33,10 @@ InkBox ink_box(const Image& im);
 // frames. `label` is "" or ` of clip "name"`.
 std::optional<std::string> loop_seam_warning(const std::vector<const Image*>& frames, const std::string& label);
 
+// The warning for a sheet of `columns` x `rows` cells (frame size plus `padding` on every side) whose width or height is not a multiple of 4:
+// on a mobile platform the texture is GPU-compressed on export, which needs both sides to be multiples of 4, so it ships as an uncompressed
+// PNG. It names the padding, or the frame size, that makes both sides a multiple of 4. nullopt when both already are, or a side is under
+// 4 px (a texture that small stays a PNG without a word).
+std::optional<std::string> block_size_warning(int columns, int rows, int frameW, int frameH, int padding);
+
 }  // namespace fa::assets_detail

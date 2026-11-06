@@ -318,9 +318,11 @@ Anim3DEdit Anim3DModel::mirror(double t, double to, const std::string& from) {
     return run("anim3d.mirror_pose", a);
 }
 
-Anim3DEdit Anim3DModel::add_event(double t, const std::string& name, const Json& data) {
-    Json a = Json::object({{"t", t}, {"name", name}});
+Anim3DEdit Anim3DModel::add_event(double t, const std::string& name, const Json& data, const Json& feel) {
+    Json a = Json::object({{"t", t}});
+    if (!name.empty()) a["name"] = name;
     if (data.is_object() && !data.empty()) a["data"] = data;
+    if (feel.is_object() || feel.is_array()) a["feel"] = feel;
     return run("anim3d.add_event", a);
 }
 

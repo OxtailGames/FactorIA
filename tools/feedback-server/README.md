@@ -62,6 +62,7 @@ ignored), then `npx wrangler d1 migrations apply factoria-feedback --local` and 
 | `src/store_d1.js`, `src/store_memory.js` | The storage interface: D1 (production) and memory (tests) |
 | `migrations/0001_init.sql` | Schema: reports (pull order `seq`), bans, expiring counters |
 | `migrations/0002_verdicts.sql` | The developer's verdict on a report: `verdict`, `verdict_reason`, `verdict_at` (`deploy.sh` applies it) |
+| `migrations/0003_efficiency.sql` | Efficiency entries: `kind`, `fix_type` (the merge key next to category and title) and the `efficiency` JSON block of measured numbers |
 | `scripts/deploy.mjs` | The deploy steps behind `deploy.sh` / `deploy.ps1` |
 
 ## API summary

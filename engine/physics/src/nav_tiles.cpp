@@ -16,12 +16,34 @@ namespace fa {
 
 namespace {
 
-constexpr float kSqrt2 = 1.41421356f;
+// The search runs in INTEGER fixed point: a cost is a whole number of 2^-20 units, a diagonal step is that number times sqrt(2)
+// rounded once. The open list orders by (f, h, cell index) on integers, so two equal-cost routes are told apart by the same
+// rule on every compiler and CPU (a float f = g + h would differ where one build fuses the multiply and the add and another
+// does not, and the tie would break the other way). The reported cost is the integer sum converted back.
+constexpr double kSqrt2 = 1.4142135623730951;
+constexpr std::int64_t kOne = std::int64_t(1) << 20;                 // fixed-point 1.0
+constexpr std::int64_t kMaxStep = std::int64_t(1) << 50;             // the dearest single step (a cost of 2^30)
+constexpr std::int64_t kInfinite = std::int64_t(1) << 62;            // sums saturate here, so they never overflow
+
+std::int64_t fixed_up(double v) {   // a cost as fixed point, rounded to nearest; NaN and negatives are 0, huge values saturate
+    if (!(v > 0.0)) return 0;
+    if (std::isinf(v)) return kInfinite;   // an infinite cost is passable at an infinite price (the reported cost is infinity)
+    if (v >= double(kMaxStep) / double(kOne)) return kMaxStep;
+    return std::int64_t(std::llround(v * double(kOne)));
+}
+std::int64_t fixed_down(double v) {   // the same rounded DOWN: the heuristic must never exceed the true cost
+    if (!(v > 0.0)) return 0;
+    if (v >= double(kMaxStep) / double(kOne)) return kMaxStep;
+    return std::int64_t(std::floor(v * double(kOne)));
+}
+std::int64_t diagonal_of(std::int64_t q) { return q >= kInfinite ? kInfinite : std::int64_t(std::llround(double(q) * kSqrt2)); }
+std::int64_t add_sat(std::int64_t a, std::int64_t b) { return a >= kInfinite - b ? kInfinite : a + b; }
+std::int64_t mul_sat(std::int64_t count, std::int64_t step) { return count > 0 && step > kInfinite / count ? kInfinite : count * step; }
 
 // Search state that survives between queries (a script asks every few frames on the same map): stamps say which entries
 // belong to the current query, so nothing is cleared.
 struct Scratch {
-    std::vector<float> g;
+    std::vector<std::int64_t> g;
     std::vector<std::int32_t> parent;
     std::vector<std::uint32_t> seen, closed;
     std::uint32_t now = 0;
@@ -85,14 +107,17 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
     float minCost = grid.minOpenCost;
     if (!(minCost >= 0.0f)) minCost = nav_tile_min_open_cost(grid);
     if (o.allowBlockedGoal) minCost = std::min(minCost, 1.0f);
+    const std::int64_t minStep = fixed_down(double(minCost));
+    const std::int64_t minDiag = std::int64_t(std::floor(double(minStep) * kSqrt2));   // <= the rounded diagonal of any dearer step
     auto heuristic = [&](int c, int r) {
-        const float dx = float(std::abs(c - toCol)), dy = float(std::abs(r - toRow));
-        const float steps = o.diagonals ? (dx + dy) + (kSqrt2 - 2.0f) * std::min(dx, dy) : dx + dy;
-        return steps * minCost;
+        const std::int64_t dx = std::abs(c - toCol), dy = std::abs(r - toRow);
+        if (!o.diagonals) return mul_sat(dx + dy, minStep);   // saturating: a lower bound stays a lower bound
+        const std::int64_t diag = std::min(dx, dy);
+        return add_sat(mul_sat(dx + dy - 2 * diag, minStep), mul_sat(diag, minDiag));
     };
 
     struct Item {
-        float f, h, g;
+        std::int64_t f, h, g;
         std::int32_t idx;
     };
     struct Later {
@@ -105,13 +130,13 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
     static thread_local Scratch sc;
     sc.begin(total);
     std::priority_queue<Item, std::vector<Item>, Later> open;
-    sc.g[std::size_t(start)] = 0.0f;
+    sc.g[std::size_t(start)] = 0;
     sc.parent[std::size_t(start)] = -1;
     sc.seen[std::size_t(start)] = sc.now;
-    const float h0 = heuristic(fromCol, fromRow);
-    open.push({h0, h0, 0.0f, start});
+    const std::int64_t h0 = heuristic(fromCol, fromRow);
+    open.push({h0, h0, 0, start});
     std::int32_t nearest = start;
-    float nearestH = h0;
+    std::int64_t nearestH = h0;
     bool reached = false, tooFar = false;
     int expanded = 0;
     static const int kDx[8] = {1, -1, 0, 0, 1, 1, -1, -1};
@@ -126,7 +151,7 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
             reached = true;
             break;
         }
-        if (it.h < nearestH - 1e-6f) {
+        if (it.h < nearestH) {
             nearestH = it.h;
             nearest = it.idx;
         }
@@ -147,14 +172,15 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
                 enter = 1.0f;
             }
             if (k >= 4 && (blocked(idx(nc, cr)) || blocked(idx(cc, nr)))) continue;  // no corner cutting
-            const float ng = it.g + enter * (k >= 4 ? kSqrt2 : 1.0f);
+            const std::int64_t base = fixed_up(double(enter));
+            const std::int64_t ng = add_sat(it.g, k >= 4 ? diagonal_of(base) : base);
             const std::size_t ni = std::size_t(n);
             if (sc.seen[ni] == sc.now && ng >= sc.g[ni]) continue;
             sc.seen[ni] = sc.now;
             sc.g[ni] = ng;
             sc.parent[ni] = it.idx;
-            const float h = heuristic(nc, nr);
-            open.push({ng + h, h, ng, n});
+            const std::int64_t h = heuristic(nc, nr);
+            open.push({add_sat(ng, h), h, ng, n});
         }
     }
 
@@ -167,7 +193,7 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
                             "Raise maxNodes, search from nearer, or pass closest: true to walk toward the goal anyway.");
             return fail("blocked", std::format("no route from ({}, {}) to ({}, {}): walls or blocked cells close every way",
                                                fromCol, fromRow, toCol, toRow),
-                        "Open a way, give the blocked tiles a cost in `costs` instead of Infinity, or pass closest: true.");
+                        "Open a way, make a blocked tile passable with a cost in `costs`, or pass closest: true.");
         }
         end = nearest;
         out.complete = false;
@@ -175,7 +201,7 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
     out.found = true;
     for (std::int32_t i = end; i >= 0; i = sc.parent[std::size_t(i)]) out.cells.push_back({int(i % W), int(i / W)});
     std::reverse(out.cells.begin(), out.cells.end());
-    out.cost = sc.g[std::size_t(end)];
+    out.cost = sc.g[std::size_t(end)] >= kInfinite ? std::numeric_limits<float>::infinity() : float(double(sc.g[std::size_t(end)]) / double(kOne));
     for (std::size_t i = 1; i < out.cells.size(); ++i) {
         const Vec2 a = nav_tile_cell_center(grid, out.cells[i - 1].first, out.cells[i - 1].second);
         const Vec2 b = nav_tile_cell_center(grid, out.cells[i].first, out.cells[i].second);
@@ -190,21 +216,31 @@ Vec2 nav_tile_cell_center(const NavTileGrid& grid, int col, int row) {
     return {grid.origin.x + (float(col) + 0.5f) * grid.cellSize.x, grid.origin.y - (float(row) + 0.5f) * grid.cellSize.y};
 }
 
+float NavTileRules::cost(int tileIndex) const {
+    float c = std::find(solid.begin(), solid.end(), tileIndex) != solid.end() ? -1.0f : 1.0f;
+    auto o = std::lower_bound(costs.begin(), costs.end(), std::make_pair(tileIndex, -std::numeric_limits<float>::infinity()));
+    if (o != costs.end() && o->first == tileIndex) c = o->second;
+    return c;
+}
+
+NavTileGrid nav_tile_grid_from_tiles(const std::vector<int>& tiles, int width, int height, const NavTileRules& rules) {
+    NavTileGrid g;
+    g.width = width;
+    g.height = height;
+    g.cost.resize(tiles.size());
+    for (std::size_t i = 0; i < tiles.size(); ++i) g.cost[i] = rules.cost(tile_index(tiles[i]));
+    return g;
+}
+
 NavTileGrid nav_tile_grid_from_tilemap(const Tilemap& tm, const Json& costs) {
     NavTileGrid g;
     const TilemapSize size = tilemap_size(tm);
     if (size.empty()) return g;
-    g.width = size.width;
-    g.height = size.height;
-    g.cellSize = {tm.tileSize.x, tilemap_ground_height(tm)};
-    g.isometric = tilemap_isometric(tm);
-    g.cost.assign(std::size_t(g.width) * std::size_t(g.height), 1.0f);
-    std::vector<int> solid;
+    NavTileRules rules;
     if (tm.solidTiles.is_array())
         for (const Json& j : tm.solidTiles)
-            if (j.is_number()) solid.push_back(tile_index(int(j.get<double>())));
-    // Per tile index: the override (a cost, or -1 for blocked) in a small sorted table.
-    std::vector<std::pair<int, float>> over;
+            if (j.is_number()) rules.solid.push_back(tile_index(int(j.get<double>())));
+    // The overrides: a cost, or -1 for blocked.
     if (costs.is_object())
         for (auto it = costs.begin(); it != costs.end(); ++it) {
             int key = 0;
@@ -214,17 +250,15 @@ NavTileGrid nav_tile_grid_from_tilemap(const Tilemap& tm, const Json& costs) {
                 continue;
             }
             const float v = it.value().is_number() ? it.value().get<float>() : -1.0f;
-            over.push_back({key, v < 0.0f || std::isnan(v) ? -1.0f : v});
+            rules.costs.push_back({key, v < 0.0f || std::isnan(v) ? -1.0f : v});
         }
-    std::sort(over.begin(), over.end());
-    for (int r = 0; r < g.height; ++r)
-        for (int c = 0; c < g.width; ++c) {
-            const int idx = tile_index(tilemap_tile_at(tm, size, c, r));
-            float cost = std::find(solid.begin(), solid.end(), idx) != solid.end() ? -1.0f : 1.0f;
-            auto o = std::lower_bound(over.begin(), over.end(), std::make_pair(idx, -std::numeric_limits<float>::infinity()));
-            if (o != over.end() && o->first == idx) cost = o->second;
-            g.cost[std::size_t(r) * std::size_t(g.width) + std::size_t(c)] = cost;
-        }
+    rules.sort_costs();
+    std::vector<int> tiles(std::size_t(size.width) * std::size_t(size.height));
+    for (int r = 0; r < size.height; ++r)
+        for (int c = 0; c < size.width; ++c) tiles[std::size_t(r) * std::size_t(size.width) + std::size_t(c)] = tilemap_tile_at(tm, size, c, r);
+    g = nav_tile_grid_from_tiles(tiles, size.width, size.height, rules);
+    g.cellSize = {tm.tileSize.x, tilemap_ground_height(tm)};
+    g.isometric = tilemap_isometric(tm);
     return g;
 }
 

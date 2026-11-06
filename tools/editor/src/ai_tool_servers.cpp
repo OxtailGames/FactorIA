@@ -552,6 +552,7 @@ void Editor::draw_ai_tools_tab(const ai::AiConfig& cfg, bool configReadable) {
                 if (loaded) aiConfig_ = *loaded;
                 aiConfigError_ = loaded ? std::string() : loaded.error().to_string();
             }
+            ai_project_invalidate();
             if (loaded) {
                 ai_settings_load(*loaded, true, false);  // the Assets tab keeps what it had typed
                 notify("Tool servers saved. The next message to the AI uses them.");

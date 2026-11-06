@@ -64,25 +64,78 @@ what was removed, so the preview can show it.
 ## Client (engine)
 
 - **Settings**, user level, next to the user `ai.json` (`~/.factoria/` or `%APPDATA%\factoria\`), in
-  `feedback-sharing.json`: `{mode: "unset" | "always" | "ask" | "never", installId (random UUID v4, created on the first
-  send), credential? (from GitHub sign-in), login? (shown in the editor)}`. The installation id is not tied to any
-  project.
+  `feedback-sharing.json`: `{mode: "unset" | "always" | "ask" | "never", projects?: {<project key>: "always" | "ask" |
+  "never"}, installId (random UUID v4, created on the first send), credential? (from GitHub sign-in), login? (shown in the
+  editor)}`. `mode` is the user's default; `projects` holds the choice of single projects. The effective mode of a project is its
+  own entry, else the default. The map lives in the user's file, never in the project, so a copied project does not inherit the
+  choice and follows the default. The key is the project folder's absolute path (symlinks resolved, UTF-8, forward slashes, no
+  trailing slash, lower-cased on Windows and on volumes that ignore case); duplicate keys resolve to the most restrictive mode
+  with a warning. The installation id is not tied to any project.
 - **Endpoint**: compiled in (`FA_FEEDBACK_URL`, CMake cache variable; empty = sharing unavailable, and every command
   says so with how to fix it). The user config may override it (`endpoint`) for tests and self-hosting.
 - **Outbox**: `feedback-outbox.json` in the same folder, the sanitized payloads waiting to be sent, retried with backoff
   (1 min, 10 min, 1 h, then once a day). An entry is in the outbox once. An entry merged again after it was sent (its
   `occurrences` went up) is queued once more, up to 3 sends (`shared.occurrences` counts them): each send is one more
-  occurrence on the server, and the ranking counts at most 3 per installation.
+  occurrence on the server, and the ranking counts at most 3 per installation. Each item stores `project`, the key of its
+  project, when it is queued; sending, waiting and dropping decide by that key, so a change of the default does not touch the
+  items of a project with its own mode. A change of one project's mode moves its items (ask: queued back to waiting; never:
+  dropped and the entries marked `skipped`; always: waiting queued, also the ones that waited under the default: whoever
+  chooses `always` for a project or for the default answers yes for what waits there). Removing a project's own choice
+  (`Follow default`, `--clear`) is not a yes: what waited stays waiting even when the default is `always`, and the CLI and the
+  editor say so. Queueing again (`share_queue`) never releases an item that waits, with or without `project`: only the user
+  does (`share_confirm`, or choosing `always`). Items without `project` (older versions) wait until the user decides.
+  Each queued item records `confirmedBy`: `always` (the mode was `always`, or a person chose `always`) or `user` (a person
+  confirmed that item). Before every send the sender checks it against the settings as they are then: an `always` item goes
+  out only while its project's mode is still `always`, otherwise it goes back to waiting (this covers a settings file edited
+  by hand, or by another process, after the item was queued); a `user` item goes out under `ask` and `always`. An older
+  queued item without the field reads as `always`. A batch whose request is already in flight cannot be called back: choosing
+  `never` stops everything that was not sent, and the editor and the CLI say that an upload already in progress finishes.
+- **Keys fail closed.** A stored key is looked up exactly; if it is not there, the project folder is compared (the same
+  file on disk, `std::filesystem::equivalent`) with every stored key that exists, so another spelling of the folder (another
+  case on a volume that ignores it, NFC against NFD on macOS, a symlink) still finds its choice; the most restrictive match
+  counts. A project folder that cannot be resolved (permissions, a broken volume) reads as `ask`, never as the default
+  (`feedback.share_status` says `source: unresolved`). The same for an outbox item whose folder no longer exists and that has no
+  exact entry in `projects`: it reads as `ask` (a deleted project must not be sent because the default says `always`).
+  `set_project_share_mode` applies the new mode to the items whose project is the same folder under any spelling, not only the
+  ones whose stored key is equal. The facts about a folder (its key, whether it exists, whether two keys are one folder) are
+  asked of the file system once per call (the editor's once-a-second tick keeps them for 30 s: `ShareKeyCache`, so a folder that
+  appears or goes away is noticed within that time, while a change of mode is seen at once).
+- **Lock**: every read-modify-write of the settings and the outbox (a flush's save, `set_share_mode`,
+  `set_project_share_mode`, queueing, confirming, dropping, sign-in and sign-out, creating the installation id) runs under
+  `feedback-share.lock` in the config folder, a file made with an exclusive create (`O_EXCL` on POSIX, `CREATE_NEW` on
+  Windows) so the editor, the CLI and the MCP server cannot undo each other's changes. Readers do not take it (files are
+  replaced atomically). The file holds an owner token (process id and a random number); the holder deletes it only while it
+  still holds its own token, so a lock that was taken over is never deleted under its new owner. A lock file not written for
+  10 s was left by a process that died (or is dated more than 10 s in the future: a clock set back, a shared folder) and is
+  taken over, one waiter at a time: the takeover itself needs a second exclusive-create file (`feedback-share.lock.takeover`),
+  and the age is checked again inside it (and again on the file that was moved aside, which goes back when it turns out to be
+  fresh), so two waiters do not both take it; what remains is a window of microseconds between that look and the rename, in
+  which a holder that finished and a new lock made at that very moment could meet a takeover, so the lock is "one holder at a
+  time" in practice, not a proof. A lock file that exists but reads empty (a virus scanner on Windows holds it for a moment) is
+  read again for up to 0.2 s before the holder decides; only another token leaves it alone. A long change (many entries written) refreshes the
+  file's time (`ShareLock::keep_alive`), so a live holder never looks dead. A busy lock is waited for at most 12 s and then the
+  change fails with a message (nothing is changed), so nothing blocks for good; on Windows an `access denied` answer to the
+  exclusive create (a virus scanner, a file being deleted) counts as busy until that time, and the message names the code, while a
+  folder that is really not writable fails at once. The editor's UI thread waits 0.3 s at most (`ShareEnv::lockWaitSec` of a
+  copy, `ShareWaitCap` for a command it runs on its own thread) and tells the person; the tick of the editor retries after 10 s.
+  `share_skip`, `share_drop`, `share_confirm` and `share_discard` return a `Result`: with the lock busy or the outbox unwritable
+  they change nothing, and `skipped` is written into an entry only after its item is out of the outbox. `feedback.delete` and
+  `feedback discard` take the entry out of the outbox first and keep it when that fails. The network request of a flush runs
+  outside the lock: afterwards the flush reads the files again under the lock and applies only its own results, so a mode
+  changed meanwhile is not undone. If the lock cannot be taken after the request (it is retried with five times the wait), the
+  finished items are remembered in memory for the life of the process (there is no sent-log file): the next flush takes them out
+  of the outbox without sending them again, and the result says so; another process would still send them. Paths in `share_status` and the outbox's `file` are UTF-8 (an outbox
+  an older version wrote on Windows in the system code page is read as it is).
 - **Commands** (registered with the other feedback commands; none changes the mode):
   - `feedback.report` gains `share` and `reviewed`. With mode `always` the entry is sanitized and queued at once and the
     queue is flushed in the background; with `ask` it is queued as pending confirmation; with `unset` the result says
     that sharing is not set up and how the USER turns it on (editor, or `factoria feedback sharing always|ask|never`).
   - `feedback.share_preview {ids?}`: exactly what would be sent, with what the sanitizer removed.
-  - `feedback.share_status`: mode, endpoint, signed in or not, the outbox (pending, waiting for confirmation, failed with
-    reason).
+  - `feedback.share_status`: effective mode (with `default` and `project{mode, source}`), endpoint, signed in or not, the
+    outbox (pending, waiting for confirmation, blocked by a project's `never`, failed with reason).
   - `feedback.share {ids?}`: flush the outbox now (only entries the mode allows).
-- **CLI** (typed by a person): `factoria feedback sharing [always|ask|never]` (no argument prints the status),
-  `factoria feedback share [--preview]`, `factoria feedback signin github`, `factoria feedback signout`.
+- **CLI** (typed by a person): `factoria feedback sharing [always|ask|never|default] [--project <path>] [--clear]` (no argument
+  prints the status), `factoria feedback share [--preview]`, `factoria feedback signin github`, `factoria feedback signout`.
 - **GitHub sign-in** (optional, identity only): OAuth device flow with the public client id compiled in
   (`FA_FEEDBACK_GITHUB_CLIENT_ID`). The client gets a GitHub token, sends it once to `POST /v1/auth/github`, stores the
   returned credential and discards the GitHub token. No GitHub scope is requested (only the public profile).
@@ -144,6 +197,31 @@ Answer:
 
 `status` is `accepted`, `merged` or `rejected`; rejection codes: `invalid_field`, `too_short`, `too_long`,
 `not_text`, `personal_data`.
+
+### Efficiency entries
+
+An entry about time and tokens the engine's gap cost (`kind: efficiency` locally, docs/ENGINE_FEEDBACK.md, "Efficiency feedback") goes in the
+same `entries` array with the sanitized texts of a gap and one more member, `efficiency`: numbers and words of fixed lists only.
+
+```json
+{"localId": "FB-0007", "category": "scene", "severity": "minor", "title": "Tilemap collision setup", "missing": "...", "suggestion": "...",
+ "workaround": "...", "reporterKind": "ai", "reviewed": false,
+ "efficiency": {"fixType": "guide", "appliesTo": "every-game", "expectedShare": 0.7, "spans": 2,
+                "measured": {"steps": 80, "toolCalls": 40, "minutes": 80, "tokens": 400000, "costUsd": 2, "estimated": false},
+                "saving": {"steps": 56, "toolCalls": 28, "minutes": 56, "tokens": 280000, "costUsd": 1.4, "estimated": false},
+                "afterFix": "0.17.2"}}
+```
+
+- `fixType` is `doc`, `guide`, `example`, `commandOption`, `newCommand` or `engineChange`; `appliesTo` is `every-game`, `genre` or `feature`
+  (`this-game` is never sent). Every number is checked on its own (finite, from 0 to what a transcript can hold: steps 4 million, minutes 10
+  million, tokens 10^12, dollars 1 million; `expectedShare` 0 to 1, `spans` 0 to 200); `afterFix` is a version string. Anything else in the
+  block is dropped and a bad value rejects the entry with `invalid_field`. Never sent: the AI's waste text beyond the sanitized `missing`, the
+  evidence, the session ids.
+- The server stores `kind`, `fix_type` and the block (migration `0003_efficiency.sql`). An efficiency report merges only with an efficiency report
+  of the same installation, category, **fix type** and similar title. The numbers of an installation are cumulative (its running totals), so a
+  merge REPLACES the stored block with the new one and raises `occurrences`; it never adds, and an installation cannot count twice. The
+  client sends an entry again after each new report, up to 20 times. An old server ignores the block; an old client sends none.
+- `GET /v1/admin/reports` returns `kind` ("gap" or "efficiency") and the `efficiency` block of each report.
 
 ### `POST /v1/auth/github`
 
@@ -212,6 +290,12 @@ Reads `feedback-admin.json` (`{endpoint, adminToken}`).
 - **Ranking**: `feedback collect` scores a group as the sum, over its projects (installations), of
   `severity weight x trust x min(occurrences, 3)`, with trust 1 for a local project and a verified installation and 0.5
   for an anonymous one. The report shows installations, verified installations and occurrences.
+- **Efficiency ranking**: `pull` writes an efficiency report as an entry with `kind: efficiency` and its numbers (read through the same clamping the
+  client uses; a bad block leaves a plain entry), a later report of the same shareId replaces the numbers, and `pull` and `collect` rank the
+  efficiency entries apart from the gaps by the total saving across installations (an installation counts once, an anonymous one half), next to
+  the fix cost, with a verdict (`doc now`, `command: worth it`, `engine change: below threshold (N of the $1000 / 20 hours it needs)`) and a
+  ready reason for `feedback reject` for each entry (docs/ENGINE_FEEDBACK.md, "Efficiency entries"). An entry fixed in the engine records the
+  version, and the retrospectives of games on it compare the same pattern before and after.
 - `factoria feedback fixed add --category C --title T [--title T2] --version V [--note N]` and `feedback fixed list`:
   maintain `feedback/fixed.json`; `feedback update ... --status fixed-in-engine` on an inbox entry offers the same.
 

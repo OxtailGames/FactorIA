@@ -168,7 +168,10 @@ public:
     AgentSession(CommandRegistry& registry, AiConfig config, SessionOptions options = {});
 
     void set_event_handler(EventHandler handler) { onEvent_ = std::move(handler); }
-    void set_provider_factory(ProviderFactory f) { factory_ = std::move(f); }
+    void set_provider_factory(ProviderFactory f) {
+        factory_ = std::move(f);
+        factoryInjected_ = true;
+    }
     void set_cancel_flag(const CancelFlag* c) { cancel_ = c; }
     // Asked when the run ends cancelled: the cause key the host set with the flag ("" = unknown). Written in the transcript's end
     // event ("cause"), SessionResult::cancelCause and the error text.
@@ -195,12 +198,16 @@ private:
     bool over_budget(std::string& why) const;
     bool over_budget(const Usage& usageNow, double costNow, std::string& why) const;  // with these totals instead
     void add_usage(const Usage& u, double cost);
+    // savers.retrospective: after a long run, the retrospective of this run's transcripts (retrospective.h). Its model call is added to
+    // the run's usage and cost; a note says what it filed. Never after a cancelled run and never inside a retrospective.
+    void maybe_retrospective(const SessionResult& r);
 
     CommandRegistry& registry_;
     AiConfig config_;
     SessionOptions opt_;
     EventHandler onEvent_;
     ProviderFactory factory_;
+    bool factoryInjected_ = false;           // set_provider_factory was called: the automatic retrospective uses it too (tests)
     const CancelFlag* cancel_ = nullptr;
     std::function<std::string()> cancelCause_;
     std::map<std::string, std::shared_ptr<ChatProvider>> providers_;

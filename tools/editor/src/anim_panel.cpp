@@ -3,11 +3,14 @@
 // through anim.* commands (anim_edit in anim_edit.cpp), so an AI can make the same edit, and a drag of keys is ONE command.
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 #include <format>
+#include <iterator>
 #include <map>
 
 #include "editor_internal.h"
 #include "fa/scene/animation.h"
+#include "fa/scene/anim_clip.h"
 #include "imgui_internal.h"
 
 namespace fa::editor {
@@ -297,10 +300,11 @@ void Editor::draw_anim_toolbar(const std::shared_ptr<const ClipAsset>& clip, con
         u.eventEditing = -1;
         u.eventAt = u.playhead;
         u.eventName = "event";
+        u.eventFeel.clear();
         ImGui::OpenPopup("##animevent");
     }
     at_track("anim:addevent");
-    ImGui::SetItemTooltip("Add a named marker at the playhead: the Animator sends it as an event when the clip passes it");
+    ImGui::SetItemTooltip("Add a marker at the playhead: the Animator sends its name as an event and runs its game feel actions when the clip passes it");
     anim_flow(anim_button_width("Fit"));
     if (ImGui::Button("Fit")) u.fitNext = true;
     at_track("anim:fit");
@@ -313,42 +317,125 @@ void Editor::draw_anim_toolbar(const std::shared_ptr<const ClipAsset>& clip, con
 }
 
 // ----------------------------------------------------------------------------------------------------- event popups --
+namespace {
+
+// One starting point per game feel action (docs/GAME_FEEL.md, "Effects as data"): a click appends it to the box to be edited.
+struct FeelPreset {
+    const char* action;
+    const char* json;
+    const char* tip;
+};
+const FeelPreset kFeelPresets[] = {
+    {"hitStop", R"({"action": "hitStop", "duration": 0.06})", "Freeze the game for a moment (a hit lands)"},
+    {"shake", R"({"action": "shake", "amount": 0.35})", "Shake the camera (the clip's own entity when it is a camera)"},
+    {"flash", R"({"action": "flash", "color": "#ffffff", "duration": 0.1})", "Flash the entity that plays the clip"},
+    {"push", R"({"action": "push", "direction": [1, 0], "speed": 6, "local": true})", "Knock the entity back (local: relative to its facing)"},
+    {"squash", R"({"action": "squash", "amount": 0.25, "duration": 0.2})", "Squash and stretch the entity"},
+    {"spawn", R"({"action": "spawn", "prefab": "prefabs/effect.prefab.json", "lifetime": 1})", "Spawn a prefab at the entity; lifetime removes it"},
+    {"sound", R"({"action": "sound", "path": "audio/hit.wav"})", "Play a sound"},
+};
+
+// The text box's content as the `feel` value: null = none, else an action object or an array. An error when it does not parse.
+Result<Json> feel_box_value(const std::string& text) {
+    bool blank = true;
+    for (char c : text)
+        if (!std::isspace(static_cast<unsigned char>(c))) blank = false;
+    if (blank) return Json();
+    return parse_json_box(text);
+}
+
+}  // namespace
+
 void Editor::anim_event_popups(const std::string& path) {
     AnimUi& u = anim_;
     if (!ImGui::BeginPopup("##animevent")) return;
     ImGui::TextDisabled(u.eventEditing < 0 ? "Add an event" : "Event");
-    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetKeyboardFocusHere();
+        u.eventError.clear();
+    }
     ImGui::SetNextItemWidth(200);
     const bool enter = ImGui::InputText("name", &u.eventName, ImGuiInputTextFlags_EnterReturnsTrue);
     at_track("anim:event:name");
+    ImGui::SetItemTooltip("The game event world.on(name, fn) and animator.on(name, fn) receive. Empty when the event only runs game feel actions");
     if (u.eventEditing < 0) {
         float at = float(u.eventAt);
         ImGui::SetNextItemWidth(200);
         if (ImGui::DragFloat("at (s)", &at, 0.01f, 0.0f, 600.0f, "%.3f")) u.eventAt = at;
         at_track("anim:event:at");
     }
-    const bool ok = ImGui::Button(u.eventEditing < 0 ? "Add" : "Rename") || enter;
+    ImGui::TextDisabled("Game feel actions (JSON, optional)");
+    ImGui::InputTextMultiline("##animeventfeel", &u.eventFeel, ImVec2(300, ImGui::GetTextLineHeight() * 5.5f));
+    at_track("anim:event:feel");
+    ImGui::SetItemTooltip("One action object or an array of them, run on the entity that plays the clip when the clip passes the event. "
+                          "Same form as feel.do; a typo is refused with the option names");
+    float rowUsed = 0;  // the preset buttons wrap inside the box's 300 px: the popup is as wide as its content, so the window's own width cannot decide
+    for (std::size_t i = 0; i < std::size(kFeelPresets); ++i) {
+        ImGui::PushID(int(i));
+        const float w = ImGui::CalcTextSize(kFeelPresets[i].action).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        if (i > 0 && rowUsed + ImGui::GetStyle().ItemSpacing.x + w <= 300.0f) {
+            ImGui::SameLine();
+            rowUsed += ImGui::GetStyle().ItemSpacing.x + w;
+        } else {
+            rowUsed = w;
+        }
+        if (ImGui::SmallButton(kFeelPresets[i].action)) {
+            Json arr = Json::array();
+            if (auto cur = feel_box_value(u.eventFeel); cur.ok()) {
+                if (cur.value().is_array()) arr = cur.value();
+                else if (cur.value().is_object()) arr.push_back(cur.value());
+            }
+            if (auto one = parse_json(kFeelPresets[i].json, "preset"); one.ok()) arr.push_back(one.value());
+            u.eventFeel = arr.dump(2);
+        }
+        at_track(std::string("anim:event:fx:") + kFeelPresets[i].action);
+        ImGui::SetItemTooltip("Add: %s", kFeelPresets[i].tip);
+        ImGui::PopID();
+    }
+    const bool ok = ImGui::Button(u.eventEditing < 0 ? "Add" : "Apply") || enter;
     at_track("anim:event:ok");
-    if (ok && !u.eventName.empty() && !path.empty()) {
-        if (u.eventEditing < 0) {
-            if (anim_edit("anim:event:add:" + std::to_string(uiFrame_),
-                          {{"anim.add_event", Json::object({{"path", path}, {"t", clip_round_time(u.eventAt)}, {"name", u.eventName}, {"extendDuration", true}})}}))
+    // The popup's edits report through eventError: anim_edit also writes the panel's `error`, which would show a popup problem in the
+    // panel header and keep it there after the popup closes, so the panel's own message is put back.
+    auto popup_edit = [&](const std::string& key, const std::vector<ModelCall>& calls) {
+        const std::string panelError = u.error;
+        u.eventError.clear();
+        const bool done = anim_edit(key, calls, &u.eventError);
+        if (!done) u.error = panelError;
+        return done;
+    };
+    if (ok && !path.empty()) {
+        auto feel = feel_box_value(u.eventFeel);
+        if (!feel.ok()) {
+            u.eventError = "Game feel actions: " + feel.error().message + " " + feel.error().hint;
+        } else if (u.eventName.empty() && feel.value().is_null()) {
+            u.eventError = "An event needs a name or game feel actions.";
+        } else if (u.eventEditing < 0) {
+            Json args = Json::object({{"path", path}, {"t", clip_round_time(u.eventAt)}, {"extendDuration", true}});
+            if (!u.eventName.empty()) args["name"] = u.eventName;
+            if (!feel.value().is_null()) args["feel"] = feel.value();
+            if (popup_edit("anim:event:add:" + std::to_string(uiFrame_), {{"anim.add_event", args}}))
                 ImGui::CloseCurrentPopup();
-        } else if (anim_edit("anim:event:rename:" + std::to_string(uiFrame_),
-                             {{"anim.set_event", Json::object({{"path", path}, {"event", u.eventEditing}, {"name", u.eventName}})}})) {
-            ImGui::CloseCurrentPopup();
+        } else {
+            Json args = Json::object({{"path", path}, {"event", u.eventEditing}, {"name", u.eventName.empty() ? Json() : Json(u.eventName)}, {"feel", feel.value()}});
+            if (popup_edit("anim:event:rename:" + std::to_string(uiFrame_), {{"anim.set_event", args}}))
+                ImGui::CloseCurrentPopup();
         }
     }
     if (u.eventEditing >= 0) {
         ImGui::SameLine();
         if (ImGui::Button("Delete")) {
-            if (anim_edit("anim:event:delete:" + std::to_string(uiFrame_),
-                          {{"anim.remove_event", Json::object({{"path", path}, {"event", u.eventEditing}})}})) {
+            if (popup_edit("anim:event:delete:" + std::to_string(uiFrame_),
+                           {{"anim.remove_event", Json::object({{"path", path}, {"event", u.eventEditing}})}})) {
                 u.selectedEvent = -1;
                 ImGui::CloseCurrentPopup();
             }
         }
         at_track("anim:event:delete");
+    }
+    if (!u.eventError.empty()) {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 300);
+        ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", u.eventError.c_str());
+        ImGui::PopTextWrapPos();
     }
     ImGui::EndPopup();
 }
@@ -525,7 +612,9 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
         const ImU32 col = sel ? kKeySelected : IM_COL32(120, 200, 255, 255);
         wdl->AddTriangleFilled(ImVec2(x - 5, yLane + 2), ImVec2(x + 5, yLane + 2), ImVec2(x, yLane + 13), col);
         wdl->AddLine(ImVec2(x, yLane + 13), ImVec2(x, yRows), col);
-        wdl->AddText(ImVec2(x + 7, yLane + 1), col, clip.events[i].name.c_str());
+        const ClipEvent& evi = clip.events[i];
+        const std::string label = evi.feel.empty() ? evi.name : (evi.name.empty() ? std::string() : evi.name + " ") + "[" + evi.feel[0].value("action", std::string("feel")) + (evi.feel.size() > 1 ? "+" : "") + "]";
+        wdl->AddText(ImVec2(x + 7, yLane + 1), col, label.c_str());
         at_track_at("anim:event:" + std::to_string(i), Vec2{x, yLane + 7});
     }
     wdl->PopClipRect();
@@ -558,6 +647,7 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
     if (laneHover && ImGui::IsMouseDoubleClicked(0) && laneHit >= 0) {
         u.eventEditing = laneHit;
         u.eventName = clip.events[std::size_t(laneHit)].name;
+        u.eventFeel = clip.events[std::size_t(laneHit)].feel.empty() ? std::string() : Json(clip.events[std::size_t(laneHit)].feel).dump(2);
         ImGui::OpenPopup("##animevent");
     }
     if (laneHover && ImGui::IsMouseClicked(1)) {
@@ -565,14 +655,16 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
         if (laneHit >= 0) {
             u.eventEditing = laneHit;
             u.eventName = clip.events[std::size_t(laneHit)].name;
+            u.eventFeel = clip.events[std::size_t(laneHit)].feel.empty() ? std::string() : Json(clip.events[std::size_t(laneHit)].feel).dump(2);
         } else {
             u.eventEditing = -1;
             u.eventName = "event";
+            u.eventFeel.clear();
             u.eventAt = u.snap ? snap_to_frames(mouseT, u.fps) : mouseT;
         }
         ImGui::OpenPopup("##animevent");
     }
-    ImGui::SetItemTooltip("Event markers: drag to move, double-click to rename, right-click to add or delete");
+    ImGui::SetItemTooltip("Event markers: drag to move, double-click to edit (name, game feel actions), right-click to add or delete");
 
     // ---- rows: the parts and their tracks
     const std::vector<TrackGroup> groups = group_tracks(clip);

@@ -16,6 +16,7 @@
 //                        severity weight x trust x min(occurrences, 3) per project).
 #pragma once
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -25,6 +26,7 @@
 #include "fa/core/json.h"
 #include "fa/core/json_schema.h"
 #include "fa/core/types.h"
+#include "fa/tooling/efficiency.h"
 
 namespace fa {
 
@@ -32,6 +34,9 @@ inline constexpr const char* kFeedbackFormat = "factoria.feedback/1";
 
 const std::vector<std::string>& feedback_categories();
 const std::vector<std::string>& feedback_severities();  // blocker, major, minor, nice-to-have
+// "gap" (the engine lacked something or got it wrong: the default, never written to the file) and "efficiency" (the AI could have done
+// the same work in fewer steps, minutes or tokens: fa/tooling/efficiency.h).
+const std::vector<std::string>& feedback_kinds();
 const std::vector<std::string>& feedback_statuses();    // open, fixed-in-engine, wont-fix, duplicate, rejected
 // Who set a status: "engine" (the check found the gap already exists), "user" (a person, the default) or "developer" (the engine
 // developer rejected the shared report; the sharing tick writes it).
@@ -48,6 +53,9 @@ Json create_empty_feedback(std::string_view projectName, std::string_view engine
 
 Result<Json> load_feedback(const std::string& path);
 Result<void> save_feedback(const std::string& path, const Json& doc);
+// Creates `path` with no entries (create_empty_feedback) under the file lock (FeedbackFileLock). A file that exists is left
+// as it is unless `overwrite`. Returns whether the file was written.
+Result<bool> create_feedback_file(const std::string& path, std::string_view projectName, bool overwrite = false);
 // Schema validation plus semantic checks (unique ids). Empty = valid.
 std::vector<SchemaError> validate_feedback(const Json& doc);
 
@@ -65,6 +73,12 @@ struct FeedbackInput {
     // only (fa/tooling/feedback_share.h). Null = none. A malformed or out-of-limits one is not stored (FeedbackAddResult::shareProblem).
     Json share;
     std::optional<bool> reviewed;  // the reporter checked against the docs that the gap is real and about the engine
+    // Efficiency entries (kind "efficiency"): the severity may be empty (minor), `missing` and `workaround` too (the waste and "none:
+    // the work went on with it" are stored). `efficiency` is what file_efficiency_feedback builds after the gate: {waste, evidence[],
+    // spans[] (evidence with each span's `measured`: used to merge, never stored), fixType, expectedSaving, appliesTo, measured, saving,
+    // whyNotCheaper?, searched?, existingDoc?, everyStepTokens?, candidate?, pattern?, afterFix?}.
+    std::string kind;  // "" or "gap", or "efficiency"
+    Json efficiency;
 };
 
 struct FeedbackAddResult {
@@ -72,6 +86,7 @@ struct FeedbackAddResult {
     bool merged = false;  // true when folded into an existing open entry (or an archived fixed one, then `reopened`)
     bool reopened = false;  // true when the report matched an archived fixed-in-engine entry: it is open again, in the file
     int occurrences = 1;
+    bool alreadyCounted = false;  // an efficiency report whose evidence the entry already counts: merged, nothing added (idempotent)
     Json entry;  // the stored entry
     std::string shareProblem;  // why `share` was not stored ("" = stored or not given)
 };
@@ -87,11 +102,29 @@ double feedback_entry_similarity(const Json& a, const Json& b);
 // Modifies `doc` in place; validates the input (errors teach valid values). `archive` (optional) is the archive document of
 // the same file: new ids continue after its ids, and a report matching an archived fixed-in-engine entry (same category,
 // similar title, no open match) moves that entry back into `doc`, open, with occurrences + 1 and a note
-// "reported again with engine X: regression?" (result.reopened).
+// "reported again with engine X: regression?" (result.reopened). An efficiency entry (input.kind) merges only with an open efficiency
+// entry of the same category and fix type whose title or suggestion is similar (>= 0.7): the measured numbers add up, evidence the
+// entry already holds is not counted twice (result.alreadyCounted when none of it is new), and it is never matched with a gap.
 Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& input, Json* archive = nullptr);
 // Load (or create) `path` (and its archive, when there is one), add, save what changed.
 Result<FeedbackAddResult> add_feedback_entry_to_file(const std::string& path, const FeedbackInput& input,
                                                      std::string_view projectNameIfNew = {});
+
+struct EfficiencyFiling {
+    std::optional<EfficiencyRefusal> refusal;  // set: the gate refused (or the file could not be written) and nothing was written
+    FeedbackAddResult added;
+    EfficiencyVerdict verdict;
+};
+// Files an efficiency report: `args` carries the fields of efficiency_input_from_json (waste, evidence, fixType, expectedSaving, appliesTo,
+// whyNotCheaper?, searched?, everyStepTokens?); `base` the entry's category, title, suggestion, reporter, severity? and share?. The gate runs
+// (check_efficiency_report: the numbers come from the transcripts of `projectDir`), then the entry is written to `feedbackFile`
+// under the cross-process lock (a read-modify-write of a file that the editor, the CLI and a retrospective may write at once).
+// Merging is by fix: see add_feedback_entry.
+// `origin` is what the engine's own code knows (the retrospective): the waste pattern the entry came from and the version of a fix for it
+// that the game already had; the AI's `args` never set them. An entry without a `share` in `base` gets one from its own title, waste and
+// suggestion (the sanitizer cleans it like a gap's before anything is sent); one too short to share stays local.
+EfficiencyFiling file_efficiency_feedback(const std::string& projectDir, const std::string& feedbackFile, FeedbackInput base, const Json& args,
+                                          std::string_view projectNameIfNew = {}, const EfficiencyOrigin& origin = {});
 
 struct FeedbackFilter {
     std::string status;    // "" = any
@@ -102,6 +135,8 @@ Json list_feedback(const Json& doc, const FeedbackFilter& filter = {});  // arra
 
 // The feedback file of a project: <projectDir>/ENGINE_FEEDBACK.json, or the project's `feedbackFile` when factoria.json sets one.
 std::string feedback_file_for_project(const std::string& projectDir);
+// The name a new feedback file of the project gets: factoria.json "name", else the folder's name.
+std::string feedback_project_name(const std::string& projectDir);
 
 // "ENGINE_FEEDBACK.json" -> "ENGINE_FEEDBACK.archive.json": where the closed entries of a feedback file go.
 std::string feedback_archive_path(const std::string& feedbackPath);
@@ -132,12 +167,20 @@ Result<Json> update_feedback_file(const std::string& path, std::string_view id, 
                                   std::string_view engineIssue, std::string_view note = {}, std::string_view reason = {},
                                   std::string_view by = {});
 
+// Sets `fixCheck` (what the retrospectives found after a fix: fa/ai/retrospective.h, check_efficiency_fixes) on the closed entry `id` of
+// the feedback file or its archive. Only an entry fixed in the engine has one; any other id is an error that says so.
+Result<void> record_fix_check(const std::string& path, std::string_view id, const Json& check);
+
 // Whether entry `e` may be deleted, and why not. Only a closed entry (any status but open) or an open one that the engine developer
 // refused (shared.status rejected or declined) can go: an open entry is somebody's open question for the engine developers.
 bool feedback_entry_deletable(const Json& entry, std::string* whyNot = nullptr);
 // Deletes entry `id` from the feedback file or its archive (a rejected entry lives in the archive). Its id is never given again
 // (the documents keep `nextId`). Nothing is written when the entry is not deletable. Returns the deleted entry.
-Result<Json> delete_feedback_file(const std::string& path, std::string_view id);
+// `beforeWrite` (optional) runs once the entry is found and deletable, just before the file is written: an error from it is returned
+// and nothing is deleted. The callers use it to take the entry out of the sharing outbox first (share_discard), so a failure there
+// never leaves a deleted entry that is still sendable.
+Result<Json> delete_feedback_file(const std::string& path, std::string_view id,
+                                  const std::function<Result<void>()>& beforeWrite = {});
 
 struct FeedbackShareEdit {
     Json share;                    // null = leave `share` as it is; else {title, missing, suggestion?, workaround?}
@@ -171,6 +214,9 @@ struct CollectOptions {
 // entries) x trust x min(occurrences, 3). trust is 1 for a local project and for an entry whose remote.trust is "verified",
 // 0.5 for "anonymous" (entries pulled from the feedback server carry `remote`). installations = projects in the cluster,
 // verifiedInstallations = those with a verified entry; totalOccurrences is the uncapped sum.
+// Efficiency entries (kind "efficiency") are not in `clusters`: they are grouped by fix type and ranked apart in `efficiency`, by the
+// saving a fix would bring across installations (rank_efficiency, fa/tooling/efficiency.h), each with its verdict and a ready
+// reason for `feedback reject`. `totalEntries` counts both.
 Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, const CollectOptions& opts = {});
 
 // Registers feedback.report, feedback.list, feedback.update, feedback.delete, feedback.archive bound to <projectDir>/ENGINE_FEEDBACK.json

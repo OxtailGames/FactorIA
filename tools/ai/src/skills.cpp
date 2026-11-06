@@ -9,6 +9,7 @@
 
 #include "fa/ai/config.h"
 #include "fa/ai/extension_plan.h"
+#include "fa/ai/project_settings.h"
 #include "fa/ai/session.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
@@ -442,15 +443,16 @@ Json skill_json(const SkillInfo& s, bool withFiles) {
 
 void register_skills_commands(CommandRegistry& registry, SkillsCommandOptions options) {
     auto opts = std::make_shared<SkillsCommandOptions>(std::move(options));
-    auto load = [opts]() -> Result<AiConfig> {
-        if (opts->loadConfig) return opts->loadConfig();
-        return load_config();
-    };
     auto context = [opts]() {
         SkillsContext ctx;
         ctx.projectDir = opts->projectDir ? opts->projectDir() : fs::project_root().string();
         ctx.env = opts->env;
         return ctx;
+    };
+    // ai.json with the project's own AI settings applied (project_settings.h).
+    auto load = [opts, context]() -> Result<AiConfig> {
+        if (opts->loadConfig) return opts->loadConfig();
+        return load_resolved_config(context().projectDir, {}, opts->env ? opts->env : system_env());
     };
     auto check_role = [](const std::string& role) {
         if (!role.empty() && !is_known_role(role)) {

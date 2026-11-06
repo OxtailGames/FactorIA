@@ -104,8 +104,8 @@ quality; the report itself is not in the repository). Every gap was checked agai
   while implementing M9"). Q-01 (the project's age, one maintainer) and Q-08 (a strength) are not engine work.
 - Everything else, and the points of the report's per-store table that no id covers, is grouped in M10-M23 below, in
   the report's order of priority: what blocks any store release first.
-  Roblox is out of scope (end of the list). None of these gaps came from the four example games, which are jam-sized and
-  never needed menus, localization or stores; M21 adds a complete reference game to close that blind spot.
+  None of these gaps came from the four example games, which are jam-sized and never needed menus, localization or
+  stores; M21 adds a complete reference game to close that blind spot.
 
 Triage 2026-10-19 of the 45 entries of Lantern Keep, the M21 reference game, against `04e751b` (each checked in the code
 and in a scratch project with `factoria test` and `factoria call`): LK/FB-0032 was already fixed (`ui.measureText` is
@@ -1741,8 +1741,427 @@ A complete game whose every picture, model, sound and song is made with the comm
 no imported asset. It measures what the AI reaches with these tools against the reference games that used providers,
 records every gap in its `ENGINE_FEEDBACK.json`, and a triage milestone turns them into packages, as after M21-M32.
 
-## Out of scope: Roblox
+## M61. Roles and AI settings per project (L; 4 packages) — DONE (0.17.0)
 
-Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,
-MarketplaceService); exporting to it would take a JavaScript-to-Luau transpiler and a converter from scenes to `.rbxlx`,
-which is a different product. Not planned.
+Asked by the user: the choice of roles is made for each project, not once for every project, and the same goes for
+every other setting that belongs to a project. Today everything the AI settings window edits lives in the user's
+`ai.json` (only extensions have a project file, `.factoria/extensions.json`), so turning the artist off for a
+small puzzle game turns it off for the 3D game next to it too.
+
+What stays the user's, on purpose: providers (commands, addresses, headers, keys), the definitions of `mcpServers` and
+their keys, `defaultProvider`, `inheritUserPlugins`, `~/.factoria/export.json` (SDK paths, keystore passwords), the
+editor's layout and recent projects, and `~/.factoria/skills` (projects already have `skills/`). Export and publish
+settings are already per project (`factoria.json`).
+
+- M61.1 (M) A project settings file, `<project>/.factoria/ai/settings.json` (inside `.factoria/`, which game projects
+  keep out of git: it is this user's choice for this project, not part of the game). It holds `roles` (enabled,
+  provider, model, effort, maxTokens, maxContextTokens, toolGroups), `limits`, `assets` (the provider per kind of
+  asset, model, voice), `assetSources`, the `savers` switches, and which of the user's `mcpServers` and extensions are
+  on for this project. The user's `ai.json` values for the same keys become the defaults every project starts from.
+  Resolution, key by key and role by role: engine defaults, then `ai.json`, then the project file. The project file
+  may only NAME providers and servers the user's `ai.json` defines: never a command, address, header, environment or
+  key, so a copied project cannot run a program or spend a key (the error says which key is not allowed and where it
+  belongs). A project file the user did not save on this computer (it came inside a copied or unzipped project) is
+  shown and must be accepted once, with the same trust as a project's extensions (`ai-trust.json`). Schema
+  `schemas/ai-project-settings.schema.json`; errors name the JSON pointer and the fix. A project without the file
+  behaves exactly as today; nothing is rewritten.
+- M61.2 (M) Editor: with a project open, the AI settings window and the Roles window edit THAT project (the title says
+  "This project: <name>"). Each row says whether its value is the project's or comes from your defaults, with
+  **Reset to my defaults** per row and per tab, and **Save as my defaults** writes the current values into `ai.json`
+  for new projects. Without a project open the window edits the defaults. Switching project reloads the roles, limits
+  and asset settings the next message uses. Autotest section: two projects with different roles; switching shows and
+  uses each project's roles.
+- M61.3 (S) Commands and CLI: `ai.settings.get {scope: "resolved" | "project" | "user"}` (each resolved value with
+  where it came from: `project`, `you`, `default`) and `ai.settings.set {scope, pointer, value}`; `factoria ai run`,
+  `ai review` and `ai doctor` resolve the project they run in (`doctor` lists the project's overrides); the MCP
+  server a CLI orchestrator (Claude Code, Codex) uses resolves the roles of the project it serves, so `ai_run` and
+  `agent_delegate` honour that project's roles that are off.
+- M61.4 (S) Feedback sharing per project: `feedback-sharing.json`'s `mode` is the default and a project can set its
+  own (`never` for a game under NDA, `always` for one the user wants to share); the editor's consent asks once per
+  project when the project's mode is `ask`. Docs: AI_PROVIDERS.md (Config file, Roles, The AI settings window),
+  EDITOR.md, ENGINE_FEEDBACK.md; CHANGELOG.
+
+## M62-M64: ideas taken from outside projects (planned 2026-11-05)
+
+From the user's bookmarks (2026-11-05). Rule for these three: an outside project is only a reference for HOW something
+is done. FactorIA builds its own version; no code, effect, asset or shader of the outside project is copied or bundled,
+and nothing is shipped "in case a game uses it" (a repository can disappear or change its licence). What enters the
+engine is a capability that helps make games: commands, a script API, a generator, an AI loop, and a few worked
+examples written for the docs. Each milestone names its reference so a worker can read it, not copy it.
+
+## M62. Game feel and effects drawn as code (L; 4 packages) — DONE (0.17.0)
+
+Reference: pixelfx (github.com/patch-gg/pixelfx): every hit is acted (wind-up, freeze on contact, the target rocking
+back, recovery), effects take a palette ramp, and its skill draws, renders, looks and refines. Today the engine has no
+camera shake, hit-stop or flash: Kindlewatch wrote its own shake (`examples/kindlewatch/scripts/camera.js`).
+
+- M62.1 (M) Game feel API: camera shake (trauma that decays, per camera, seeded by the engine's RNG, 2D and 3D),
+  hit-stop (`time.hitStop(seconds, {scale})`: the game freezes or slows for a moment while the UI and audio go on),
+  flash (an entity drawn in one colour for a moment, sprites and meshes), knockback (an impulse with a short loss of
+  control) and squash and stretch. Script API, commands to try them from the AI, typings. All of them follow
+  `game.accessibility.reduceMotion` / `reducedEffects` (docs/MENUS.md). Kindlewatch drops its own shake.
+- M62.2 (M) Hits with timing: the clip events of `Animator`, `SpriteAnimator` and the M42 timeline can carry game-feel
+  actions (`hitStop`, `shake`, `flash`, `push`, spawn an effect, play a sound), so an attack's anticipation, impact and
+  recovery are data the AI writes and tunes, not code spread over behaviours. Check first what the clip events already
+  allow and extend them rather than adding a format.
+- M62.3 (M) Effects as code with a palette: the code-drawn animations of M41 (`assets.animate_svg`) take a palette ramp
+  (dark to bright) so one effect is recoloured without touching its code, a back and a front layer (behind and in
+  front of the character) and an additive light pass; the baked sheet keeps its pivot and timing. Check what M41 and
+  the indexed images of M53 already give and fill only the gaps.
+- M62.4 (S) The AI's loop for effects: the artist's guidance draws a draft, renders a filmstrip at the game's size,
+  looks at it and refines (readability at game size, anticipation, impact and recovery, palette), with three or four
+  worked examples written by us in docs (an impact, a pickup, a fire loop): no effect library. An example game adopts
+  M62.1-M62.3 and records the gaps in its `ENGINE_FEEDBACK.json`.
+
+## M63. Level generation from an example (L; 4 packages) — DONE (0.17.0)
+
+Reference: WaveFunctionCollapse (github.com/mxgmn/WaveFunctionCollapse), a published algorithm: levels that only
+contain the NxN patterns of a small example, filled cell by cell from the one with the fewest options. And a puzzle
+generator that searches the board to guarantee it can be solved from any start. Today AI_GUIDE.md tells the AI not to
+write a level generator script, and there is nothing in its place for roguelikes and replayable levels.
+
+- M63.1 (L) `tilemap.generate {sample, size, seed, model, n, symmetry, periodic}`: FactorIA's own C++ implementation,
+  written from the published algorithm. `overlapping` learns the NxN patterns of a sample (a Tilemap or an ASCII level
+  of `scene.import_ascii`); `tiled` uses adjacency rules (the tileset's terrain rules of M53.4). Deterministic: the
+  same sample and seed give the same level on every platform (engine RNG, no `rand()`). A contradiction restarts up to a
+  limit, and the error teaches: where it failed, and what to try (a bigger sample, a smaller `n`, fewer constraints).
+- M63.2 (M) Constraints and playability: fixed cells (entrance, exit, borders), required and forbidden tiles, min and
+  max counts (chests, enemies), and a check that the level can be played: reachability from start to exit and to every
+  required cell with the walkable rules of the Tilemap (`nav.findTilePath`), retried or repaired until it holds; the
+  result reports the path length and any unreachable area.
+- M63.3 (M) At run time: the same generator from scripts (`tilemap.generate(...)`, a per-run seed from `rng.create`),
+  spread over frames within a budget so a phone does not stall; the markers of the sample (spawn points, coins, enemies)
+  become entities the way `scene.import_ascii` places them.
+- M63.4 (S) Editor and docs: a preview to regenerate with other seeds and keep one; AI_GUIDE.md says when to generate and
+  when to write the ASCII level by hand; an example game (a roguelike floor or a replayable puzzle) uses it and
+  records the gaps.
+
+## M64. Richer particles, effect documents and a particle editor (L; 4 packages) — DONE (0.17.0)
+
+Reference: effekseer-vfx-skill (a coding agent builds game effects, films them and a second agent grades the
+filmstrip). Effekseer itself is not integrated. Today `ParticleEmitter` has one start and one end colour and size, no
+curves, no animated textures, no turbulence and no sub-emitters, and the particle editor is still open from M20.
+
+- M64.1 (L) `ParticleEmitter`: colour gradients with several keys, curves over life for size, speed and alpha, flipbook
+  textures (a sprite sheet per particle, random start frame), rotation and spin, drag, noise and turbulence, emission
+  shapes (point, circle, box, cone, edge, a mesh's surface in 3D), inherited velocity, trails, sub-emitters on birth,
+  death and collision, collision with a plane and with a Tilemap, and a pixel mode (positions on the pixel grid,
+  colours from the style palette). Seeded and deterministic; the current fields keep their meaning. GL, D3D11, Metal and
+  the web.
+- M64.2 (M) Effect documents, `*.vfx.json`: several emitters plus a light flash, a shake, a hit-stop and a sound (M62)
+  as one effect, played with `vfx.play` and placed like a prefab.
+- M64.3 (M) Editor: a Particle panel with a live preview, gradient and curve editors and a time scrubber, over the same
+  commands and undo; autotest section.
+- M64.4 (M) The review loop: `vfx.filmstrip` (M51) and the art critic grading an effect's filmstrip against a checklist
+  (readability, timing, palette, overdraw) with concrete fixes; a budget check (particles alive, overdraw) for phones.
+  Docs (ANIMATION.md or a new VFX.md) and an example game that remakes its effects with it.
+
+## M65. Efficiency feedback: how game-making AIs could work cheaper (L; 4 packages) — DONE (0.17.0)
+
+Today ENGINE_FEEDBACK holds what the engine lacks or gets wrong. The AI that makes a game also knows where its own work
+went: a system it understood only after forty steps, a doc it read five times, a command it called ten times where one
+call with an extra option would do. That is worth reporting too ("with a guide for X, or if Y worked like this, this game
+would have taken N fewer steps, M fewer minutes, K fewer tokens"), but only when it is measured and worth its fix. A
+report that asks to rebuild a system to save a few minutes or tokens is refused: an engine change goes on the ROADMAP
+only when the reports that ask for it add up to thousands of dollars or tens of hours across games.
+
+Rules every package keeps:
+- **Measured, not guessed.** The engine computes the numbers from the transcripts (`.factoria/ai/sessions`); the AI points
+  at the span where the waste happened. Built-in agent: steps, tokens and cost per step. Claude Code and Codex: steps, tool
+  calls and minutes (the `t` and `ms` fields), with tokens estimated from bytes as `ai.session_timeline` does, and said so.
+- **The fix is part of the report, and its cost decides.** The cheapest fix that removes the waste wins: a doc section or
+  topic guide, then an example, a command option, a new command, and last an engine change.
+- **A guide is not free either.** Text loaded on every step (AGENTS.md, the system prompt) costs tokens on every step of
+  every run, so a fix of that kind must save more than it adds; most go to on-demand topic guides (skills) instead.
+- **Only what helps other games.** A lesson true only for this game is a project fact (`savers.projectFacts`,
+  AGENTS.md "Project facts"), not engine feedback. Model choice, effort and limits are the user's settings: the
+  retrospective can suggest them to the user (M61), never file them.
+
+- M65.1 (M) The entry kind `efficiency` in `ENGINE_FEEDBACK.json` (schema, `feedback.report`, `feedback add --kind`),
+  next to the gap/bug entries and with the same category list. Extra fields: `waste` (what took the time, in engine
+  terms), `evidence` (`[{session, fromStep, toStep}]` spans; the engine measures them and stores `measured` {steps,
+  toolCalls, minutes, tokens, costUsd, estimated}), `fixType` (doc, guide, example, commandOption, newCommand,
+  engineChange), `expectedSaving` (the share of the measured span the fix removes, with one line of why) and
+  `appliesTo` (every game, a genre, a feature). The report gate refuses, with a teaching reason: no evidence or a span
+  that does not exist; a saving under the threshold of its fix type (one table in ENGINE_FEEDBACK.md: for example a doc
+  or guide from 10 minutes or 100k tokens per game where it applies, a command option or command from 30 minutes or 500k
+  tokens and `appliesTo` wider than one feature, an engine change from 1 hour or $5 per game and only as a candidate for
+  triage); a "missing guide" for a doc that `docs.search` finds with the report's own words (then it is a
+  findability report: say which words you searched, and the fix is the doc's title and keywords); and anything on the
+  rules above. Deduplication merges efficiency entries by fix, adding the measured numbers. Doctest cases for the gate.
+- M65.2 (M) `ai.retrospective {sessions?, since?}`: a mechanical pass over a project's transcripts (no model) that finds
+  the usual waste and measures it: the same command failing with the same code, the same doc or file read again and
+  again, tool results over a size budget, long edit-run-check loops on one system, many screenshots in a row, long gaps
+  waiting on a tool, workarounds already recorded in ENGINE_FEEDBACK. It returns candidates with their numbers and the
+  fix type each suggests. The fast role then turns at most three candidates that pass the gate into entries (one short
+  call, its cost added to the run and shown); the rest is dropped, and project-only lessons become project-fact
+  proposals. It runs on demand (`factoria ai retrospective`, a button in the Feedback panel) and, when the project's
+  setting is on (M61, `savers.retrospective`), after a run longer than a threshold (default 150 steps or $3), at most
+  once per run and never inside another retrospective. Efficiency entries show their saving in the Feedback panel.
+  Autotest section.
+- M65.3 (S) The developer side: `share` carries the measured numbers and the fix type (engine terms only, never the
+  game's names, as for gaps). `factoria feedback pull` and `collect` rank efficiency entries by the total saving across
+  installations (per game times reports) next to their fix cost, with a verdict per entry: "doc now", "command: worth
+  it", or "engine change: below threshold (N of the $1000 / 20 hours it needs)" with a ready reason for
+  `feedback reject`. An entry fixed in the engine records the version, and the next retrospectives of games that use it
+  compare the same pattern before and after, so a fix that saved nothing is visible.
+- M65.4 (S) Docs and the loop: ENGINE_FEEDBACK.md "Efficiency feedback" (when to file, the threshold table, three good
+  reports and three refused ones: "rewrite the scene format to save 2k tokens", "use a cheaper model", "a guide for X"
+  when the guide exists and was found); the rule in AI_GUIDE.md and the AGENTS.md template (one line, the rest on
+  demand); AI_COSTS.md links it. Run the retrospective over the transcripts of a reference game built with the engine
+  (M60 or a new short one) and file what passes, so the first entries are real.
+
+## M66-M69: ideas from the second look at outside projects (planned 2026-11-06)
+
+References: dsh-game-studio (one sentence to a browser game, a self-playing playtest that reports, art candidates with a
+cost card before spending, LAN play by QR, one-file HTML export) and a post about an agent that made hundreds of game
+and mockup variants that nobody could review. Their ideas only: nothing of theirs is bundled, and each milestone is
+FactorIA's own version over its commands. They start after the M61-M65 block ships.
+
+## M66. Paid asset generation shows its cost and asks first (M; 3 packages) — the user, 2026-11-06
+
+Today asset providers (image, voice, sound, 3D) bill per call and FactorIA does not know their prices
+(AI_PROVIDERS.md, "Cost"); `limits.maxCostUsd` covers LLM runs only, so a batch can spend without anyone seeing it.
+
+- M66.1 (S) Prices: `pricing` on asset providers (per image by size and quality, per 1000 characters of voice, per
+  second of sound, per 3D model), built-in defaults for the presets with the date they were checked and the pricing
+  page, and an `estimatedCostUsd` in every generation result and in the run's cost (said to be an estimate).
+- M66.2 (M) Limits and approval: `limits.maxAssetCostUsd` per run and per day (the project's AI settings, M61), checked
+  before each call with a teaching error (which limit, how to raise it). A call or batch over the project's
+  `askAboveUsd` (default $0.50) waits for the user: in the editor a card with what will be made, how many, the provider
+  and the estimate (Approve, Approve all for this run, Cancel); over MCP and the CLI the call returns
+  `needsApproval` with the plan, and runs with `approved: true` only after the user said yes. `fake` and local
+  providers never ask.
+- M66.3 (S) Candidates: `count` on image generation (default 1, at most 4) gives numbered candidates for one slot on one
+  contact sheet (M69), and `assets.pick {slot, n}` keeps one and moves the rest to `.factoria/assets/candidates/`
+  (cleaned after 7 days). The estimate is for all candidates. Docs (ASSETS.md, AI_COSTS.md), tests with the fake
+  provider.
+
+## M67. The AI plays the game and reports, with nobody at the keyboard (L; 4 packages) — the user, 2026-11-06
+
+`play.report` reads what happened while a person played; Lantern Keep and Clockwork Courier carry their own bot
+(`tests/helpers/autoplay.js`) for tests only. A game-making AI should be able to play its game end to end and read the
+same report before it shows the game to the user.
+
+- M67.1 (M) The bot hook: a game declares how to play itself in `scripts/autoplay.js` (`game.autoplay(fn)`: called
+  every step with the state, returns the actions to press), and the templates ship one that finishes their sample
+  level. Without a hook, a generic explorer presses the declared input actions in seeded patterns (never random:
+  `world.rng`) so a game still gets smoke-played.
+- M67.2 (M) `play.auto {scene?, seconds?, seed?, speed?}` runs the game headless at fast speed with the bot and writes a
+  session in the same format as an editor session (`.factoria/sessions/`, `"source": "auto"`): perf, spikes, warnings and
+  script errors, plus `phases` (the scenes and the game's own `game.phase("boss")` marks, with times), `score` and
+  `ended` (won, lost, timed out, stuck: no state change for N seconds) and a screenshot per phase and at the end.
+  `play.report` reads it unchanged.
+- M67.3 (S) Stuck and broken detection: same position or state for N seconds, an exception loop, falling out of the
+  world, a soft lock in a menu; each becomes a mark with a screenshot and the step, and `input.record` keeps the inputs
+  so `factoria run --input` replays the problem.
+- M67.4 (M) The loop: AI_GUIDE.md and the AGENTS.md template say to run `play.auto` after a feature and before asking
+  the user to play; the Play menu gets "Let the AI play" with the report in the Play sessions list; an example game
+  (Lantern Keep) swaps its test bot for the hook. Autotest section.
+
+## M68. Try it on the phone: LAN play by QR and a one-file web build (M; 3 packages) — the user, 2026-11-06
+
+Today the web export has to be served by hand (`python -m http.server`, EXPORTING.md) and a phone needs a full Android or
+iOS build to try the game.
+
+- M68.1 (M) `project.serve_web {lan?: bool}`: exports the web build in debug mode if it is stale, serves it from a small
+  HTTP server inside the editor (localhost by default; on the LAN only when asked, on a random port with a random path
+  token, stopped with the editor or `project.serve_web {stop:true}`), and returns the URLs. A changed script or asset
+  re-exports and the page reloads.
+- M68.2 (S) The editor's "Play on phone" button shows the LAN URL as a QR code drawn by the engine (our own encoder, no
+  library download) and says what to check when the phone cannot open it (same Wi-Fi, firewall prompt on Windows and
+  macOS, guest networks that isolate devices). Logs and errors from the phone's page come back to the editor console.
+- M68.3 (S) `project.export {platform:"web", singleFile:true}`: one HTML file with the player, wasm and `game.pak`
+  inlined (base64), that runs offline from a double click; refused with a teaching error over a size limit (default
+  64 MB) and when a feature needs a server (threads, which need cross-origin isolation). EXPORTING.md, MOBILE.md.
+
+## M69. Reviewing many variants at once: contact sheets (M; 2 packages) — the user, 2026-11-06
+
+When an AI makes many versions of something (candidates of a sprite, layouts of a menu, seeds of a level, effects,
+whole prototypes), looking at them one by one costs the user more than making them did.
+
+- M69.1 (M) `review.sheet {items, columns?, label?}`: one image with numbered thumbnails of scenes, prefabs, images,
+  levels (`tilemap.generate` seeds), vector art or effects (the middle frame of `vfx.filmstrip`), each with its label
+  and a short line of numbers (size, colours, particles); the result carries the picture so the art critic or the user
+  picks by number. `review.pick {sheet, n}` records the choice and drops the rest (asked first in the editor).
+- M69.2 (M) Editor: a Review window that shows a sheet big, with keyboard picking (1-9, arrows), a "compare two" view
+  and the history of past picks; the asset candidates (M66.3) and the Level generator's seeds open in it. Autotest
+  section; docs in EDITOR.md and AI_GUIDE.md ("make N, show one sheet, ask for one number").
+
+## M70-M80: a renderer and runtime for every kind of game (planned 2026-11-06)
+
+The user, 2026-11-06: FactorIA is for 2D and 3D, simple and ambitious, retro and cutting-edge games on PC, consoles,
+phones and the web, so it gets everything a leading engine has, not only what a 2D game needs. Today: loading reads a
+little every frame on the main thread, the game loop is single-threaded, lighting is in gamma space with no HDR, the
+only screen effects are bloom and the colour filter, only the directional light casts shadows (one map, no cascades),
+IBL is a procedural sky, custom materials exist for `MeshRenderer` only, there is no LOD, occlusion culling, streaming,
+temporal antialiasing, upscaler or ray tracing, and the backends are sokol_gfx's (GL, GLES3, WebGL2, D3D11, Metal).
+
+Rules for all of them:
+- Off by default and free when off: a simple or retro game pays nothing (no extra pass, target or memory) for a feature
+  it does not use, and its look does not change unless it opts in (linear lighting included: a project setting with a
+  migration note, old projects keep gamma).
+- Every feature degrades with a teaching message where a backend cannot do it (GLES3/WebGL2 without float targets or
+  compute, a GPU without ray tracing), says so in `renderer.supports(feature)` and in the docs table per backend, and
+  has goldens per backend in CI.
+- Each is a component field or a command with doc strings, in the menu kit's graphics page where a player would set it,
+  in the Inspector, and in AI_GUIDE.md with when to use it and what it costs (perf budgets, `perf.measure`).
+- Simulation stays deterministic: threads never change results (fixed merge order, `world.rng`).
+- Our own implementation; outside SDKs only where a vendor requires its own (M78), fetched at setup like sokol-shdc,
+  never committed, with their licenses checked first.
+
+Order: M70 and M71 first; M72 and M73 need M71; M74 needs M72; M75 needs M70; M76 needs M71; M77 stands alone;
+M78 needs M76 and M77; M79 needs M73 and M77; M80 needs M71 and M72.
+
+## M70. Loading, threads and fast storage (L; 5 packages) — the user, 2026-11-06
+
+- M70.1 (L) Job system: a fixed pool of worker threads (cores - 1, capped; one on the web without cross-origin
+  isolation), jobs with dependencies, a main-thread fallback, profiler lanes per thread, and a debug mode that runs
+  every job on the main thread to compare results. Tests for determinism (same frame hash with 1 and N threads).
+- M70.2 (L) Parallel engine systems: culling, skinning, particles and vfx, animation sampling, tilemap and mesh
+  batching, nav queries, audio mixing and the render command build run as jobs; simulation systems that can split
+  (physics broadphase and islands where the backend allows) merge in a fixed order. Perf budgets of the examples prove
+  the gain on 4 and 8 cores.
+- M70.3 (M) Background loading: an IO thread and decode jobs (PNG, KTX2/Basis, audio, glTF, fonts, scenes), GPU uploads
+  budgeted per frame (ms and MB), `scene.preload`/`assets.preload` and `scene.load {async:true}` with progress and
+  cancel, and the loading screen of the menu kit fed by real progress. A frame never waits for a file unless asked.
+- M70.4 (M) Storage built for SSDs: `game.pak` read with memory mapping (with a read fallback), packed in first-use
+  order recorded by `play.auto`/play sessions so a level loads as few big sequential reads, compressed per block
+  (LZ4/Zstd, fast decode) with the choice per asset type, and a load-time report (`play.report`: time to first frame,
+  per scene, the slowest assets).
+- M70.5 (S) Startup: the player shows its first frame before the game's assets are read, shader pipelines compiled in
+  the background with a cache on disk (per backend and driver), and a `perf.startup` budget in the templates.
+
+## M71. Linear HDR and a post-processing stack (L; 5 packages) — the user, 2026-11-06
+
+- M71.1 (L) Linear HDR pipeline: `SceneSettings.colorSpace` "gamma" (today) or "linear", float render targets
+  (RGBA16F, R11G11B10 where supported, RGBA8 + dithering fallback), sRGB textures marked as such, tonemapping (neutral,
+  ACES, AgX, Reinhard, none), exposure (manual and automatic with adaptation speed), and HDR display output where the
+  platform allows (Windows HDR10/scRGB, macOS EDR) with paper-white nits. 2D lights and sprites use the same pipeline.
+- M71.2 (L) The stack: a `PostProcess` component (on a Camera, or a volume: global, box or circle in 2D/3D with blend
+  distance and priority) with ordered effects: colour grading (lift/gamma/gain, white balance, curves, `.cube` LUTs),
+  vignette, chromatic aberration, film grain, lens distortion, sharpen, bloom moved into it (lens dirt, threshold
+  knee), outline (depth/normal edges, 2D sprite outlines), pixelate and posterize. Effects share passes where they can.
+- M71.3 (L) Depth-based effects (3D): SSAO (GTAO quality levels), depth of field (bokeh, near/far, autofocus on a
+  target), camera motion blur (from depth; per-object with M76), screen-space reflections, height and distance fog
+  moved into the stack, sun shafts.
+- M71.4 (M) 2D screen effects: shockwave and heat-haze distortion (screen-space, spawned by `feel`/vfx), radial blur,
+  screen flash and fade moved into the stack, split-screen cameras each with their own stack.
+- M71.5 (M) Tools: a Post-processing panel with live preview and A/B, `postprocess.*` commands, presets (cinematic,
+  stylised, clean, retro hooks for M80), goldens per backend, the cost of each effect in the profiler and in docs.
+
+## M72. Custom shaders for everything (L; 5 packages) — the user, 2026-11-06
+
+SHADERS.md "Not available yet" becomes empty.
+- M72.1 (L) Materials for `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and vfx, trails, the sky and UI images: the
+  same snippet model as meshes (`fragment()`, `vertex()`), batching kept for sprites that share a material, per-sprite
+  values through instance data.
+- M72.2 (M) Post-process materials: a custom pass in the M71 stack (reads colour, depth, normals, previous passes),
+  ordered with the built-in effects.
+- M72.3 (L) Full shaders and custom lighting: own `main` and vertex layout, several passes, a custom light loop (toon
+  ramps, cel bands, hatching), textures in `vertex()`, per-instance values in one instanced draw.
+- M72.4 (L) Compute shaders where the backend has them (D3D11, Metal, GL 4.3, Vulkan/D3D12 with M77): GPU particles,
+  culling, simulation helpers; a clear refusal on GLES3/WebGL2 with the CPU path named.
+- M72.5 (L) A node graph material editor that writes the same JSON/snippet an AI writes (graph and code stay one
+  document), with live preview on mesh, sprite and quad, and a library of nodes (noise, dissolve, flow, fresnel,
+  triplanar, parallax occlusion).
+
+## M73. 3D lighting of a leading engine (L; 6 packages) — the user, 2026-11-06
+
+- M73.1 (L) Clustered forward lighting: hundreds of lights instead of 32, light cookies, IES profiles, area lights.
+- M73.2 (L) Shadows: cascaded shadow maps for the directional light (stable, blended cascades), point (cube) and spot
+  shadows in an atlas with a budget, soft shadows (PCF/PCSS), contact shadows, per-light resolution and distance.
+- M73.3 (L) Environment: HDRI import, prefiltered environment cubemaps for IBL, reflection probes (baked and realtime,
+  box projection, blending), sky models (physical sun and atmosphere, clouds) feeding IBL.
+- M73.4 (L) Baked lighting: a deterministic lightmap baker (CPU path tracer, multi-threaded on M70, GPU with M79),
+  lightmap UVs generated, light probes for moving objects, mixed lights; bake jobs with progress and cancel.
+- M73.5 (M) Volumetrics and decals: volumetric fog and light shafts per light, projected decals (deferred-style on
+  forward), screen-space subsurface for skin and wax, and a realtime GI option without ray tracing (probe grid, DDGI-style
+  updated over frames).
+- M73.6 (M) Materials catch up: clear coat, sheen, transmission, anisotropy, glTF extensions for them, and the
+  material inspector showing which ones cost a pass.
+
+## M74. Ambitious 2D lighting and effects (M; 4 packages) — the user, 2026-11-06
+
+- M74.1 (M) Soft 2D shadows (penumbra by light size), shadow casters on sprites and shapes (`ShadowCaster2D` from the
+  sprite's alpha or a polygon), self-shadowing off/on, more than 32 shadowed lights with an atlas.
+- M74.2 (M) Emission and masks: emissive maps on sprites (feeding HDR bloom), light masks per layer, light cookies, a
+  normal map generated from height or from the sprite itself, rim light.
+- M74.3 (L) 2D global illumination: radiance-cascades-style GI (light bounces off coloured walls, emissive sprites
+  light the scene), quality levels, off by default.
+- M74.4 (M) 2D water and refraction: reflective water planes, refraction and distortion zones through M72 materials,
+  shown in an example scene.
+
+## M75. Big worlds: LOD, occlusion, streaming, terrain (L; 6 packages) — the user, 2026-11-06
+
+- M75.1 (L) LOD: automatic mesh simplification on import (our own simplifier, deterministic), LOD groups with screen-size
+  thresholds and cross-fade, impostors for far objects, HLOD for cells.
+- M75.2 (L) Occlusion culling: a CPU software rasteriser of occluders on the M70 jobs (every backend) and GPU Hi-Z where
+  compute exists, portals for interiors; `renderStats` counts what each culled.
+- M75.3 (L) World streaming: worlds split into cells (3D scenes and 2D tilemap chunks) loaded and unloaded around the
+  camera or chosen anchors on the M70 IO thread, with budgets, priorities and a debug view; an editor workflow to edit
+  one big world in cells.
+- M75.4 (M) Large coordinates: origin shifting (or double-precision positions) so worlds of hundreds of km keep
+  precision in physics and rendering.
+- M75.5 (L) Terrain: heightmap terrain with GPU LOD, splat material layers, holes, collision, sculpt and paint tools in
+  the editor and as commands, generation from noise and erosion.
+- M75.6 (M) Foliage and scattering: GPU-instanced grass, trees and rocks with per-instance data, wind, LOD and culling,
+  painted or scattered by rules.
+
+## M76. Temporal antialiasing and open upscalers (L; 4 packages) — the user, 2026-11-06
+
+- M76.1 (L) The temporal base: per-pixel motion vectors (static, moving, skinned meshes, particles, sprites), camera
+  jitter, a depth buffer every pass can read, TAA with history rejection, per-object motion blur from M71.3.
+- M76.2 (M) Spatial upscaling everywhere: FSR 1 (EASU + RCAS) or our own equivalent on every backend, web and phones
+  included, replacing the stretch of `window.renderScale`; integer scaling kept for pixel art (orthoSize 0).
+- M76.3 (L) Temporal upscalers: FSR 2/3 upscaling (open source) where compute exists, MetalFX spatial and temporal on
+  Apple, with quality modes (Native AA, Quality, Balanced, Performance, Ultra Performance).
+- M76.4 (M) Scaling to a budget: dynamic resolution that holds a frame-time target, graphics quality presets (Low to
+  Ultra, auto-detected from the GPU and a short benchmark) that every M70-M80 feature reads, and the menu kit graphics
+  page with all of it.
+
+## M77. Modern backends: D3D12 and Vulkan (L; 6 packages) — the user, 2026-11-06
+
+sokol_gfx stays for GL, GLES3, WebGL2, D3D11 and Metal; D3D12 and Vulkan are our own backends behind the same render
+interface (external/ is not edited). They are the base of M78, M79, DirectStorage and the Xbox seam of M23.
+- M77.1 (L) The render interface split so a second backend family fits (resources, pipelines, passes, barriers).
+- M77.2 (L) D3D12 backend: descriptor heaps, pipeline state cache on disk, upload rings, resource barriers, debug layer
+  in tests, WARP for CI.
+- M77.3 (L) Vulkan backend: Windows, Linux and Android, validation layers in tests, lavapipe for CI, pipeline cache.
+- M77.4 (M) Shaders: the shader tool emits DXIL and SPIR-V (with the M72 snippets), reflection kept for the material
+  inspector.
+- M77.5 (M) Async compute and multi-threaded command recording on the M70 jobs, bindless where supported.
+- M77.6 (M) DirectStorage on Windows (GPU decompression of `game.pak` blocks) behind the M70 storage layer, and a
+  backend choice in `project.json` and the launcher with automatic fallback.
+
+## M78. Vendor upscalers, frame generation and latency (M; 4 packages) — the user, 2026-11-06
+
+- M78.1 (S) Licences and setup: NVIDIA DLSS/Streamline, Intel XeSS, AMD FidelityFX terms checked; the SDK binaries are
+  fetched by `factoria setup` on demand and shipped with exported games when used, never committed.
+- M78.2 (M) DLSS Super Resolution and Ray Reconstruction (D3D12/Vulkan, D3D11 where the SDK allows), XeSS Super
+  Resolution (every GPU, D3D11/D3D12/Vulkan), behind the M76 quality modes with automatic choice by GPU.
+- M78.3 (M) Frame generation: DLSS Frame Generation, FSR 3 frame generation, XeSS frame generation, with UI drawn
+  without artefacts and a refusal under the minimum base frame rate.
+- M78.4 (S) Latency: NVIDIA Reflex, AMD Anti-Lag 2, Intel XeLL, a latency readout in the profiler.
+
+## M79. Ray tracing (L; 5 packages) — the user, 2026-11-06
+
+- M79.1 (L) Acceleration structures: BLAS/TLAS for meshes (skinned refit, instances), on DXR (D3D12), Vulkan RT and
+  Metal RT, with `renderer.supports("raytracing")`.
+- M79.2 (L) Ray-traced shadows (soft, area lights) and ambient occlusion.
+- M79.3 (L) Ray-traced reflections and translucency, falling back to M71.3/M73.3 per pixel.
+- M79.4 (L) Ray-traced global illumination (probes updated by rays, then per-pixel with denoising; DLSS Ray
+  Reconstruction from M78 when present).
+- M79.5 (M) A path-traced reference mode for screenshots, store art and checking the raster look, and GPU baking for
+  M73.4 lightmaps.
+
+## M80. Retro looks done right (M; 4 packages) — the user, 2026-11-06
+
+- M80.1 (M) Low-resolution rendering: render at a console-like resolution (320x240, 256x224...) with integer or
+  aspect-correct scaling and a sharp-bilinear option, for 2D and 3D.
+- M80.2 (M) Palettes and dithering: palette quantization (built-in palettes and `.pal`/`.gpl`/image import), ordered and
+  error-diffusion dithering, colour limits per sprite, 1-bit and 4-colour handheld presets.
+- M80.3 (M) Screens: CRT (scanlines, shadow mask, curvature, bloom, phosphor persistence), NTSC/PAL composite artefacts,
+  LCD grid, VHS.
+- M80.4 (M) Retro 3D: vertex snapping, affine texture mapping, no filtering, low colour depth, draw distance fog, per
+  material or for the whole game; a retro template for 2D and one for 3D that use these presets.

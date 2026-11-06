@@ -33,6 +33,18 @@ Color inherited_tint(const World& world, const Frame& f, Entity e) {
     return out;
 }
 
+std::optional<Color> inherited_flash(const World& world, const Frame& f, Entity e) {
+    if (!f.anyFlash) return std::nullopt;
+    for (Entity x = e; x != kNullEntity; x = world.parent(x))
+        if (auto c = world.feel().flash_of(x)) return c;
+    return std::nullopt;
+}
+
+Color flash_mix(const Color& base, const Color& flash) {
+    const float a = std::clamp(flash.a, 0.0f, 1.0f);
+    return Color{base.r + (flash.r - base.r) * a, base.g + (flash.g - base.g) * a, base.b + (flash.b - base.b) * a, base.a};
+}
+
 float matrix_scale_x(const Mat4& m) {
     return std::sqrt(m.at(0, 0) * m.at(0, 0) + m.at(0, 1) * m.at(0, 1) + m.at(0, 2) * m.at(0, 2));
 }
@@ -153,12 +165,12 @@ bool axis_aligned(const Mat4& m) {
            std::fabs(m.at(1, 2)) < 1e-4f && std::fabs(m.at(2, 0)) < 1e-4f && std::fabs(m.at(2, 1)) < 1e-4f;
 }
 
-// The matrix a world-space visual is drawn with: its world matrix moved by Parallax.offset (screen space ignores it). A
+// The matrix a world-space visual is drawn with: its DRAWN matrix (game feel pose included) moved by Parallax.offset (screen space ignores it). A
 // screen-space visual is authored in UI units, so its matrix is scaled by the interface scale (ui_rect.h) here, before the
 // anchor point (not scaled) is added: sizes, offsets and glyphs all grow, the anchor stays.
 Mat4 draw_matrix(const World& world, Entity e, bool screen) {
-    return screen ? Mat4::scale({ui_scale_clamped(world.ui_scale()), ui_scale_clamped(world.ui_scale()), 1.0f}) * world.world_matrix(e)
-                  : visual_world_matrix(world, e);
+    return screen ? Mat4::scale({ui_scale_clamped(world.ui_scale()), ui_scale_clamped(world.ui_scale()), 1.0f}) * world.drawn_matrix(e)
+                  : drawn_visual_matrix(world, e);
 }
 
 // The light frame of a lit quad: `right` and `up` are the directions the picture's right and top edges point to, in the
@@ -306,9 +318,16 @@ void update_animators(World& world, Frame& f, bool advance) {
         const SpriteAnimPlan plan = animator_plan(f, a, s.texture);
         if (!plan.error.empty() && f.warnedSpriteClip && f.warnedSpriteClip->insert(world.id_of(e) + "|" + a.clip).second)
             FA_WARN("render", "entity '{}': {}", world.id_of(e), plan.error);
-        // The draw pass (advance false) only re-applies the frame; the clip events belong to the step that reached the end.
-        const bool ended = sprite_animator_step(a, plan, dt);
-        if (ended && advance) world.events().game.push_back(GameEvent{"clipEnded", Json::object({{"id", world.id_of(e)}, {"clip", a.clip}}), e});
+        // The draw pass (advance false) only re-applies the frame; the clip events belong to the step that reached the end. After the
+        // early pass of the frame the later one leaves alone what the early one moved (unless a script changed its clip since).
+        const bool moves = advance && (f.animEarly || f.animPass == 0 || a.advancedPass != f.animPass || a.playedClip != a.clip);
+        const bool ended = sprite_animator_step(a, plan, moves ? dt : 0.0f);
+        if (moves && f.animPass != 0) a.advancedPass = f.animPass;
+        // Frame events (SpriteAnimator::events) run before clipEnded; they only queue effects and game events, so nothing below
+        // changes the world while this loop walks it (a `spawn` instantiates its prefab in feel_update). Time that does not move
+        // (a paused game, the editor's edit mode) fires none: nothing would drain what they queue.
+        if (moves && dt > 0.0f) sprite_animator_fire_events(world, e, a, plan);
+        if (ended && moves) world.events().game.push_back(GameEvent{"clipEnded", Json::object({{"id", world.id_of(e)}, {"clip", a.clip}}), e});
         TextureAsset* tex = f.assets->texture(s.texture);
         s.region = sprite_frame_rect(plan, a.frame, tex->width, tex->height);
     });
@@ -319,6 +338,7 @@ void gather_2d(World& world, Frame& f) {
     auto pick = [&](RenderSpace sp) -> QuadList& { return sp == RenderSpace::Screen ? f.screen : f.world; };
 
     f.anyTint = !world.entities_with(&World::type_of<Tint>()).empty();
+    f.anyFlash = world.feel().any_flash();
     if (f.wantWorld) {
         update_parallax(world, f.cam.position.xy());
         gather_lights(world, f);
@@ -353,6 +373,7 @@ void gather_2d(World& world, Frame& f) {
         list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear, s.blend, clip);
         const bool lit = s.lit && !screen;
         if (lit) list.set_lit(s.normalMap.empty() ? nullptr : assets.texture(s.normalMap));
+        if (const auto flash = inherited_flash(world, f, e)) list.set_flash(pack_color(*flash));
         const bool nine = !s.texture.empty() && (s.slice.x > 0 || s.slice.y > 0 || s.slice.z > 0 || s.slice.w > 0);
         Vec2 spritePivot = s.pivot;
         if (const SpriteAnimator* anim = world.get<SpriteAnimator>(e)) spritePivot = sprite_effective_pivot(s, *anim, animator_plan(f, *anim, s.texture));
@@ -519,6 +540,12 @@ void gather_2d(World& world, Frame& f) {
         if (s.space == RenderSpace::World && !f.mask.draws(world, e)) return;  // Camera.showTags / hideTags
         const Color tint = inherited_tint(world, f, e);
         Color color1 = s.color * tint, color2 = s.color2 * tint;
+        // A flash (feel.h) is mixed into the colours here: the SDF shape mode has no room for it in the shader.
+        const std::optional<Color> flash = inherited_flash(world, f, e);
+        if (flash) {
+            color1 = flash_mix(color1, *flash);
+            color2 = flash_mix(color2, *flash);
+        }
         // A gradient with stops or an easing is read from a row of the ramp texture (gradient_ramp.h); only the shapes the SDF
         // path draws (rectangle, circle) have a gradient.
         GradientSpec spec;
@@ -531,6 +558,8 @@ void gather_2d(World& world, Frame& f) {
                     *f.warnedGradientStops = true;
                     FA_WARN("render", "{} (entity '{}'; reported once per scene)", problem, world.info(e).name);
                 }
+                if (flash)
+                    for (int i = 0; i < spec.count; ++i) spec.color[std::size_t(i)] = flash_mix(spec.color[std::size_t(i)], *flash);
                 if (f.ramps) rampRow = f.ramps->acquire(spec);
                 if (rampRow < 0) {  // no ramp room (all rows used by this frame's shapes): the first and last stop, blended linearly
                     color1 = spec.color[0];

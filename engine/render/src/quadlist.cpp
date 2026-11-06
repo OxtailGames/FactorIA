@@ -51,6 +51,13 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
                 if (out[i].mode < float(kModeLit) || out[i].mode == float(kModeShape)) out[i].mode += 16.0f;
         if (it.blend == BlendMode::Multiply)  // shader variant: output mix(1, rgb, a) for the multiply blend
             for (std::size_t i = std::size_t(firstQuad) * 4; i < out.size(); ++i) out[i].mode += 8.0f;
+        if (it.flash != 0)  // the flash variant (mode + 32) reads the colour from color2; shapes and glyphs keep theirs
+            for (std::size_t i = std::size_t(firstQuad) * 4; i < out.size(); ++i) {
+                const int base = int(out[i].mode) & 7;  // the +8 / +16 flags of lit and multiply quads are the higher bits
+                if (base == kModeShape || base == kModeGlyph) continue;
+                out[i].mode += 32.0f;
+                out[i].color2 = it.flash;
+            }
         const bool plain = it.plain && !it.lit && it.blend != BlendMode::Multiply;
         const bool opaque = it.opaque && it.blend == BlendMode::Alpha;
         // Textures packed into one atlas share its GPU image, so their quads batch together.

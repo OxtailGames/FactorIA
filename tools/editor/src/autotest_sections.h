@@ -44,6 +44,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"V", "AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator"},
     {"W", "Several AI chats at once: both finish, same-file warning, the cap, Revert of one run, Stop of one run"},
     {"X", "AI settings window: asset providers, a key, asset sites; a bad site stops Save; Remove stored key"},
+    {"Q2", "AI settings per project: a copied file waits for Accept (Ignore, Review), switching project shows the other roles, Reset of a row, Save as my defaults, a project Save, an invalid file"},
     {"Y", "Recipes: stale badge, the banner when a source is saved, Regenerate (toolbar and banner), a missing source"},
     {"Z", "Sprite sheets: the Project panel previews a sheet's clips, the Inspector lists them and one click sets SpriteAnimator.clip"},
     {"B2", "Animation panel: new clip, keys recorded by a gizmo drag, a key moved and undone, easing, an event, scrubbing, onion skin"},
@@ -56,13 +57,16 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"K2", "AI settings, Extensions tab, Skills: the engine's and the project's skills listed, a role and an On box switched, Save keeps them as skill entries"},
     {"F2", "AI settings, Extensions tab, Add TokenEconomizer: the confirmation, a fake Claude Code CLI run, the entry added, Save keeps the other keys, entry-only when the plugin is already installed"},
     {"E4", "Rejected feedback: the engine rejects what it already has, a double click opens an entry in a window, the status combo asks why, closed lists the archive, Copy, Delete asks first, the engine developers' verdict comes back"},
+    {"R2", "Retrospective: the Feedback panel's button looks back at the project's recorded runs, files an efficiency entry with the fast role's model, says what happened and adds up the saving; a second click finds nothing new"},
     {"I2", "Image panel: a document opened, a layer added, a stroke painted, a rectangle selected and moved, an adjustment edited, Undo/Redo through the editor's stack, Save bakes the PNG"},
     {"L3", "Image panel pixel-art tools: the pixel grid and the Tiled preview, the palette bar (add a colour, secondary colour, undo), a frame added with the onion skin, play, Save bakes"},
     {"J2", "Vector panel: an svg opened, a path drawn with the Pen, an anchor moved and made smooth with the Node tool, a marquee and Union, Undo/Redo through the editor's stack, an image document's svg layer edited from the Image panel and baked by Save"},
     {"K3", "Sound panel: a patch opened, a knob turned, played, a selection zoomed, two variants A/B compared at the same loudness, an audio document's chain edited and its loop point dragged, Undo/Redo through the editor's stack, Save bakes the sounds"},
     {"M3", "Music panel: a song opened, a note drawn, moved and deleted on the piano roll, a drum hit, a section repeat and a mute in the mixer, Undo/Redo through the editor's stack, played with a moving playhead, the intensity buttons fading a layer, a looped section, Save bakes the mix and the stems"},
     {"N3", "Model panel: a model document opened as its operation tree and a live view of the mesh, a node picked to highlight its part, a slider clicked (one model.edit), Undo/Redo through the editor's stack, a node added, switched off and removed, the view orbited, the 1.8 m figure and Check, Save bakes the .glb"},
+    {"P3", "Particles panel: New writes a starter effect and opens it, the preview plays it, the time scrubber is dragged (the same moment shows the same particles), a gradient key and curve keys are dragged (one vfx.edit and one undo step each), a part is added and removed, Undo/Redo through the editor's stack back to the file as New wrote it"},
     {"O3", "Animation panel, 3D clips: a generated walk opened on a rigged model, a bone picked in the list and in the view, the rotation gizmo dragged (one key, one undo step), an IK handle dragged, a key moved and deleted in the dopesheet, Mirror pose, the filmstrip sheet, Undo/Redo through the editor's stack"},
+    {"R3", "Level generator window: a drawn level as the sample, Generate, Next / Previous seed (the same seed gives the same level), Keep builds it in the scene as one undo step, Save writes a level file"},
 };
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).

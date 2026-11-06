@@ -182,3 +182,101 @@ TEST_CASE("validate: IK3D solvers are checked against the model's bones, and an 
     REQUIRE(lonely);
     CHECK(lonely->message.find("lonely") != std::string::npos);
 }
+
+namespace {
+// make_project, then the hero's Animator gets `events` (a JSON array text) and `clips`.
+stdfs::path make_event_project(testing::TempDir& tmp, const char* events) {
+    const stdfs::path dir = make_project(tmp, R"({"walk":"anim/walk.anim.json"})");
+    testing::write_all(dir / "anim/walk.anim.json", kGoodClip);
+    auto scene = load_json_file((dir / "scenes/main.scene.json").string());
+    REQUIRE(scene.ok());
+    Json& entities = (*scene)["entities"];
+    for (Json& e : entities)
+        if (e.value("id", std::string()) == "hero") e["components"]["Animator"]["events"] = Json::parse(events);
+    REQUIRE(save_scene_json_file((dir / "scenes/main.scene.json").string(), *scene).ok());
+    return dir;
+}
+}  // namespace
+
+TEST_CASE("validate: inline Animator events with the wrong JSON types name the pointer and the fix") {
+    testing::TempDir tmp;
+    const stdfs::path dir = make_event_project(tmp, R"([{"clip":"walk","time":0.2,"name":"ok"},
+        {"clip":"walk","time":0.2,"name":5},{"clip":"walk","time":0.2,"feel":{"action":5}},{"clip":"walk","time":"x","name":"a"},
+        {"clip":"walk","time":0.2,"feel":{"action":"hitStp"}}])");
+    const ValidationReport r = validate_project(dir.string());
+    CHECK_FALSE(r.ok);
+    bool name = false, action = false, time = false, typo = false;
+    for (const ValidationIssue& i : r.errors) {
+        if (i.pointer.find("events/1/name") != std::string::npos) name = true;
+        if (i.pointer.find("events/2/feel") != std::string::npos) action = true;
+        if (i.pointer.find("events/3/time") != std::string::npos) time = true;
+        if (i.pointer.find("events/4/feel") != std::string::npos && i.message.find("hitStop") != std::string::npos) typo = true;
+    }
+    CHECK(name);
+    CHECK(action);
+    CHECK(time);
+    CHECK(typo);
+}
+
+TEST_CASE("validate: a spawn without a lifetime is a warning unless the prefab ends itself") {
+    testing::TempDir tmp;
+    const stdfs::path dir = make_event_project(tmp, R"([
+        {"clip":"walk","time":0.1,"feel":{"action":"spawn","prefab":"prefabs/dust.prefab.json"}},
+        {"clip":"walk","time":0.2,"feel":{"action":"spawn","prefab":"prefabs/dust.prefab.json","lifetime":0.5}},
+        {"clip":"walk","time":0.3,"feel":{"action":"spawn","prefab":"prefabs/self.prefab.json"}},
+        {"clip":"walk","time":0.4,"feel":{"action":"spawn","prefab":"prefabs/puff.prefab.json"}}])");
+    testing::write_all(dir / "prefabs/dust.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"dust","components":{"Sprite":{}}}})");
+    testing::write_all(dir / "prefabs/self.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"s","components":{"Script":{"path":"scripts/x.js"}}}})");
+    testing::write_all(dir / "prefabs/puff.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"p","components":{"ParticleEmitter":{"autoDestroy":true}}}})");
+    const ValidationReport r = validate_project(dir.string());
+    int lifetimeWarnings = 0;
+    bool firstOne = false;
+    for (const ValidationIssue& w : r.warnings) {
+        if (w.message.find("no `lifetime`") == std::string::npos) continue;
+        ++lifetimeWarnings;
+        if (w.pointer.find("events/0/feel/prefab") != std::string::npos) firstOne = true;
+    }
+    CHECK(lifetimeWarnings == 1);
+    CHECK(firstOne);
+    for (const ValidationIssue& e : r.errors) CHECK_MESSAGE(e.message.find("no `lifetime`") == std::string::npos, e.to_string());
+}
+
+TEST_CASE("validate: a spawn whose prefab instances another prefab that ends itself is not a warning") {
+    testing::TempDir tmp;
+    const stdfs::path dir = make_event_project(tmp, R"([
+        {"clip":"walk","time":0.1,"feel":{"action":"spawn","prefab":"prefabs/wrapper.prefab.json"}},
+        {"clip":"walk","time":0.2,"feel":{"action":"spawn","prefab":"prefabs/loop_a.prefab.json"}},
+        {"clip":"walk","time":0.3,"feel":{"action":"spawn","prefab":"prefabs/vfx.prefab.json"}}])");
+    testing::write_all(dir / "prefabs/inner.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"i","components":{"ParticleEmitter":{"autoDestroy":true}}}})");
+    testing::write_all(dir / "prefabs/wrapper.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"w","components":{"Transform":{}},
+        "children":[{"id":"w_in","prefab":"prefabs/inner.prefab.json"}]}})");
+    testing::write_all(dir / "prefabs/loop_a.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"a","prefab":"prefabs/loop_b.prefab.json"}})");
+    testing::write_all(dir / "prefabs/loop_b.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"b","prefab":"prefabs/loop_a.prefab.json"}})");
+    testing::write_all(dir / "prefabs/vfx.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"v","components":{"Vfx":{"effect":"fx/x.vfx.json","autoDestroy":true}}}})");
+    const ValidationReport r = validate_project(dir.string());
+    int warned = 0;
+    std::string which;
+    for (const ValidationIssue& w : r.warnings)
+        if (w.message.find("no `lifetime`") != std::string::npos) {
+            ++warned;
+            which += w.pointer + " ";
+        }
+    CHECK_MESSAGE(warned == 1, which);   // only the two prefabs that instance each other never end (the cycle ends the walk, no hang)
+    CHECK(which.find("events/1/") != std::string::npos);
+}
+
+TEST_CASE("validate: a sound that exists only as its .qoa twin is not reported missing") {
+    testing::TempDir tmp;
+    const stdfs::path dir = make_event_project(tmp, R"([
+        {"clip":"walk","time":0.1,"feel":{"action":"sound","path":"audio/step.wav"}},
+        {"clip":"walk","time":0.2,"feel":{"action":"sound","path":"audio/gone.wav"}}])");
+    testing::write_all(dir / "audio/step.wav.qoa", "qoa");
+    const ValidationReport r = validate_project(dir.string());
+    bool step = false, gone = false;
+    for (const ValidationIssue& e : r.errors) {
+        if (e.message.find("'audio/step.wav'") != std::string::npos) step = true;   // (the candidates of the other error name the twin)
+        if (e.message.find("'audio/gone.wav'") != std::string::npos) gone = true;
+    }
+    CHECK_FALSE(step);
+    CHECK(gone);
+}

@@ -1,0 +1,18 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Stairs",
+    "tags": ["stairs"],
+    "components": {
+      "Transform": {
+        "position": [0, 0, 0]
+      },
+      "Shape2D": {
+        "shape": "rectangle",
+        "size": [22, 22],
+        "color": [0.35, 0.75, 0.95, 1],
+        "layer": 4
+      }
+    }
+  }
+}

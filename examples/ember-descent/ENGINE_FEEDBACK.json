@@ -1,0 +1,76 @@
+{
+  "format": "factoria.feedback/1",
+  "project": "ember-descent",
+  "engineVersion": "0.16.1",
+  "entries": [
+    {
+      "id": "FB-0001",
+      "date": "2026-11-05",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "No way to place exactly one marker with the level generator",
+      "missing": "tilemap.generate copies the patterns of the sample, so a marker that is unique in the sample (the player start, the stairs) appears 2-4 times in a result, and constraints.counts with max 1 then refuses attempt after attempt (\"4 cells hold @, at most 1 are allowed\"). counts is checked after a level is finished; it does not steer the solver. A roguelike floor needs one entrance and one exit.",
+      "workaround": "The sample has no @ or >; scripts/floor_plan.js picks the player start and the stairs on cells of the returned rows (first free cell of the biggest trap-free region, and the farthest cell by steps).",
+      "workaroundFiles": [
+        "scripts/floor_plan.js",
+        "levels/sample.json"
+      ],
+      "suggestion": "Let counts with max 1 (or an \"exactly\" field) steer the solver, e.g. by banning a tile once its count is reached, or add constraints.place [{tile, where: farthest|nearest|random, from}] that puts a marker on a free cell after the level is finished.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "FactorIA 0.17.0",
+      "notes": [
+        "constraints.counts max now steers the solver (a tile that reached its max is banned from the open cells, with propagation), and constraints.place [{tile, count, where: farthest|nearest|random, from, on}] puts markers on the finished level by walking distance; glyphs that only the legend defines can be placed. The example's scripts/floor_plan.js is gone: the sample's legend names @ and >, and constraints.place puts the player and the stairs."
+      ]
+    },
+    {
+      "id": "FB-0002",
+      "date": "2026-11-05",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "Nothing says which samples pass reachability allConnected",
+      "missing": "A sample of rooms joined by one-cell corridors (the usual hand-drawn dungeon) fails reachability.allConnected on nearly every seed: \"8 walkable area(s) are cut off from the main one\" after 60 attempts, with n 2 or 3 and any symmetry. The error hints at maxAttempts and another seed, which does not help; only a sample with open areas and wide passages gave a level on 20 of 20 seeds in 1-14 attempts.",
+      "workaround": "levels/sample.json is an open cave with pillars and 2-3 cell wide passages; all of tests/dungeon.test.js runs 8 run seeds through it.",
+      "workaroundFiles": [
+        "levels/sample.json"
+      ],
+      "suggestion": "Say it in docs/AI_GUIDE.md section 9.8 next to allConnected (done in the same change as this example) and let the refused-level error name the sample shape as a cause when cut-off areas are the reason for more than half of the attempts.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0003",
+      "date": "2026-11-05",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "The generation progress moves in steps, not steadily",
+      "missing": "job.progress of tilemap.generate only changes when an attempt ends: floors of run seeds 3, 42 and 99999 showed 1 60 60 60 68 68 ... 92 (seed 42: 54 for eleven frames, then 92 for ten) over 12 to 23 frames, and the number of attempts varies from 1 to about 20 with the seed. A progress bar that follows it looks stuck and then jumps.",
+      "workaround": "The HUD prints the percentage as it comes and the text says \"Digging floor N...\"; the game does not wait on any frame count.",
+      "suggestion": "Make progress follow the solver inside an attempt (cells collapsed / cells), or say in docs/SCRIPTING.md that it moves per attempt so a game shows a spinner instead of a bar.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "FactorIA 0.17.0",
+      "notes": [
+        "job.progress follows the solver inside an attempt (cells decided / cells, scaled into the attempt's part of the bar) and never goes down across attempts; docs/AI_GUIDE.md and docs/SCRIPTING.md say so."
+      ]
+    }
+  ]
+}

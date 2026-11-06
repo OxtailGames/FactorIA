@@ -855,7 +855,7 @@ TEST_CASE("schemas/anim3d.schema.json lists what the loader accepts") {
                                                                  "groundSpeed", "tracks", "events", "contacts", "generated"});
     CHECK(keysOf(schema["$defs"]["track"]["properties"]) == std::set<std::string>{"bone", "channel", "keys"});
     CHECK(keysOf(schema["$defs"]["key"]["properties"]) == std::set<std::string>{"t", "value", "interp", "in", "out"});
-    CHECK(keysOf(schema["$defs"]["event"]["properties"]) == std::set<std::string>{"t", "name", "data"});
+    CHECK(keysOf(schema["$defs"]["event"]["properties"]) == std::set<std::string>{"t", "name", "data", "feel"});
     CHECK(keysOf(schema["$defs"]["contact"]["properties"]) == std::set<std::string>{"bone", "from", "to"});
     std::set<std::string> eases;
     for (const Json& n : schema["$defs"]["key"]["properties"]["interp"]["anyOf"][1]["enum"]) eases.insert(n.get<std::string>());

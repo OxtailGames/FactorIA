@@ -102,6 +102,8 @@ struct TestHost : ScriptHost {
         return {};
     }
     CommandRegistry& commands() override { return cmds; }
+    std::vector<int> droppedJobs;   // what ScriptSystem asked to forget (tilemap.generate jobs it started)
+    void drop_script_jobs(const std::vector<int>& jobs) override { droppedJobs.insert(droppedJobs.end(), jobs.begin(), jobs.end()); }
     Json project_settings() const override { return proj; }
     double fixed_dt() const override { return fdt; }
     void request_scene_change(std::string_view p) override { pendingScene = std::string(p); }

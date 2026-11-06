@@ -11,6 +11,7 @@
 #include "fa/mcp/client_config.h"
 #include "fa/mcp/server.h"
 #include "fa/mcp/transport.h"
+#include "fa/tooling/feedback_share.h"
 #include "fa/tooling/tooling.h"
 #include "fa/core/fs.h"
 
@@ -290,6 +291,20 @@ TEST_CASE("mcp: ai.plugin_install is neither listed nor callable (only the user 
     CHECK_FALSE(is_user_only_command("ai.run"));
 }
 
+TEST_CASE("mcp: a tools/call runs its command as an MCP client's call (command_caller), the library call as the user's") {
+    Fixture f;
+    CommandInfo i;
+    i.name = "test.who_calls";
+    i.summary = "Says who the caller of the running command is.";
+    f.registry.add(i, [](const Json&) { return Json::object({{"caller", command_caller_name(command_caller())}}); });
+    f.initialize();
+    const Json viaMcp = f.call("test_who_calls");
+    REQUIRE(viaMcp["result"]["isError"] == false);
+    CHECK(viaMcp["result"]["structuredContent"]["caller"] == "an MCP client");
+    CHECK(command_caller() == CommandCaller::User);  // the scope ended with the call
+    CHECK(f.registry.call("test.who_calls").result["caller"] == "the user");
+}
+
 TEST_CASE("mcp: $image results add an image content block") {
     Fixture f;
     Json res = f.call("test_shot")["result"];
@@ -317,6 +332,20 @@ TEST_CASE("mcp: $image results add an image content block") {
 }
 
 TEST_CASE("mcp: tool calls through the real tooling commands") {
+    // feedback_report takes the lock of the user's sharing files: in a scratch folder, never the real ~/.factoria.
+    const std::filesystem::path scratch = fa::fs::make_temp_dir("fa_mcp_home");
+    fa::ShareEnv scratchEnv;
+    scratchEnv.env = [h = scratch.string()](const std::string& name) -> std::string {
+        return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? h : "";
+    };
+    fa::ScopedShareEnv scopedHome(scratchEnv);
+    struct Cleanup {
+        std::filesystem::path dir;
+        ~Cleanup() {
+            std::error_code ec;
+            fa::fs::remove_tree(dir, ec);
+        }
+    } cleanup{scratch};
     Fixture f;
     Json w = f.call("fs_write", {{"path", "notes.txt"}, {"content", "hello"}})["result"];
     CHECK(w["isError"] == false);

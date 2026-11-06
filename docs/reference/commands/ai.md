@@ -81,6 +81,20 @@ action "list" (default) shows providers and the role mapping from ~/.factoria/ai
 |---|---|---|---|
 | `action` | string ["list","doctor"] | no | list or doctor. Default "list". |
 
+## `ai.retrospective` (modifies state)
+
+Since 0.17.0.
+
+Look back at this project's recorded AI runs, find where they wasted steps, minutes or tokens and file at most three efficiency entries.
+
+Efficiency feedback without writing the report by hand (docs/ENGINE_FEEDBACK.md, "Efficiency feedback"; docs/AI_PROVIDERS.md, "Retrospective"). Step 1 is mechanical, no model: it reads the transcripts of <project>/.factoria/ai/sessions and measures the usual waste (the same command failing with the same code, the same doc or file read again and again, tool results over 40 KB, five or more screenshots in a row, calls that waited a minute or more, long edit-run-check loops, commands an open ENGINE_FEEDBACK workaround already names). The same transcripts always give the same candidates and numbers. Step 2 is one short call of the fast role that picks at most three candidates a fix in the ENGINE would remove and writes each as an entry; every entry goes through the same gate as feedback.report with kind "efficiency" (threshold per fix type, the cheapest fix, dedupe by fix), and what the gate refuses comes back in `dropped` with the reason. A lesson that is true only of this game becomes a project-fact proposal instead (ai.savers shows it; ai.saver_fact accepts it). Nothing is shared or sent: entries stay in ENGINE_FEEDBACK.json like any other. Evidence already counted by an open efficiency entry is skipped (`alreadyFiled`). It also checks the fixes of earlier entries: an efficiency entry the engine fixed (fixed-in-engine, with the version, the day and what one occurrence cost before) is compared with the same pattern in the transcripts since that day, when the engine of this build is at least the fixing version; the answer (waiting, gone, worked, partial, no_change) is returned in `fixChecks` and recorded on the entry (`fixCheck`, nothing is written with candidatesOnly), and a pattern a fix did not remove is filed again with `afterFix` set to that version. Returns {sessions:[{id, agent, steps, minutes, tokens, costUsd, estimated}], candidates:[{id, pattern, summary, count, spans, measured, maxShare, potentialSaving, suggestedFix, appliesTo, projectOnly}], alreadyFiled, fixChecks:[{entry, pattern, fixedIn, fixedAt, result, sessionsAfter, spansAfter, ratio, before, after?, text}], filed:[{candidate, id, merged, title, fixType, saving, measured}], dropped:[{candidate, code, reason}], skipped:[{id, reason}] (transcripts not read: over 64 MB, or past the 256 MB one pass reads), facts:[{candidate, id, line}], model, usage, costUsd (what the model call cost), note}. Without a model (no key, fast role off and no orchestrator) the candidates come back and `note` says why. It runs by itself after a long run when ai.json savers.retrospective is on (150 model calls or $3 by default). One runs at a time: a second call gets code busy. A Stop while it works returns code cancelled and files nothing. Spends tokens of the fast role. Example: {"since":"2026-11-01"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `sessions` | array | no | Transcripts to read, by file name in .factoria/ai/sessions (20261014-153012-orchestrator, with or without .jsonl; ai.session_timeline names them). Omit for the newest 40. |
+| `since` | string | no | Only transcripts that began at or after this UTC date (2026-11-01) or date and time (2026-11-01T09:30). Omit for all. |
+| `candidatesOnly` | boolean | no | Only the mechanical pass: no model is asked and nothing is filed. Free and repeatable. Default false. |
+
 ## `ai.review` (modifies state)
 
 Since 0.4.0.
@@ -131,7 +145,7 @@ Reads <project>/.factoria/ai/reviews/. Each entry has id, path, role, persona, t
 
 Run an AI agent on a task in the current project (blocks until it finishes).
 
-Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchestrator). CLI providers (claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role "worker" (code), "fast" (small edits), "artist" (all the art) or "audio" (all the sound) and a self-contained task; the result's finalText is the sub-agent's report. The roles artCritic and reviewer are refused here: only the user asks for reviews (ai.review). A role the user turned off (roles.<role>.enabled false in ai.json) is refused too (error role_off): do that work yourself. Example: {"task":"Add a pause menu","role":"orchestrator","maxCostUsd":2}
+Uses the provider/model mapped to `role` in ~/.factoria/ai.json with this project's AI settings laid over it (the project's .factoria/ai/settings.json, once the user accepted it; ai.settings.get says what the project runs with) (default role orchestrator). CLI providers (claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role "worker" (code), "fast" (small edits), "artist" (all the art) or "audio" (all the sound) and a self-contained task; the result's finalText is the sub-agent's report. The roles artCritic and reviewer are refused here: only the user asks for reviews (ai.review). A role the user turned off (roles.<role>.enabled false in ai.json) is refused too (error role_off): do that work yourself. Example: {"task":"Add a pause menu","role":"orchestrator","maxCostUsd":2}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -177,7 +191,7 @@ Since 0.11.0.
 
 Show the engine's token savers (loop guard, learned tool groups, project facts), what this project's runs learned and the proposals waiting for an answer.
 
-The built-in agent loop (the API providers) has three savers, each with a switch in ai.json "savers" and in the editor's AI settings > Extensions tab (docs/AI_PROVIDERS.md, Token savers). Returns {switches:{loopGuard, loopGuardJudge, learnedToolGroups, projectFacts}, thresholds, projectFile:{path, exists} (.factoria/ai/savers.json), runs:{<role>:n}, groups:{<role>:{<group>:{runs, commands:{<command>:n}, status accepted|declined|""}}} (the commands the runs loaded from the tool catalog), acceptedGroups:{<role>:[group]}, facts:{<id>:{runs, status, line}}, proposals:{toolGroups:[{role, group, runs, commands, definitionBytes}], facts:[{id, command, code, runs, line}]}}. A proposal changes nothing until it is accepted with ai.saver_group or ai.saver_fact; nothing is ever denied. Read-only. Example: {}
+The engine has these savers, each with a switch in ai.json "savers" and in the editor's AI settings > Extensions tab (docs/AI_PROVIDERS.md, Token savers): the loop guard, learned tool groups and project facts of the built-in agent loop (the API providers) and the retrospective after a long run (ai.retrospective). Returns {switches:{loopGuard, loopGuardJudge, learnedToolGroups, projectFacts, retrospective, retrospectiveSteps, retrospectiveCostUsd}, thresholds, projectFile:{path, exists} (.factoria/ai/savers.json), runs:{<role>:n}, groups:{<role>:{<group>:{runs, commands:{<command>:n}, status accepted|declined|""}}} (the commands the runs loaded from the tool catalog), acceptedGroups:{<role>:[group]}, facts:{<id>:{runs, status, line}}, proposals:{toolGroups:[{role, group, runs, commands, definitionBytes}], facts:[{id, command, code, runs, line}]}}. A proposal changes nothing until it is accepted with ai.saver_group or ai.saver_fact; nothing is ever denied. Read-only. Example: {}
 
 ## `ai.session_timeline`
 
@@ -191,6 +205,32 @@ Reads one transcript of <project>/.factoria/ai/sessions/ (every event has "t", t
 |---|---|---|---|
 | `session` | string | no | File name of the session (20261014-153012-orchestrator or with .jsonl) in .factoria/ai/sessions. Omit for the newest. |
 | `minGapSeconds` | number | no | List only the gaps at least this long (seconds). Totals always count every gap. Default 30. |
+
+## `ai.settings.get`
+
+Since 0.17.0.
+
+Show the AI settings (roles, limits, assets, savers, tool servers, extensions) with where each value comes from: this project, your defaults or the engine.
+
+The AI settings of a project resolve key by key: the engine's defaults, then your ~/.factoria/ai.json, then the project's own file (<project>/.factoria/ai/settings.json), docs/AI_PROVIDERS.md "Per project". scope "resolved" (default) returns {scope, project (the folder, or null), values:[{pointer, value, source}], projectSettings} with the values the project runs with (JSON pointers like /roles/artist/enabled or /limits/maxTurns) and `source` "project", "you" or "default"; projectSettings is the file's state when the project has one. scope "project" returns the project file itself: {scope, project, file, exists, overrides (the raw file), applied, pendingTrust, pending:[{pointer, from, to}], invalidError}. A project file the user has not accepted on this computer (it came inside a copied project, or an AI wrote it with ai.settings.set) has no effect yet: pendingTrust is true and `pending` lists what it would change; an invalid one that is not accepted is in invalidError and has no effect either. scope "user" returns your own ai.json view: {scope, configPath, configFound, values} with source "you" (the file sets it, or it differs from the engine's) or "default". Read-only; providers and keys are never part of it. Example: {"scope":"resolved"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `scope` | string ["resolved","project","user"] | no | resolved: what this project runs with, each value with its source. project: the project's own file. user: your ai.json. Default "resolved". |
+
+## `ai.settings.set` (modifies state)
+
+Since 0.17.0.
+
+Change one AI setting of this project; a project change waits for the user to accept it in the editor. Your own defaults (scope user) only the user changes.
+
+Writes ONE value, named by its JSON pointer as ai.settings.get lists them (/roles/artist/enabled, /roles/worker/model, /limits/maxCostUsd, /savers/loopGuard, /assets/image/provider, /assetSources/images, /mcpServers/<name> true or false, /extensions/plugins/<name> true or false). scope "project" writes <project>/.factoria/ai/settings.json (only what differs from your defaults is kept). scope "user" writes the user's own ~/.factoria/ai.json defaults and is only for the user (`factoria call`): an AI agent or MCP client that asks for it gets the error user_only, and the user changes them in the editor's AI settings window (Your defaults). `value` null removes the setting: from the project file (it goes back to your default) or from ai.json (it goes back to the engine's). A new provider for a role or asset route drops its model, effort and voice. A project can only NAME providers, tool servers and extensions that your ai.json defines, and never holds a command, address, header, environment or key: such keys, and pointers that are not settings, are refused with where they belong and a "did you mean" (errors unknown_pointer, rejected_key, invalid_setting). IMPORTANT: this command NEVER accepts a project file: setting a value never writes ai-trust.json. A project file written here is NOT applied until the user accepts it once in the editor (AI settings, with this project open); until then the project runs with the user's settings. Setting a value in an already accepted file makes the whole file wait for acceptance again. Removing a value (null) from an accepted file keeps it accepted (it only gets smaller; its acceptance is updated to the smaller file), and a removal that empties the file deletes it and forgets its acceptance; removing a value from a file that is not accepted leaves it waiting. The result says so: needsAcceptance true plus a hint. Returns {ok, scope, pointer, removed (true only when a value was really taken out: null for a setting the file did not hold changes nothing, says removed false and a hint that nothing changed), value (what you asked for), runsWith (what the project runs with right now, which is unchanged while its file waits), source (where runsWith comes from), file, needsAcceptance, applied, hint}; scope "user" also returns changed: [{pointer, from, to}], every setting whose value is different now (a new provider for a role also drops its model, effort and voice). Example: {"scope":"project","pointer":"/roles/artist/enabled","value":false}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `scope` | string ["project","user"] | yes | project: this project's file (waits for the user's acceptance). user: the user's ai.json defaults; refused for an AI agent or MCP client (only the user changes them). |
+| `pointer` | string | yes | JSON pointer of one value, like /roles/artist/enabled (ai.settings.get lists them). |
+| `value` | any | yes | The new value (boolean, number, string, or an array for /assetSources/<category>). null removes the setting. |
 
 ## `ai.tool_plan`
 

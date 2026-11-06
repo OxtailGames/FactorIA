@@ -292,38 +292,8 @@ Result<std::shared_ptr<const Anim3DClip>> parse_anim3d(const Json& json, std::st
             for (std::size_t i = 0; i < eit->size(); ++i) {
                 const Json& ej = (*eit)[i];
                 const std::string ep = "/events/" + std::to_string(i);
-                if (!ej.is_object()) { p.err(ep, "an event is an object, got " + describe_json_value(ej), "Write {\"t\": 0.25, \"name\": \"footstep\", \"data\": {}}."); continue; }
-                p.unknown_keys(ej, ep, {"t", "name", "data"});
                 ClipEvent ev;
-                bool evOk = true;
-                if (auto it = ej.find("t"); it == ej.end() || !read_number(*it, ev.t)) {
-                    p.err(ep + "/t", it == ej.end() ? "an event needs `t`" : "t must be a number of seconds, got " + describe_json_value(*it), "Write t in seconds from the start of the clip.");
-                    evOk = false;
-                } else if (ev.t < 0 || (durationOk && ev.t > duration + 1e-6f)) {
-                    p.err(ep + "/t", std::format("t is {}, outside the clip (0 to {})", ev.t, duration), "Move the event inside the clip, or raise `duration`.");
-                    evOk = false;
-                }
-                if (auto it = ej.find("name"); it == ej.end() || !it->is_string() || it->get<std::string>().empty()) {
-                    p.err(ep + "/name", it == ej.end() ? "an event needs `name`" : "name must be a non-empty string, got " + describe_json_value(*it),
-                          "The name is the game event world.on(name, fn) listens to.");
-                    evOk = false;
-                } else {
-                    ev.name = it->get<std::string>();
-                }
-                if (auto it = ej.find("data"); it != ej.end()) {
-                    if (!it->is_object()) {
-                        p.err(ep + "/data", "data must be an object, got " + describe_json_value(*it), "Write {\"foot\": \"left\"}.");
-                        evOk = false;
-                    } else {
-                        for (const char* reserved : {"id", "clip", "time"})
-                            if (it->contains(reserved)) {
-                                p.err(ep + "/data/" + reserved, std::string("data cannot use the key '") + reserved + "': the engine sends {id, clip, time} with every clip event", "Rename the key.");
-                                evOk = false;
-                            }
-                        ev.data = *it;
-                    }
-                }
-                if (evOk) clip->events.push_back(std::move(ev));
+                if (read_clip_event(ej, ep, duration, durationOk, ev, p.issues)) clip->events.push_back(std::move(ev));
             }
             std::stable_sort(clip->events.begin(), clip->events.end(), [](const ClipEvent& a, const ClipEvent& b) { return a.t < b.t; });
         }
@@ -401,8 +371,11 @@ Json anim3d_to_json(const Anim3DClip& c) {
     if (!c.events.empty()) {
         Json ev = Json::array();
         for (const ClipEvent& e : c.events) {
-            Json o = {{"t", num(e.t)}, {"name", e.name}};
+            Json o = {{"t", num(e.t)}};
+            if (!e.name.empty()) o["name"] = e.name;
             if (e.data.is_object() && !e.data.empty()) o["data"] = e.data;
+            if (e.feel.size() == 1) o["feel"] = e.feel.front();
+            else if (!e.feel.empty()) o["feel"] = Json(e.feel);
             ev.push_back(o);
         }
         j["events"] = ev;
@@ -540,7 +513,7 @@ AnimClip anim3d_to_anim_clip(const Anim3DClip& clip, const Anim3DBinding& bindin
     out.name = name;
     out.duration = clip.duration;
     out.loop = clip.loop ? 1 : 0;
-    for (const ClipEvent& e : clip.events) out.events.push_back({e.t, e.name, e.data});
+    for (const ClipEvent& e : clip.events) out.events.push_back({e.t, e.name, e.data, e.feel});
     for (std::size_t ti = 0; ti < clip.tracks.size() && ti < binding.node.size(); ++ti) {
         const int node = binding.node[ti];
         if (node < 0) continue;

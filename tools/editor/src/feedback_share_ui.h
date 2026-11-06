@@ -36,6 +36,7 @@ struct ShareAutotestNet {
 struct ShareUi {
     // --- polling (once a second, only the files that changed are read again)
     double tickAt = -10;
+    ShareKeyCache folderCache{30.0};   // the folder facts of the outbox items (stat calls), kept between ticks for 30 s
     std::string docFile;               // the feedback file the numbers below are about
     std::int64_t docStamp = INT64_MIN; // its modification time when they were read
     bool docRecheck = false;            // read once more next tick: a write right after the read may have kept the same time
@@ -61,6 +62,9 @@ struct ShareUi {
     // --- ask mode: the entries that wait for the person's answer (the Send feedback window lists them; a notification opens it)
     std::vector<OutboxItem> waiting;
     std::set<std::string> notified;    // outbox keys the person was already told about
+    std::string queueError;            // why the last share_queue of the tick failed ("" = it worked): told once, not every second
+    double queueErrorAt = -1000;
+    double queueRetryAt = 0;           // after a failed share_queue the tick waits until then before asking the lock again
 
     // --- the Send feedback window. One session per opening: everything that arrives later from a thread carries the session it was
     // started for and is dropped when the window is closed or was opened again since.

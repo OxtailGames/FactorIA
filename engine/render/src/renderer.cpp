@@ -145,6 +145,8 @@ struct Renderer::Impl {
     std::uint64_t shadowRowsKey[kShadowRowsRing]{};
     int shadowRowsCurrent = 0;
     bool updated = false;  // update() ran since the last draw
+    std::uint32_t animPass = 0;       // the number of the current advance_animators() pass (SpriteAnimator::advancedPass)
+    bool animatorsAdvanced = false;   // advance_animators() ran since the last update()
     ScaleMode scaleMode = ScaleMode::Fit;
     std::vector<Vertex2D> stream;
 
@@ -741,7 +743,7 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     Mat4 camWorld;
     if (best) {
         cam = *world.get<Camera>(best);
-        camWorld = world.world_matrix(best);
+        camWorld = world.drawn_matrix(best);
         ci.fromEntity = true;
         ci.entity = best;
         ci.depth = cam.depth;
@@ -1102,6 +1104,7 @@ Vec2 Renderer::design_to_framebuffer(Vec2 d, int fbW, int fbH, ScaleMode mode) c
 // ---------------------------------------------------------------------------
 // render_world
 // ---------------------------------------------------------------------------
+void Renderer::reset_particles() { clear_particles(); }
 render::Gpu* render::renderer_gpu(Renderer& r) { return r.impl_ ? &r.impl_->gpu : nullptr; }
 
 void Renderer::update(World& world, float dt) {
@@ -1114,6 +1117,8 @@ void Renderer::update(World& world, float dt) {
     fr.textScale = im.textScale;
     fr.uiScale = ui_scale_clamped(world.ui_scale());
     fr.warnedSpriteClip = &im.warnedSpriteClip;
+    fr.animPass = im.animatorsAdvanced ? im.animPass : 0;  // 0 = no early pass: every animator moves here
+    im.animatorsAdvanced = false;
     update_animators(world, fr, true);
     update_particles(world, dt);
     // Camera queries (world_to_screen, screen_to_world, screen_ray, camera_at) must not depend on drawing:
@@ -1121,6 +1126,21 @@ void Renderer::update(World& world, float dt) {
     im.lastCams = im.collect_cameras(world);
     update_parallax(world, im.lastCams.front().position.xy());  // entity.bounds() of a parallax layer follows the camera in headless runs too
     im.updated = true;
+}
+
+void Renderer::advance_animators(World& world, float dt) {
+    if (!initialized()) return;
+    Impl& im = *impl_;
+    Frame fr;
+    fr.dt = dt;
+    fr.assets = im.assets.get();
+    fr.fonts = im.fonts.get();
+    fr.warnedSpriteClip = &im.warnedSpriteClip;
+    if (++im.animPass == 0) ++im.animPass;  // 0 means "none"
+    fr.animPass = im.animPass;
+    fr.animEarly = true;
+    update_animators(world, fr, true);
+    im.animatorsAdvanced = true;
 }
 
 void Renderer::emit_burst(Entity e, int count) {
@@ -1402,7 +1422,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 if (!mr) continue;
                 if (!fr.mask.draws(world, ref.e)) continue;  // a mesh this camera does not draw shows nothing to it
                 const MeshAsset* mesh = assets->mesh(mr->mesh);
-                if (!box_in_frustum(fr.cam.viewProj, z01, mesh->bmin, mesh->bmax, world.world_matrix(ref.e))) continue;
+                if (!box_in_frustum(fr.cam.viewProj, z01, mesh->bmin, mesh->bmax, world.drawn_matrix(ref.e))) continue;
                 for (int t : ref.targets) {
                     if (t == i) self = true;
                     else targetDeps[std::size_t(i)].insert(t);
@@ -1534,10 +1554,12 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     std::vector<LightData> lights;
     int shadowLight = -1;
     Vec3 lightDirForShadow{0, -1, 0};
+    fr.anyFlash = world.feel().any_flash();
     if (fr.wantWorld) world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
         if (!entity_active(world, fr, e) || !fr.mask.draws(world, e)) return;  // Camera.showTags / hideTags
         MeshItem mi;
-        mi.model = world.world_matrix(e);
+        if (const auto flash = inherited_flash(world, fr, e)) mi.flash = *flash;  // feel.h: flashing items never share a draw
+        mi.model = world.drawn_matrix(e);
         mi.dist = length(mi.model.translation() - fr.cam.position);
         mi.mesh = assets->mesh(mr.lods.empty() ? mr.mesh : lod_mesh(mr, mi.dist));  // MeshRenderer::lods
         mi.mr = &mr;
@@ -1811,6 +1833,18 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
         fu.fa_maps[0] = mi.normalTex ? mr.normalScale : part.normalScale;
         fu.fa_maps[1] = part.occlusionStrength;
         fu.fa_maps[2] = d.normal ? 1.0f : 0.0f;
+        if (mi.flash.a > 0.0f && !d.error) {
+            // A flash (feel.h) needs no shader change: the surface colour fades to nothing and the emission, which both the lit
+            // and the unlit path add at the end (fog comes after), carries the flash colour. Lit meshes keep a little
+            // specular and image-based reflection of their own.
+            const float k = 1.0f - std::min(mi.flash.a, 1.0f), a = 1.0f - k;
+            const float flash[3] = {mi.flash.r, mi.flash.g, mi.flash.b};
+            for (int i = 0; i < 3; ++i) {
+                fu.fa_base_color[i] *= k;
+                fu.fa_emissive[i] = fu.fa_emissive[i] * k + flash[i] * a;
+                fu.fa_model_emissive[i] *= k;
+            }
+        }
         return fu;
     };
     // The packed params and textures of a custom material for one batch (its overrides are the same for every item).

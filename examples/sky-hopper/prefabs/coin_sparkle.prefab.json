@@ -1,0 +1,66 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Coin Sparkle",
+    "tags": ["fx"],
+    "components": {
+      "Transform": {
+        "position": [0, 0, 0]
+      }
+    },
+    "children": [
+      {
+        "name": "Back",
+        "components": {
+          "Transform": {
+            "position": [0, 0, 0]
+          },
+          "Sprite": {
+            "texture": "assets/fx/coin_sparkle_back.png",
+            "size": [72, 72],
+            "layer": 2,
+            "pixelArt": false
+          },
+          "SpriteAnimator": {
+            "clip": "coin_sparkle"
+          }
+        }
+      },
+      {
+        "name": "Front",
+        "components": {
+          "Transform": {
+            "position": [0, 0, 0]
+          },
+          "Sprite": {
+            "texture": "assets/fx/coin_sparkle_front.png",
+            "size": [72, 72],
+            "layer": 20,
+            "pixelArt": false
+          },
+          "SpriteAnimator": {
+            "clip": "coin_sparkle"
+          }
+        }
+      },
+      {
+        "name": "Light",
+        "components": {
+          "Transform": {
+            "position": [0, 0, 0]
+          },
+          "Sprite": {
+            "texture": "assets/fx/coin_sparkle_light.png",
+            "size": [72, 72],
+            "layer": 21,
+            "pixelArt": false,
+            "blend": "additive"
+          },
+          "SpriteAnimator": {
+            "clip": "coin_sparkle"
+          }
+        }
+      }
+    ]
+  }
+}

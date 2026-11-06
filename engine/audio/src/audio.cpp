@@ -28,6 +28,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/core/video.h"
+#include "fa/scene/feel.h"
 #include "sokol_audio.h"
 
 #if defined(__APPLE__)
@@ -2513,6 +2514,18 @@ void Audio::update(World& world, float dt) {
         im.lastWorld = &world;
     }
     ++im.stamp;
+
+    // ---- sounds that game feel actions (clip events, feel.do) queued since the last frame: one-shots on their bus
+    for (const FeelSound& fs : feel_take_sounds(world)) {
+        FeelState& feel = world.feel();
+        if (feel.failedSounds.count(fs.options.path)) continue;  // it failed before in this scene (said once): not decoded and searched for again
+        PlayParams pp;
+        pp.volume = fs.options.volume;
+        pp.pitch = fs.options.pitch;
+        pp.pan = fs.options.pan;
+        pp.bus = fs.options.bus;
+        if (im.start(fs.options.path, pp, fs.source) == 0 && feel.failedSounds.size() < 256) feel.failedSounds.insert(fs.options.path);
+    }
 
     // ---- listener: AudioListener entity, else the primary (or first) camera
     bool haveListener = false;

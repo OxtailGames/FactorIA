@@ -6,16 +6,17 @@
 
 Since 0.7.0.
 
-Add an event to a clip: a game event sent when the clip passes its time.
+Add an event to a clip: a game event and/or game feel actions run when the clip passes its time.
 
-The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: {path, event (index), undo}. Example: anim.add_event {"path":"anim/hero_walk.anim.json","t":0.2,"name":"footstep","data":{"foot":"left"}}
+The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. `feel` is one game feel action or an array of them (hitStop, shake, flash, knockback or push, squash, spawn, sound: docs/GAME_FEEL.md, "Effects as data"), run on the entity that plays the clip; they are checked now, so a typo is refused with the option names. An event needs `name` or `feel`. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: {path, event (index), undo}. Example: anim.add_event {"path":"anim/hero_attack.anim.json","t":0.3,"feel":[{"action":"hitStop","duration":0.06},{"action":"shake","amount":0.3}]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The clip file (.anim.json). |
 | `t` | number | yes | Seconds from the start of the clip. |
-| `name` | string | yes | The game event name. |
+| `name` | string | no | The game event name. Optional when `feel` is given. |
 | `data` | object | no | Extra fields sent with the event. |
+| `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}. |
 | `extendDuration` | boolean | no |  Default false. |
 
 ## `anim.add_track` (modifies state)
@@ -64,7 +65,7 @@ Creates the file with `duration` seconds, `loop`, and optionally its `tracks` an
 | `loop` | boolean | no | true repeats the clip, false stops on the last pose (anim.finished). Default true. |
 | `doc` | string | no | What the clip shows. |
 | `tracks` | array | no | Tracks [{path, component, field, keys:[{t, value, interp?}]}]; none = an empty clip to fill with anim.set_keys. |
-| `events` | array | no | Events [{t, name, data?}] sent to the game when the clip passes t. |
+| `events` | array | no | Events [{t, name?, data?, feel?}]: a game event and/or game feel actions run when the clip passes t. |
 | `overwrite` | boolean | no | Replace the file if it exists. Default false. |
 
 ## `anim.filmstrip`
@@ -152,7 +153,7 @@ Since 0.7.0.
 
 Remove an event from a clip.
 
-`event` is the event's index, or {t, name?}. Result: {path, removed: {t, name, data?}, undo}. Example: anim.remove_event {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"}}
+`event` is the event's index, or {t, name?}. Result: {path, removed: {t, name?, data?, feel?}, undo}. Example: anim.remove_event {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -219,16 +220,17 @@ Give any of `duration` (seconds), `loop` and `doc`. A duration shorter than the 
 
 Since 0.7.0.
 
-Rename an event of a clip or replace its data.
+Rename an event of a clip, or replace its data or its game feel actions.
 
-`event` is the event's index, or {t, name?}. Give `name` and/or `data` (an object that REPLACES the event's data; {} clears it). Result: {path, event, undo}. Example: anim.set_event {"path":"anim/hero_walk.anim.json","event":0,"name":"step","data":{"foot":"right"}}
+`event` is the event's index, or {t, name?}. Give `name`, `data` (an object that REPLACES the event's data; {} clears it) and/or `feel` (an action or an array of actions that REPLACE the event's; null or [] removes them). `name` null removes the name; an event keeps `name` or `feel`. Result: {path, event, undo}. Example: anim.set_event {"path":"anim/hero_walk.anim.json","event":0,"name":"step","data":{"foot":"right"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The clip file (.anim.json). |
 | `event` | any | yes | Index of the event, or {t, name?}. |
-| `name` | string | no | The new event name. |
+| `name` | any | no | The new event name; null removes it (the event then needs `feel`). |
 | `data` | object | no | The new data object. |
+| `feel` | any | no | The new game feel action(s); null or [] removes them. |
 
 ## `anim.set_interp` (modifies state)
 
@@ -266,16 +268,17 @@ Add or replace keys of one track of a clip, creating the track if it is missing.
 
 Since 0.16.0.
 
-Add an event to a 3D clip: a game event the Animator sends when the clip passes its time.
+Add an event to a 3D clip: a game event and/or game feel actions the Animator runs when the clip passes its time.
 
-The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: the clip summary plus {event, undo}. Example: {"path":"anim/hero_walk.anim.json","t":0.2,"name":"footstep","data":{"foot":"left"}} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. `feel` is one game feel action or an array (hitStop, shake, flash, knockback or push, squash, spawn, sound: docs/GAME_FEEL.md, "Effects as data") run on the entity that plays the clip; they are checked now. An event needs `name` or `feel`. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: the clip summary plus {event, undo}. Example: {"path":"anim/hero_walk.anim.json","t":0.2,"name":"footstep","data":{"foot":"left"}} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
 | `t` | number | yes | Seconds from the start of the clip. |
-| `name` | string | yes | The game event name. |
+| `name` | string | no | The game event name. Optional when `feel` is given. |
 | `data` | object | no | Extra fields sent with the event. |
+| `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}; on set_event they replace the old ones, null or [] removes them. |
 | `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
 
 ## `anim3d.create`
@@ -477,9 +480,9 @@ Give any of `duration` (seconds; shorter than the last key or event is refused),
 
 Since 0.16.0.
 
-Move, rename or change the data of an event of a 3D clip.
+Move, rename or change the data or the game feel actions of an event of a 3D clip.
 
-`event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Give any of `t` (move it), `name` and `data` (an empty object or null clears it). Events stay sorted by t. Result: the clip summary plus {undo}. Example: {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"},"t":0.25} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+`event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Give any of `t` (move it), `name`, `data` (an empty object or null clears it) and `feel` (an action or an array that REPLACES the event's; null or [] removes them). Events stay sorted by t. Result: the clip summary plus {undo}. Example: {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"},"t":0.25} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -488,6 +491,7 @@ Move, rename or change the data of an event of a 3D clip.
 | `t` | number | no | The new time in seconds. |
 | `name` | string | no | The new event name. |
 | `data` | object | no | The new data (replaces the old). |
+| `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}; on set_event they replace the old ones, null or [] removes them. |
 | `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
 
 ## `anim3d.set_interp`

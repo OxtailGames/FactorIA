@@ -27,6 +27,27 @@ tile for each combination of neighbours) and you paint the terrain, not tile num
 it re-tiles the cells around it) and `tilemap.retile` after you write `tiles` by hand. A game script paints
 with `entity.tilemap.paintTerrain("ground", [[col, row]])` and `eraseTerrain`, `retile`, `terrainAt` (SCRIPTING.md, "Autotile"). Guide section 9.8.
 
+## More levels like one you drew
+
+`tilemap.generate` makes a new, bigger level from a small example you drew (Wave Function Collapse; same arguments, same
+level). `constraints` (fixed cells, `border`, `forbidden`, `required`, `counts`) and `reachability` (`from`, `to`,
+`toTiles`, `allConnected`, `solidTiles`) make it a playable one: an entrance that reaches the exit and the treasure.
+Guide section 9.8.
+
+A game that wants a new level on every run calls the script API `tilemap.generate({sample, size, seed: rng.create(runSeed).int(0, 2147483647), place: {...}})`.
+It returns a handle (`progress`, `done`, `error`, `result`, `promise`, `cancel()`), works a little every frame (about 4 ms
+with a window per running generation, so a phone does not stall; run one at a time, up to 8 at once can use about 32 ms of a frame) and gives the same level as the command for the same arguments. With `place`
+it builds the Tilemap and turns the sample's markers (glyphs whose legend entry has a `prefab`: spawn points, coins,
+enemies) into entities, as `scene.import_ascii` does. It belongs to the scene that started it: a scene load rejects it,
+so check `scene.generation` before using the answer. `stats.ms` and `memoryBytes` of the result are informative, not deterministic: never compare them. Guide section 9.8, "A new level on every run".
+
+Generate or hand-write? Write the ASCII by hand (`scene.import_ascii`, `scene.ascii_edit`) for a designed level: a tutorial, a puzzle with
+one answer, a boss arena, a game with a few levels. Generate when the game wants many levels or a new one each run and any playable level
+of the style will do: draw one small sample, add `constraints` and `reachability` for what makes a level bad, and look at a few seeds
+before you ship. In the editor, View > Level generator previews seeds (Next seed), keeps one in the scene or saves it as a level file.
+Leave one-of-a-kind markers (player, exit) out of the sample and place them on cells of the returned `rows`, and draw open areas, not rooms
+joined by one-cell corridors, when you ask for `reachability.allConnected`. Guide section 9.8, "Generate the level, or write its ASCII by hand?".
+
 ## Camera and area limits
 
 `entity.bounds()` is the world rectangle `{x, y, w, h}` (bottom-left corner and size) of a

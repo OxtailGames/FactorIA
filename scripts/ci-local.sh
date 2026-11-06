@@ -55,8 +55,10 @@ run_logged() {
     echo "---- last lines of $log ----"; tail -n 40 "$log"; return 1
 }
 
+# Linux uses xvfb-run whenever it is installed, like the CI job, even with DISPLAY set: WSL sets DISPLAY=:0 in a session started
+# over SSH (scripts/ci-remote-windows.sh --wsl) where no X server answers, and the windowed tests then crash in XOpenDisplay.
 with_display() {
-    if [ -n "${DISPLAY:-}" ] || [ "$HOST" = "Darwin" ]; then "$@"
+    if [ "$HOST" = "Darwin" ]; then "$@"
     elif command -v xvfb-run >/dev/null; then xvfb-run -a -s "-screen 0 1600x900x24" "$@"
     else "$@"; fi
 }
@@ -97,7 +99,9 @@ job_linux() {
     run_logged "$LOGDIR/linux-build.log" cmake --build "$b" -j "$JOBS" \
         || { record linux FAIL "build (see $LOGDIR/linux-build.log)"; return; }
     run_logged "$LOGDIR/linux-shaders.log" install_shaders "$b" || { record linux FAIL "factoria setup shaders (see $LOGDIR/linux-shaders.log)"; return; }
-    if FA_REQUIRE_SHDC=1 run_logged "$LOGDIR/linux-test.log" with_display ctest --test-dir "$b" -j "$JOBS" --output-on-failure ${FA_CI_CTEST_EXCLUDE:+-E "$FA_CI_CTEST_EXCLUDE"}; then
+    # llvmpipe starts one render thread per CPU and its memory grows with them: 4 threads, like the CI job's 4 vCPUs, so the
+    # examples' peakMemoryMB compares with the linux-gcc-llvmpipe baselines measured there (a 32-thread PC adds ~18 MB).
+    if FA_REQUIRE_SHDC=1 LP_NUM_THREADS="${LP_NUM_THREADS:-4}" run_logged "$LOGDIR/linux-test.log" with_display ctest --test-dir "$b" -j "$JOBS" --output-on-failure ${FA_CI_CTEST_EXCLUDE:+-E "$FA_CI_CTEST_EXCLUDE"}; then
         record linux PASS "$(grep -E 'tests passed' "$LOGDIR/linux-test.log" | tail -1)"
     else
         record linux FAIL "tests (see $LOGDIR/linux-test.log)"

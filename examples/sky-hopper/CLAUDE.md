@@ -29,7 +29,7 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 | `scenes/*.scene.json` | levels: entities with components (format `factoria.scene/1`) |
 | `levels/level1.json`, `level2.json` | ASCII maps of the two hand-made levels: the arguments of `scene.import_ascii`, the source of truth of their tiles, coins, crawlers, player and flag (see Levels below) |
 | `levels/generator_base.scene.json` | the part of a level that is not map (settings, camera, `level` script, HUD); `project.generate_level` builds on it |
-| `prefabs/*.prefab.json` | reusable entities (`factoria.prefab/1`), spawn with `world.spawnPrefab`; here the things a map spawns: `coin`, `enemy`, `player`, `goal` |
+| `prefabs/*.prefab.json` | reusable entities (`factoria.prefab/1`), spawn with `world.spawnPrefab`; here the things a map spawns: `coin`, `enemy`, `player`, `goal`; `coin_sparkle` is the pickup effect (spawned by `scripts/player.js` with `feel.do`, its sheets are baked by `assets.animate_svg`, recipe in `assets.json`: edit `assets/src/anim/coin_sparkle.anim.js` and run `assets.regenerate`) |
 | `scripts/*.js` | behaviours attached to entities via the `Script` component |
 | `tools/*.js` | project commands, become `project.<name>` / MCP tool `project_<name>` |
 | `tests/*.test.js` | headless tests run by `factoria test` |
@@ -124,6 +124,8 @@ had a bug and you built a workaround or dropped the feature, record it immediate
   `workaround` (what you did, with `workaroundFiles`), `suggestion` (how the engine could fix it).
 - Reporting the same gap again merges into the existing entry (counts occurrences), so do not
   worry about duplicates. Not reporting is the only wrong choice.
+- Time or tokens wasted that a doc, guide or command option would have saved: `factoria ai retrospective` files it as `kind: "efficiency"`
+  (measured, at most three; never a model choice or a rewrite). Rules: `docs_read {"name":"engine-feedback","heading":"Efficiency feedback"}`.
 - Examples worth reporting: a component field you expected is missing; an error message did not
   say how to fix the problem; a doc was wrong or absent; a command you wanted does not exist; a
   crash; slow or flaky headless runs; anything you had to emulate in JS.

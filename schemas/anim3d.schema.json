@@ -219,8 +219,7 @@
     "event": {
       "type": "object",
       "required": [
-        "t",
-        "name"
+        "t"
       ],
       "additionalProperties": false,
       "properties": {
@@ -232,7 +231,22 @@
         "name": {
           "type": "string",
           "minLength": 1,
-          "description": "The game event name."
+          "description": "The game event name. Optional when the event has `feel` actions: it then only runs them."
+        },
+        "feel": {
+          "description": "Game feel actions run when the clip passes `t`: one action object or an array of them, in the same form as feel.do(action) in scripts (docs/GAME_FEEL.md, \"Effects as data\"). They act on the entity that plays the clip (shake: its camera, else the main one; hitStop: the whole game).",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/feelAction"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/feelAction"
+              }
+            }
+          ]
         },
         "data": {
           "type": "object",
@@ -257,7 +271,19 @@
             ]
           }
         }
-      }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "name"
+          ]
+        },
+        {
+          "required": [
+            "feel"
+          ]
+        }
+      ]
     },
     "contact": {
       "type": "object",
@@ -282,6 +308,28 @@
           "type": "number",
           "minimum": 0,
           "description": "Seconds where it ends. Less than `from` = the stance wraps through the end of a looping clip."
+        }
+      }
+    },
+    "feelAction": {
+      "type": "object",
+      "required": [
+        "action"
+      ],
+      "description": "One game feel action: {\"action\": \"hitStop\", \"duration\": 0.06}. The other keys are the options of that action by their names (docs/GAME_FEEL.md); the engine checks them when the clip loads and says which one is wrong.",
+      "properties": {
+        "action": {
+          "enum": [
+            "shake",
+            "hitStop",
+            "flash",
+            "knockback",
+            "push",
+            "squash",
+            "spawn",
+            "sound"
+          ],
+          "description": "shake, hitStop, flash, knockback (push is the same), squash, spawn (an effect prefab) or sound (play a sound)."
         }
       }
     }

@@ -94,6 +94,7 @@ TEST_CASE("asset_type_of: one classifier for every asset file") {
     CHECK(asset_type_of("scenes/main.scene.json") == "scene");
     CHECK(asset_type_of("p/enemy.prefab.json") == "prefab");
     CHECK(asset_type_of("m/water.material.json") == "material");
+    CHECK(asset_type_of("fx/Hit.VFX.json") == "vfx");
     CHECK(asset_type_of("data.json") == "other");
     CHECK(asset_type_of("dir.png/readme") == "other");
 }
@@ -1400,6 +1401,48 @@ TEST_CASE("engine: screenshot after a change without stepping shows the change")
         REQUIRE(ia.ok());
         REQUIRE(ib.ok());
         CHECK(ia->rgba != ib->rgba);
+        e.shutdown();
+    }
+}
+
+TEST_CASE("engine: a sprite frame event is handled in the frame its frame is shown, and the editor's edit mode fires none") {
+    const char* scene = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "components": { "Camera": {} } },
+    { "id": "flip", "components": { "Sprite": { "size": [8, 8] },
+                                    "SpriteAnimator": { "columns": 4, "lastFrame": 3, "fps": 60,
+                                                        "events": [ { "frame": 2, "name": "hit", "feel": { "action": "spawn", "prefab": "prefabs/none.prefab.json" } } ] } } }
+  ]
+})";
+    SUBCASE("play: the script hears it in the frame frame 2 is shown") {
+        TempProject p("sprite_event_frame", kProject, scene);
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+        auto num = [&](const char* code) { return e.scripts().eval(code).value().get<double>(); };
+        REQUIRE(e.scripts().eval("globalThis.hits = 0; world.find('flip').spriteAnimator.on('hit', () => { globalThis.hits++; }); 0").ok());
+        int shownAt = -1, heardAt = -1;
+        for (int i = 0; i < 12 && heardAt < 0; ++i) {
+            e.step(1);
+            if (shownAt < 0 && num("world.find('flip').get('SpriteAnimator').frame") >= 2) shownAt = i;
+            if (num("globalThis.hits") > 0) heardAt = i;
+        }
+        REQUIRE(shownAt >= 0);
+        CHECK(heardAt == shownAt);   // not one frame later
+        e.shutdown();
+    }
+    SUBCASE("edit mode: the animation shows, no event is queued") {
+        TempProject p("sprite_event_edit", kProject, scene);
+        Engine e;
+        EngineConfig cfg = headless_cfg(p);
+        cfg.editorMode = true;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
+        for (int i = 0; i < 30; ++i) e.frame(1.0 / 60.0);
+        World& w = e.world();
+        CHECK(w.feel().spawns.empty());
+        CHECK(w.events().game.empty());
         e.shutdown();
     }
 }

@@ -619,6 +619,53 @@
         "Fixed in M45 (0.11.0): the warning now says to remove the glyph or move a shared legend into a `legendFrom` file, whose unused entries are not warned about."
       ],
       "engineIssue": "M45"
+    },
+    {
+      "id": "FB-0028",
+      "date": "2026-11-05",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "assets",
+      "severity": "minor",
+      "title": "animate_svg layers need a hand-written prefab to play together",
+      "missing": "assets.animate_svg with layers bakes back, front and light sheets, but the three entities that play them in step (same SpriteAnimator clip, back below the hero, front above it, light additive) have to be written by hand as a prefab; the result only describes them in nextSteps text. Every layered effect repeats the same three-child prefab.",
+      "workaround": "Wrote prefabs/coin_sparkle.prefab.json by hand from the nextSteps text.",
+      "workaroundFiles": [
+        "prefabs/coin_sparkle.prefab.json"
+      ],
+      "suggestion": "A prefab option on assets.animate_svg ({prefab: 'prefabs/coin_sparkle.prefab.json', layerOrder: {...}}) that writes the parent with the three children, the sheet clip, and the blend, so the effect is one call.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "FactorIA 0.17.0",
+      "notes": [
+        "assets.animate_svg takes prefab (with layers): a path or {path, name, tags, size, layers, pixelArt, overwrite}; it writes the parent with a Back, Front and Light child (the light additive) on the shared clip, and refuses to replace an existing prefab unless prefab.overwrite is true. prefabs/coin_sparkle.prefab.json is byte for byte what the command writes. docs/ASSETS.md, docs/EFFECTS.md."
+      ]
+    },
+    {
+      "id": "FB-0029",
+      "date": "2026-11-05",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "assets",
+      "severity": "nice-to-have",
+      "title": "animate_svg does not warn that the sheet size is not a multiple of 4",
+      "missing": "assets.animate_svg 96 px frames with padding 1 gave a 294x294 sheet; only project.validate (later) warns that GPU compression needs sizes that are multiples of 4 on mobile platforms. The bake result gives no hint, so the sheet is baked twice.",
+      "workaround": "Re-baked with padding 2 (a 300x300 sheet) after validate warned.",
+      "suggestion": "Warn in the animate_svg result (and say which padding or cell size gives a multiple of 4) when the project targets a mobile platform.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "FactorIA 0.17.0",
+      "notes": [
+        "assets.animate_svg warns, when factoria.json lists android or ios, that a sheet whose width or height is not a multiple of 4 cannot be GPU-compressed, and names the padding (and the frame size) that gives one (294x294 with padding 1: padding 2 gives 300x300). docs/ASSETS.md, Sheet sizes on a phone."
+      ]
     }
   ]
 }

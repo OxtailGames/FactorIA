@@ -85,6 +85,10 @@ Result<TerrainPaintResult> paint_terrain(Tilemap& tm, const std::string& terrain
 // Re-tiles every cell that belongs to a terrain from its neighbours (after rules or tiles were set by hand).
 Result<TerrainPaintResult> retile_terrains(Tilemap& tm);
 
+// retile_terrains() on a plain grid: `tiles` (width * height tile values, row-major, row 0 = TOP) is re-tiled in place with
+// `terrains` (already parsed). Used after a generated level, whose slots only agree on the four sides.
+void retile_terrain_grid(const std::vector<Terrain>& terrains, int width, int height, std::vector<int>& tiles);
+
 // The terrain a tile value belongs to ("" when none), and its slot.
 struct TerrainOfTile {
     std::string terrain;

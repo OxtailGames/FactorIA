@@ -172,6 +172,12 @@ public:
     // only calls render_world(world, dt) keeps working: if update() was not called since the previous draw,
     // render_world() calls it with `dt` itself.
     void update(World& world, float dt);
+    // Moves the sprite animators on by `dt` and runs their frame events, ahead of update(): the game events, sounds and effects the
+    // events start are then handled in the same frame (the engine calls it before the UI and the scripts of the frame; update() would
+    // run them after everything else, a frame late). update() then moves only the animators this did not move (a sprite or a clip
+    // a script added in the meantime) and applies the frames. Frame events fire only when `dt` > 0: a paused game or the editor's edit
+    // mode shows the frames and fires nothing.
+    void advance_animators(World& world, float dt);
     // Draws the world (cameras, sprites, shapes, tilemaps, text, particles, meshes, lights, debug draw).
     void render_world(World& world, float dt);
 
@@ -305,6 +311,10 @@ public:
     // The shader dialect of this renderer's backend (see ShaderCompiler); "" before init().
     std::string shader_dialect() const;
     void clear_asset_cache();
+    // Forgets every emitter's particles and its random sequence, so the emitters of the world that is loaded next start from nothing: the start
+    // burst and the `seed` behave the same on every run. The engine calls it on every scene load (so also when the editor starts and stops
+    // Play); a program that swaps the world itself calls it too. Queued emit_burst() calls are dropped with it.
+    void reset_particles();
     Json asset_report() const;  // loaded assets + failures (missing files with hints)
     std::uint64_t texture_bytes() const;  // GPU memory of the loaded textures
 

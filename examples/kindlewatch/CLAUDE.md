@@ -133,6 +133,8 @@ had a bug and you built a workaround or dropped the feature, record it immediate
   `workaround` (what you did, with `workaroundFiles`), `suggestion` (how the engine could fix it).
 - Reporting the same gap again merges into the existing entry (counts occurrences), so do not
   worry about duplicates. Not reporting is the only wrong choice.
+- Time or tokens wasted that a doc, guide or command option would have saved: `factoria ai retrospective` files it as `kind: "efficiency"`
+  (measured, at most three; never a model choice or a rewrite). Rules: `docs_read {"name":"engine-feedback","heading":"Efficiency feedback"}`.
 - `ENGINE_FEEDBACK.json` holds the open entries; closed ones move to `ENGINE_FEEDBACK.archive.json` (never edit it); reporting a fixed gap again reopens it.
 - `share` (include it in every report): the gap for the engine developer, written in engine terms only (component, field and command names;
   `{title, missing, suggestion?}`, nothing about this game). The user sends feedback from the editor's Send feedback window; an entry

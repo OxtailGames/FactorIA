@@ -10,19 +10,19 @@
 #include "fa/core/image.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/style_guide.h"
+#include "review_util.h"
 #include "util.h"
 
 namespace fa::ai {
 
 using namespace util;
+using namespace review;
 namespace stdfs = std::filesystem;
 
 namespace {
 
 constexpr std::size_t kMaxPaths = 4;
 constexpr std::size_t kMaxReferences = 3;
-constexpr std::uintmax_t kBigPicture = 1u << 20;  // a picture over 1 MB is shrunk before it is sent
-constexpr int kLongSide = 1024;
 
 const char* kSystem =
     "You review pictures made for a game, as the art director of its style. You are given: the house style rules of the game "
@@ -41,41 +41,6 @@ const char* kSystem =
     "\"where\":\"the picture path, and the part of it\",\"command\":\"the command with its main arguments, or the assets.json setting\"}]}\n"
     "`good`: nothing to change (fixes empty). `fix`: keep the picture, change what the fixes say. `redo`: start the picture again. "
     "At most 6 fixes, most important first.";
-
-// The reply's JSON object: the first '{' to the last '}' (a model may wrap it in prose or a fence).
-std::string json_object_in(const std::string& text) {
-    const std::size_t a = text.find('{'), b = text.rfind('}');
-    if (a == std::string::npos || b == std::string::npos || b < a) return {};
-    return text.substr(a, b - a + 1);
-}
-
-stdfs::path resolve(const std::string& projectDir, const std::string& path) {
-    const stdfs::path p(path);
-    return p.is_absolute() ? p : stdfs::path(projectDir) / p;
-}
-
-// A picture as the model gets it: the file itself, shrunk (PNG) when it is large.
-Result<ImageData> picture_for_model(const stdfs::path& file, bool* shrunk) {
-    auto data = load_image_data(file.string());
-    if (!data.ok()) return data.error();
-    std::error_code ec;
-    if (stdfs::file_size(file, ec) <= kBigPicture) return data;
-    const std::vector<unsigned char> bytes = fa::base64_decode(data->base64);
-    auto img = decode_image(bytes.data(), bytes.size());
-    if (!img.ok() || std::max(img->width, img->height) <= kLongSide) return data;
-    const double k = double(kLongSide) / double(std::max(img->width, img->height));
-    const Image small = resize_image(*img, std::max(1, int(img->width * k)), std::max(1, int(img->height * k)));
-    const std::vector<std::uint8_t> png = encode_png(small);
-    if (shrunk) *shrunk = true;
-    return ImageData{"image/png", fa::base64_encode(png.data(), png.size())};
-}
-
-std::string read_text(const stdfs::path& p) {
-    std::ifstream f(p, std::ios::binary);
-    std::stringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
-}
 
 // The numbers the model is given: the verdict and every rule that is not ok (with its value, threshold and hint), per asset and for the set.
 Json check_summary(const Json& check) {

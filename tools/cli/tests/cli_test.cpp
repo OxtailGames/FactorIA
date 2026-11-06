@@ -2,14 +2,18 @@
 #include <doctest.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <set>
 #include <sstream>
 
 #include "common.h"  // tools/cli/src: Session and run_project_tests, the setup behind `factoria test`
+#include "fa/ai/project_settings.h"
 #include "fa/cli/cli.h"
+#include "fa/core/date.h"
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
 #include "fa/tooling/feedback_share.h"
@@ -633,6 +637,59 @@ TEST_CASE("feedback add: a share that is too short is not stored and the report 
     CHECK_FALSE(doc["entries"][0].contains("share"));
 }
 
+namespace {
+// A project with a built-in agent transcript of 40 one-minute steps (5000 tokens each), for `feedback add --kind efficiency`.
+void write_efficiency_session(const std::string& proj) {
+    std::filesystem::create_directories(std::filesystem::path(proj) / ".factoria" / "ai" / "sessions");
+    std::ofstream out(std::filesystem::path(proj) / ".factoria" / "ai" / "sessions" / "s1.jsonl", std::ios::binary);
+    constexpr std::int64_t t0 = 1'800'000'000'000;
+    out << fa::Json::object({{"kind", "start"}, {"t", fa::iso_utc_ms(t0)}}).dump() << "\n";
+    for (int i = 1; i <= 40; ++i) {
+        out << fa::Json::object({{"kind", "assistant"}, {"t", fa::iso_utc_ms(t0 + 60000 * i - 1000)},
+                                 {"usage", fa::Json::object({{"inputTokens", 4500}, {"outputTokens", 500}})}, {"costUsd", 0.05},
+                                 {"content", fa::Json::array()}}).dump() << "\n";
+        out << fa::Json::object({{"kind", "tool_results"}, {"t", fa::iso_utc_ms(t0 + 60000 * i)}, {"results", fa::Json::array()}}).dump() << "\n";
+    }
+}
+std::vector<std::string> efficiency_args(const std::string& proj, const char* share) {
+    return {"feedback", "add", proj, "--kind", "efficiency", "--category", "scene", "--title", "Quantum flux calibration routine",
+            "--waste", "Working out the order of the flux calibration calls took forty steps of trial",
+            "--evidence", "s1:1-40", "--fix-type", "guide", "--saving-share", share, "--saving-why", "the guide gives the calls in order",
+            "--applies-to", "every-game", "--suggestion", "A topic guide that lists the three calibration calls in order"};
+}
+}  // namespace
+
+TEST_CASE("feedback add --kind efficiency: the engine measures the span, refuses what is not worth it, merges the same fix") {
+    CliShare s;
+    const std::string proj = s.project();
+    write_efficiency_session(proj);
+    auto low = run(efficiency_args(proj, "0.1"));
+    CHECK(low.code == 1);
+    CHECK(low.err.find("justified from") != std::string::npos);
+    CHECK_FALSE(std::filesystem::exists(s.file(proj)));
+    auto ok = run(efficiency_args(proj, "0.5"));
+    CHECK_MESSAGE(ok.code == 0, ok.err);
+    CHECK(ok.out.find("measured 40.0 minutes, 200000 tokens") != std::string::npos);
+    auto again = run(efficiency_args(proj, "0.5"));
+    CHECK(again.code == 0);
+    CHECK(again.out.find("Already counted") != std::string::npos);
+    auto doc = fa::Json::parse(std::ifstream(s.file(proj)));
+    REQUIRE(doc["entries"].size() == 1);
+    CHECK(doc["entries"][0]["kind"] == "efficiency");
+    CHECK(doc["entries"][0]["saving"]["tokens"] == 100000);
+    auto list = run({"feedback", "list", proj, "--kind", "efficiency"});
+    CHECK(list.code == 0);
+    CHECK(list.out.find("saves 20.0 min, 100000 tokens") != std::string::npos);
+    auto gaps = run({"feedback", "list", proj, "--kind", "gap"});
+    CHECK(gaps.out.find("No entries") != std::string::npos);
+    auto bad = run({"feedback", "add", proj, "--kind", "efficency"});
+    CHECK(bad.code == 2);
+    CHECK(bad.err.find("efficiency") != std::string::npos);
+    auto badSpan = efficiency_args(proj, "0.5");
+    for (auto& a : badSpan) if (a == "s1:1-40") a = "s1:1to40";
+    CHECK(run(badSpan).code == 2);
+}
+
 TEST_CASE("feedback sharing: shows the status, sets a mode, refuses unknown ones") {
     CliShare s;
     auto st = run({"feedback", "sharing"});
@@ -649,6 +706,64 @@ TEST_CASE("feedback sharing: shows the status, sets a mode, refuses unknown ones
     CHECK(bad.err.find("always") != std::string::npos);
     auto unset = run({"feedback", "sharing", "unset"});
     CHECK(unset.code == 2);  // only always, ask and never can be chosen
+}
+
+TEST_CASE("feedback sharing --project: resolved to the project folder, printed, and refused where there is none") {
+    CliShare s;
+    const std::string proj = s.project();
+    std::filesystem::create_directories(std::filesystem::path(proj) / "scenes");
+    // A folder inside the project resolves to the project; the answer prints the project it chose.
+    auto set = run({"feedback", "sharing", "never", "--project", proj + "/scenes"});
+    CHECK_MESSAGE(set.code == 0, set.err);
+    CHECK(set.out.find("Project: ") != std::string::npos);
+    CHECK(set.out.find("game") != std::string::npos);
+    CHECK(fa::effective_share_mode(fa::load_share_settings(s.env), proj) == fa::ShareMode::Never);
+    CHECK(fa::load_share_settings(s.env).mode == fa::ShareMode::Unset);  // the default did not move
+    auto st = run({"feedback", "sharing", "--project", proj});
+    CHECK(st.out.find("its own choice") != std::string::npos);
+    CHECK(st.out.find("game") != std::string::npos);
+    // A folder that is not a project (or does not exist) is an error that says what to pass, never another project.
+    const std::string other = (s.dir / "not-a-project").string();
+    std::filesystem::create_directories(other);
+    auto none = run({"feedback", "sharing", "always", "--project", other});
+    CHECK(none.code == 1);
+    CHECK(none.err.find("factoria.json") != std::string::npos);
+    CHECK(none.err.find("--project") != std::string::npos);
+    auto typo = run({"feedback", "sharing", "always", "--project", proj + "/scenez"});
+    CHECK(typo.code == 1);
+    CHECK(typo.err.find("not a folder") != std::string::npos);
+    CHECK(fa::effective_share_mode(fa::load_share_settings(s.env), proj) == fa::ShareMode::Never);
+    // --clear is alone: with a mode it is a usage error; alone it removes the choice.
+    auto both = run({"feedback", "sharing", "always", "--clear", "--project", proj});
+    CHECK(both.code == 2);
+    CHECK(both.err.find("--clear") != std::string::npos);
+    CHECK(fa::effective_share_mode(fa::load_share_settings(s.env), proj) == fa::ShareMode::Never);
+    auto clear = run({"feedback", "sharing", "--clear", "--project", proj});
+    CHECK(clear.code == 0);
+    CHECK(clear.out.find("Project: ") != std::string::npos);
+    CHECK(fa::load_share_settings(s.env).projects.empty());
+}
+
+TEST_CASE("feedback share --yes confirms only the project it was run for") {
+    CliShare s;
+    const std::string proj = s.project();
+    const std::filesystem::path other = s.dir / "game2";
+    std::filesystem::create_directories(other);
+    std::ofstream(other / "factoria.json") << R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"scenes/main.scene.json"})";
+    REQUIRE(run(add_args(proj)).code == 0);
+    REQUIRE(run(add_args(other.string())).code == 0);
+    REQUIRE(run({"feedback", "sharing", "ask"}).code == 0);
+    // Both projects queue their entry and wait (ask).
+    REQUIRE(run({"feedback", "share", proj}, "n\n").code == 0);
+    REQUIRE(run({"feedback", "share", other.string()}, "n\n").code == 0);
+    REQUIRE(fa::load_outbox(s.env).items.size() == 2);
+    auto yes = run({"feedback", "share", proj, "--yes"});
+    CHECK_MESSAGE(yes.code == 0, yes.err);
+    CHECK(s.requests.size() == 1);
+    const fa::Outbox box = fa::load_outbox(s.env);
+    REQUIRE(box.items.size() == 1);
+    CHECK(fa::share_same_path(box.items[0].file, (other / "ENGINE_FEEDBACK.json").string()));
+    CHECK(box.items[0].state == fa::OutboxState::Waiting);
 }
 
 TEST_CASE("feedback share: --preview sends nothing; always sends; ask asks first; unset refuses") {
@@ -693,9 +808,243 @@ TEST_CASE("feedback share: --preview sends nothing; always sends; ask asks first
     }
 }
 
+TEST_CASE("feedback share: a project without ENGINE_FEEDBACK.json, or no project, flushes nothing (not another project's items)") {
+    CliShare s;
+    const std::string proj = s.project();
+    const std::filesystem::path other = s.dir / "game2";
+    std::filesystem::create_directories(other);
+    std::ofstream(other / "factoria.json") << R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"scenes/main.scene.json"})";
+    // The other project has an entry that waits in the outbox; `proj` has no feedback file at all.
+    REQUIRE(run(add_args(other.string())).code == 0);
+    REQUIRE(run({"feedback", "sharing", "ask"}).code == 0);
+    REQUIRE(run({"feedback", "share", other.string()}, "n\n").code == 0);
+    REQUIRE(fa::load_outbox(s.env).items.size() == 1);
+    REQUIRE(run({"feedback", "sharing", "always", "--project", other.string()}).code == 0);
+    SUBCASE("always, with no ENGINE_FEEDBACK.json in the project") {
+        REQUIRE(run({"feedback", "sharing", "always"}).code == 0);
+        auto r = run({"feedback", "share", proj});
+        CHECK(r.code == 1);
+        CHECK(r.err.find("No ENGINE_FEEDBACK.json in ") != std::string::npos);
+        CHECK(r.err.find("Nothing was sent") != std::string::npos);
+        CHECK(s.requests.empty());
+        CHECK(fa::load_outbox(s.env).items.size() == 1);
+    }
+    SUBCASE("ask, with --yes: still nothing") {
+        auto r = run({"feedback", "share", proj, "--yes"});
+        CHECK(r.code == 1);
+        CHECK(s.requests.empty());
+    }
+    SUBCASE("outside a project") {
+        REQUIRE(run({"feedback", "sharing", "always"}).code == 0);
+        const std::string nowhere = (s.dir / "nowhere").string();
+        std::filesystem::create_directories(nowhere);
+        auto r = run({"feedback", "share", nowhere});
+        CHECK(r.code == 1);
+        CHECK(s.requests.empty());
+        CHECK(fa::load_outbox(s.env).items.size() == 1);
+    }
+}
+
+TEST_CASE("feedback share: with sharing off for the project it says so and flushes nothing") {
+    CliShare s;
+    const std::string proj = s.project();
+    REQUIRE(run(add_args(proj)).code == 0);
+    REQUIRE(run({"feedback", "sharing", "always"}).code == 0);
+    REQUIRE(run({"feedback", "sharing", "never", "--project", proj}).code == 0);
+    auto r = run({"feedback", "share", proj});
+    CHECK(r.code == 0);
+    CHECK(r.out.find("off for this project") != std::string::npos);
+    CHECK(r.out.find("your choice for it is never") != std::string::npos);
+    CHECK(s.requests.empty());
+    REQUIRE(run({"feedback", "sharing", "--clear", "--project", proj}).code == 0);
+    REQUIRE(run({"feedback", "sharing", "never"}).code == 0);
+    auto d = run({"feedback", "share", proj});
+    CHECK(d.out.find("your default is never") != std::string::npos);
+    CHECK(s.requests.empty());
+}
+
+TEST_CASE("feedback sharing --clear: entries that waited under the project's ask keep waiting while the default is always") {
+    CliShare s;
+    const std::string proj = s.project();
+    REQUIRE(run(add_args(proj)).code == 0);
+    REQUIRE(run({"feedback", "sharing", "always"}).code == 0);
+    REQUIRE(run({"feedback", "sharing", "ask", "--project", proj}).code == 0);
+    REQUIRE(run({"feedback", "share", proj}, "n\n").code == 0);
+    REQUIRE(fa::load_outbox(s.env).items.size() == 1);
+    auto clear = run({"feedback", "sharing", "--clear", "--project", proj});
+    CHECK(clear.code == 0);
+    CHECK(clear.out.find("waits for your confirmation") != std::string::npos);
+    CHECK(s.requests.empty());
+    const fa::Outbox box = fa::load_outbox(s.env);
+    REQUIRE(box.items.size() == 1);
+    CHECK(box.items[0].state == fa::OutboxState::Waiting);
+    // Saying yes is the user's decision: it goes out.
+    auto yes = run({"feedback", "share", proj, "--yes"});
+    CHECK_MESSAGE(yes.code == 0, yes.err);
+    CHECK(s.requests.size() == 1);
+}
+
 TEST_CASE("feedback signout and signin: unknown provider is a usage error; signout is idempotent") {
     CliShare s;
     CHECK(run({"feedback", "signin", "gitlab"}).code == 2);
     CHECK(run({"feedback", "signout"}).code == 0);
     CHECK(run({"feedback", "signout"}).code == 0);
+}
+
+// ---- ai doctor / ai run resolve the project they run in (cwd or --project), with its AI settings
+namespace {
+struct EnvVar {
+    std::string name, old;
+    bool had;
+    EnvVar(const std::string& n, const std::string& value) : name(n) {
+        const char* o = std::getenv(n.c_str());
+        had = o != nullptr;
+        if (had) old = o;
+#ifdef _WIN32
+        _putenv_s(n.c_str(), value.c_str());
+#else
+        setenv(n.c_str(), value.c_str(), 1);
+#endif
+    }
+    ~EnvVar() {
+#ifdef _WIN32
+        _putenv_s(name.c_str(), had ? old.c_str() : "");
+#else
+        if (had) setenv(name.c_str(), old.c_str(), 1);
+        else unsetenv(name.c_str());
+#endif
+    }
+};
+
+// A scratch folder that is removed when the test ends, also when a REQUIRE throws (and the working directory goes back first: a folder
+// that is the current directory cannot be removed on Windows).
+struct ScratchDir {
+    std::filesystem::path root;
+    std::filesystem::path oldCwd;
+    explicit ScratchDir(const std::string& prefix) {
+        namespace stdfs = std::filesystem;
+        std::error_code ec;
+        oldCwd = stdfs::current_path(ec);
+        root = stdfs::temp_directory_path() / (prefix + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        stdfs::create_directories(root / "home");
+        root = stdfs::canonical(root);
+    }
+    ~ScratchDir() {
+        std::error_code ec;
+        if (!oldCwd.empty()) std::filesystem::current_path(oldCwd, ec);
+        std::filesystem::remove_all(root, ec);
+    }
+    ScratchDir(const ScratchDir&) = delete;
+    ScratchDir& operator=(const ScratchDir&) = delete;
+};
+}  // namespace
+
+TEST_CASE("call: a factoria started by an AI agent (FACTORIA_CALLER) cannot change the user's AI defaults") {
+    namespace stdfs = std::filesystem;
+    const ScratchDir scratch("fa_cli_caller_");
+    const stdfs::path root = scratch.root;
+    const stdfs::path project = root / "game";
+    auto made = run({"new", project.string(), "--template", "2d-empty", "--json"});
+    REQUIRE_MESSAGE(made.code == 0, made.err);
+    const stdfs::path aiJson = root / "home" / "ai.json";  // never the real ~/.factoria
+    const std::string original = R"({"limits":{"maxTurns":30}})";
+    std::ofstream(aiJson) << original;
+    auto file_text = [&] {
+        std::ifstream in(aiJson);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    EnvVar config("FACTORIA_AI_CONFIG", aiJson.string());
+    const std::string userArgs = R"({"scope":"user","pointer":"/limits/maxTurns","value":7})";
+    const std::string projectArgs = R"({"scope":"project","pointer":"/limits/maxTurns","value":5})";
+
+    SUBCASE("started by an agent: scope user is refused (user_only), the file is untouched, scope project still works") {
+        for (const char* value : {"agent", "some-value-this-engine-does-not-know"}) {  // anything set restricts: never the user's call
+            EnvVar caller("FACTORIA_CALLER", value);
+            auto refused = run({"call", "ai.settings.set", userArgs, "--project", project.string(), "--json"});
+            CHECK_MESSAGE(refused.code == 1, value);
+            auto j = fa::parse_json(refused.out, "call");
+            REQUIRE(j);
+            CHECK((*j)["error"]["code"] == "user_only");
+            CHECK(file_text() == original);
+            auto ok = run({"call", "ai.settings.set", projectArgs, "--project", project.string(), "--json"});
+            CHECK_MESSAGE(ok.code == 0, ok.out, ok.err);
+        }
+        EnvVar caller("FACTORIA_CALLER", "mcp");
+        auto refused = run({"call", "ai.settings.set", userArgs, "--project", project.string(), "--json"});
+        CHECK(refused.code == 1);
+        CHECK(file_text() == original);
+    }
+    SUBCASE("started by the user (no FACTORIA_CALLER): scope user writes the file") {
+        EnvVar caller("FACTORIA_CALLER", "");  // unset or empty: the user's own call
+        auto done = run({"call", "ai.settings.set", userArgs, "--project", project.string(), "--json"});
+        CHECK_MESSAGE(done.code == 0, done.out, done.err);
+        CHECK(file_text().find("7") != std::string::npos);
+    }
+}
+
+TEST_CASE("ai doctor and ai run use the AI settings of the project they run in") {
+    namespace stdfs = std::filesystem;
+    std::error_code ec;
+    const ScratchDir scratch("fa_cli_aiproj_");  // restores the working directory, then removes the folder, also when a check throws
+    const stdfs::path root = scratch.root;
+    const stdfs::path project = root / "game", sub = project / "assets" / "deep", elsewhere = root / "elsewhere";
+    stdfs::create_directories(elsewhere);
+    auto made = run({"new", project.string(), "--template", "2d-empty", "--json"});
+    REQUIRE_MESSAGE(made.code == 0, made.err);
+    stdfs::create_directories(sub);
+    // Never the real ~/.factoria: the user's config and its trust file live in the temp folder.
+    const stdfs::path aiJson = root / "home" / "ai.json";
+    std::ofstream(aiJson) << R"({"limits":{"maxTurns":30}})";
+    EnvVar env("FACTORIA_AI_CONFIG", aiJson.string());
+
+    SUBCASE("a file the user saved here applies: doctor lists its overrides from a subfolder, run refuses a role it turned off") {
+        auto saved = fa::ai::save_project_settings(project.string(), fa::Json::parse(R"({"roles":{"artist":{"enabled":false}},"limits":{"maxTurns":5}})"),
+                                                   aiJson.string(), fa::ai::system_env(), true);
+        if (!saved.ok()) MESSAGE(saved.error().message);
+        REQUIRE(saved.ok());
+        stdfs::current_path(sub, ec);  // a folder INSIDE the project: find_project_root finds it
+        auto doctor = run({"ai", "doctor"});
+        CHECK(doctor.code == 0);
+        CHECK(doctor.out.find("Project AI settings") != std::string::npos);
+        CHECK(doctor.out.find("(applied)") != std::string::npos);
+        CHECK(doctor.out.find("/roles/artist/enabled = false") != std::string::npos);
+        CHECK(doctor.out.find("/limits/maxTurns = 5") != std::string::npos);
+        auto json = run({"ai", "doctor", "--json"});
+        REQUIRE(json.code == 0);
+        auto rep = fa::parse_json(json.out, "doctor");
+        REQUIRE(rep);
+        CHECK((*rep)["projectSettings"]["applied"] == true);
+        CHECK((*rep)["projectSettings"]["overrides"]["limits"]["maxTurns"] == 5);
+        CHECK((*rep)["roles"]["artist"]["provider"].is_string());
+
+        auto refused = run({"ai", "run", "--role", "artist", "paint a door"});
+        CHECK(refused.code == 2);
+        CHECK(refused.err.find("this project's AI settings") != std::string::npos);
+        CHECK(refused.err.find("/roles/artist/enabled") != std::string::npos);
+
+        // outside the project, --project names it; without it there is no project and no mention of one
+        stdfs::current_path(elsewhere, ec);
+        auto named = run({"ai", "doctor", "--project", project.string()});
+        CHECK(named.out.find("(applied)") != std::string::npos);
+        auto none = run({"ai", "doctor"});
+        CHECK(none.code == 0);
+        CHECK(none.out.find("Project AI settings") == std::string::npos);
+        auto namedRun = run({"ai", "run", "--project", project.string(), "--role", "artist", "paint"});
+        CHECK(namedRun.code == 2);
+        CHECK(namedRun.err.find("this project's AI settings") != std::string::npos);
+    }
+    SUBCASE("a file that came with the project is shown as not applied") {
+        stdfs::create_directories(project / ".factoria" / "ai");
+        std::ofstream(project / ".factoria" / "ai" / "settings.json") << R"({"roles":{"artist":{"enabled":false}}})";
+        stdfs::current_path(sub, ec);
+        auto doctor = run({"ai", "doctor"});
+        CHECK(doctor.code == 0);
+        CHECK(doctor.out.find("NOT applied") != std::string::npos);
+        CHECK(doctor.out.find("/roles/artist/enabled: true -> false") != std::string::npos);
+        auto json = run({"ai", "doctor", "--json"});
+        auto rep = fa::parse_json(json.out, "doctor");
+        REQUIRE(rep);
+        CHECK((*rep)["projectSettings"]["pendingTrust"] == true);
+        CHECK((*rep)["projectSettings"]["applied"] == false);
+    }
 }
