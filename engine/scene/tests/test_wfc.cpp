@@ -937,7 +937,7 @@ TEST_CASE("wfc constraints: a maximum steers the solver instead of waiting for t
     // The lone 'o' of the sample is a rare tile; with a maximum of 2 the solver stops handing it out once two are decided.
     Rows rare = kRooms;
     rare[3][4] = 'o';
-    rare[9][9] = 'o';
+    rare[6][8] = 'o';  // kRooms is 10 x 8: row and column stay inside it
     auto rareModel = overlapping(rare, 3, 1, false);
     int rejected = 0, runs = 0;
     for (std::uint64_t seed = 1; seed <= 12; ++seed) {

@@ -339,7 +339,8 @@ TEST_CASE("share outbox: saved and loaded as it was") {
     REQUIRE(save_outbox(s.env, box).ok());
     const Outbox back = load_outbox(s.env);
     REQUIRE(back.items.size() == 1);
-    CHECK(back.items[0].key == it.key);
+    // The key is read back normalized (on Windows "/p" is absolute on the current drive and lower-case).
+    CHECK(back.items[0].key == share_item_key(it.file, it.localId));
     CHECK(back.items[0].projectKey == "/p");
     CHECK(back.items[0].state == OutboxState::Waiting);
     CHECK(back.items[0].attempts == 2);
