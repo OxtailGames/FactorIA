@@ -371,6 +371,14 @@ struct Light2D {
     bool castShadows = false;         // point: solid tiles of Tilemaps with occludesLight block this light
 };
 
+// Where a ParticleEmitter's particles are born, how they leave, what they bounce on and what trail they leave: see
+// fa/scene/particles.h and docs/PARTICLES.md.
+enum class ParticleShape : std::int32_t { Point, Circle, Box, Cone, Edge, Mesh };
+enum class ParticleShapeFrom : std::int32_t { Volume, Edge };
+enum class ParticleShapeDirection : std::int32_t { Direction, Outward };
+enum class ParticleTrail : std::int32_t { None, Particle, Emitter };
+enum class ParticleCollision : std::int32_t { None, Plane, Tilemap };
+
 struct ParticleEmitter {
     bool emitting = true;
     float rate = 20.0f;               // particles per second
@@ -396,6 +404,56 @@ struct ParticleEmitter {
     RenderSpace space = RenderSpace::World;  // screen: drawn in the HUD pass in design pixels (origin top-left); ignored when is3D
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
     bool safeArea = false;              // screen space only: the anchor names a point of the safe area (see above)
+
+    // ---- M64.1: richer particles. Every default keeps what an emitter written before them does. ----
+    // Over life (position 0 = born, 1 = dies). Curves and gradients are JSON: see fa/scene/curve.h.
+    Json colorGradient = Json::array();     // [[t, colour], ...]: replaces startColor -> endColor; [] = those two
+    Json sizeCurve = Json::array();         // multiplies the size (startSize -> endSize) over life; [] = 1
+    Json speedCurve = Json::array();        // multiplies the speed over life (the particle's velocity is scaled, not changed); [] = 1
+    Json alphaCurve = Json::array();        // multiplies the alpha over life; [] = 1
+    float sizeVariance = 0.0f;              // +- fraction of the size, random per particle
+    // Flipbook: the texture is a grid of frames; each particle shows one frame (or plays through them).
+    std::int32_t flipbookColumns = 1;
+    std::int32_t flipbookRows = 1;
+    std::int32_t flipbookFrames = 0;        // 0 = columns * rows
+    float flipbookFps = 0.0f;               // frames per second, looping; 0 = the frames play once over the particle's life
+    bool flipbookRandomStart = false;       // each particle starts at a random frame
+    // Motion
+    Vec2 startRotation{0.0f, 0.0f};         // [min, max] degrees a particle starts turned by (random in between)
+    Vec2 spin{0.0f, 0.0f};                  // [min, max] degrees per second a particle turns (random in between)
+    bool alignToVelocity = false;           // the particle's +x axis follows where it flies (streaks, arrows), on top of the rotation
+    float drag = 0.0f;                      // per second: how fast the velocity fades (0 = none)
+    float noiseStrength = 0.0f;             // turbulence: acceleration of a smooth random field, world units/s^2 (0 = off)
+    float noiseScale = 64.0f;               // turbulence: size of one eddy in world units
+    float noiseSpeed = 0.5f;                // turbulence: how fast the field changes, in eddies per second
+    float inheritVelocity = 0.0f;           // fraction of a moving emitter's velocity added to each new particle (worldSpace only)
+    // Emission shape (local to the emitter's Transform)
+    ParticleShape shape = ParticleShape::Point;
+    Vec3 shapeSize{32.0f, 32.0f, 32.0f};    // circle: radius = x; box: [width, height, depth]; edge: length = x; cone: base radius = x
+    ParticleShapeFrom shapeFrom = ParticleShapeFrom::Volume;
+    ParticleShapeDirection shapeDirection = ParticleShapeDirection::Direction;
+    std::string shapeMesh;                  // shape "mesh": the mesh whose surface is the source (3D)
+    // Trails
+    ParticleTrail trail = ParticleTrail::None;
+    float trailTime = 0.5f;                 // seconds of path a trail keeps
+    float trailWidth = 4.0f;                // width of the head of a trail in world units
+    Json trailWidthCurve = Json::array();   // multiplies trailWidth along the trail (0 = head, 1 = tail); [] = tapers to a point
+    Json trailGradient = Json::array();     // colour along the trail (0 = head, 1 = tail); [] = white fading out
+    // Sub-emitters
+    Json subEmitters = Json::object();      // {"birth"|"death"|"collision": {count, emitter | prefab | entity, inherit, chance}}
+    // Collision (worldSpace, not on screen space)
+    ParticleCollision collision = ParticleCollision::None;
+    Vec4 collisionPlane{0.0f, 1.0f, 0.0f, 0.0f};  // [nx, ny, nz, d]: the plane dot(n, p) = d; particles stay on the side n points to
+    Entity collisionTilemap = kNullEntity;  // the Tilemap whose solidTiles stop the particles; none = the first Tilemap with solid tiles
+    float collisionBounce = 0.5f;           // fraction of the speed along the surface normal that is kept, reversed
+    float collisionFriction = 0.0f;         // fraction of the sliding speed lost on every hit (per second while resting)
+    float collisionLifetimeLoss = 0.0f;     // fraction of its full lifetime a particle loses on every hit
+    bool collisionKill = false;             // a particle dies on its first hit
+    // Pixel mode
+    bool pixelMode = false;                 // particles are drawn as hard-edged squares on a pixel grid, colours from the palette
+    float pixelSize = 1.0f;                 // pixel mode: the size of one pixel in world units (design pixels for screen space)
+    Json palette = Json::array();           // pixel mode: ["#rrggbb", ...] the colours snap to; [] = assets.json style.palette (none = unchanged)
+    std::int32_t seed = 0;                  // 0 = derived from the entity's id; another number gives another (still repeatable) random run
 };
 
 // -------------------------------------------------------------------- UI ---
@@ -735,6 +793,55 @@ struct Video : UiBox {
         size = {640, 360};
         color = {0, 0, 0, 1};
     }
+};
+
+// ------------------------------------------------------------------ vfx ---
+struct VfxDoc;  // an effect document (vfx.h)
+
+// A child entity a Vfx made (an emitter or a light): which part of the document it came from, and the intensity a light started with.
+// `part` is -1 once the play that made it has ended: an emitter then only waits for its particles to drain (see drainLeft).
+struct VfxChild {
+    Entity entity = kNullEntity;
+    std::int32_t part = 0;
+    float baseIntensity = 1.0f;
+    float drainFor = 0.0f;    // emitter: seconds after it stops emitting until its last particle is certainly gone (vfx.cpp, drain_bound)
+    float drainLeft = -1.0f;  // emitter: < 0 while it emits; from the moment it stops, counts down drainFor in game seconds; at 0 it is removed
+};
+
+// What the effect system (vfx.h) keeps per Vfx at run time. Never serialized. Copying it gives an EMPTY state (the children belong to
+// the entity they were made under: a copy starts its effect again), moving it keeps the state.
+struct VfxRuntime {
+    VfxRuntime() = default;
+    VfxRuntime(const VfxRuntime&) {}
+    VfxRuntime& operator=(const VfxRuntime& o) {
+        if (this != &o) *this = VfxRuntime();
+        return *this;
+    }
+    VfxRuntime(VfxRuntime&&) noexcept = default;
+    VfxRuntime& operator=(VfxRuntime&&) noexcept = default;
+
+    std::shared_ptr<const VfxDoc> doc;  // the version of the document this play started with
+    std::string loadedEffect;           // the `effect` the document was loaded for (a different `effect` starts over)
+    bool tried = false;                 // loadedEffect was tried (a file that failed is not read again every step)
+    bool seen = false;                  // the system has looked at this Vfx (autoplay applied)
+    bool finished = false;              // the effect ran to its end (or was stopped): `playing` set true again restarts it
+    std::uint32_t started = 0;          // bit i: part i has started
+    std::vector<VfxChild> children;     // the emitters and lights this play made
+};
+
+// A visual effect placed in the scene: plays the effect document `effect` (a *.vfx.json, docs/PARTICLES.md "Effect documents"). Its
+// parts become child entities (emitters, lights) or happen once (a sound, a command) at their time on the document's timeline.
+// `vfx.play` (a command, and `vfx.play()` in scripts) makes one of these at a position with autoDestroy on.
+struct Vfx {
+    std::string effect;               // project path of the *.vfx.json; changing it starts that effect from the beginning
+    bool autoplay = true;             // start by itself when the system first sees this entity
+    bool playing = false;             // runtime: advancing; set true to start (from the start when it had ended), false to pause
+    bool loop = false;                // start again when the effect ends
+    bool autoDestroy = false;         // remove this entity when the effect has ended and its emitters have emptied
+    float speed = 1.0f;               // 1 = as written, 2 = twice as fast; scales the timeline, not the particles' own motion
+    float time = 0.0f;                // runtime: seconds into the effect
+    float duration = 0.0f;            // runtime: length of the effect in seconds; 0 until the document is read
+    VfxRuntime rt;
 };
 
 // ------------------------------------------------------------------- 3D ---

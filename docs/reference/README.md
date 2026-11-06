@@ -12,7 +12,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [IK2D](components/2d.md#ik2d): Inverse kinematics for a chain of Bone2D entities: put it on the LAST bone (the hand, the foot) and name a `target`; every fixed step, after the animators have posed the bones and before the frame is drawn, the bones from this one up through its parents are turned so the tip of this bone reaches the target entity's position, within each bone's minAngle / maxAngle. _Since 0.7.0._
 - [Light2D](components/2d.md#light2d): A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. _Since 0.2.0._
 - [Parallax](components/2d.md#parallax): Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. _Since 0.2.0._
-- [ParticleEmitter](components/2d.md#particleemitter): Emits short-lived particles (smoke, sparks, explosions).
+- [ParticleEmitter](components/2d.md#particleemitter): Emits short-lived particles (smoke, sparks, explosions, fire, trails).
 - [Shape2D](components/2d.md#shape2d): Untextured 2D primitive for prototypes, UI panels and debug visuals.
 - [Sprite](components/2d.md#sprite): Draws a textured (or solid color) quad.
 - [SpriteAnimator](components/2d.md#spriteanimator): Flipbook animation over a grid sprite sheet.
@@ -20,6 +20,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [Text](components/2d.md#text): Draws a string with a TrueType font (or the built-in font).
 - [Tilemap](components/2d.md#tilemap): A grid of tiles drawn from a tileset texture; tile index -1 is empty.
 - [Tint](components/2d.md#tint): Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, Video, CameraView, Chart, Captions) drawn by the renderer. _Since 0.4.0._
+- [Vfx](components/2d.md#vfx): A visual effect placed in the scene, like a prefab (docs/PARTICLES.md, "Effect documents"): plays the effect document `effect` (a *.vfx.json that bundles emitters, a light flash, sounds and commands such as a camera shake on one timeline). _Not released yet._
 
 ### [3D](components/3d.md)
 
@@ -172,7 +173,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.generate_texture`](commands/assets.md#assetsgenerate_texture-modifies-state): Make a material texture (paper, parchment, wood, planks, leather, fabric, stone, noise, gradient, vignette) offline: a seeded PNG, no provider and no key. _Since 0.4.0._
 - [`assets.generate_voice`](commands/assets.md#assetsgenerate_voice-modifies-state): Generate spoken audio from text with the voice asset provider and record where it came from. _Since 0.1.6._
 - [`assets.import`](commands/assets.md#assetsimport-modifies-state): Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF, MP4...) into the project's assets/ folder and record where it came from. _Since 0.1.6._
-- [`assets.list`](commands/assets.md#assetslist): List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, other (by file name).
+- [`assets.list`](commands/assets.md#assetslist): List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, vfx, other (by file name).
 - [`assets.pack_atlas`](commands/assets.md#assetspack_atlas-modifies-state): Pack a folder of images into one atlas PNG and write the frame table (rect and pivot per frame) that a Sprite's `region` reads. _Since 0.3.0._
 - [`assets.preview_in_scene`](commands/assets.md#assetspreview_in_scene): See an asset inside a scene of the game: it is placed (a PNG as a Sprite, a .glb as a MeshRenderer) in a private run of the scene and captured at phone and desktop resolutions. _Since 0.16.0._
 - [`assets.preview_sheet`](commands/assets.md#assetspreview_sheet): Look at a sprite sheet the way the game plays it: a labelled grid of its frames (numbers, cell edges, pivot, optional onion skin) plus checks for empty, cut or jumping frames and a loop seam. _Since 0.6.0._
@@ -311,6 +312,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`vector.to_rig`](commands/assets.md#vectorto_rig-modifies-state): Turn an SVG whose named groups are the parts of a character into part pictures, joints and a Bone2D prefab that animates in parts. _Since 0.16.0._
 - [`vector.transform`](commands/assets.md#vectortransform-modifies-state): Move, scale, rotate or flip SVG elements in the drawing space. _Since 0.16.0._
 - [`vector.ungroup`](commands/assets.md#vectorungroup-modifies-state): Dissolve SVG groups, keeping what is in them where it was. _Since 0.16.0._
+- [`vfx.create`](commands/assets.md#vfxcreate-modifies-state): Write a new effect document (*.vfx.json) with one burst emitter, as a starting point to edit. _Not released yet._
+- [`vfx.edit`](commands/assets.md#vfxedit-modifies-state): Change one field of an effect document by JSON pointer (set, remove, add to an array, move inside an array); the result must still be a valid effect. _Not released yet._
 
 ### [audio](commands/audio.md)
 
@@ -384,6 +387,13 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`input.record`](commands/game.md#inputrecord-modifies-state): Record the input the game receives as an input replay (start / stop). _Since 0.3.0._
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
+- [`vfx.budget`](commands/game.md#vfxbudget): What an effect document costs on a phone: live particles and the screen they cover, with the fixes. _Not released yet._
+- [`vfx.check`](commands/game.md#vfxcheck): Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix. _Not released yet._
+- [`vfx.filmstrip`](commands/game.md#vfxfilmstrip-modifies-state): Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once. _Not released yet._
+- [`vfx.list`](commands/game.md#vfxlist): The effects that play now, and the limits of an effect. _Not released yet._
+- [`vfx.play`](commands/game.md#vfxplay-modifies-state): Play an effect document (*.vfx.json) at a position, or on an entity. _Not released yet._
+- [`vfx.review`](commands/game.md#vfxreview-modifies-state): A cheap one-shot vision review of an effect: its filmstrip graded for readability, timing, palette and overdraw, with vfx.edit fixes. _Not released yet._
+- [`vfx.stop`](commands/game.md#vfxstop-modifies-state): End an effect started by vfx.play (or a Vfx entity). _Not released yet._
 
 ### [i18n](commands/i18n.md)
 

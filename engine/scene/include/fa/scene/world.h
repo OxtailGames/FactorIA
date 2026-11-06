@@ -209,6 +209,11 @@ public:
     std::uint64_t scene_generation() const { return sceneGeneration_; }
     void bump_scene_generation() { ++sceneGeneration_; }
 
+    // How many effects (Vfx) play or still hold child entities: what the `vfx.play` budget counts (kVfxMaxPlaying). update_vfx
+    // recounts it every step and vfx_play adds the effect it starts; clear() sets it back to 0.
+    int vfx_live() const { return vfxLive_; }
+    void set_vfx_live(int n) { vfxLive_ = n < 0 ? 0 : n; }
+
     // The procedural meshes (mesh_store.h) scripts built with mesh.create: used as MeshRenderer.mesh by their "mesh:N" id.
     // clear() (every scene load that is not additive) releases them all.
     MeshStore& meshes() { return meshes_; }
@@ -244,6 +249,7 @@ private:
     double time_ = 0.0;
     std::string scenePath_;
     std::uint64_t sceneGeneration_ = 0;
+    int vfxLive_ = 0;
     MeshStore meshes_;
 };
 
