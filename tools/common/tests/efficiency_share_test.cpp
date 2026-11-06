@@ -387,7 +387,7 @@ TEST_CASE("feedback file lock: a process that can write the user's folder and on
 TEST_CASE("feedback file lock: one wait for both locks, a message that names only what is true, and no folder made for a path that is not there") {
     Game g;
     ShareEnv env = g.env;
-    env.lockWaitSec = 0.8;
+    env.lockWaitSec = 1.6;
     env.lockStaleSec = 600.0;
     ScopedShareEnv scoped(env);
     const std::filesystem::path projectLock = g.dir.path / ".factoria" / kFeedbackShareLockFile;
@@ -396,11 +396,12 @@ TEST_CASE("feedback file lock: one wait for both locks, a message that names onl
     std::filesystem::create_directories(g.dir.path / ".factoria", ec);
     std::filesystem::create_directories(env.config_dir(), ec);
     SUBCASE("the second lock waits only for what the first left of the wait") {
-        // The user's lock is held by another program for 0.4 s, the project's for good: the wait is 0.8 s in all, not 0.4 + 0.8 s.
+        // The user's lock is held by another program for 0.8 s, the project's for good: the wait is 1.6 s in all, not 0.8 + 1.6 s.
+        // Wide numbers on purpose: a loaded CI machine stretches every wait, so the bound sits between 1.6 and 2.4 s.
         testing::write_all(userLock, "alive");
         testing::write_all(projectLock, "alive");
         std::thread other([&] {
-            std::this_thread::sleep_for(std::chrono::milliseconds(400));
+            std::this_thread::sleep_for(std::chrono::milliseconds(800));
             std::error_code rc;
             std::filesystem::remove(userLock, rc);
         });
@@ -409,8 +410,8 @@ TEST_CASE("feedback file lock: one wait for both locks, a message that names onl
         const double waited = std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count();
         other.join();
         CHECK_FALSE(lock.held());
-        CHECK(waited < 1.15);  // 0.4 + 0.8 would be 1.2 or more
-        CHECK(lock.error().find("did not finish in 0.8 s") != std::string::npos);  // the whole wait, not what was left of it
+        CHECK(waited < 2.3);  // 0.8 + 1.6 would be 2.4 or more
+        CHECK(lock.error().find("did not finish in 1.6 s") != std::string::npos);  // the whole wait, not what was left of it
         std::filesystem::remove(projectLock, ec);
     }
     SUBCASE("a thread cap shortens the wait of both locks") {
