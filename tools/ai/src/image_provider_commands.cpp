@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <format>
 #include <memory>
+#include <optional>
 
 #include "asset_commands.h"
 #include "fa/core/fs.h"
@@ -90,9 +91,9 @@ ImageEditPlan plan_image_edit(const ImageEditEnv& env, bool inpaint, const Json&
     const char* cmd = command.c_str();
     check_keys(args, cmd,
                inpaint ? std::vector<std::string>{"path", "selection", "selectionName", "prompt", "layer", "frame", "name", "seed", "references", "style", "provider",
-                                                   "model", "quantize", "dryRun", "author", "bake"}
+                                                   "model", "quantize", "dryRun", "approved", "author", "bake"}
                        : std::vector<std::string>{"path", "prompt", "selection", "selectionName", "size", "placement", "name", "transparent", "seed", "references",
-                                                  "style", "provider", "model", "quantize", "dryRun", "author", "bake"});
+                                                  "style", "provider", "model", "quantize", "dryRun", "approved", "author", "bake"});
     if (env.projectDir.empty())
         throw CommandError("no_project", "There is no project folder to work in", "Run from a project folder (the one with project.json) or pass --project to the factoria CLI.");
     ProjectScope scope(env.projectDir);
@@ -149,6 +150,7 @@ ImageEditPlan plan_image_edit(const ImageEditEnv& env, bool inpaint, const Json&
                     in, true, command);
     }
     plan.provider = *target->provider;
+    plan.limits = cfg.limits;
 
     // the request
     const asset_support::Style style = flag(args, "style", true) ? asset_support::load_house_style() : asset_support::Style{};
@@ -214,8 +216,8 @@ ImageEditPlan plan_image_edit(const ImageEditEnv& env, bool inpaint, const Json&
         req.transparent = flag(args, "transparent", false);
     }
 
-    // what would be sent
-    const bool free = plan.provider.kind == ProviderKind::Fake || plan.provider.kind == ProviderKind::AssetCommand;
+    // what would be sent, and what it may cost
+    plan.cost = estimate_asset_cost(plan.provider, req, 1);
     plan.estimate = Json::object({{"command", command},
                                   {"document", plan.doc},
                                   {"provider", plan.provider.name},
@@ -228,12 +230,27 @@ ImageEditPlan plan_image_edit(const ImageEditEnv& env, bool inpaint, const Json&
                                   {"selection", plan.selection},
                                   {"selectedPixels", in.selectedPixels},
                                   {"quantizeToPalette", plan.quantize},
-                                  {"billing", free ? "none: " + std::string(plan.provider.kind == ProviderKind::Fake ? "the fake provider is free and offline"
-                                                                                                                     : "a local program runs, check its own cost")
-                                                   : "one image from '" + plan.provider.name + "', billed by the provider per its own price list (image size and model decide it); "
-                                                     "the call is not repeated if it fails after the provider answered"},
+                                  {"billing", plan.cost.free ? "none: " + plan.cost.basis
+                                                            : "one image from '" + plan.provider.name + "': " + plan.cost.basis +
+                                                              " (an estimate; the provider's own bill decides). The call is not repeated if it fails after the provider answered"},
                                   {"prompt", req.prompt}});
+    const Json estimated = estimate_to_json(plan.cost);
+    for (const auto& [key, value] : estimated.items()) plan.estimate[key] = value;
     return plan;
+}
+
+AssetCostGuard begin_image_edit_cost(const ImageEditPlan& plan, const ImageEditEnv& env, bool approved, const CancelFlag* cancel) {
+    AssetCall call;
+    call.command = plan.command;
+    call.what = std::format("a {}x{} picture for the layer '{}' of {}", plan.layerWidth, plan.layerHeight, plan.layerName, plan.doc);
+    call.prompt = plan.request.prompt;
+    call.projectDir = env.projectDir;
+    call.provider = plan.provider.name;
+    call.model = plan.request.model;
+    call.kind = MediaKind::Image;
+    call.estimate = plan.cost;
+    call.cancel = cancel;
+    return AssetCostGuard::begin(plan.limits, call, approved);
 }
 
 Result<AssetResult> run_image_edit(const ImageEditPlan& plan, const ProviderRuntime& runtime, const CancelFlag* cancel) {
@@ -290,14 +307,15 @@ ImageEditStored store_image_edit(const ImageEditEnv& env, const ImageEditPlan& p
 }
 
 void register_image_provider_commands(CommandRegistry& registry, std::function<Result<AiConfig>()> load, std::function<std::string()> projectDir,
-                                      ProviderRuntime runtime, const CancelFlag* cancel) {
+                                      ProviderRuntime runtime, const CancelFlag* cancel, std::string runKey) {
     struct Shared {
         std::function<Result<AiConfig>()> load;
         std::function<std::string()> projectDir;
         ProviderRuntime runtime;
         const CancelFlag* cancel;
+        std::string runKey;
     };
-    auto shared = std::make_shared<Shared>(Shared{std::move(load), std::move(projectDir), std::move(runtime), cancel});
+    auto shared = std::make_shared<Shared>(Shared{std::move(load), std::move(projectDir), std::move(runtime), cancel, std::move(runKey)});
     auto add = [&](const char* name, const char* summary, const std::string& description, const std::string& properties, const char* required, bool inpaint) {
         CommandInfo info;
         info.name = name;
@@ -308,19 +326,27 @@ void register_image_provider_commands(CommandRegistry& registry, std::function<R
         info.inputSchema = Json::parse(std::string(R"({"type":"object","required":)") + required + R"(,"additionalProperties":false,"properties":{)" + properties + "}}");
         registry.add(std::move(info), [shared, inpaint](const Json& args) -> Json {
             const ImageEditEnv env{shared->load, shared->projectDir(), shared->runtime};
+            std::optional<AssetRunScope> run;
+            if (!shared->runKey.empty()) run.emplace(shared->runKey);
             ImageEditPlan plan = plan_image_edit(env, inpaint, args);
             if (flag(args, "dryRun", false)) {
                 return Json::object({{"dryRun", true}, {"sent", false}, {"estimate", plan.estimate}, {"warnings", plan.warnings},
                                      {"next", "Nothing was sent or paid for. Call again without dryRun to make the picture."}});
             }
+            AssetCostGuard guard = begin_image_edit_cost(plan, env, flag(args, "approved"), shared->cancel);
+            if (!guard.go()) return guard.needs_approval();
             auto made = run_image_edit(plan, env.runtime, shared->cancel);
             if (!made) throw CommandError("generation_failed", made.error().message, made.error().hint);
+            guard.commit();
             ImageEditStored stored = store_image_edit(env, plan, *made);
             ProjectScope scope(env.projectDir);
             Json out = image_layer_add_provider(env.projectDir, stored.addArgs);
             Json warnings = out.contains("warnings") ? out["warnings"] : Json::array();
             for (const std::string& w : stored.warnings) warnings.push_back(w);
+            for (const std::string& w : guard.warnings()) warnings.push_back(w);
             if (!warnings.empty()) out["warnings"] = warnings;
+            const Json cost = guard.cost_json();
+            for (const auto& [key, value] : cost.items()) out[key] = value;
             out["generated"] = stored.details;
             out["provider"] = plan.provider.name;
             out["estimate"] = plan.estimate;
@@ -340,6 +366,7 @@ void register_image_provider_commands(CommandRegistry& registry, std::function<R
       "style":{"type":"boolean","default":true,"description":"Apply the house style of assets.json (style.prompt, style.references). false skips it for this call."},
       "quantize":{"type":"boolean","description":"Reduce the picture to the document's palette. Default: true when the document has a palette (an indexed document), else false."},
       "dryRun":{"type":"boolean","default":false,"description":"Only check the call and return what would be sent and what it may cost. Sends nothing, writes nothing."},
+      "approved":{"type":"boolean","default":false,"description":"The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; the fake provider and local programs never need it."},
       "author":{"type":"string","description":"Who gets the credit in the provenance record. Default: \"factoria\"."},
       "bake":{"type":"boolean","default":true,"description":"Also draw the PNG of the document (default true)."})J";
     add("image.inpaint", "Repaint the selected part of an image document with the image provider and add the result as a masked `provider` layer.",
@@ -350,7 +377,7 @@ void register_image_provider_commands(CommandRegistry& registry, std::function<R
         "assets.json; the baked picture counts as AI-made. In a document with a palette the result is reduced to it (pixel_dominant_downscale: palette colours only, no blends). A picture "
         "smaller than 512 px is magnified by whole pixels before it is sent, and the answer is resized back. Providers that can inpaint: the built-in openai (OPENAI_API_KEY), fake "
         "(placeholder pattern, free, offline) and asset-command providers whose argv has {input} and {mask}. Without one the error says how to configure it (docs/AI_PROVIDERS.md) "
-        "and the offline route with exact commands. The call is synchronous and costs what the provider charges for one image: `dryRun` shows what would be sent. A provider layer "
+        "and the offline route with exact commands. The call is synchronous and costs what the provider charges for one image: `dryRun` shows what would be sent and the estimate. " + std::string(asset_cost_doc()) + " A provider layer "
         "is never regenerated by itself: call this again for another try. "
         "Example: {\"path\":\"assets/art/hero.image.json\",\"selection\":\"sky\",\"prompt\":\"a stormy sky with a red moon\",\"seed\":7}",
         common + R"J(,
@@ -364,7 +391,7 @@ void register_image_provider_commands(CommandRegistry& registry, std::function<R
         "given, \"fill\", or {x,y}). `selection` (a stored selection, \"all\", or an inline image.select object) masks the layer so it shows only there. The layer carries the "
         "provider's provenance and is recorded in assets.json; the baked picture counts as AI-made. `transparent` asks for a transparent background (sprites, props). In a document "
         "with a palette the result is reduced to it. Any image provider works (openai, fake, asset-command); without one the error says how to configure it (docs/AI_PROVIDERS.md) "
-        "and the offline route with exact commands. The call is synchronous and costs what the provider charges for one image: `dryRun` shows what would be sent. A provider layer is "
+        "and the offline route with exact commands. The call is synchronous and costs what the provider charges for one image: `dryRun` shows what would be sent and the estimate. " + std::string(asset_cost_doc()) + " A provider layer is "
         "never regenerated by itself. "
         "Example: {\"path\":\"assets/art/hero.image.json\",\"prompt\":\"a brass key, side view\",\"size\":{\"width\":64,\"height\":64},\"placement\":{\"x\":10,\"y\":4},\"transparent\":true}",
         common + R"J(,

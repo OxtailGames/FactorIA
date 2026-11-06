@@ -48,6 +48,10 @@ struct AiCommandOptions {
     // Why `cancel` was set (a cause key, see cancel_cause_text()); read when a run ends cancelled, so its error and the ai.run
     // result say who stopped it. Empty = unknown.
     std::function<std::string()> cancelCause;
+    // The run the asset-generating commands of this registry count into ("per run" in limits.maxAssetCostUsd, "Approve all for this
+    // run"): the editor passes the chat id of the run. "" = the commands count into the run of the calling thread (AssetRunScope),
+    // which is the whole process for the CLI and MCP.
+    std::string assetRunKey;
     // MCP endpoint a CLI sub-agent attaches (SessionOptions::mcpUrl): the editor's, so ai.run edits its world too.
     std::string mcpUrl;
     // HTTP transport and environment of ai.models (tests inject fakes). Default: the real ones.

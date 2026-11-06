@@ -9,6 +9,7 @@
 #include <optional>
 #include <set>
 
+#include "fa/ai/asset_cost.h"
 #include "fa/ai/assets.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
@@ -30,6 +31,7 @@ struct Ctx {
     std::function<std::string()> projectDir;
     ProviderRuntime runtime;
     const CancelFlag* cancel = nullptr;
+    std::string runKey;  // the run the cost of this registry's calls counts into ("" = the calling thread's)
 };
 
 [[noreturn]] void fail(const char* code, const Error& e) { throw CommandError(code, e.message, e.hint); }
@@ -53,6 +55,7 @@ void add_command(CommandRegistry& registry, const std::shared_ptr<Ctx>& ctx, con
     info.summary = summary;
     info.description = description;
     info.inputSchema = std::move(inputSchema);
+    if (info.inputSchema["properties"].contains("approved")) info.description += asset_cost_doc();
     info.readOnly = readOnly;
     info.category = "assets";
     registry.add(std::move(info), [ctx, handler = std::move(handler)](const Json& args) -> Json {
@@ -62,6 +65,8 @@ void add_command(CommandRegistry& registry, const std::shared_ptr<Ctx>& ctx, con
                                "Run from a project folder (the one with project.json) or pass --project to the factoria CLI.");
         }
         ProjectScope scope(dir);
+        std::optional<AssetRunScope> run;
+        if (!ctx->runKey.empty()) run.emplace(ctx->runKey);
         return handler(*ctx, args);
     });
 }
@@ -221,12 +226,37 @@ AssetTarget resolve_target(const Ctx& ctx, const AiConfig& cfg, const Json& args
 
 // ---- Images -----------------------------------------------------------------------------------------------------------
 
+// Before the provider is called: the estimate, the limits and the user's yes (docs/AI_COSTS.md, "Asset generation"). When go() is false
+// the command returns needs_approval() and calls nothing. The guard counts the money as spent until it is destroyed uncommitted.
+AssetCostGuard cost_gate(const Ctx& ctx, const AiConfig& cfg, const Json& args, const char* command, const std::string& what,
+                         const std::string& prompt, const AssetTarget& target, const AssetRequest& request) {
+    AssetCall call;
+    call.command = command;
+    call.what = what;
+    call.prompt = prompt;
+    call.projectDir = ctx.projectDir();
+    call.provider = target.provider->name;
+    call.model = target.model;
+    call.kind = request.kind;
+    call.estimate = estimate_asset_cost(*target.provider, request, 1);
+    call.cancel = ctx.cancel;
+    return AssetCostGuard::begin(cfg.limits, call, flag(args, "approved"));
+}
+
+// The estimate and what was spent go into the command's result next to the files it made.
+void add_cost(Json& out, const AssetCostGuard& guard, std::vector<std::string>& warnings) {
+    const Json cost = guard.cost_json();  // a named object: the range below must outlive the loop
+    for (const auto& [key, value] : cost.items()) out[key] = value;
+    warnings.insert(warnings.end(), guard.warnings().begin(), guard.warnings().end());
+}
+
 struct ImageJob {
     std::string path, prompt;
     int width = 512, height = 512;
     int columns = 0, rows = 0;  // > 0: a sprite sheet of this grid
     bool transparent = false;
     Json sheet;                 // the "sheet" entry to record, or null
+    const char* command = "assets.generate_image";
 };
 
 Json generate_image_file(const Ctx& ctx, const Json& args, const ImageJob& job) {
@@ -251,8 +281,14 @@ Json generate_image_file(const Ctx& ctx, const Json& args, const ImageJob& job) 
     referencePaths = unique_paths(referencePaths);
     request.references = load_references(referencePaths);
 
+    AssetCostGuard guard = cost_gate(ctx, cfg, args, job.command,
+                                     job.columns > 0 ? std::format("a {}x{} sprite sheet ({} columns by {} rows) at {}", job.width, job.height, job.columns, job.rows, job.path)
+                                                     : std::format("a {}x{} image at {}", job.width, job.height, job.path),
+                                     job.prompt, target, request);
+    if (!guard.go()) return guard.needs_approval();
     auto made = generate_asset(*target.provider, request, ctx.runtime, ctx.cancel);
     if (!made) fail("generation_failed", made.error());
+    guard.commit();
 
     auto decoded = decode_image(reinterpret_cast<const std::uint8_t*>(made->bytes.data()), made->bytes.size());
     if (!decoded) {
@@ -289,6 +325,7 @@ Json generate_image_file(const Ctx& ctx, const Json& args, const ImageJob& job) 
                              {"height", image.height},
                              {"bytes", png.size()},
                              {"provenance", provenance}});
+    add_cost(out, guard, warnings);
     if (!warnings.empty()) out["warnings"] = warnings;
     out["$image"] = Json::object({{"path", fs::resolve(job.path).string()}, {"mimeType", "image/png"}});
     return out;
@@ -329,6 +366,7 @@ Json generate_sprite_sheet(const Ctx& ctx, const Json& args) {
     job.columns = columns;
     job.rows = rows;
     job.transparent = flag(args, "transparent", true);
+    job.command = "assets.generate_sprite_sheet";
     job.prompt = std::format("{}\n\nLayout: a sprite sheet of {} animation frames in a grid of {} columns by {} rows, read left to right "
                              "and then top to bottom. Every frame has the same size and the subject sits in the same place in each "
                              "frame. No borders, labels or gaps between frames.",
@@ -340,6 +378,7 @@ Json generate_sprite_sheet(const Ctx& ctx, const Json& args) {
                               {"frames", frames},
                               {"clips", Json::array({Json::object({{"name", "default"}, {"firstFrame", 0}, {"lastFrame", frames - 1}, {"fps", fps}})})}});
     Json out = generate_image_file(ctx, args, job);
+    if (is_needs_approval(out)) return out;
     out["setup"] = Json::object({{"Sprite", Json::object({{"texture", job.path}})},
                                  {"SpriteAnimator", Json::object({{"columns", columns},
                                                                   {"rows", rows},
@@ -417,8 +456,14 @@ Json generate_file(const Ctx& ctx, const Json& args, MediaKind kind) {
     request.seconds = num(args, "seconds", 0);
     request.seed = seed_arg(args);
 
+    AssetCostGuard guard = cost_gate(ctx, cfg, args, kind == MediaKind::Sound ? "assets.generate_sound" : kind == MediaKind::Music ? "assets.generate_music"
+                                                       : voice ? "assets.generate_voice" : "assets.generate_model",
+                                     std::format("{} at {}", kind == MediaKind::Model3d ? "a 3D model" : voice ? "a voice clip" : std::string("a ") + media_kind_name(kind), path),
+                                     prompt, target, request);
+    if (!guard.go()) return guard.needs_approval();
     auto made = generate_asset(*target.provider, request, ctx.runtime, ctx.cancel);
     if (!made) fail("generation_failed", made.error());
+    guard.commit();
     const std::string got = sniff_extension(made->bytes);
     if (got != wanted) {
         throw CommandError("bad_output",
@@ -438,6 +483,7 @@ Json generate_file(const Ctx& ctx, const Json& args, MediaKind kind) {
                              {"bytes", made->bytes.size()},
                              {"kind", media_kind_name(kind)},
                              {"provenance", provenance}});
+    add_cost(out, guard, warnings);
     if (!warnings.empty()) out["warnings"] = warnings;
     out["next"] = kind == MediaKind::Model3d
                       ? "Use it as the `mesh` of a MeshRenderer component, then check the look with game.screenshot."
@@ -518,6 +564,7 @@ const std::string kCommonProperties = R"J(
     "model":{"type":"string","description":"Model to use instead of the one in ai.json. Empty: the provider's default."},
     "seed":{"type":"integer","description":"Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning."},
     "overwrite":{"type":"boolean","default":false,"description":"Replace the file when it already exists. The old file is not kept."},
+    "approved":{"type":"boolean","default":false,"description":"The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; with the fake provider and local programs it is not needed."},
     "author":{"type":"string","description":"Who gets the credit in the provenance record. Default: \"factoria\"."})J";
 
 const std::string kImageProperties = R"J(
@@ -531,8 +578,8 @@ Json schema(const std::string& properties, const std::string& required) {
 }  // namespace
 
 void register_asset_commands(CommandRegistry& registry, std::function<Result<AiConfig>()> load, std::function<std::string()> projectDir,
-                             ProviderRuntime runtime, const CancelFlag* cancel) {
-    auto ctx = std::make_shared<Ctx>(Ctx{std::move(load), std::move(projectDir), std::move(runtime), cancel});
+                             ProviderRuntime runtime, const CancelFlag* cancel, std::string runKey) {
+    auto ctx = std::make_shared<Ctx>(Ctx{std::move(load), std::move(projectDir), std::move(runtime), cancel, std::move(runKey)});
     const std::string pathProperty = R"J("path":{"type":"string","description":"Where to write the file, project-relative, under assets/ (for example \"assets/sfx/jump.wav\"). The extension must match what the provider makes."},)J";
 
     add_command(

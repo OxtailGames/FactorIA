@@ -28,6 +28,7 @@ struct AssetRequest {
     int width = 0, height = 0;                // image: the size the caller ends up with (providers draw at their own sizes)
     int columns = 0, rows = 0;                // image: > 0 asks for a sprite sheet of this grid
     bool transparent = false;                 // image: transparent background
+    std::string quality;                      // image: the provider's quality tier ("low", "medium", "high"; "" = the provider's default)
     double seconds = 0;                       // sound, music: length; 0 = the provider's choice
     std::optional<i64> seed;
     std::vector<ReferenceImage> references;   // image: pictures the result should follow
