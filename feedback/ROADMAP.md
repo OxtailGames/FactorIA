@@ -1987,3 +1987,181 @@ whole prototypes), looking at them one by one costs the user more than making th
 - M69.2 (M) Editor: a Review window that shows a sheet big, with keyboard picking (1-9, arrows), a "compare two" view
   and the history of past picks; the asset candidates (M66.3) and the Level generator's seeds open in it. Autotest
   section; docs in EDITOR.md and AI_GUIDE.md ("make N, show one sheet, ask for one number").
+
+## M70-M80: a renderer and runtime for every kind of game (planned 2026-11-06)
+
+The user, 2026-11-06: FactorIA is for 2D and 3D, simple and ambitious, retro and cutting-edge games on PC, consoles,
+phones and the web, so it gets everything a leading engine has, not only what a 2D game needs. Today: loading reads a
+little every frame on the main thread, the game loop is single-threaded, lighting is in gamma space with no HDR, the
+only screen effects are bloom and the colour filter, only the directional light casts shadows (one map, no cascades),
+IBL is a procedural sky, custom materials exist for `MeshRenderer` only, there is no LOD, occlusion culling, streaming,
+temporal antialiasing, upscaler or ray tracing, and the backends are sokol_gfx's (GL, GLES3, WebGL2, D3D11, Metal).
+
+Rules for all of them:
+- Off by default and free when off: a simple or retro game pays nothing (no extra pass, target or memory) for a feature
+  it does not use, and its look does not change unless it opts in (linear lighting included: a project setting with a
+  migration note, old projects keep gamma).
+- Every feature degrades with a teaching message where a backend cannot do it (GLES3/WebGL2 without float targets or
+  compute, a GPU without ray tracing), says so in `renderer.supports(feature)` and in the docs table per backend, and
+  has goldens per backend in CI.
+- Each is a component field or a command with doc strings, in the menu kit's graphics page where a player would set it,
+  in the Inspector, and in AI_GUIDE.md with when to use it and what it costs (perf budgets, `perf.measure`).
+- Simulation stays deterministic: threads never change results (fixed merge order, `world.rng`).
+- Our own implementation; outside SDKs only where a vendor requires its own (M78), fetched at setup like sokol-shdc,
+  never committed, with their licenses checked first.
+
+Order: M70 and M71 first; M72 and M73 need M71; M74 needs M72; M75 needs M70; M76 needs M71; M77 stands alone;
+M78 needs M76 and M77; M79 needs M73 and M77; M80 needs M71 and M72.
+
+## M70. Loading, threads and fast storage (L; 5 packages) — the user, 2026-11-06
+
+- M70.1 (L) Job system: a fixed pool of worker threads (cores - 1, capped; one on the web without cross-origin
+  isolation), jobs with dependencies, a main-thread fallback, profiler lanes per thread, and a debug mode that runs
+  every job on the main thread to compare results. Tests for determinism (same frame hash with 1 and N threads).
+- M70.2 (L) Parallel engine systems: culling, skinning, particles and vfx, animation sampling, tilemap and mesh
+  batching, nav queries, audio mixing and the render command build run as jobs; simulation systems that can split
+  (physics broadphase and islands where the backend allows) merge in a fixed order. Perf budgets of the examples prove
+  the gain on 4 and 8 cores.
+- M70.3 (M) Background loading: an IO thread and decode jobs (PNG, KTX2/Basis, audio, glTF, fonts, scenes), GPU uploads
+  budgeted per frame (ms and MB), `scene.preload`/`assets.preload` and `scene.load {async:true}` with progress and
+  cancel, and the loading screen of the menu kit fed by real progress. A frame never waits for a file unless asked.
+- M70.4 (M) Storage built for SSDs: `game.pak` read with memory mapping (with a read fallback), packed in first-use
+  order recorded by `play.auto`/play sessions so a level loads as few big sequential reads, compressed per block
+  (LZ4/Zstd, fast decode) with the choice per asset type, and a load-time report (`play.report`: time to first frame,
+  per scene, the slowest assets).
+- M70.5 (S) Startup: the player shows its first frame before the game's assets are read, shader pipelines compiled in
+  the background with a cache on disk (per backend and driver), and a `perf.startup` budget in the templates.
+
+## M71. Linear HDR and a post-processing stack (L; 5 packages) — the user, 2026-11-06
+
+- M71.1 (L) Linear HDR pipeline: `SceneSettings.colorSpace` "gamma" (today) or "linear", float render targets
+  (RGBA16F, R11G11B10 where supported, RGBA8 + dithering fallback), sRGB textures marked as such, tonemapping (neutral,
+  ACES, AgX, Reinhard, none), exposure (manual and automatic with adaptation speed), and HDR display output where the
+  platform allows (Windows HDR10/scRGB, macOS EDR) with paper-white nits. 2D lights and sprites use the same pipeline.
+- M71.2 (L) The stack: a `PostProcess` component (on a Camera, or a volume: global, box or circle in 2D/3D with blend
+  distance and priority) with ordered effects: colour grading (lift/gamma/gain, white balance, curves, `.cube` LUTs),
+  vignette, chromatic aberration, film grain, lens distortion, sharpen, bloom moved into it (lens dirt, threshold
+  knee), outline (depth/normal edges, 2D sprite outlines), pixelate and posterize. Effects share passes where they can.
+- M71.3 (L) Depth-based effects (3D): SSAO (GTAO quality levels), depth of field (bokeh, near/far, autofocus on a
+  target), camera motion blur (from depth; per-object with M76), screen-space reflections, height and distance fog
+  moved into the stack, sun shafts.
+- M71.4 (M) 2D screen effects: shockwave and heat-haze distortion (screen-space, spawned by `feel`/vfx), radial blur,
+  screen flash and fade moved into the stack, split-screen cameras each with their own stack.
+- M71.5 (M) Tools: a Post-processing panel with live preview and A/B, `postprocess.*` commands, presets (cinematic,
+  stylised, clean, retro hooks for M80), goldens per backend, the cost of each effect in the profiler and in docs.
+
+## M72. Custom shaders for everything (L; 5 packages) — the user, 2026-11-06
+
+SHADERS.md "Not available yet" becomes empty.
+- M72.1 (L) Materials for `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and vfx, trails, the sky and UI images: the
+  same snippet model as meshes (`fragment()`, `vertex()`), batching kept for sprites that share a material, per-sprite
+  values through instance data.
+- M72.2 (M) Post-process materials: a custom pass in the M71 stack (reads colour, depth, normals, previous passes),
+  ordered with the built-in effects.
+- M72.3 (L) Full shaders and custom lighting: own `main` and vertex layout, several passes, a custom light loop (toon
+  ramps, cel bands, hatching), textures in `vertex()`, per-instance values in one instanced draw.
+- M72.4 (L) Compute shaders where the backend has them (D3D11, Metal, GL 4.3, Vulkan/D3D12 with M77): GPU particles,
+  culling, simulation helpers; a clear refusal on GLES3/WebGL2 with the CPU path named.
+- M72.5 (L) A node graph material editor that writes the same JSON/snippet an AI writes (graph and code stay one
+  document), with live preview on mesh, sprite and quad, and a library of nodes (noise, dissolve, flow, fresnel,
+  triplanar, parallax occlusion).
+
+## M73. 3D lighting of a leading engine (L; 6 packages) — the user, 2026-11-06
+
+- M73.1 (L) Clustered forward lighting: hundreds of lights instead of 32, light cookies, IES profiles, area lights.
+- M73.2 (L) Shadows: cascaded shadow maps for the directional light (stable, blended cascades), point (cube) and spot
+  shadows in an atlas with a budget, soft shadows (PCF/PCSS), contact shadows, per-light resolution and distance.
+- M73.3 (L) Environment: HDRI import, prefiltered environment cubemaps for IBL, reflection probes (baked and realtime,
+  box projection, blending), sky models (physical sun and atmosphere, clouds) feeding IBL.
+- M73.4 (L) Baked lighting: a deterministic lightmap baker (CPU path tracer, multi-threaded on M70, GPU with M79),
+  lightmap UVs generated, light probes for moving objects, mixed lights; bake jobs with progress and cancel.
+- M73.5 (M) Volumetrics and decals: volumetric fog and light shafts per light, projected decals (deferred-style on
+  forward), screen-space subsurface for skin and wax, and a realtime GI option without ray tracing (probe grid, DDGI-style
+  updated over frames).
+- M73.6 (M) Materials catch up: clear coat, sheen, transmission, anisotropy, glTF extensions for them, and the
+  material inspector showing which ones cost a pass.
+
+## M74. Ambitious 2D lighting and effects (M; 4 packages) — the user, 2026-11-06
+
+- M74.1 (M) Soft 2D shadows (penumbra by light size), shadow casters on sprites and shapes (`ShadowCaster2D` from the
+  sprite's alpha or a polygon), self-shadowing off/on, more than 32 shadowed lights with an atlas.
+- M74.2 (M) Emission and masks: emissive maps on sprites (feeding HDR bloom), light masks per layer, light cookies, a
+  normal map generated from height or from the sprite itself, rim light.
+- M74.3 (L) 2D global illumination: radiance-cascades-style GI (light bounces off coloured walls, emissive sprites
+  light the scene), quality levels, off by default.
+- M74.4 (M) 2D water and refraction: reflective water planes, refraction and distortion zones through M72 materials,
+  shown in an example scene.
+
+## M75. Big worlds: LOD, occlusion, streaming, terrain (L; 6 packages) — the user, 2026-11-06
+
+- M75.1 (L) LOD: automatic mesh simplification on import (our own simplifier, deterministic), LOD groups with screen-size
+  thresholds and cross-fade, impostors for far objects, HLOD for cells.
+- M75.2 (L) Occlusion culling: a CPU software rasteriser of occluders on the M70 jobs (every backend) and GPU Hi-Z where
+  compute exists, portals for interiors; `renderStats` counts what each culled.
+- M75.3 (L) World streaming: worlds split into cells (3D scenes and 2D tilemap chunks) loaded and unloaded around the
+  camera or chosen anchors on the M70 IO thread, with budgets, priorities and a debug view; an editor workflow to edit
+  one big world in cells.
+- M75.4 (M) Large coordinates: origin shifting (or double-precision positions) so worlds of hundreds of km keep
+  precision in physics and rendering.
+- M75.5 (L) Terrain: heightmap terrain with GPU LOD, splat material layers, holes, collision, sculpt and paint tools in
+  the editor and as commands, generation from noise and erosion.
+- M75.6 (M) Foliage and scattering: GPU-instanced grass, trees and rocks with per-instance data, wind, LOD and culling,
+  painted or scattered by rules.
+
+## M76. Temporal antialiasing and open upscalers (L; 4 packages) — the user, 2026-11-06
+
+- M76.1 (L) The temporal base: per-pixel motion vectors (static, moving, skinned meshes, particles, sprites), camera
+  jitter, a depth buffer every pass can read, TAA with history rejection, per-object motion blur from M71.3.
+- M76.2 (M) Spatial upscaling everywhere: FSR 1 (EASU + RCAS) or our own equivalent on every backend, web and phones
+  included, replacing the stretch of `window.renderScale`; integer scaling kept for pixel art (orthoSize 0).
+- M76.3 (L) Temporal upscalers: FSR 2/3 upscaling (open source) where compute exists, MetalFX spatial and temporal on
+  Apple, with quality modes (Native AA, Quality, Balanced, Performance, Ultra Performance).
+- M76.4 (M) Scaling to a budget: dynamic resolution that holds a frame-time target, graphics quality presets (Low to
+  Ultra, auto-detected from the GPU and a short benchmark) that every M70-M80 feature reads, and the menu kit graphics
+  page with all of it.
+
+## M77. Modern backends: D3D12 and Vulkan (L; 6 packages) — the user, 2026-11-06
+
+sokol_gfx stays for GL, GLES3, WebGL2, D3D11 and Metal; D3D12 and Vulkan are our own backends behind the same render
+interface (external/ is not edited). They are the base of M78, M79, DirectStorage and the Xbox seam of M23.
+- M77.1 (L) The render interface split so a second backend family fits (resources, pipelines, passes, barriers).
+- M77.2 (L) D3D12 backend: descriptor heaps, pipeline state cache on disk, upload rings, resource barriers, debug layer
+  in tests, WARP for CI.
+- M77.3 (L) Vulkan backend: Windows, Linux and Android, validation layers in tests, lavapipe for CI, pipeline cache.
+- M77.4 (M) Shaders: the shader tool emits DXIL and SPIR-V (with the M72 snippets), reflection kept for the material
+  inspector.
+- M77.5 (M) Async compute and multi-threaded command recording on the M70 jobs, bindless where supported.
+- M77.6 (M) DirectStorage on Windows (GPU decompression of `game.pak` blocks) behind the M70 storage layer, and a
+  backend choice in `project.json` and the launcher with automatic fallback.
+
+## M78. Vendor upscalers, frame generation and latency (M; 4 packages) — the user, 2026-11-06
+
+- M78.1 (S) Licences and setup: NVIDIA DLSS/Streamline, Intel XeSS, AMD FidelityFX terms checked; the SDK binaries are
+  fetched by `factoria setup` on demand and shipped with exported games when used, never committed.
+- M78.2 (M) DLSS Super Resolution and Ray Reconstruction (D3D12/Vulkan, D3D11 where the SDK allows), XeSS Super
+  Resolution (every GPU, D3D11/D3D12/Vulkan), behind the M76 quality modes with automatic choice by GPU.
+- M78.3 (M) Frame generation: DLSS Frame Generation, FSR 3 frame generation, XeSS frame generation, with UI drawn
+  without artefacts and a refusal under the minimum base frame rate.
+- M78.4 (S) Latency: NVIDIA Reflex, AMD Anti-Lag 2, Intel XeLL, a latency readout in the profiler.
+
+## M79. Ray tracing (L; 5 packages) — the user, 2026-11-06
+
+- M79.1 (L) Acceleration structures: BLAS/TLAS for meshes (skinned refit, instances), on DXR (D3D12), Vulkan RT and
+  Metal RT, with `renderer.supports("raytracing")`.
+- M79.2 (L) Ray-traced shadows (soft, area lights) and ambient occlusion.
+- M79.3 (L) Ray-traced reflections and translucency, falling back to M71.3/M73.3 per pixel.
+- M79.4 (L) Ray-traced global illumination (probes updated by rays, then per-pixel with denoising; DLSS Ray
+  Reconstruction from M78 when present).
+- M79.5 (M) A path-traced reference mode for screenshots, store art and checking the raster look, and GPU baking for
+  M73.4 lightmaps.
+
+## M80. Retro looks done right (M; 4 packages) — the user, 2026-11-06
+
+- M80.1 (M) Low-resolution rendering: render at a console-like resolution (320x240, 256x224...) with integer or
+  aspect-correct scaling and a sharp-bilinear option, for 2D and 3D.
+- M80.2 (M) Palettes and dithering: palette quantization (built-in palettes and `.pal`/`.gpl`/image import), ordered and
+  error-diffusion dithering, colour limits per sprite, 1-bit and 4-colour handheld presets.
+- M80.3 (M) Screens: CRT (scanlines, shadow mask, curvature, bloom, phosphor persistence), NTSC/PAL composite artefacts,
+  LCD grid, VHS.
+- M80.4 (M) Retro 3D: vertex snapping, affine texture mapping, no filtering, low colour depth, draw distance fog, per
+  material or for the whole game; a retro template for 2D and one for 3D that use these presets.
