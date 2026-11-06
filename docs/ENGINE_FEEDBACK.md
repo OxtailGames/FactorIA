@@ -167,6 +167,44 @@ appended. Reporting steps the entry already counts changes nothing (`alreadyCoun
 same session never counts twice. `feedback.list` and `factoria feedback list` take `kind` / `--kind` (`gap` or `efficiency`) and show the
 saving of efficiency entries.
 
+### Sharing an efficiency entry
+
+An efficiency entry is shared like a gap (the same modes, the same lock, the same outbox; "Sharing with the engine developer" below), and
+it sends two things:
+
+- the **text**: the entry's `waste`, cleaned by the same sanitizer as a gap's `share` (no path, file name, URL, quoted text or project name).
+  An entry written by `feedback.report` derives its `share` from the waste and the suggestion, so there is nothing more to write; if the
+  cleaned text is too short the entry is not sent and `shared.reason` says why;
+- an **`efficiency` block** of numbers and words from the engine's own fixed lists: `fixType`, `appliesTo`, `measured` and `saving`
+  (`steps`, `toolCalls`, `minutes`, `tokens`, `costUsd`, `estimated`), the expected share of the fix, how many stretches of runs the numbers
+  add up (`spans`), and, for an entry filed after a fix did not remove the waste, `afterFix` (the engine version of that fix).
+
+Never sent: `evidence`, the session ids (they carry the time a run started), the AI's other words, the local `pattern`, the game's names. An entry whose
+`appliesTo` is `this-game` is a project fact and is not shared at all. The numbers are cumulative, so an entry that gets a new report
+(another span of the same waste) is sent again (up to 20 times) and the server keeps the latest numbers of that installation instead of adding
+them. `factoria feedback share --preview` shows the block with the rest.
+
+### Did the fix work?
+
+An efficiency entry the engine developer fixed (`fixed-in-engine`, with the version in `engineIssue` such as "FactorIA 0.17.2") records on
+the entry: `fixedIn` (the version), `fixedAt` (the day), `fixBaseline` (what ONE occurrence cost before: steps, minutes, tokens, over its
+spans) and, when the retrospective found it, `pattern` (the id of the waste pattern, local only). A later `ai.retrospective` of a game whose
+engine is at least `fixedIn` reads the transcripts that began on or after `fixedAt` (the transcripts do not say which engine they ran on,
+so the version of the running engine and the day stand for it) and compares the SAME pattern with the baseline. Its `fixChecks` answer, also
+recorded on the entry as `fixCheck {result, ratio, ...}`:
+
+| result | meaning |
+|---|---|
+| `waiting` | no run since the fix: nothing to compare yet (not recorded) |
+| `gone` | the pattern is not found in the runs since the fix: it worked |
+| `worked` | one occurrence costs half or less of what it did |
+| `partial` | it costs less, but more than half (up to 80%) |
+| `no_change` | it costs more than 80% of what it did: the fix saved nothing |
+
+A pattern a fix did not remove (`partial`, `no_change`) that the retrospective files again carries `afterFix` (the version), which is
+shared and shows in the engine developer's ranking, so a fix that saved nothing is visible. Nothing here asks a model, and `candidatesOnly`
+returns the checks without writing them.
+
 ## Archive
 
 `ENGINE_FEEDBACK.json` keeps what is still open. Every entry whose `status` is not `open` (`fixed-in-engine`,
@@ -220,6 +258,9 @@ Sent, for each entry: `localId` (FB-0003), `category`, `severity`, `effort`, the
 and `workaround`, `reporterKind` (`ai` or `human`) and `reviewed`; per request, the engine version and the platform (macos,
 windows, linux or other). Also sent with every request: a random installation id (UUID v4, created the first time, tied to no
 project and to no person) so that one installation counts once per gap, and, only if you signed in, the credential.
+
+An efficiency entry also sends a block of numbers and fixed words (fix type, where it applies, what was measured and what the fix would
+save; "Sharing an efficiency entry" above) and nothing of its evidence or session ids.
 
 Never sent: the project's name, id or version, file names and paths, scene, prefab, entity and script names, localization
 keys, the entry's own `title`, `missing`, `workaround`, `workaroundFiles`, `notes`, screenshots, code or assets.
@@ -393,6 +434,26 @@ similarity of each entry to the group (`Merged`), so a triage can check the merg
 that read alike, list the id in `distinctFrom` on either one (`"distinctFrom": ["FB-0011"]`; `"<project>/FB-0011"` for an
 entry of another project's file): `collect` never puts them in one group.
 
+### Efficiency entries
+
+`collect` (and `feedback pull`, which prints the top of the same list) ranks the efficiency entries apart from the gaps, because what
+matters is what a fix would SAVE, not how many people asked. Entries group by category, fix type and similar title, and a doc fix never merges
+with a command's. Each group shows:
+
+- the **total saving** across installations: for each installation (a pulled installation or a local project) its own entries' savings added
+  once, however many reports it sent, an anonymous installation weighted 0.5 and a verified or local one 1; in minutes, tokens, dollars, and
+  `hours` (the larger of the minutes and the dollars at $50 an hour, the exchange of the $1000 / 20 hours roadmap bar); and the same per game;
+- the **fix cost** in hours of work (doc 0.5, guide 2, example 4, command option 4, new command 16; an engine change costs what the roadmap
+  asks of the reports that want it);
+- the **verdict**: `doc now` (a doc, guide or example), `command: worth it` or `command: not yet (H of the C hours it costs)` (the hours
+  saved against the cost), `engine change: below threshold (N of the $1000 / 20 hours it needs)` or `engine change: reached the roadmap bar`;
+- a **ready reason** for each entry (`rejectReason`, plain text, only that entry's own numbers) to pass to `feedback reject` when the
+  entry is not worth doing;
+- `afterFix`: the versions whose fix a report says did not remove the waste.
+
+Sorted by hours saved, then dollars, tokens and title; minutes round to 0.1, dollars to cents, so the same inbox always prints the same list.
+In `--format json` it is the `efficiency` array. A gap's score is unchanged.
+
 ## Triage loop (engine developers, usually an AI in this repository)
 
 The engine-developer side reads what installations sent and answers each report. Nothing here asks a question: every command takes
@@ -412,7 +473,13 @@ its arguments, exits 0 when everything was done and 1 when a `shareId` is not on
    - `factoria feedback reject --quarantined --reason TEXT` tells the installations of the quarantined (junk) reports why (only the text you write is sent).
    - `factoria feedback keep r_8f3k2m` drops a wrong suggestion (without shareIds: all); nothing is sent.
 4. **Unreject** a mistake: `factoria feedback unreject r_8f3k2m`: the installation's next check turns the entry back into a sent, open one.
-5. **Collect** what is left: `factoria feedback collect <inbox> --out roadmap.md`.
+5. **Collect** what is left: `factoria feedback collect <inbox> --out roadmap.md`. Efficiency entries come ranked by what their fix saves, each with its verdict
+   and a ready reason ("Efficiency entries" above): do the `doc now` ones, build a command only when it is `worth it`, and for the rest
+   `feedback reject <shareId> --reason "<the entry's rejectReason>"` (the reason names only that entry's own numbers).
+6. **Record the fix.** When an efficiency entry is fixed, `feedback update --status fixed-in-engine` with "FactorIA <version>" in the text
+   (`feedback fixed add` for the list that ships) records `fixedIn`, `fixedAt` and the baseline; the retrospectives of the games on
+   that version compare the same pattern before and after ("Did the fix work?"), and an entry filed again with `afterFix` is the proof that
+   a fix saved nothing.
 
 A reason is plain text, 1 to 500 characters, whitespace collapsed, and it is shown verbatim to the person who sent the report, so write
 only about that report: what the engine has and where it is documented (a component, a field, a command, a doc page), or why it is not an engine

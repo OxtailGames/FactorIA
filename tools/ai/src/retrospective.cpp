@@ -11,6 +11,7 @@
 
 #include "fa/ai/savers.h"
 #include "fa/ai/text_model.h"
+#include "fa/core/build_info.h"
 #include "fa/core/date.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/feedback.h"
@@ -372,7 +373,8 @@ Json RetroCandidate::to_json() const {
     return j;
 }
 
-std::vector<RetroCandidate> find_retro_candidates(const std::vector<EfficiencySession>& sessions, const Json& feedbackEntries) {
+std::vector<RetroCandidate> find_retro_candidates(const std::vector<EfficiencySession>& sessions, const Json& feedbackEntries,
+                                                  bool keepBelowThreshold) {
     Map map;
     for (const EfficiencySession& s : sessions) {
         if (s.steps.empty()) continue;
@@ -409,7 +411,7 @@ std::vector<RetroCandidate> find_retro_candidates(const std::vector<EfficiencySe
         }
         a.c.maxShare = std::clamp(round2(den > 0 ? num / den : 0.0), 0.01, 1.0);
         a.c.potential = scale_measure(a.c.measured, a.c.maxShare);
-        if (!(a.c.potential.minutes >= minMinutes || a.c.potential.tokens >= minTokens)) continue;  // not worth a fix of any kind
+        if (!keepBelowThreshold && !(a.c.potential.minutes >= minMinutes || a.c.potential.tokens >= minTokens)) continue;  // not worth a fix of any kind
         a.c.summary = summarize(a, static_cast<int>(a.sessions.size()));
         out.push_back(a.c);
     }
@@ -433,7 +435,7 @@ std::vector<RetroCandidate> find_retro_candidates(const std::vector<EfficiencySe
         if (sx != sy) return sx > sy;
         return x.id < y.id;
     });
-    if (static_cast<int>(out.size()) > kRetroMaxCandidates) out.resize(kRetroMaxCandidates);
+    if (!keepBelowThreshold && static_cast<int>(out.size()) > kRetroMaxCandidates) out.resize(kRetroMaxCandidates);
     return out;
 }
 
@@ -448,7 +450,7 @@ Json RetrospectiveResult::to_json() const {
     Json cands = Json::array();
     for (const RetroCandidate& c : candidates) cands.push_back(c.to_json());
     Json j = Json::object({{"sessions", sessions}, {"candidates", cands}, {"alreadyFiled", alreadyFiled}, {"filed", filed},
-                           {"dropped", dropped}, {"facts", facts}, {"model", model}, {"costUsd", std::round(costUsd * 1e6) / 1e6},
+                           {"fixChecks", fixChecks}, {"dropped", dropped}, {"facts", facts}, {"model", model}, {"costUsd", std::round(costUsd * 1e6) / 1e6},
                            {"usage", usage.to_json()}, {"note", note}});
     return j;
 }
@@ -611,6 +613,25 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
     if (auto doc = load_feedback(feedbackPath); doc.ok() && doc.value().is_object() && doc.value().contains("entries") && doc.value()["entries"].is_array())
         entries = doc.value()["entries"];
 
+    // How the fixes of earlier entries did: their pattern in the transcripts since the fix, against what it cost before. The entries that
+    // were fixed are closed, so they are in the file or in its archive.
+    Json closed = entries;
+    if (const std::string archivePath = feedback_archive_path(feedbackPath); archivePath != feedbackPath) {
+        if (auto archive = load_feedback(archivePath); archive.ok() && archive.value().is_object() && archive.value().contains("entries") &&
+                                                       archive.value()["entries"].is_array())
+            for (const Json& e : archive.value()["entries"]) closed.push_back(e);
+    }
+    const std::vector<FixCheck> checks = check_efficiency_fixes(sessions, closed, options.engineVersion.empty() ? std::string(engine_version()) : options.engineVersion);
+    std::map<std::string, std::string> afterFix;  // pattern -> the version whose fix did not remove it
+    for (const FixCheck& c : checks) {
+        result.fixChecks.push_back(c.to_json());
+        if (c.result == "no_change" || c.result == "partial") afterFix[c.pattern] = c.fixedIn;
+        if (options.candidatesOnly || c.result == "waiting") continue;
+        Json stored = c.to_json();
+        for (const char* key : {"entry", "pattern", "fixedIn", "fixedAt"}) stored.erase(key);
+        (void)record_fix_check(feedbackPath, c.entry, stored);  // a file that cannot be written only loses the note: the result is returned anyway
+    }
+
     std::vector<RetroCandidate> found = find_retro_candidates(sessions, entries);
     sessions.clear();  // the gate reads the transcripts again, one at a time: nothing big is held while the model works
     sessions.shrink_to_fit();
@@ -711,7 +732,12 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
             base.title = str(e, "title");
             base.suggestion = str(e, "suggestion");
             base.reporter = Json::object({{"kind", "ai"}, {"agent", "retrospective"}, {"model", modelInfo.model}});
-            EfficiencyFiling f = file_efficiency_feedback(projectDir, feedbackPath, base, args, projectName);
+            // The pattern is kept on the entry, so a later retrospective can compare it after a fix; a pattern an earlier fix did not remove
+            // says so (afterFix), and that is what tells the engine developer the fix saved less than expected.
+            EfficiencyOrigin origin;
+            origin.pattern = c->id;
+            if (auto fx = afterFix.find(c->id); fx != afterFix.end()) origin.afterFix = fx->second;
+            EfficiencyFiling f = file_efficiency_feedback(projectDir, feedbackPath, base, args, projectName, origin);
             if (f.refusal) {
                 const std::string line = str(e, "factLine");
                 if (f.refusal->code == "project_fact" && !line.empty()) add_fact(*c, line);

@@ -71,7 +71,37 @@ struct RetroCandidate {
 // The candidates of `sessions` (read with load_efficiency_session): the ones whose potential saving reaches the lowest threshold of the
 // table (a doc or guide: 10 minutes or 100k tokens), ranked by that saving, at most kRetroMaxCandidates. `feedbackEntries` (the
 // "entries" of the project's ENGINE_FEEDBACK.json, or null) lets the pass recognise a workaround that is already recorded.
-std::vector<RetroCandidate> find_retro_candidates(const std::vector<EfficiencySession>& sessions, const Json& feedbackEntries = Json());
+// `keepBelowThreshold` keeps every pattern found, however small, and does not cut the list: it is what the fix check uses to see whether a
+// pattern a fix was meant to remove is still there.
+std::vector<RetroCandidate> find_retro_candidates(const std::vector<EfficiencySession>& sessions, const Json& feedbackEntries = Json(),
+                                                  bool keepBelowThreshold = false);
+
+// ---- did the fix work? -----------------------------------------------------------------------------------------------------------
+// An efficiency entry that the engine fixed (status fixed-in-engine) keeps the version (`fixedIn`), the day (`fixedAt`), the id of the
+// pattern it was found by (`pattern`: a candidate id) and what one occurrence cost before (`fixBaseline`). The retrospectives of a game
+// whose engine is at least that version look at its transcripts from that day on and compare the SAME pattern with the baseline, so a
+// fix that saved nothing shows. Mechanical like the rest of the pass: the same transcripts and entries give the same result.
+struct FixCheck {
+    std::string entry;      // the id of the efficiency entry
+    std::string pattern;    // its candidate id
+    std::string fixedIn;    // the engine version of the fix
+    std::string fixedAt;    // YYYY-MM-DD
+    // waiting: no transcript since the fix. gone: the pattern is not found any more. worked: one occurrence costs half or less of what it
+    // did. partial: it costs less, but more than half. no_change: it costs about the same (more than 80%) or more.
+    std::string result;
+    int sessionsAfter = 0;  // transcripts that began on or after fixedAt
+    int spansAfter = 0;     // occurrences of the pattern found in them (the largest kRetroMaxSpans)
+    double ratio = 0;       // cost of one occurrence after / before (tokens and minutes together); 0 when waiting or gone
+    Json before;            // per occurrence: {spans, steps, minutes, tokens}
+    Json after;             // the same, after the fix (null when waiting or gone)
+    std::string text;       // one sentence for a person
+    Json to_json() const;
+};
+
+// The checks of the fixed efficiency entries in `entries` (the project's file and its archive together), against `sessions` (read with
+// load_efficiency_session). An entry fixed in a version newer than `engineVersion`, or without a pattern or a baseline, is left out.
+// Ordered by entry id.
+std::vector<FixCheck> check_efficiency_fixes(const std::vector<EfficiencySession>& sessions, const Json& entries, const std::string& engineVersion);
 
 struct RetrospectiveOptions {
     // The transcripts to read, by id (ai.session_timeline and `.factoria/ai/sessions` name them). Empty = the newest kRetroMaxSessions.
@@ -88,6 +118,8 @@ struct RetrospectiveOptions {
     ProviderFactory providerFactory;
     ProviderRuntime runtime;
     const CancelFlag* cancel = nullptr;
+    // The engine version the fix checks compare with (a fix made in a newer one is not checked yet). Empty = this build's.
+    std::string engineVersion;
     // Told what the model call used and cost (US dollars), once per call.
     std::function<void(const Usage&, double costUsd)> onUsage;
 };
@@ -97,6 +129,7 @@ struct RetrospectiveResult {
     std::vector<RetroCandidate> candidates;
     int alreadyFiled = 0;              // candidates left out because an open efficiency entry already counts their evidence
     Json filed = Json::array();        // [{candidate, id, merged, alreadyCounted, title, fixType, saving, measured}]
+    Json fixChecks = Json::array();    // [FixCheck::to_json()]: how the fixes of earlier entries did, recorded on the entries too
     Json dropped = Json::array();      // [{candidate, code, reason}]: candidates the model gave up on or the gate refused, and why
     Json facts = Json::array();        // [{candidate, id, line}]: project-fact proposals
     Json model = Json();               // {role, provider, model} of the call, null when none was made

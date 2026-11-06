@@ -73,7 +73,7 @@ struct FeedbackInput {
     // Efficiency entries (kind "efficiency"): the severity may be empty (minor), `missing` and `workaround` too (the waste and "none:
     // the work went on with it" are stored). `efficiency` is what file_efficiency_feedback builds after the gate: {waste, evidence[],
     // spans[] (evidence with each span's `measured`: used to merge, never stored), fixType, expectedSaving, appliesTo, measured, saving,
-    // whyNotCheaper?, searched?, existingDoc?, everyStepTokens?, candidate?}.
+    // whyNotCheaper?, searched?, existingDoc?, everyStepTokens?, candidate?, pattern?, afterFix?}.
     std::string kind;  // "" or "gap", or "efficiency"
     Json efficiency;
 };
@@ -117,8 +117,11 @@ struct EfficiencyFiling {
 // (check_efficiency_report: the numbers come from the transcripts of `projectDir`), then the entry is written to `feedbackFile`
 // under the cross-process lock (a read-modify-write of a file that the editor, the CLI and a retrospective may write at once).
 // Merging is by fix: see add_feedback_entry.
+// `origin` is what the engine's own code knows (the retrospective): the waste pattern the entry came from and the version of a fix for it
+// that the game already had; the AI's `args` never set them. An entry without a `share` in `base` gets one from its own title, waste and
+// suggestion (the sanitizer cleans it like a gap's before anything is sent); one too short to share stays local.
 EfficiencyFiling file_efficiency_feedback(const std::string& projectDir, const std::string& feedbackFile, FeedbackInput base, const Json& args,
-                                          std::string_view projectNameIfNew = {});
+                                          std::string_view projectNameIfNew = {}, const EfficiencyOrigin& origin = {});
 
 struct FeedbackFilter {
     std::string status;    // "" = any
@@ -160,6 +163,10 @@ Json list_archived_feedback(const std::string& path, const FeedbackFilter& filte
 Result<Json> update_feedback_file(const std::string& path, std::string_view id, std::string_view status,
                                   std::string_view engineIssue, std::string_view note = {}, std::string_view reason = {},
                                   std::string_view by = {});
+
+// Sets `fixCheck` (what the retrospectives found after a fix: fa/ai/retrospective.h, check_efficiency_fixes) on the closed entry `id` of
+// the feedback file or its archive. Only an entry fixed in the engine has one; any other id is an error that says so.
+Result<void> record_fix_check(const std::string& path, std::string_view id, const Json& check);
 
 // Whether entry `e` may be deleted, and why not. Only a closed entry (any status but open) or an open one that the engine developer
 // refused (shared.status rejected or declined) can go: an open entry is somebody's open question for the engine developers.
@@ -204,6 +211,9 @@ struct CollectOptions {
 // entries) x trust x min(occurrences, 3). trust is 1 for a local project and for an entry whose remote.trust is "verified",
 // 0.5 for "anonymous" (entries pulled from the feedback server carry `remote`). installations = projects in the cluster,
 // verifiedInstallations = those with a verified entry; totalOccurrences is the uncapped sum.
+// Efficiency entries (kind "efficiency") are not in `clusters`: they are grouped by fix type and ranked apart in `efficiency`, by the
+// saving a fix would bring across installations (rank_efficiency, fa/tooling/efficiency.h), each with its verdict and a ready
+// reason for `feedback reject`. `totalEntries` counts both.
 Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, const CollectOptions& opts = {});
 
 // Registers feedback.report, feedback.list, feedback.update, feedback.delete, feedback.archive bound to <projectDir>/ENGINE_FEEDBACK.json

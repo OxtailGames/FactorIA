@@ -63,6 +63,12 @@
       "description": "One engine gap and the workaround used.",
       "required": ["id", "date", "category", "severity", "title", "missing", "workaround", "occurrences", "status"],
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "efficiency" } } },
+          "then": { "required": ["waste", "fixType", "appliesTo", "measured", "saving"] }
+        }
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -230,6 +236,55 @@
             "tokens": { "type": "integer", "minimum": 0 },
             "costUsd": { "type": "number", "minimum": 0 },
             "estimated": { "type": "boolean" }
+          }
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Efficiency entries the retrospective filed: the id of the waste pattern it was found by (\"failure:scene.load:not_found\", \"reread:docs.read:NAVIGATION.md\"). Written by the engine, never sent: a later retrospective looks for the same pattern after the fix."
+        },
+        "afterFix": {
+          "type": "string",
+          "pattern": "^[0-9][0-9A-Za-z.+_-]{0,31}$",
+          "description": "Efficiency entries: the engine version whose fix for this pattern did not remove it (the retrospective found the pattern again, at about the same cost, in runs made since that fix). Sent with the report, so the engine developer sees a fix that saved nothing."
+        },
+        "fixedIn": {
+          "type": "string",
+          "pattern": "^[0-9][0-9A-Za-z.+_-]{0,31}$",
+          "description": "Written by the engine when an entry becomes fixed-in-engine (from engineIssue \"FactorIA <version>\"): the engine version that fixed it. Removed when the entry is reopened."
+        },
+        "fixedAt": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "description": "UTC date the entry became fixed-in-engine, YYYY-MM-DD. The runs of this project from that day on are the ones a fix check looks at."
+        },
+        "fixBaseline": {
+          "type": "object",
+          "description": "Efficiency entries fixed in the engine: what ONE occurrence of the waste cost before the fix (the measured numbers divided by the evidence spans), written when the entry is closed. A fix check compares the same pattern after the fix against it.",
+          "required": ["spans"],
+          "additionalProperties": false,
+          "properties": {
+            "spans": { "type": "integer", "minimum": 1, "description": "Evidence spans the averages are over." },
+            "steps": { "type": "number", "minimum": 0, "description": "Model calls per occurrence." },
+            "toolCalls": { "type": "number", "minimum": 0, "description": "Tool calls per occurrence." },
+            "minutes": { "type": "number", "minimum": 0, "description": "Minutes per occurrence." },
+            "tokens": { "type": "integer", "minimum": 0, "description": "Tokens per occurrence." },
+            "costUsd": { "type": "number", "minimum": 0, "description": "Cost in USD per occurrence; 0 when unknown." },
+            "estimated": { "type": "boolean", "description": "True when the tokens are estimated from bytes (a CLI agent)." }
+          }
+        },
+        "fixCheck": {
+          "type": "object",
+          "description": "Efficiency entries fixed in the engine: how the fix did, written by `ai.retrospective` from the transcripts made since the fix (the last check wins).",
+          "required": ["result"],
+          "additionalProperties": false,
+          "properties": {
+            "result": { "enum": ["gone", "worked", "partial", "no_change", "waiting"], "description": "gone: the pattern is not found any more. worked: one occurrence costs half or less of what it did. partial: less, but more than half. no_change: about the same (more than 80%) or more. waiting: no run since the fix." },
+            "sessionsAfter": { "type": "integer", "minimum": 0, "description": "Transcripts that began on or after fixedAt." },
+            "spansAfter": { "type": "integer", "minimum": 0, "description": "Occurrences of the pattern found in them." },
+            "ratio": { "type": "number", "minimum": 0, "description": "Cost of one occurrence after / before (tokens and minutes together); 0 when gone or waiting." },
+            "before": { "type": "object", "description": "Per occurrence before the fix: {spans, steps, minutes, tokens}." },
+            "after": { "type": "object", "description": "Per occurrence after the fix: {spans, steps, minutes, tokens}; absent when gone or waiting." },
+            "text": { "type": "string", "description": "The result in one sentence." }
           }
         },
         "candidate": {
