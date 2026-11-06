@@ -550,7 +550,8 @@ TEST_CASE("wfc: weights above 2^32 and an oversized tiled adjacency table are re
     REQUIRE_FALSE(zero.ok());
     CHECK(message(zero.error()).find("weight 0") != std::string::npos);
 
-    // The tiled model has the same adjacency limit as the overlapping one: 20000 tiles of a terrain are far over it.
+    // The tiled model has the same adjacency limit as the overlapping one: 12000 tiles of a terrain are over it (the table is filled
+    // until it passes 48 million entries, about 3 s of Debug CPU, which is the price of testing that limit; nothing here has a time cap).
     Terrain wide;
     wide.name = "wide";
     wide.mode = AutotileMode::Basic16;
