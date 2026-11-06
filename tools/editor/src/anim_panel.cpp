@@ -350,7 +350,10 @@ void Editor::anim_event_popups(const std::string& path) {
     AnimUi& u = anim_;
     if (!ImGui::BeginPopup("##animevent")) return;
     ImGui::TextDisabled(u.eventEditing < 0 ? "Add an event" : "Event");
-    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetKeyboardFocusHere();
+        u.eventError.clear();
+    }
     ImGui::SetNextItemWidth(200);
     const bool enter = ImGui::InputText("name", &u.eventName, ImGuiInputTextFlags_EnterReturnsTrue);
     at_track("anim:event:name");
@@ -391,38 +394,47 @@ void Editor::anim_event_popups(const std::string& path) {
     }
     const bool ok = ImGui::Button(u.eventEditing < 0 ? "Add" : "Apply") || enter;
     at_track("anim:event:ok");
+    // The popup's edits report through eventError: anim_edit also writes the panel's `error`, which would show a popup problem in the
+    // panel header and keep it there after the popup closes, so the panel's own message is put back.
+    auto popup_edit = [&](const std::string& key, const std::vector<ModelCall>& calls) {
+        const std::string panelError = u.error;
+        u.eventError.clear();
+        const bool done = anim_edit(key, calls, &u.eventError);
+        if (!done) u.error = panelError;
+        return done;
+    };
     if (ok && !path.empty()) {
         auto feel = feel_box_value(u.eventFeel);
         if (!feel.ok()) {
-            u.error = "Game feel actions: " + feel.error().message + " " + feel.error().hint;
+            u.eventError = "Game feel actions: " + feel.error().message + " " + feel.error().hint;
         } else if (u.eventName.empty() && feel.value().is_null()) {
-            u.error = "An event needs a name or game feel actions.";
+            u.eventError = "An event needs a name or game feel actions.";
         } else if (u.eventEditing < 0) {
             Json args = Json::object({{"path", path}, {"t", clip_round_time(u.eventAt)}, {"extendDuration", true}});
             if (!u.eventName.empty()) args["name"] = u.eventName;
             if (!feel.value().is_null()) args["feel"] = feel.value();
-            if (anim_edit("anim:event:add:" + std::to_string(uiFrame_), {{"anim.add_event", args}}))
+            if (popup_edit("anim:event:add:" + std::to_string(uiFrame_), {{"anim.add_event", args}}))
                 ImGui::CloseCurrentPopup();
         } else {
             Json args = Json::object({{"path", path}, {"event", u.eventEditing}, {"name", u.eventName.empty() ? Json() : Json(u.eventName)}, {"feel", feel.value()}});
-            if (anim_edit("anim:event:rename:" + std::to_string(uiFrame_), {{"anim.set_event", args}}))
+            if (popup_edit("anim:event:rename:" + std::to_string(uiFrame_), {{"anim.set_event", args}}))
                 ImGui::CloseCurrentPopup();
         }
     }
     if (u.eventEditing >= 0) {
         ImGui::SameLine();
         if (ImGui::Button("Delete")) {
-            if (anim_edit("anim:event:delete:" + std::to_string(uiFrame_),
-                          {{"anim.remove_event", Json::object({{"path", path}, {"event", u.eventEditing}})}})) {
+            if (popup_edit("anim:event:delete:" + std::to_string(uiFrame_),
+                           {{"anim.remove_event", Json::object({{"path", path}, {"event", u.eventEditing}})}})) {
                 u.selectedEvent = -1;
                 ImGui::CloseCurrentPopup();
             }
         }
         at_track("anim:event:delete");
     }
-    if (!u.error.empty()) {
+    if (!u.eventError.empty()) {
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 300);
-        ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", u.error.c_str());
+        ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", u.eventError.c_str());
         ImGui::PopTextWrapPos();
     }
     ImGui::EndPopup();

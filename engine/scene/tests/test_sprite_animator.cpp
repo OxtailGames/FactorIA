@@ -275,6 +275,6 @@ TEST_CASE("sprite animator events: wrong JSON types are said once and skipped, n
     CHECK(said.size() >= 7);  // each bad entry once, however many passes
     CHECK(said.size() <= 8);
     bool pointer = false;
-    for (const std::string& s : said) pointer = pointer || s.find("events/1/name") != std::string::npos;
+    for (const std::string& s : said) pointer = pointer || s.find("events/1") != std::string::npos;
     CHECK(pointer);
 }

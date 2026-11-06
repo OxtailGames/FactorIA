@@ -145,6 +145,8 @@ struct Renderer::Impl {
     std::uint64_t shadowRowsKey[kShadowRowsRing]{};
     int shadowRowsCurrent = 0;
     bool updated = false;  // update() ran since the last draw
+    std::uint32_t animPass = 0;       // the number of the current advance_animators() pass (SpriteAnimator::advancedPass)
+    bool animatorsAdvanced = false;   // advance_animators() ran since the last update()
     ScaleMode scaleMode = ScaleMode::Fit;
     std::vector<Vertex2D> stream;
 
@@ -1115,6 +1117,8 @@ void Renderer::update(World& world, float dt) {
     fr.textScale = im.textScale;
     fr.uiScale = ui_scale_clamped(world.ui_scale());
     fr.warnedSpriteClip = &im.warnedSpriteClip;
+    fr.animPass = im.animatorsAdvanced ? im.animPass : 0;  // 0 = no early pass: every animator moves here
+    im.animatorsAdvanced = false;
     update_animators(world, fr, true);
     update_particles(world, dt);
     // Camera queries (world_to_screen, screen_to_world, screen_ray, camera_at) must not depend on drawing:
@@ -1122,6 +1126,21 @@ void Renderer::update(World& world, float dt) {
     im.lastCams = im.collect_cameras(world);
     update_parallax(world, im.lastCams.front().position.xy());  // entity.bounds() of a parallax layer follows the camera in headless runs too
     im.updated = true;
+}
+
+void Renderer::advance_animators(World& world, float dt) {
+    if (!initialized()) return;
+    Impl& im = *impl_;
+    Frame fr;
+    fr.dt = dt;
+    fr.assets = im.assets.get();
+    fr.fonts = im.fonts.get();
+    fr.warnedSpriteClip = &im.warnedSpriteClip;
+    if (++im.animPass == 0) ++im.animPass;  // 0 means "none"
+    fr.animPass = im.animPass;
+    fr.animEarly = true;
+    update_animators(world, fr, true);
+    im.animatorsAdvanced = true;
 }
 
 void Renderer::emit_burst(Entity e, int count) {

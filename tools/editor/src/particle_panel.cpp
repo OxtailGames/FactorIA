@@ -157,11 +157,30 @@ void Editor::particle_edited(const ParticleEditOutcome& out) {
         return;
     }
     if (out.step <= 0 || !particle_.model) return;
+    particle_drop_stale_step();   // an edit made on top of the outside change: the refused step cannot be applied any more
     undo_.push_back(Json::object({{"$particle", Json::object({{"step", out.step}})}}));
     if (undo_.size() > 100) undo_.erase(undo_.begin());
     redo_.clear();
     lastEditKey_.clear();
     particle_collect_steps();
+}
+
+void Editor::particle_drop_stale_step() {
+    if (!particle_.model) return;
+    const int id = particle_.model->take_stale_step();
+    if (id <= 0) return;
+    for (auto* stack : {&undo_, &redo_})
+        stack->erase(std::remove_if(stack->begin(), stack->end(), [id](const Json& e) {
+                         return e.is_object() && e.contains("$particle") && e["$particle"].is_object() && e["$particle"].value("step", 0) == id;
+                     }), stack->end());
+    lastEditKey_.clear();
+    particle_collect_steps();
+}
+
+void Editor::particle_reload() {
+    if (!particle_.model) return;
+    particle_.model->reload();
+    particle_drop_stale_step();
 }
 
 void Editor::particle_collect_steps() {
@@ -184,6 +203,8 @@ void Editor::particle_apply_undo(const Json& entry, bool forward) {
     const std::string doc = u.model->step_document(id);
     if (!doc.empty() && doc != u.model->path()) open_particle_document(doc);
     if (!u.model->apply_step(id, forward)) {
+        // A refusal because the file changed outside the editor leaves the step where it was (the Reload button of the panel decides).
+        if (u.model->conflict()) (forward ? redo_ : undo_).push_back(entry);
         notify("Could not " + std::string(forward ? "redo" : "undo") + " the effect edit: " + u.model->status(), 2);
         return;
     }
@@ -228,6 +249,13 @@ void Editor::draw_particle_panel() {
     }
 
     draw_particle_toolbar(m);
+    if (m.is_open() && m.conflict()) {
+        ImGui::TextColored(kWarn, "The file changed outside the editor: undo and redo would overwrite that change.");
+        ImGui::SameLine();
+        if (ImGui::Button("Reload##conflict")) particle_reload();
+        ImGui::SameLine();
+        ImGui::TextDisabled("(Reload takes the file as it is on disk)");
+    }
     if (!m.is_open()) {
         ImGui::Spacing();
         ImGui::TextDisabled("Open an effect document (*.vfx.json) from the list above, make a new one with New, or double click one in the Project panel.");
@@ -247,8 +275,9 @@ void Editor::draw_particle_panel() {
     if (play_ != PlayState::Edit) ImGui::TextColored(kWarn, "The game is running: stop it to edit the effect.");
 
     // The preview plays the document as it is now (a drag in progress included).
+    u.preview->begin_frame();
     u.preview->set_document(m.doc());
-    u.preview->catch_up();   // a seek or an edit that is still being rebuilt does a bounded share of its steps per frame
+    u.preview->catch_up();   // a seek or an edit that is still being rebuilt does ONE bounded share of its steps per frame (begin_frame)
     if (u.playing && !u.scrubbing && m.doc()) {
         const double dt = std::min(0.1, double(ImGui::GetIO().DeltaTime)) * double(u.speed);
         if (u.preview->time() >= u.preview->timeline_length()) {
@@ -283,12 +312,13 @@ void Editor::draw_particle_panel() {
 void Editor::draw_particle_toolbar(ParticleModel& m) {
     ParticleUi& u = particle_;
     const bool editable = play_ == PlayState::Edit;
-    std::vector<std::string> files;
-    for (const BrowserFile& f : projBrowser_.listing.files)
-        if (ends_with(to_lower(f.path), ".vfx.json")) files.push_back(f.path);
-    std::sort(files.begin(), files.end());
     ImGui::SetNextItemWidth(260);
     if (ImGui::BeginCombo("##ptfile", m.is_open() ? m.title().c_str() : "Open an effect...")) {
+        // The list is made only while the combo is open (it lowercases every file name of the project).
+        std::vector<std::string> files;
+        for (const BrowserFile& f : projBrowser_.listing.files)
+            if (ends_with(to_lower(f.path), ".vfx.json")) files.push_back(f.path);
+        std::sort(files.begin(), files.end());
         for (const std::string& f : files) {
             if (ImGui::Selectable(f.c_str(), f == m.path())) open_particle_document(f);
             at_track("pt:file:" + f);
@@ -343,7 +373,7 @@ void Editor::draw_particle_toolbar(ParticleModel& m) {
     at_track("pt:loop");
     hint("Start again a moment after the last particle is gone.");
     row.next("Reload");
-    if (ImGui::Button("Reload")) m.reload();
+    if (ImGui::Button("Reload")) particle_reload();
     at_track("pt:reload");
     hint("Reads the file again; the undo steps stay.");
 

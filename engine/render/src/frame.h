@@ -44,6 +44,8 @@ struct Frame {
     bool wantWorld = true, wantScreen = true;
     int targetW = 0, targetH = 0;
     float dt = 0;
+    std::uint32_t animPass = 0;   // the Renderer::advance_animators pass this frame follows (0 = none ran: update_animators moves every animator)
+    bool animEarly = false;       // this is that pass itself
     std::unordered_map<std::string, std::shared_ptr<const assets::Sheet>> sheets;  // this frame's lookups of the sheet entries (SpriteAnimator)
     QuadList world, screen, debugWorld, debugScreen;
     std::vector<Vertex2D> debugLines;  // GL line list (perspective cameras)
@@ -123,8 +125,9 @@ struct QuadEmitter {
 int emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay, Color color, Fonts& fonts, Assets& assets, int layer,
               float secondary, const Rect& clip, int visible = -1, Color tint = Color{1, 1, 1, 1});
 
-// advance = true steps SpriteAnimator time by f.dt; false only (re)applies the current frame to
-// Sprite.region (idempotent, used by the draw pass).
+// advance = true steps SpriteAnimator time by f.dt and runs its frame events (only when f.dt > 0); false only (re)applies the
+// current frame to Sprite.region (idempotent, used by the draw pass). After an early pass (Renderer::advance_animators, f.animEarly)
+// the later one moves only the animators that pass did not move, or whose clip changed since.
 void update_animators(World& world, Frame& f, bool advance);
 // Writes Parallax.offset of every Parallax component for a camera at `camPos` (world xy). Called by Renderer::update and
 // at the start of gather_2d, so entity.bounds() is right in headless runs too.

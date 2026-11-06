@@ -16,6 +16,8 @@ namespace {
 constexpr double kStep = 1.0 / 60.0;
 constexpr int kTimelineSamples = 24;
 constexpr double kExtraSeconds = 30.0;  // past kVfxMaxDuration: the longest the measuring plays on
+constexpr int kMinFixCap = 4;           // a suggested maxParticles below this is no longer the effect: no fix is offered
+constexpr double kMinFixSize = 0.5;     // the same for a suggested startSize, in design pixels
 
 std::uint64_t mix(std::uint64_t h, std::uint64_t v) { return (h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2))) * 0x100000001b3ULL; }
 
@@ -94,11 +96,12 @@ VfxBudget vfx_measure(const VfxDoc& doc, const VfxBudgetOptions& options) {
     std::map<std::uint64_t, ParticleSim> sims;
     std::map<int, VfxEmitterBudget> byPart;
     std::map<int, bool> is3d;
-    std::map<std::uint64_t, int> partOf;  // an emitter's part is -1 once the effect ended and it only drains: remember the first one
+    std::map<std::uint64_t, int> partOf;  // VfxChild::origin keeps the part of an emitter that was detached to drain (an effect of duration 0 ends in the step that makes it)
     std::vector<VfxSample> raw;
     double overdrawSum = 0.0;
     int overdrawSteps = 0;
     double lastAlive = 0.0;
+    long long particleSteps = 0;
 
     for (int s = 1; s <= maxSteps; ++s) {
         update_vfx(world, float(kStep), host);
@@ -106,7 +109,7 @@ VfxBudget vfx_measure(const VfxDoc& doc, const VfxBudgetOptions& options) {
         const Vfx* vfx = world.get<Vfx>(root);
         if (vfx)
             for (const VfxChild& c : vfx->rt.children)
-                if (c.part >= 0) partOf[c.entity.bits()] = c.part;
+                if (c.origin >= 0) partOf[c.entity.bits()] = c.origin;
         std::map<std::uint64_t, bool> seen;
         int total = 0;
         double area = 0.0;
@@ -147,6 +150,7 @@ VfxBudget vfx_measure(const VfxDoc& doc, const VfxBudgetOptions& options) {
         }
         world.flush();
         ++out.steps;
+        particleSteps += total;
         const double od = area / viewArea;
         raw.push_back({t, total, od});
         if (total > out.peakParticles) {
@@ -164,8 +168,18 @@ VfxBudget vfx_measure(const VfxDoc& doc, const VfxBudgetOptions& options) {
         }
         const bool over = vfx && vfx->rt.finished;
         if (over && total == 0) break;
+        if (particleSteps >= options.maxParticleUpdates) {
+            // Few steps can still be a lot of work: up to 8 emitters of 10 000 particles each is 80 000 updates per step.
+            out.truncated = true;
+            const std::string updates = options.maxParticleUpdates >= 1'000'000 ? std::format("{} million", options.maxParticleUpdates / 1'000'000)
+                                                                                : std::to_string(options.maxParticleUpdates);
+            out.notes.push_back(std::format("The measuring stopped at {:.2f} s after {} particle updates (the effect holds a great many particles for a long time): "
+                                            "the numbers cover the first {:.2f} s only.", t, updates, t));
+            break;
+        }
         if (s == maxSteps) out.truncated = true;
     }
+    out.peakOverdraw = round2(out.peakOverdraw);   // what the message prints is what the finding compares
     out.settledAt = lastAlive;
     out.meanOverdraw = overdrawSteps > 0 ? overdrawSum / overdrawSteps : 0.0;
 
@@ -198,31 +212,46 @@ VfxBudget vfx_measure(const VfxDoc& doc, const VfxBudgetOptions& options) {
         if (!mostOverdraw || b.peakOverdraw > mostOverdraw->peakOverdraw) mostOverdraw = &b;
     }
     if (out.peakParticles > limits.maxParticles && mostParticles) {
-        // Lower the cap of the biggest emitter by the share it has to give up, so the total falls to the limit.
+        // Lower the cap of the biggest emitter by the share it has to give up, so the total falls toward the limit.
         const int over = out.peakParticles - limits.maxParticles;
-        const int cap = std::max(1, mostParticles->peakParticles - over);
+        const int cap = mostParticles->peakParticles - over;
         VfxBudgetFinding f;
         f.kind = "particles";
         f.severity = "warning";
         f.pointer = pointer_of(mostParticles->part, "maxParticles");
         f.message = std::format("{} particles live at once at {:.2f} s (a {} budget is {}); {} holds {} of them.", out.peakParticles, out.peakAt,
                                 limits.name, limits.maxParticles, label_of(*mostParticles), mostParticles->peakParticles);
-        f.hint = std::format("Lower its maxParticles to {}, or its burst / rate, or its lifetime: fewer, bigger particles read the same on a small screen.", cap);
-        f.fix = edit_set(doc.path, f.pointer, cap);
+        if (cap >= kMinFixCap) {
+            f.hint = std::format("Lower its maxParticles to {} (this moves the total toward the limit; run vfx.budget again), or its burst / rate, or its lifetime: "
+                                 "fewer, bigger particles read the same on a small screen.", cap);
+            f.fix = edit_set(doc.path, f.pointer, cap);
+        } else {
+            f.hint = std::format("The other emitters hold {} of them already, so lowering this one alone would leave it with {} particles: no single edit is offered. "
+                                 "Lower the burst / rate or lifetime of several emitters, or merge them.", out.peakParticles - mostParticles->peakParticles, std::max(cap, 0));
+        }
         out.findings.push_back(std::move(f));
     }
     if (out.peakOverdraw > limits.maxOverdraw && mostOverdraw && mostOverdraw->peakOverdraw > 0.0) {
-        const double k = std::sqrt(limits.maxOverdraw / out.peakOverdraw);
-        const double size = std::floor(double(mostOverdraw->startSize) * k * 10.0) / 10.0;
+        // The area of the biggest emitter must give up what the others cannot absorb: its share d falls to (limit - others). Area goes with the
+        // square of the size, so the size falls by sqrt of that ratio (exact only if the sizes are constant and the peaks fall at the same moment).
+        const double d = mostOverdraw->peakOverdraw;
+        const double others = std::max(0.0, out.peakOverdraw - d);
+        const double room = limits.maxOverdraw - others;
+        const double size = room > 0.0 ? std::floor(double(mostOverdraw->startSize) * std::sqrt(room / d) * 10.0) / 10.0 : 0.0;
         VfxBudgetFinding f;
         f.kind = "overdraw";
         f.severity = "warning";
         f.pointer = pointer_of(mostOverdraw->part, "startSize");
         f.message = std::format("The particles cover {:.2f} screens of quad area at once, at {:.2f} s (a {} budget is {:.1f}); {} covers the most.",
                                 out.peakOverdraw, out.peakOverdrawAt, limits.name, limits.maxOverdraw, label_of(*mostOverdraw));
-        f.hint = std::format("Make its particles smaller (startSize {:.1f} would bring the total to the limit if their size is constant), or give it fewer "
-                             "particles. Large soft additive sprites stacked on each other cost the most.", size);
-        f.fix = edit_set(doc.path, f.pointer, size);
+        if (size >= kMinFixSize) {
+            f.hint = std::format("Make its particles smaller (startSize {:.1f} moves the total toward the limit if their size is constant; run vfx.budget again), or give it fewer "
+                                 "particles. Large soft additive sprites stacked on each other cost the most.", size);
+            f.fix = edit_set(doc.path, f.pointer, size);
+        } else {
+            f.hint = std::format("The other emitters cover {:.2f} screens already, so smaller particles of this one alone would not get there: no single edit is offered. "
+                                 "Give several emitters fewer or smaller particles. Large soft additive sprites stacked on each other cost the most.", others);
+        }
         out.findings.push_back(std::move(f));
     }
     if (out.emitters > limits.maxEmitters) {

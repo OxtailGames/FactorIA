@@ -7,6 +7,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/project_fs.h"
 #include "inspector_model.h"
@@ -25,11 +26,8 @@ std::string ParticleModel::title() const {
 std::string ParticleModel::read_text() const {
     auto abs = resolve_project_path(projectDir_, rel_);
     if (!abs.ok()) return {};
-    std::ifstream f(*abs, std::ios::binary);
-    if (!f) return {};
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
+    auto text = fs::read_text(abs->generic_string());
+    return text.ok() ? *text : std::string();
 }
 
 bool ParticleModel::write_text(const std::string& text) {
@@ -38,9 +36,9 @@ bool ParticleModel::write_text(const std::string& text) {
         status_ = abs.error().message;
         return false;
     }
-    std::ofstream f(*abs, std::ios::binary | std::ios::trunc);
-    if (!f || !f.write(text.data(), std::streamsize(text.size()))) {
-        status_ = "Cannot write " + rel_ + ".";
+    // fs::write_bytes replaces the file atomically, so an undo never leaves half a document, and says why when it cannot (a file open elsewhere).
+    if (auto w = fs::write_bytes(abs->generic_string(), text.data(), text.size()); !w.ok()) {
+        status_ = "Cannot write " + rel_ + ": " + w.error().message + (w.error().hint.empty() ? "" : " " + w.error().hint);
         return false;
     }
     return true;
@@ -58,6 +56,7 @@ bool ParticleModel::open(const std::string& rel) {
         return false;
     }
     preview_ = false;
+    conflict_ = false;
     rel_ = rel;
     text_.clear();
     status_.clear();
@@ -90,7 +89,8 @@ bool ParticleModel::load_from_disk() {
         stampSize_ = 0;
         return false;
     }
-    stampTime_ = std::int64_t(stdfs::last_write_time(*abs, ec).time_since_epoch().count());
+    conflict_ = false;
+    stampTime_ = fs::host_modified_time(*abs);
     stampSize_ = stdfs::file_size(*abs, ec);
     const std::string text = read_text();
     if (text != text_) {
@@ -126,14 +126,17 @@ void ParticleModel::parse_shown() {
 }
 
 bool ParticleModel::poll_external() {
-    if (!is_open() || preview_) return false;
+    // After a refused undo/redo the user decides (Reload): reading the file here would clear the warning in whatever frame the poll falls.
+    if (!is_open() || preview_ || conflict_) return false;
     auto abs = resolve_project_path(projectDir_, rel_);
     std::error_code ec;
     if (!abs.ok()) return false;
     const bool exists = stdfs::is_regular_file(*abs, ec);
-    const std::int64_t t = exists ? std::int64_t(stdfs::last_write_time(*abs, ec).time_since_epoch().count()) : 0;
+    const std::int64_t t = exists ? fs::host_modified_time(*abs) : 0;
     const std::uintmax_t sz = exists ? stdfs::file_size(*abs, ec) : 0;
-    if (t == stampTime_ && sz == stampSize_) return false;
+    // The file's time moves in steps (about 15 ms on Windows), so a same-size edit right after our own read can keep both numbers: the
+    // content is compared too (the file is a few KB, polled every 20 frames).
+    if (t == stampTime_ && sz == stampSize_ && (!exists || read_text() == text_)) return false;
     load_from_disk();
     status_ = "Reloaded: the file changed on disk.";
     return true;
@@ -145,6 +148,12 @@ bool ParticleModel::reload() {
     load_from_disk();
     status_ = "Reloaded.";
     return true;
+}
+
+int ParticleModel::take_stale_step() {
+    const int id = staleStep_;
+    staleStep_ = 0;
+    return id;
 }
 
 std::vector<ParticlePartInfo> ParticleModel::parts() const {
@@ -296,6 +305,15 @@ bool ParticleModel::apply_step(int id, bool forward) {
     }
     if (s->rel != rel_) return false;
     cancel_field_preview();
+    // The step restores a whole file. If the file is not what the step left (it was edited outside the editor since), restoring would throw
+    // that edit away: refuse, and let the user choose Reload (take the file as it is) or fix it themselves.
+    if (read_text() != (forward ? s->before : s->after)) {
+        conflict_ = true;
+        staleStep_ = id;
+        status_ = std::string("Cannot ") + (forward ? "redo" : "undo") + " '" + s->label + "': " + rel_ +
+                  " was changed outside the editor since, and this would overwrite that change. Press Reload to take the file as it is.";
+        return false;
+    }
     if (!write_text(forward ? s->after : s->before)) return false;
     load_from_disk();
     status_ = std::string(forward ? "Redo: " : "Undo: ") + s->label;

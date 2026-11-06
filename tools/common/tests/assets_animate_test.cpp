@@ -1,6 +1,8 @@
 // assets.animate_svg: an animation drawn with code (a JS module or SMIL), baked into a sprite sheet.
 #include <doctest.h>
 
+#include <filesystem>
+
 #include "asset_test_helpers.h"
 #include "fa/core/hash.h"
 
@@ -712,4 +714,77 @@ TEST_CASE("assets.animate_svg: layers are checked, an idle layer is said, and an
     r = p.call("assets.animate_svg", a);  // hit_back.png exists
     REQUIRE_FALSE(r.ok);
     CHECK(message(r).find("hit_back.png") != std::string::npos);
+}
+
+TEST_CASE("assets.animate_svg: a layered bake that would not fit in memory is refused before anything is drawn") {
+    AssetsProject p;
+    write_all(p.file("art/fx.anim.js"), kLayeredFx);
+    Json a = fx_args();
+    a["layers"] = Json::array({"back", "front", "light"});
+    a["frames"] = 64;
+    a["frameWidth"] = 1024;
+    a["frameHeight"] = 1024;
+    a["columns"] = 8;   // 8192x8192 px sheets: 3 x (64 frames + a sheet) is over a gigabyte
+    const CommandResult r = p.call("assets.animate_svg", a);
+    REQUIRE_FALSE(r.ok);
+    CHECK(message(r).find("MB of memory") != std::string::npos);
+    CHECK(hint(r).find("fewer layers") != std::string::npos);
+    CHECK_FALSE(std::filesystem::exists(p.file("assets/fx/hit_back.png")));
+}
+
+TEST_CASE("assets.animate_svg: a layered module that never reads `layer` is said") {
+    AssetsProject p;
+    write_all(p.file("art/same.anim.js"), "export default function frame() {\n  return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><circle cx='5' cy='5' r='3' fill='#fff'/></svg>`;\n}\n");
+    Json a = Json{{"path", "assets/fx/same.png"}, {"source", "art/same.anim.js"}, {"frames", 2}, {"frameWidth", 16}, {"layers", Json::array({"back", "front"})}};
+    CHECK(has_warning(p.ok("assets.animate_svg", a), "never reads `layer`"));
+    a["layers"] = Json::array({"back"});   // one layer has nothing to tell apart
+    a["overwrite"] = true;
+    CHECK_FALSE(has_warning(p.ok("assets.animate_svg", a), "never reads `layer`"));
+}
+
+TEST_CASE("assets.animate_svg: a bake with fewer layers removes the sheets of the earlier one that this command made, and only those") {
+    AssetsProject p;
+    write_all(p.file("art/fx.anim.js"), kLayeredFx);
+    Json a = fx_args();
+    a["layers"] = Json::array({"back", "front", "light"});
+    p.ok("assets.animate_svg", a);
+    REQUIRE(std::filesystem::exists(p.file("assets/fx/hit_light.png")));
+    // hit_light.png is claimed by another recipe (another effect that happens to be called hit_light): it is not ours to delete
+    Json doc = p.manifest();
+    doc["assets"]["assets/fx/hit_light.png"]["provenance"]["recipe"]["args"]["path"] = "assets/fx/other.png";
+    write_all(p.file("assets.json"), doc.dump(2));
+
+    a["layers"] = Json::array({"back"});
+    a["overwrite"] = true;
+    const Json r = p.ok("assets.animate_svg", a);
+    CHECK_FALSE(std::filesystem::exists(p.file("assets/fx/hit_front.png")));
+    CHECK(std::filesystem::exists(p.file("assets/fx/hit_light.png")));
+    CHECK(std::filesystem::exists(p.file("assets/fx/hit_back.png")));
+    CHECK(has_warning(r, "Removed 'assets/fx/hit_front.png'"));
+    CHECK_FALSE(has_warning(r, "hit_light.png"));
+    const Json after = p.manifest();
+    CHECK_FALSE(after["assets"].contains("assets/fx/hit_front.png"));
+    CHECK(after["assets"].contains("assets/fx/hit_light.png"));
+    CHECK(after["assets"].contains("assets/fx/hit_back.png"));
+
+    // baked again with no layers at all: the remaining sheet that is ours (back) goes too
+    Json plain = fx_args();
+    plain["overwrite"] = true;
+    p.ok("assets.animate_svg", plain);
+    CHECK_FALSE(std::filesystem::exists(p.file("assets/fx/hit_back.png")));
+    CHECK(std::filesystem::exists(p.file("assets/fx/hit.png")));
+}
+
+TEST_CASE("assets.animate_svg: a layer that cannot be written takes back the sheets written before it") {
+    AssetsProject p;
+    write_all(p.file("art/fx.anim.js"), kLayeredFx);
+    Json a = fx_args();
+    a["layers"] = Json::array({"back", "front"});
+    std::filesystem::create_directories(p.file("assets/fx/hit_front.png"));   // a folder where the second sheet goes
+    a["overwrite"] = true;
+    const CommandResult r = p.call("assets.animate_svg", a);
+    REQUIRE_FALSE(r.ok);
+    CHECK(message(r).find("Nothing else was changed") != std::string::npos);
+    CHECK_FALSE(std::filesystem::exists(p.file("assets/fx/hit_back.png")));   // written first, taken back
+    CHECK_FALSE(std::filesystem::exists(p.file("assets.json")));   // no entry was written
 }

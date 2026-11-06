@@ -2517,12 +2517,14 @@ void Audio::update(World& world, float dt) {
 
     // ---- sounds that game feel actions (clip events, feel.do) queued since the last frame: one-shots on their bus
     for (const FeelSound& fs : feel_take_sounds(world)) {
+        FeelState& feel = world.feel();
+        if (feel.failedSounds.count(fs.options.path)) continue;  // it failed before in this scene (said once): not decoded and searched for again
         PlayParams pp;
         pp.volume = fs.options.volume;
         pp.pitch = fs.options.pitch;
         pp.pan = fs.options.pan;
         pp.bus = fs.options.bus;
-        play(fs.options.path, pp);
+        if (im.start(fs.options.path, pp, fs.source) == 0 && feel.failedSounds.size() < 256) feel.failedSounds.insert(fs.options.path);
     }
 
     // ---- listener: AudioListener entity, else the primary (or first) camera

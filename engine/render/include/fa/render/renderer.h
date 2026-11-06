@@ -172,6 +172,12 @@ public:
     // only calls render_world(world, dt) keeps working: if update() was not called since the previous draw,
     // render_world() calls it with `dt` itself.
     void update(World& world, float dt);
+    // Moves the sprite animators on by `dt` and runs their frame events, ahead of update(): the game events, sounds and effects the
+    // events start are then handled in the same frame (the engine calls it before the UI and the scripts of the frame; update() would
+    // run them after everything else, a frame late). update() then moves only the animators this did not move (a sprite or a clip
+    // a script added in the meantime) and applies the frames. Frame events fire only when `dt` > 0: a paused game or the editor's edit
+    // mode shows the frames and fires nothing.
+    void advance_animators(World& world, float dt);
     // Draws the world (cameras, sprites, shapes, tilemaps, text, particles, meshes, lights, debug draw).
     void render_world(World& world, float dt);
 

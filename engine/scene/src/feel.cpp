@@ -214,6 +214,7 @@ void FeelState::clear_scene() {
     spawns.clear();
     lifetimes.clear();
     warnedClipActions.clear();
+    failedSounds.clear();
 }
 
 // ----------------------------------------------------------------------------------------------------- actions
@@ -351,12 +352,10 @@ Result<void> feel_spawn(World& w, Entity e, const SpawnOptions& o) {
     if (auto r = check_options(o); !r.ok()) return r;
     FeelState& fs = w.feel();
     if (fs.spawns.size() >= kMaxQueuedSpawns) {
-        // A loop or a very short clip event cannot fill the scene with effects in one frame: the rest of this frame's spawns are dropped.
-        const std::string text = std::format("more than {} spawn actions in one frame: the extra ones are dropped. A clip event that fires on every "
-                                             "step, or a script that calls feel.spawn in a loop, makes this (hint: fire it less often, or give the effect a `lifetime`)",
-                                             kMaxQueuedSpawns);
-        if (fs.warnedClipActions.size() < 64 && fs.warnedClipActions.insert(text).second) FA_WARN("feel", "{}", text);
-        return {};
+        // A loop or a very short clip event cannot fill the scene with effects in one frame: the rest of this frame's spawns are refused.
+        return make_error(std::format("spawn: {} spawn actions are already waiting for this frame, so '{}' was not queued", kMaxQueuedSpawns, o.prefab),
+                          "A clip event that fires on every step, or a script that calls feel.spawn in a loop, makes this. Fire it less often, "
+                          "or spawn one prefab that holds the whole effect and give it a `lifetime`.");
     }
     FeelSpawn sp;
     sp.options = o;
@@ -369,7 +368,12 @@ Result<void> feel_sound(World& w, Entity source, const SoundOptions& o) {
     if (!source.is_null() && !w.alive(source)) return bad_entity("sound", source, w);
     if (auto r = check_options(o); !r.ok()) return r;
     FeelState& fs = w.feel();
-    if (fs.sounds.size() >= kMaxQueuedSounds) fs.sounds.erase(fs.sounds.begin());
+    if (fs.sounds.size() >= kMaxQueuedSounds) {
+        const std::string text = std::format("more than {} sound actions waited for the audio system: the oldest were dropped. Nothing plays sounds in this world "
+                                             "(no Audio::update), or a clip event / script fires `sound` on every step (fire it less often)", kMaxQueuedSounds);
+        if (fs.warnedClipActions.size() < 64 && fs.warnedClipActions.insert(text).second) FA_WARN("feel", "{}", text);
+        fs.sounds.erase(fs.sounds.begin());
+    }
     fs.sounds.push_back({o, source.is_null() ? std::string() : w.id_of(source)});
     return {};
 }
@@ -662,6 +666,10 @@ void run_spawns(World& w, float dt) {
         if (!report.ok() || e.is_null()) {
             const std::string text = std::format("spawn '{}' failed: {}", sp.options.prefab, report.summary());
             if (fs.warnedClipActions.size() < 64 && fs.warnedClipActions.insert(text).second) FA_WARN("feel", "{}", text);
+            // A prefab that loaded only in part (a child with a wrong component) must not stay in the scene: nothing owns it and no lifetime would end it.
+            for (auto it = report.created.rbegin(); it != report.created.rend(); ++it)
+                if (w.alive(*it) && !w.pending_destroy(*it)) w.destroy(*it);
+            if (!e.is_null() && w.alive(e) && !w.pending_destroy(e)) w.destroy(e);
             continue;
         }
         for (Entity c : report.created) w.info(c).scriptSpawned = true;  // scene.save leaves them out: the action makes them again

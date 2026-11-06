@@ -460,6 +460,10 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         world.advance_clock(fixedDt);
         ++fixedStep;
     }
+    // The sprite animators move on and run their frame events here, before the UI and the scripts of the frame: the game events,
+    // sounds and effects an event starts are handled in this same frame, not the next one (the renderer's own update would do it
+    // after all of them). They follow time.scale like particles.
+    if (renderer) renderer->advance_animators(world, float(dt * scripts.time_scale()));
     // The UI reads this frame's input and sends its events, which scripts get right away. Real time: it works at time.scale 0.
     {
         ProfSystemScope prof(ProfSystem::Ui);
@@ -542,6 +546,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         dir = abs.generic_string();
         fs::set_project_root(abs);
     }
+    clear_vfx_cache();  // the effect documents are cached by project-relative path: another project (or root) has other files by that name
     auto proj = load_project(dir);
     if (!proj.ok()) return fail(proj.error().to_string());
     I.project = proj.value();
@@ -760,6 +765,7 @@ void Engine::shutdown() {
     Impl& I = *impl_;
     if (!I.initialized) return;
     I.initialized = false;
+    clear_vfx_cache();
     I.scripts.shutdown();
     I.appWindow.reset();
     I.audio.shutdown();
