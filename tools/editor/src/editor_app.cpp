@@ -244,6 +244,7 @@ int Editor::run() {
     g_editor = this;
     const char* at = std::getenv("FA_EDITOR_AUTOTEST");
     autotest_ = at && *at && std::string(at) != "0";
+    if (autotest_) set_ui_lock_wait_sec(2.0);  // a scripted click must not fail because a loaded machine held a lock past 0.3 s
     load_recent_projects();  // before any project opens, so opening one never overwrites the history
     atWelcome_ = autotest_ && std::string(at) == "welcome";  // no project: screenshot the Open/New dialog
     if (autotest_ && !atWelcome_)  // FA_EDITOR_AUTOTEST_SECTIONS=K,M: only those sections (checked before a window opens)
@@ -671,7 +672,7 @@ bool Editor::boot(const std::string& dirIn) {
         // Closed engine feedback moves to ENGINE_FEEDBACK.archive.json so the file only holds what is still open.
         if (const std::string fbPath = fs::join(projectDir_, engine_->project().feedbackFile); fs::exists(engine_->project().feedbackFile)) {
             // First, the gaps this engine version fixed are closed (the list embedded in the binary), then archived below.
-            const ShareWaitCap shortWait(0.3);  // both rewrite the file under a lock another program may hold: the UI thread does not wait seconds
+            const ShareWaitCap shortWait(ui_lock_wait_sec());  // both rewrite the file under a lock another program may hold: the UI thread does not wait seconds
             if (auto c = check_fixed_feedback_file(fbPath); !c) FA_WARN("editor", "feedback fixed check: {}", c.error().to_string());
             else if (!c->closed.empty()) FA_INFO("editor", "{} feedback entries were fixed in this engine version", c->closed.size());
             if (auto r = archive_closed_feedback_file(fbPath); !r) FA_WARN("editor", "feedback archive: {}", r.error().to_string());
@@ -925,7 +926,7 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
 void Editor::on_frame(double dt) {
     // Everything the UI thread does in a frame (the panels, the share tick, the commands it runs for the AI and MCP) waits at most
     // 0.3 s for a feedback lock another program holds; the caller shows "busy, try again" and the next tick retries.
-    const ShareWaitCap uiWait(0.3);
+    const ShareWaitCap uiWait(ui_lock_wait_sec());
     atHeartbeat_.fetch_add(1, std::memory_order_relaxed);  // the autotest's watchdog sees the editor alive
     time_ += dt;
     poll_disk_update();

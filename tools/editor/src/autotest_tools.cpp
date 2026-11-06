@@ -51,6 +51,13 @@ float panel_width(const char* name) {
     return w ? w->Size.x : 0.0f;
 }
 
+// The value at a JSON pointer of a file the test parsed, or null when the file is not an object or does not say it. (A const Json's
+// operator[] on a key that is missing is undefined: the checks of a file that may lack a section go through here.)
+Json json_at(const Json& file, const char* pointer) {
+    const Json::json_pointer p(pointer);
+    return file.is_object() && file.contains(p) ? file.at(p) : Json();
+}
+
 void write_file(const std::string& path, const std::string& bytes) {
     std::error_code ec;
     stdfs::create_directories(stdfs::path(path).parent_path(), ec);
@@ -3772,7 +3779,7 @@ void Editor::at_build_tools_script() {
             at_check(!at_visible("ai:roles:reset:worker") && ai_group_source(aiProj_.resolved, "/roles/worker") == ai::SettingSource::You,
                      "...the row says it comes from the user's defaults");
             const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
-            at_check(file.is_discarded() || !file.is_object() || !file.contains("roles") || !file["roles"].contains("worker"),
+            at_check(json_at(file, "/roles/worker").is_null(),
                      "...and the project's file no longer says anything about the worker");
         });
         // Save as my defaults (in B, which sets the worker): ai.json gets the values, B's file keeps nothing that equals them.
@@ -3789,8 +3796,8 @@ void Editor::at_build_tools_script() {
         });
         step(4, [this, st, run_model] {
             const Json user = Json::parse(read_file(st->userPath), nullptr, false);
-            at_check(user.is_object() && user["roles"]["orchestrator"]["model"] == "defaults-orchestrator" &&
-                         user["roles"]["worker"]["model"] == "b-worker-model",
+            at_check(json_at(user, "/roles/orchestrator/model") == "defaults-orchestrator" &&
+                         json_at(user, "/roles/worker/model") == "b-worker-model",
                      "Save as my defaults writes the roles into the user's ai.json");
             {
                 std::lock_guard<std::mutex> lock(aiMu_);
@@ -3821,10 +3828,10 @@ void Editor::at_build_tools_script() {
         });
         step(4, [this, st, run_model] {
             const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
-            at_check(file.is_object() && file["roles"]["worker"]["model"] == "a-saved-model" && !file["roles"].contains("orchestrator"),
+            at_check(json_at(file, "/roles/worker/model") == "a-saved-model" && json_at(file, "/roles/orchestrator").is_null(),
                      "Save writes the project's file with only what differs from the defaults");
             const Json user = Json::parse(read_file(st->userPath), nullptr, false);
-            at_check(user.is_object() && user["roles"]["worker"]["model"] == "b-worker-model", "...and leaves ai.json alone");
+            at_check(json_at(user, "/roles/worker/model") == "b-worker-model", "...and leaves ai.json alone");
             at_check(run_model("worker") == "a-saved-model" && !aiProj_.resolved.pendingTrust, "...the next run uses it, with no Accept asked for the user's own Save");
         });
         // The Assets tab: a route and a site saved in the project's file only, each row with its own Reset.
@@ -3848,7 +3855,7 @@ void Editor::at_build_tools_script() {
         });
         step(4, [this, st] {
             const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
-            at_check(file.is_object() && file["assets"]["image"]["provider"] == "openai" && file["assetSources"]["images"].size() == 1,
+            at_check(json_at(file, "/assets/image/provider") == "openai" && json_at(file, "/assetSources/images").size() == 1,
                      "Save in the Assets tab writes the route and the site into the project's file");
             const Json user = Json::parse(read_file(st->userPath), nullptr, false);
             at_check(user.is_object() && !user.contains("assets") && !user.contains("assetSources"), "...and not into ai.json");
@@ -3862,7 +3869,7 @@ void Editor::at_build_tools_script() {
             at_check(aiSettings_.routes["image"].provider.empty() && !aiSettings_.sources.images.empty(),
                      "Reset on the image row clears only that row (the site stays in the draft)");
             const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
-            at_check(file.is_object() && !(file.contains("assets") && file["assets"].contains("image")) && file.contains("assetSources"),
+            at_check(file.is_object() && json_at(file, "/assets/image").is_null() && file.contains("assetSources"),
                      "...and the project's file keeps the sites");
         });
         scroll_to("aiset:reset:images", "AI settings###AiSettings");
@@ -3892,7 +3899,7 @@ void Editor::at_build_tools_script() {
         // Delete the file: it asks first (Cancel keeps the file), and Delete removes it and forgets that it was accepted.
         step(2, [this, st] {
             const Json trust = Json::parse(read_file(st->root + "/ai-trust.json"), nullptr, false);
-            at_check(trust.is_object() && trust.contains("aiSettings") && trust["aiSettings"].contains(ai::ai_settings_trust_key(st->dirA)),
+            at_check(json_at(trust, "/aiSettings").contains(ai::ai_settings_trust_key(st->dirA)),
                      "(before Delete) the project's file was accepted here once: ai-trust.json has its record");
             aiSettingsTab_ = 1;  // the Roles tab again: the Save of the next flow lives there
         });
@@ -3919,7 +3926,7 @@ void Editor::at_build_tools_script() {
         });
         step(4, [this, st, run_model] {
             const Json trust = Json::parse(read_file(st->root + "/ai-trust.json"), nullptr, false);
-            at_check(!trust.is_object() || !trust.contains("aiSettings") || !trust["aiSettings"].contains(ai::ai_settings_trust_key(st->dirA)),
+            at_check(!json_at(trust, "/aiSettings").contains(ai::ai_settings_trust_key(st->dirA)),
                      "Delete removes the file and forgets its acceptance in ai-trust.json");
             at_check(run_model("worker") == "b-worker-model" && aiProj_.actionError.empty(), "...the project runs with the user's defaults, no error");
         });
@@ -3964,7 +3971,7 @@ void Editor::at_build_tools_script() {
         });
         step(4, [this, st, run_model] {
             const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
-            at_check(file.is_object() && file["roles"]["worker"]["model"] == "my-own-model", "Replace saves the user's roles into the project's file");
+            at_check(json_at(file, "/roles/worker/model") == "my-own-model", "Replace saves the user's roles into the project's file");
             at_check(read_file(st->dirA + "/.factoria/ai/settings.replaced.json") == st->cameWith,
                      "...and the file that came with the project is kept as settings.replaced.json");
             at_check(run_model("worker") == "my-own-model", "...the next run uses the saved model (" + run_model("worker") + ")");

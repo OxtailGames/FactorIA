@@ -257,7 +257,9 @@ The height is kept with the layout.
   **Delete the file** (it asks first and forgets the acceptance); Save and Reset wait while the box is shown, and a Save after Ignore asks
   before it replaces the file and keeps it as `.factoria/ai/settings.replaced.json`. A file that cannot be accepted shows its error and no Accept. The
   External tools, Extensions and Token savers parts stay your own (`ai.json`) and say so. Switching project reloads what the window
-  shows. On a small window the rows scroll sideways and the buttons wrap onto the next line.
+  shows. On a small window the rows scroll sideways and the buttons wrap onto the next line, and the orange box scrolls inside the window
+  instead of pushing the tabs off it. When `ai.json` or the project's file changes behind the window (an AI's `ai.settings.set`, another
+  program) or after Accept, the window shows the new values and keeps the rows you had changed and not saved.
   (`docs/AI_PROVIDERS.md`, "This project's settings in the window")
   The **Extensions** tab ends with a **Skills** table: one row per skill the AIs can read (FactorIA's own, yours in
   `~/.factoria/skills` and the project's `skills/`), with an On box, where it comes from, what it is for, one box per role and a
