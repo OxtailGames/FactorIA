@@ -1231,6 +1231,18 @@ AsciiSample read_ascii_sample(const Json& a) {
             }
             out.cells.push_back(it->second);
         }
+    // The legend's other glyphs: not in the rows, so the learned patterns never hold them, but tilemap.generate's `constraints.place`
+    // can put them in the finished level (a marker the sample does not have to draw).
+    for (const LegendEntry& e : legend) {
+        if (seen.count(e.glyph)) continue;
+        AsciiSampleGlyph glyph;
+        glyph.glyph = e.glyph;
+        glyph.tile = e.hasTile ? e.tile : -1;
+        glyph.hasPrefab = !e.prefab.empty();
+        glyph.legendEntry = mergedLegend[e.glyph];
+        glyph.placeOnly = true;
+        out.legendOnly.push_back(std::move(glyph));
+    }
     return out;
 }
 

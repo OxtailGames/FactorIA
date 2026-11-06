@@ -34,7 +34,8 @@ game.
 5. **Refine one thing, rebake, film again.** `overwrite: true` replaces the sheets; the warnings of the bake are part of the
    look (a shape touching the edge of the cell is cut off; a frame that draws nothing; a loop that jumps). Stop when each point of
    the list holds; a second pass over a good effect makes it worse.
-6. **Put it in the scene and play it.** The sheets are sprites; the layers are three entities of one prefab. Where the
+6. **Put it in the scene and play it.** The sheets are sprites; the layers are three entities of one prefab (`prefab` on the
+   `assets.animate_svg` call writes it). Where the
    effect is part of an attack, the timing lives in the animation clip as an event (below), so tuning it is editing data.
 
 A paid image provider is not part of this: an effect that follows rules is code, free and deterministic. A painted frame by
@@ -123,8 +124,12 @@ feel.do({ action: "spawn", prefab: "prefabs/coin_sparkle.prefab.json", offset: [
 
 `lifetime` is game time: 0.55 s is a little more than the clip, and then the entity is destroyed. The prefab is a parent with
 the three layers as children: `Back` at `Sprite.layer` 2 (the hero's parts are 3 to 9), `Front` at 20, `Light` at 21 with
-`"blend": "additive"`, all three with `"SpriteAnimator": {"clip": "coin_sparkle"}`. The same module recoloured for a silver coin
-is the same call with another `ramp` and the sheets baked again.
+`"blend": "additive"`, all three with `"SpriteAnimator": {"clip": "coin_sparkle"}`. `assets.animate_svg` writes that file
+itself: add `"prefab": {"path": "prefabs/coin_sparkle.prefab.json", "size": [72, 72], "layers": {"back": 2, "front": 20,
+"light": 21}, "tags": ["fx"]}` to the bake above and the result is byte for byte the prefab of the example (the parent is
+named "Coin Sparkle" from the file name). The call is refused, before baking anything, when the prefab already exists, so a
+hand-edited one is not lost: pass `"overwrite": true` inside `prefab` to write it again. The same module recoloured for a
+silver coin is the same call with another `ramp` and the sheets baked again.
 
 ## Example 3: a fire that loops
 

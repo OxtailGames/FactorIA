@@ -1021,7 +1021,7 @@ const job = tilemap.generate({ sample: "levels/sample.json", size: [48, 20],
 job.promise.then((r) => { if (scene.generation === gen) console.log("ready", r.placed); },
                  (e) => console.error(e.message, e.hint));
 ```
-- The handle has `progress` (0..1, never goes down), `done`, `error`, `hint`, `result` (`null` until ready), `attempts`,
+- The handle has `progress` (0..1, never goes down: it follows the solver cell by cell inside an attempt, and a restart after a dead end keeps the bar where it was; 1 only when done), `done`, `error`, `hint`, `result` (`null` until ready), `attempts`,
   `work`, `promise` (resolves with `result`, rejects with an Error that has `.hint`) and `cancel()`.
 - `place` builds the Tilemap and the sample's markers (glyphs with a `prefab`) as entities, like `scene.import_ascii`;
   `into` writes only tiles into an existing Tilemap. They exclude each other. `place` is checked when you call

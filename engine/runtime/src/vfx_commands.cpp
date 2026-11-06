@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <optional>
 
 #include "engine_impl.h"
 #include "fa/core/fs.h"
@@ -47,6 +48,36 @@ constexpr int kMaxFilmstripTiles = 64;
 constexpr int kMaxSheetSide = 8192;
 constexpr double kAutoSheetWidth = 1600;  // a filmstrip without `zoom` is drawn to be about this wide
 constexpr double kMaxFilmSpan = 3.0;      // seconds of effect a filmstrip covers when `everyFrames` is not given
+
+// The project's main camera as vfx.budget projects 3D quads through it: the active primary Camera that draws to the screen with the
+// lowest depth (the one the renderer calls "the" camera). Empty when the world has none.
+// The renderer's own camera list (renderer.cpp, ordered by depth) is private to the render module, so this repeats its filter; it also
+// ignores Camera.viewport and the scale mode (Expand): the view is taken as the design size, so the aspect is the design size's.
+std::optional<VfxBudgetCamera> main_camera(Engine::Impl& I) {
+    Entity best = kNullEntity;
+    int bestDepth = 0;
+    const TypeInfo* ct = TypeRegistry::global().of<Camera>();
+    for (Entity e : I.world.entities_with(ct)) {
+        const Camera* c = I.world.get<Camera>(e);
+        if (!c || !c->primary || !c->renderTarget.empty() || !I.world.active_in_hierarchy(e)) continue;
+        if (best == kNullEntity || c->depth < bestDepth) {
+            best = e;
+            bestDepth = c->depth;
+        }
+    }
+    if (best == kNullEntity) return std::nullopt;
+    const Camera& c = *I.world.get<Camera>(best);
+    const Mat4 m = I.world.world_matrix(best);
+    VfxBudgetCamera out;
+    out.perspective = c.projection == Projection::Perspective;
+    out.fovDegrees = std::clamp(double(c.fov), 1.0, 179.0);
+    out.orthoHalfHeight = c.orthoSize > 0 ? double(c.orthoSize) : double(I.design_size().y) * 0.5;
+    out.nearPlane = c.nearPlane;
+    out.forward = normalize(m.transform_dir(kForward));
+    out.right = normalize(m.transform_dir(Vec3{1, 0, 0}));
+    out.up = normalize(m.transform_dir(Vec3{0, 1, 0}));
+    return out;
+}
 
 std::string abs_path(const std::string& p) {
     if (fs::is_absolute(p)) return p;
@@ -241,8 +272,12 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
            "ok}. `overdraw` is the sum of the particles' quads in screens (1.0 = as much quad area as the view has; stacked soft "
            "sprites are what a phone's GPU pays for). `findings` are what is over the `preset`'s budget (phone: 300 live particles, "
            "1.5 screens, 5 emitters; desktop: 2000, 4.0, 8): each names the JSON pointer and, when one edit helps, carries a vfx.edit call (`fix`) that moves "
-           "the effect toward it (run vfx.budget again to see where it lands; `fix` is null when no single edit would do). The numbers are the particles the sim keeps alive: a camera that does not see them, ribbon trails "
-           "and glow passes are not counted, and a 3D emitter's overdraw is not measured (`notes` says so). Example: vfx.budget {\"path\":\"assets/vfx/hit.vfx.json\"}",
+           "the effect toward it (run vfx.budget again to see where it lands; `fix` is null when no single edit would do). With 3D emitters the numbers also depend on that camera (its lens, and the scene that is loaded), so the same document can give other numbers in another scene. The numbers are the particles the sim keeps alive: a camera that does not see them, ribbon trails "
+           "and glow passes are not counted. A 3D emitter's size is in world units, so its overdraw is measured through the project's main camera "
+           "(the active primary Camera with the lowest depth in the loaded scene): its quads are projected with the effect "
+           "5 m in front of the camera, on its axis (a perspective or an orthographic camera; a quad partly outside the view counts whole). `camera` in the result says "
+           "which was used ({used:true, projection, distance, fov | height}); when there is no camera (no scene loaded, or none in it) a 3D emitter's particles are "
+           "counted but its overdraw is 0 and not measured, and `camera` is {used:false, reason} and `notes` says so. Example: vfx.budget {\"path\":\"assets/vfx/hit.vfx.json\"}",
            parse_schema(R"({"type":"object","additionalProperties":false,"required":["path"],"properties":{
                "path":{"type":"string","description":"Project path of the effect document, e.g. \"assets/vfx/hit.vfx.json\"."},
                "preset":{"type":"string","enum":["phone","desktop"],"default":"phone","description":"Whose budget the findings use."},
@@ -273,12 +308,35 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
                   o.viewWidth = v[0].get<double>();
                   o.viewHeight = v[1].get<double>();
               }
-              return budget_json(vfx_measure(**doc, o));
+              // 3D emitters are projected through the project's main camera; the answer says what was used (or why nothing was).
+              o.camera = main_camera(I);
+              const VfxBudget measured = vfx_measure(**doc, o);
+              Json out = budget_json(measured);
+              bool any3d = false;
+              for (const VfxPart& part : (*doc)->parts) {
+                  if (part.kind != VfxPartKind::Emitter) continue;
+                  ParticleEmitter pe;
+                  (void)object_patch_from_json(World::type_of<ParticleEmitter>(), &pe, part.emitter);
+                  any3d = any3d || pe.is3D;
+              }
+              Json camera = Json::object({{"used", measured.camera3d}});
+              if (measured.camera3d) {
+                  camera["projection"] = o.camera->perspective ? "perspective" : "orthographic";
+                  camera["distance"] = o.cameraDistance;
+                  if (o.camera->perspective) camera["fov"] = o.camera->fovDegrees;
+                  else camera["height"] = o.camera->orthoHalfHeight * 2.0;
+              } else if (any3d) {
+                  camera["reason"] = "no active primary Camera in the loaded scene to project the 3D emitters' quads through";
+              } else {
+                  camera["reason"] = "the effect has no 3D emitter, so no camera was needed";
+              }
+              out["camera"] = camera;
+              return out;
           });
 
     I.commands.add({"vfx.filmstrip", "Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once.",
-           "Plays the effect at `position` (default: the world point in the middle of the view, which is only meaningful in a 2D game: in a 3D game "
-           "give `position`), steps the game and captures `region` at each step into one "
+           "Plays the effect at `position` (default: in a 2D game the world point in the middle of the view; in a 3D game the point 5 m in front of "
+           "the main 3D camera, on its axis, which the result says in `positionNote`), steps the game and captures `region` at each step into one "
            "labelled grid PNG (label \"f3 +100\" = picture 3, 100 ms after the effect started), then removes the effect. THE GAME "
            "ADVANCES: the clock, the physics and the scripts run for the frames the strip takes (about 3 s at most by default), so film "
            "on a stage scene or a paused moment; the camera and the backdrop are the ones the game has, which is what the effect "
@@ -288,14 +346,15 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
            "magnifies (default: a sheet about 1600 px wide). At most 64 pictures, a sheet at most 8192 px a side. Needs graphics. "
            "Without `path` the picture is temporary (the MCP server shows it then deletes the file). The effect's sound and command "
            "parts really act on the game (a feel.hitStop stretches the labelled times, an audio.music keeps playing, a feel.spawn leaves its "
-           "prefab). A 3D game must give `position` (without it the middle of the view is the camera itself, and the call fails), and a "
-           "`position` the camera cannot project into the view fails too. Result: {path (only with `path`), effect, duration, width, height, "
-           "frames: [{index, frame, t}], columns, rows, tileWidth, tileHeight, zoom, everyFrames, region, $image}. "
+           "prefab). A `position` the camera cannot project into the view fails (it is behind the camera: aim the camera or give `region`). "
+           "Result: {path (only with `path`), effect, duration, width, height, frames: [{index, frame, t}], columns, rows, tileWidth, "
+           "tileHeight, zoom, everyFrames, region, position: [x, y, z] (where it played), positionDefault (true when `position` was left out), "
+           "positionNote (only then: which default was used), $image}. "
            "vfx.review gives the picture to a vision model with the budget numbers. Example: "
            "vfx.filmstrip {\"effect\":\"assets/vfx/hit.vfx.json\",\"position\":[640,360],\"frames\":12}",
            parse_schema(R"({"type":"object","additionalProperties":false,"required":["effect"],"properties":{
                "effect":{"type":"string","description":"Project path of the effect document, e.g. \"assets/vfx/hit.vfx.json\"."},
-               "position":{"type":"array","items":{"type":"number"},"description":"[x, y] or [x, y, z]: where the effect plays, in world units. Default: the world point in the middle of the view (2D); a 3D game must give it."},
+               "position":{"type":"array","items":{"type":"number"},"description":"[x, y] or [x, y, z]: where the effect plays, in world units. Default: the world point in the middle of the view in a 2D game; in a 3D game the point 5 m in front of the main camera on its axis (the result says which in `positionNote`)."},
                "frames":{"type":"integer","minimum":2,"maximum":64,"default":12,"description":"Pictures in the strip."},
                "everyFrames":{"type":"integer","minimum":1,"maximum":600,"description":"Game frames between two pictures. Default: the effect's length (at most 3 s) divided over `frames`."},
                "size":{"type":"number","minimum":16,"maximum":4096,"default":256,"description":"Side, in design pixels, of the square around the effect that is filmed (ignored with `region`)."},
@@ -337,15 +396,20 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
                   throw CommandError("invalid_argument", "vfx.filmstrip: the middle of the view is not a point of this world, so there is no place to play the effect at.",
                                      "Give `position` [x, y, z].");
               }
+              std::string positionNote;
               if (!given) {
-                  // In a 2D game the middle of the view is a point on the z = 0 plane. In a 3D game screen_to_world(depth 0) is the camera
-                  // itself, where nothing can be filmed: refuse, instead of playing the effect inside the lens.
+                  // In a 2D game the middle of the view is a point on the z = 0 plane. With a 3D perspective camera screen_to_world(depth 0) is the
+                  // camera itself, where nothing can be filmed: play the effect a few metres in front of the lens instead, on the view axis.
                   Vec3 origin{}, dir{};
                   I.renderer->screen_ray(Vec2{view.x * 0.5f, view.y * 0.5f}, origin, dir);
                   const Vec3 gap = at - origin;
-                  if (gap.x * gap.x + gap.y * gap.y + gap.z * gap.z < 1e-6f)
-                      throw CommandError("invalid_argument", "vfx.filmstrip: without `position` the effect would play at the camera (this game has a 3D camera), where nothing can be filmed.",
-                                         "Give `position` [x, y, z]: the world point to film the effect at, in front of the camera.");
+                  if (gap.x * gap.x + gap.y * gap.y + gap.z * gap.z < 1e-6f) {
+                      at = origin + dir * float(kVfxDefaultCameraDistance);
+                      positionNote = std::format("No `position` was given and this game has a 3D camera: the effect played at the point {:g} m in front of it, on its view axis "
+                                                 "([{:.3f}, {:.3f}, {:.3f}]). Give `position` to film it somewhere else.", kVfxDefaultCameraDistance, at.x, at.y, at.z);
+                  } else {
+                      positionNote = std::format("No `position` was given: the effect played at the world point in the middle of the view ([{:.3f}, {:.3f}, {:.3f}]).", at.x, at.y, at.z);
+                  }
               }
               Rect region{};
               if (a.contains("region")) {
@@ -431,6 +495,9 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
               j["zoom"] = zoom;
               j["everyFrames"] = every;
               j["region"] = Json::array({plan.x0, plan.y0, plan.x1 - plan.x0, plan.y1 - plan.y0});
+              j["position"] = Json::array({at.x, at.y, at.z});
+              j["positionDefault"] = !given;
+              if (!given) j["positionNote"] = positionNote;
               Json image = Json::object({{"path", abs}, {"mimeType", "image/png"}});
               if (temporary) {
                   j["temporary"] = true;

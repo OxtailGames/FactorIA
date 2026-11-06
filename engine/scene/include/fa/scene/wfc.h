@@ -43,8 +43,12 @@
 // CONSTRAINTS. `forbidden` symbols never appear (the patterns that contain them are removed), a CellRule fixes or restricts one
 // output cell, a CountRule says how many cells of some symbols the finished grid must hold (min / max): a grid that misses a
 // minimum is refused and the next attempt pins the missing cells at positions drawn from its own seed, so a rare tile still
-// turns up (`pinMissing: false` turns that repair off); a maximum is only checked on the finished grid, which is refused when it is over.
-// `accept` is the last word (reachability, ...). All of it is deterministic.
+// turns up (`pinMissing: false` turns that repair off). A maximum STEERS the solver: the solver counts the cells whose symbol is already
+// decided and, once a rule's group has reached its maximum, removes the group's symbols from every cell that is still undecided (with
+// propagation), so a tile that is unique in the sample does not turn up two to four times and refuse attempt after attempt; a group
+// that goes over its maximum anyway (several cells decided by one propagation) ends the attempt at once. The finished grid is still
+// checked against every maximum. `finish` may change the finished grid first (placing exactly N cells of a marker); the counts and
+// `accept` / `check` (reachability, ...) then judge the grid it made. All of it is deterministic.
 #pragma once
 
 #include <cstddef>
@@ -158,6 +162,19 @@ public:
     virtual Verdict step(std::int64_t chunk, std::string& why, std::int64_t& work) = 0;
 };
 
+// A step on a solved grid that may CHANGE it (the command's `constraints.place`: put exactly N cells of a marker where a rule
+// says). Same shape as GridCheck: begin() hands it the grid (it writes into it) and the seed of the attempt, then step() is called, each call
+// doing about `chunk` units of work, until it says Accepted or Refused. Refused counts as a retry like a refused grid (the cells it wrote are
+// thrown away with the attempt). It must write only symbols of the model (0..symbolCount-1; a symbol no pattern holds is fine). Must be deterministic.
+class GridFinish {
+public:
+    virtual ~GridFinish() = default;
+    // A finished grid (width * height symbols) and the seed of the attempt that made it: forget any earlier one. The vector stays alive until the verdict.
+    virtual void begin(std::vector<int>& cells, std::uint64_t seed) = 0;
+    // Does about `chunk` units of work (one per cell visited per pass, never time), adds them to `work` and, with Refused, says why.
+    virtual GridCheck::Verdict step(std::int64_t chunk, std::string& why, std::int64_t& work) = 0;
+};
+
 struct GenerateOptions {
     int width = 0;                               // output cells
     int height = 0;
@@ -166,7 +183,7 @@ struct GenerateOptions {
     int maxAttempts = 10;                        // 1..kMaxAttempts; a contradiction or a refused grid uses one
     std::vector<CellRule> cellRules;
     std::vector<int> forbidden;                  // symbols no cell may hold
-    std::vector<CountRule> counts;               // minimum / maximum cells per symbol group (checked on every finished grid)
+    std::vector<CountRule> counts;               // minimum / maximum cells per symbol group (checked on every finished grid; a maximum also steers the solver)
     // Total work (see MEMORY AND TIME) over all attempts after which the run fails with GenFailure::workLimit; 0 = no cap.
     std::int64_t maxWork = 0;
     // Asked about every finished grid (width * height symbols). Return false to refuse it (with `why`): the generator retries
@@ -175,9 +192,12 @@ struct GenerateOptions {
     std::function<bool(const std::vector<int>& cells, std::string& why, std::int64_t& work)> accept;
     // The same asked in pieces, so a big grid does not make one step() long. Used instead of `accept` when set.
     std::shared_ptr<GridCheck> check;
+    // Runs on every solved grid, in pieces, before the counts are judged and `accept` / `check` run, and may change it (see GridFinish):
+    // the counts and the check judge the grid it made. null = nothing to do.
+    std::shared_ptr<GridFinish> finish;
     // A count rule's minimum that a finished grid missed is repaired on the next attempt by pinning the missing cells (see CountRule).
-    // false: the grid is only refused and the next attempt starts from scratch. A maximum is never repaired either way: it is checked
-    // on the finished grid and a grid over it is refused.
+    // false: the grid is only refused and the next attempt starts from scratch. A maximum is never repaired: the solver stops using the
+    // group's symbols once the maximum is reached (see CONSTRAINTS), and a grid over it is refused.
     bool pinMissing = true;
 };
 
@@ -199,7 +219,7 @@ struct GenStats {
     std::size_t heapPeak = 0;                    // most entries the entropy heap held (at most 4 per cell)
     std::size_t peakBytes = 0;                   // what the solver's vectors held at their largest (<= memoryBytes)
     std::uint64_t seedUsed = 0;                  // the derived seed of the attempt that is running or succeeded
-    std::vector<int> symbolCounts;               // after Done: how many output cells hold each symbol
+    std::vector<int> symbolCounts;               // after Done: how many output cells hold each symbol of the model 
 };
 
 // Where and why the last failed attempt stopped.
@@ -243,7 +263,11 @@ public:
     GenStatus run();
 
     GenStatus status() const;
-    // Cells already decided (one pattern left) over cells: 0..1, for a progress bar.
+    // For a progress bar: 0..1, never goes down and is 1 only when Done. Inside an attempt it follows the solver (cells decided, one pattern
+    // left, over cells). An attempt that fails does not send it back: the first attempt covers 0..0.8 and every later one takes a quarter of
+    // what is left (0.8..0.85, 0.85..0.8875, ...), so a level that needs many attempts keeps creeping forward instead of standing still
+    // until an attempt passes the point the best one reached. It depends only on the attempts and the cells decided, so it is the same on
+    // every machine and however step() is called.
     double progress() const;
     // After Done: width * height symbol ids (row-major, row 0 = top).
     const std::vector<int>& output() const;

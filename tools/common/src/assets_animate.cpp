@@ -12,10 +12,12 @@
 #include <set>
 
 #include "assets_anim_js.h"
+#include "assets_animate_prefab.h"
 #include "assets_internal.h"
 #include "sheet_checks.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
+#include "fa/scene/serialize.h"
 #include "assets_shots.h"
 #include "fa/tooling/asset_import.h"
 #include "fa/tooling/image_doc.h"
@@ -86,6 +88,17 @@ struct FrameJob {
     int sheetFrame = 0;
 };
 
+// True when factoria.json lists android or ios in `platforms` (the same test as project.validate's texture checks).
+bool project_targets_mobile(const std::string& projectDir) {
+    auto text = tooling_detail::read_file(project_file(projectDir, "factoria.json"));
+    if (!text) return false;
+    auto parsed = parse_json(*text, "factoria.json");
+    if (!parsed.ok() || !parsed->is_object() || !parsed->contains("platforms") || !(*parsed)["platforms"].is_array()) return false;
+    for (const Json& p : (*parsed)["platforms"])
+        if (p.is_string() && (to_lower(p.get<std::string>()) == "android" || to_lower(p.get<std::string>()) == "ios")) return true;
+    return false;
+}
+
 std::string checked_png_path(const std::string& path) {
     auto norm = fs::normalize_checked(path);
     if (!norm.ok() || norm->empty() || !starts_with(*norm, "assets/"))
@@ -138,7 +151,7 @@ std::optional<std::array<double, 2>> pivot_arg(const Json& obj, const std::strin
 Json animate(const std::string& projectDir, const Json& a) {
     if (!a.is_object()) fail("invalid_argument", "assets.animate_svg expects an object.", "See the description of the command for the fields.");
     check_arg_keys(kCommand, a, "", {"path", "source", "svg", "frames", "fps", "loop", "columns", "frameWidth", "frameHeight", "params", "seed", "clips", "pivot",
-                                     "palette", "ramp", "rampIndex", "rampMap", "layers", "style", "styleStrength", "padding", "overwrite", "ai", "author", "license", "timeLimitMs"});
+                                     "palette", "ramp", "rampIndex", "rampMap", "layers", "prefab", "style", "styleStrength", "padding", "overwrite", "ai", "author", "license", "timeLimitMs"});
     const std::string rel = checked_png_path(tooling_detail::arg_string(a, "path", true));
     const bool hasSvg = a.contains("svg"), hasSource = a.contains("source");
     if (hasSvg == hasSource)
@@ -362,8 +375,14 @@ Json animate(const std::string& projectDir, const Json& a) {
     std::vector<std::string> layerRels;
     for (const std::string& layer : layerList) layerRels.push_back(layer.empty() ? rel : layer_path(rel, layer));
 
+    std::optional<AnimatePrefabSpec> prefabSpec;
+    if (a.contains("prefab") && !a["prefab"].is_null()) prefabSpec = parse_animate_prefab(kCommand, a["prefab"], layered ? layerList : std::vector<std::string>(), frameW, frameH, warnings);
+
     const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
     std::error_code ec;
+    if (prefabSpec && !prefabSpec->overwrite && stdfs::exists(project_file(projectDir, prefabSpec->rel), ec))
+        fail("exists", "The prefab '" + prefabSpec->rel + "' already exists, and may hold changes made by hand (`overwrite` is about the sheets, not the prefab).",
+             "Pass \"prefab\": {\"path\": \"" + prefabSpec->rel + "\", \"overwrite\": true} to write it again, or choose another prefab path. Nothing was baked.");
     for (const std::string& lr : layerRels)
         if (!overwrite && stdfs::exists(project_file(projectDir, lr), ec)) fail("exists", "'" + lr + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
     require_usable_manifest(projectDir);
@@ -485,6 +504,19 @@ Json animate(const std::string& projectDir, const Json& a) {
     }
     if (std::max(sheetW, sheetH) > 4096)
         warn(std::format("The sheet is {}x{} px; many mobile GPUs cannot sample a texture over 4096 px.", sheetW, sheetH));
+    if (auto w = block_size_warning(columns, rows, frameW, frameH, padding); w && project_targets_mobile(projectDir)) {
+        // a sheet whose import settings turn compression off (or put it in an atlas) ships as it is: nothing to say about it
+        ProjectRootGuard root(projectDir);
+        const auto compressed = [](const Json& s) {
+            const auto setting = [&](const char* key) { return s.is_object() && s.contains(key) && s[key].is_string() ? s[key].get<std::string>() : std::string(); };
+            return setting("compression") != "none" && setting("atlas").empty();
+        };
+        for (const std::string& lr : layerRels)
+            if (compressed(assets::import_settings(lr))) {
+                warn(*w);
+                break;
+            }
+    }
     if (module && ((!ramp.empty() && !rampMap) || layered)) {
         // a module that never names `ramp` (or `layer`) ignores it: say so
         const auto module_names = [&](const char* word) {
@@ -657,6 +689,25 @@ Json animate(const std::string& projectDir, const Json& a) {
         warn("Removed '" + stale + "': the layer \"" + name + "\" of an earlier bake of this effect, which this bake does not make.");
     }
 
+    // ---- the prefab that plays the layers together ----
+    // Written last: the sheets are encoded, written and recorded by now, and a prefab that cannot be written is the only thing missing.
+    std::optional<Json> prefabInfo;
+    if (prefabSpec) {
+        const std::string clipName = clips[0].name;
+        const Json doc = build_animate_prefab(*prefabSpec, layerList, layerRels, clipName);
+        std::string err;
+        if (!tooling_detail::write_file(project_file(projectDir, prefabSpec->rel), dump_scene_json(doc), &err))
+            fail("failed", "The sheets were baked and recorded, but the prefab '" + prefabSpec->rel + "' could not be written: " + err,
+                 "Check that the folder is writable and the file is not open in another program, then call again with overwrite: true and the prefab's overwrite: true (the sheets above are already in place).");
+        Json children = Json::array();
+        for (const Json& child : doc["entity"]["children"])
+            children.push_back(Json::object({{"name", child["name"]}, {"texture", child["components"]["Sprite"]["texture"]}, {"layer", child["components"]["Sprite"]["layer"]},
+                                             {"blend", child["components"]["Sprite"].value("blend", "alpha")}}));
+        prefabInfo = Json::object({{"path", prefabSpec->rel}, {"name", prefabSpec->name}, {"clip", clipName}, {"size", doc["entity"]["children"][0]["components"]["Sprite"]["size"]}, {"children", children}});
+        if (clips.size() > 1)
+            warn("The sheet has " + std::to_string(clips.size()) + " clips and the prefab plays the first one, \"" + clipName + "\". Set SpriteAnimator.clip on the children (or call play on each) for another.");
+    }
+
     Json layout = Json::object({{"columns", columns}, {"rows", rows}, {"frameWidth", frameW}, {"frameHeight", frameH}, {"padding", padding},
                                 {"cellWidth", cellW}, {"cellHeight", cellH}, {"imageWidth", imageW}, {"imageHeight", imageH},
                                 {"frames", total}, {"clips", sheet.value("clips", Json::array())}});
@@ -664,6 +715,7 @@ Json animate(const std::string& projectDir, const Json& a) {
     Json result = Json::object({{"path", layerRels[0]}, {"width", imageW}, {"height", imageH}, {"layout", layout}, {"sheet", sheet},
                                 {"provenance", firstProvenance}});
     if (layered) result["layers"] = layerInfo;
+    if (prefabInfo) result["prefab"] = *prefabInfo;
     if (!ramp.empty()) result["ramp"] = Json(rampHex);
     if (smil && cycle > 0) result["cycleSeconds"] = cycle;
     if (module && !module->logs().empty()) result["console"] = module->logs();
@@ -689,10 +741,21 @@ Json animate(const std::string& projectDir, const Json& a) {
         result["$image"] = image_member(write_temporary_picture(projectDir, preview, "layers"), true);
     }
     std::vector<std::string> steps = sheet_next_steps(layerRels[0], sheet, hasClips ? clips[0].fps : fps);
-    if (layered) {
+    if (prefabInfo) {
+        std::vector<std::string> names;
+        for (const Json& c : (*prefabInfo)["children"]) names.push_back(c["name"].get<std::string>() + " at Sprite.layer " + std::to_string(c["layer"].get<int>()));
+        steps.push_back("The prefab '" + (*prefabInfo)["path"].get<std::string>() + "' plays the layers together: a parent \"" + (*prefabInfo)["name"].get<std::string>() +
+                        "\" with one child per layer (" + join(names, ", ") + "), each a SpriteAnimator on the clip \"" + (*prefabInfo)["clip"].get<std::string>() +
+                        "\". Spawn it where the effect happens: feel.do({action: \"spawn\", prefab: \"" + (*prefabInfo)["path"].get<std::string>() +
+                        "\", offset: [x, y, 0], lifetime: seconds}) from a script, or scene.spawn {\"prefab\": ...}. The character's own Sprite.layer goes between the back and the front one "
+                        "(`prefab.layers` sets them). The picture in this result stacks the layers on a dark ground (the light added).");
+    } else if (layered) {
         steps.push_back("The sheets are one effect: make an entity per layer (children of the same parent, so they move together) with the SAME SpriteAnimator settings, and "
                         "call play on each at the same moment: the grid, the frames, the fps and the pivot are the same, so they stay in step. The picture in this result stacks the layers on a dark ground (the light added).");
+    }
+    if (layered && !prefabInfo) {
         for (const Json& l : layerInfo) steps.push_back(l["layer"].get<std::string>() + " (" + l["path"].get<std::string>() + "): " + l["use"].get<std::string>() + ".");
+        steps.push_back("To get these entities as a prefab in one call, bake again with \"prefab\": \"prefabs/<name>.prefab.json\" (a parent with one child per layer, the clip and the blend written for you).");
     }
     steps.push_back("Look at the sheet in this result. To change the animation, edit " + (isModule ? sourceRel : std::string("the SVG")) + " and call again with overwrite: true, "
                     "or run assets.regenerate {\"path\":\"" + layerRels[0] + "\"} (the recipe is in the provenance; {\"stale\":true} makes again every asset whose source changed). "
@@ -732,9 +795,12 @@ void register_animate_svg_command(CommandRegistry& registry, const std::string& 
         "from one module that receives `layer` and returns the SVG of that layer (an empty <svg/> is a layer idle in that frame). The sheets have the same grid, frames, fps, clips, pivot and padding, "
         "so they stay in step when each plays on its own entity: `back` goes behind the character (a lower Sprite.layer), `front` in front of it (a higher one) and `light` is an additive pass (a Sprite with blend additive, "
         "its colours add to what is under it: draw soft bright glows). Every layer of a frame draws from the same random stream. The result lists the layers and returns them stacked on a dark ground. "
+        "`prefab` (with `layers`) also writes the entities that play them together: a parent with one child per layer, each a Sprite on its sheet (back below, front above, light additive) and a SpriteAnimator on the sheet's first clip, so the effect is one call; "
+        "see its description for the options, and it is never written over an existing prefab unless `prefab.overwrite` is true. "
         "A module that never reads `layer` gets a warning (every layer would be the same drawing). The layers of a call are held in memory together (their frames and sheets, at most 1024 MB): a bake over that is refused before drawing, so bake fewer layers per call. "
         "All sheets are encoded before the first is written; if a write fails, the sheets this call made are removed again. Sheets of an earlier bake of the same `path` with other layers (hit_light.png after baking only back and front) are deleted with their entries when this command made them. "
-        "The result returns the sheet as an image, the layout (columns, rows, cell size, clips) and warnings: frames that draw nothing, shapes touching the edge of the cell, a loop whose last frame jumps from the first (or repeats it), SMIL not sampled. "
+        "The result returns the sheet as an image, the layout (columns, rows, cell size, clips) and warnings: frames that draw nothing, shapes touching the edge of the cell, a loop whose last frame jumps from the first (or repeats it), SMIL not sampled, "
+        "a sheet over 4096 px, and, when factoria.json lists android or ios, a sheet whose width or height is not a multiple of 4 (GPU compression needs it; the warning names the `padding` or the frame size that gives one). "
         "Provenance (origin generated, ai true: the calling agent wrote the code; pass ai: false with author and license for art a person drew) carries a recipe (this command, its arguments, the module and the files it imported with their SHA-256), "
         "so the sheet can be made again, byte for byte. Use this for motion that follows rules (spin, bob, pulse, sparkle, flame, waves, loaders); for an engine-drawn entity use assets.bake_sheet, for painted frame-by-frame art ask an image provider. "
         "Example: {\"path\":\"assets/art/coin_spin.png\",\"source\":\"art/coin_spin.anim.js\",\"frames\":8,\"fps\":10,\"frameWidth\":64,\"frameHeight\":64,\"padding\":1} with art/coin_spin.anim.js = "
@@ -773,11 +839,17 @@ void register_animate_svg_command(CommandRegistry& registry, const std::string& 
                {"rampMap", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Recolour the finished frames by brightness with `ramp` (dark pixels take its first colour, bright ones its last; alpha kept). Needed for a SMIL SVG; a module may use rampAt instead."}})},
                {"layers", Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}, {"enum", layer_names()}})}, {"minItems", 1}, {"maxItems", 3},
                                         {"description", "Bake one sheet per layer (back, front, light), module only: the module receives `layer`. The files are <path>_<layer>.png with the same grid, fps, clips and pivot. back is drawn behind the character, front in front of it, light is an additive glow."}})},
+               {"prefab", Json::object({{"description", "Needs `layers`. Also write the prefab that plays the layers together: the path of a .prefab.json (\"prefabs/coin_sparkle.prefab.json\"), or an object {path, name, tags, size, layers, pixelArt, overwrite}. "
+                                                        "It is a parent entity (name: `name`, default made from the file name; `tags`) with one child per layer (Back, Front, Light), each a Sprite on that layer's sheet "
+                                                        "(`size` [w, h] in world units, default one frame in pixels; `layers` {back, front, light} are the Sprite.layer numbers, default -1, 1 and 2, so put the character's layer between back and front; "
+                                                        "`pixelArt` default false) with a SpriteAnimator on the sheet's first clip; the light child is blend additive. The prefab is written after the sheets. "
+                                                        "An existing prefab is never replaced unless the object has overwrite: true (the call fails before baking anything): it may hold changes made by hand, and the command's `overwrite` is about the sheets. "
+                                                        "The prefab is not part of the recipe: assets.regenerate remakes the sheets and leaves the prefab as it is."}})},
                {"style", Json::object({{"type", "string"}, {"enum", image_style_names()}, {"description", "Default none. The painterly look of assets.rasterize_svg applied to every frame (watercolor, ink, inkwash, paper). The same seed for all frames, so the texture does not boil."}})},
                {"styleStrength", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"description", "How strong the `style` is, 0 to 1 (default 1). Ignored without a `style`."}})},
                {"padding", Json::object({{"type", "integer"}, {"minimum", 0}, {"maximum", 64}, {"default", 0}, {"description", "Transparent pixels around every cell: 1 or 2 keeps filtered frames from bleeding into each other. Recorded in the sheet entry."}})},
                {"timeLimitMs", Json::object({{"type", "integer"}, {"minimum", 10}, {"maximum", 60000}, {"default", 2000}, {"description", "Milliseconds the module may take to load and, separately, to draw each frame; over it the call fails naming the frame."}})},
-               {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Replace the sheet when it already exists."}})},
+               {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Replace the sheet (every layer's sheet) when it already exists. It does not cover the prefab: see `prefab`."}})},
                {"ai", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Whether the code was written by an AI (the default, since the caller is an agent). Set false for art a person made; it then counts as original work in the AI disclosure."}})},
                {"author", Json::object({{"type", "string"}, {"description", "Who gets the credit in the provenance record."}})},
                {"license", Json::object({{"type", "string"}, {"default", "CC0-1.0"}, {"description", "License of the sheet for the provenance record."}})}})}});

@@ -10,6 +10,7 @@
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
 #include "fa/scene/vfx.h"
+#include "fa/scene/vfx_budget.h"
 #include "../src/engine_impl.h"  // Engine::Impl::vfxHost: the host an effect runs its commands with
 
 using namespace fa;
@@ -434,6 +435,86 @@ TEST_CASE("vfx.filmstrip films an effect, steps the game and leaves no effect be
     CHECK_FALSE(c.call("vfx.filmstrip", Json::parse(R"({"effect":"assets/vfx/hit.vfx.json","frames":65})")).ok);
     CHECK(e.frame_index() == frame);
     e.shutdown();
+}
+
+namespace {
+const char* kScene3d = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "components": { "Transform": { "position": [0, 2, 10] }, "Camera": { "projection": "perspective", "fov": 90, "primary": true } } }
+  ]
+})";
+const char* kOrb3d = R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"orb","emitter":{"is3D":true,"burst":1,"rate":0,"lifetime":0.5,
+    "lifetimeVariance":0,"startSize":5,"endSize":5,"speed":0,"speedVariance":0,"maxParticles":4}}]})";
+}  // namespace
+
+TEST_CASE("vfx.budget: a 3D emitter's overdraw is measured through the main camera, and the answer says which camera (or that there is none)") {
+    TempProject p;
+    p.put("scenes/main.scene.json", kScene3d);
+    p.put("assets/vfx/orb.vfx.json", kOrb3d);
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto r = c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/orb.vfx.json"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["camera"]["used"] == true);
+    CHECK(r.result["camera"]["projection"] == "perspective");
+    CHECK(r.result["camera"]["distance"] == kVfxDefaultCameraDistance);
+    CHECK(r.result["camera"]["fov"] == 90.0);
+    // 25 / (10 * 10 * 320 / 180) of the design view (320 x 180): the aspect is the design size's.
+    CHECK(r.result["peakOverdraw"].get<double>() == doctest::Approx(25.0 / (10.0 * 10.0 * 320.0 / 180.0)).epsilon(0.01));
+    CHECK(r.result["notes"][0].get<std::string>().find("main camera") != std::string::npos);
+    // A 2D effect needs no camera.
+    auto flat = c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/hit.vfx.json"})"));
+    REQUIRE(flat.ok);
+    CHECK(flat.result["camera"]["used"] == false);
+    // Destroy the camera: the same call says there is nothing to project through, and measures no overdraw.
+    REQUIRE(c.call("scene.destroy", Json::parse(R"({"id":"cam"})")).ok);
+    auto none = c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/orb.vfx.json"})"));
+    REQUIRE_MESSAGE(none.ok, none.error.dump());
+    CHECK(none.result["camera"]["used"] == false);
+    CHECK(none.result["camera"]["reason"].get<std::string>().find("no active primary Camera") != std::string::npos);
+    CHECK(none.result["peakOverdraw"] == 0.0);
+    CHECK(none.result["peakParticles"] == 1);
+    CHECK(none.result["notes"][0].get<std::string>().find("no camera") != std::string::npos);
+    e.shutdown();
+}
+
+TEST_CASE("vfx.filmstrip without position: a 3D game films 5 m in front of the camera and says so; a 2D game films the middle of the view") {
+    for (const bool threeD : {true, false}) {
+        TempProject p;
+        if (threeD) p.put("scenes/main.scene.json", kScene3d);
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+        auto& c = e.commands();
+        e.step(1);
+        auto r = c.call("vfx.filmstrip", Json::parse(R"({"effect":"assets/vfx/hit.vfx.json","frames":2,"everyFrames":1})"));
+        if (!r.ok) {
+            // No graphics here: the error is the one of a missing renderer, not of a missing position.
+            CHECK(r.error.dump().find("position") == std::string::npos);
+            e.shutdown();
+            continue;
+        }
+        CHECK(r.result["positionDefault"] == true);
+        const std::string note = r.result["positionNote"].get<std::string>();
+        if (threeD) {
+            CHECK(note.find("3D camera") != std::string::npos);
+            CHECK(note.find("5 m") != std::string::npos);
+            CHECK(r.result["position"][0].get<double>() == doctest::Approx(0.0).epsilon(0.01).scale(1.0));
+            CHECK(r.result["position"][1].get<double>() == doctest::Approx(2.0).epsilon(0.01));
+            CHECK(r.result["position"][2].get<double>() == doctest::Approx(5.0).epsilon(0.01));
+        } else {
+            CHECK(note.find("middle of the view") != std::string::npos);
+        }
+        // With a position the answer says it was given.
+        auto given = c.call("vfx.filmstrip", Json::parse(R"({"effect":"assets/vfx/hit.vfx.json","position":[0,2,4],"frames":2,"everyFrames":1})"));
+        REQUIRE_MESSAGE(given.ok, given.error.dump());
+        CHECK(given.result["positionDefault"] == false);
+        CHECK_FALSE(given.result.contains("positionNote"));
+        e.shutdown();
+    }
 }
 
 TEST_CASE("vfx.play: the command parts of an effect run the game feel commands (shake, hit-stop, flash) at their frame") {

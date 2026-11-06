@@ -788,3 +788,169 @@ TEST_CASE("assets.animate_svg: a layer that cannot be written takes back the she
     CHECK_FALSE(std::filesystem::exists(p.file("assets/fx/hit_back.png")));   // written first, taken back
     CHECK_FALSE(std::filesystem::exists(p.file("assets.json")));   // no entry was written
 }
+
+TEST_CASE("assets.animate_svg: `prefab` writes the parent with one child per layer, the shared clip and the additive light") {
+    AssetsProject p;
+    write_all(p.file("art/fx.anim.js"), kLayeredFx);
+    Json a = fx_args();
+    a["layers"] = Json::array({"front", "light", "back"});
+    a["prefab"] = Json{{"path", "prefabs/hit_fx.prefab.json"}, {"size", Json::array({48, 40})}, {"layers", Json{{"back", 2}, {"front", 20}, {"light", 21}}}, {"tags", Json::array({"fx"})}};
+    const Json r = p.ok("assets.animate_svg", a);
+    REQUIRE(r.contains("prefab"));
+    CHECK(r["prefab"]["path"] == "prefabs/hit_fx.prefab.json");
+    CHECK(r["prefab"]["clip"] == "hit");
+    CHECK(r["prefab"]["children"].size() == 3);
+    bool said = false;
+    for (const Json& s : r["nextSteps"]) said = said || s.get<std::string>().find("prefabs/hit_fx.prefab.json") != std::string::npos;
+    CHECK(said);
+
+    REQUIRE(p.exists("prefabs/hit_fx.prefab.json"));
+    const Json doc = parse_json(read_all(p.file("prefabs/hit_fx.prefab.json")), "prefab").value();
+    CHECK(doc["format"] == "factoria.prefab/1");
+    const Json& root = doc["entity"];
+    CHECK(root["name"] == "Hit Fx");
+    CHECK(root["tags"] == Json::array({"fx"}));
+    REQUIRE(root["children"].size() == 3);
+    const char* names[] = {"Back", "Front", "Light"};
+    const char* layers[] = {"back", "front", "light"};
+    const int order[] = {2, 20, 21};
+    for (int i = 0; i < 3; ++i) {
+        const Json& child = root["children"][std::size_t(i)];
+        CHECK(child["name"] == names[i]);
+        const Json& sprite = child["components"]["Sprite"];
+        CHECK(sprite["texture"] == std::string("assets/fx/hit_") + layers[i] + ".png");
+        CHECK(sprite["layer"] == order[i]);
+        CHECK(sprite["size"] == Json::array({48, 40}));
+        CHECK(sprite["pixelArt"] == false);
+        CHECK(child["components"]["SpriteAnimator"]["clip"] == "hit");  // the clip of the sheet every layer shares
+        CHECK(sprite.contains("blend") == (i == 2));
+        if (i == 2) CHECK(sprite["blend"] == "additive");
+    }
+    // the clip it names is the one the sheet has
+    CHECK(p.manifest()["assets"]["assets/fx/hit_back.png"]["sheet"]["clips"][0]["name"] == "hit");
+    // the prefab is not part of the recipe, so regenerate does not touch it
+    CHECK_FALSE(p.manifest()["assets"]["assets/fx/hit_back.png"]["provenance"]["recipe"]["args"].contains("prefab"));
+    // the same call twice is the same file
+    const std::string before = read_all(p.file("prefabs/hit_fx.prefab.json"));
+    a["overwrite"] = true;
+    a["prefab"]["overwrite"] = true;
+    p.ok("assets.animate_svg", a);
+    CHECK(read_all(p.file("prefabs/hit_fx.prefab.json")) == before);
+}
+
+TEST_CASE("assets.animate_svg: `prefab` as a path gets the defaults, and an existing prefab is never replaced unless asked") {
+    AssetsProject p;
+    write_all(p.file("art/fx.anim.js"), kLayeredFx);
+    Json a = fx_args();
+    a["layers"] = Json::array({"back", "light"});
+    a["prefab"] = "prefabs/spark.prefab.json";
+    const Json r = p.ok("assets.animate_svg", a);
+    const Json doc = parse_json(read_all(p.file("prefabs/spark.prefab.json")), "prefab").value();
+    CHECK(doc["entity"]["name"] == "Spark");
+    CHECK_FALSE(doc["entity"].contains("tags"));
+    REQUIRE(doc["entity"]["children"].size() == 2);
+    CHECK(doc["entity"]["children"][0]["components"]["Sprite"]["size"] == Json::array({32, 32}));  // one frame
+    CHECK(doc["entity"]["children"][0]["components"]["Sprite"]["layer"] == -1);
+    CHECK(doc["entity"]["children"][1]["components"]["Sprite"]["layer"] == 2);
+
+    // a prefab edited by hand survives a second bake of the sheets: the call is refused before anything is baked
+    write_all(p.file("prefabs/spark.prefab.json"), "edited by hand");
+    a["overwrite"] = true;  // the sheets' overwrite is not the prefab's
+    Json b = a;
+    b["frames"] = 2;
+    const std::string sheet = read_all(p.file("assets/fx/hit_back.png"));
+    CommandResult refused = p.call("assets.animate_svg", b);
+    REQUIRE_FALSE(refused.ok);
+    CHECK(message(refused).find("prefabs/spark.prefab.json") != std::string::npos);
+    CHECK(message(refused).find("already exists") != std::string::npos);
+    CHECK(hint(refused).find("overwrite") != std::string::npos);
+    CHECK(read_all(p.file("prefabs/spark.prefab.json")) == "edited by hand");
+    CHECK(read_all(p.file("assets/fx/hit_back.png")) == sheet);   // nothing was baked
+    // asked for, it is replaced
+    b["prefab"] = Json{{"path", "prefabs/spark.prefab.json"}, {"overwrite", true}};
+    p.ok("assets.animate_svg", b);
+    CHECK(read_all(p.file("prefabs/spark.prefab.json")) != "edited by hand");
+}
+
+TEST_CASE("assets.animate_svg: `prefab` errors say where, what and how to fix it") {
+    AssetsProject p;
+    write_all(p.file("art/fx.anim.js"), kLayeredFx);
+    Json a = fx_args();
+    a["layers"] = Json::array({"back", "front"});
+    const auto fails = [&](const Json& prefab, const std::string& pointer, const std::string& needle) {
+        Json b = a;
+        b["prefab"] = prefab;
+        const CommandResult r = p.call("assets.animate_svg", b);
+        REQUIRE_FALSE(r.ok);
+        CHECK_MESSAGE(message(r).find(pointer) != std::string::npos, message(r));
+        CHECK_MESSAGE((message(r) + hint(r)).find(needle) != std::string::npos, message(r), " / ", hint(r));
+    };
+    fails(5, "/prefab", "path of the prefab");
+    fails("prefabs/spark.json", "/prefab/path", ".prefab.json");
+    fails("../outside.prefab.json", "/prefab/path", "project path");
+    fails(Json{{"name", "x"}}, "/prefab/path", "required");
+    fails(Json{{"path", "prefabs/s.prefab.json"}, {"sise", Json::array({1, 1})}}, "sise", "size");   // did you mean
+    fails(Json{{"path", "prefabs/s.prefab.json"}, {"size", Json::array({0, 4})}}, "/prefab/size", "above 0");
+    fails(Json{{"path", "prefabs/s.prefab.json"}, {"layers", Json{{"bak", 1}}}}, "/prefab/layers/bak", "back");
+    fails(Json{{"path", "prefabs/s.prefab.json"}, {"layers", Json{{"light", 3}}}}, "/prefab/layers/light", "does not bake");
+    fails(Json{{"path", "prefabs/s.prefab.json"}, {"layers", Json{{"back", 1.5}}}}, "/prefab/layers/back", "whole number");
+    fails(Json{{"path", "prefabs/s.prefab.json"}, {"tags", "fx"}}, "/prefab/tags", "array");
+    CHECK_FALSE(p.exists("assets/fx/hit_back.png"));   // none of them baked anything
+
+    // no layers: nothing to put in a prefab
+    Json single = fx_args();
+    single["prefab"] = "prefabs/s.prefab.json";
+    const CommandResult r = p.call("assets.animate_svg", single);
+    REQUIRE_FALSE(r.ok);
+    CHECK(message(r).find("/prefab") != std::string::npos);
+    CHECK(hint(r).find("layers") != std::string::npos);
+
+    // a back that is not below the front is said, not refused
+    a["prefab"] = Json{{"path", "prefabs/s.prefab.json"}, {"layers", Json{{"back", 5}, {"front", 5}}}};
+    CHECK(has_warning(p.ok("assets.animate_svg", a), "not below"));
+}
+
+TEST_CASE("assets.animate_svg: a sheet whose size is not a multiple of 4 is said on a mobile project, with the padding that fixes it") {
+    AssetsProject p;
+    write_all(p.file("art/fx.anim.js"), kLayeredFx);
+    // 96 px frames with padding 1 in a 3x3 grid: 294x294, the case that was baked twice
+    Json a{{"path", "assets/fx/glint.png"}, {"source", "art/fx.anim.js"}, {"frames", 8}, {"fps", 10}, {"frameWidth", 96}, {"padding", 1}, {"ramp", Json::array({"#000000", "#ff0000", "#ffffff"})}};
+
+    // a project that targets no mobile platform: nothing to say (the sheet may never be compressed)
+    write_all(p.file("factoria.json"), R"({"name":"t","platforms":["windows","linux"]})");
+    CHECK_FALSE(has_warning(p.ok("assets.animate_svg", a), "multiples of 4"));
+    write_all(p.file("factoria.json"), R"({"name":"t"})");
+    a["overwrite"] = true;
+    CHECK_FALSE(has_warning(p.ok("assets.animate_svg", a), "multiples of 4"));
+
+    write_all(p.file("factoria.json"), R"({"name":"t","platforms":["windows","android"]})");
+    Json r = p.ok("assets.animate_svg", a);
+    REQUIRE(r["width"] == 294);
+    REQUIRE(has_warning(r, "294x294"));
+    CHECK(has_warning(r, "multiples of 4"));
+    CHECK(has_warning(r, "`padding: 2` gives a 300x300 sheet"));   // the one the example had to find by baking again
+    CHECK(has_warning(r, "frameWidth: 98"));                       // or a bigger frame, and the size it makes
+
+    // padding 2 is a multiple of 4: silent. iOS counts too.
+    a["padding"] = 2;
+    write_all(p.file("factoria.json"), R"({"name":"t","platforms":["ios"]})");
+    r = p.ok("assets.animate_svg", a);
+    CHECK(r["width"] == 300);
+    CHECK_FALSE(has_warning(r, "multiples of 4"));
+
+    // layers share a size: one warning, not one per sheet
+    a["padding"] = 1;
+    a["layers"] = Json::array({"back", "front"});
+    r = p.ok("assets.animate_svg", a);
+    int count = 0;
+    for (const Json& w : r["warnings"]) count += w.get<std::string>().find("multiples of 4") != std::string::npos ? 1 : 0;
+    CHECK(count == 1);
+
+    // a sheet whose import setting turns compression off ships as it is
+    write_all(p.file("assets.json"),
+              R"({"format":"factoria.assets/1","assets":{"assets/fx/off.png":{"import":{"compression":"none"}}}})");
+    a.erase("layers");
+    a["path"] = "assets/fx/off.png";
+    r = p.ok("assets.animate_svg", a);
+    CHECK_FALSE(has_warning(r, "multiples of 4"));
+}
