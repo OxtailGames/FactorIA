@@ -28,6 +28,14 @@
       "x": {
           "tile": 1,
           "prefab": "prefabs/trap.prefab.json"
+      },
+      "@": {
+          "tile": 1,
+          "prefab": "prefabs/player.prefab.json"
+      },
+      ">": {
+          "tile": 1,
+          "prefab": "prefabs/stairs.prefab.json"
       }
   },
   "tilemap": {"tileset": "assets/tiles.png", "tileSize": [32, 32], "solidTiles": [0]}

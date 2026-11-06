@@ -932,3 +932,126 @@ TEST_CASE("wfc constraints: pinMissing false leaves a missed minimum to the retr
     CHECK(pinned > 0);
     CHECK(pinnedOff == 0);
 }
+
+TEST_CASE("wfc constraints: a maximum steers the solver instead of waiting for the finished grid") {
+    // The lone 'o' of the sample is a rare tile; with a maximum of 2 the solver stops handing it out once two are decided.
+    Rows rare = kRooms;
+    rare[3][4] = 'o';
+    rare[9][9] = 'o';
+    auto rareModel = overlapping(rare, 3, 1, false);
+    int rejected = 0, runs = 0;
+    for (std::uint64_t seed = 1; seed <= 12; ++seed) {
+        auto go = options_for(40, 30, seed, 40);
+        go.counts.push_back({{2}, 0, 2, "pillar"});
+        auto g = make_generator(rareModel, go);
+        REQUIRE_MESSAGE(g->run() == wfc::GenStatus::Done, g->failure_message());
+        CHECK(count_of(g->output(), 2) <= 2);
+        CHECK(g->stats().symbolCounts[2] == count_of(g->output(), 2));
+        rejected += g->stats().rejected;
+        ++runs;
+        // the same seed, the same level, stepped finely
+        auto h = make_generator(rareModel, go);
+        while (h->step(7) == wfc::GenStatus::Running) {
+        }
+        CHECK(h->output() == g->output());
+        CHECK(h->stats().work == g->stats().work);
+    }
+    // the steering keeps nearly every attempt from being refused for its count
+    CHECK(rejected <= runs);
+
+    // Wall cells of the rooms sample: a tight maximum on a common symbol still comes out right, and on a periodic grid too.
+    auto model = overlapping(kRooms, 3, 1, false);
+    for (bool periodic : {false, true}) {
+        auto go = options_for(24, 16, 3, 300);
+        go.periodic = periodic;
+        go.counts.push_back({{1}, 0, 70, "wall"});
+        auto g = make_generator(model, go);
+        REQUIRE_MESSAGE(g->run() == wfc::GenStatus::Done, g->failure_message());
+        CHECK(count_of(g->output(), 1) <= 70);
+    }
+
+    // A maximum that is impossible says so after the cells already decided hold more than it allows, not only on the finished grid.
+    auto go = options_for(20, 14, 2, 3);
+    go.counts.push_back({{0}, 0, 1, "floor"});
+    auto none = make_generator(model, go);
+    CHECK(none->run() == wfc::GenStatus::Failed);
+    CHECK(none->failure_hint().find("higher maximums") != std::string::npos);
+}
+
+TEST_CASE("wfc progress: follows the solver inside an attempt and never goes down across attempts") {
+    auto model = overlapping(kRooms, 3, 1, false);
+    // Many refused attempts: a check that refuses the first four finished grids.
+    struct Late : wfc::GridCheck {
+        int seen = 0;
+        void begin(const std::vector<int>&) override { ++seen; }
+        Verdict step(std::int64_t, std::string& why, std::int64_t&) override {
+            if (seen > 4) return Verdict::Accepted;
+            why = "not yet";
+            return Verdict::Refused;
+        }
+    };
+    auto go = options_for(30, 20, 2, 20);
+    go.check = std::make_shared<Late>();
+    auto g = make_generator(model, go);
+    double last = 0;
+    bool inside = false;
+    int attemptsSeen = 0;
+    while (g->step(50) == wfc::GenStatus::Running) {
+        const double p = g->progress();
+        CHECK(p >= last);
+        CHECK(p < 1.0);
+        if (p > last && p < 0.8 && last > 0) inside = true;   // moved within the first attempt
+        last = p;
+        attemptsSeen = g->stats().attempts;
+    }
+    CHECK(inside);
+    CHECK(attemptsSeen >= 5);
+    CHECK(last > 0.85);   // the later attempts moved it too
+    CHECK(g->progress() == 1.0);
+}
+
+TEST_CASE("wfc finish: a GridFinish changes the finished grid in pieces and can refuse it") {
+    struct Mark : wfc::GridFinish {
+        std::vector<int>* grid = nullptr;
+        std::size_t at = 0;
+        std::uint64_t seed = 0;
+        int begun = 0;
+        void begin(std::vector<int>& cells, std::uint64_t s) override {
+            grid = &cells;
+            at = 0;
+            seed = s;
+            ++begun;
+        }
+        wfc::GridCheck::Verdict step(std::int64_t, std::string&, std::int64_t& work) override {
+            const std::size_t to = std::min(grid->size(), at + 50);
+            for (; at < to; ++at)
+                if (at % 97 == 0) (*grid)[at] = 1;
+            work += 50;
+            return at < grid->size() ? wfc::GridCheck::Verdict::More : wfc::GridCheck::Verdict::Accepted;
+        }
+    };
+    auto model = overlapping(kRooms, 3, 1, false);
+    auto mark = std::make_shared<Mark>();
+    auto go = options_for(30, 20, 5, 20);
+    go.finish = mark;
+    auto g = make_generator(model, go);
+    REQUIRE_MESSAGE(g->run() == wfc::GenStatus::Done, g->failure_message());
+    CHECK(mark->begun == 1);
+    CHECK(mark->seed == g->stats().seedUsed);
+    CHECK(g->output()[0] == 1);
+    CHECK(g->output()[97] == 1);
+    CHECK(g->stats().symbolCounts[1] == count_of(g->output(), 1));   // counted after the finish
+
+    struct Never : wfc::GridFinish {
+        void begin(std::vector<int>&, std::uint64_t) override {}
+        wfc::GridCheck::Verdict step(std::int64_t, std::string& why, std::int64_t&) override {
+            why = "no room for the exit";
+            return wfc::GridCheck::Verdict::Refused;
+        }
+    };
+    auto go2 = options_for(12, 12, 1, 3);
+    go2.finish = std::make_shared<Never>();
+    auto n = make_generator(model, go2);
+    CHECK(n->run() == wfc::GenStatus::Failed);
+    CHECK(n->failure_message().find("no room for the exit") != std::string::npos);
+}
