@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <map>
+
+#include "fa/core/utf8.h"
 
 namespace fa::editor {
 
@@ -22,6 +25,45 @@ std::string first_line(const std::string& s) {
     std::string line = nl == std::string::npos ? s : s.substr(0, nl);
     if (line.size() > 160) line = line.substr(0, 157) + "...";
     return line;
+}
+
+// An integer member of a command answer, `fallback` when it is missing or of another type (json's value() throws on a wrong type).
+int int_or(const Json& o, const char* key, int fallback) {
+    if (!o.is_object() || !o.contains(key) || !o[key].is_number_integer()) return fallback;
+    const long long v = o[key].get<long long>();
+    return int(std::clamp<long long>(v, 0, 2048));   // the command's own limit of a side
+}
+
+// The tile and marker flag one legend entry gives.
+LevelGenCell cell_of_legend(const Json& legend, char32_t glyph) {
+    LevelGenCell c;
+    c.glyph = glyph;
+    const std::string key = utf8_encode(glyph);
+    if (!legend.is_object() || !legend.contains(key)) return c;
+    const Json& e = legend[key];
+    if (e.is_number_integer()) {
+        c.tile = int(std::clamp<long long>(e.get<long long>(), -1, 1 << 30));
+    } else if (e.is_object()) {
+        if (e.contains("tile") && e["tile"].is_number_integer()) c.tile = int(std::clamp<long long>(e["tile"].get<long long>(), -1, 1 << 30));
+        c.marker = e.contains("prefab");
+    }
+    return c;
+}
+
+// The table the window draws from: every cell of every row decoded once, one legend lookup per distinct glyph.
+void build_cells(LevelGenPreview& p) {
+    p.cells.assign(std::size_t(p.width) * std::size_t(p.height), LevelGenCell{});
+    std::map<char32_t, LevelGenCell> byGlyph;
+    for (int row = 0; row < p.height && row < int(p.rows.size()); ++row) {
+        const std::string& text = p.rows[std::size_t(row)];
+        std::size_t i = 0;
+        for (int col = 0; col < p.width && i < text.size(); ++col) {
+            const char32_t g = utf8_next(text, i);
+            auto it = byGlyph.find(g);
+            if (it == byGlyph.end()) it = byGlyph.emplace(g, cell_of_legend(p.legend, g)).first;
+            p.cells[std::size_t(row) * std::size_t(p.width) + std::size_t(col)] = it->second;
+        }
+    }
 }
 
 }  // namespace
@@ -58,7 +100,21 @@ Result<Json> level_gen_arguments(const LevelGenOptions& o) {
         if (!extra.value().is_object())
             return Error{"The extra options must be a JSON object, like {\"maxAttempts\": 20}.",
                          "They are merged over the arguments above: constraints, reachability, maxAttempts, maxWork..."};
+        // The fields of the window own these: a value in the options would change the level without the window (the seed in the history,
+        // the size of the preview) knowing, so it is refused and the field to use is named.
+        static const std::pair<const char*, const char*> owned[] = {
+            {"sample", "the Sample section (\"Use the selected Tilemap\" or the level file field)"},
+            {"size", "the Size field"},
+            {"seed", "the Seed field (or Previous / Next / Random seed)"},
+            {"model", "the Model box"},
+            {"n", "the Window n slider"},
+            {"symmetry", "the Symmetry box"},
+            {"periodic", "the \"Wraps around its edges\" checkbox"}};
         for (auto it = extra.value().begin(); it != extra.value().end(); ++it) {
+            for (const auto& [key, field] : owned)
+                if (it.key() == key)
+                    return Error{"The extra option '" + it.key() + "' is set by the window, not here.",
+                                 std::string("Remove '") + key + "' from the options and use " + field + "; the history and the preview then show what was generated."};
             if (it.key() == "into" || it.key() == "place" || it.key() == "rows")
                 return Error{"The extra option '" + it.key() + "' is not allowed here.",
                              "The window shows the level as a preview; Keep builds it in the scene. Remove '" + it.key() + "'."};
@@ -91,6 +147,7 @@ void LevelGenSession::clear(const LevelGenCaller& call) {
     preview_ = LevelGenPreview{};
     error_.clear();
     hint_.clear();
+    notice_.clear();
     tries_.clear();
 }
 
@@ -98,6 +155,7 @@ void LevelGenSession::start(const LevelGenOptions& o, const LevelGenCaller& call
     cancel(call);
     error_.clear();
     hint_.clear();
+    notice_.clear();
     progress_ = 0;
     seed_ = o.seed;
     Result<Json> args = level_gen_arguments(o);
@@ -121,6 +179,14 @@ bool LevelGenSession::tick(const LevelGenCaller& call, double budgetMs) {
     if (state_ != State::Running || job_ == 0) return false;
     Json a = Json::object({{"job", job_}, {"budgetMs", std::clamp(budgetMs, 0.5, 50.0)}});
     CommandResult r = call("tilemap.generate_step", a);
+    if (!r.ok && r.error.is_object() && r.error.value("code", std::string()) == "not_found") {
+        // The engine dropped the job: the scene changed under it (Play, a scene load). Nothing went wrong with the options, so it is a
+        // note and not an error, and the last good preview stays.
+        job_ = 0;
+        state_ = preview_.valid ? State::Ready : State::Idle;
+        notice_ = "The generation stopped because the scene changed (the game started or another scene loaded). Press Generate to run it again.";
+        return false;
+    }
     if (!r.ok) {
         std::string hint;
         std::string message = error_text(r, &hint);
@@ -137,40 +203,34 @@ bool LevelGenSession::tick(const LevelGenCaller& call, double budgetMs) {
         fail("The generator finished without rows.", "Update the engine: tilemap.generate answers {rows, legend, stats}.");
         return false;
     }
-    p.width = res.value("width", 0);
-    p.height = res.value("height", 0);
-    p.seed = res.value("seed", seed_);
-    for (const Json& row : res["rows"]) p.rows.push_back(row.get<std::string>());
+    for (const Json& row : res["rows"]) p.rows.push_back(row.is_string() ? row.get<std::string>() : std::string());
+    p.width = int_or(res, "width", 0);
+    p.height = int_or(res, "height", int(std::min<std::size_t>(p.rows.size(), 2048)));
+    if (p.width == 0)   // an answer without a usable width: the longest row says it
+        for (const std::string& row : p.rows) p.width = std::max(p.width, int(std::min<std::size_t>(utf8_length(row), 2048)));
+    p.seed = res.contains("seed") && res["seed"].is_number_integer() ? res["seed"].get<std::int64_t>() : seed_;
     if (res.contains("legend") && res["legend"].is_object()) p.legend = res["legend"];
     if (res.contains("stats") && res["stats"].is_object()) p.stats = res["stats"];
     if (res.contains("warnings") && res["warnings"].is_array())
         for (const Json& w : res["warnings"])
             if (w.is_string()) p.warnings.push_back(w.get<std::string>());
+    build_cells(p);
     preview_ = std::move(p);
     state_ = State::Ready;
     progress_ = 1.0;
-    const int attempts = preview_.stats.value("attempts", 1);
+    const int attempts = int_or(preview_.stats, "attempts", 1);
     tries_.push_back(LevelGenTry{preview_.seed, true, std::to_string(attempts) + " attempt(s)"});
     if (tries_.size() > kMaxTries) tries_.erase(tries_.begin());
     return false;
 }
 
 LevelGenCell level_gen_cell(const LevelGenPreview& p, int col, int row) {
-    LevelGenCell c;
-    if (row < 0 || row >= int(p.rows.size()) || col < 0 || col >= int(p.rows[std::size_t(row)].size())) return c;
-    const char glyph = p.rows[std::size_t(row)][std::size_t(col)];
-    const std::string key(1, glyph);
-    if (p.legend.is_object() && p.legend.contains(key)) {
-        const Json& e = p.legend[key];
-        if (e.is_number_integer()) {
-            c.tile = e.get<int>();
-        } else if (e.is_object()) {
-            if (e.contains("tile") && e["tile"].is_number_integer()) c.tile = e["tile"].get<int>();
-            c.marker = e.contains("prefab");
-        }
-    }
-    return c;
+    if (col < 0 || row < 0 || col >= p.width || row >= p.height) return LevelGenCell{};
+    const std::size_t i = std::size_t(row) * std::size_t(p.width) + std::size_t(col);
+    return i < p.cells.size() ? p.cells[i] : LevelGenCell{};
 }
+
+std::string level_gen_glyph_text(const LevelGenCell& c) { return c.glyph == 0 ? std::string() : utf8_encode(c.glyph); }
 
 Json level_gen_tilemap_fields(const Json& c) {
     Json out = Json::object();

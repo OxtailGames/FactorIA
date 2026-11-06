@@ -851,7 +851,7 @@ public:
     std::vector<int> levelGenSolid_;   // solid tile numbers of the sample, for the preview colours
     std::string levelGenSelId_;        // the selection levelGenSelTilemap_ was read for
     bool levelGenSelTilemap_ = false;  // the selected entity has a Tilemap
-    std::uint64_t levelGenSampleFrame_ = 0;
+    bool levelGenSampleStale_ = true; // read the selection and the sample's Tilemap again (selection change, a command, an undo, a sample change)
     ProjectBrowser projBrowser_;
     bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false;
     bool showQuitDialog_ = false, showReloadConfirm_ = false;

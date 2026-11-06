@@ -25,6 +25,12 @@ ImU32 tile_colour(int tile, bool solid) {
     return IM_COL32(int(r * 255), int(g * 255), int(b * 255), 255);
 }
 
+// A tooltip for the widget just drawn that also shows while it is disabled (SetItemTooltip does not: it asks for the plain hover).
+// A disabled button is where the reason it is disabled belongs.
+void tooltip_even_when_disabled(const char* text) {
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", text);
+}
+
 }  // namespace
 
 LevelGenCaller Editor::level_gen_caller() {
@@ -65,10 +71,12 @@ static Json sample_tilemap_fields(Engine& engine, const LevelGenOptions& o) {
 
 void Editor::level_gen_refresh_sample() {
     if (!engine_) return;
-    // A few times a second is enough: the selection changes rarely and get_entity builds JSON.
-    if (selected_id() == levelGenSelId_ && uiFrame_ - levelGenSampleFrame_ < 30 && levelGenSampleFrame_ != 0) return;
+    // The selection and the sample's Tilemap are read again when the selection changes, after a command that changed the project or
+    // the scene (after_command), an undo or a redo, or when this window changed its own sample: never on a timer, because
+    // scene.get_entity builds the whole component JSON of an entity.
+    if (selected_id() == levelGenSelId_ && !levelGenSampleStale_) return;
     levelGenSelId_ = selected_id();
-    levelGenSampleFrame_ = uiFrame_ ? uiFrame_ : 1;
+    levelGenSampleStale_ = false;
     levelGenSelTilemap_ = entity_components_of(*engine_, levelGenSelId_).contains("Tilemap");
     levelGenSolid_.clear();
     if (levelGenOpt_.sampleFile.empty() && levelGenOpt_.sampleEntity.empty()) return;
@@ -169,6 +177,11 @@ void Editor::draw_level_gen_preview(float height) {
         ImGui::EndChild();
         return;
     }
+    if (p.width < 1 || p.height < 1 || p.cells.size() != std::size_t(p.width) * std::size_t(p.height)) {
+        ImGui::TextDisabled("The level has no cells to draw.");
+        ImGui::EndChild();
+        return;
+    }
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     // At most ~40000 rectangles a frame: a big level is drawn with one rectangle for several cells.
     const int skip = std::max(1, int(std::ceil(std::sqrt(double(p.width) * double(p.height) / 40000.0))));
@@ -180,16 +193,16 @@ void Editor::draw_level_gen_preview(float height) {
     const float drawn = cell * float(skip);
     for (int row = 0; row < p.height; row += skip) {
         for (int col = 0; col < p.width; col += skip) {
-            const LevelGenCell c = level_gen_cell(p, col, row);
-            const bool isSolid = std::find(solid.begin(), solid.end(), c.tile) != solid.end();
+            const LevelGenCell& c = p.cells[std::size_t(row) * std::size_t(p.width) + std::size_t(col)];
+            const bool isSolid = c.tile >= 0 && std::find(solid.begin(), solid.end(), c.tile) != solid.end();
             const ImVec2 a(origin.x + float(col) * cell, origin.y + float(row) * cell);
             const ImVec2 b(a.x + drawn, a.y + drawn);
             dl->AddRectFilled(a, b, tile_colour(c.tile, isSolid));
             if (c.marker) {
                 dl->AddCircleFilled(ImVec2((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f), std::max(1.5f, drawn * 0.36f), IM_COL32(255, 214, 64, 255));
                 if (drawn >= 9.0f) {
-                    const char glyph[2] = {p.rows[std::size_t(row)][std::size_t(col)], 0};
-                    dl->AddText(ImVec2(a.x + drawn * 0.28f, a.y + drawn * 0.08f), IM_COL32(20, 20, 20, 255), glyph);
+                    const std::string glyph = level_gen_glyph_text(c);
+                    dl->AddText(ImVec2(a.x + drawn * 0.28f, a.y + drawn * 0.08f), IM_COL32(20, 20, 20, 255), glyph.c_str());
                 }
             }
         }
@@ -201,8 +214,8 @@ void Editor::draw_level_gen_preview(float height) {
         const int col = int((m.x - origin.x) / cell), row = int((m.y - origin.y) / cell);
         if (col >= 0 && row >= 0 && col < p.width && row < p.height) {
             const LevelGenCell c = level_gen_cell(p, col, row);
-            const char glyph = p.rows[std::size_t(row)][std::size_t(col)];
-            ImGui::SetTooltip("cell (%d, %d)   glyph '%c'   %s%s", col, row, glyph == ' ' ? '_' : glyph,
+            const std::string glyph = c.glyph == 0 || c.glyph == U' ' ? std::string("_") : level_gen_glyph_text(c);
+            ImGui::SetTooltip("cell (%d, %d)   glyph '%s'   %s%s", col, row, glyph.c_str(),
                               c.tile < 0 ? "empty" : ("tile " + std::to_string(c.tile)).c_str(), c.marker ? "   marker (a prefab is placed here)" : "");
         }
     }
@@ -234,17 +247,17 @@ void Editor::draw_level_gen_panel() {
         o.sampleEntity = selected_id();
         o.sampleFile.clear();
         levelGen_.clear(level_gen_caller());
-        levelGenSampleFrame_ = 0;   // read the sample's solid tiles now
+        levelGenSampleStale_ = true;   // read the sample's solid tiles now
     }
     ImGui::EndDisabled();
     at_track("levelgen:use-selected", selHasTilemap);
-    ImGui::SetItemTooltip("%s", selHasTilemap ? "The generated level is made only of the patterns of this Tilemap (and its legend of tiles)."
-                                              : "Select an entity with a Tilemap in the Hierarchy or the Viewport first.");
+    tooltip_even_when_disabled(selHasTilemap ? "The generated level is made only of the patterns of this Tilemap (and its legend of tiles)."
+                                             : "Select an entity with a Tilemap in the Hierarchy or the Viewport first.");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-1);
     if (ImGui::InputTextWithHint("##levelgenfile", "or a level file: levels/sample.json", &o.sampleFile)) {
         levelGen_.clear(call);
-        levelGenSampleFrame_ = 0;
+        levelGenSampleStale_ = true;
     }
     at_track("levelgen:file");
     ImGui::SetItemTooltip("A .json file in the format of scene.import_ascii: {\"rows\": [...], \"legend\": {...}}. With prefabs in the legend (spawn point,\n"
@@ -274,6 +287,7 @@ void Editor::draw_level_gen_panel() {
         regenerate = true;
     }
     at_track("levelgen:prev");
+    ImGui::SetItemTooltip("Generate the level with the previous seed");
     fit_same_line("Next seed");
     if (ImGui::Button("Next seed")) {
         o.seed = o.seed < kLevelGenMaxSeed ? o.seed + 1 : 0;
@@ -334,7 +348,11 @@ void Editor::draw_level_gen_panel() {
     // About 4 ms of this frame per generation step: the window and the viewport keep drawing.
     if (levelGen_.running()) {
         levelGen_.tick(call, kFrameBudgetMs);
-        if (!levelGen_.running()) levelGenSampleFrame_ = 0;   // finished: refresh the solid tiles the preview colours with
+        if (!levelGen_.running()) levelGenSampleStale_ = true;   // finished: refresh the solid tiles the preview colours with
+    }
+    if (!levelGen_.notice().empty()) {
+        ImGui::TextDisabled("%s", levelGen_.notice().c_str());
+        at_track("levelgen:notice");
     }
 
     if (levelGen_.state() == LevelGenSession::State::Failed) {
@@ -384,9 +402,11 @@ void Editor::draw_level_gen_panel() {
     if (ImGui::Button("Keep in the scene")) level_gen_keep();
     at_track("levelgen:keep", p.valid && editing && !running);
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("%s", !editing ? "Stop the game first: Keep edits the open scene."
-                                         : "Build this level in the open scene with scene.import_ascii: the Tilemap, and an entity for every\n"
-                                           "spawn point, coin and enemy of the sample. One undo step.");
+    tooltip_even_when_disabled(!editing ? "Stop the game first: Keep edits the open scene."
+                               : running ? "Wait for the generation to finish (or cancel it): there is no level to keep yet."
+                               : !p.valid ? "Generate a level first."
+                                          : "Build this level in the open scene with scene.import_ascii: the Tilemap, and an entity for every\n"
+                                            "spawn point, coin and enemy of the sample. One undo step.");
     ImGui::SetNextItemWidth(220);
     ImGui::InputText("Level file", &levelGenSavePath_);
     ImGui::SetItemTooltip("Project-relative path of the ASCII level file Save writes.");
@@ -395,7 +415,9 @@ void Editor::draw_level_gen_panel() {
     if (ImGui::Button("Save level file")) level_gen_save();
     at_track("levelgen:save", p.valid && !running);
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("Write the rows and legend as a level file: `factoria call scene.import_ascii @<file>` builds it, scene.ascii_edit edits it.");
+    tooltip_even_when_disabled(running ? "Wait for the generation to finish (or cancel it): there is no level to save yet."
+                               : !p.valid ? "Generate a level first."
+                                          : "Write the rows and legend as a level file: `factoria call scene.import_ascii @<file>` builds it, scene.ascii_edit edits it.");
     if (levelGenReplaceOpen_) {
         ImGui::OpenPopup("Replace level file?##levelgen");
         levelGenReplaceOpen_ = false;

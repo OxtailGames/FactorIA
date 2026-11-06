@@ -621,18 +621,19 @@ you keep a level.
    every time) generate at once (so do the + / - buttons of the Seed box and Enter in it; typing alone does not start a generation); the numbers under the buttons say how many attempts and dead ends the seed took, and the
    seeds you tried are buttons (an x marks a seed that made no level) so you can come back to one. The same sample, options and
    seed give the same level on every computer. Model, window `n`, `symmetry` and "wraps around its edges" are the arguments of
-   the command; **More options (JSON)** takes the rest (`constraints`, `reachability`, `maxAttempts`...), merged over them.
+   the command; **More options (JSON)** takes the rest (`constraints`, `reachability`, `maxAttempts`...), merged over them. It cannot
+   override what the window owns (`sample`, `size`, `seed`, `model`, `n`, `symmetry`, `periodic`): the window refuses such a key and says which field to use.
 3. **Keep.** **Keep in the scene** builds the shown level in the open scene with `scene.import_ascii`, as the entity named in
    **Entity id** (to the right of the sample when the sample is an entity; the sample's tileset, tile size and solid tiles are
    copied) and one entity for every spawn point, coin or enemy of the sample: one undo step, and keeping again replaces the
-   entity and its objects. It needs the editor in edit mode. **Save level file** writes the rows and legend as a level file instead
+   entity and its objects. It needs the editor in edit mode (a button that is greyed out says why when you hover it). **Save level file** writes the rows and legend as a level file instead
    (`levels/generated.json`, one row per line): `factoria call scene.import_ascii @levels/generated.json` builds it, `scene.ascii_edit`
    edits it by hand, and it can be the sample of the next generation. Save never replaces a file without asking: when the path
    already exists (a scene, `factoria.json`, `assets.json`, the sample itself...) a **Replace <file>?** window offers Replace or
    Cancel, and only Replace overwrites it; the Project panel lists a newly written file at once.
 
 A generation runs in pieces of about 4 ms of each frame, so the window and the viewport keep drawing; **Cancel** stops it, closing
-the window stops it (so does collapsing it or hiding its tab, and picking another sample), and loading another scene ends it with an error (a job belongs to the scene that started it). A mistake (a
+the window stops it (so does collapsing it or hiding its tab, and picking another sample), and loading another scene ends it quietly with a grey note instead of an error (a job belongs to the scene that started it; the last good level stays). A mistake (a
 size out of range, extra options that are not JSON, a sample that cannot be found, a level the sample cannot make) is shown in red
 with how to fix it, and the last good level stays on screen. The window calls the same commands as the Console
 (`tilemap.generate_start` / `generate_step` / `generate_cancel`, `scene.import_ascii`, `fs.write`), so what it shows is what a script
