@@ -49,6 +49,38 @@ void Editor::image_provider_refresh() {
                       "(docs/AI_PROVIDERS.md). " + kOfflineRoute;
 }
 
+namespace {
+
+// The price of a call as one sentence for the popup. The money is only ever an estimate from the provider's price list.
+std::string estimate_sentence(const ai::AssetEstimate& e, const std::string& provider) {
+    if (e.free) return "Free: " + e.basis;
+    if (!e.usd) return "The price is not known" + (e.basis.empty() ? std::string() : " (" + e.basis + ")") + ". Set it in AI Settings or ai.json (assetPricing).";
+    return "About " + ai::format_usd(*e.usd) + " with " + provider + " (" + e.basis + "), an estimate from the provider's price list" +
+           (e.checked.empty() ? std::string() : " checked " + e.checked) + ", not an invoice.";
+}
+
+}  // namespace
+
+// What "Make it" would cost, shown in the popup before the user clicks. Made when the popup opens, not every frame.
+void Editor::image_provider_estimate(ImageModel& m) {
+    ImageUi& u = image_;
+    u.providerEstimate.clear();
+    Json args = Json::object({{"prompt", "estimate"}});
+    if (m.has_selection()) args["selection"] = ImageModel::kSelectionName;
+    if (m.animated() || m.frame_count() > 1) args["frame"] = m.frame();
+    args["path"] = m.path();
+    ai::ImageEditEnv env;
+    env.projectDir = projectDir_;
+    env.load = [this]() -> Result<ai::AiConfig> { return ai_project_config(true); };
+    try {
+        const ai::ImageEditPlan plan = ai::plan_image_edit(env, u.providerInpaint, args);
+        u.providerEstimate = estimate_sentence(plan.cost, plan.provider.name);
+        if (!plan.cost.free) u.providerEstimate += " Limits: AI Settings > Spending limits.";
+    } catch (const CommandError&) {
+        // the real request reports what is wrong
+    }
+}
+
 // Starts the request: everything that can be wrong with it is found here, before a thread starts.
 void Editor::image_provider_start(ImageModel& m) {
     ImageUi& u = image_;
@@ -72,9 +104,23 @@ void Editor::image_provider_start(ImageModel& m) {
     job->doc = m.path();
     job->shared = std::make_shared<ImageProviderShared>();
     job->startedAt = ImGui::GetTime();
-    job->thread = std::thread([shared = job->shared, plan = job->plan] {
-        auto made = ai::run_image_edit(plan, ai::ProviderRuntime{}, &shared->cancel);
-        shared->result.emplace(std::move(made));
+    // "Make it" in a popup that showed the estimate is the user's yes (no second question); the limits still hold. The cost check takes
+    // the cross-process lock of the day total, so it runs here and not on the UI thread.
+    job->thread = std::thread([shared = job->shared, plan = job->plan, env] {
+        try {
+            ai::AssetCostGuard guard = ai::begin_image_edit_cost(plan, env, true, &shared->cancel);
+            if (!guard.go()) {
+                shared->result.emplace(make_error("The call needs your approval and was not made.", "Click Make it again."));
+            } else {
+                auto made = ai::run_image_edit(plan, ai::ProviderRuntime{}, &shared->cancel);
+                if (made) guard.commit();
+                shared->warnings = guard.warnings();
+                shared->spentUsd = made && plan.cost.usd ? *plan.cost.usd : 0.0;
+                shared->result.emplace(std::move(made));
+            }
+        } catch (const CommandError& e) {
+            shared->result.emplace(make_error(e.what(), e.hint));
+        }
         shared->done = true;
     });
     u.job = std::move(job);
@@ -109,6 +155,8 @@ void Editor::image_provider_poll(ImageModel& m) {
         if (out.ok) {
             std::string msg = "Added the provider layer '" + own->plan.layerName + "'.";
             for (const std::string& w : stored.warnings) msg += " " + w;
+            for (const std::string& w : own->shared->warnings) msg += " " + w;
+            if (own->shared->spentUsd > 0) msg += " About " + ai::format_usd(own->shared->spentUsd) + " (an estimate).";
             m.set_status(msg);
             project_files_changed();
         }
@@ -135,6 +183,7 @@ void Editor::draw_image_provider(ImageModel& m) {
             u.providerInpaint = inpaint;
             u.providerAsk = true;
             u.providerError.clear();
+            image_provider_estimate(m);
         }
         at_track(id);
         ImGui::EndDisabled();
@@ -157,6 +206,10 @@ void Editor::draw_image_provider(ImageModel& m) {
         ImGui::TextWrapped("%s", u.providerInpaint
                                      ? "The picture and the selection go to the provider; what comes back is a new provider layer masked by the selection."
                                      : "The provider makes a picture; it becomes a new provider layer (masked by the selection, if there is one).");
+        if (!u.providerEstimate.empty()) {
+            ImGui::TextWrapped("%s", u.providerEstimate.c_str());
+            at_track("img:provider:estimate");
+        }
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
         ImGui::InputTextMultiline("##prompt", &u.providerPrompt, ImVec2(400, 70));
         at_track("img:provider:prompt");
@@ -168,6 +221,7 @@ void Editor::draw_image_provider(ImageModel& m) {
             if (u.providerError.empty()) ImGui::CloseCurrentPopup();
         }
         at_track("img:provider:go");
+        ImGui::SetItemTooltip("Make the picture. When the estimate above is not free, this click is your approval of that cost.");
         ImGui::EndDisabled();
         ImGui::SameLine();
         if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();

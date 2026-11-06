@@ -961,6 +961,7 @@ void Editor::on_frame(double dt) {
         const bool slicing = bool(slicedJob_);
         sync_scene_path();
         ai_drain_events();
+        ai_asset_notify_other_chats();
         ai_review_tick();
         const std::uint64_t frameBefore = engine_->frame_index();
         if (stepPending_ > 0) {

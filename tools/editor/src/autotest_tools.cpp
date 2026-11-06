@@ -18,6 +18,9 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <mutex>
+#include <atomic>
+#include <thread>
 
 #include "ai_project_edit.h"
 #include "autotest_sections.h"
@@ -26,6 +29,7 @@
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/savers.h"
 #include "fa/core/date.h"
+#include "fa/tooling/feedback_share.h"
 #include "sokol_app.h"
 #include "imgui_internal.h"
 #include "ui_backend.h"
@@ -8773,6 +8777,167 @@ void Editor::at_build_tools_script() {
             levelGen_.clear(level_gen_caller());
             std::error_code ec;
             stdfs::remove(project_file("levels/at-generated.json"), ec);
+        });
+    }
+
+    // ---------------------------------------------------------------------------------- A3. Paid asset calls wait for the user's yes
+    section("A3");
+    // docs/AI_COSTS.md, "Asset generation": a paid asset call of an AI run above limits.askAboveUsd waits for the user. The call is the
+    // real AssetCostGuard on its own thread (what an agent or MCP thread does), its approver the editor's; the user folder is a scratch
+    // one (the day total never touches the real ~/.factoria). The card sits under the chat, in the window of the 1024x642 display too.
+    {
+        struct A3 {
+            std::unique_ptr<ScopedShareEnv> home;
+            std::thread th;
+            std::mutex mu;
+            std::string outcome;
+            std::atomic<bool> done{false};
+            std::string chat, project;
+            std::size_t items = 0;
+        };
+        auto x = std::make_shared<A3>();
+        // One paid call: 4 images, about $1.20 (above the 0.50 default).
+        auto call = [this, x](double usd) {
+            if (x->th.joinable()) x->th.join();
+            x->done = false;
+            x->outcome.clear();
+            x->th = std::thread([this, x, usd] {
+                std::string outcome;
+                try {
+                    ai::AssetRunScope scope(x->chat, [this](const ai::AssetApprovalRequest& r) { return aiApprovals_.ask(r); });
+                    ai::Limits limits;
+                    ai::AssetCall c;
+                    c.command = "assets.generate_image";
+                    c.what = "4 images of a ruby at assets/gems/ruby.png";
+                    c.prompt = "a ruby, pixel art, 32x32";
+                    c.projectDir = x->project;
+                    c.provider = "openai";
+                    c.model = "gpt-image-1";
+                    c.kind = ai::MediaKind::Image;
+                    c.estimate.usd = usd;
+                    c.estimate.count = 4;
+                    c.estimate.basis = "4 x 1024x1024 auto at $0.30";
+                    c.estimate.checked = "2026-11-06";
+                    c.estimate.source = "https://example.com/prices";
+                    ai::AssetCostGuard guard = ai::AssetCostGuard::begin(limits, c, false);
+                    outcome = guard.go() ? "go" : "needsApproval";
+                    if (guard.go()) guard.commit();
+                } catch (const CommandError& e) {
+                    outcome = e.code;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(x->mu);
+                    x->outcome = outcome;
+                }
+                x->done = true;
+            });
+        };
+        auto outcome = [x] {
+            std::lock_guard<std::mutex> lock(x->mu);
+            return x->outcome;
+        };
+        auto wait_card = [this, &step] {
+            step(1, [this] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = [this] { return at_shown("ai:approve:yes"); };
+            });
+        };
+        auto wait_done = [this, x, &step] {
+            step(1, [this, x] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = [x] { return x->done.load(); };
+            });
+        };
+        step(2, [this, x] {
+            x->home = std::make_unique<ScopedShareEnv>([&] {
+                ShareEnv env;
+                const std::string home = atOutDir_ + "/asset_home";
+                env.env = [home](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : ""; };
+                return env;
+            }());
+            x->chat = chat_.current().id;
+            x->project = projectDir_;
+            x->items = chat_.current().items.size();
+            ai::asset_run_begin(x->chat);
+            focus_window("AI Assistant");
+        });
+        // ---- Approve: the call waits, the card says what, how many, which provider and the estimate
+        step(3, [call] { call(1.20); });
+        wait_card();
+        step(4, [this, x, outcome] {
+            at_check(outcome().empty() && !x->done, "the paid call above the ask limit waits for the user (it has not been made)");
+            at_check(aiApprovals_.waiting_for(x->chat), "...and the chat has a card");
+            at_check(at_visible("ai:approve:yes") && at_visible("ai:approve:all") && at_visible("ai:approve:cancel"),
+                     "the card has Approve, Approve all for this run and Cancel");
+            const auto cards = aiApprovals_.cards();
+            at_check(cards.size() == 1, "one card is waiting");
+            if (!cards.empty()) {
+                const AssetCardText t = asset_card_text(cards[0].plan);
+                at_check(t.title.find("$1.20") != std::string::npos && t.title.find("4 x image") != std::string::npos &&
+                             t.title.find("openai") != std::string::npos,
+                         "the card names the estimate, the count and the provider: " + t.title);
+                at_check(t.estimate.find("prices checked 2026-11-06") != std::string::npos, "...and when the prices were checked: " + t.estimate);
+            }
+            at_check(ai::asset_run_spent(x->chat) == 0.0, "nothing is counted as spent while the card waits");
+        });
+        snap("editor_ai_asset_card.png");
+        click("ai:approve:yes");
+        wait_done();
+        step(3, [this, x, outcome] {
+            at_check(outcome() == "go", "Approve lets the call go ahead: " + outcome());
+            at_check(!aiApprovals_.waiting_for(x->chat), "...and the card is gone");
+            at_check(std::abs(ai::asset_run_spent(x->chat) - 1.20) < 0.001, "...and the estimate is counted into the run");
+            at_check(chat_.current().items.size() > x->items && chat_.current().items.back().text.find("You approved") == 0,
+                     "...and the chat says what the user approved");
+            at_check(!ai::asset_run_approves_all(x->chat), "Approve alone does not approve the next call");
+        });
+        // ---- Approve all for this run: this call goes, the next one does not ask
+        step(2, [call] { call(1.20); });
+        wait_card();
+        click("ai:approve:all");
+        wait_done();
+        step(3, [this, x, outcome] {
+            at_check(outcome() == "go", "Approve all lets the call go ahead: " + outcome());
+            at_check(ai::asset_run_approves_all(x->chat), "...and turns the questions off for this run");
+        });
+        step(2, [call] { call(1.20); });
+        wait_done();
+        step(3, [this, x, outcome] {
+            at_check(outcome() == "go" && !aiApprovals_.waiting_for(x->chat), "the next paid call of the run goes without a card: " + outcome());
+            at_check(std::abs(ai::asset_run_spent(x->chat) - 3.60) < 0.001, "...and still counts into the run (3 x $1.20)");
+        });
+        // ---- Cancel: the call is declined, nothing is spent
+        step(2, [this, x, call] {
+            ai::asset_run_begin(x->chat);  // a new run: the questions are back
+            call(1.20);
+        });
+        wait_card();
+        click("ai:approve:cancel");
+        wait_done();
+        step(3, [this, x, outcome] {
+            at_check(outcome() == "asset_declined", "Cancel declines the call (asset_declined): " + outcome());
+            at_check(ai::asset_run_spent(x->chat) == 0.0 && !ai::asset_run_approves_all(x->chat), "...and nothing is spent");
+            at_check(chat_.current().items.back().text.find("You declined") == 0, "...and the chat says so");
+        });
+        // ---- Stop while a card waits: the wait ends with Cancel, the card goes
+        step(2, [call] { call(1.20); });
+        wait_card();
+        step(2, [this] {
+            aiApprovals_.close();   // what ai_stop does
+        });
+        wait_done();
+        step(3, [this, x, outcome] {
+            aiApprovals_.reopen();
+            at_check(outcome() == "asset_declined" && !aiApprovals_.waiting_for(x->chat), "stopping the run ends the wait: the call is declined and the card goes");
+        });
+        // ---- leave the editor as the other sections expect it
+        step(2, [this, x] {
+            if (x->th.joinable()) x->th.join();
+            x->home.reset();
+            ai::asset_run_begin(x->chat);
+            std::error_code ec;
+            stdfs::remove_all(atOutDir_ + "/asset_home", ec);
+            chat_.current().items.resize(x->items);
         });
     }
 
