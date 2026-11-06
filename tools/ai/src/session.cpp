@@ -168,7 +168,12 @@ bool is_read_only_tool(const CommandInfo& info) {
     static const char* const kPlay[] = {"game.step",         "game.input",       "game.click",     "game.pause",
                                         "game.resume",       "game.screenshot",  "scene.load",     "scene.reload",
                                         "ui.set_text_scale", "ui.set_scale",     "ui.set_slider",  "ui.check_layout",
-                                        "i18n.set_language", "screen.set_safe_area"};
+                                        "i18n.set_language", "screen.set_safe_area",
+                                        // The game reviewers' automatic player: a headless run of the game with a bot that writes only
+                                        // a session under .factoria/sessions/ (play.sessions / play.report read it); it changes no
+                                        // file of the project, so the read-only roles may start it. Only the reviewer's prompt
+                                        // tells it to (the art critic has no use for it).
+                                        "play.auto"};
     for (const char* name : kPlay) {
         if (info.name == name) return true;
     }

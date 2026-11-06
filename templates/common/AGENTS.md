@@ -27,12 +27,16 @@ When the user says they played the game (in the editor) and found problems (slow
 call `play.report` (MCP: `play_report`) first: it has the frame times, errors, the user's notes and
 screenshots, and an input replay of their session (`factoria run --headless --input <replay>`).
 
-To play the game yourself with nobody at the keyboard, call `play.auto` (MCP: `play_auto`): a bot presses the input actions
+After a feature or a fix, and BEFORE you ask the user to play, run `play.auto`. To play the game yourself with nobody at the keyboard, call `play.auto` (MCP: `play_auto`): a bot presses the input actions
 headless and fast, for `seconds` of game time, and writes a session (`play.report` reads it: perf, errors, `phases`, the score,
 how it ended, a picture per phase, and a mark with a screenshot for every place it got stuck, fell out of the world or hit a
 script error loop). The bot is `scripts/autoplay.js`, a `game.autoplay((bot) => [...actions to hold])` hook that finishes the
 sample level; keep it in step with your game (`end: "won"` when the level is done). Without that file the bot explores the
 declared actions with the given `seed`. The session's `input.json` replays the problem: `factoria run --headless --input`.
+Read the answer in this order: `ended` (`won`, `lost`, `timeout` = played the whole time, `stuck` / `broken` = it found a problem;
+a mark of kind `hook` = `scripts/autoplay.js` did not load), then `problems` (one mark each with a note and a screenshot:
+`play.report {"mark":2}` for the next), then `phases` (a stage it never reached is worth a look) and the errors the game
+logged. A green run means a script can finish the game, not that a person finds it clear or fun.
 
 ## Where things live
 

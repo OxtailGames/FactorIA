@@ -2123,13 +2123,38 @@ the game must show itself to them. Keep these in place as the game grows:
 - **`REVIEW.md` at the project root**, the note they read first. It is never exported. Sections: *How to play* (controls,
   the goal, what a session looks like), *Status* (what is finished and what is a placeholder, so nobody judges a
   placeholder as final), *Reach everything fast* (every scene, level and state and how to get there in one step),
-  *Bot-playable flows* (input replays or tests that play the first minutes, a whole level, the ending) and *Known issues*
+  *Bot-playable flows* (`scripts/autoplay.js`, the hook that `play.auto` runs, and input replays or tests that play the first minutes, a whole level, the ending) and *Known issues*
   (what not to report again).
 - **Every scene and state reachable in one call**: a boss, the shop, game over or the last level must not need an hour of
   play. Name the way in REVIEW.md: scene paths for `scene_load`, a project tool in `tools/*.js`, a debug key or cheat
   action, start-scene props, saved states under `review/`.
 - **Stable screenshots**: a fixed seed, and no random camera shake or fade at the moment a picture is taken.
 - **No debug overlay in normal play**: cheats and debug entry points live behind a key, an action or a tool that REVIEW.md names.
+- **A `scripts/autoplay.js` that plays the game** (section 11.5): the game reviewers run `play.auto` after they have played
+  by hand, and its phases tell them which parts they did not reach. It supports their hands and never replaces them (the
+  bot finishing the level says nothing about whether a person finds it clear or fair).
+
+### 11.5 Play the game yourself: `play.auto`
+
+After a feature or a fix, and BEFORE you ask the user to play, run `play_auto` (`factoria call play.auto`): a bot plays the
+game headless and fast for `seconds` of game time and writes a play session. Without a hook it explores the declared input
+actions with a seeded generator; with `scripts/autoplay.js` (`game.autoplay`, [SCRIPTING.md](SCRIPTING.md#the-bot-gameautoplay))
+it plays the way you describe, marks the stages (`game.phase`) and says when the level is done. Read the answer in this order:
+
+1. `ended`: `won`, `lost`, `timeout` (it played the whole time without a problem), `stuck` (nothing moved or changed) or
+   `broken` (a fall, a NaN position, a script error every frame, or a hook that could not load: mark kind `hook` means
+   `scripts/autoplay.js` failed to import, nothing was played).
+2. `problems`: one mark each (kind `stuck`, `menu`, `fall`, `not finite`, `exception loop`, `hook`) with the step, the game time, a note and a
+   screenshot. `play_report {"session": "...", "mark": 2}` shows the next one. A `menu` mark is a screen the bot could not
+   leave: give it a button the actions can reach, or teach the hook to press it.
+3. `phases`, the score and the perf: which stages it reached and how long each took. A phase missing from the list is one
+   it never reached, which is worth a look by hand.
+4. The warnings and errors the game logged during the run.
+
+The session's `input.json` replays a problem: `factoria run --headless --input <input.json> --seed <seed>`. Keep
+`scripts/autoplay.js` in step with the game: when the way through changes, the bot must still finish the level. A green run
+means the game can be finished by a script, not that a person finds it clear or fun: that is still the user's call. In the
+editor the user can start the same run from **Play > Let the AI play**; it appears in the Play sessions list marked "auto".
 
 ## 12. Common mistakes
 
