@@ -10,12 +10,14 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <queue>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "engine_impl.h"
 #include "fa/core/fs.h"
+#include "fa/core/math.h"
 #include "fa/core/perf.h"
 #include "fa/core/strings.h"
 #include "fa/core/utf8.h"
@@ -293,6 +295,8 @@ struct ModelView {
         return (*symbolTile)[std::size_t(symbol)];
     }
     bool has_prefab(int symbol) const { return glyph_symbols() && sample->glyphs.glyphs[std::size_t(symbol)].hasPrefab; }
+    // A glyph the legend defines but the sample rows never draw: no pattern holds it, only `constraints.place` can put it in the level.
+    bool place_only(int symbol) const { return glyph_symbols() && sample->glyphs.glyphs[std::size_t(symbol)].placeOnly; }
 };
 
 struct TileRefs {
@@ -305,6 +309,7 @@ std::string options_list(const ModelView& mv) {
     int shown = 0;
     if (mv.glyph_symbols()) {
         for (const AsciiSampleGlyph& g : mv.sample->glyphs.glyphs) {
+            if (g.placeOnly) continue;
             if (shown++ == 12) return out + ", ...";
             out += (out.empty() ? "'" : ", '") + g.glyph + "'";
         }
@@ -324,7 +329,9 @@ std::string options_list(const ModelView& mv) {
     return out;
 }
 
-TileRefs resolve_refs(const ModelView& mv, const Json& v, const std::string& pointer) {
+// `allowPlaceOnly`: a glyph that only the legend defines is accepted (for `constraints.place`); everywhere else it is refused, because the
+// solver never produces it.
+TileRefs resolve_refs(const ModelView& mv, const Json& v, const std::string& pointer, bool allowPlaceOnly = false) {
     TileRefs out;
     std::set<int> found;
     auto one = [&](const Json& r, const std::string& at) {
@@ -335,10 +342,19 @@ TileRefs resolve_refs(const ModelView& mv, const Json& v, const std::string& poi
             if (mv.glyph_symbols()) {
                 label = "'" + text + "'";
                 std::vector<std::string> names;
+                bool onlyInLegend = false;
                 for (int s = 0; s < mv.symbolCount; ++s) {
+                    if (mv.place_only(s) && !allowPlaceOnly) {
+                        onlyInLegend = onlyInLegend || mv.sample->glyphs.glyphs[std::size_t(s)].glyph == text;
+                        continue;   // not a name for the solver's tiles
+                    }
                     names.push_back(mv.sample->glyphs.glyphs[std::size_t(s)].glyph);
                     if (names.back() == text) matched.push_back(s);
                 }
+                for (const AsciiSampleGlyph& g : mv.sample->glyphs.legendOnly) onlyInLegend = onlyInLegend || g.glyph == text;
+                if (matched.empty() && onlyInLegend)
+                    bad_arg(at + ": the glyph '" + text + "' is in the legend but the sample rows never draw it, so the solver never places it and cannot count, fix or forbid it",
+                            "Only `constraints.place` can put it in the level: {\"place\": [{\"tile\": \"" + text + "\"}]}. To use it in the other constraints, draw it in the sample.");
                 if (matched.empty())
                     bad_arg(at + ": the glyph '" + text + "' is not in the sample, so the generated level never has it. " + did_you_mean(text, names),
                             "Name a glyph of the sample (" + options_list(mv) + ") or a tile number.");
@@ -368,6 +384,7 @@ TileRefs resolve_refs(const ModelView& mv, const Json& v, const std::string& poi
             const bool exact = ref >= 0 && (ref & kTileFlagMask) != 0;
             for (int s = 0; s < mv.symbolCount; ++s) {
                 if (mv.has_prefab(s)) continue;   // a glyph that spawns an object is named by its glyph
+                if (mv.place_only(s) && !allowPlaceOnly) continue;
                 const int t = mv.tile_of(s);
                 const bool same = ref < 0 ? t < 0 : (t >= 0 && (exact ? static_cast<long long>(t) == ref : tile_index(t) == ref));
                 if (same) matched.push_back(s);
@@ -393,14 +410,38 @@ TileRefs resolve_refs(const ModelView& mv, const Json& v, const std::string& poi
 }
 
 // ------------------------------------------------------------------------------------------------------------ constraints
+constexpr std::size_t kMaxPlaceRules = 16;   // entries of constraints.place
+constexpr int kMaxPlaceCount = 1000;         // cells one entry places
+
+// One entry of constraints.place: put `count` cells of `symbol` into the finished level, chosen by `where`.
+struct PlaceRule {
+    enum class Where { Farthest, Nearest, Random };
+    std::string pointer;               // "/constraints/place/0"
+    int symbol = 0;                    // the symbol written
+    std::string label;                 // "'>'"
+    int count = 1;
+    Where where = Where::Random;
+    bool hasFromTile = false;          // distances are measured from every cell holding one of fromSymbols (else from reachability.from)
+    std::vector<int> fromSymbols;
+    std::string fromLabel;
+    bool hasOn = false;                // only cells holding one of onSymbols may be replaced (else: any walkable cell)
+    std::vector<int> onSymbols;
+    std::string onLabel;
+};
+
+const char* where_name(PlaceRule::Where w) {
+    return w == PlaceRule::Where::Farthest ? "farthest" : w == PlaceRule::Where::Nearest ? "nearest" : "random";
+}
+
 struct Constraints {
     std::vector<wfc::CellRule> cellRules;
+    std::vector<PlaceRule> place;
     std::vector<int> forbidden;
     std::vector<wfc::CountRule> counts;
     std::vector<std::string> countLabels;
     int fixedCells = 0;
     bool repair = true;   // a missed minimum is repaired on the next attempt by pinning cells (wfc::GenerateOptions::pinMissing)
-    bool any() const { return !cellRules.empty() || !forbidden.empty() || !counts.empty(); }
+    bool any() const { return !cellRules.empty() || !forbidden.empty() || !counts.empty() || !place.empty(); }
 };
 
 void unknown_keys(const Json& obj, const std::set<std::string>& known, const std::string& pointer) {
@@ -433,8 +474,8 @@ Constraints parse_constraints(const Json& a, const ModelView& mv, int width, int
     const std::string base = "/constraints";
     if (!c.is_object())
         bad_arg(base + ": 'constraints' must be an object, got " + describe_json_value(c),
-                "Example: {\"fixed\":[{\"at\":[1,1],\"tile\":\"@\"}],\"forbidden\":[\"%\"],\"required\":[\"$\"],\"counts\":[{\"tile\":\"E\",\"max\":3}],\"border\":{\"tile\":\"#\"}}.");
-    unknown_keys(c, {"fixed", "border", "forbidden", "required", "counts", "repair"}, base);
+                "Example: {\"fixed\":[{\"at\":[1,1],\"tile\":\"@\"}],\"forbidden\":[\"%\"],\"required\":[\"$\"],\"counts\":[{\"tile\":\"E\",\"max\":3}],\"place\":[{\"tile\":\">\",\"where\":\"farthest\",\"from\":\"@\"}],\"border\":{\"tile\":\"#\"}}.");
+    unknown_keys(c, {"fixed", "border", "forbidden", "required", "counts", "place", "repair"}, base);
     out.repair = bool_arg(c, "repair", true);
     auto list_of = [&](const char* key) -> const Json* {
         if (!c.contains(key)) return nullptr;
@@ -603,6 +644,82 @@ Constraints parse_constraints(const Json& a, const ModelView& mv, int width, int
     if (disjoint && sumMin > cellsTotal)
         bad_arg(base + ": the minimums add up to " + std::to_string(sumMin) + " cells but the output has only " + std::to_string(cellsTotal),
                 "Ask for a bigger `size` or lower the minimums in `required` and `counts`.");
+
+    // Place: markers put in the finished level, after the solver, by where they are.
+    if (const Json* pl = list_of("place")) {
+        const bool hasReach = a.contains("reachability") && a["reachability"].is_object();
+        const bool reachFrom = hasReach && a["reachability"].contains("from");
+        if (pl->size() > kMaxPlaceRules)
+            bad_arg(base + "/place: " + std::to_string(pl->size()) + " entries, more than the limit of " + std::to_string(kMaxPlaceRules), "Give `count` to place several cells of one tile in one entry.");
+        std::set<int> placedBefore;   // symbols an earlier entry writes: a later entry may name them in `from` / `on`
+        for (std::size_t i = 0; i < pl->size(); ++i) {
+            const Json& e = (*pl)[i];
+            const std::string at = base + "/place/" + std::to_string(i);
+            if (e.is_object()) unknown_keys(e, {"tile", "count", "where", "from", "on"}, at);
+            if (!e.is_object() || !e.contains("tile"))
+                bad_arg(at + ": a place entry is {\"tile\": <tile>, \"count\": 1, \"where\": \"farthest\"|\"nearest\"|\"random\", \"from\": <tile>, \"on\": <tiles>}, got " + describe_json_value(e),
+                        "Example: {\"tile\":\">\",\"where\":\"farthest\",\"from\":\"@\"} puts one exit as far (by walking) from the entrance as the level allows.");
+            PlaceRule rule;
+            rule.pointer = at;
+            TileRefs tile = resolve_refs(mv, e["tile"], at + "/tile", true);
+            if (tile.symbols.size() != 1) {
+                std::string names;
+                for (int s : tile.symbols) names += (names.empty() ? "" : ", ") + (mv.glyph_symbols() ? "'" + mv.sample->glyphs.glyphs[std::size_t(s)].glyph + "'" : std::to_string(mv.tile_of(s)));
+                bad_arg(at + "/tile: " + tile.label + " names " + std::to_string(tile.symbols.size()) + " tiles of the model (" + names + "), but a place entry writes exactly one",
+                        "Name one glyph or tile number: the one the finished level should hold.");
+            }
+            rule.symbol = tile.symbols.front();
+            rule.label = tile.label;
+            if (e.contains("count")) {
+                long long n = 0;
+                if (!whole_number(e["count"], n) || n < 1 || n > kMaxPlaceCount)
+                    bad_arg(at + "/count: must be a whole number between 1 and " + std::to_string(kMaxPlaceCount) + ", got " + describe_json_value(e["count"]), "Example: \"count\": 3.");
+                if (n > cellsTotal) bad_arg(at + "/count: " + std::to_string(n) + " cells are placed but the output has only " + std::to_string(cellsTotal), "Ask for a bigger `size` or a smaller count.");
+                rule.count = int(n);
+            }
+            if (e.contains("where")) {
+                const std::vector<std::string> options{"farthest", "nearest", "random"};
+                if (!e["where"].is_string() || std::find(options.begin(), options.end(), e["where"].get<std::string>()) == options.end())
+                    bad_arg(at + "/where: must be \"farthest\", \"nearest\" or \"random\", got " + describe_json_value(e["where"]) +
+                                (e["where"].is_string() ? ". " + did_you_mean(e["where"].get<std::string>(), options) : std::string()),
+                            "farthest / nearest: the walking distance from `from` (or reachability.from); random: any qualifying cell, drawn from the level's seed.");
+                const std::string w = e["where"].get<std::string>();
+                rule.where = w == "farthest" ? PlaceRule::Where::Farthest : w == "nearest" ? PlaceRule::Where::Nearest : PlaceRule::Where::Random;
+            }
+            auto refs_of = [&](const char* key, std::vector<int>& symbols, std::string& label) {
+                TileRefs r = resolve_refs(mv, e[key], at + "/" + key, true);
+                for (int s : r.symbols)
+                    if (mv.place_only(s) && !placedBefore.count(s))
+                        bad_arg(at + "/" + key + ": '" + mv.sample->glyphs.glyphs[std::size_t(s)].glyph + "' is only in the legend, so no cell holds it unless an EARLIER place entry puts it there",
+                                "Put the entry that places it before this one, or draw the glyph in the sample.");
+                symbols = r.symbols;
+                label = r.label;
+            };
+            if (e.contains("from")) {
+                if (!hasReach)
+                    bad_arg(at + "/from: distances are walked, which needs the level's walkable tiles", "Add `reachability` (for instance {\"from\":[1,1],\"solidTiles\":[0]}).");
+                refs_of("from", rule.fromSymbols, rule.fromLabel);
+                rule.hasFromTile = true;
+                if (std::find(rule.fromSymbols.begin(), rule.fromSymbols.end(), rule.symbol) != rule.fromSymbols.end())
+                    bad_arg(at + "/from: " + rule.fromLabel + " includes the tile being placed (" + rule.label + "): a marker cannot be measured from itself", "Name the tile the distance starts at, e.g. the entrance.");
+            }
+            if (e.contains("on")) {
+                refs_of("on", rule.onSymbols, rule.onLabel);
+                rule.hasOn = true;
+            }
+            if (rule.where != PlaceRule::Where::Random && !hasReach)
+                bad_arg(at + "/where: \"" + where_name(rule.where) + "\" measures the walking distance, which needs `reachability` (it says which tiles block the way)",
+                        "Add \"reachability\": {\"from\":[1,1],\"solidTiles\":[0]}, or use \"where\": \"random\" with `on`.");
+            if (rule.where != PlaceRule::Where::Random && !rule.hasFromTile && !reachFrom)
+                bad_arg(at + ": \"" + where_name(rule.where) + "\" needs a place to measure from",
+                        "Add `from` (a tile, e.g. \"@\") to this entry, or \"from\": [x, y] to `reachability`.");
+            if (!rule.hasOn && !hasReach)
+                bad_arg(at + ": there is nothing to say which cells may be replaced",
+                        "Add \"on\": [\"tile\", ...] (the tiles this marker may replace, e.g. the floor), or `reachability` (then any walkable cell qualifies).");
+            placedBefore.insert(rule.symbol);
+            out.place.push_back(std::move(rule));
+        }
+    }
     return out;
 }
 
@@ -1038,6 +1155,273 @@ private:
 };
 
 
+// ------------------------------------------------------------------------------------------------------------ place
+// constraints.place: after the solver, put the markers (an entrance, an exit, a boss) where their rule says, on the walking distances of
+// the level (the same blocking tiles and costs as `reachability`). It runs inside the generator (wfc::GridFinish), before the counts
+// and the reachability check judge the grid, in pieces like the check: the tiles, the cost grid, the distances (Dijkstra, a chunk of cells
+// per step) and the scan for candidates are separate steps, so a big grid does not make one frame long. Entries run in order, each on the
+// grid the earlier ones changed. Memory is bounded: one distance per cell and the best `count` candidates, kept in a heap (no sort of all
+// candidates). Every draw comes from an Rng seeded from the seed of the attempt, so the same seed gives the same level.
+class PlaceFinish : public wfc::GridFinish {
+public:
+    using Verdict = wfc::GridCheck::Verdict;
+    using TileOfSymbol = std::function<int(int)>;
+    using Retile = std::function<void(std::vector<int>&)>;
+    PlaceFinish(std::vector<PlaceRule> rules, const ReachSpec& reach, const std::vector<wfc::CellRule>& fixed, int width, int height, TileOfSymbol tileOf, Retile retile)
+        : rules_(std::move(rules)), reach_(reach), width_(width), height_(height), tileOf_(std::move(tileOf)), retile_(std::move(retile)) {
+        for (const wfc::CellRule& f : fixed) fixed_.push_back(std::size_t(f.y) * std::size_t(width) + std::size_t(f.x));
+        std::sort(fixed_.begin(), fixed_.end());
+    }
+
+    Json report = Json::array();   // what the last grid it finished got: one entry per rule
+
+    void begin(std::vector<int>& cells, std::uint64_t seed) override {
+        grid_ = &cells;
+        rng_.reseed(wfc::derive_attempt_seed(seed, 0x51ACE));
+        rule_ = 0;
+        phase_ = Phase::Start;
+        placed_.clear();
+        report = Json::array();
+        free_arrays();
+    }
+
+    Verdict step(std::int64_t chunk, std::string& why, std::int64_t& work) override {
+        const std::size_t cells = grid_->size();
+        if (rule_ >= rules_.size()) return Verdict::Accepted;
+        const PlaceRule& rule = rules_[rule_];
+        switch (phase_) {
+            case Phase::Start:
+                scan_ = 0;
+                best_.clear();
+                seen_ = 0;
+                needDist_ = reach_.enabled && (rule.where != PlaceRule::Where::Random || rule.hasFromTile || reach_.hasFrom);
+                if (reach_.enabled) {
+                    tiles_.assign(cells, -1);
+                    phase_ = Phase::Tiles;
+                } else {
+                    phase_ = Phase::Scan;
+                }
+                return Verdict::More;
+            case Phase::Tiles: {
+                const std::size_t to = std::min(cells, scan_ + std::size_t(chunk));
+                for (std::size_t i = scan_; i < to; ++i) tiles_[i] = tileOf_((*grid_)[i]);
+                work += std::int64_t(to - scan_);
+                scan_ = to;
+                if (scan_ < cells) return Verdict::More;
+                if (retile_) {
+                    retile_(tiles_);   // one call over the whole grid, as in the reachability check
+                    work += std::int64_t(cells);
+                }
+                cost_.assign(cells, 0.0f);
+                scan_ = 0;
+                phase_ = Phase::Costs;
+                return Verdict::More;
+            }
+            case Phase::Costs: {
+                const std::size_t to = std::min(cells, scan_ + std::size_t(chunk));
+                for (std::size_t i = scan_; i < to; ++i) cost_[i] = reach_.rules.cost(tile_index(tiles_[i]));
+                work += std::int64_t(to - scan_);
+                scan_ = to;
+                if (scan_ < cells) return Verdict::More;
+                scan_ = 0;
+                if (!needDist_) {
+                    phase_ = Phase::Scan;
+                    return Verdict::More;
+                }
+                dist_.assign(cells, kUnreached);
+                while (!heap_.empty()) heap_.pop();
+                phase_ = Phase::Sources;
+                return Verdict::More;
+            }
+            case Phase::Sources: {
+                // Where the walk starts: every cell holding the `from` tile, else the cell of reachability.from.
+                if (!rule.hasFromTile) {
+                    const std::size_t at = std::size_t(reach_.fromY) * std::size_t(width_) + std::size_t(reach_.fromX);
+                    dist_[at] = 0.0;
+                    heap_.push({0.0, std::uint32_t(at)});
+                    ++sources_;
+                    work += 1;
+                    phase_ = Phase::Dist;
+                    return Verdict::More;
+                }
+                const std::size_t to = std::min(cells, scan_ + std::size_t(chunk));
+                for (std::size_t i = scan_; i < to; ++i)
+                    if (std::find(rule.fromSymbols.begin(), rule.fromSymbols.end(), (*grid_)[i]) != rule.fromSymbols.end()) {
+                        dist_[i] = 0.0;
+                        heap_.push({0.0, std::uint32_t(i)});
+                        ++sources_;
+                    }
+                work += std::int64_t(to - scan_);
+                scan_ = to;
+                if (scan_ < cells) return Verdict::More;
+                if (sources_ == 0) {
+                    why = rule.pointer + ": no cell holds " + rule.fromLabel + ", so there is nothing to measure " + where_name(rule.where) + " from";
+                    return Verdict::Refused;
+                }
+                phase_ = Phase::Dist;
+                return Verdict::More;
+            }
+            case Phase::Dist:
+                dijkstra(chunk, work);
+                if (heap_.empty()) {
+                    scan_ = 0;
+                    phase_ = Phase::Scan;
+                }
+                return Verdict::More;
+            case Phase::Scan:
+                return scan(rule, chunk, why, work);
+        }
+        return Verdict::Refused;
+    }
+
+private:
+    enum class Phase { Start, Tiles, Costs, Sources, Dist, Scan };
+    struct Entry {
+        double dist = 0.0;
+        std::uint32_t key = 0;   // a draw from the Rng: breaks ties between equal distances (and orders nothing else)
+        std::uint32_t cell = 0;
+    };
+    struct Node {
+        double dist;
+        std::uint32_t cell;
+        bool operator>(const Node& o) const { return dist != o.dist ? dist > o.dist : cell > o.cell; }
+    };
+    static constexpr double kUnreached = std::numeric_limits<double>::infinity();
+
+    std::vector<PlaceRule> rules_;
+    ReachSpec reach_;
+    int width_, height_;
+    TileOfSymbol tileOf_;
+    Retile retile_;
+    std::vector<std::size_t> fixed_;          // output cells a `fixed` constraint or `border` pinned (sorted): a marker never replaces them
+    std::vector<int>* grid_ = nullptr;
+    Rng rng_;
+    std::size_t rule_ = 0;
+    Phase phase_ = Phase::Start;
+    std::size_t scan_ = 0;
+    bool needDist_ = false;
+    std::size_t sources_ = 0;
+    std::vector<int> tiles_;
+    std::vector<float> cost_;
+    std::vector<double> dist_;
+    std::priority_queue<Node, std::vector<Node>, std::greater<Node>> heap_;
+    std::vector<Entry> best_;                 // the best `count` candidates so far (a heap, the worst on top) / the reservoir (random)
+    std::uint64_t seen_ = 0;
+    std::set<std::size_t> placed_;            // cells earlier entries wrote: never replaced again
+
+    void free_arrays() {
+        std::vector<int>().swap(tiles_);
+        std::vector<float>().swap(cost_);
+        std::vector<double>().swap(dist_);
+        heap_ = decltype(heap_)();
+        best_.clear();
+        sources_ = 0;
+    }
+
+    bool open(std::size_t i) const { return cost_[i] >= 0.0f; }
+
+    // Walking distance: the cost of entering each cell, summed along the cheapest route (4 neighbours; with `diagonals` 8, a diagonal step
+    // costing 1.41421356 times the cell's cost and never cutting a corner). A chunk of heap pops per call.
+    void dijkstra(std::int64_t chunk, std::int64_t& work) {
+        static constexpr int kStep[8][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {-1, 1}, {-1, -1}, {1, -1}};
+        const int dirs = reach_.diagonals ? 8 : 4;
+        std::int64_t units = 0;
+        while (!heap_.empty() && units < chunk) {
+            const Node node = heap_.top();
+            heap_.pop();
+            ++units;
+            if (node.dist > dist_[node.cell]) continue;   // a stale entry: the cell was reached cheaper since
+            const int cx = int(node.cell % std::uint32_t(width_)), cy = int(node.cell / std::uint32_t(width_));
+            units += dirs;
+            for (int d = 0; d < dirs; ++d) {
+                const int nx = cx + kStep[d][0], ny = cy + kStep[d][1];
+                if (nx < 0 || ny < 0 || nx >= width_ || ny >= height_) continue;
+                const std::size_t ni = std::size_t(ny) * std::size_t(width_) + std::size_t(nx);
+                if (!open(ni)) continue;
+                if (d >= 4) {
+                    const std::size_t a = std::size_t(cy) * std::size_t(width_) + std::size_t(nx), b = std::size_t(ny) * std::size_t(width_) + std::size_t(cx);
+                    if (!open(a) || !open(b)) continue;   // no corner cutting
+                }
+                const double nd = node.dist + double(cost_[ni]) * (d >= 4 ? 1.41421356237 : 1.0);
+                if (nd < dist_[ni]) {
+                    dist_[ni] = nd;
+                    heap_.push({nd, std::uint32_t(ni)});
+                }
+            }
+        }
+        work += units;
+    }
+
+    // Is `a` a better pick than `b` for this rule (the best sorts first).
+    static bool better(PlaceRule::Where where, const Entry& a, const Entry& b) {
+        if (a.dist != b.dist) return where == PlaceRule::Where::Farthest ? a.dist > b.dist : a.dist < b.dist;
+        return a.key != b.key ? a.key < b.key : a.cell < b.cell;
+    }
+
+    Verdict scan(const PlaceRule& rule, std::int64_t chunk, std::string& why, std::int64_t& work) {
+        const std::size_t cells = grid_->size();
+        const std::size_t to = std::min(cells, scan_ + std::size_t(chunk));
+        const std::size_t want = std::size_t(rule.count);
+        const std::size_t fromCell = std::size_t(reach_.fromY) * std::size_t(width_) + std::size_t(reach_.fromX);
+        const auto worse_first = [&](const Entry& a, const Entry& b) { return better(rule.where, a, b); };   // heap order: the worst on top
+        for (std::size_t i = scan_; i < to; ++i) {
+            const int symbol = (*grid_)[i];
+            if (symbol == rule.symbol) continue;
+            if (rule.hasOn && std::find(rule.onSymbols.begin(), rule.onSymbols.end(), symbol) == rule.onSymbols.end()) continue;
+            if (reach_.enabled && !open(i)) continue;   // a blocked cell is not walkable: nothing stands there
+            if (needDist_ && !(dist_[i] < kUnreached)) continue;
+            if (needDist_ && (rule.hasFromTile ? std::find(rule.fromSymbols.begin(), rule.fromSymbols.end(), symbol) != rule.fromSymbols.end() : i == fromCell)) continue;   // the start itself
+            if (std::binary_search(fixed_.begin(), fixed_.end(), i) || placed_.count(i)) continue;
+            Entry e;
+            e.dist = needDist_ ? dist_[i] : 0.0;
+            e.key = rng_.next_u32();
+            e.cell = std::uint32_t(i);
+            ++seen_;
+            if (rule.where == PlaceRule::Where::Random) {
+                // Reservoir sampling (algorithm R): every candidate ends up with the same chance, in O(count) memory.
+                if (best_.size() < want) best_.push_back(e);
+                else {
+                    const std::uint64_t j = std::uint64_t(rng_.next_u32()) % seen_;
+                    if (j < want) best_[std::size_t(j)] = e;
+                }
+            } else if (best_.size() < want) {
+                best_.push_back(e);
+                std::push_heap(best_.begin(), best_.end(), worse_first);
+            } else if (better(rule.where, e, best_.front())) {
+                std::pop_heap(best_.begin(), best_.end(), worse_first);
+                best_.back() = e;
+                std::push_heap(best_.begin(), best_.end(), worse_first);
+            }
+        }
+        work += std::int64_t(to - scan_);
+        scan_ = to;
+        if (scan_ < cells) return Verdict::More;
+        if (best_.size() < want) {
+            why = rule.pointer + ": only " + std::to_string(best_.size()) + " cell(s) can take " + rule.label + " (" + std::to_string(rule.count) + " wanted)" +
+                  (rule.hasOn ? " on " + rule.onLabel : std::string(" on a walkable cell")) + (needDist_ ? " that can be walked to" : "");
+            return Verdict::Refused;
+        }
+        if (rule.where == PlaceRule::Where::Random) std::sort(best_.begin(), best_.end(), [](const Entry& a, const Entry& b) { return a.cell < b.cell; });
+        else std::sort(best_.begin(), best_.end(), worse_first);   // the best first
+        Json at = Json::array(), distances = Json::array();
+        for (const Entry& e : best_) {
+            (*grid_)[e.cell] = rule.symbol;
+            placed_.insert(e.cell);
+            at.push_back(Json::array({int(e.cell % std::uint32_t(width_)), int(e.cell / std::uint32_t(width_))}));
+            if (needDist_) distances.push_back(std::round(e.dist * 1000.0) / 1000.0);
+        }
+        Json entry = Json::object({{"tile", rule.label}, {"where", where_name(rule.where)}, {"count", best_.size()}, {"at", at}});
+        if (needDist_) entry["distances"] = distances;
+        if (rule.hasFromTile) entry["from"] = rule.fromLabel;
+        else if (needDist_) entry["from"] = Json::array({reach_.fromX, reach_.fromY});
+        report.push_back(entry);
+        ++rule_;
+        phase_ = Phase::Start;
+        sources_ = 0;
+        return rule_ >= rules_.size() ? Verdict::Accepted : Verdict::More;
+    }
+};
+
 // ------------------------------------------------------------------------------------------------------------ one generation
 // Everything a generation holds from the moment its arguments are checked to the moment its level is written. The command
 // `tilemap.generate` creates one and runs it to the end; the script API (`tilemap.generate` in a Behaviour) keeps it in
@@ -1062,6 +1446,7 @@ struct GenRun {
     Constraints cons;
     ReachSpec reach;
     std::shared_ptr<ReachCheck> reachCheck;   // the reachability check the generator runs on every finished grid (its report is the result's)
+    std::shared_ptr<PlaceFinish> placeFinish; // constraints.place: runs on every solved grid before the counts and the check (its report is the result's)
     std::unique_ptr<wfc::Generator> gen;
     std::uint64_t memoryBytes = 0;     // what the solver may hold (wfc::estimate_generator_memory + the reachability check)
     double cpuSeconds = 0.0;           // CPU the process spent inside step_generation() calls of this generation
@@ -1105,6 +1490,29 @@ std::uint64_t held_bytes(Engine::Impl& I) {
     std::uint64_t sum = 0;
     for (const auto& kv : I.wfcJobs) sum += std::static_pointer_cast<GenRun>(kv.second)->memoryBytes;
     return sum;
+}
+
+// The glyphs `constraints.place` names that the legend defines but the sample rows do not draw join the sample's glyphs (as symbols no pattern
+// holds), so the generated level can hold them. Only the ones named in a place entry: nothing else of the legend becomes a symbol.
+void adopt_place_glyphs(SampleData& sample, const Json& a) {
+    if (!sample.ascii || !a.contains("constraints") || !a["constraints"].is_object() || !a["constraints"].contains("place") || !a["constraints"]["place"].is_array()) return;
+    std::set<std::string> named;
+    auto take = [&](const Json& v) {
+        if (v.is_string()) named.insert(v.get<std::string>());
+        else if (v.is_array())
+            for (const Json& item : v)
+                if (item.is_string()) named.insert(item.get<std::string>());
+    };
+    for (const Json& e : a["constraints"]["place"])
+        if (e.is_object())
+            for (const char* key : {"tile", "from", "on"})
+                if (e.contains(key)) take(e[key]);
+    for (const AsciiSampleGlyph& g : sample.glyphs.legendOnly) {
+        if (!named.count(g.glyph)) continue;
+        bool drawn = false;
+        for (const AsciiSampleGlyph& d : sample.glyphs.glyphs) drawn = drawn || d.glyph == g.glyph;
+        if (!drawn) sample.glyphs.glyphs.push_back(g);
+    }
 }
 
 // Checks the arguments of tilemap.generate, reads the sample, builds the model and the rules, and creates the generator, which
@@ -1189,6 +1597,7 @@ std::shared_ptr<GenRun> prepare_generation(Engine::Impl& I, const Json& a) {
     r.sceneGeneration = I.world.scene_generation();
 
     sample = read_sample(I, a);
+    adopt_place_glyphs(sample, a);
     if (!tiled && !sample.present)
         bad_arg("The overlapping model needs a `sample` to learn from",
                 "Pass `sample`: the id of an entity with a Tilemap, or ASCII rows with a `legend`, e.g. \"sample\": [\"#####\",\"#...#\",\"#####\"], \"legend\": {\"#\": 0}. "
@@ -1289,8 +1698,12 @@ std::shared_ptr<GenRun> prepare_generation(Engine::Impl& I, const Json& a) {
     // The reachability check holds grids of its own, per cell: the tile (4 bytes) and the cost (4), the area number (4), the flood fill's
     // queue (4, up to twice that in a vector's spare capacity), the A* search's arrays (cost 8, parent 4, two stamps 8, which stay allocated
     // for the thread) and a share of its open list: 64 bytes, so the estimate has room for the capacity the vectors grow to.
-    constexpr std::uint64_t kReachBytesPerCell = 64;
-    const std::uint64_t reachBytes = a.contains("reachability") ? std::uint64_t(width) * std::uint64_t(height) * kReachBytesPerCell : 0u;
+    // constraints.place holds the tiles (4), the costs (4) and the distances (8) per cell, and the heap of the distance search (up to 8 entries of 16
+    // bytes per cell, in the worst case): 160 bytes.
+    constexpr std::uint64_t kReachBytesPerCell = 64, kPlaceBytesPerCell = 160;
+    const std::uint64_t outCells = std::uint64_t(width) * std::uint64_t(height);
+    const std::uint64_t reachBytes = (a.contains("reachability") ? outCells * kReachBytesPerCell : 0u) +
+                                     (a.contains("constraints") && a["constraints"].is_object() && a["constraints"].contains("place") ? outCells * kPlaceBytesPerCell : 0u);
     if (auto fits = wfc::check_generator_memory(*patternModel, width, height, periodic, reachBytes + heldBytes); !fits.ok()) {
         // The hint blames the map; when other generations hold part of the budget, the same request may fit alone.
         if (heldBytes > 0 && wfc::check_generator_memory(*patternModel, width, height, periodic, reachBytes).ok())
@@ -1329,6 +1742,12 @@ std::shared_ptr<GenRun> prepare_generation(Engine::Impl& I, const Json& a) {
                                                     run->tiled ? ReachCheck::Retile([self = run.get()](std::vector<int>& t) { retile_terrain_grid(self->terrains, self->width, self->height, t); })
                                                                : ReachCheck::Retile());
         go.check = r.reachCheck;
+    }
+    if (!cons.place.empty()) {
+        r.placeFinish = std::make_shared<PlaceFinish>(
+            cons.place, reach, cons.cellRules, width, height, [self = run.get()](int symbol) { return self->tile_of_symbol(symbol); },
+            run->tiled ? PlaceFinish::Retile([self = run.get()](std::vector<int>& t) { retile_terrain_grid(self->terrains, self->width, self->height, t); }) : PlaceFinish::Retile());
+        go.finish = r.placeFinish;
     }
     auto gen = wfc::Generator::create(patternModel, go);
     if (!gen.ok()) throw_error(gen.error());
@@ -1463,6 +1882,7 @@ Json finish_generation(Engine::Impl& I, GenRun& r) {
             counted.push_back(entry);
         }
         out["constraints"] = Json::object({{"fixedCells", cons.fixedCells}, {"forbiddenTiles", cons.forbidden.size()}, {"counts", counted}, {"pinnedCells", st.pinned}});
+        if (!cons.place.empty() && r.placeFinish) out["constraints"]["placed"] = r.placeFinish->report;
     }
     if (reach.enabled && r.reachCheck) out["reachability"] = r.reachCheck->report;
     if (!warnings.empty()) out["warnings"] = warnings;
@@ -1503,7 +1923,7 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
                "maxAttempts":{"type":"integer","default":10,"minimum":1,"maximum":1000,"description":"Attempts before giving up: a dead end (or a grid that breaks a constraint or is not reachable) restarts with the next derived seed. When `constraints` or `reachability` is given and this is left out, 50 attempts are made instead of the default, because those refuse many grids."},
                "maxWork":{"type":"integer","default":600000000,"minimum":1,"maximum":100000000000,"description":"Cap on the work (stats.work of an earlier run shows what a level needs: pattern removals and the adjacency they touch, cells observed, the fixed cells and the reachability check) over all attempts. It counts the same on every machine, so a level either always fits or never does. Hit it and the call fails with how to shrink the level or raise the cap."},
                "maxSeconds":{"type":"number","default":1800,"exclusiveMinimum":0,"maximum":86400,"description":"Pure safety net on the CPU seconds the process may spend on this call (all threads count; the web build counts wall-clock seconds), about a hundred times what the default maxWork takes. The cap a result depends on is maxWork: this one only stops a machine that is stuck or far slower than any expected."},
-               "constraints":{"type":"object","description":"Rules the level must follow. A tile is a glyph of an ASCII sample, a tile number (-1 = empty) or a terrain name (tiled); a list = any of them. Contradictions are reported before generating, with the JSON pointer.","properties":{"fixed":{"type":"array","items":{"type":"object","properties":{"at":{"type":"array","items":{"type":"integer"},"description":"One cell [x, y] to pin (x the column, y the row, from 0 at the top-left). Give `at` or `rect`."},"rect":{"type":"array","items":{"type":"integer"},"description":"A block of cells [x, y, width, height] to pin, all to the same tile. Give `rect` or `at`."},"tile":{"description":"The tile (or list of tiles, any of them) the pinned cells hold."}}},"description":"Cells that are pinned before generating (an entrance, an exit, a room), each an object {at | rect, tile}."},"border":{"type":"object","properties":{"tile":{"description":"The tile the edge of the level is made of."},"thickness":{"type":"integer","minimum":1,"description":"Cells deep from each edge (1 when left out)."}},"description":"Walls in the edge of the level: {tile, thickness?}. An explicit `fixed` cell on the edge replaces it."},"forbidden":{"type":"array","description":"Tiles that never appear (a list of tiles; each entry may itself be a list of alternatives): the patterns that hold one are removed before the solve."},"required":{"type":"array","description":"Tiles that appear at least once each (a list of tiles; each entry may itself be a list of alternatives). Shorthand for a count with min 1."},"counts":{"type":"array","items":{"type":"object","properties":{"tile":{"description":"The tile (or list of tiles, counted together)."},"min":{"type":"integer","minimum":0,"description":"At least this many cells hold it. A grid that misses it is refused, and unless `repair` is false the next attempt pins the missing cells."},"max":{"type":"integer","minimum":0,"description":"At most this many cells hold it. Checked only on the finished grid, which is refused when it is over (there is no repair for a maximum: lower it or give more attempts)."}}},"description":"How many cells of some tiles the finished level holds: [{tile, min?, max?}]."},"repair":{"type":"boolean","default":true,"description":"A minimum the finished grid missed is repaired on the next attempt by pinning the missing cells at positions drawn from the seed. false: the grid is only refused and the next attempt starts from scratch (a rare tile then turns up only by chance). A maximum is never repaired."}}},
+               "constraints":{"type":"object","description":"Rules the level must follow. A tile is a glyph of an ASCII sample, a tile number (-1 = empty) or a terrain name (tiled); a list = any of them. Contradictions are reported before generating, with the JSON pointer.","properties":{"fixed":{"type":"array","items":{"type":"object","properties":{"at":{"type":"array","items":{"type":"integer"},"description":"One cell [x, y] to pin (x the column, y the row, from 0 at the top-left). Give `at` or `rect`."},"rect":{"type":"array","items":{"type":"integer"},"description":"A block of cells [x, y, width, height] to pin, all to the same tile. Give `rect` or `at`."},"tile":{"description":"The tile (or list of tiles, any of them) the pinned cells hold."}}},"description":"Cells that are pinned before generating (an entrance, an exit, a room), each an object {at | rect, tile}."},"border":{"type":"object","properties":{"tile":{"description":"The tile the edge of the level is made of."},"thickness":{"type":"integer","minimum":1,"description":"Cells deep from each edge (1 when left out)."}},"description":"Walls in the edge of the level: {tile, thickness?}. An explicit `fixed` cell on the edge replaces it."},"forbidden":{"type":"array","description":"Tiles that never appear (a list of tiles; each entry may itself be a list of alternatives): the patterns that hold one are removed before the solve."},"required":{"type":"array","description":"Tiles that appear at least once each (a list of tiles; each entry may itself be a list of alternatives). Shorthand for a count with min 1."},"counts":{"type":"array","items":{"type":"object","properties":{"tile":{"description":"The tile (or list of tiles, counted together)."},"min":{"type":"integer","minimum":0,"description":"At least this many cells hold it. A grid that misses it is refused, and unless `repair` is false the next attempt pins the missing cells."},"max":{"type":"integer","minimum":0,"description":"At most this many cells hold it. The solver keeps to it: once that many cells are decided to hold the tile it is taken out of every cell still open (a tile the sample draws once does not turn up four times). A grid that is over it anyway is refused, and the attempt ends early when the decided cells already pass it."}}},"description":"How many cells of some tiles the finished level holds: [{tile, min?, max?}]."},"place":{"type":"array","maxItems":16,"items":{"type":"object","required":["tile"],"properties":{"tile":{"description":"The tile to write: a glyph, a tile number (one tile, not a list). A glyph the `legend` defines but the sample rows never draw is fine here (and only here): the level gets it only through this entry."},"count":{"type":"integer","minimum":1,"maximum":1000,"default":1,"description":"How many cells to write."},"where":{"type":"string","enum":["farthest","nearest","random"],"default":"random","description":"farthest / nearest: the cells with the longest / shortest walking distance from `from` (or from reachability.from), the walk being the one `reachability` describes (its solidTiles, costs, diagonals); a tie is broken by the seed. random: any qualifying cell, drawn from the seed. Needs `reachability` for farthest / nearest."},"from":{"description":"farthest / nearest: the tile the distance starts at (every cell holding it, e.g. the entrance); when left out the start is reachability.from. With random it limits the cells to those that can be walked to from it. A glyph that only the legend defines is accepted when an EARLIER entry places it."},"on":{"description":"The tile (or list) this marker may replace, e.g. [\".\"] for floor. Left out: any walkable cell of the level (needs `reachability`) that is not the start, not a fixed cell and not a marker placed before. Fixed cells and the cells of earlier entries are never replaced."}}},"description":"Markers put in the FINISHED level, after the solver and before the counts and the reachability check judge it: [{tile, count?, where?, from?, on?}], in order (an entry may use the tile an earlier one placed as `from`, so \"entrance anywhere, exit farthest from it\" is two entries). Every choice comes from the seed. An entry that finds fewer qualifying cells than `count` refuses the attempt (another seed is tried), and the error names the entry. The result's constraints.placed lists what was written."},"repair":{"type":"boolean","default":true,"description":"A minimum the finished grid missed is repaired on the next attempt by pinning the missing cells at positions drawn from the seed. false: the grid is only refused and the next attempt starts from scratch (a rare tile then turns up only by chance). A maximum is never repaired."}}},
                "reachability":{"type":"object","description":"The level must be playable. Same walking rules as nav.find_tile_path (the rules are the same code): 4-way, or 8-way without cutting corners, entering a tile costs its cost. A grid that fails restarts with the next derived seed. The result's `reachability` reports unreachable cells and areas and the path lengths.","properties":{"from":{"type":"array","items":{"type":"integer"},"description":"The start cell [x, y]. Needed by `to` and `toTiles`."},"to":{"type":"array","description":"One goal cell [x, y] or a list of them [[x, y], ...]: each must be reachable from `from`."},"toTiles":{"type":["array","string","integer"],"description":"Tiles (a glyph, tile number, terrain name, or a list): every cell holding one is a goal, found by scanning the finished level."},"allConnected":{"type":"boolean","default":false,"description":"All walkable cells form one area (from `from`'s area, or the biggest one without `from`): no pocket is cut off."},"solidTiles":{"type":"array","items":{"type":"integer"},"description":"Tile numbers that block the way. Without it: Tilemap.solidTiles of `into`, then of the sample."},"costs":{"type":"object","description":"Per tile number: {\"<tile>\": cost | null}. A finite number of 0 or more is the cost of entering it (a plain tile costs 1), null blocks, key \"-1\" is the empty cell; either overrides `solidTiles`. Cost 0 or more only changes the path costs in the report; null (or a tile made walkable or solid here) changes what is reachable."},"diagonals":{"type":"boolean","default":false,"description":"8 neighbours instead of 4; a diagonal step never cuts a corner."}}},
                "into":{"type":"string","description":"Id of an entity with a Tilemap to write the result into (its tiles, width and height are replaced; tileset, tileSize and solidTiles stay). RUNNING world only."},
                "rows":{"type":"boolean","description":"Return the level as ASCII `rows`. Default: true without `into`, false with it."},
@@ -1533,10 +1953,18 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
          "A Tilemap sample is printed with generated glyphs ('.' = empty). "
          "CONSTRAINTS (`constraints`, checked before generating; each problem names its JSON pointer): `fixed` [{at:[x,y] | rect:[x,y,w,h], tile}] "
          "pins cells (an entrance, an exit), `border` {tile, thickness?} walls in the edge, `forbidden` [tile] never appear, `required` [tile] "
-         "appear at least once, `counts` [{tile, min?, max?}]. A `tile` is a glyph of an ASCII sample, a tile number (-1 = empty) or, for the tiled model, a "
-         "terrain name; a list of them means any of them. A tile the sample never shows cannot be placed. A missing minimum is repaired on the next attempt "
-         "by pinning cells (positions drawn from the seed; `constraints.repair` false turns that off); a maximum is only checked on the finished grid, which is refused "
-         "and restarted when it is over, and so is any other miss. REACHABILITY (`reachability`): {from:[x,y], to:[x,y] | "
+         "appear at least once, `counts` [{tile, min?, max?}], `place` [{tile, count?, where?, from?, on?}]. A `tile` is a glyph of an ASCII sample, a tile number (-1 = empty) or, for the tiled model, a "
+         "terrain name; a list of them means any of them. A tile the sample never shows cannot be fixed, counted or forbidden. A missing minimum is repaired on the next attempt "
+         "by pinning cells (positions drawn from the seed; `constraints.repair` false turns that off). A MAXIMUM STEERS THE SOLVER: once that many cells are decided to "
+         "hold the tile, it is taken out of every cell still open, so a tile the sample draws once (an entrance '@', an exit '>') does not turn up two to four times and "
+         "refuse attempt after attempt; a grid that is over a maximum anyway is refused and restarted, and so is any other miss. "
+         "PLACE puts markers in the FINISHED level: {tile:'>', where:'farthest', from:'@', on:['.']} writes the exit on the floor cell with the longest WALKING distance "
+         "from the entrance (`where`: farthest, nearest or random; `count` cells; the walk is the one `reachability` describes, so farthest / nearest need it). Entries run in order, "
+         "so \"entrance anywhere, exit farthest from it\" is two entries (the second names the first's tile in `from`). The tile may be a legend glyph the sample rows never "
+         "draw (then the solver never produces it and only `place` can: the usual way to get exactly one entrance and one exit); `on` says which tiles a marker may replace (left out: "
+         "any walkable cell, never a fixed cell or an earlier marker). Every choice (random cells, ties) comes from the level's seed. An entry that finds too few cells refuses the "
+         "attempt and the next seed is tried; the result's constraints.placed lists the cells (and distances). The counts and the reachability check judge the grid AFTER it is placed, "
+         "so a marker that blocks the way is caught. (Not the script API's top-level `place`, which places the objects of the sample.) REACHABILITY (`reachability`): {from:[x,y], to:[x,y] | "
          "[[x,y]...], toTiles:[tile] (every cell holding one is a goal), allConnected:true (all walkable cells form one area), solidTiles:[tile numbers that "
          "block] (default: those of `into` or of the sample), costs:{tile: cost|null}, diagonals}. It uses the rules of nav.find_tile_path, on the finished "
          "level (`solidTiles` and `costs` are the final tile numbers, after the tiled model's blob47 corners are fixed; `counts` and `toTiles` look at the cells as the generator decided them, before that re-tiling); a grid that fails restarts with the next derived seed, so the level you get is playable. The report lists walkable cells, the cells and "
@@ -1545,7 +1973,7 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
          "and `maxSeconds` (default 1800, a pure safety net far above the work cap: CPU seconds of the whole process counting every thread; on the web build wall-clock seconds) stop a level "
          "that cannot be solved with a teaching error. Returns {model, width, height, seed, rows?, legend, "
          "counts: {glyph: cells}, into?, warnings?, sample: {source, width, height}, constraints?: {fixedCells, forbiddenTiles, counts: [{tile, found, min?, max?}], "
-         "pinnedCells}, reachability?, stats: {attempts, contradictions, rejected, patterns, cells, observations, propagations, work, pinned, ms, memoryBytes, "
+         "pinnedCells, placed?: [{tile, where, count, at:[[x,y]...], distances?, from?}]}, reachability?, stats: {attempts, contradictions, rejected, patterns, cells, observations, propagations, work, pinned, ms, memoryBytes, "
          "peakBytes}}. The level and the counters (attempts, work...) are the same on every machine; stats.ms (the time it took), memoryBytes and peakBytes (bytes: they depend on the compiler and standard library) are not part of the determinism promise. "
          "Limits: output sides up to 2048, sample up to 262144 cells, 20000 patterns, "
          "about 256 MB of solver memory (checked first, before anything is built for the constraints; the error says what to shrink), 65536 fixed cells. An argument name that is not listed is refused with the valid ones (`place` belongs to the script API's tilemap.generate, which places the objects of the sample; with this command call scene.import_ascii on the returned rows and legend). Example: tilemap.generate {\"sample\":[\"........\",\"..##....\",\"..##..#.\","
@@ -1594,7 +2022,7 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
          "Advance a generation started with tilemap.generate_start by a bounded amount of work.",
          "Does at most `work` units of work (default 500000, about 10 ms of a Debug build; the same unit as stats.work) or, with `budgetMs`, steps until "
          "that many milliseconds have passed (at least one step). Returns {done:false, progress, attempts, work, contradictions, rejected} while it runs "
-         "(progress 0..1 is the share of cells decided in the current attempt: it goes back to 0 when an attempt restarts) and {done:true, progress:1, "
+         "(progress 0..1 follows the solver: inside an attempt it is the share of cells decided, scaled into that attempt's part of the bar (the first attempt covers 0 to 0.8, each retry a quarter of what is left), so it moves while the solver works and never goes down when an attempt restarts; it is 1 only when done) and {done:true, progress:1, "
          "result} when the level is finished, `result` being what tilemap.generate returns. A step can overshoot its budget by one unit of the algorithm: "
          "an attempt (its reset, the solve, the output, the counts and the reachability check) advances in chunks of about 16384 units, so a step stays near its budget. Three pieces are not cut and run to their end inside one step: the rebuild of the entropy heap when it is at its allowance (a pass over at most 4 entries per cell), the re-tiling of a terrain (Tiled) level by the reachability check (one pass over the grid) and each path search of the reachability check (one A* bounded by the grid, at most 16 per attempt). Errors "
          "(the generation failed, hit `maxWork`, the entity of `into` is gone) end the job. A job whose scene was unloaded no longer exists. "

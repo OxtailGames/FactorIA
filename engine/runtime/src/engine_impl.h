@@ -210,12 +210,14 @@ struct AsciiSampleGlyph {
     int tile = -1;                      // tile value (flags included), -1 = no tile
     bool hasPrefab = false;             // the legend entry also spawns an object
     Json legendEntry;                   // the entry as the (merged) legend wrote it; null for a default-empty glyph
+    bool placeOnly = false;             // defined by the legend but drawn nowhere in the rows (AsciiSample::legendOnly): no cell of `cells` holds it
 };
 struct AsciiSample {
     int width = 0;
     int height = 0;
     std::vector<int> cells;             // row-major, row 0 = TOP: index into `glyphs`
     std::vector<AsciiSampleGlyph> glyphs;  // in order of first appearance
+    std::vector<AsciiSampleGlyph> legendOnly;  // the legend's other glyphs (placeOnly), in the order of the legend; not part of `glyphs`
 };
 AsciiSample read_ascii_sample(const Json& args);
 

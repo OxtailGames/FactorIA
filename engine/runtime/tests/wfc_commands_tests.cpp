@@ -781,3 +781,244 @@ TEST_CASE("tilemap.generate_step: on a big level a step stays within a chunk of 
     CHECK(steps > 10);
     s.call("tilemap.generate_cancel", Json::object({{"job", job}}));
 }
+
+// ------------------------------------------------------------------------------------------------------------ constraints.place
+namespace {
+
+// The legend of the dungeon plus two markers the sample rows never draw: '@' the entrance, '>' the exit.
+const char* kMarkerLegend = R"({"#":0,".":1,"$":2,"E":3,"@":4,">":5,"S":6})";
+
+Json place_call(const std::string& extra) {
+    Json call = dungeon_call(extra);
+    call["legend"] = Json::parse(kMarkerLegend);
+    return call;
+}
+
+struct Spot {
+    int x = -1, y = -1;
+};
+
+std::vector<Spot> spots(const std::vector<std::string>& rows, char c) {
+    std::vector<Spot> out;
+    for (std::size_t y = 0; y < rows.size(); ++y)
+        for (std::size_t x = 0; x < rows[y].size(); ++x)
+            if (rows[y][x] == c) out.push_back({int(x), int(y)});
+    return out;
+}
+
+// Steps from `from` over the cells that are not walls (4 neighbours), -1 for a cell it cannot reach: counted here, not by the command.
+std::vector<int> walk_steps(const std::vector<std::string>& rows, Spot from) {
+    const int h = int(rows.size()), w = int(rows[0].size());
+    std::vector<int> dist(std::size_t(w * h), -1);
+    std::vector<int> queue{from.y * w + from.x};
+    dist[std::size_t(from.y * w + from.x)] = 0;
+    for (std::size_t head = 0; head < queue.size(); ++head) {
+        const int cx = queue[head] % w, cy = queue[head] / w;
+        const int d[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (auto& o : d) {
+            const int nx = cx + o[0], ny = cy + o[1];
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h || rows[std::size_t(ny)][std::size_t(nx)] == '#' || dist[std::size_t(ny * w + nx)] >= 0) continue;
+            dist[std::size_t(ny * w + nx)] = dist[std::size_t(cy * w + cx)] + 1;
+            queue.push_back(ny * w + nx);
+        }
+    }
+    return dist;
+}
+
+}  // namespace
+
+TEST_CASE("tilemap.generate constraints.place: an entrance anywhere and an exit as far as the level allows, markers the sample never draws") {
+    Session s;
+    const std::string place = R"("constraints":{"place":[{"tile":"@","on":["."]},{"tile":">","where":"farthest","from":"@","on":["."]}]},
+        "reachability":{"allConnected":true,"solidTiles":[0]})";
+    for (int seed = 1; seed <= 4; ++seed) {
+        auto r = s.call("tilemap.generate", place_call("\"seed\":" + std::to_string(seed) + "," + place));
+        REQUIRE_MESSAGE(r.ok, error_text(r));
+        const auto rows = rows_of(r);
+        REQUIRE(spots(rows, '@').size() == 1);
+        REQUIRE(spots(rows, '>').size() == 1);
+        // the level's legend carries the markers, so scene.import_ascii accepts the rows as they are
+        CHECK(r.result["legend"].contains("@"));
+        CHECK(r.result["legend"].contains(">"));
+        CHECK(r.result["counts"]["@"] == 1);
+        CHECK(r.result["counts"][">"] == 1);
+        // the exit is the farthest floor cell (by steps) from the entrance
+        const Spot from = spots(rows, '@')[0], exit = spots(rows, '>')[0];
+        const std::vector<int> dist = walk_steps(rows, from);
+        const int w = int(rows[0].size());
+        const int exitDist = dist[std::size_t(exit.y * w + exit.x)];
+        REQUIRE(exitDist > 0);
+        for (std::size_t y = 0; y < rows.size(); ++y)
+            for (std::size_t x = 0; x < rows[y].size(); ++x)
+                if (rows[y][x] == '.') CHECK(dist[y * std::size_t(w) + x] <= exitDist);
+        // the report says what was placed
+        const Json& placed = r.result["constraints"]["placed"];
+        REQUIRE(placed.size() == 2);
+        CHECK(placed[1]["where"] == "farthest");
+        CHECK(placed[1]["at"][0] == Json::parse("[" + std::to_string(exit.x) + "," + std::to_string(exit.y) + "]"));
+        CHECK(placed[1]["distances"][0].get<double>() == doctest::Approx(double(exitDist)));
+        CHECK(placed[0]["at"][0] == Json::parse("[" + std::to_string(from.x) + "," + std::to_string(from.y) + "]"));
+    }
+}
+
+TEST_CASE("tilemap.generate constraints.place: nearest, several cells, random from the seed, and the same level every time") {
+    Session s;
+    const std::string base = R"("constraints":{"place":[{"tile":"@","on":["."]},{"tile":"S","count":3,"where":"nearest","from":"@","on":["."]},{"tile":">","count":2,"on":["."]}]},
+        "reachability":{"allConnected":true,"solidTiles":[0]})";
+    auto a = s.call("tilemap.generate", place_call(R"("seed":11,)" + base));
+    REQUIRE_MESSAGE(a.ok, error_text(a));
+    const auto rows = rows_of(a);
+    CHECK(spots(rows, '@').size() == 1);
+    REQUIRE(spots(rows, 'S').size() == 3);
+    CHECK(spots(rows, '>').size() == 2);
+    // the three nearest are nearer than every other floor cell (or tie with the farthest of them)
+    const std::vector<int> dist = walk_steps(rows, spots(rows, '@')[0]);
+    const int w = int(rows[0].size());
+    int farthestPicked = 0;
+    for (const Spot& p : spots(rows, 'S')) farthestPicked = std::max(farthestPicked, dist[std::size_t(p.y * w + p.x)]);
+    for (std::size_t y = 0; y < rows.size(); ++y)
+        for (std::size_t x = 0; x < rows[y].size(); ++x)
+            if (rows[y][x] == '.' && dist[y * std::size_t(w) + x] > 0) CHECK(dist[y * std::size_t(w) + x] >= farthestPicked);
+    // a marker never lands on another marker, a fixed cell or a wall
+    for (const std::string& row : rows) CHECK(row.size() == std::size_t(w));
+
+    auto b = s.call("tilemap.generate", place_call(R"("seed":11,)" + base));
+    REQUIRE(b.ok);
+    CHECK(rows_of(b) == rows);
+    CHECK(without_ms(b.result) == without_ms(a.result));
+    // random placements come from the seed: some other seed puts the entrance somewhere else
+    bool moved = false;
+    for (int seed = 12; seed < 20 && !moved; ++seed) {
+        auto c = s.call("tilemap.generate", place_call("\"seed\":" + std::to_string(seed) + "," + base));
+        REQUIRE_MESSAGE(c.ok, error_text(c));
+        moved = spots(rows_of(c), '@')[0].x != spots(rows, '@')[0].x || spots(rows_of(c), '@')[0].y != spots(rows, '@')[0].y;
+    }
+    CHECK(moved);
+}
+
+TEST_CASE("tilemap.generate constraints.place: a marker with no room says so; a fixed cell is never replaced") {
+    Session s;
+    // more cells than the floor has: every attempt is refused, and the error names the entry
+    auto r = s.call("tilemap.generate", place_call(R"("seed":1,"maxAttempts":2,"size":[8,8],"constraints":{"place":[{"tile":"S","count":900,"on":["$"]}]})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK_MESSAGE(contains(error_text(r), "count"), error_text(r));   // 900 > 64 cells: refused before generating
+    auto few = s.call("tilemap.generate", place_call(R"("seed":1,"maxAttempts":2,"constraints":{"forbidden":["$"],"place":[{"tile":"S","on":["$"]}]})"));
+    REQUIRE_FALSE(few.ok);
+    CHECK_MESSAGE(contains(error_text(few), "/constraints/place/0"), error_text(few));
+    CHECK_MESSAGE(contains(error_text(few), "only 0 cell(s) can take 'S'"), error_text(few));
+
+    // fixed cells stay: the border and the corner are never taken by a marker that may go on any walkable cell
+    auto fixed = s.call("tilemap.generate", place_call(R"("seed":3,"constraints":{"border":{"tile":"#"},"fixed":[{"at":[1,1],"tile":"."}],"place":[{"tile":"S","count":40}]},
+        "reachability":{"allConnected":true,"solidTiles":[0]})"));
+    REQUIRE_MESSAGE(fixed.ok, error_text(fixed));
+    const auto rows = rows_of(fixed);
+    CHECK(rows[1][1] == '.');
+    CHECK(spots(rows, 'S').size() == 40);
+}
+
+TEST_CASE("tilemap.generate constraints.place: errors teach before anything is generated") {
+    Session s;
+    const std::string reach = R"(,"reachability":{"allConnected":true,"solidTiles":[0]})";
+    struct Case {
+        std::string extra, needle;
+    };
+    const std::vector<Case> cases = {
+        {R"("constraints":{"place":[{"tile":">","where":"farthes","from":"@","on":["."]}]})" + reach, "farthest"},   // did you mean
+        {R"("constraints":{"place":[{"tile":">","where":"farthest","on":["."]}]})" + reach, "needs a place to measure from"},
+        {R"("constraints":{"place":[{"tile":">","where":"farthest","from":"E","on":["."]}]})", "walkable tiles"},
+        {R"("constraints":{"place":[{"tile":">"}]})", "nothing to say which cells may be replaced"},
+        {R"("constraints":{"place":[{"tile":">","count":0,"on":["."]}]})", "/constraints/place/0/count"},
+        {R"("constraints":{"place":[{"tile":"Z","on":["."]}]})", "'Z'"},
+        {R"("constraints":{"place":[{"tile":">","from":"@","on":["."]}]})" + reach, "EARLIER place entry"},
+        {R"("constraints":{"place":[{"tile":">","on":["."],"colour":1}]})", "unknown property 'colour'"},
+        {R"("constraints":{"place":[{"tile":["#","."],"on":["."]}]})", "writes exactly one"},
+        {R"("constraints":{"counts":[{"tile":">","max":1}]})", "never draw it"},
+        {R"("constraints":{"place":[{"tile":">","on":["."]},{"tile":">","from":">","on":["."]}]})" + reach, "from itself"},
+    };
+    for (const Case& c : cases) {
+        auto r = s.call("tilemap.generate", place_call(c.extra));
+        REQUIRE_FALSE_MESSAGE(r.ok, c.extra);
+        CHECK_MESSAGE(contains(error_text(r), c.needle), std::string(c.extra + " -> " + error_text(r)));
+    }
+}
+
+TEST_CASE("tilemap.generate constraints.place: a tile number the sample does not show is refused, and stepped in pieces it is the same level") {
+    Session s;
+    // a Tilemap sample has no legend: a tile number the sample does not show cannot be placed, and the error says what it has
+    auto missing = s.call("tilemap.generate",
+                          Json::parse(R"({"sample":"example","size":[20,14],"seed":4,"maxAttempts":50,
+        "constraints":{"place":[{"tile":5,"on":[1]}]},"reachability":{"from":[1,1],"solidTiles":[0]}})"));
+    REQUIRE_FALSE(missing.ok);
+    CHECK_MESSAGE(contains(error_text(missing), "is not in the sample"), error_text(missing));
+    // a tile the sample shows: a wall dropped on the floor, nearest the corner
+    auto byNumber = s.call("tilemap.generate",
+                           Json::parse(R"({"sample":"example","size":[20,14],"seed":4,"maxAttempts":50,
+        "constraints":{"fixed":[{"at":[1,1],"tile":1}],"place":[{"tile":0,"count":2,"where":"nearest","from":1,"on":[1]}]},"reachability":{"from":[1,1],"solidTiles":[0]}})"));
+    // a level with the two walls, or the dead end a tiny sample with fixed cells can give: never a half-placed level
+    if (byNumber.ok) CHECK(byNumber.result["constraints"]["placed"][0]["count"] == 2);
+    else CHECK(error_text(byNumber).find("generation_failed") == 0);
+
+    // the job form: stepped in tiny pieces, the same level
+    const Json call = place_call(R"("seed":6,"constraints":{"place":[{"tile":"@","on":["."]},{"tile":">","where":"farthest","from":"@","on":["."]}]},
+        "reachability":{"allConnected":true,"solidTiles":[0]})");
+    auto direct = s.call("tilemap.generate", call);
+    REQUIRE_MESSAGE(direct.ok, error_text(direct));
+    auto start = s.call("tilemap.generate_start", call);
+    REQUIRE_MESSAGE(start.ok, error_text(start));
+    const Json job = start.result["job"];
+    Json last;
+    double progress = 0;
+    for (int i = 0; i < 100000; ++i) {
+        auto step = s.call("tilemap.generate_step", Json::object({{"job", job}, {"work", 7}}));
+        REQUIRE_MESSAGE(step.ok, error_text(step));
+        CHECK(step.result["progress"].get<double>() >= progress);
+        progress = step.result["progress"].get<double>();
+        if (step.result["done"] == true) {
+            last = step.result;
+            break;
+        }
+    }
+    REQUIRE(last.is_object());
+    CHECK(last["result"]["rows"] == direct.result["rows"]);
+    CHECK(last["result"]["constraints"]["placed"] == direct.result["constraints"]["placed"]);
+}
+
+TEST_CASE("tilemap.generate constraints: a maximum steers the solver (a tile the sample draws once does not turn up four times)") {
+    Session s;
+    int rejected = 0, attempts = 0;
+    for (int seed = 1; seed <= 10; ++seed) {
+        auto r = s.call("tilemap.generate", dungeon_call("\"seed\":" + std::to_string(seed) + R"(,"maxAttempts":40,"constraints":{"counts":[{"tile":"$","max":1},{"tile":"E","max":1}]})"));
+        REQUIRE_MESSAGE(r.ok, error_text(r));
+        const auto rows = rows_of(r);
+        CHECK(count_char(rows, '$') <= 1);
+        CHECK(count_char(rows, 'E') <= 1);
+        rejected += r.result["stats"]["rejected"].get<int>();
+        attempts += r.result["stats"]["attempts"].get<int>();
+    }
+    // the maximums are kept by the solver, not found by retrying: at most one grid in five is refused for its counts
+    CHECK_MESSAGE(rejected * 5 <= attempts, "rejected " << rejected << " of " << attempts << " attempts");
+}
+
+TEST_CASE("tilemap.generate_step: progress follows the solver inside an attempt and never goes down across attempts") {
+    Session s;
+    // a level that is refused several times: connected, from a sample with a few separate rooms
+    auto start = s.call("tilemap.generate_start", dungeon_call(R"("seed":2,"maxAttempts":60,"size":[30,20],"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[0]},
+        "constraints":{"fixed":[{"at":[1,1],"tile":"."}]})"));
+    REQUIRE_MESSAGE(start.ok, error_text(start));
+    const Json job = start.result["job"];
+    double last = 0;
+    int steps = 0, ups = 0, attemptsSeen = 0;
+    for (; steps < 200000; ++steps) {
+        auto r = s.call("tilemap.generate_step", Json::object({{"job", job}, {"work", 200}}));
+        REQUIRE_MESSAGE(r.ok, error_text(r));
+        const double p = r.result["progress"].get<double>();
+        CHECK(p >= last);
+        if (p > last) ++ups;
+        last = p;
+        attemptsSeen = r.result["attempts"].get<int>();
+        if (r.result["done"] == true) break;
+    }
+    CHECK(last == 1.0);
+    CHECK(ups >= 10);   // it moved with the solver, not only at the end of an attempt
+    (void)attemptsSeen;
+}

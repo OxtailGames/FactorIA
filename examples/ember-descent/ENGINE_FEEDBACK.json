@@ -23,7 +23,11 @@
       "suggestion": "Let counts with max 1 (or an \"exactly\" field) steer the solver, e.g. by banning a tile once its count is reached, or add constraints.place [{tile, where: farthest|nearest|random, from}] that puts a marker on a free cell after the level is finished.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "FactorIA 0.17.0",
+      "notes": [
+        "constraints.counts max now steers the solver (a tile that reached its max is banned from the open cells, with propagation), and constraints.place [{tile, count, where: farthest|nearest|random, from, on}] puts markers on the finished level by walking distance; glyphs that only the legend defines can be placed. The example's scripts/floor_plan.js is gone: the sample's legend names @ and >, and constraints.place puts the player and the stairs."
+      ]
     },
     {
       "id": "FB-0002",
@@ -62,7 +66,11 @@
       "suggestion": "Make progress follow the solver inside an attempt (cells collapsed / cells), or say in docs/SCRIPTING.md that it moves per attempt so a game shows a spinner instead of a bar.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "FactorIA 0.17.0",
+      "notes": [
+        "job.progress follows the solver inside an attempt (cells decided / cells, scaled into the attempt's part of the bar) and never goes down across attempts; docs/AI_GUIDE.md and docs/SCRIPTING.md say so."
+      ]
     }
   ]
 }

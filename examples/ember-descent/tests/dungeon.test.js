@@ -134,6 +134,28 @@ test("the stairs can be reached without crossing a trap, on many run seeds", () 
   }
 });
 
+test("constraints.place puts the stairs on the cell that is farthest from the player by walking", () => {
+  for (const seed of [1, 42, 2026]) {
+    start(seed);
+    const f = floorState();
+    const dist = new Map([[f.player.join(","), 0]]);
+    const queue = [f.player];
+    for (let i = 0; i < queue.length; i++) {
+      const [c, r] = queue[i];
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const k = `${c + dx},${r + dy}`;
+        if (dist.has(k) || f.solid(c + dx, r + dy)) continue;
+        dist.set(k, dist.get(`${c},${r}`) + 1);
+        queue.push([c + dx, r + dy]);
+      }
+    }
+    // The engine measures with the same 4-way steps (no diagonals); the stairs only replace plain floor, so a coin or a
+    // trap cell farther away does not count.
+    const plain = [...dist].filter(([k]) => !f.coins.has(k) && !f.traps.has(k)).map(([, d]) => d);
+    expect(dist.get(f.stairs.join(","))).toBe(Math.max(...plain));
+  }
+});
+
 test("the same run seed is the same dungeon, another seed is another one", () => {
   start(77);
   const a = floorState();
@@ -154,9 +176,22 @@ test("a key press moves one cell; a wall stops the player", () => {
   const open = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dy]) => !f.solid(c + dx, r + dy) && !f.traps.has(`${c + dx},${r + dy}`));
   walk([open]);
   expect(floorState().player).toEqual([c + open[0], r + open[1]]);
-  const wall = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dy]) => f.solid(c + open[0] + dx, r + open[1] + dy));
-  walk([wall]);
-  expect(floorState().player).toEqual([c + open[0], r + open[1]]); // blocked: it did not move
+  // The player stands anywhere on the floor now, so walk straight along a free line until a wall is next: the run of
+  // free, trap-free cells ends at a wall in at least one of the four directions (the border is solid all round).
+  const g = floorState();
+  const [pc, pr] = g.player;
+  const runs = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => {
+    let n = 0;
+    while (!g.solid(pc + (n + 1) * dx, pr + (n + 1) * dy) && !g.traps.has(`${pc + (n + 1) * dx},${pr + (n + 1) * dy}`)) n++;
+    return { dx, dy, n, wall: g.solid(pc + (n + 1) * dx, pr + (n + 1) * dy) };
+  });
+  const line = runs.find((run) => run.wall);
+  expect(line).toBeDefined();
+  walk(Array.from({ length: line.n }, () => [line.dx, line.dy]));
+  const at = [pc + line.n * line.dx, pr + line.n * line.dy];
+  expect(floorState().player).toEqual(at);
+  walk([[line.dx, line.dy]]);
+  expect(floorState().player).toEqual(at); // blocked: it did not move
 });
 
 test("walking onto a coin picks it up for 10 points", () => {
