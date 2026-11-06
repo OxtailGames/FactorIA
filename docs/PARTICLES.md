@@ -347,15 +347,17 @@ Three commands check an effect before it ships. All three read the file on disk 
   area of the view: 1.0 is one screenful of particles on top of each other), the emitter count, a timeline of at most 24 samples, and
   `findings` against the limits of a `preset`: `phone` (300 particles, 1.5 screens of overdraw, 5 emitters) or `desktop` (2000, 4.0, 8). Each finding
   has the JSON `pointer`, a `message`, a `hint` and a `fix` that is a `vfx.edit` call which moves the effect toward the limit (run `vfx.budget` again to see where it lands); `fix` is `null` when no single edit would do (the other emitters already hold the budget, or the edit would leave a `maxParticles` under 4 or a `startSize` under 0.5) and the `hint` says what to change instead. The measuring stops at 20 million particle updates (a `note` and `truncated` say so). The measure is approximate: it does not count
-  ribbon trails or the glow of bloom, and a 3D emitter (`is3D`) counts its particles but not its overdraw, because that depends on
-  the camera (the result says so in `notes`).
+  ribbon trails or the glow of bloom. A 3D emitter (`is3D`) has its size in world units, so its overdraw is measured through the
+  project's **main camera** (the active primary `Camera` with the lowest `depth` of the loaded scene, perspective or orthographic): the
+  effect is placed 5 m in front of it on its axis, each particle's quad is a camera-facing square of its size, a quad wholly outside the view or behind the
+  near plane costs nothing and one partly outside counts whole. `camera` in the result says what was used (`{used: true, projection, distance, fov | height}`);
+  with no camera (no scene loaded, or none in it) the particles are counted but the overdraw is 0 and not measured, `camera` is `{used: false, reason}` and `notes` says so.
 - `vfx.filmstrip {"effect", "position"?, "frames"?, "everyFrames"?, "size"?, "region"?, "zoom"?, "columns"?, "path"?}` plays the effect in the
   running game and captures a contact sheet of `frames` pictures (2 to 64, default 12) spread over the effect's life (or every `everyFrames`
   frames), each labelled with its frame number and time in milliseconds (`f3 +250`). It needs a renderer; without one it fails and points at `vfx.budget`
   and `vfx.check`. **It steps the game** to get the frames (the strip covers the effect's length, at most 3 s by default), so the scene
-  moves on; the effect's sound and command parts really act on the game (a `feel.hitStop` also stretches the labelled times, an `audio.music` keeps playing), and it plays the effect at `position` (default: the world point in the middle of the view, which is only the right place in a 2D game: **in a
-  3D game give `position`**). The effect it made is always removed afterwards. The picture is a `$image` (a temporary file, or `path`).
-- `vfx.review {"effect", "position"?, "preset"?, "frames"?, "focus"?, "picturePath"?}` is the art critic. It runs `vfx.budget` and `vfx.filmstrip`, shows the
+  moves on; the effect's sound and command parts really act on the game (a `feel.hitStop` also stretches the labelled times, an `audio.music` keeps playing), and it plays the effect at `position`. Without `position` it plays at the world point in the middle of the view in a 2D game, and in a 3D game at the point 5 m in front of the main 3D camera, on its view axis; the result says where it played (`position`, `positionDefault`) and, when `position` was left out, which default it used (`positionNote`). Give `position` to film the effect somewhere else, for instance on the gem it belongs to. The effect it made is always removed afterwards. The picture is a `$image` (a temporary file, or `path`).
+- `vfx.review {"effect", "position"?, "preset"?, "frames"?, "focus"?, "picturePath"?}` is the art critic. It runs `vfx.budget` and `vfx.filmstrip` (the same default `position` as `vfx.filmstrip`, reported in its `filmstrip` section), shows the
   strip, the document and the budget to the vision model of the `fast` role (docs/AI_PROVIDERS.md; without one it fails with `no_model` and nothing
   is played) and returns `verdict` (`good`, `fix` or `redo`), a short `summary`, a `checklist` (readability, timing, palette,
   overdraw, each with a `grade` and a `note`) and `fixes`, each a `what`, a `where` (JSON pointer) and a `command` (usually a `vfx.edit` call). A
