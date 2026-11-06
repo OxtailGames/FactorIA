@@ -1600,18 +1600,44 @@ void Editor::anim3d_inspector() {
         ImGui::SetNextItemWidth(110);
         ImGui::InputText("##a3_evnew", &u.eventName);
         at_track("a3:event:newname");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("The game event name world.on(name, fn) listens to. Leave it empty to add an event that only runs the feel actions.");
         ImGui::SameLine();
-        if (ImGui::Button("Add at playhead") && !u.eventName.empty()) {
-            const double t = anim3d_snap(u.playhead);
-            const Anim3DEdit e = m.add_event(t, u.eventName);
-            anim3d_commit(e);
-            if (e.ok && m.clip()) {
-                u.selectedEvent = -1;
-                for (std::size_t i = 0; i < m.clip()->events.size(); ++i)
-                    if (std::fabs(double(m.clip()->events[i].t) - t) < 0.0006 && m.clip()->events[i].name == u.eventName) u.selectedEvent = int(i);
+        if (ImGui::Button("Add at playhead")) {
+            Json feel;
+            bool good = true;
+            if (!trim(u.newEventFeel).empty()) {
+                feel = Json::parse(u.newEventFeel, nullptr, false);
+                good = !feel.is_discarded() && (feel.is_object() || feel.is_array());
+            }
+            if (!good) {
+                u.newEventError = "The feel actions must be a JSON object or array, e.g. {\"action\":\"hitStop\"}.";
+            } else if (u.eventName.empty() && feel.is_null()) {
+                u.newEventError = "Give the event a name or feel actions: an event with neither does nothing.";
+            } else {
+                u.newEventError.clear();
+                const double t = anim3d_snap(u.playhead);
+                const Anim3DEdit e = m.add_event(t, u.eventName, Json::object(), feel);
+                anim3d_commit(e);
+                if (!e.ok) u.newEventError = e.error;
+                if (e.ok && m.clip()) {
+                    u.selectedEvent = -1;
+                    for (std::size_t i = 0; i < m.clip()->events.size(); ++i)
+                        if (std::fabs(double(m.clip()->events[i].t) - t) < 0.0006 && m.clip()->events[i].name == u.eventName) u.selectedEvent = int(i);
+                }
             }
         }
         at_track("a3:event:add");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputTextWithHint("##a3_evnewfeel", "feel (JSON)", &u.newEventFeel);
+        at_track("a3:event:newfeel");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Optional game feel actions: one JSON object or an array, e.g. {\"action\":\"hitStop\",\"duration\":0.06}. "
+                              "With no name the event only runs them (docs/GAME_FEEL.md).");
+        if (!u.newEventError.empty()) {
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextColored(kBad, "%s", u.newEventError.c_str());
+            ImGui::PopTextWrapPos();
+        }
     }
 
     // ---- generate / retarget

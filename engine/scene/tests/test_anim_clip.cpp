@@ -855,6 +855,18 @@ TEST_CASE("feel actions as data: push local follows the facing, spawn instantiat
     feel_update(rig.world, 0.1, 0.1);
     CHECK(rig.world.feel().warnedClipActions.size() == 1);
 
+    // a prefab that loads only in part (its child has a component that does not exist) leaves nothing behind
+    p.write("prefabs/half.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"half","components":{"Transform":{}},
+        "children":[{"id":"half_child","components":{"NoSuchComponent":{}}}]}})");
+    rig.world.flush();   // the children of the spark that ended above go on the second flush
+    const std::size_t before = rig.world.entity_count();
+    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/half.prefab.json"})")).ok());
+    feel_update(rig.world, 0.1, 0.1);
+    rig.world.flush();
+    CHECK(rig.world.find_by_id("half").is_null());
+    CHECK(rig.world.find_by_id("half_child").is_null());
+    CHECK(rig.world.entity_count() == before);
+
     // sound: validated, queued, taken once; the queue is bounded
     CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"sound","path":"audio/hit.wav","volume":0.5,"pitch":1.2,"pan":-1,"bus":"ui"})")).ok());
     CHECK_FALSE(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"sound","path":"audio/hit.wav","pan":3})")).ok());
@@ -909,7 +921,7 @@ TEST_CASE("inline Animator events with the wrong JSON types never throw in the f
     CHECK(said.size() <= 8);
     bool pointer = false, hint = false;
     for (const std::string& s : said) {
-        pointer = pointer || s.find("events/0/name") != std::string::npos;
+        pointer = pointer || s.find("events/0") != std::string::npos;
         hint = hint || s.find("hint:") != std::string::npos;
     }
     CHECK(pointer);
@@ -939,14 +951,19 @@ TEST_CASE("check_animator_events: the pointer, the field and the fix of every mi
     CHECK_FALSE(check_animator_events(Json::parse(R"({"clip":"walk"})"), "/events").empty());
 }
 
-TEST_CASE("spawn actions: at most kMaxQueuedSpawns wait for a frame, the rest are dropped with one warning") {
+TEST_CASE("spawn actions: at most kMaxQueuedSpawns wait for a frame, the rest are refused with an error") {
     TempProject p;
     p.write("prefabs/spark.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"spark","components":{"Transform":{}}}})");
     Rig rig;
-    for (std::size_t i = 0; i < kMaxQueuedSpawns + 10; ++i)
+    for (std::size_t i = 0; i < kMaxQueuedSpawns; ++i)
         CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json","lifetime":1})")).ok());
+    for (int i = 0; i < 10; ++i) {
+        const auto refused = feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json","lifetime":1})"));
+        REQUIRE_FALSE(refused.ok());   // the caller is told: a script's feel.spawn throws, a clip event logs it
+        CHECK(refused.error().message.find("already waiting") != std::string::npos);
+        CHECK_FALSE(refused.error().hint.empty());
+    }
     CHECK(rig.world.feel().spawns.size() == kMaxQueuedSpawns);
-    CHECK(rig.world.feel().warnedClipActions.size() == 1);
     feel_update(rig.world, 0.016, 0.016);
     CHECK(rig.world.feel().spawns.empty());
     CHECK(rig.world.feel().lifetimes.size() == kMaxQueuedSpawns);

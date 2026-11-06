@@ -4443,6 +4443,28 @@ void Editor::at_build_tools_script() {
             at_check(at_visible("anim:event:0"), "...and the ruler shows it");
         });
 
+        // ---- the event popup says what is wrong inside the popup, and leaves the panel's own error line alone
+        scroll_until_at([] { return std::string("anim:addevent"); }, 6, rows_point, 100000, -1e9f);
+        click_widget("anim:addevent");
+        wait_until([this] { return at_visible("anim:event:ok"); });
+        step(2, [this] { anim_.error = "panel message"; });
+        for (int i = 0; i < 5; ++i) {   // the name box has the focus and holds "event": its own edit buffer, so it is emptied with the keys
+            step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_BACKSPACE); });
+            step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_BACKSPACE); });
+        }
+        step(2, [this] { at_check(anim_.eventName.empty(), "Backspace emptied the name box"); });
+        click_widget("anim:event:ok");
+        step(3, [this, clip_now] {
+            at_check(anim_.eventError.find("name or game feel") != std::string::npos, "an event with no name and no actions is refused inside the popup: " + anim_.eventError);
+            at_check(anim_.error == "panel message", "...and the panel's own error line is not touched");
+            const auto clip = clip_now();
+            at_check(clip && clip->events.size() == 1, "...nothing was added");
+            anim_.error.clear();
+        });
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ESCAPE); });
+        step(4, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ESCAPE); });
+        wait_until([this] { return !at_visible("anim:event:ok"); });
+
         // ---- an event that runs a game feel action: a preset button fills the box, the command checks it and the clip keeps it
         scroll_until_at([] { return std::string("anim:addevent"); }, 6, rows_point, 100000, -1e9f);
         click_widget("anim:addevent");
@@ -7683,7 +7705,7 @@ void Editor::at_build_tools_script() {
     {
         struct Ps {
             size_t undo = 0;
-            std::string original, afterGradient, afterCurve;
+            std::string original, afterGradient;
             double len = 0, t1 = 0;
             int count = 0;
             float x0 = 0, y0 = 0;
@@ -7815,7 +7837,6 @@ void Editor::at_build_tools_script() {
             at_check(c.is_array() && c.size() == 1, "a click on the size curve added one key to the document");
             at_check(c.is_array() && !c.empty() && c[0].is_array() && c[0][0].get<double>() > 0.55, "...which the drag moved to the right: " + c.dump());
             at_check(undo_depth() == ps->undo + 2, "...as ONE more undo step");
-            ps->afterCurve = emitter_of().dump();
         });
         drag("pt:curve:sizeCurve", Vec2{-80, 0}, Vec2{0, 0});
         step(3, [this, ps, emitter_of] {
@@ -7852,6 +7873,20 @@ void Editor::at_build_tools_script() {
         });
         for (int i = 0; i < 4; ++i) step(3, [this] { undo(); });
         step(3, [this, ps, rel, read_text] { at_check(read_text(rel) == ps->original, "four more Undos: the file is as New wrote it again"); });
+
+        // ---- the file is changed by another program: Redo refuses to overwrite it, keeps the step, and Reload takes the file as it is
+        step(2, [this, ps, rel, read_text] {
+            ps->count = int(redo_.size());
+            write_file(projectDir_ + "/" + rel, read_text(rel) + "\n");
+            redo();   // in the same frame: a later one could find the panel's poll has already taken the change (and the step with it)
+        });
+        step(3, [this, ps, rel, read_text] {
+            at_check(particle_.model->conflict(), "Redo of a file that was changed outside the editor was refused");
+            at_check(read_text(rel) == ps->original + "\n", "...the other program's change is still in the file");
+            at_check(int(redo_.size()) == ps->count, "...and the step stays on the Redo stack");
+            particle_.model->reload();
+            at_check(!particle_.model->conflict(), "Reload took the file as it is and cleared the warning");
+        });
 
         step(2, [this, rel] {
             showParticle_ = false;
@@ -8061,6 +8096,52 @@ void Editor::at_build_tools_script() {
         wait_until([this] { return anim3d_.playhead > 0.05 && anim3d_.playing; });
         click("a3:play");
         step(3, [this] { at_check(!anim3d_.playing, "Play ran the playhead and a second click stopped it"); });
+
+        // ---- an event that only runs game feel actions: typed into the new-event row, with no name
+        wait_until([this] { return at_visible("a3:event:newfeel") && at_visible("a3:event:add"); });
+        step(2, [this, os] {
+            anim3d_.eventName.clear();
+            anim3d_.newEventFeel.clear();
+            os->undo = undo_depth();
+        });
+        click("a3:event:add");
+        step(3, [this, os] {
+            at_check(undo_depth() == os->undo && !anim3d_.newEventError.empty(), "Add with no name and no feel actions was refused, with the reason");
+        });
+        click("a3:event:newfeel");
+        step(3, [this] {
+            for (char c : std::string("[{\"action\":\"hitStop\"")) inject_char(unsigned(static_cast<unsigned char>(c)));
+        });
+        click("a3:event:add");
+        step(3, [this, os] {
+            at_check(undo_depth() == os->undo && anim3d_.newEventError.find("JSON") != std::string::npos, "feel actions that are not JSON were refused, naming JSON");
+        });
+        click("a3:event:newfeel");   // the click on Add took the focus away: back in the box, the cursor at the end of the text
+        step(3, [this] {
+            for (char c : std::string(",\"duration\":0.05}]")) inject_char(unsigned(static_cast<unsigned char>(c)));
+        });
+        click("a3:event:add");
+        wait_until([this, os, settled] { return settled() && undo_depth() == os->undo + 1; });
+        step(3, [this] {
+            const Anim3DModel& m = *anim3d_.model;
+            const ClipEvent* found = nullptr;
+            if (m.clip())
+                for (const ClipEvent& ev : m.clip()->events)
+                    if (ev.name.empty()) found = &ev;
+            at_check(found && found->feel.size() == 1 && found->feel[0].value("action", "") == "hitStop", "Add made a nameless event that holds the hitStop action");
+            at_check(anim3d_.newEventError.empty(), "...and cleared the error");
+            at_check(anim3d_.selectedEvent >= 0 && anim3d_.eventFeel.find("hitStop") != std::string::npos, "...the new event is the picked one and its feel field shows the actions");
+        });
+        step(2, [this] { undo(); });
+        wait_until([this, os, settled] { return settled() && undo_depth() == os->undo; });
+        step(3, [this] {
+            bool any = false;
+            if (anim3d_.model->clip())
+                for (const ClipEvent& ev : anim3d_.model->clip()->events) any = any || ev.name.empty();
+            at_check(!any, "Undo took the feel-only event back out of the clip");
+            anim3d_.selectedEvent = -1;
+            anim3d_.newEventFeel.clear();
+        });
 
         // ---- the filmstrip and the weights
         click("a3:filmstrip");

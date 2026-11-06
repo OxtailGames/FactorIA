@@ -240,3 +240,43 @@ TEST_CASE("validate: a spawn without a lifetime is a warning unless the prefab e
     CHECK(firstOne);
     for (const ValidationIssue& e : r.errors) CHECK_MESSAGE(e.message.find("no `lifetime`") == std::string::npos, e.to_string());
 }
+
+TEST_CASE("validate: a spawn whose prefab instances another prefab that ends itself is not a warning") {
+    testing::TempDir tmp;
+    const stdfs::path dir = make_event_project(tmp, R"([
+        {"clip":"walk","time":0.1,"feel":{"action":"spawn","prefab":"prefabs/wrapper.prefab.json"}},
+        {"clip":"walk","time":0.2,"feel":{"action":"spawn","prefab":"prefabs/loop_a.prefab.json"}},
+        {"clip":"walk","time":0.3,"feel":{"action":"spawn","prefab":"prefabs/vfx.prefab.json"}}])");
+    testing::write_all(dir / "prefabs/inner.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"i","components":{"ParticleEmitter":{"autoDestroy":true}}}})");
+    testing::write_all(dir / "prefabs/wrapper.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"w","components":{"Transform":{}},
+        "children":[{"id":"w_in","prefab":"prefabs/inner.prefab.json"}]}})");
+    testing::write_all(dir / "prefabs/loop_a.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"a","prefab":"prefabs/loop_b.prefab.json"}})");
+    testing::write_all(dir / "prefabs/loop_b.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"b","prefab":"prefabs/loop_a.prefab.json"}})");
+    testing::write_all(dir / "prefabs/vfx.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"v","components":{"Vfx":{"effect":"fx/x.vfx.json","autoDestroy":true}}}})");
+    const ValidationReport r = validate_project(dir.string());
+    int warned = 0;
+    std::string which;
+    for (const ValidationIssue& w : r.warnings)
+        if (w.message.find("no `lifetime`") != std::string::npos) {
+            ++warned;
+            which += w.pointer + " ";
+        }
+    CHECK_MESSAGE(warned == 1, which);   // only the two prefabs that instance each other never end (the cycle ends the walk, no hang)
+    CHECK(which.find("events/1/") != std::string::npos);
+}
+
+TEST_CASE("validate: a sound that exists only as its .qoa twin is not reported missing") {
+    testing::TempDir tmp;
+    const stdfs::path dir = make_event_project(tmp, R"([
+        {"clip":"walk","time":0.1,"feel":{"action":"sound","path":"audio/step.wav"}},
+        {"clip":"walk","time":0.2,"feel":{"action":"sound","path":"audio/gone.wav"}}])");
+    testing::write_all(dir / "audio/step.wav.qoa", "qoa");
+    const ValidationReport r = validate_project(dir.string());
+    bool step = false, gone = false;
+    for (const ValidationIssue& e : r.errors) {
+        if (e.message.find("'audio/step.wav'") != std::string::npos) step = true;   // (the candidates of the other error name the twin)
+        if (e.message.find("'audio/gone.wav'") != std::string::npos) gone = true;
+    }
+    CHECK_FALSE(step);
+    CHECK(gone);
+}

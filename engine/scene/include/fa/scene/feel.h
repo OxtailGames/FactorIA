@@ -165,7 +165,7 @@ struct FeelHitStop {
 // A sound waiting for the audio system (FeelState::sounds).
 struct FeelSound {
     SoundOptions options;
-    std::string source;       // id of the entity whose action asked for it ("" when none)
+    std::string source;       // id of the entity whose action asked for it ("" when none): the audio play log shows it as the source of the sound
 };
 
 // An effect prefab waiting to be instantiated, and a spawned entity that is destroyed when its time is up.
@@ -191,6 +191,7 @@ public:
     std::vector<FeelSpawn> spawns;       // `spawn` actions waiting for feel_update (a spawn never happens inside an iteration)
     std::vector<FeelLifetime> lifetimes; // spawned effects with a `lifetime`
     std::set<std::string> warnedClipActions;  // clip-event actions that failed and said so (once each per scene)
+    std::set<std::string> failedSounds;       // `sound` paths the audio system could not play in this scene: not tried (decoded, listed) again until the scene changes
 
     // The player's choices; they survive World::clear() (they are not part of a scene). null = follow the system.
     std::optional<bool> reduceMotionSetting;
@@ -224,7 +225,7 @@ Result<void> feel_flash(World& w, Entity e, const FlashOptions& o);
 Result<void> feel_knockback(World& w, Entity e, const KnockbackOptions& o);
 Result<void> feel_squash(World& w, Entity e, const SquashOptions& o);
 // Queues the spawn of `o.prefab` at `e`'s position (+ offset), or at `o.offset` when `e` is null; feel_update instantiates it. The prefab path is checked when it
-// is instantiated (a missing file is logged once), not here. At most kMaxQueuedSpawns per frame (the rest are dropped, with one warning per scene).
+// is instantiated (a missing file is logged once), not here. At most kMaxQueuedSpawns per frame: past that the call returns an error that says so (a clip event logs it once per scene; the effect is not queued).
 Result<void> feel_spawn(World& w, Entity e, const SpawnOptions& o);
 // Queues a sound for Audio::update. `source` is the entity the action belongs to (null = none).
 Result<void> feel_sound(World& w, Entity source, const SoundOptions& o);
@@ -232,7 +233,7 @@ Result<void> feel_sound(World& w, Entity source, const SoundOptions& o);
 // that nobody drains, e.g. a headless test without audio, does not grow without limit: the oldest are dropped).
 std::vector<FeelSound> feel_take_sounds(World& w);
 inline constexpr std::size_t kMaxQueuedSounds = 64;
-// At most this many `spawn` actions wait for one feel_update; the extra ones of that frame are dropped (and said once per scene).
+// At most this many `spawn` actions wait for one feel_update; the extra ones of that frame are refused with an error.
 inline constexpr std::size_t kMaxQueuedSpawns = 64;
 // Stops everything of `e` (null = every effect of the world, hit-stops included). Flash, squash and shake end at once.
 void feel_cancel(World& w, Entity e);
