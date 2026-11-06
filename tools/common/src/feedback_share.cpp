@@ -294,7 +294,9 @@ std::string key_from_generic(std::string p, bool caseInsensitive) {
 // of the case does not matter, so two spellings of one folder read as one key.
 std::string share_project_key_text(const std::string& key) {
     std::string k = key_from_generic(key, kPathsCaseInsensitive);
-    if (!kPathsCaseInsensitive && !k.empty() && volume_ignores_case(path_from_text(k))) k = to_lower(k);
+    if constexpr (!kPathsCaseInsensitive) {
+        if (!k.empty() && volume_ignores_case(path_from_text(k))) k = to_lower(k);
+    }
     return k;
 }
 
@@ -1591,14 +1593,14 @@ Result<void> set_project_share_mode(const ShareEnv& env, const std::string& proj
     // Items whose project is this folder under any spelling (another case, a symlink, a mount point) count, not only the ones
     // whose key is equal to the one now stored.
     const stdfs::path folder{projectDir};
-    auto is_this_project = [&](const std::string& itemKey, const std::string& itemFolder) {
+    auto is_this_project = [&](const std::string& itemKey, const stdfs::path& itemFolder) {
         return itemKey == key || same_folder(itemKey, itemFolder, key, folder);
     };
     const bool changed = apply_mode_to_items(box, now, mode.has_value(), [&](const OutboxItem& it) {
         if (!it.projectKey.empty()) return is_this_project(it.projectKey, path_from_text(it.projectKey));
         if (now != ShareMode::Never) return false;  // an older item: only to drop it
         const std::string itemDir = share_project_dir_of_file(it.file);
-        return is_this_project(share_project_key(itemDir), itemDir);
+        return is_this_project(share_project_key(itemDir), stdfs::path(itemDir));  // native narrow text, like share_project_dir_of_file
     }, skipped);
     if (changed)
         if (auto sv = save_outbox(env, box); !sv.ok()) return sv;
