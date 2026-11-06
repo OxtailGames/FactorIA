@@ -253,6 +253,20 @@ TEST_CASE("vfx: the schema file lists every key the parser accepts") {
 
 // ----------------------------------------------------------------------------------------------------------- loading --
 
+TEST_CASE("vfx: the cache is used for a file with no modification time too, checked by its content") {
+    const std::int64_t kNow = 100'000'000'000;   // ns; the entry below was made for mtime 1 s: settled
+    // a file the backend gives no time for (an APK asset): never parsed again while its size and text are the same
+    CHECK(vfx_cache_use(-1, 120, kNow, true, -1, 120, false) == VfxCacheUse::Compare);
+    CHECK(vfx_cache_use(-1, 121, kNow, true, -1, 120, false) == VfxCacheUse::Parse);    // another size: read and parse
+    CHECK(vfx_cache_use(-1, 120, kNow, false, 0, 0, false) == VfxCacheUse::Parse);      // nothing cached yet
+    CHECK(vfx_cache_use(-1, 120, kNow, true, -1, 120, true) == VfxCacheUse::Parse);     // the caller wants the issues
+    // a file with a time: trusted once left alone for two seconds, compared while it is younger, parsed when the time or size moved
+    CHECK(vfx_cache_use(1'000'000'000, 120, kNow, true, 1'000'000'000, 120, false) == VfxCacheUse::Trust);
+    CHECK(vfx_cache_use(kNow - 500'000'000, 120, kNow, true, kNow - 500'000'000, 120, false) == VfxCacheUse::Compare);
+    CHECK(vfx_cache_use(2'000'000'000, 120, kNow, true, 1'000'000'000, 120, false) == VfxCacheUse::Parse);
+    CHECK(vfx_cache_use(-1, 120, kNow, true, 1'000'000'000, 120, false) == VfxCacheUse::Parse);   // the time vanished: not the same file
+}
+
 TEST_CASE("vfx: load_vfx reads a file, shares it, and reads it again when it changed") {
     TempDir tmp("fa_vfx_load");
     const std::string path = tmp.file("hit.vfx.json");

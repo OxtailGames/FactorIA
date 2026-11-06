@@ -409,28 +409,39 @@ std::int64_t now_ns() { return fs::file_time_ns(std::filesystem::file_time_type:
 
 }  // namespace
 
+VfxCacheUse vfx_cache_use(std::int64_t mtime, std::int64_t size, std::int64_t nowNs, bool hasEntry, std::int64_t entryMtime, std::int64_t entrySize,
+                          bool wantIssues) {
+    if (!hasEntry || wantIssues || mtime != entryMtime || size != entrySize) return VfxCacheUse::Parse;
+    // No time (-1: an APK asset, a backend without one) is never "settled": the text is compared, which costs a read and no parse.
+    const bool settled = mtime >= 0 && nowNs - mtime > kSettleNs;
+    return settled ? VfxCacheUse::Trust : VfxCacheUse::Compare;
+}
+
 Result<std::shared_ptr<const VfxDoc>> load_vfx(std::string_view pathView, std::vector<VfxIssue>* issues) {
     const std::string path(pathView);
     const std::int64_t mtime = fs::modified_time(path);
     const std::int64_t size = fs::file_size(path);
-    const bool settled = mtime >= 0 && now_ns() - mtime > kSettleNs;
     std::shared_ptr<const VfxDoc> cached;
     std::uint64_t cachedHash = 0;
-    if (mtime >= 0) {
+    VfxCacheUse use = VfxCacheUse::Parse;
+    {
         std::lock_guard lock(g_mutex);
         auto it = cache().find(path);
-        if (it != cache().end() && it->second.mtime == mtime && it->second.size == size) {
-            cached = it->second.doc;
-            cachedHash = it->second.hash;
+        if (it != cache().end()) {
+            use = vfx_cache_use(mtime, size, now_ns(), true, it->second.mtime, it->second.size, issues != nullptr);
+            if (use != VfxCacheUse::Parse) {
+                cached = it->second.doc;
+                cachedHash = it->second.hash;
+            }
         }
     }
-    if (cached && settled && !issues) return cached;
+    if (use == VfxCacheUse::Trust) return cached;
     auto text = fs::read_text(path);
     if (!text)
         return make_error(path + ": cannot read the effect: " + text.error().message,
                           text.error().hint.empty() ? "Effects are *.vfx.json files; check the path." : text.error().hint);
     const std::uint64_t hash = content_hash(*text);
-    if (cached && !issues && hash == cachedHash) return cached;
+    if (cached && hash == cachedHash) return cached;
     auto json = parse_json(*text, path);
     if (!json) return json.error();
     auto parsed = parse_vfx(*json, path, issues);
