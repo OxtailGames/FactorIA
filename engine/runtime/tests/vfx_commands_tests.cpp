@@ -155,8 +155,10 @@ TEST_CASE("vfx.play: the parts happen at their frames, the sound reaches the mix
 
     e.step(60);  // well past the end at 0.3 s: the sound played once, the effect is no longer playing
     CHECK(c.call("audio.log", Json::object()).result["count"] == 1);
-    for (const Json& fx : c.call("vfx.list", Json::object()).result["playing"])
-        CHECK(fx["id"] != id);
+    // Keep the result: a range-for over a member of the temporary call result would read it after it is destroyed.
+    const auto after = c.call("vfx.list", Json::object());
+    REQUIRE(after.ok);
+    for (const Json& fx : after.result["playing"]) CHECK(fx["id"] != id);
     e.shutdown();
 }
 
@@ -415,7 +417,9 @@ TEST_CASE("vfx.filmstrip films an effect, steps the game and leaves no effect be
     if (!r.ok) {
         // No graphics on this machine: the error says what works without them.
         CHECK(r.error.dump().find("vfx.budget") != std::string::npos);
-        for (const Json& fx : c.call("vfx.list", Json::object()).result["playing"]) CHECK(fx["effect"] == "assets/vfx/torch.vfx.json");
+        const auto left = c.call("vfx.list", Json::object());  // kept: the loop must not run over a destroyed temporary
+    REQUIRE(left.ok);
+    for (const Json& fx : left.result["playing"]) CHECK(fx["effect"] == "assets/vfx/torch.vfx.json");
         e.shutdown();
         return;
     }
@@ -428,7 +432,9 @@ TEST_CASE("vfx.filmstrip films an effect, steps the game and leaves no effect be
     CHECK(e.frame_index() - before == 1 + 3 * 3);
     CHECK(r.result["frames"][0]["t"].get<double>() < r.result["frames"][3]["t"].get<double>());
     // The effect that was filmed is gone, whatever its length: only the scene's own torch plays.
-    for (const Json& fx : c.call("vfx.list", Json::object()).result["playing"]) CHECK(fx["effect"] == "assets/vfx/torch.vfx.json");
+    const auto left = c.call("vfx.list", Json::object());  // kept: the loop must not run over a destroyed temporary
+    REQUIRE(left.ok);
+    for (const Json& fx : left.result["playing"]) CHECK(fx["effect"] == "assets/vfx/torch.vfx.json");
     // Errors teach and do not step the game.
     const auto frame = e.frame_index();
     CHECK_FALSE(c.call("vfx.filmstrip", Json::parse(R"({"effect":"assets/vfx/nope.vfx.json"})")).ok);

@@ -5470,6 +5470,10 @@ void Editor::at_build_tools_script() {
         click("share:settings:sendnow");
         wait_until([x, shared_of] { return shared_of(x->alwaysId) == "sent"; });
         step(3, [this, reports] { at_check(reports() >= 3, "Send now sent what was waiting once the server answered"); });
+        // The upload thread ends a few frames after the entry reads "sent" (later on a slow Windows run); as it finishes, the
+        // window's outbox rows change and move the radio buttons, so a click aimed at the old place would miss Never.
+        wait_until([this] { return !share_.flushRunning; });
+        step(2, [] {});
         click("share:settings:mode:never");
         step(3, [this, grow_panel_row] {
             at_check(load_share_settings(share_env()).mode == ShareMode::Never && load_outbox(share_env()).items.empty(),
