@@ -3,6 +3,7 @@
 // (headless) and vfx.filmstrip films one playing in the game. The effect itself is fa/scene/vfx.h.
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <format>
 #include <optional>
 
@@ -446,7 +447,7 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
               if (played->is_null())
                   throw CommandError("unavailable", "vfx.filmstrip: the game already plays the most effects it allows.", "Wait for them to end (vfx.list) or vfx.stop some.");
               const Entity fx = *played;
-              const int startFrame = I.frame;
+              const std::uint64_t startFrame = I.frame;
               std::vector<Image> shots;
               std::vector<std::string> labels;
               Json frames = Json::array();
@@ -460,7 +461,7 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
                       failed = true;
                       break;
                   }
-                  const int offset = I.frame - startFrame;
+                  const int offset = static_cast<int>(I.frame - startFrame);
                   const double seconds = double(offset) / hz;
                   labels.push_back("f" + std::to_string(i) + " +" + std::to_string(int(std::lround(seconds * 1000.0))));
                   frames.push_back(Json::object({{"index", i}, {"frame", I.frame}, {"t", std::round(seconds * 1000.0) / 1000.0}}));
