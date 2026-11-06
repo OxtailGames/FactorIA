@@ -585,6 +585,49 @@ without a graphics device it fails with `no_gpu` and says to use `assets.contact
 - The size of the screens comes from the resolution you ask for, not from the project's design resolution.
 
 The result has `asset`, `scene`, `screens`, `sceneFileChanged: false`, `warnings` and `nextSteps`.
+### Choosing between candidates: review.sheet and review.pick
+
+`review.sheet {"items":[{"image":"assets/hero_a.png","candidate":true},{"image":"assets/hero_b.png","candidate":true}],"label":"Which hero?"}`
+puts N candidates on ONE picture, each in a cell with a big number (1..N, in the order of `items`), its label and one line of facts, so
+a person answers with one number. The picture comes back as `$image` and is kept in the project: `.factoria/review/sheet-NNNN/` holds
+`sheet.png`, `thumbs/NN.png` (each thumbnail alone) and `manifest.json`. The guide to the loop (make N, show one sheet, ask for one
+number) is [AI_GUIDE.md](AI_GUIDE.md), section 9.32.
+
+Each item has exactly one of these keys, plus `label` (default: the file name) and `candidate`:
+
+| Key | What is drawn | The line of facts | GPU |
+|---|---|---|---|
+| `image` | the picture as it is (shrunk with averaging, grown by a whole factor with hard pixels) | size, colours (counted up to 1000), % clear | no |
+| `vector` | the .svg rasterized like `assets.rasterize_svg` | size, shapes and colours (counted from the file's text) | no |
+| `level` | `tilemap.generate` with these arguments (`seeds`: one thumbnail per seed); one square per cell, a letter on it when it is big enough | size, seed, tries | no |
+| `scene` | the scene started and run for `steps` frames (default 2), then captured | entities, picture size | yes |
+| `prefab` | spawned on a plain stage and framed: 2D from its visuals, 3D turned three quarters under a studio light | entities, size | yes |
+| `vfx` | the middle picture of `vfx.filmstrip`, over a dark stage or the scene given as `stage` | peak particles, length | yes |
+
+- Items that need a GPU fail the whole command with `no_gpu` before any file is written, like `assets.preview_in_scene`; images, vector
+  art and levels need none, and the same input gives the same thumbnails on every machine.
+- Limits: 48 items (a level's `seeds` count one each), 12 columns, a thumbnail of 64 to 512 pixels (`thumbSize`; by default chosen
+  from the number of items, about 1800 pixels wide) and a sheet of at most 8192 pixels a side and 16 million pixels. A level thumbnail
+  is generated up to 1024 cells a side, with `maxWork` 20 million unless the item sets it. A request over a limit, a level with `into`,
+  or `seed` together with `seeds` is refused first, with the JSON pointer of the item and what to change.
+- An item that cannot be drawn (a corrupt picture, a level the solver could not make in its attempts) is a red tile that
+  `review.pick` refuses, with the reason in `warnings`; if no item can be drawn nothing is written.
+- The manifest (`factoria.review/1`) records each item (`n`, `type`, `label`, `source`, `candidate`, `info`, `numbers`, `spec`, where its
+  cell and picture are on the sheet), when the sheet was made (from the engine's clock), and `picked`: null until `review.pick`
+  answers. `review.list` and `review.info` read it, and the files are plain JSON and PNG, so any tool can list the sheets and their history.
+
+`review.pick {"sheet":"latest","n":2}` records the number the person chose (who picked, when, an optional `note`, and the item's
+`spec`, so a picked level's seed is kept). With `drop` (default true) it MOVES the files of the other items that were marked
+`candidate: true` to `.factoria/review/dropped/<sheet id>/<NN>_<file name>` (another folder below `.factoria/` with `dropDir` on the
+sheet); nothing is deleted, and the result and the manifest list each move (`from`, `to`), so moving a file back undoes it. The
+picked item's file, files that are not marked, the main scene and files in `.git` are never moved, and `assets.json` is not edited
+(the result warns when it still lists a moved file). It is all or nothing: if a move fails the ones already made are put back and the
+manifest does not change; a leftover in the drop folder (`exists`) stops it before any move. The manifest is changed under a lock in
+`.factoria/review/`, so the editor, the CLI and an agent can use sheets at the same time. A sheet can be picked once.
+
+**Over MCP and the CLI nothing asks the person: `review.pick` must get the number THEY gave you.** Never choose for them: ask in the conversation, show the sheet,
+wait for the number.
+
 ### Checking art: assets.check_art
 
 `assets.check_art {"path":"assets/hero.png"}` (or `{"paths":[...]}`, up to 12 pictures, checked one by one and as a set) looks

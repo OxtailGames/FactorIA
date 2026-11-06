@@ -477,6 +477,13 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`mesh.save`](commands/render.md#meshsave-modifies-state): Write a procedural mesh as a .glb file that loads back as a normal model. _Since 0.9.0._
 - [`mesh.update`](commands/render.md#meshupdate-modifies-state): Replace the data of a procedural mesh; arrays left out are kept. _Since 0.9.0._
 
+### [review](commands/review.md)
+
+- [`review.info`](commands/review.md#reviewinfo): The manifest of one review sheet (items, facts, the choice) and its picture. _Not released yet._
+- [`review.list`](commands/review.md#reviewlist): List the review sheets of the project, newest first, with what was picked. _Not released yet._
+- [`review.pick`](commands/review.md#reviewpick-modifies-state): Record which numbered thumbnail of a review sheet the person chose, and move the other candidates' files away (never deleting them). _Not released yet._
+- [`review.sheet`](commands/review.md#reviewsheet-modifies-state): Show N candidates as ONE picture with big numbers (images, scenes, prefabs, level seeds, vector art, effects) so a person can answer with one number. _Not released yet._
+
 ### [scene](commands/scene.md)
 
 - [`bones.create`](commands/scene.md#bonescreate-modifies-state): Create a chain of Bone2D entities along points, under a parent. _Since 0.7.0._
