@@ -1033,6 +1033,22 @@ public:
     bool fbAddOpen_ = false;        // the Add feedback modal is open
     int fbNewCategory_ = 0, fbNewSeverity_ = 1;
     std::string fbNewTitle_, fbNewMissing_, fbNewWorkaround_, fbNewSuggestion_, fbMessage_;
+    // The Retrospective button (feedback_panel.cpp): ai.retrospective on a thread of its own (it asks a model, which takes seconds), one at a
+    // time. The thread hands the answer over under `mu`; the panel applies it on the main thread and says what it filed.
+    struct FbRetro {
+        std::mutex mu;
+        bool running = false;
+        bool finished = false;       // an answer is waiting for the panel
+        bool ok = false;
+        std::string dir;             // the project the run was started for: an answer that arrives after another project was opened is dropped
+        Json result;                 // the answer of ai.retrospective
+        std::string message;         // why it failed (with the hint)
+        CancelFlag cancel{false};
+    };
+    std::shared_ptr<FbRetro> fbRetro_ = std::make_shared<FbRetro>();
+    std::thread fbRetroThread_;
+    void feedback_start_retrospective();   // the button: the whole retrospective of this project's runs, off the UI thread
+    void feedback_apply_retrospective();   // every frame: takes the answer of the thread, if there is one
 
     // AI
     MainThreadQueue queue_;

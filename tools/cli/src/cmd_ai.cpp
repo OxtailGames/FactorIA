@@ -1,4 +1,4 @@
-// ai doctor | providers | config | run
+// ai doctor | providers | config | run | review | reviews | retrospective
 #include <filesystem>
 #include <functional>
 #include <fstream>
@@ -462,7 +462,73 @@ Command make_ai_command() {
         return 0;
     };
 
-    g.subs = {doctor, providers, config, run, review, reviews};
+    Command retrospective;
+    retrospective.name = "retrospective";
+    retrospective.summary = "Look back at the project's recorded AI runs, find where they wasted time or tokens and file efficiency feedback.";
+    retrospective.usage = "[project] [--session NAMES] [--since DATE] [--candidates-only] [--json]";
+    retrospective.details =
+        "Reads <project>/.factoria/ai/sessions: first a mechanical pass (no model) that measures failures repeated with the same\n"
+        "code, docs read again and again, results over 40 KB, screenshots in a row, long waits and edit-run-check loops, then ONE\n"
+        "short call of the fast role (ai.json) that picks at most three of them for entries in ENGINE_FEEDBACK.json. Every entry\n"
+        "goes through the same gate as 'factoria feedback add --kind efficiency' (threshold per fix type, the cheapest fix); what\n"
+        "the gate refuses is listed with its reason. A lesson that is true of this game only becomes a project-fact proposal\n"
+        "('factoria ai savers' lists it). Nothing is sent anywhere. The same as the ai.retrospective command and the Feedback\n"
+        "panel's button; with ai.json savers.retrospective on it also runs after a long run.";
+    retrospective.maxPositional = 1;
+    retrospective.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
+                           {"session", "NAMES", "Comma-separated transcript names in .factoria/ai/sessions (default: the newest 40)."},
+                           {"since", "DATE", "Only transcripts that began at or after this UTC date (2026-11-01) or date and time (2026-11-01T09:30)."},
+                           {"candidates-only", "", "Only the mechanical pass: no model is asked and nothing is filed."},
+                           {"json", "", "Machine-readable output."}};
+    retrospective.examples = {"factoria ai retrospective", "factoria ai retrospective --since 2026-11-01",
+                              "factoria ai retrospective --candidates-only --json"};
+    retrospective.run = [](Context& ctx) {
+        const Args& a = ctx.args;
+        const std::string dir = a.positional().empty() ? resolve_project_dir(ctx, 99) : absolute_path(a.pos(0));
+        if (!fsys::exists(fsys::path(dir) / kProjectFileName))
+            throw CliError("'" + dir + "' is not a FactorIA project: " + kProjectFileName + " not found.");
+        Json args = Json::object();
+        if (a.has("session")) {
+            Json names = Json::array();
+            for (const std::string& n : split(a.str("session"), ','))
+                if (!trim(n).empty()) names.push_back(std::string(trim(n)));
+            args["sessions"] = names;
+        }
+        if (a.has("since")) args["since"] = a.str("since");
+        if (a.has("candidates-only")) args["candidatesOnly"] = true;
+
+        SessionOptions so;
+        so.gfx = Gfx::Auto;
+        auto session = Session::open(dir, so);
+        register_cli_commands(session->registry(), dir, &session->engine());
+        CommandResult r = session->registry().call("ai.retrospective", args);
+        if (!r.ok)
+            return report_failure(ctx, r.error.value("message", std::string("The retrospective failed.")), r.error.value("hint", std::string()));
+        if (a.has("json")) {
+            print_json(ctx.out, r.result);
+            return 0;
+        }
+        const Json& res = r.result;
+        ctx.out << res.value("note", std::string()) << "\n";
+        for (const Json& s : res.value("sessions", Json::array()))
+            ctx.out << "  session " << s.value("id", std::string()) << ": " << s.value("steps", 0) << " steps, " << s.value("minutes", 0.0)
+                    << " min, " << s.value("tokens", 0) << " tokens\n";
+        for (const Json& c : res.value("candidates", Json::array()))
+            ctx.out << "  candidate " << c.value("id", std::string()) << ": " << c.value("summary", std::string()) << " (could save about "
+                    << c["potentialSaving"].value("minutes", 0.0) << " min, " << c["potentialSaving"].value("tokens", 0) << " tokens)\n";
+        for (const Json& f : res.value("fixChecks", Json::array()))
+            ctx.out << "  fix check " << f.value("entry", std::string()) << " (" << f.value("result", std::string()) << "): " << f.value("text", std::string()) << "\n";
+        for (const Json& f : res.value("filed", Json::array()))
+            ctx.out << "  filed " << f.value("id", std::string()) << ": " << f.value("title", std::string()) << " (" << f.value("fixType", std::string()) << ")\n";
+        for (const Json& f : res.value("facts", Json::array()))
+            ctx.out << "  project fact proposed: " << f.value("line", std::string()) << "\n";
+        for (const Json& d : res.value("dropped", Json::array()))
+            ctx.out << "  dropped " << d.value("candidate", std::string()) << ": " << d.value("code", std::string()) << " - " << d.value("reason", std::string()) << "\n";
+        if (res.value("costUsd", 0.0) > 0) ctx.out << "model call cost: $" << res.value("costUsd", 0.0) << "\n";
+        return 0;
+    };
+
+    g.subs = {doctor, providers, config, run, review, reviews, retrospective};
     return g;
 }
 

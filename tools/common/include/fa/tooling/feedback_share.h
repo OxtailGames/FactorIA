@@ -6,7 +6,8 @@
 //
 //   sanitize_share     the deterministic sanitizer: paths, file names, URLs, e-mail addresses, quoted text, the project's
 //                      own names, control characters and runs of one character come out; a field under its minimum after
-//                      cleaning stops the entry. The preview shows its result.
+//                      cleaning stops the entry. The preview shows its result. (An efficiency entry's share text comes from its
+//                      waste, cleaned the same way; its numbers and fix type travel as a separate block of fixed words and numbers.)
 //   ShareSettings      <user config>/feedback-sharing.json: mode (unset | always | ask | never), installation id, GitHub
 //                      credential, endpoint override, and `projects`: a mode per project folder that overrides `mode` for that
 //                      project (kept here, in the USER's file, never inside the project). Only a person changes a mode (CLI,
@@ -25,6 +26,7 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -54,6 +56,9 @@ inline constexpr int kShareMaxVerdictIds = 100;  // shareIds in one POST /v1/ver
 inline constexpr int kShareMaxBodyBytes = 64 * 1024;
 // The most times one entry is sent: the developer's ranking counts min(occurrences, 3) per installation.
 inline constexpr int kMaxSharedOccurrences = 3;
+// An efficiency entry sends its running totals again after each new report (the server keeps the latest numbers of the installation
+// instead of counting voices): at most this many sends per entry.
+inline constexpr int kMaxSharedEfficiencySends = 20;
 
 // ------------------------------------------------------------------------------------------------------------- environment
 
@@ -138,6 +143,9 @@ Result<void> update_share_settings(const ShareEnv& env, const std::function<void
 class ShareLock {
 public:
     explicit ShareLock(const ShareEnv& env);
+    // The same lock in another folder (FeedbackFileLock's project lock). The wait and stale times are those of `env`;
+    // `reportedWaitSec` (when not negative) is the wait a busy-lock message names, for a caller whose wait began earlier.
+    ShareLock(const ShareEnv& env, const std::filesystem::path& folder, double reportedWaitSec = -1);
     ~ShareLock();
     ShareLock(const ShareLock&) = delete;
     ShareLock& operator=(const ShareLock&) = delete;
@@ -145,17 +153,49 @@ public:
     const std::string& error() const { return error_; }  // why it is not held; "" when it is
     const std::string& path() const { return path_; }    // the lock file, as text for messages (UTF-8)
     const std::filesystem::path& file() const { return file_; }
+    // True when the lock failed because no file can be made in the folder (no permission, a read-only home, a folder that cannot be
+    // created), not because another process holds it: the caller may take a lock somewhere else (FeedbackFileLock).
+    bool unwritable() const { return unwritable_; }
     // Refreshes the time of the lock file this thread holds (a no-op when it holds none, or when the time is fresh). Call it inside a
     // loop that may take seconds (many entries written under the lock).
     static void keep_alive();
 
 private:
-    void acquire(const ShareEnv& env);
+    void init(const ShareEnv& env, const std::filesystem::path& folder, double reportedWaitSec);
+    void acquire(const ShareEnv& env, const std::filesystem::path& folder, double reportedWaitSec);
     void refresh();
-    bool held_ = false, nested_ = false;
+    bool held_ = false, nested_ = false, unwritable_ = false;
     double staleSec_ = 10.0;
     std::string error_, path_, token_;
     std::filesystem::path file_;
+};
+// The lock of a read-modify-write of a project's ENGINE_FEEDBACK.json (or its archive) that the editor, the CLI, an agent and a
+// retrospective may write at once; every function that rewrites the file takes it for the whole read-modify-write. It is two
+// ShareLocks taken in a fixed order: the user's (so a write that also touches the outbox is covered by the same one) and then one in
+// the project's own `.factoria` folder (next to the feedback file). The project's lock is always taken, so a process that can write
+// ~/.factoria and one that cannot (a sandbox, a read-only home) still exclude each other; a process that cannot write the user's
+// folder takes only the project's, so the report of a gap does not need ~/.factoria. Only when the project's folder cannot hold a
+// lock either while the user's is held is the user's lock alone enough. The two share ONE wait (ShareEnv::lockWaitSec, or the
+// ShareWaitCap of the thread): the second lock waits only for what the first left. held() / error() say whether the lock was
+// taken; error() names the folder when none could be. When the feedback file's folder does not exist nothing is taken or made
+// (no folder, no `.factoria`): held() is true, there is no file to protect, and the caller's own read or write reports the path.
+class FeedbackFileLock {
+public:
+    // `projectOnly` takes the project's lock without the user's: for the one write that must go through while another program holds the
+    // outbox (the `sent` state of an entry whose outbox update failed: write_entry_shared). Still after the user's lock when the caller holds it.
+    FeedbackFileLock(const ShareEnv& env, const std::string& feedbackPath, bool projectOnly = false);
+    bool held() const;
+    const std::string& error() const { return error_; }
+    // True when the user's folder was not writable and only the project's folder holds the lock.
+    bool in_project_folder() const { return !user_ && local_; }
+    ~FeedbackFileLock();
+    FeedbackFileLock(const FeedbackFileLock&) = delete;
+    FeedbackFileLock& operator=(const FeedbackFileLock&) = delete;
+
+private:
+    std::unique_ptr<ShareLock> user_, local_;
+    std::string error_;
+    bool noFolder_ = false;
 };
 // For the span of its life no lock taken by this thread waits longer than `sec`, whatever ShareEnv::lockWaitSec says. The editor's UI
 // thread uses it around commands it runs on its own thread (feedback.delete) so a frame never stalls on another process.
@@ -266,7 +306,8 @@ std::string sanitize_text(std::string_view field, std::string_view text, const E
                           const ProjectNames& project, std::vector<Removal>& removed);
 
 // The entry as the server receives it (docs/design/FEEDBACK_SHARING.md, "POST /v1/reports"): the sanitized share plus
-// localId, category, severity, effort, reporterKind and reviewed from the local entry.
+// localId, category, severity, effort, reporterKind and reviewed from the local entry. An efficiency entry adds an `efficiency` block (fix type,
+// applies-to, measured and saved numbers: efficiency_share_block in fa/tooling/efficiency.h, never its waste text, evidence or session ids).
 Json build_share_entry(const Json& localEntry, const SanitizedShare& share);
 // {format, engineVersion, platform, entries}.
 Json build_share_payload(const ShareEnv& env, const std::vector<Json>& entries);
@@ -412,6 +453,7 @@ VerdictResult share_sync_verdicts(const ShareEnv& env, const std::string& feedba
 // Writes `shared` ({status, date, shareId?, reason?}) into entry `localId` of the feedback file (or its archive).
 // A null `shared` removes it.
 void write_entry_shared(const std::string& feedbackFile, const std::string& localId, const Json& shared);
+void write_entry_shared(const ShareEnv& env, const std::string& feedbackFile, const std::string& localId, const Json& shared);  // under `env`'s lock
 
 // ------------------------------------------------------------------------------------------------------------ GitHub sign-in
 

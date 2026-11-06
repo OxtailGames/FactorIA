@@ -13,6 +13,7 @@
 #include "common.h"  // tools/cli/src: Session and run_project_tests, the setup behind `factoria test`
 #include "fa/ai/project_settings.h"
 #include "fa/cli/cli.h"
+#include "fa/core/date.h"
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
 #include "fa/tooling/feedback_share.h"
@@ -634,6 +635,59 @@ TEST_CASE("feedback add: a share that is too short is not stored and the report 
     CHECK(r.out.find("not stored") != std::string::npos);
     auto doc = fa::Json::parse(std::ifstream(s.file(proj)));
     CHECK_FALSE(doc["entries"][0].contains("share"));
+}
+
+namespace {
+// A project with a built-in agent transcript of 40 one-minute steps (5000 tokens each), for `feedback add --kind efficiency`.
+void write_efficiency_session(const std::string& proj) {
+    std::filesystem::create_directories(std::filesystem::path(proj) / ".factoria" / "ai" / "sessions");
+    std::ofstream out(std::filesystem::path(proj) / ".factoria" / "ai" / "sessions" / "s1.jsonl", std::ios::binary);
+    constexpr std::int64_t t0 = 1'800'000'000'000;
+    out << fa::Json::object({{"kind", "start"}, {"t", fa::iso_utc_ms(t0)}}).dump() << "\n";
+    for (int i = 1; i <= 40; ++i) {
+        out << fa::Json::object({{"kind", "assistant"}, {"t", fa::iso_utc_ms(t0 + 60000 * i - 1000)},
+                                 {"usage", fa::Json::object({{"inputTokens", 4500}, {"outputTokens", 500}})}, {"costUsd", 0.05},
+                                 {"content", fa::Json::array()}}).dump() << "\n";
+        out << fa::Json::object({{"kind", "tool_results"}, {"t", fa::iso_utc_ms(t0 + 60000 * i)}, {"results", fa::Json::array()}}).dump() << "\n";
+    }
+}
+std::vector<std::string> efficiency_args(const std::string& proj, const char* share) {
+    return {"feedback", "add", proj, "--kind", "efficiency", "--category", "scene", "--title", "Quantum flux calibration routine",
+            "--waste", "Working out the order of the flux calibration calls took forty steps of trial",
+            "--evidence", "s1:1-40", "--fix-type", "guide", "--saving-share", share, "--saving-why", "the guide gives the calls in order",
+            "--applies-to", "every-game", "--suggestion", "A topic guide that lists the three calibration calls in order"};
+}
+}  // namespace
+
+TEST_CASE("feedback add --kind efficiency: the engine measures the span, refuses what is not worth it, merges the same fix") {
+    CliShare s;
+    const std::string proj = s.project();
+    write_efficiency_session(proj);
+    auto low = run(efficiency_args(proj, "0.1"));
+    CHECK(low.code == 1);
+    CHECK(low.err.find("justified from") != std::string::npos);
+    CHECK_FALSE(std::filesystem::exists(s.file(proj)));
+    auto ok = run(efficiency_args(proj, "0.5"));
+    CHECK_MESSAGE(ok.code == 0, ok.err);
+    CHECK(ok.out.find("measured 40.0 minutes, 200000 tokens") != std::string::npos);
+    auto again = run(efficiency_args(proj, "0.5"));
+    CHECK(again.code == 0);
+    CHECK(again.out.find("Already counted") != std::string::npos);
+    auto doc = fa::Json::parse(std::ifstream(s.file(proj)));
+    REQUIRE(doc["entries"].size() == 1);
+    CHECK(doc["entries"][0]["kind"] == "efficiency");
+    CHECK(doc["entries"][0]["saving"]["tokens"] == 100000);
+    auto list = run({"feedback", "list", proj, "--kind", "efficiency"});
+    CHECK(list.code == 0);
+    CHECK(list.out.find("saves 20.0 min, 100000 tokens") != std::string::npos);
+    auto gaps = run({"feedback", "list", proj, "--kind", "gap"});
+    CHECK(gaps.out.find("No entries") != std::string::npos);
+    auto bad = run({"feedback", "add", proj, "--kind", "efficency"});
+    CHECK(bad.code == 2);
+    CHECK(bad.err.find("efficiency") != std::string::npos);
+    auto badSpan = efficiency_args(proj, "0.5");
+    for (auto& a : badSpan) if (a == "s1:1-40") a = "s1:1to40";
+    CHECK(run(badSpan).code == 2);
 }
 
 TEST_CASE("feedback sharing: shows the status, sets a mode, refuses unknown ones") {

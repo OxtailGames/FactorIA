@@ -131,6 +131,13 @@ struct Savers {
     bool learnedToolGroups = true;
     // Propose one line for the project's AGENTS.md for a command that keeps failing the same way until a fix works.
     bool projectFacts = true;
+    // After a run that took at least `retrospectiveSteps` model calls or cost `retrospectiveCostUsd`, look back over it: a mechanical
+    // pass over the transcripts finds where the work went, and the fast role turns at most three findings that pass the efficiency
+    // gate into efficiency feedback entries (docs/ENGINE_FEEDBACK.md) and project-fact proposals. One extra fast-role call, only when
+    // the pass found a candidate; its cost is added to the run. Off by default: it is a model call nobody asked for.
+    bool retrospective = false;
+    int retrospectiveSteps = 150;
+    double retrospectiveCostUsd = 3.0;
 
     bool operator==(const Savers&) const = default;
     bool is_default() const { return *this == Savers{}; }

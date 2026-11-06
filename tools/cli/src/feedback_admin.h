@@ -94,6 +94,9 @@ struct PullSummary {
     // New reports whose claim of a missing feature fails the check (the engine has it): each is marked `suggestedRejection` in the
     // inbox. [{shareId, id, installKey, title, reason}]. Confirm with `feedback reject --suggested`, drop with `feedback keep`.
     Json suggestions = Json::array();
+    // The efficiency entries of the whole inbox ranked by what fixing them would save across installations, each with its verdict
+    // and a ready reason for `feedback reject` (rank_efficiency, fa/tooling/efficiency.h); [] when the inbox has none.
+    Json efficiency = Json::array();
     int alreadyRejected = 0;  // reports the server already carries a rejection for (imported as rejected entries)
     std::string classification;  // what happened: "5 valid, 1 doubtful, 2 junk" or why it was skipped
     std::vector<std::string> installations;  // installKeys that got a file written

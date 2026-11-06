@@ -184,11 +184,21 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
             }
             const e = checked.entry;
             const norm = normalizeTitle(e.title);
-            const same = known.find((k) => k.category === e.category && similarTitles(k.titleNorm, norm));
+            // An efficiency entry only merges with an efficiency entry of the same fix type, and the numbers it carries are
+            // cumulative: the latest ones replace the stored ones, they are not added.
+            const fixType = e.efficiency ? e.efficiency.fixType : null;
+            const same = known.find((k) => k.category === e.category && (k.fixType || null) === fixType && similarTitles(k.titleNorm, norm));
             if (same) {
                 tally.merged++;
-                if (same.pending) same.report.occurrences++;
-                else bumps.set(same.shareId, (bumps.get(same.shareId) || 0) + 1);
+                if (same.pending) {
+                    same.report.occurrences++;
+                    if (e.efficiency) same.report.efficiency = e.efficiency;
+                } else {
+                    const bump = bumps.get(same.shareId) || { shareId: same.shareId, by: 0 };
+                    bump.by++;
+                    if (e.efficiency) bump.efficiency = e.efficiency;
+                    bumps.set(same.shareId, bump);
+                }
                 results.push({ localId: e.localId, status: "merged", shareId: same.shareId });
                 continue;
             }
@@ -196,10 +206,11 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
                 shareId: newId(), installKey: install, reporterKey: reporter, receivedAt, occurrences: 1, engineVersion,
                 platform: body.platform, category: e.category, severity: e.severity, effort: e.effort, title: e.title,
                 titleNorm: norm, missing: e.missing, suggestion: e.suggestion, workaround: e.workaround,
-                reporterKind: e.reporterKind, reviewed: e.reviewed,
+                reporterKind: e.reporterKind, reviewed: e.reviewed, kind: e.efficiency ? "efficiency" : "gap",
+                efficiency: e.efficiency,
             };
             inserts.push(report);
-            known.unshift({ shareId: report.shareId, category: e.category, titleNorm: norm, pending: true, report });
+            known.unshift({ shareId: report.shareId, category: e.category, fixType, titleNorm: norm, pending: true, report });
             tally.accepted++;
             results.push({ localId: e.localId, status: "accepted", shareId: report.shareId });
         }
@@ -213,7 +224,7 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
         for (const [code, count] of codes) counters.push(stat(day, "code:" + code, count, ms));
         await store.commit({
             inserts,
-            bumps: [...bumps].map(([shareId, by]) => ({ shareId, by })),
+            bumps: [...bumps.values()],
             counters,
             now: ms,
         });
@@ -336,7 +347,8 @@ export function createApp({ store, env, fetch: fetchImpl, now, randomId, limits 
             trust: r.reporterKey ? "verified" : "anonymous", receivedAt: r.receivedAt, occurrences: r.occurrences,
             engineVersion: r.engineVersion, platform: r.platform, category: r.category, severity: r.severity,
             effort: r.effort, title: r.title, missing: r.missing, suggestion: r.suggestion, workaround: r.workaround,
-            reporterKind: r.reporterKind, reviewed: r.reviewed,
+            reporterKind: r.reporterKind, reviewed: r.reviewed, kind: r.kind || "gap",
+            ...(r.efficiency ? { efficiency: r.efficiency } : {}),
             verdict: r.verdict || null, verdictReason: r.verdict ? r.verdictReason || "" : null,
         }));
         const next = rows.length > 0 ? encodeCursor(rows[rows.length - 1].seq) : since || null;

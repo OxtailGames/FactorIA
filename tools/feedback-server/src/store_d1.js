@@ -3,7 +3,16 @@
 
 const REPORT_COLUMNS =
     "seq, share_id, install_key, reporter_key, received_at, occurrences, engine_version, platform, category, severity, " +
-    "effort, title, title_norm, missing, suggestion, workaround, reporter_kind, reviewed, verdict, verdict_reason, verdict_at";
+    "effort, title, title_norm, missing, suggestion, workaround, reporter_kind, reviewed, verdict, verdict_reason, verdict_at, kind, efficiency";
+
+function parseBlock(text) {
+    if (!text) return null;
+    try {
+        return JSON.parse(text);
+    } catch {
+        return null;
+    }
+}
 
 function toReport(row) {
     return {
@@ -28,6 +37,8 @@ function toReport(row) {
         verdict: row.verdict || null,
         verdictReason: row.verdict_reason || null,
         verdictAt: row.verdict_at || null,
+        kind: row.kind || "gap",
+        efficiency: parseBlock(row.efficiency),
     };
 }
 
@@ -100,10 +111,10 @@ export class D1Store {
 
     async listForMerge(installKey, limit) {
         const { results } = await this.db
-            .prepare("SELECT share_id, category, title_norm FROM reports WHERE install_key = ? ORDER BY seq DESC LIMIT ?")
+            .prepare("SELECT share_id, category, title_norm, fix_type FROM reports WHERE install_key = ? ORDER BY seq DESC LIMIT ?")
             .bind(installKey, limit)
             .all();
-        return results.map((r) => ({ shareId: r.share_id, category: r.category, titleNorm: r.title_norm }));
+        return results.map((r) => ({ shareId: r.share_id, category: r.category, fixType: r.fix_type || null, titleNorm: r.title_norm }));
     }
 
     async commit({ inserts = [], bumps = [], counters = [], now }) {
@@ -115,17 +126,26 @@ export class D1Store {
                     .prepare(
                         "INSERT INTO reports (share_id, install_key, reporter_key, received_at, occurrences, engine_version, " +
                             "platform, category, severity, effort, title, title_norm, missing, suggestion, workaround, " +
-                            "reporter_kind, reviewed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            "reporter_kind, reviewed, kind, fix_type, efficiency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     )
                     .bind(
                         r.shareId, r.installKey, r.reporterKey, r.receivedAt, r.occurrences, r.engineVersion, r.platform,
                         r.category, r.severity, r.effort, r.title, r.titleNorm, r.missing, r.suggestion, r.workaround,
-                        r.reporterKind, r.reviewed ? 1 : 0,
+                        r.reporterKind, r.reviewed ? 1 : 0, r.kind || "gap", r.efficiency ? r.efficiency.fixType : null,
+                        r.efficiency ? JSON.stringify(r.efficiency) : null,
                     ),
             );
         }
         for (const b of bumps) {
-            statements.push(db.prepare("UPDATE reports SET occurrences = occurrences + ? WHERE share_id = ?").bind(b.by, b.shareId));
+            if (b.efficiency) {
+                statements.push(
+                    db
+                        .prepare("UPDATE reports SET occurrences = occurrences + ?, efficiency = ? WHERE share_id = ?")
+                        .bind(b.by, JSON.stringify(b.efficiency), b.shareId),
+                );
+            } else {
+                statements.push(db.prepare("UPDATE reports SET occurrences = occurrences + ? WHERE share_id = ?").bind(b.by, b.shareId));
+            }
         }
         for (const c of counters) {
             statements.push(
