@@ -20,9 +20,9 @@ TEST_CASE("autotest sections: ids in any case, separated by commas or spaces") {
 }
 
 TEST_CASE("autotest sections: an unknown id names the closest one and lists them all") {
-    auto bad = parse_autotest_sections("K,A3");
+    auto bad = parse_autotest_sections("K,A22");
     REQUIRE_FALSE(bad);
-    CHECK(bad.error().message.find("'A3'") != std::string::npos);
+    CHECK(bad.error().message.find("'A22'") != std::string::npos);
     CHECK(bad.error().message.find("A2") != std::string::npos);  // did you mean
     for (const AutotestSection& s : kAutotestSections) CHECK(bad.error().hint.find(s.title) != std::string::npos);
 }

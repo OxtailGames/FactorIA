@@ -31,6 +31,8 @@ struct ImageTexture {
 struct ImageProviderShared {
     std::atomic<bool> cancel{false}, done{false};
     std::optional<Result<ai::AssetResult>> result;   // set before `done`
+    std::vector<std::string> warnings;               // of the cost check (the per-day file could not be read...); set before `done`
+    double spentUsd = 0;                             // the estimate that was counted for the call (0 for a free one or a failure)
 };
 struct ImageProviderJob {
     bool inpaint = false;
@@ -101,6 +103,7 @@ struct ImageUi {
     bool providerInpaint = true;                // what the popup asks for
     std::string providerPrompt;
     std::string providerError;                  // why the last request could not start or finish (shown in the popup)
+    std::string providerEstimate;               // what the popup's "Make it" would cost, as text (the estimate of the price list)
     std::string noGenerate, noInpaint;          // why each action is off ("" = a provider is ready)
     int layersBefore = 0;                       // autotest bookkeeping
     std::size_t providerUndo = 0;               // autotest bookkeeping

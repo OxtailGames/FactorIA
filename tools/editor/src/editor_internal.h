@@ -54,6 +54,7 @@
 #include "fa/tooling/export.h"  // executable_dir: where the update goes
 #include "fa/tooling/self_update.h"
 #include "fa/tooling/tooling.h"
+#include "ai_asset_approval.h"
 #include "ai_chat.h"
 #include "ai_runs.h"
 #include "ai_usage.h"
@@ -434,6 +435,7 @@ public:
     void draw_image_provider(ImageModel& m);               // Inpaint selection... / Generate layer... (image_provider_panel.cpp)
     void image_provider_refresh();
     void image_provider_start(ImageModel& m);
+    void image_provider_estimate(ImageModel& m);
     void image_provider_poll(ImageModel& m);
     void draw_image_layer_inspector(ImageModel& m);
     void draw_image_operations(ImageModel& m, const ImageLayer& layer, bool effect);
@@ -747,6 +749,11 @@ public:
     void ai_add_pending(Result<ChatAttachment> attached);
     void ai_paste_image();                    // clipboard picture -> pending attachment (does nothing without one)
     std::shared_ptr<CommandRegistry> make_proxy_registry(AiRun& run);
+    // Paid asset calls that wait for the user's yes (ai_asset_approval.h): the cards of `chat` under its transcript. `height` is
+    // the room reserved for them (ai_asset_cards_height); the answers go to the waiting agent thread.
+    float ai_asset_cards_height(const AiChat& chat, float availableY);
+    void draw_ai_asset_cards(AiChat& chat, float height);
+    void ai_asset_notify_other_chats();   // a card in a chat that is not in front: tell the user once
     MainThreadQueue& queue() { return queue_; }
     // True while any chat's run is going: an agent thread, or the wait for a delegated worker whose orchestrator turn already
     // ended.
@@ -1078,6 +1085,8 @@ public:
     std::thread aiDetectThread_;
     // The runs, one per chat that is working (main thread owns the vector; ai_runs.h says what is shared with the threads).
     std::vector<std::unique_ptr<AiRun>> aiRuns_;
+    AssetApprovals aiApprovals_;    // paid asset calls waiting for the user's yes (any thread asks, the main thread answers)
+    std::set<u64> aiCardNotified_;  // cards of other chats the user was told about
     std::vector<FileConflict> aiConflicts_;  // same-file conflicts found this frame, not yet written into the chats
     RunTouchTracker aiTouch_;       // main thread: which files each running chat changed (the same-file warning, Revert's scope)
     AiChats chat_;                  // the conversations (tabs); the active one is chat_.current()
@@ -1142,6 +1151,9 @@ public:
         std::map<std::string, std::string> command, args;  // asset-command providers: the program and its arguments line
         std::array<std::string, 5> newUrl, newNote;       // the "add a site" row of each category
         std::string siteError, saveError;
+        // "Spending limits" (Assets tab): limits.maxAssetCostUsd.perRun / perDay and limits.askAboveUsd of ai.json, with their own Save.
+        double limRun = 0, limDay = 0, limAsk = 0.5;
+        std::string limError, limMessage;
         std::vector<ai::ProviderStatus> status;    // key / program checks, taken when the window loaded the file
         // The "External tools" tab: the user's tool servers (ai.json "mcpServers") being edited.
         struct ToolTests {                         // what the Test buttons found; shared with the thread that runs them

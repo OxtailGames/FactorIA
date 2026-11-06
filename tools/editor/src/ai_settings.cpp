@@ -78,6 +78,9 @@ void Editor::ai_settings_load(const ai::AiConfig& cfg, bool keepAssets, bool kee
     d.loaded = true;
     d.project = projectDir_;
     d.tools.servers = cfg.toolServers;
+    d.limRun = cfg.limits.maxAssetCostPerRunUsd;
+    d.limDay = cfg.limits.maxAssetCostPerDayUsd;
+    d.limAsk = cfg.limits.askAboveUsd;
     ai_extensions_load(cfg);
     d.path = cfg.sourcePath.empty() ? ai::default_config_path() : cfg.sourcePath;
     // The asset routes and sites are the open project's (its resolved config); the providers, servers and extensions are the user's.
@@ -738,6 +741,64 @@ void Editor::draw_ai_settings_window() {
         ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
         ImGui::TextWrapped("%s", d.siteError.c_str());
         ImGui::PopStyleColor();
+    }
+
+    // ------------------------------------------------------------------------------------------------ Spending limits
+    ImGui::SeparatorText("Spending limits");
+    ImGui::TextDisabled("What the AI's paid assets (images, voices, sounds, 3D models) may cost. The money is an ESTIMATE from each provider's\n"
+                        "price list (docs/AI_COSTS.md), not an invoice. Free providers (fake, your own programs) never count and never ask.");
+    const auto money = [this](const char* label, const char* id, const char* track, double* v, const char* tip) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(label);
+        ImGui::SameLine(ImGui::GetFontSize() * 15.0f);
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+        ImGui::InputDouble(id, v, 0, 0, "%.2f");
+        at_track(track);
+        ImGui::SetItemTooltip("%s", tip);
+        *v = std::clamp(*v, 0.0, 1000000.0);
+    };
+    money("Ask above (USD)", "##limask", "aiset:limask", &d.limAsk,
+          "A paid call whose estimate is above this waits for your yes: a card in the AI chat (Approve, Approve all for this run, Cancel).\n"
+          "0 asks before every paid call. Default 0.50. limits.askAboveUsd.");
+    money("Most per run (USD)", "##limrun", "aiset:limrun", &d.limRun,
+          "A paid call that would take one AI run (a chat's run) past this is refused before the provider is called. 0 = no limit.\n"
+          "limits.maxAssetCostUsd.perRun.");
+    money("Most per day (USD)", "##limday", "aiset:limday", &d.limDay,
+          "The same for all of today's paid calls of this project, in every editor and terminal (kept in a file of your user folder). 0 = no limit.\n"
+          "limits.maxAssetCostUsd.perDay.");
+    {
+        ImGui::BeginDisabled(!cfgErr.empty());
+        if (ImGui::Button("Save limits")) {
+            ai::Limits l = ai_user_config().limits;
+            l.maxAssetCostPerRunUsd = d.limRun;
+            l.maxAssetCostPerDayUsd = d.limDay;
+            l.askAboveUsd = d.limAsk;
+            d.limMessage.clear();
+            if (auto saved = ai::save_asset_limits(l, d.path); !saved) {
+                d.limError = saved.error().to_string();
+            } else if (auto loaded = ai_user_config_reload(); !loaded) {
+                d.limError = "Saved, but ai.json no longer loads: " + loaded.error().to_string();
+            } else {
+                d.limError.clear();
+                d.limMessage = "Saved in " + d.path + ". The next paid call uses these limits.";
+            }
+        }
+        ImGui::EndDisabled();
+        at_track("aiset:savelimits", cfgErr.empty());
+        ImGui::SetItemTooltip("Write only these three limits into your ai.json (%s); everything else in the file stays. 0 for a limit removes it.", d.path.c_str());
+    }
+    if (projectMode) {
+        ImGui::TextDisabled("A project can set its own in .factoria/ai/settings.json (limits.maxAssetCostUsd); in this project now: ask above %s, per run %s, per day %s.",
+                            ai::format_usd(cfg.limits.askAboveUsd).c_str(),
+                            cfg.limits.maxAssetCostPerRunUsd > 0 ? ai::format_usd(cfg.limits.maxAssetCostPerRunUsd).c_str() : "no limit",
+                            cfg.limits.maxAssetCostPerDayUsd > 0 ? ai::format_usd(cfg.limits.maxAssetCostPerDayUsd).c_str() : "no limit");
+    }
+    if (!d.limError.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
+        ImGui::TextWrapped("%s", d.limError.c_str());
+        ImGui::PopStyleColor();
+    } else if (!d.limMessage.empty()) {
+        ImGui::TextDisabled("%s", d.limMessage.c_str());
     }
     ImGui::EndChild();
 
