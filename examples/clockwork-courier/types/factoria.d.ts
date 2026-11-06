@@ -2965,7 +2965,7 @@ declare module "factoria" {
    */
   export interface VfxAPI {
     /**
-     * Plays the effect document at `position` in the world (default [0, 0]), or at that local position under `entity` so it follows it. Returns the entity that plays it (autoDestroy: it goes when the effect and its particles are done), or null when 64 effects already play. `rotation` is degrees around z, `scale` sizes the whole effect, `speed` plays its timeline faster or slower, `loop` repeats it until vfx.stop. The file is read and checked now: an unreadable or invalid one throws with the JSON pointer of the problem. The effect follows the game clock: it waits at time.scale 0.
+     * Plays the effect document at `position` in the world (default [0, 0]), or at that local position under `entity` so it follows it. Returns the entity that plays it (autoDestroy: it goes when the effect and its particles are done), or null when 64 effects already play. `rotation` is degrees around z, `scale` makes the effect that many times larger (positions, particle speed and size, trails, light radius; not its times, and not the arguments of its command parts), `speed` plays its timeline faster or slower, `loop` repeats it until vfx.stop. The file is read and checked now: an unreadable or invalid one throws with the JSON pointer of the problem. The effect follows the game clock: it waits at time.scale 0.
      * @since unreleased
      */
     play(effect: string, options?: { position?: number[] | Vec2 | Vec3; entity?: Entity | string; rotation?: number; scale?: number; speed?: number; loop?: boolean }): Entity | null;
@@ -9667,11 +9667,6 @@ declare module "factoria" {
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).
    */
   export interface PluginsAPI {
-    /**
-     * Native plugin 'apple' (not loaded when these typings were generated, so its functions are not listed: build it, then run `factoria api --dts` again; `factoria validate` says why it did not load).
-     */
-    readonly apple: {
-    };
     readonly [plugin: string]: Record<string, (...args: any[]) => any> | undefined;
   }
 }
