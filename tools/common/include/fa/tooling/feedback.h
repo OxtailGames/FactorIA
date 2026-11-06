@@ -53,7 +53,7 @@ Json create_empty_feedback(std::string_view projectName, std::string_view engine
 
 Result<Json> load_feedback(const std::string& path);
 Result<void> save_feedback(const std::string& path, const Json& doc);
-// Creates `path` with no entries (create_empty_feedback) under the lock every writer of the file takes. A file that exists is left
+// Creates `path` with no entries (create_empty_feedback) under the file lock (FeedbackFileLock). A file that exists is left
 // as it is unless `overwrite`. Returns whether the file was written.
 Result<bool> create_feedback_file(const std::string& path, std::string_view projectName, bool overwrite = false);
 // Schema validation plus semantic checks (unique ids). Empty = valid.

@@ -1,6 +1,7 @@
 // Feedback sharing, client side: environment, user settings, outbox, queue and send, and the commands
 // (fa/tooling/feedback_share.h; contract: docs/design/FEEDBACK_SHARING.md).
 #include "fa/core/engine_version.h"
+#include "fa/core/log.h"
 #include "fa/tooling/feedback_share.h"
 
 #include <algorithm>
@@ -822,7 +823,10 @@ void write_entry_shared(const ShareEnv& env, const std::string& feedbackFile, co
     // the state "sent" is written even while another program holds the outbox (otherwise the entry would be sent again). A lock that
     // stays busy writes nothing (a stale copy of the file must not undo another program's entry).
     FeedbackFileLock lock(env, feedbackFile, true);
-    if (!lock.held()) return;
+    if (!lock.held()) {
+        FA_WARN("feedback", "the sharing state of {} was not saved: {}", localId, lock.error());
+        return;
+    }
     for (const std::string& path : {feedbackFile, feedback_archive_path(feedbackFile)}) {
         if (!stdfs::exists(path)) continue;
         auto doc = load_feedback(path);
@@ -1688,6 +1692,9 @@ VerdictResult share_sync_verdicts(const ShareEnv& env, const std::string& feedba
             std::string reason = sanitize_status_reason(v.value("reason", std::string()));
             if (reason.empty()) reason = "The engine developers rejected this report without giving a reason.";
             if (entry.status == "declined" && entry.reason == reason) continue;  // already known
+            // The shared state and the status are one change of the file: under one lock, so no program sees the one without the other.
+            FeedbackFileLock fileLock(env, feedbackFile);
+            if (!fileLock.held()) return finish("failed", fileLock.error() + " Nothing more was changed; the next check tries again.");
             write_entry_shared(env, feedbackFile, entry.localId, shared_state(env, "declined", reason, shareId));
             auto u = update_feedback_file(feedbackFile, entry.localId, "rejected", "", {}, reason, "developer");
             if (u.ok()) {
@@ -1696,6 +1703,8 @@ VerdictResult share_sync_verdicts(const ShareEnv& env, const std::string& feedba
             }
         } else if (entry.status == "declined") {
             // The developer took the rejection back: the entry is sent again, and open again when the developer closed it.
+            FeedbackFileLock fileLock(env, feedbackFile);
+            if (!fileLock.held()) return finish("failed", fileLock.error() + " Nothing more was changed; the next check tries again.");
             write_entry_shared(env, feedbackFile, entry.localId, shared_state(env, "sent", {}, shareId));
             for (const std::string& path : {feedbackFile, feedback_archive_path(feedbackFile)}) {
                 if (!stdfs::exists(path)) continue;

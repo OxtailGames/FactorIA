@@ -3,10 +3,10 @@
 // feedback" and "Triage loop"). Fixtures only: a fake transport, a temp config folder, no network.
 #include <doctest.h>
 
-#include <thread>
-
+#include <chrono>
 #include <filesystem>
 #include <string>
+#include <thread>
 
 #include "fa/core/date.h"
 #include "fa/tooling/efficiency.h"
@@ -382,6 +382,80 @@ TEST_CASE("feedback file lock: a process that can write the user's folder and on
     }
     CHECK_FALSE(std::filesystem::exists(g.dir.path / ".factoria" / kFeedbackShareLockFile));
     CHECK_FALSE(std::filesystem::exists(std::filesystem::path(env.config_dir()) / kFeedbackShareLockFile));
+}
+
+TEST_CASE("feedback file lock: one wait for both locks, a message that names only what is true, and no folder made for a path that is not there") {
+    Game g;
+    ShareEnv env = g.env;
+    env.lockWaitSec = 0.8;
+    env.lockStaleSec = 600.0;
+    ScopedShareEnv scoped(env);
+    const std::filesystem::path projectLock = g.dir.path / ".factoria" / kFeedbackShareLockFile;
+    const std::filesystem::path userLock = std::filesystem::path(env.config_dir()) / kFeedbackShareLockFile;
+    std::error_code ec;
+    std::filesystem::create_directories(g.dir.path / ".factoria", ec);
+    std::filesystem::create_directories(env.config_dir(), ec);
+    SUBCASE("the second lock waits only for what the first left of the wait") {
+        // The user's lock is held by another program for 0.4 s, the project's for good: the wait is 0.8 s in all, not 0.4 + 0.8 s.
+        testing::write_all(userLock, "alive");
+        testing::write_all(projectLock, "alive");
+        std::thread other([&] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(400));
+            std::error_code rc;
+            std::filesystem::remove(userLock, rc);
+        });
+        const auto began = std::chrono::steady_clock::now();
+        FeedbackFileLock lock(env, g.file());
+        const double waited = std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count();
+        other.join();
+        CHECK_FALSE(lock.held());
+        CHECK(waited < 1.15);  // 0.4 + 0.8 would be 1.2 or more
+        CHECK(lock.error().find("did not finish in 0.8 s") != std::string::npos);  // the whole wait, not what was left of it
+        std::filesystem::remove(projectLock, ec);
+    }
+    SUBCASE("a thread cap shortens the wait of both locks") {
+        testing::write_all(projectLock, "alive");
+        const ShareWaitCap cap(0.2);
+        const auto began = std::chrono::steady_clock::now();
+        FeedbackFileLock lock(env, g.file());
+        CHECK_FALSE(lock.held());
+        CHECK(std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count() < 0.7);
+        std::filesystem::remove(projectLock, ec);
+    }
+    SUBCASE("a home that cannot be written and a project lock that is only busy: the error is the busy one") {
+        std::filesystem::remove_all(env.config_dir(), ec);
+        testing::write_all(env.config_dir(), "this is a file, not a folder");
+        testing::write_all(projectLock, "alive");
+        env.lockWaitSec = 0.2;
+        FeedbackFileLock lock(env, g.file());
+        CHECK_FALSE(lock.held());
+        CHECK(lock.error().find("Another FactorIA process") != std::string::npos);
+        CHECK(lock.error().find("did not work either") == std::string::npos);
+        std::filesystem::remove(projectLock, ec);
+    }
+    SUBCASE("a path whose folder is not there: nothing is made, the caller's own read says what is wrong") {
+        const std::filesystem::path missing = g.dir.path / "no-such-folder" / "ENGINE_FEEDBACK.json";
+        {
+            FeedbackFileLock lock(env, missing.string());
+            CHECK(lock.held());  // nothing to protect
+        }
+        CHECK_FALSE(std::filesystem::exists(missing.parent_path()));
+        CHECK_FALSE(std::filesystem::exists(missing.parent_path() / ".factoria"));
+        auto updated = update_feedback_file(missing.string(), "FB-0001", "open", "");
+        REQUIRE_FALSE(updated.ok());
+        CHECK_FALSE(std::filesystem::exists(missing.parent_path()));
+        auto archived = archive_closed_feedback_file(missing.string());
+        CHECK_FALSE(std::filesystem::exists(missing.parent_path()));
+        (void)archived;
+    }
+    SUBCASE("the project's lock alone, when the project's folder cannot hold one, falls back to the user's lock") {
+        std::filesystem::remove_all(g.dir.path / ".factoria", ec);
+        testing::write_all(g.dir.path / ".factoria", "this is a file too");
+        FeedbackFileLock lock(env, g.file(), true);
+        REQUIRE_MESSAGE(lock.held(), lock.error());
+        CHECK_FALSE(lock.in_project_folder());
+        CHECK(std::filesystem::exists(userLock));
+    }
 }
 
 TEST_CASE("record_fix_check: takes the lock of the feedback files, so a report written at the same time is not undone") {

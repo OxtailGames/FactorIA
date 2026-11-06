@@ -1,6 +1,7 @@
 #include <doctest.h>
 
 #include <atomic>
+#include <chrono>
 #include <thread>
 
 #include "fa/tooling/feedback.h"
@@ -444,6 +445,7 @@ TEST_CASE("feedback archive: files, commands, list and collect") {
 }
 
 TEST_CASE("feedback share edit: set_feedback_share_file validates, drops a stale shared, marks the text unreviewed") {
+    testing::ScratchShareHome scratchHome;  // the lock of the sharing files goes to a scratch user folder, never ~/.factoria
     testing::TempDir dir;
     const std::string path = (dir.path / "ENGINE_FEEDBACK.json").string();
     Json doc = create_empty_feedback("g");
@@ -519,6 +521,8 @@ TEST_CASE("feedback file: two programs writing at once never lose an entry (an a
             (void)s;
             auto a = archive_closed_feedback_file(path);
             if (!a.ok()) ++failures;
+            // The lock is not fair: on a loaded machine this loop could take it again every time and starve the adder. It lets go.
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     });
     adder.join();

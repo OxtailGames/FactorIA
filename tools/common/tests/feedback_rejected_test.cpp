@@ -192,6 +192,7 @@ TEST_CASE("feedback.check: the check on its own, and over the open entries") {
 // ----------------------------------------------------------------------------------------------- rejected and its reason
 
 TEST_CASE("rejected: a reason is required, stored with who decided, and the entry goes to the archive") {
+    testing::ScratchShareHome scratchHome;  // the lock of the sharing files goes to a scratch user folder, never ~/.factoria
     testing::TempDir dir;
     const std::string file = dir.sub("ENGINE_FEEDBACK.json");
     REQUIRE(add_feedback_entry_to_file(file, input("Rope bridges sway"), "g").ok());
@@ -233,6 +234,7 @@ TEST_CASE("rejected: sanitize_status_reason keeps plain text within the limit, n
 }
 
 TEST_CASE("rejected: the engine rejects the open entries whose claim fails the check, and leaves a reopened one alone") {
+    testing::ScratchShareHome scratchHome;  // the lock of the sharing files goes to a scratch user folder, never ~/.factoria
     testing::TempDir dir;
     const std::string file = dir.sub("ENGINE_FEEDBACK.json");
     REQUIRE(add_feedback_entry_to_file(file, input("No one-way platforms", one_way_missing()), "g").ok());
@@ -259,6 +261,7 @@ TEST_CASE("rejected: the engine rejects the open entries whose claim fails the c
 // ---------------------------------------------------------------------------------------------------------------- delete
 
 TEST_CASE("delete: a closed entry goes from the file or the archive, an open one is refused, and an id is never reused") {
+    testing::ScratchShareHome scratchHome;  // the lock of the sharing files goes to a scratch user folder, never ~/.factoria
     testing::TempDir dir;
     const std::string file = dir.sub("ENGINE_FEEDBACK.json");
     for (const char* title : {"Rope bridges sway", "Weather changes slowly", "Boats float upstream"}) REQUIRE(add_feedback_entry_to_file(file, input(title), "g").ok());

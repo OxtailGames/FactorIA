@@ -734,3 +734,74 @@ TEST_CASE("ai.retrospective: candidatesOnly checks the fixes but writes nothing"
     CHECK_FALSE(f.entries()[0].contains("fixCheck"));
     CHECK(f.provider->requests.empty());
 }
+
+// ------------------------------------------------------------------------ the fix checks are written under the feedback file's lock
+
+namespace {
+// A project whose feedback file has two entries the engine fixed (the same pattern, so one run after the fix checks both) and a run after
+// the fix; the fix checks are about to be written on them.
+struct FixCheckFixture : Fixture {
+    ScopedShareEnv waits;
+    static ShareEnv short_waits(const std::string& home, double waitSec) {
+        ShareEnv env;
+        env.env = [home](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : ""; };
+        env.lockWaitSec = waitSec;
+        env.lockStaleSec = 600.0;
+        return env;
+    }
+    explicit FixCheckFixture(double waitSec) : waits(short_waits(home.str(), waitSec)) {
+        Json doc = create_empty_feedback("g");
+        doc["entries"] = Json::array({fixed_entry("FB-0001"), fixed_entry("FB-0002")});
+        REQUIRE(save_feedback(feedback_file(), doc).ok());
+        session("20261028-100000-orchestrator", failing_run_of(20), kT0 + 2 * kDay);
+        provider->script = {text_response(answer({}))};
+    }
+    fsys::path busy_lock() const { return proj.path / ".factoria" / kFeedbackShareLockFile; }
+    void hold_busy_lock() const {
+        fsys::create_directories(proj.path / ".factoria");
+        std::ofstream(busy_lock(), std::ios::binary) << "alive";
+    }
+};
+}  // namespace
+
+TEST_CASE("ai.retrospective: a feedback file whose lock stays busy keeps the fix checks off the entries, says why, and stops trying") {
+    FixCheckFixture f(0.2);
+    f.hold_busy_lock();  // another program holds the project's lock for the whole test
+    RetrospectiveOptions ro;
+    ro.engineVersion = "0.17.2";
+    ro.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> { return std::static_pointer_cast<ChatProvider>(f.provider); };
+    auto r = run_retrospective(f.cfg, ro, f.proj.str());
+    REQUIRE_MESSAGE(r.ok(), r.error().message);
+    CHECK(r->fixChecks.size() == 2);                            // the checks are in the result whatever the file says
+    CHECK(has(r->fixCheckProblem, "Another FactorIA process"));  // the lock's own words
+    CHECK(has(r->to_json().dump(), "Another FactorIA process"));
+    fsys::remove(f.busy_lock());
+    const Json entries = f.entries();
+    REQUIRE(entries.size() == 2);
+    CHECK_FALSE(entries[0].contains("fixCheck"));
+    CHECK_FALSE(entries[1].contains("fixCheck"));
+}
+
+TEST_CASE("ai.retrospective: Stop during the fix checks writes no more notes and returns cancelled") {
+    FixCheckFixture f(5.0);
+    f.hold_busy_lock();
+    CancelFlag stop{false};
+    RetrospectiveOptions ro;
+    ro.engineVersion = "0.17.2";
+    ro.cancel = &stop;
+    ro.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> { return std::static_pointer_cast<ChatProvider>(f.provider); };
+    // Stop first, then the other program lets go: the retrospective gets the lock after it was asked to stop.
+    std::thread stopper([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        stop = true;
+        std::error_code ec;
+        fsys::remove(f.busy_lock(), ec);
+    });
+    auto r = run_retrospective(f.cfg, ro, f.proj.str());
+    stopper.join();
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.rfind("cancelled", 0) == 0);
+    const Json entries = f.entries();
+    REQUIRE(entries.size() == 2);
+    CHECK_FALSE(entries[1].contains("fixCheck"));  // nothing was written once Stop was set
+}

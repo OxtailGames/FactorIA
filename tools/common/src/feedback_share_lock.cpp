@@ -237,11 +237,11 @@ std::string text_of(const stdfs::path& p) {
 ShareWaitCap::ShareWaitCap(double sec) : previous_(t_waitCap) { t_waitCap = std::min(t_waitCap, sec); }
 ShareWaitCap::~ShareWaitCap() { t_waitCap = previous_; }
 
-ShareLock::ShareLock(const ShareEnv& env) { init(env, stdfs::path(env.config_dir())); }
+ShareLock::ShareLock(const ShareEnv& env) { init(env, stdfs::path(env.config_dir()), -1); }
 
-ShareLock::ShareLock(const ShareEnv& env, const stdfs::path& folder) { init(env, folder); }
+ShareLock::ShareLock(const ShareEnv& env, const stdfs::path& folder, double reportedWaitSec) { init(env, folder, reportedWaitSec); }
 
-void ShareLock::init(const ShareEnv& env, const stdfs::path& folder) {
+void ShareLock::init(const ShareEnv& env, const stdfs::path& folder, double reportedWaitSec) {
     try {
         file_ = folder / kFeedbackShareLockFile;
         for (const ShareLock* owner : t_owners) {
@@ -252,7 +252,7 @@ void ShareLock::init(const ShareEnv& env, const stdfs::path& folder) {
                 return;
             }
         }
-        acquire(env, folder);
+        acquire(env, folder, reportedWaitSec);
     } catch (const std::exception& e) {
         held_ = false;
         error_ = std::string("Cannot take the lock of the sharing files (") + e.what() + "), so nothing was changed.";
@@ -262,7 +262,7 @@ void ShareLock::init(const ShareEnv& env, const stdfs::path& folder) {
     }
 }
 
-void ShareLock::acquire(const ShareEnv& env, const stdfs::path& dir) {
+void ShareLock::acquire(const ShareEnv& env, const stdfs::path& dir, double reportedWaitSec) {
     std::error_code ec;
     stdfs::create_directories(dir, ec);
     file_ = dir / kFeedbackShareLockFile;
@@ -314,7 +314,7 @@ void ShareLock::acquire(const ShareEnv& env, const stdfs::path& dir) {
             }
         }
         if (std::chrono::steady_clock::now() >= deadline) {
-            error_ = "Another FactorIA process is changing the sharing files and did not finish in " + seconds_text(waitSec) +
+            error_ = "Another FactorIA process is changing the sharing files and did not finish in " + seconds_text(reportedWaitSec >= 0 ? reportedWaitSec : waitSec) +
                      " s (lock file " + path_ + "), so nothing was changed. "
                      "Try again; if no FactorIA program is running, delete that file.";
             if (deniedCode != 0)
@@ -347,6 +347,27 @@ ShareLock::~ShareLock() {
 }
 
 FeedbackFileLock::FeedbackFileLock(const ShareEnv& env, const std::string& feedbackPath, bool projectOnly) {
+    // The path text is UTF-8 (like every path of the feedback file): never the narrow conversion, which turns a non-ASCII
+    // folder name into another one. A path with no folder part is the working directory.
+    stdfs::path parent;
+    try {
+        const std::u8string u8(reinterpret_cast<const char8_t*>(feedbackPath.data()), feedbackPath.size());
+        parent = stdfs::path(u8).parent_path();
+        if (parent.empty()) parent = stdfs::path(".");
+    } catch (const std::exception& e) {
+        error_ = std::string("Cannot work out the project's lock folder from ") + feedbackPath + " (" + e.what() + "), so nothing was changed.";
+        return;
+    }
+    // A folder that does not exist holds no file to protect, and a lock must not make the folder (nor `.factoria` in it): nothing is
+    // taken, and the caller's own read or write says what is wrong with the path.
+    std::error_code existsEc;
+    if (!stdfs::is_directory(parent, existsEc)) {
+        noFolder_ = true;
+        return;
+    }
+    // One wait for both locks: the second only waits for what is left of it.
+    const double totalSec = std::min(env.lockWaitSec, t_waitCap);
+    const auto start = std::chrono::steady_clock::now();
     // Order: the user's folder first, then the project's. Every process takes them in this order (a process that cannot write the
     // user's folder takes only the project's), so none waits for a lock another one holds while holding the lock that one wants.
     std::string userError;
@@ -363,30 +384,43 @@ FeedbackFileLock::FeedbackFileLock(const ShareEnv& env, const std::string& feedb
         }
     }
     try {
-        // The path text is UTF-8 (like every path of the feedback file): never the narrow conversion, which turns a non-ASCII
-        // folder name into another one. A path with no folder part is the working directory.
-        const std::u8string u8(reinterpret_cast<const char8_t*>(feedbackPath.data()), feedbackPath.size());
-        stdfs::path parent = stdfs::path(u8).parent_path();
-        if (parent.empty()) parent = stdfs::path(".");
-        local_ = std::make_unique<ShareLock>(env, parent / ".factoria");
+        ShareEnv rest = env;
+        rest.lockWaitSec = std::max(0.0, totalSec - std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+        local_ = std::make_unique<ShareLock>(rest, parent / ".factoria", totalSec);
     } catch (const std::exception& e) {
-        error_ = std::string("Cannot work out the project's lock folder from ") + feedbackPath + " (" + e.what() + "), so nothing was changed.";
+        error_ = std::string("Cannot take the project's lock next to ") + feedbackPath + " (" + e.what() + "), so nothing was changed.";
         user_.reset();
         return;
     }
     if (local_->held()) return;
+    if (projectOnly && local_->unwritable()) {
+        // The caller wanted only the project's lock, but that folder cannot hold one: the user's lock is the fallback, as for any writer.
+        const std::string localError = local_->error();
+        local_.reset();
+        ShareEnv left = env;
+        left.lockWaitSec = std::max(0.0, totalSec - std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+        user_ = std::make_unique<ShareLock>(left, stdfs::path(env.config_dir()), totalSec);
+        if (user_->held()) return;
+        error_ = user_->unwritable() ? localError + " The user's folder did not work either: " + user_->error() : user_->error();
+        user_.reset();
+        return;
+    }
     if (user_ && local_->unwritable()) {
         // The user's lock is held and the project's folder cannot hold one: the processes that can write the user's folder are
         // excluded by it (the others cannot reach this file's folder either).
         local_.reset();
         return;
     }
-    error_ = userError.empty() ? local_->error() : userError + " The project's own folder did not work either: " + local_->error();
+    // Both folders unwritable: say both. Home unwritable and the project's lock only busy (or the other way round): say only what is true.
+    if (!userError.empty() && local_->unwritable())
+        error_ = userError + " The project's own folder did not work either: " + local_->error();
+    else
+        error_ = local_->error();
     local_.reset();
     user_.reset();
 }
 
-bool FeedbackFileLock::held() const { return (user_ && user_->held()) || (local_ && local_->held()); }
+bool FeedbackFileLock::held() const { return noFolder_ || (user_ && user_->held()) || (local_ && local_->held()); }
 
 FeedbackFileLock::~FeedbackFileLock() {
     // Reverse of the order they were taken in.
