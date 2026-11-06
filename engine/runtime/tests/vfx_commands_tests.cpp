@@ -370,3 +370,47 @@ TEST_CASE("vfx.filmstrip films an effect, steps the game and leaves no effect be
     CHECK(e.frame_index() == frame);
     e.shutdown();
 }
+
+TEST_CASE("vfx.play: the command parts of an effect run the game feel commands (shake, hit-stop, flash) at their frame") {
+    TempProject p;
+    p.put("assets/vfx/impact.vfx.json", R"({
+      "format": "factoria.vfx/1",
+      "parts": [
+        {"type": "command", "at": 0.1, "command": "feel.shake", "args": {"amount": 0.5, "duration": 0.3}},
+        {"type": "command", "at": 0.1, "command": "feel.hitStop", "args": {"duration": 0.2}},
+        {"type": "command", "at": 0.1, "command": "feel.flash", "args": {"entity": "hero", "duration": 0.5, "fade": false}}
+      ]})");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto state = [&]() {
+        auto r = c.call("feel.state", Json::object());
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        return r.result;
+    };
+    auto entry = [&](const char* id) {
+        const Json st = state();  // a named object: a range-for over a temporary's member would dangle
+        for (const Json& j : st["entities"])
+            if (j["entity"] == id) return j;
+        return Json();
+    };
+    auto play = c.call("vfx.play", Json::parse(R"({"effect":"assets/vfx/impact.vfx.json"})"));
+    REQUIRE_MESSAGE(play.ok, play.error.dump());
+
+    // 0.1 s = 6 frames at 60 Hz: nothing has run before the 6th.
+    e.step(5);
+    CHECK(state()["hitStop"]["remaining"].get<double>() == doctest::Approx(0.0));
+    CHECK(entry("cam").is_null());
+    CHECK(entry("hero").is_null());
+
+    e.step(2);
+    CHECK(state()["hitStop"]["remaining"].get<double>() > 0.0);
+    const Json cam = entry("cam");
+    REQUIRE_FALSE(cam.is_null());
+    CHECK(cam["shake"]["trauma"].get<double>() > 0.0);
+    const Json hero = entry("hero");
+    REQUIRE_FALSE(hero.is_null());
+    CHECK(hero.contains("flash"));
+    e.shutdown();
+}

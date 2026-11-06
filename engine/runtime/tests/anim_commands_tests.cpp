@@ -236,6 +236,61 @@ TEST_CASE("anim tracks, events and clip settings") {
     CHECK(c.call("anim.restore", sc.result["undo"]["args"]).ok);  // undo is whole-document
 }
 
+TEST_CASE("anim events carry game feel actions: add, replace, remove, undo, and a typo is refused with the option names") {
+    TempProject p("eventfeel");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    REQUIRE(c.call("anim.create_clip", Json{{"path", kWalk}, {"duration", 1.0}}).ok);
+
+    // a feel-only event: no name needed, one action object or an array
+    auto add = c.call("anim.add_event", Json{{"path", kWalk}, {"t", 0.3}, {"feel", Json::array({Json{{"action", "hitStop"}, {"duration", 0.06}}, Json{{"action", "shake"}, {"amount", 0.3}}})}});
+    REQUIRE_MESSAGE(add.ok, add.error.dump());
+    Json doc = read_file_json(p, kWalk);
+    REQUIRE(doc["events"].size() == 1);
+    CHECK_FALSE(doc["events"][0].contains("name"));
+    CHECK(doc["events"][0]["feel"].size() == 2);
+    // the clip loads with them
+    auto loaded = load_anim_clip((p.dir / kWalk).generic_string());
+    REQUIRE_MESSAGE(loaded.ok(), loaded.error().message);
+    CHECK((*loaded)->events[0].feel.size() == 2);
+
+    // a typo is refused and nothing is written
+    auto bad = c.call("anim.add_event", Json{{"path", kWalk}, {"t", 0.5}, {"feel", Json{{"action", "shake"}, {"amout", 0.3}}}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("amount") != std::string::npos);
+    CHECK(read_file_json(p, kWalk)["events"].size() == 1);
+    // neither name nor feel
+    auto empty = c.call("anim.add_event", Json{{"path", kWalk}, {"t", 0.5}});
+    REQUIRE_FALSE(empty.ok);
+    CHECK(empty.error.dump().find("feel") != std::string::npos);
+
+    // set_event replaces the feel and can name the event; a nameless, feel-less event is refused
+    auto named = c.call("anim.set_event", Json{{"path", kWalk}, {"event", 0}, {"name", "swing"}, {"feel", Json{{"action", "flash"}, {"duration", 0.1}}}});
+    REQUIRE_MESSAGE(named.ok, named.error.dump());
+    doc = read_file_json(p, kWalk);
+    CHECK(doc["events"][0]["name"] == "swing");
+    CHECK(doc["events"][0]["feel"]["action"] == "flash");
+    auto both_gone = c.call("anim.set_event", Json{{"path", kWalk}, {"event", 0}, {"name", nullptr}, {"feel", nullptr}});
+    CHECK_FALSE(both_gone.ok);
+    auto no_feel = c.call("anim.set_event", Json{{"path", kWalk}, {"event", 0}, {"feel", nullptr}});
+    REQUIRE_MESSAGE(no_feel.ok, no_feel.error.dump());
+    CHECK_FALSE(read_file_json(p, kWalk)["events"][0].contains("feel"));
+    // undo brings the feel back
+    CHECK(c.call("anim.restore", no_feel.result["undo"]["args"]).ok);
+    CHECK(read_file_json(p, kWalk)["events"][0].contains("feel"));
+    // a nameless event is moved and removed by index
+    auto only_feel = c.call("anim.set_event", Json{{"path", kWalk}, {"event", 0}, {"name", nullptr}});
+    REQUIRE_MESSAGE(only_feel.ok, only_feel.error.dump());
+    auto mv = c.call("anim.move_event", Json{{"path", kWalk}, {"event", 0}, {"to", 0.6}});
+    REQUIRE_MESSAGE(mv.ok, mv.error.dump());
+    CHECK(mv.result["event"] == 0);
+    CHECK(read_file_json(p, kWalk)["events"][0]["t"] == 0.6);
+    CHECK(c.call("anim.remove_event", Json{{"path", kWalk}, {"event", 0}}).ok);
+    CHECK(read_file_json(p, kWalk)["events"].empty());
+}
+
 TEST_CASE("anim.list, anim.pose and anim.check") {
     TempProject p("check");
     Engine e;

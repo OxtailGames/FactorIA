@@ -999,11 +999,20 @@ void Editor::restore_scene(const Json& snapshot) {
     if (!engine_->load_scene_json(snapshot, "editor snapshot", &err)) notify("Scene restore failed: " + err, 2);
 }
 
+// The game's accessibility choices for the game feel effects (feel.reduceMotion / feel.reducedEffects) belong to one Play session: a
+// game that set them must not leave the editor, which follows the system again, with them, and the next session starts clean.
+void Editor::reset_feel_choices() {
+    if (!engine_) return;
+    world().feel().reduceMotionSetting.reset();
+    world().feel().reducedEffectsSetting.reset();
+}
+
 bool Editor::command_edits_scene(const std::string& name, const Json& args) const {
     if (name == "prefab.save" || name == "scene.format" || name == "scene.ascii_edit" || name == "fs.delete") return false;  // files only
     if (name.rfind("anim.", 0) == 0 && name != "anim.pose" && name != "anim.check" && name != "anim.filmstrip") return false;  // clip files only
     if (name.rfind("image.", 0) == 0) return false;  // image documents are files; the Image panel keeps its own undo steps
     if (name.rfind("vector.", 0) == 0) return false;  // drawings are files; the Vector panel keeps its own undo steps
+    if (name.rfind("feel.", 0) == 0) return false;  // game feel effects are a moment of the running game, not part of the scene
     if (name == "scene.import_ascii" && args.is_object() && args.contains("path")) return false;  // file mode: the world is not touched
     return true;
 }
@@ -1113,6 +1122,7 @@ void Editor::play() {
     if (play_ == PlayState::Edit) {
         playSnapshot_ = save_scene(world());
         restore_scene(playSnapshot_);  // fresh instantiate: scripts and physics start clean
+        reset_feel_choices();
         session_begin();
     }
     run_.skipNext = true;
@@ -1135,6 +1145,7 @@ void Editor::step_once() {
     if (play_ == PlayState::Edit) {
         playSnapshot_ = save_scene(world());
         restore_scene(playSnapshot_);
+        reset_feel_choices();
         play_ = PlayState::Paused;
         session_begin();
     } else if (play_ == PlayState::Playing) {
@@ -1154,6 +1165,7 @@ void Editor::stop() {
     stepPending_ = 0;
     restore_scene(playSnapshot_);
     playSnapshot_ = Json();
+    reset_feel_choices();
 }
 
 // ------------------------------------------------------------------------------------------

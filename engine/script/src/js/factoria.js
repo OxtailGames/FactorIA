@@ -452,6 +452,22 @@
     throw new Error(`${what}: expected an Entity but got ${inspect(e)}`);
   }
 
+  // A game feel action ({ action: name, ...options }) from the options a script passed: colours and vectors become plain
+  // arrays, the rest goes through, so an option the engine does not know is reported there with a "did you mean".
+  function feelAction(name, opts, what) {
+    if (opts !== undefined && opts !== null && (!isObj(opts) || Array.isArray(opts)))
+      throw new Error(`${what}: the options must be an object such as { duration: 0.1 } but got ${inspect(opts)}`);
+    const a = { action: name };
+    for (const k of Object.keys(opts ?? {})) {
+      const v = opts[k];
+      if (v === undefined) continue;
+      if (k === "color") a[k] = typeof v === "string" ? v : Array.isArray(v) ? v : [v.r, v.g, v.b, v.a ?? 1];
+      else if (k === "direction") a[k] = vecArr(v, 3, `${what} \`direction\``);
+      else a[k] = v;
+    }
+    return a;
+  }
+
   class Entity {
     constructor(h) { this.$h = h; }
     get id() { return N.idOf(this.$h); }
@@ -497,6 +513,15 @@
     isGrounded(tolerance) { return N.isGrounded(this.$h, tolerance === undefined ? -1 : tolerance); }
     isTouching(direction, tolerance) { const d = vecArr(direction, 3, "entity.isTouching(direction)"); return N.isTouching(this.$h, d[0], d[1], d[2], tolerance === undefined ? (N.hasComp(this.$h, "RigidBody3D") || N.hasComp(this.$h, "Collider3D") ? 0.05 : 2) : tolerance); }
     emitBurst(count = 10) { N.particlesBurst(this.$h, count); }
+    // Game feel (docs/GAME_FEEL.md). Each one starts a short effect that never changes the entity's own Transform.
+    flash(opts) { N.feelDo(this.$h, feelAction("flash", opts, "entity.flash(opts)")); }
+    squash(opts) { N.feelDo(this.$h, feelAction("squash", opts, "entity.squash(opts)")); }
+    knockback(direction, opts) {
+      if (isObj(direction) && !Array.isArray(direction) && direction.x === undefined && opts === undefined) { opts = direction; direction = opts.direction; }
+      N.feelDo(this.$h, feelAction("knockback", { ...(opts ?? {}), direction }, "entity.knockback(direction, opts)"));
+    }
+    get isKnockedBack() { return N.feelInfo(this.$h)[0] > 0; }
+    get knockbackRemaining() { return N.feelInfo(this.$h)[0]; }
     get animator() {
       if (!N.hasComp(this.$h, "Animator"))
         throw new Error(`entity '${this.id}' has no Animator component; add one next to a MeshRenderer with a skinned glTF: entity.add("Animator", {clip: "Idle"})`);
@@ -1644,6 +1669,12 @@
       else { pausedScale = null; N.setTimeScale(v); }
     },
     get unscaledDt() { return N.timeInfo()[5]; },
+    // Freezes (scale 0) or slows the game for `seconds` of REAL time: the hit-stop that makes an impact land. UI, audio and
+    // runWhilePaused behaviours keep running, `time.scale` and `game.paused` do not change, and overlapping calls do not add
+    // up (the longest wins; the strongest scale applies while they overlap). Shorter with the player's reduce motion on.
+    hitStop(seconds, opts) { N.feelDo(null, feelAction("hitStop", { ...(opts ?? {}), duration: seconds }, "time.hitStop(seconds, opts)")); },
+    // Real seconds left of the longest running hit-stop (0 = none).
+    get hitStopRemaining() { return N.timeInfo()[6]; },
   };
 
   // The camera argument of a conversion: an Entity (or its id) naming one of the drawn cameras, or none (null for "the one
@@ -1668,6 +1699,16 @@
     get main() { return entityOf(N.cameraMain()); },
     // Every camera drawn, in draw order (ascending depth): one per player view in a split screen.
     get all() { return N.cameraAll().map(entityOf); },
+    // Camera shake (docs/GAME_FEEL.md): adds `amount` (0..1) of trauma, which stacks up to opts.cap and dies out over
+    // opts.duration seconds; the shake is trauma squared, so small bumps stay small. Only what is DRAWN moves: the camera's
+    // Transform does not change, so a follow script never chases it. opts.camera = which camera (default camera.main).
+    shake(amount = 0.4, opts) {
+      const o = { ...(opts ?? {}) };
+      const cam = o.camera;
+      delete o.camera;
+      N.feelDo(cam === undefined || cam === null ? null : entityHandle(cam, "camera.shake(amount, { camera })"),
+        feelAction("shake", { ...o, amount }, "camera.shake(amount, opts)"));
+    },
     // The camera whose viewport contains the screen point (design pixels), else the first one. Null when no camera is active.
     at(v) { const a = vecArr(v, 2, "camera.at(v)"); return entityOf(N.cameraAt(a[0], a[1])); },
     // World point to design pixels, as seen by `cam` (default: the first camera drawn).
@@ -3671,8 +3712,33 @@
     succeeder: (child) => ({ type: "succeeder", children: btChildren("succeeder", [child]) }),
   };
 
+  // Game feel settings and the generic action entry point (docs/GAME_FEEL.md).
+  const feelOpt = (v, what) => {
+    if (v === null || v === undefined) return null;
+    if (typeof v !== "boolean") throw new Error(`${what} must be true, false or null (follow the system) but got ${inspect(v)}`);
+    return v;
+  };
+  const feel = {
+    // Whether shake and squash are turned way down and hit-stop shortened: the game's own choice when it set one, else the
+    // operating system's "reduce motion". Assign true / false to set the player's choice, null to follow the system again.
+    get reduceMotion() { return N.feelInfo(null)[2]; },
+    set reduceMotion(v) { N.feelSet("reduceMotion", feelOpt(v, "feel.reduceMotion")); },
+    // Whether flashes are turned down (faint and always fading, never full-bright): the game's choice, else the system's reduce motion.
+    get reducedEffects() { return N.feelInfo(null)[3]; },
+    set reducedEffects(v) { N.feelSet("reducedEffects", feelOpt(v, "feel.reducedEffects")); },
+    // Runs an action given as data: { action: "shake" | "hitStop" | "flash" | "knockback" | "squash", ...options }, on `target`
+    // (an entity or its id; the camera to shake, default camera.main) - what clip events and the feel.* commands do.
+    do(action, target) {
+      if (!isObj(action) || Array.isArray(action)) throw new Error(`feel.do(action): expected an object like { action: "flash", color: "#fff" } but got ${inspect(action)}`);
+      const { action: name, ...opts } = action;
+      N.feelDo(target === undefined || target === null ? null : entityHandle(target, "feel.do(action, target)"), feelAction(name, opts, "feel.do(action)"));
+    },
+    // Ends the effects of `target` (flash, shake, squash, knockback) at once; no argument = every effect, hit-stops included.
+    cancel(target) { N.feelCancel(target === undefined || target === null ? null : entityHandle(target, "feel.cancel(target)")); },
+  };
+
   const factoria = {
-    Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, tilemap: tilemapApi, game, screen, storage, rng, fa,
+    Behaviour, Entity, feel, world, input, audio, physics, nav, time, camera, debug, scene, tilemap: tilemapApi, game, screen, storage, rng, fa,
     vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, didYouMean, particles, vfx, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
     window: windowApi, clipboard: clipboardApi, render, mesh, tween, ease, cancelTweens, bt,
   };
@@ -4307,6 +4373,7 @@
       N.testDevice();
       if (N.renderScaleGet() !== 1) N.renderScaleSet(1);
       N.setTimeScale(1); pausedScale = null; tweens.reset();
+      N.feelCancel(null); N.feelSet("reduceMotion", null); N.feelSet("reducedEffects", null);  // no effect, hit-stop or accessibility choice carries over
       N.testAppReset();
       // The fake's test ad ends "watched" and the consent sheets say granted again (the rest of the fake lasts the file).
       try { fa.call("platform.set_ad", { outcome: "watched", gdpr: "granted", tracking: "authorized" }); } catch (e) { /* a real backend: nothing to reset */ }
@@ -4342,6 +4409,7 @@
     }
     N.resetInput();
     N.setTimeScale(1); pausedScale = null; tweens.reset();
+    N.feelCancel(null); N.feelSet("reduceMotion", null); N.feelSet("reducedEffects", null);
     testCurrentName = "";
     return results;
   }

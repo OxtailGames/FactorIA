@@ -130,7 +130,7 @@ A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their 
 
 ### SpriteAnimator
 
-Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}.
+Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -144,6 +144,7 @@ Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entit
 | `clip` | string | `""` | Name of a clip of the Sprite texture's `sheet` entry in assets.json ("run"); "" = none, the numeric fields alone. Changing it restarts the animation. A name the sheet does not have is an error that lists the clips ("did you mean"): `factoria validate` finds it in scenes, a script's play(name) throws it, a running game logs it once and shows the first frame. (since 0.6.0) |
 | `mode` | enum: forward \\| reverse \\| pingpong | `"forward"` | Order of the frames: forward (first to last), reverse (last to first) or pingpong (first to last and back, without repeating the end frames). A pingpong clip that does not loop stops back on the first frame. (since 0.6.0) |
 | `sheetPivot` | bool | `true` | true = the pivot recorded in the sheet entry (or the clip's own pivot) is used as Sprite.pivot while the Sprite's own pivot is the default centre [0.5, 0.5]; a Sprite that sets another pivot keeps it. The sheet stores it from the TOP-left of the frame, Sprite.pivot counts from the bottom-left, so y is flipped. false = never touch the pivot. (since 0.6.0) |
+| `events` | json | `[]` | Frame events, an array of {frame, clip?, name?, data?, feel?}: every time the animation shows grid frame `frame` (the same row-major number as firstFrame and lastFrame) the game event `name` is sent with {id, clip, frame, ...data}, and the game feel actions of `feel` run (one action object or an array of them, in the form of `feel.do(action)` in scripts: shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, "Effects as data"). With `clip` (a name of the sheet's clips) the event belongs to that clip only. An event needs `name` or `feel`. A frame is shown once per pass over the clip, so a looping clip fires it once per loop, a frame that a long frame time skips still fires, and pingpong shows its middle frames twice. Example: [{"clip": "attack", "frame": 9, "feel": [{"action": "hitStop", "duration": 0.06}, {"action": "shake", "amount": 0.3}]}]. (not released yet, on main after 0.16.1) |
 | `ended` | bool | `false` | Runtime state: a non-looping clip reached its end (clipEnded was sent). Runtime-only (not saved). (since 0.6.0) |
 | `playedClip` | string | `""` | Runtime state: the clip `time` counts in. Runtime-only (not saved). (since 0.6.0) |
 | `time` | float | `0.0` | Runtime state: seconds elapsed in the current clip. Runtime-only (not saved). |
@@ -401,7 +402,7 @@ Plays animation clips: the skeletal clips of a skinned glTF model (the model of 
 | `states` | json | `{}` | State machine states, an object name -> {clip, loop (default true), speed (default 1), onEnter}. `onEnter` is the name of a game event sent when the state starts (world.on). Example: {"idle": {"clip": "Idle"}, "run": {"clip": "Run", "onEnter": "started_running"}}. |
 | `transitions` | json | `[]` | State machine transitions, an array checked in order every step; the first that matches fires. Each: {from (a state, or "*"/omitted = any), to, when, fade (seconds, default 0.2), onFinish}. `when` is conditions joined by "&&": `speed > 0.1`, `grounded`, `!grounded`, `hp <= 0` (operators > >= < <= == !=). A parameter set with animator.trigger(name) is true for one step. onFinish: true fires when the current non-looping clip ended (alone or together with `when`). |
 | `layers` | json | `[]` | 2D clips only: layers played at the same time as the main clip, an array of {name, clip \| states (with transitions and state, like the Animator's own), weight (0..1, default 1), mode ("override" blends toward the layer's pose, "additive" adds the layer's change from its first pose; default override), mask (paths such as ["body/arm_l"]: the layer drives only the parts under them; empty = all), speed (default 1), loop}. Layers apply in order over the main clip. A layer at weight 0 is not playing; it starts from its first pose when its weight rises. Example: [{"name": "arms", "clip": "shoot", "mask": ["body/arm_l"]}]. (since 0.7.0) |
-| `events` | json | `[]` | Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. |
+| `events` | json | `[]` | Clip events, an array of {clip, time, name?, feel?}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). `feel` (one action object or an array, the form of `feel.do(action)`: shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, "Effects as data") runs game feel actions on this entity at the same moment. An event needs `name` or `feel`. Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}, {"clip": "Attack", "time": 0.2, "feel": {"action": "hitStop", "duration": 0.06}}]. |
 | `state` | string | `""` | State machine: the state the animator is in (the start state when set in the scene; empty = the first state of `states`). Updated as transitions fire. |
 | `time` | float | `0.0` | Runtime state: seconds into the current clip. Assigning it seeks (no events fire). Runtime-only (not saved). |
 | `values` | json | `{}` | Runtime state: current value of every state machine parameter. Runtime-only (not saved). |
@@ -1439,16 +1440,17 @@ The user's "mcpServers" (docs/AI_PROVIDERS.md, External tools): services such as
 
 Since 0.7.0.
 
-Add an event to a clip: a game event sent when the clip passes its time.
+Add an event to a clip: a game event and/or game feel actions run when the clip passes its time.
 
-The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: {path, event (index), undo}. Example: anim.add_event {"path":"anim/hero_walk.anim.json","t":0.2,"name":"footstep","data":{"foot":"left"}}
+The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. `feel` is one game feel action or an array of them (hitStop, shake, flash, knockback or push, squash, spawn, sound: docs/GAME_FEEL.md, "Effects as data"), run on the entity that plays the clip; they are checked now, so a typo is refused with the option names. An event needs `name` or `feel`. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: {path, event (index), undo}. Example: anim.add_event {"path":"anim/hero_attack.anim.json","t":0.3,"feel":[{"action":"hitStop","duration":0.06},{"action":"shake","amount":0.3}]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The clip file (.anim.json). |
 | `t` | number | yes | Seconds from the start of the clip. |
-| `name` | string | yes | The game event name. |
+| `name` | string | no | The game event name. Optional when `feel` is given. |
 | `data` | object | no | Extra fields sent with the event. |
+| `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}. |
 | `extendDuration` | boolean | no |  Default false. |
 
 ### `anim.add_track` (modifies state)
@@ -1497,7 +1499,7 @@ Creates the file with `duration` seconds, `loop`, and optionally its `tracks` an
 | `loop` | boolean | no | true repeats the clip, false stops on the last pose (anim.finished). Default true. |
 | `doc` | string | no | What the clip shows. |
 | `tracks` | array | no | Tracks [{path, component, field, keys:[{t, value, interp?}]}]; none = an empty clip to fill with anim.set_keys. |
-| `events` | array | no | Events [{t, name, data?}] sent to the game when the clip passes t. |
+| `events` | array | no | Events [{t, name?, data?, feel?}]: a game event and/or game feel actions run when the clip passes t. |
 | `overwrite` | boolean | no | Replace the file if it exists. Default false. |
 
 ### `anim.filmstrip`
@@ -1585,7 +1587,7 @@ Since 0.7.0.
 
 Remove an event from a clip.
 
-`event` is the event's index, or {t, name?}. Result: {path, removed: {t, name, data?}, undo}. Example: anim.remove_event {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"}}
+`event` is the event's index, or {t, name?}. Result: {path, removed: {t, name?, data?, feel?}, undo}. Example: anim.remove_event {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1652,16 +1654,17 @@ Give any of `duration` (seconds), `loop` and `doc`. A duration shorter than the 
 
 Since 0.7.0.
 
-Rename an event of a clip or replace its data.
+Rename an event of a clip, or replace its data or its game feel actions.
 
-`event` is the event's index, or {t, name?}. Give `name` and/or `data` (an object that REPLACES the event's data; {} clears it). Result: {path, event, undo}. Example: anim.set_event {"path":"anim/hero_walk.anim.json","event":0,"name":"step","data":{"foot":"right"}}
+`event` is the event's index, or {t, name?}. Give `name`, `data` (an object that REPLACES the event's data; {} clears it) and/or `feel` (an action or an array of actions that REPLACE the event's; null or [] removes them). `name` null removes the name; an event keeps `name` or `feel`. Result: {path, event, undo}. Example: anim.set_event {"path":"anim/hero_walk.anim.json","event":0,"name":"step","data":{"foot":"right"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The clip file (.anim.json). |
 | `event` | any | yes | Index of the event, or {t, name?}. |
-| `name` | string | no | The new event name. |
+| `name` | any | no | The new event name; null removes it (the event then needs `feel`). |
 | `data` | object | no | The new data object. |
+| `feel` | any | no | The new game feel action(s); null or [] removes them. |
 
 ### `anim.set_interp` (modifies state)
 
@@ -1699,16 +1702,17 @@ Add or replace keys of one track of a clip, creating the track if it is missing.
 
 Since 0.16.0.
 
-Add an event to a 3D clip: a game event the Animator sends when the clip passes its time.
+Add an event to a 3D clip: a game event and/or game feel actions the Animator runs when the clip passes its time.
 
-The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: the clip summary plus {event, undo}. Example: {"path":"anim/hero_walk.anim.json","t":0.2,"name":"footstep","data":{"foot":"left"}} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` (an object; the keys id, clip and time are reserved), once per loop. `feel` is one game feel action or an array (hitStop, shake, flash, knockback or push, squash, spawn, sound: docs/GAME_FEEL.md, "Effects as data") run on the entity that plays the clip; they are checked now. An event needs `name` or `feel`. Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: the clip summary plus {event, undo}. Example: {"path":"anim/hero_walk.anim.json","t":0.2,"name":"footstep","data":{"foot":"left"}} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The 3D clip file, project-relative, ending in .anim.json. |
 | `t` | number | yes | Seconds from the start of the clip. |
-| `name` | string | yes | The game event name. |
+| `name` | string | no | The game event name. Optional when `feel` is given. |
 | `data` | object | no | Extra fields sent with the event. |
+| `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}; on set_event they replace the old ones, null or [] removes them. |
 | `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
 
 ### `anim3d.create`
@@ -1910,9 +1914,9 @@ Give any of `duration` (seconds; shorter than the last key or event is refused),
 
 Since 0.16.0.
 
-Move, rename or change the data of an event of a 3D clip.
+Move, rename or change the data or the game feel actions of an event of a 3D clip.
 
-`event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Give any of `t` (move it), `name` and `data` (an empty object or null clears it). Events stay sorted by t. Result: the clip summary plus {undo}. Example: {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"},"t":0.25} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
+`event` is the event's index in the clip's events, or {t, name?} (name needed when two events share the time). Give any of `t` (move it), `name`, `data` (an empty object or null clears it) and `feel` (an action or an array that REPLACES the event's; null or [] removes them). Events stay sorted by t. Result: the clip summary plus {undo}. Example: {"path":"anim/hero_walk.anim.json","event":{"t":0.2,"name":"footstep"},"t":0.25} The result carries `undo`: {command: "anim3d.restore", args} puts the whole clip file back as it was (or deletes a file this call created), which is how the editor undoes it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1921,6 +1925,7 @@ Move, rename or change the data of an event of a 3D clip.
 | `t` | number | no | The new time in seconds. |
 | `name` | string | no | The new event name. |
 | `data` | object | no | The new data (replaces the old). |
+| `feel` | any | no | Game feel action(s) to run, each {action: shake\|hitStop\|flash\|knockback\|push\|squash\|spawn\|sound, ...options}; on set_event they replace the old ones, null or [] removes them. |
 | `extendDuration` | boolean | no | Lengthen the clip when t is past its end. |
 
 ### `anim3d.set_interp`
@@ -1994,11 +1999,11 @@ Since 0.6.0.
 
 Draw an animation with code (a JS module that returns the SVG of each frame, or an SVG with SMIL) and bake it into a sprite sheet PNG plus its `sheet` entry, offline: no provider, no key.
 
-Writes a sprite sheet at `path` (under assets/, ending in .png) and its `sheet` entry in assets.json in one call, from an animation you write as code. Two ways to draw it. (1) `source`: a project JavaScript module, e.g. "art/coin_spin.anim.js", whose default export is `frame({t, frame, frames, fps, progress, params, rng, seed, rngFor, clip, sheetFrame, width, height}) => string`, the SVG of that frame. t is the time in seconds (frame / fps); frame counts from 0 inside the clip and frames is the clip's length; progress runs 0..1 through the clip (frame / frames for a looping clip, so the last frame leads into the first; frame / (frames - 1) for loop false, so the last frame is the end pose); params is the `params` argument (a clip's own params are merged over it); rng() is a seeded random number in 0..1 for this frame (also rng.range(a, b), rng.int(n), rng.pick(list), rng.chance(p), rng.gauss()), different on every frame; rngFor(key) is a random stream that is the SAME on every frame for one key (a sparkle that stays where it is); clip is the clip name with `clips`. The module runs in a sandboxed QuickJS context: the language only (Math, JSON, Array...), no engine bindings, no DOM, no timers, no files; it may `import` other project files with a relative path ("./shapes.js"). Math.random is a seeded stream and Date a fixed day moved to the frame's time, so the same module always draws the same frames. Loading and each frame have a time limit (`timeLimitMs`, 2000 by default) and the context a memory limit. A mistake is reported with the module's file, line and column, the source line, and the frame being drawn; console.log output comes back in `console`. (2) `svg` (text) or `source` ending in .svg: one SVG with SMIL animation (<animate>, <set>, <animateTransform>, <animateMotion> with values, keyTimes, keySplines, begin, dur, repeatCount, fill="freeze", additive, accumulate and `id.begin` sync-bases), sampled at t = frame / fps. Without `frames` the sheet takes one pass of the animation (cycle seconds * fps frames). What is not sampled (event begins such as click, CSS animations, the rest of SMIL) is a warning that names the element. Every frame is rasterized exactly as assets.rasterize_svg does (nanosvg: paths, shapes, gradients, strokes, clipPath, mask, pattern; no text or filters) into a transparent `frameWidth` x `frameHeight` cell (default 64 x 64; the SVG is fitted inside, aspect kept, centred), then the painterly `style` / `styleStrength` is applied (the style's seed is `seed`, the same for every frame, so the paper texture stays put while the drawing moves) and the pixels are snapped to `palette` (a list of "#rrggbb" or an image of the project). The frames go row by row in a grid of `columns` (default ceil(sqrt(frames))) with a transparent gutter of `padding` pixels around every cell (cell i starts at x = padding + column * (frameWidth + 2 * padding)). `pivot` ([x, y] in 0..1 from the top-left, default the centre) is recorded in the sheet entry. `clips` makes several named clips from one module: [{name, frames, fps, loop, params, pivot}], laid out one after another in the sheet (do not also give `frames`); the module receives `clip` and draws that animation; each clip becomes a clip of the sheet entry with its fps and loop. Without `clips` the sheet entry has one clip named like the file, so fps and loop are kept. The result returns the sheet as an image, the layout (columns, rows, cell size, clips) and warnings: frames that draw nothing, shapes touching the edge of the cell, a loop whose last frame jumps from the first (or repeats it), SMIL not sampled. Provenance (origin generated, ai true: the calling agent wrote the code; pass ai: false with author and license for art a person drew) carries a recipe (this command, its arguments, the module and the files it imported with their SHA-256), so the sheet can be made again, byte for byte. Use this for motion that follows rules (spin, bob, pulse, sparkle, flame, waves, loaders); for an engine-drawn entity use assets.bake_sheet, for painted frame-by-frame art ask an image provider. Example: {"path":"assets/art/coin_spin.png","source":"art/coin_spin.anim.js","frames":8,"fps":10,"frameWidth":64,"frameHeight":64,"padding":1} with art/coin_spin.anim.js = "export default function frame({progress}) { const w = Math.abs(Math.cos(progress * Math.PI * 2)) * 40; return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><ellipse cx='50' cy='50' rx='${w + 4}' ry='42' fill='#e8c66a' stroke='#8b6a1e' stroke-width='4'/></svg>`; }"
+Writes a sprite sheet at `path` (under assets/, ending in .png) and its `sheet` entry in assets.json in one call, from an animation you write as code. Two ways to draw it. (1) `source`: a project JavaScript module, e.g. "art/coin_spin.anim.js", whose default export is `frame({t, frame, frames, fps, progress, params, rng, seed, rngFor, clip, sheetFrame, width, height, ramp, rampAt, layer}) => string`, the SVG of that frame. t is the time in seconds (frame / fps); frame counts from 0 inside the clip and frames is the clip's length; progress runs 0..1 through the clip (frame / frames for a looping clip, so the last frame leads into the first; frame / (frames - 1) for loop false, so the last frame is the end pose); params is the `params` argument (a clip's own params are merged over it); rng() is a seeded random number in 0..1 for this frame (also rng.range(a, b), rng.int(n), rng.pick(list), rng.chance(p), rng.gauss()), different on every frame; rngFor(key) is a random stream that is the SAME on every frame for one key (a sparkle that stays where it is); clip is the clip name with `clips`. The module runs in a sandboxed QuickJS context: the language only (Math, JSON, Array...), no engine bindings, no DOM, no timers, no files; it may `import` other project files with a relative path ("./shapes.js"). Math.random is a seeded stream and Date a fixed day moved to the frame's time, so the same module always draws the same frames. Loading and each frame have a time limit (`timeLimitMs`, 2000 by default) and the context a memory limit. A mistake is reported with the module's file, line and column, the source line, and the frame being drawn; console.log output comes back in `console`. (2) `svg` (text) or `source` ending in .svg: one SVG with SMIL animation (<animate>, <set>, <animateTransform>, <animateMotion> with values, keyTimes, keySplines, begin, dur, repeatCount, fill="freeze", additive, accumulate and `id.begin` sync-bases), sampled at t = frame / fps. Without `frames` the sheet takes one pass of the animation (cycle seconds * fps frames). What is not sampled (event begins such as click, CSS animations, the rest of SMIL) is a warning that names the element. Every frame is rasterized exactly as assets.rasterize_svg does (nanosvg: paths, shapes, gradients, strokes, clipPath, mask, pattern; no text or filters) into a transparent `frameWidth` x `frameHeight` cell (default 64 x 64; the SVG is fitted inside, aspect kept, centred), then the painterly `style` / `styleStrength` is applied (the style's seed is `seed`, the same for every frame, so the paper texture stays put while the drawing moves) and the pixels are snapped to `palette` (a list of "#rrggbb" or an image of the project). The frames go row by row in a grid of `columns` (default ceil(sqrt(frames))) with a transparent gutter of `padding` pixels around every cell (cell i starts at x = padding + column * (frameWidth + 2 * padding)). `pivot` ([x, y] in 0..1 from the top-left, default the centre) is recorded in the sheet entry. `clips` makes several named clips from one module: [{name, frames, fps, loop, params, pivot}], laid out one after another in the sheet (do not also give `frames`); the module receives `clip` and draws that animation; each clip becomes a clip of the sheet entry with its fps and loop. Without `clips` the sheet entry has one clip named like the file, so fps and loop are kept. RECOLOUR WITHOUT TOUCHING THE CODE: `ramp` is the effect's colours from dark to bright (a list of 2 to 32 "#rrggbb", or the path of an image document with `ramps` and `rampIndex`, the ramps of image.palette). A module receives them as `ramp` (the list) and `rampAt(u)`, the colour at u from 0 (dark) to 1 (bright), blended between neighbours, so `fill='${rampAt(0.8)}'` is recoloured by changing the `ramp` argument; a module that never names `ramp` gets a warning. `rampMap: true` instead recolours the finished frames by brightness (the darkest pixel takes the first colour, the brightest the last, alpha kept), which also works for a SMIL SVG and for a module that draws in greys. LAYERS: `layers` is a list from back, front and light (module only). Each layer is baked as its own sheet next to `path` (assets/art/hit.png gives hit_back.png, hit_front.png, hit_light.png), from one module that receives `layer` and returns the SVG of that layer (an empty <svg/> is a layer idle in that frame). The sheets have the same grid, frames, fps, clips, pivot and padding, so they stay in step when each plays on its own entity: `back` goes behind the character (a lower Sprite.layer), `front` in front of it (a higher one) and `light` is an additive pass (a Sprite with blend additive, its colours add to what is under it: draw soft bright glows). Every layer of a frame draws from the same random stream. The result lists the layers and returns them stacked on a dark ground. The result returns the sheet as an image, the layout (columns, rows, cell size, clips) and warnings: frames that draw nothing, shapes touching the edge of the cell, a loop whose last frame jumps from the first (or repeats it), SMIL not sampled. Provenance (origin generated, ai true: the calling agent wrote the code; pass ai: false with author and license for art a person drew) carries a recipe (this command, its arguments, the module and the files it imported with their SHA-256), so the sheet can be made again, byte for byte. Use this for motion that follows rules (spin, bob, pulse, sparkle, flame, waves, loaders); for an engine-drawn entity use assets.bake_sheet, for painted frame-by-frame art ask an image provider. Example: {"path":"assets/art/coin_spin.png","source":"art/coin_spin.anim.js","frames":8,"fps":10,"frameWidth":64,"frameHeight":64,"padding":1} with art/coin_spin.anim.js = "export default function frame({progress}) { const w = Math.abs(Math.cos(progress * Math.PI * 2)) * 40; return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><ellipse cx='50' cy='50' rx='${w + 4}' ry='42' fill='#e8c66a' stroke='#8b6a1e' stroke-width='4'/></svg>`; }"
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Where to write the sheet, project-relative, under assets/ and ending in .png. |
+| `path` | string | yes | Where to write the sheet, project-relative, under assets/ and ending in .png. With `layers` it is the base name: hit.png gives hit_back.png, hit_front.png and hit_light.png. |
 | `source` | string | no | A project-relative JavaScript module whose default export draws one frame ("art/coin_spin.anim.js"), or an .svg file with SMIL animation. Give this or `svg`. |
 | `svg` | string | no | One SVG with SMIL animation as text, sampled at every frame. Give this or `source`. |
 | `frames` | integer | no | Number of frames. Required with a module; with SMIL the default is one pass of the animation. Not with `clips` (they give their own). |
@@ -2012,6 +2017,10 @@ Writes a sprite sheet at `path` (under assets/, ending in .png) and its `sheet` 
 | `clips` | array | no | Several named clips from one module, laid out one after another: [{name, frames, fps, loop, params, pivot}]. Module only. |
 | `pivot` | array | no | [x, y] in 0..1 from the top-left of the frame: the point that stays still. Recorded in the sheet entry. Default [0.5, 0.5]. |
 | `palette` | any | no | Snap every pixel to these colours: a list of "#rrggbb" strings, or the project-relative path of an image whose distinct opaque colours are the palette (at most 256). Alpha is kept. |
+| `ramp` | any | no | The effect's colours from dark to bright: a list of 2 to 32 "#rrggbb" strings, or the project path of an image document (*.image.json) that declares `ramps` (pick one with rampIndex). A module reads them as `ramp` and `rampAt(u)`; with rampMap the frames are recoloured by brightness. Change it and bake again to recolour the effect. |
+| `rampIndex` | integer | no | Which ramp of the image document named by `ramp` (0 is the first one image.palette lists). Only with a document. |
+| `rampMap` | boolean | no | Recolour the finished frames by brightness with `ramp` (dark pixels take its first colour, bright ones its last; alpha kept). Needed for a SMIL SVG; a module may use rampAt instead. Default false. |
+| `layers` | array | no | Bake one sheet per layer (back, front, light), module only: the module receives `layer`. The files are <path>_<layer>.png with the same grid, fps, clips and pivot. back is drawn behind the character, front in front of it, light is an additive glow. |
 | `style` | string ["none","watercolor","ink","inkwash","paper"] | no | Default none. The painterly look of assets.rasterize_svg applied to every frame (watercolor, ink, inkwash, paper). The same seed for all frames, so the texture does not boil. |
 | `styleStrength` | number | no | How strong the `style` is, 0 to 1 (default 1). Ignored without a `style`. |
 | `padding` | integer | no | Transparent pixels around every cell: 1 or 2 keeps filtered frames from bleeding into each other. Recorded in the sheet entry. Default 0. |
@@ -3139,6 +3148,153 @@ Since 0.16.1.
 Ask the feedback server what the engine developers decided about the reports this installation sent.
 
 Asks POST /v1/verdicts for the entries of this project's ENGINE_FEEDBACK.json (and its archive) that were sent, by their shareIds, authenticated by the installation header: only this installation's reports are answered. A report the engine developers rejected becomes status rejected (statusBy developer, statusReason = their reason, shared.status declined); a rejection they took back reopens it. The editor asks by itself about every 30 minutes. Needs the sharing mode always or ask; a server without verdicts changes nothing. Result: {outcome, checked, declined, restored, changed[], message}. Example: {}
+
+## feel
+
+### `feel.cancel` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything.
+
+Without `entity` it ends every effect of the scene, hit-stops included. The entity's Transform is not touched: effects never wrote to it, except the position a body-less knockback already moved. Example: feel.cancel {}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The entity (id or name). Default: everything. |
+
+### `feel.flash` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Draws an entity in one colour for a moment (a hit flash): sprites, shapes and 3D meshes, fading or square.
+
+The same as `entity.flash(opts)`. The entity's own colour, material and Transform never change. Children are flashed with it. Text, Tilemap, particles and UI are not flashed. With the player's reducedEffects on (feel.settings, else the system's reduce motion) the strength is capped at 0.35 and the flash always fades, never a full-bright strobe. Example: feel.flash {"entity":"enemy","color":"#ffffff","duration":0.1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The entity (id or name). |
+| `color` | any | no | The colour: "#rrggbb", a name or [r, g, b, a] in 0..1. Default white. Alpha is ignored. |
+| `duration` | number | no | Seconds. Default 0.12. |
+| `fade` | boolean | no | true: from `strength` down to 0; false: `strength` for the whole duration, then off. Default true. |
+| `strength` | number | no | How much of the colour replaces the entity's own (1 = solid). Default 1. |
+
+### `feel.hitStop` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Hit-stop: freezes or slows gameplay for a moment of real time; UI, audio and the stop's own timer keep going.
+
+The same as `time.hitStop(seconds, opts)`. Physics, onUpdate/onFixedUpdate, timers, particles and sprite animators stop (or slow to `scale`); the UI, audio, runWhilePaused behaviours, shake, flashes and squash keep running; `time.scale` and `game.paused` do not change. Overlapping calls do not add up: the longest wins and the smallest scale applies while they overlap. With reduceMotion on the duration is halved. The timer is REAL time: `game.step` frames count their fixed step. Example: feel.hitStop {"duration":0.08}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `duration` | number | no | Real seconds. Default 0.08. |
+| `scale` | number | no | Game-time scale during the stop: 0 freezes, 0.2 is slow motion. Default 0. |
+
+### `feel.knockback` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Pushes an entity away and holds `isKnockedBack` for a moment: an impulse on its physics body, else a decaying velocity.
+
+The same as `entity.knockback(direction, opts)`. A dynamic RigidBody2D/RigidBody3D gets `speed` added to its velocity; an entity without one moves with a velocity that decays by exp(-decay * dt) on the fixed clock. For `lockTime` seconds `entity.isKnockedBack` is true: the movement script leaves the player without control. A hit-stop freezes it. Example: feel.knockback {"entity":"player","direction":[-1,0.3],"speed":8}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The entity (id or name). |
+| `direction` | array | no | Which way, [x, y] or [x, y, z]; any length, it is normalised. Default [1,0]. |
+| `speed` | number | no | World units per second added at once. Default: 6 metres per second, which is 6 units for a 3D entity and 6 times physics.pixelsPerMeter (600 pixels per second at 100) for a 2D one. |
+| `lockTime` | number | no | Seconds isKnockedBack stays true. Default 0.25. |
+| `decay` | number | no | Entities without a dynamic body: the velocity falls by exp(-decay * dt) per second. Default 8. |
+| `local` | boolean | no | true: `direction` is in the entity's own space (a mirrored sprite is pushed the other way). Default false. |
+
+### `feel.settings` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+The accessibility choices of the game feel effects: reduceMotion and reducedEffects.
+
+The same as `feel.reduceMotion` / `feel.reducedEffects` in a script. true or false is the player's choice, null follows the operating system's reduce motion again; a missing key stays as it is. reduceMotion shrinks shake and squash to a quarter and halves hit-stops; reducedEffects caps flashes at 0.35 and makes them fade. Applies to effects started afterwards. Returns the values in force. Example: feel.settings {"reduceMotion":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `reduceMotion` | any | no | true / false = the player's choice; null = follow the system. |
+| `reducedEffects` | any | no | true / false = the player's choice; null = follow the system. |
+
+### `feel.shake` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Camera shake: adds trauma to a camera (2D and 3D); it stacks up to `cap` and dies out over `duration`.
+
+The same as `camera.shake(amount, opts)` in a script. Adds `amount` (0..1) of trauma; the shake is trauma squared, smooth noise seeded from the world's RNG (deterministic), and only what is DRAWN moves: the camera's Transform does not change. A 2D camera moves in x, y and roll, a 3D one also looks a little around. With the player's reduceMotion on (feel.settings, else the system's) the amount is a quarter. Example: feel.shake {"amount":0.5,"duration":0.3}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name). Default: the first camera drawn (camera.main). |
+| `amount` | number | no | Trauma to add, 0..1. Default 0.4. |
+| `duration` | number | no | Seconds the shake takes to die out (a longer one already running is kept). Default 0.4. |
+| `frequency` | number | no | Noise samples per second: how jittery. Default 25. |
+| `maxOffset` | number | no | Largest offset at trauma 1, world units. Default: 2.5% of an orthographic camera's visible height, 0.3 for a perspective one. |
+| `maxAngle` | number | no | Largest turn at trauma 1, degrees. Default 2. |
+| `cap` | number | no | Trauma never goes above this: stacked hits stop here. Default 1. |
+
+### `feel.sound` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Plays a sound once through the audio system (the same one a clip event's "sound" action uses).
+
+The sound starts on the next audio update, on its bus, and shows in `audio.log` like any other play. Example: feel.sound {"path":"audio/hit.wav","volume":0.8,"pitch":1.1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The entity the sound belongs to (id or name); optional, only named in logs. |
+| `path` | string | yes | Project-relative path of the sound. |
+| `volume` | number | no | Volume. Default 1. |
+| `pitch` | number | no | Playback speed and pitch. Default 1. |
+| `pan` | number | no | -1 left to 1 right. Default 0. |
+| `bus` | string | no | "sfx", "music", "ui" or a bus of the project. Default "sfx". |
+
+### `feel.spawn` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Makes an effect appear: instantiates a prefab at an entity (or at a point) the next frame.
+
+The same as the "spawn" action of a clip event (docs/GAME_FEEL.md, "Effects as data"). The prefab appears at the entity's world position plus `offset`, or at `offset` itself without an entity, the next time the frame's game feel pass runs. Spawned entities are left out of saved scenes. Give `lifetime` to have it destroyed after that many seconds; without it the prefab has to end itself. Example: feel.spawn {"entity":"enemy","prefab":"prefabs/hit_spark.prefab.json","lifetime":0.4}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The entity the effect appears at (id or name). Default: the world origin plus `offset`. |
+| `prefab` | string | yes | Project-relative path of the prefab. |
+| `offset` | array | no | Added to the entity's world position, [x, y] or [x, y, z]. Default [0,0]. |
+| `local` | boolean | no | true: `offset` is in the entity's own space (a mirrored sprite puts it on the other side). Default false. |
+| `lifetime` | number | no | Seconds of game time until the spawned entity is destroyed (a hit-stop, time.scale 0 or a pause holds the count); 0 = the prefab ends itself. Default 0. |
+
+### `feel.squash` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Squash and stretch: a short scale pulse that keeps the volume and springs back to exactly the entity's scale.
+
+The same as `entity.squash(opts)`. The pulse is drawn on top of the entity's own scale (volume kept: x * y in 2D, x * y * z with a mesh); `entity.scale` is never written, so nothing is left behind. amount > 0 squashes, < 0 stretches. With reduceMotion on the amount is a quarter. Example: feel.squash {"entity":"player","amount":0.35,"duration":0.25}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The entity (id or name). |
+| `amount` | number | no | > 0 squashes (flatter and wider), < 0 stretches (taller and thinner). Default 0.3. |
+| `duration` | number | no | Seconds until the entity is back to its own scale. Default 0.3. |
+| `axis` | string ["x","y"] | no | The axis that gets shorter when amount > 0. Default "y". |
+
+### `feel.state`
+
+Not released yet (on main after 0.16.1).
+
+What the game feel effects are doing now: hit-stop, and per entity its shake, flash, squash, knockback and drawn pose.
+
+Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: {remaining, scale, running}, queued: {sounds, spawns, spawnLifetimes} (sounds and spawns waiting for the next frame, spawned effects that will be destroyed), entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time (position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}
 
 ## fs
 
@@ -8115,6 +8271,31 @@ declare module "factoria" {
      */
     emitBurst(count?: number): void;
     /**
+     * Draws this entity in one colour for a moment (sprites and 3D meshes; a Shape2D too; Text, Tilemap, particles and UI are not flashed): a hit flash. fade (default true) goes from `strength` down to 0 over `duration`; fade: false is a square flash. Calling it again restarts it. The entity's own colour, material and Transform never change, so nothing is left behind. With reducedEffects on (feel.reducedEffects) the strength is capped at 0.35 and the flash always fades. Example: enemy.flash({ color: "#ffffff", duration: 0.1 });
+     * @since unreleased
+     */
+    flash(opts?: FlashOptions): void;
+    /**
+     * Squash and stretch: a short scale pulse that keeps the volume (x * y constant in 2D) and springs back to exactly the entity's own scale (it is drawn multiplied, entity.scale is never written). amount > 0 squashes (flatter and wider, a landing), < 0 stretches (a jump); axis "y" (default) or "x". With reduceMotion on the amount is a quarter. Example: player.squash({ amount: 0.35, duration: 0.25 });
+     * @since unreleased
+     */
+    squash(opts?: SquashOptions): void;
+    /**
+     * Pushes the entity away: `speed` world units per second along `direction` (any length, it is normalised). A dynamic RigidBody2D/RigidBody3D gets the impulse on its velocity; an entity without one moves with a velocity that decays (opts.decay) and is integrated on the fixed clock. For opts.lockTime seconds isKnockedBack is true so your movement script can leave the player without control. Frozen by hit-stop like the rest of the simulation. Example: if (!me.isKnockedBack) move(); me.knockback(vec2(-1, 0.3), { speed: 8 });
+     * @since unreleased
+     */
+    knockback(direction: Vec3Like, opts?: KnockbackOptions): void;
+    /**
+     * True for the lockTime of the last knockback of this entity: read it in your movement code to ignore input (the loss of control).
+     * @since unreleased
+     */
+    readonly isKnockedBack: boolean;
+    /**
+     * Seconds left of the loss of control of the last knockback (0 = in control). Runs on the game clock, so a hit-stop and time.scale = 0 hold it.
+     * @since unreleased
+     */
+    readonly knockbackRemaining: number;
+    /**
      * Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get("Animator") answers null instead.
      * @since 0.2.0
      */
@@ -9309,6 +9490,223 @@ declare module "factoria" {
   }
 
   /**
+   * Options of camera.shake(amount, opts) and of the "shake" feel action (docs/GAME_FEEL.md).
+   * @since unreleased
+   */
+  export interface ShakeOptions {
+    /**
+     * Seconds the shake takes to die out (default 0.4).
+     * @since unreleased
+     */
+    duration?: number;
+    /**
+     * Noise samples per second: how jittery (default 25).
+     * @since unreleased
+     */
+    frequency?: number;
+    /**
+     * Largest offset at trauma 1, in world units. Default: 2.5% of the visible height of an orthographic camera, 0.3 for a perspective one.
+     * @since unreleased
+     */
+    maxOffset?: number;
+    /**
+     * Largest turn at trauma 1, in degrees (default 2).
+     * @since unreleased
+     */
+    maxAngle?: number;
+    /**
+     * Trauma never goes above this, 0..1 (default 1): stacking hits stop here.
+     * @since unreleased
+     */
+    cap?: number;
+    /**
+     * The camera to shake (default camera.main). Only for camera.shake.
+     * @since unreleased
+     */
+    camera?: Entity | string;
+  }
+
+  /**
+   * Options of entity.flash(opts) and of the "flash" feel action.
+   * @since unreleased
+   */
+  export interface FlashOptions {
+    /**
+     * The colour the entity is drawn in (default white); alpha is ignored.
+     * @since unreleased
+     */
+    color?: Color | string | [number, number, number, number?];
+    /**
+     * Seconds (default 0.12).
+     * @since unreleased
+     */
+    duration?: number;
+    /**
+     * true (default): from `strength` down to 0; false: `strength` for the whole duration, then off.
+     * @since unreleased
+     */
+    fade?: boolean;
+    /**
+     * 0..1: how much of the colour replaces the entity's own (default 1 = solid).
+     * @since unreleased
+     */
+    strength?: number;
+  }
+
+  /**
+   * Options of entity.squash(opts) and of the "squash" feel action.
+   * @since unreleased
+   */
+  export interface SquashOptions {
+    /**
+     * > 0 squashes (wider, flatter), < 0 stretches (taller, thinner); default 0.3.
+     * @since unreleased
+     */
+    amount?: number;
+    /**
+     * Seconds until the entity is back to exactly its own scale (default 0.3).
+     * @since unreleased
+     */
+    duration?: number;
+    /**
+     * The axis that gets shorter when amount > 0 (default "y").
+     * @since unreleased
+     */
+    axis?: "x" | "y";
+  }
+
+  /**
+   * Options of entity.knockback(direction, opts) and of the "knockback" feel action.
+   * @since unreleased
+   */
+  export interface KnockbackOptions {
+    /**
+     * World units per second added to the velocity at once. Default: 6 metres per second, so 6 units for a 3D entity and 6 times the project's physics.pixelsPerMeter (600 pixels per second at 100) for a 2D one: a speed you give is in world units (pixels in 2D), whatever the entity.
+     * @since unreleased
+     */
+    speed?: number;
+    /**
+     * Seconds isKnockedBack stays true (default 0.25).
+     * @since unreleased
+     */
+    lockTime?: number;
+    /**
+     * Entities WITHOUT a dynamic body only: the velocity falls by exp(-decay * dt) per second (default 8).
+     * @since unreleased
+     */
+    decay?: number;
+    /**
+     * true: `direction` is in the entity's own space, so a mirrored sprite (negative scale x) is pushed the other way and a turned entity pushes along its own axes. Default false: world directions. Meant for the "push" action of a clip, whose direction cannot know which way the character faces.
+     * @since unreleased
+     */
+    local?: boolean;
+  }
+
+  /**
+   * Options of the "spawn" feel action: an effect prefab appears at the target entity (without a target, at `offset` in the world) the next time the frame's feel pass runs. Spawned entities are left out of saved scenes.
+   * @since unreleased
+   */
+  export interface FeelSpawnOptions {
+    /**
+     * Project-relative path of the prefab to instantiate, e.g. "prefabs/hit_spark.prefab.json".
+     * @since unreleased
+     */
+    prefab: string;
+    /**
+     * Added to the world position of the target (default [0, 0, 0]).
+     * @since unreleased
+     */
+    offset?: Vec3Like;
+    /**
+     * true: `offset` is in the target's own space, so a mirrored sprite puts the effect on its other side. Default false.
+     * @since unreleased
+     */
+    local?: boolean;
+    /**
+     * Seconds of game time after which the spawned entity is destroyed (a hit-stop, time.scale 0 or a pause holds the count). Default 0: the prefab ends itself (a script, or a non-looping animation that destroys it); an effect with neither stays for the whole scene.
+     * @since unreleased
+     */
+    lifetime?: number;
+  }
+
+  /**
+   * Options of the "sound" feel action: plays a clip once through the audio system (the play log and audio.log show it).
+   * @since unreleased
+   */
+  export interface FeelSoundOptions {
+    /**
+     * Project-relative path of the sound, e.g. "audio/hit.wav".
+     * @since unreleased
+     */
+    path: string;
+    /**
+     * 0..4, default 1.
+     * @since unreleased
+     */
+    volume?: number;
+    /**
+     * 0.1..4, default 1.
+     * @since unreleased
+     */
+    pitch?: number;
+    /**
+     * -1 (left) to 1 (right), default 0.
+     * @since unreleased
+     */
+    pan?: number;
+    /**
+     * "sfx" (default), "music", "ui" or a bus of the project.
+     * @since unreleased
+     */
+    bus?: string;
+  }
+
+  /**
+   * Options of time.hitStop(seconds, opts) and of the "hitStop" feel action.
+   * @since unreleased
+   */
+  export interface HitStopOptions {
+    /**
+     * Game-time scale during the stop, 0..1: 0 (default) freezes, 0.2 is slow motion.
+     * @since unreleased
+     */
+    scale?: number;
+  }
+
+  /**
+   * A game feel effect as data: what the `feel` of Animator, SpriteAnimator and clip-file events, the feel.* commands and feel.do run. Same names as the options of the matching function; "push" is "knockback", "spawn" and "sound" have no function of their own (docs/GAME_FEEL.md, "Effects as data").
+   * @since unreleased
+   */
+  export type FeelAction = { action: "shake"; amount?: number } & ShakeOptions | { action: "hitStop"; duration?: number } & HitStopOptions | { action: "flash" } & FlashOptions | { action: "knockback" | "push"; direction?: Vec3Like } & KnockbackOptions | { action: "squash" } & SquashOptions | { action: "spawn" } & FeelSpawnOptions | { action: "sound" } & FeelSoundOptions;
+
+  /**
+   * Game feel settings and the data form of the effects (docs/GAME_FEEL.md). The effects themselves are camera.shake, time.hitStop, entity.flash, entity.knockback and entity.squash.
+   * @since unreleased
+   */
+  export interface FeelAPI {
+    /**
+     * Whether shake and squash are turned way down (a quarter) and hit-stops halved: the game's own choice when it set one, else the operating system's "reduce motion" (game.accessibility.reduceMotion). Assign true or false to set the player's choice (a settings menu), null to follow the system again. Applies to effects started afterwards.
+     * @since unreleased
+     */
+    reduceMotion: boolean;
+    /**
+     * Whether flashes are turned down: at most 0.35 strength and always fading, never a full-bright strobe. Same rule as reduceMotion: the game's choice, else the system's reduce motion. Assign true, false or null.
+     * @since unreleased
+     */
+    reducedEffects: boolean;
+    /**
+     * Runs one effect given as data on `target` (the entity of flash, knockback, squash, spawn and sound; the camera of shake, default camera.main; spawn without a target puts the effect at `offset`). Unknown keys and wrong types throw with a "did you mean".
+     * @since unreleased
+     */
+    do(action: FeelAction, target?: Entity | string): void;
+    /**
+     * Ends the flash, squash, shake and knockback of `target` at once; without an argument every effect of the scene, hit-stops included.
+     * @since unreleased
+     */
+    cancel(target?: Entity | string): void;
+  }
+
+  /**
    * Game clock.
    */
   export interface TimeAPI {
@@ -9323,7 +9721,7 @@ declare module "factoria" {
     readonly elapsed: number;
     readonly frame: number;
     /**
-     * Time scale for gameplay (>= 0, default 1): scales onUpdate/onFixedUpdate dt, timers, physics steps, particles and sprite animators. 0 freezes all of them (game.paused): only behaviours with runWhilePaused = true keep updating, and the UI keeps working. Audio is not scaled.
+     * Time scale for gameplay (>= 0, default 1): scales onUpdate/onFixedUpdate dt, timers, physics steps, particles and sprite animators. 0 freezes all of them (game.paused): only behaviours with runWhilePaused = true keep updating, and the UI keeps working. Audio is not scaled. A hit-stop (time.hitStop) slows these further for a moment without changing this value; time.dt shows the effective step.
      */
     scale: number;
     /**
@@ -9331,6 +9729,16 @@ declare module "factoria" {
      * @since 0.1.6
      */
     readonly unscaledDt: number;
+    /**
+     * Hit-stop: freezes (opts.scale 0, the default) or slows (scale 0.2 = slow motion) gameplay for `seconds` of REAL time, the pause that makes an impact land. Physics, behaviours' onUpdate/onFixedUpdate, timers, particles and sprite animators stop; the UI, the audio, runWhilePaused behaviours, camera shake, flashes and squash keep going, and time.scale / game.paused do not change. Overlapping calls do not add up: the longest one wins, and while several run the smallest scale applies; a longer stop than 5 s is an error (a unit mix-up). With reduceMotion on the duration is halved. Example: time.hitStop(0.08);
+     * @since unreleased
+     */
+    hitStop(seconds: number, opts?: HitStopOptions): void;
+    /**
+     * Real seconds left of the longest running hit-stop (0 = none).
+     * @since unreleased
+     */
+    readonly hitStopRemaining: number;
   }
 
   /**
@@ -9394,6 +9802,11 @@ declare module "factoria" {
      * @since 0.3.0
      */
     clampTo(rect: RectLike, options?: { camera?: Entity | string; margin?: number }): void;
+    /**
+     * Camera shake: adds `amount` (0..1, default 0.4) of trauma to a camera; trauma stacks up to opts.cap (default 1) and dies out over opts.duration seconds (a longer shake already running is kept), and the shake is trauma squared, so many small hits stay gentle and a big one is violent. The noise is smooth and seeded from the world's RNG (deterministic). 2D cameras move in x, y and roll; 3D ones also look a little around. Only what is drawn moves: the camera's Transform does not change, so a follow script never chases the shake, and screen-to-world conversions use the shaken view. opts.camera picks the camera (default camera.main). With reduceMotion on the amount is a quarter. Example: camera.shake(0.5, { duration: 0.3 });
+     * @since unreleased
+     */
+    shake(amount?: number, opts?: ShakeOptions): void;
   }
 
   /**
@@ -11799,6 +12212,12 @@ declare module "factoria" {
   export const bt: BtAPI;
 
   /**
+   * Game feel settings and effects as data.
+   * @since unreleased
+   */
+  export const feel: FeelAPI;
+
+  /**
    * Game clock.
    */
   export const time: TimeAPI;
@@ -13173,7 +13592,7 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}.
+   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
    * 
    * Category: 2D
    */
@@ -13221,6 +13640,11 @@ declare module "factoria" {
      * @since 0.6.0
      */
     sheetPivot: boolean;
+    /**
+     * Frame events, an array of {frame, clip?, name?, data?, feel?}: every time the animation shows grid frame `frame` (the same row-major number as firstFrame and lastFrame) the game event `name` is sent with {id, clip, frame, ...data}, and the game feel actions of `feel` run (one action object or an array of them, in the form of `feel.do(action)` in scripts: shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, "Effects as data"). With `clip` (a name of the sheet's clips) the event belongs to that clip only. An event needs `name` or `feel`. A frame is shown once per pass over the clip, so a looping clip fires it once per loop, a frame that a long frame time skips still fires, and pingpong shows its middle frames twice. Example: [{"clip": "attack", "frame": 9, "feel": [{"action": "hitStop", "duration": 0.06}, {"action": "shake", "amount": 0.3}]}]. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    events: any;
     /**
      * Runtime state: a non-looping clip reached its end (clipEnded was sent).
      * @since 0.6.0
@@ -14132,7 +14556,7 @@ declare module "factoria" {
      */
     layers: any;
     /**
-     * Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. Returns a plain-object COPY; assign a new value to write.
+     * Clip events, an array of {clip, time, name?, feel?}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). `feel` (one action object or an array, the form of `feel.do(action)`: shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, "Effects as data") runs game feel actions on this entity at the same moment. An event needs `name` or `feel`. Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}, {"clip": "Attack", "time": 0.2, "feel": {"action": "hitStop", "duration": 0.06}}]. Returns a plain-object COPY; assign a new value to write.
      * @since 0.2.0
      */
     events: any;
@@ -17056,7 +17480,7 @@ declare module "factoria" {
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
-    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; ended?: boolean; playedClip?: string; time?: number; frame?: number };
+    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
     SpriteSkin: { bones?: any; weights?: any; bindPose?: any; outline?: boolean; outlineDetail?: number };
     IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd" };

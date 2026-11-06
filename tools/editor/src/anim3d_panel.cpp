@@ -1048,6 +1048,17 @@ namespace {
 
 constexpr float kRowH = 20.0f, kLabelW = 200.0f, kRulerH = 22.0f, kLaneH = 18.0f;
 
+// What a clip event shows in the lane and the list: its name, or the actions of a nameless one ("hitStop+shake").
+std::string anim3d_event_label(const ClipEvent& ev) {
+    if (!ev.name.empty()) return ev.name;
+    std::string label;
+    for (const Json& action : ev.feel) {
+        if (!label.empty()) label += "+";
+        label += action.is_object() ? action.value("action", std::string("feel")) : std::string("feel");
+    }
+    return label.empty() ? std::string("(empty)") : label;
+}
+
 struct SheetRow {
     std::string bone;
     int channel = 0;
@@ -1261,7 +1272,7 @@ void Editor::anim3d_dopesheet() {
             const bool sel = int(i) == u.selectedEvent;
             const ImU32 col = sel ? IM_COL32(255, 235, 140, 255) : IM_COL32(120, 200, 255, 255);
             dl->AddTriangleFilled(ImVec2(x, cy + 6), ImVec2(x - 5, cy - 5), ImVec2(x + 5, cy - 5), col);
-            dl->AddText(ImVec2(x + 7, cy - 7), sel ? col : IM_COL32(170, 190, 215, 255), clip->events[i].name.c_str());
+            dl->AddText(ImVec2(x + 7, cy - 7), sel ? col : IM_COL32(170, 190, 215, 255), anim3d_event_label(clip->events[i]).c_str());
             at_track_at("a3:event:" + std::to_string(i) + ":mark", Vec2{x, cy});
         }
         dl->PopClipRect();
@@ -1509,7 +1520,7 @@ void Editor::anim3d_inspector() {
     if (ImGui::CollapsingHeader("Events", ImGuiTreeNodeFlags_DefaultOpen)) {
         for (std::size_t i = 0; i < clip->events.size(); ++i) {
             const bool sel = int(i) == u.selectedEvent;
-            if (ImGui::Selectable((std::format("{:.3f}  {}", double(clip->events[i].t), clip->events[i].name) + "##a3_ev" + std::to_string(i)).c_str(), sel)) u.selectedEvent = int(i);
+            if (ImGui::Selectable((std::format("{:.3f}  {}", double(clip->events[i].t), anim3d_event_label(clip->events[i])) + "##a3_ev" + std::to_string(i)).c_str(), sel)) u.selectedEvent = int(i);
             at_track("a3:event:" + std::to_string(i));
         }
         if (clip->events.empty()) ImGui::TextDisabled("None. Double click the lane under the ruler, or Add.");
@@ -1520,8 +1531,10 @@ void Editor::anim3d_inspector() {
                 u.eventTextKey = key;
                 u.eventText = ev.name;
                 u.eventData = ev.data.is_object() && !ev.data.empty() ? ev.data.dump() : std::string();
+                u.eventFeel = ev.feel.empty() ? std::string() : Json(ev.feel).dump();
                 u.eventTime = ev.t;
                 u.eventDataError.clear();
+                u.eventFeelError.clear();
             }
             ImGui::SetNextItemWidth(-60);
             ImGui::InputText("name##a3_evname", &u.eventText);
@@ -1551,6 +1564,33 @@ void Editor::anim3d_inspector() {
                 }
             }
             if (!u.eventDataError.empty()) ImGui::TextColored(kBad, "%s", u.eventDataError.c_str());
+            ImGui::SetNextItemWidth(-60);
+            ImGui::InputText("feel##a3_evfeel", &u.eventFeel);
+            at_track("a3:event:feel");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Game feel actions run on the entity that plays the clip: one JSON object or an array, e.g. [{\"action\":\"hitStop\",\"duration\":0.06}]. "
+                                  "The actions are shake, hitStop, flash, knockback or push, squash, spawn and sound (docs/GAME_FEEL.md).");
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                Json feel;  // null removes them
+                bool good = true;
+                if (!trim(u.eventFeel).empty()) {
+                    feel = Json::parse(u.eventFeel, nullptr, false);
+                    good = !feel.is_discarded() && (feel.is_object() || feel.is_array());
+                }
+                if (good) {
+                    u.eventFeelError.clear();
+                    const Anim3DEdit edit = m.set_event(u.selectedEvent, Json::object({{"feel", feel}}));
+                    anim3d_commit(edit);
+                    if (!edit.ok) u.eventFeelError = edit.error;
+                } else {
+                    u.eventFeelError = "The feel actions must be a JSON object or array, e.g. {\"action\":\"hitStop\"}.";
+                }
+            }
+            if (!u.eventFeelError.empty()) {
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextColored(kBad, "%s", u.eventFeelError.c_str());
+                ImGui::PopTextWrapPos();
+            }
             if (ImGui::Button("Remove event")) {
                 anim3d_commit(m.remove_event(u.selectedEvent));
                 u.selectedEvent = -1;

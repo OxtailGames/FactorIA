@@ -708,7 +708,7 @@ export default class Rat extends Behaviour {
   recipe of the AI guide.
 
 ### time
-`dt`, `fixedDt`, `elapsed`, `frame`, `scale`, `unscaledDt`.
+`dt`, `fixedDt`, `elapsed`, `frame`, `scale`, `unscaledDt`. `time.hitStop(seconds, { scale })` freezes or slows gameplay for real seconds (UI and audio keep going; `time.hitStopRemaining`; GAME_FEEL.md). `time.scale` reads the value you set, not the hit-stop's.
 
 `time.scale` (writable, default 1) scales gameplay: the `dt` of `onUpdate`/`onFixedUpdate`, timers (`after`, `every`),
 physics steps, particles and sprite animators. `0` freezes all of them; `game.paused = true` is the same as
@@ -1079,7 +1079,7 @@ job.promise.then(() => scene.load("scenes/level2.scene.json"));
 - `game.accessibility` (read-only, frozen) → `{ textScale, reduceMotion, highContrast, screenReader }`: the player's
   operating system settings, for your options screen to start from (recipe: MENUS.md). `textScale` 1 = 100 %, clamped to
   0.5 - 4; the others are booleans. Read when the game starts and again when the window regains focus or the app
-  resumes. The engine applies none of them: you apply them and save the player's own choice. Where each platform reads
+  resumes. The engine applies none of them except one: the game feel effects (shake, squash, hit-stop, flash; GAME_FEEL.md) follow `reduceMotion` unless the game sets `feel.reduceMotion` / `feel.reducedEffects` itself. You apply the rest and save the player's own choice. Where each platform reads
   them, and what it cannot: Windows (animations off, high contrast, screen reader, Text size setting), macOS (reduce
   motion, increase contrast, VoiceOver; text size always 1), iOS (reduce motion, darker colours, VoiceOver, Dynamic Type),
   Android (font scale, animator scale 0, high contrast text, TalkBack/touch exploration), Linux (GNOME settings through the
@@ -1757,7 +1757,7 @@ Tests run inside the current engine (only one renderer can exist per
 process). Between test files the runner reloads the project's start scene,
 reseeds the world RNG with the project seed, clears input overrides, timers and
 behaviours; `game.load` also reseeds. Before each test input overrides, the gamepads (unplugged),
-`input.deadzone` and `ui.scale` (back to the project's value), `ui.textScale` (1), `time.scale`, the audio log and the
+`input.deadzone` and `ui.scale` (back to the project's value), `ui.textScale` (1), `time.scale`, the game feel effects, hit-stops and `feel.reduceMotion` / `feel.reducedEffects` (back to following the system), the audio log and the
 mouse (position back at 0, 0, no wheel; a `game.click` or the last test of the previous file does not decide what the pointer hovers) are reset;
 keys, mouse buttons and touches are released. Results are deterministic. Extras: `describe.skip`,
 `beforeEach(fn)` / `afterEach(fn)` inside `describe`, matchers `toBeUndefined`,

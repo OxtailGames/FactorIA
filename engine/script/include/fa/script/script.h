@@ -410,9 +410,14 @@ public:
     // of a class or interface, and the same with a "test:" prefix for the "factoria:test" module.
     std::vector<std::string> script_api_keys() const;
     Json stats() const;                      // behaviours alive, modules loaded, memory
-    // time.scale as scripts set it (game.paused sets 0): the engine scales physics steps, particles and sprite
-    // animators by it, so 0 freezes gameplay while the UI and runWhilePaused behaviours keep running.
+    // The scale of the game clock: `time.scale` as scripts set it (game.paused sets 0) times the running hit-stop (feel.h; 1
+    // when none). The engine scales physics steps, particles and sprite animators by it, so 0 freezes gameplay while the UI,
+    // the audio and runWhilePaused behaviours keep running.
     double time_scale() const;
+    // `time.scale` alone, what scripts set and read (a hit-stop does not change it).
+    double user_time_scale() const;
+    // The operating system's "reduce motion" (a window: the system value; headless and tests: what game.setAccessibility set).
+    bool system_reduce_motion() const;
 
     // ---- The calendar date (`game.today()`, docs/SCRIPTING.md "The date") and the app's life (`game.on("suspend")`).
     // The date is an input of the run: the host sets it once with set_start_date (EngineConfig::date), a test changes it with
