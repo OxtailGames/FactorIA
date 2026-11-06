@@ -81,7 +81,7 @@ struct EfficiencyLoadBudget {
     std::uint64_t bytesLeft = kEfficiencyMaxTotalBytes;
     std::uint64_t maxFile = kEfficiencyMaxBytes;  // the most one transcript may weigh; tests lower it instead of making a 65 MB file
     EfficiencyLoadBudget() = default;
-    EfficiencyLoadBudget(std::uint64_t totalBytes, std::uint64_t fileBytes = kEfficiencyMaxBytes)
+    explicit EfficiencyLoadBudget(std::uint64_t totalBytes, std::uint64_t fileBytes = kEfficiencyMaxBytes)
         : total(totalBytes), bytesLeft(totalBytes), maxFile(fileBytes) {}
 };
 // The folder of a project's transcripts: <projectDir>/.factoria/ai/sessions

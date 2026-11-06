@@ -3,6 +3,8 @@
 // feedback" and "Triage loop"). Fixtures only: a fake transport, a temp config folder, no network.
 #include <doctest.h>
 
+#include <thread>
+
 #include <filesystem>
 #include <string>
 
@@ -327,6 +329,59 @@ TEST_CASE("feedback file lock: the user's folder first, the project's own when t
     CHECK_FALSE(neither.held());
     CHECK(neither.error().find(env.config_dir()) != std::string::npos);
     CHECK(neither.error().find("project's own folder") != std::string::npos);
+}
+
+TEST_CASE("feedback file lock: a process that can write the user's folder and one that cannot exclude each other through the project's lock") {
+    Game g;
+    ShareEnv env = g.env;
+    env.lockWaitSec = 0.2;
+    env.lockStaleSec = 600.0;
+    ScopedShareEnv scoped(env);
+    // The other program (a thread: the locks are per thread) has a home that cannot be written: a file stands where its folder would be.
+    testing::TempDir sandboxHome;
+    const std::filesystem::path blocker = sandboxHome.path / "home-is-a-file";
+    testing::write_all(blocker, "x");
+    const std::string blockerText = blocker.string();
+    ShareEnv sandboxed = env;
+    sandboxed.env = [blockerText](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? blockerText : ""; };
+    auto sandbox_tries = [&] {
+        bool held = false;
+        std::string error;
+        std::thread([&] {
+            FeedbackFileLock lock(sandboxed, g.file());
+            held = lock.held();
+            error = lock.error();
+        }).join();
+        return std::make_pair(held, error);
+    };
+    {
+        FeedbackFileLock outside(env, g.file());
+        REQUIRE_MESSAGE(outside.held(), outside.error());
+        CHECK_FALSE(outside.in_project_folder());
+        const auto [held, error] = sandbox_tries();
+        CHECK_FALSE(held);  // it waited for the project's lock, which the first one holds as well
+        CHECK(error.find("Another FactorIA process") != std::string::npos);
+    }
+    const auto [heldAfter, errorAfter] = sandbox_tries();
+    CHECK_MESSAGE(heldAfter, errorAfter);
+    // The other way round: the sandboxed one holds the project's lock, the one with a writable home waits for it too.
+    {
+        FeedbackFileLock inside(sandboxed, g.file());
+        REQUIRE_MESSAGE(inside.held(), inside.error());
+        CHECK(inside.in_project_folder());
+        bool held = true;
+        std::thread([&] { held = FeedbackFileLock(env, g.file()).held(); }).join();
+        CHECK_FALSE(held);
+    }
+    // Locks of two folders in one thread do not wait for themselves, and are both released.
+    {
+        FeedbackFileLock outer(env, g.file());
+        FeedbackFileLock inner(env, g.file());
+        CHECK(outer.held());
+        CHECK(inner.held());
+    }
+    CHECK_FALSE(std::filesystem::exists(g.dir.path / ".factoria" / kFeedbackShareLockFile));
+    CHECK_FALSE(std::filesystem::exists(std::filesystem::path(env.config_dir()) / kFeedbackShareLockFile));
 }
 
 TEST_CASE("record_fix_check: takes the lock of the feedback files, so a report written at the same time is not undone") {

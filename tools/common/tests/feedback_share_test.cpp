@@ -1994,6 +1994,7 @@ TEST_CASE("share lock: ShareWaitCap shortens the wait of this thread for its lif
 }
 
 TEST_CASE("share lock: skip, drop, confirm and discard with the lock busy fail with an error and change nothing") {
+    testing::ScratchShareHome globalHome;  // the feedback file functions below lock under share_env(): a scratch one, not the busy one of `t`
     TwoProjects t;
     t.s.mode(ShareMode::Ask);
     REQUIRE(share_queue(t.s.env, t.fileA, t.a, engine_names()).ok());

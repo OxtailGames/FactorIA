@@ -814,6 +814,15 @@ bool set_shared(Json& doc, const std::string& id, const Json& shared) {
 }  // namespace
 
 void write_entry_shared(const std::string& feedbackFile, const std::string& localId, const Json& shared) {
+    write_entry_shared(share_env(), feedbackFile, localId, shared);
+}
+
+void write_entry_shared(const ShareEnv& env, const std::string& feedbackFile, const std::string& localId, const Json& shared) {
+    // A read-modify-write of the feedback file: under the project's lock, which every other writer of the file takes too. Not the user's:
+    // the state "sent" is written even while another program holds the outbox (otherwise the entry would be sent again). A lock that
+    // stays busy writes nothing (a stale copy of the file must not undo another program's entry).
+    FeedbackFileLock lock(env, feedbackFile, true);
+    if (!lock.held()) return;
     for (const std::string& path : {feedbackFile, feedback_archive_path(feedbackFile)}) {
         if (!stdfs::exists(path)) continue;
         auto doc = load_feedback(path);
@@ -869,6 +878,10 @@ std::string mode_off_reason(ShareMode mode) {
 Result<QueueResult> share_queue(const ShareEnv& env, const std::string& feedbackFile, const std::string& projectDirGiven,
                                 const EngineNames& engine, const std::vector<std::string>& ids) {
     KeyCacheScope keyScope;  // the folder facts of the project and of every item are asked of the file system once
+    // The feedback file is read, changed and written back below: under the lock every writer of that file takes, taken before the read.
+    FeedbackFileLock fileLock(env, feedbackFile);
+    if (!fileLock.held())
+        return make_error(fileLock.error(), "Run the command again in a moment; the other program is only writing a small file.");
     auto loaded = load_feedback(feedbackFile);
     if (!loaded.ok()) return loaded.error();
     Json doc = std::move(loaded.value());
@@ -1189,7 +1202,7 @@ FlushResult share_flush(const ShareEnv& env, const FlushOptions& options) {
         auto reject_all = [&](const std::string& why) {
             for (std::size_t i : batch) {
                 OutboxItem& it = box.items[i];
-                write_entry_shared(it.file, it.localId, shared_state(env, "rejected", why));
+                write_entry_shared(env, it.file, it.localId, shared_state(env, "rejected", why));
                 res.results.push_back(Json::object({{"id", it.localId}, {"status", "rejected"}, {"reason", why}}));
                 ++res.rejected;
                 remove.push_back(i);
@@ -1243,7 +1256,7 @@ FlushResult share_flush(const ShareEnv& env, const FlushOptions& options) {
                 const std::string status = found->value("status", std::string());
                 if (status == "accepted" || status == "merged") {
                     const std::string shareId = found->value("shareId", std::string());
-                    write_entry_shared(it.file, it.localId, shared_state(env, "sent", {}, shareId));
+                    write_entry_shared(env, it.file, it.localId, shared_state(env, "sent", {}, shareId));
                     Json r = Json::object({{"id", it.localId}, {"status", status}});
                     if (!shareId.empty()) r["shareId"] = shareId;
                     res.results.push_back(std::move(r));
@@ -1253,7 +1266,7 @@ FlushResult share_flush(const ShareEnv& env, const FlushOptions& options) {
                     const std::string code = found->value("code", std::string("rejected"));
                     std::string why = found->value("reason", std::string());
                     why = why.empty() ? code : code + ": " + why;
-                    write_entry_shared(it.file, it.localId, shared_state(env, "rejected", why));
+                    write_entry_shared(env, it.file, it.localId, shared_state(env, "rejected", why));
                     res.results.push_back(Json::object({{"id", it.localId}, {"status", "rejected"}, {"reason", why}}));
                     ++res.rejected;
                 }
@@ -1361,7 +1374,7 @@ struct SkippedEntry {
 void mark_skipped(const ShareEnv& env, const std::vector<SkippedEntry>& entries, const std::string& reason) {
     for (const SkippedEntry& e : entries) {
         ShareLock::keep_alive();
-        write_entry_shared(e.file, e.localId, shared_state(env, "skipped", reason));
+        write_entry_shared(env, e.file, e.localId, shared_state(env, "skipped", reason));
     }
 }
 
@@ -1675,7 +1688,7 @@ VerdictResult share_sync_verdicts(const ShareEnv& env, const std::string& feedba
             std::string reason = sanitize_status_reason(v.value("reason", std::string()));
             if (reason.empty()) reason = "The engine developers rejected this report without giving a reason.";
             if (entry.status == "declined" && entry.reason == reason) continue;  // already known
-            write_entry_shared(feedbackFile, entry.localId, shared_state(env, "declined", reason, shareId));
+            write_entry_shared(env, feedbackFile, entry.localId, shared_state(env, "declined", reason, shareId));
             auto u = update_feedback_file(feedbackFile, entry.localId, "rejected", "", {}, reason, "developer");
             if (u.ok()) {
                 ++res.declined;
@@ -1683,7 +1696,7 @@ VerdictResult share_sync_verdicts(const ShareEnv& env, const std::string& feedba
             }
         } else if (entry.status == "declined") {
             // The developer took the rejection back: the entry is sent again, and open again when the developer closed it.
-            write_entry_shared(feedbackFile, entry.localId, shared_state(env, "sent", {}, shareId));
+            write_entry_shared(env, feedbackFile, entry.localId, shared_state(env, "sent", {}, shareId));
             for (const std::string& path : {feedbackFile, feedback_archive_path(feedbackFile)}) {
                 if (!stdfs::exists(path)) continue;
                 auto doc = load_feedback(path);

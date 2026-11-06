@@ -161,8 +161,12 @@ Command make_feedback_command() {
             ctx.out << path << " already exists.\n";
             return 0;
         }
-        auto r = save_feedback(path, create_empty_feedback(project_name(dir)));
+        auto r = create_feedback_file(path, project_name(dir), ctx.args.has("force"));
         if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
+        if (!*r) {  // another program made it between the check above and the lock
+            ctx.out << path << " already exists.\n";
+            return 0;
+        }
         ctx.out << "Created " << path << "\n";
         return 0;
     };

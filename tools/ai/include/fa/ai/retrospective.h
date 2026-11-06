@@ -143,6 +143,7 @@ struct RetrospectiveResult {
     Usage usage;
     double costUsd = 0;                // what the model call cost
     std::string note;                  // one sentence: what happened
+    std::string fixCheckProblem;       // why the fix checks were not written on the entries (the file's lock stayed busy); "" when they were
     Json to_json() const;
 };
 

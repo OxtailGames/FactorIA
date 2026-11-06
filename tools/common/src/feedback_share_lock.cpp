@@ -15,6 +15,7 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <vector>
 
 #include "fa/tooling/feedback_share.h"
 
@@ -40,10 +41,9 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-// Locks taken by this thread: a function that holds the lock and calls another that also takes it does not wait for itself.
-thread_local int t_depth = 0;
-// The lock object of this thread that owns the file (the outermost one): ShareLock::keep_alive() refreshes that one.
-thread_local ShareLock* t_owner = nullptr;
+// The lock objects of this thread that own a lock file (the outermost one of each file): a function that holds a lock and calls
+// another that takes the same file does not wait for itself, and ShareLock::keep_alive() refreshes all of them.
+thread_local std::vector<ShareLock*> t_owners;
 // The longest wait any lock of this thread may take (ShareWaitCap); the editor's UI thread lowers it around calls it cannot reroute.
 thread_local double t_waitCap = std::numeric_limits<double>::infinity();
 
@@ -237,15 +237,22 @@ std::string text_of(const stdfs::path& p) {
 ShareWaitCap::ShareWaitCap(double sec) : previous_(t_waitCap) { t_waitCap = std::min(t_waitCap, sec); }
 ShareWaitCap::~ShareWaitCap() { t_waitCap = previous_; }
 
-ShareLock::ShareLock(const ShareEnv& env) {
-    if (t_depth > 0) {  // this thread holds it already
-        ++t_depth;
-        held_ = true;
-        nested_ = true;
-        return;
-    }
+ShareLock::ShareLock(const ShareEnv& env) { init(env, stdfs::path(env.config_dir())); }
+
+ShareLock::ShareLock(const ShareEnv& env, const stdfs::path& folder) { init(env, folder); }
+
+void ShareLock::init(const ShareEnv& env, const stdfs::path& folder) {
     try {
-        acquire(env);
+        file_ = folder / kFeedbackShareLockFile;
+        for (const ShareLock* owner : t_owners) {
+            if (owner->file_ == file_) {  // this thread holds it already
+                held_ = true;
+                nested_ = true;
+                path_ = owner->path_;
+                return;
+            }
+        }
+        acquire(env, folder);
     } catch (const std::exception& e) {
         held_ = false;
         error_ = std::string("Cannot take the lock of the sharing files (") + e.what() + "), so nothing was changed.";
@@ -255,8 +262,7 @@ ShareLock::ShareLock(const ShareEnv& env) {
     }
 }
 
-void ShareLock::acquire(const ShareEnv& env) {
-    const stdfs::path dir{env.config_dir()};  // the native narrow form: the same conversion every file of the folder uses
+void ShareLock::acquire(const ShareEnv& env, const stdfs::path& dir) {
     std::error_code ec;
     stdfs::create_directories(dir, ec);
     file_ = dir / kFeedbackShareLockFile;
@@ -275,8 +281,7 @@ void ShareLock::acquire(const ShareEnv& env) {
         const Created c = create_exclusive(file_, token_, why, code);
         if (c == Created::Yes) {
             held_ = true;
-            ++t_depth;
-            t_owner = this;
+            t_owners.push_back(this);
             return;
         }
         if (c == Created::Failed) {
@@ -323,9 +328,8 @@ void ShareLock::acquire(const ShareEnv& env) {
 
 ShareLock::~ShareLock() {
     if (!held_) return;
-    --t_depth;
     if (nested_) return;
-    if (t_owner == this) t_owner = nullptr;
+    t_owners.erase(std::remove(t_owners.begin(), t_owners.end(), this), t_owners.end());
     try {
         // Only a lock that still carries our token is ours to delete: one that was taken over (this process looked dead for longer
         // than the stale time) belongs to its new owner now. On Windows a virus scanner may hold the file for a moment: retry. A
@@ -342,41 +346,56 @@ ShareLock::~ShareLock() {
     }
 }
 
-FeedbackFileLock::FeedbackFileLock(const ShareEnv& env, const std::string& feedbackPath) {
-    user_ = std::make_unique<ShareLock>(env);
-    if (user_->held() || !user_->unwritable()) {
-        if (!user_->held()) error_ = user_->error();
+FeedbackFileLock::FeedbackFileLock(const ShareEnv& env, const std::string& feedbackPath, bool projectOnly) {
+    // Order: the user's folder first, then the project's. Every process takes them in this order (a process that cannot write the
+    // user's folder takes only the project's), so none waits for a lock another one holds while holding the lock that one wants.
+    std::string userError;
+    if (!projectOnly) {
+        user_ = std::make_unique<ShareLock>(env);
+        if (!user_->held()) {
+            if (!user_->unwritable()) {  // busy: nothing was changed
+                error_ = user_->error();
+                user_.reset();
+                return;
+            }
+            userError = user_->error();  // a read-only or missing home, a sandbox: the project's lock alone then
+            user_.reset();
+        }
+    }
+    try {
+        // The path text is UTF-8 (like every path of the feedback file): never the narrow conversion, which turns a non-ASCII
+        // folder name into another one. A path with no folder part is the working directory.
+        const std::u8string u8(reinterpret_cast<const char8_t*>(feedbackPath.data()), feedbackPath.size());
+        stdfs::path parent = stdfs::path(u8).parent_path();
+        if (parent.empty()) parent = stdfs::path(".");
+        local_ = std::make_unique<ShareLock>(env, parent / ".factoria");
+    } catch (const std::exception& e) {
+        error_ = std::string("Cannot work out the project's lock folder from ") + feedbackPath + " (" + e.what() + "), so nothing was changed.";
+        user_.reset();
         return;
     }
-    // The user's folder cannot be written: lock in the project's folder instead, so the report is still written (the processes that
-    // also cannot write the user folder reach the same file, so they agree on it).
-    const std::string userError = user_->error();
-    std::string projectFolder;
-    try {
-        const stdfs::path parent = stdfs::path(feedbackPath).parent_path();
-        projectFolder = text_of(parent.empty() ? stdfs::path(".factoria") : parent / ".factoria");
-    } catch (...) {
-        projectFolder = ".factoria";
+    if (local_->held()) return;
+    if (user_ && local_->unwritable()) {
+        // The user's lock is held and the project's folder cannot hold one: the processes that can write the user's folder are
+        // excluded by it (the others cannot reach this file's folder either).
+        local_.reset();
+        return;
     }
-    ShareEnv localEnv = env;
-    localEnv.env = [projectFolder](const std::string& key) { return key == "FACTORIA_AI_CONFIG" ? projectFolder + "/ai.json" : std::string(); };
+    error_ = userError.empty() ? local_->error() : userError + " The project's own folder did not work either: " + local_->error();
+    local_.reset();
     user_.reset();
-    local_ = std::make_unique<ShareLock>(localEnv);
-    if (!local_->held()) {
-        error_ = local_->error().empty() ? userError : userError + " The project's own folder did not work either: " + local_->error();
-    }
 }
 
-bool FeedbackFileLock::held() const { return user_ ? user_->held() : (local_ && local_->held()); }
+bool FeedbackFileLock::held() const { return (user_ && user_->held()) || (local_ && local_->held()); }
 
 FeedbackFileLock::~FeedbackFileLock() {
-    // Local first (declared last in use order): both are released by the destructors of the members anyway.
+    // Reverse of the order they were taken in.
     local_.reset();
     user_.reset();
 }
 
 void ShareLock::keep_alive() {
-    if (t_owner) t_owner->refresh();
+    for (ShareLock* owner : t_owners) owner->refresh();
 }
 
 void ShareLock::refresh() {

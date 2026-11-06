@@ -618,8 +618,26 @@ Result<FeedbackAddResult> add_entry_gated(Json& doc, const FeedbackInput& in, Js
 }
 }  // namespace
 
+namespace {
+// The error of a feedback file that another program is writing: the wait for the lock ended, nothing was changed.
+Error feedback_lock_error(const FeedbackFileLock& lock) {
+    return make_error(lock.error(), "Nothing was changed. Run it again in a moment: the other FactorIA program is only writing a small file.");
+}
+}  // namespace
+
+Result<bool> create_feedback_file(const std::string& path, std::string_view projectName, bool overwrite) {
+    FeedbackFileLock lock(share_env(), path);
+    if (!lock.held()) return feedback_lock_error(lock);
+    std::error_code ec;
+    if (!overwrite && stdfs::exists(path, ec)) return false;
+    if (auto s = save_feedback(path, create_empty_feedback(projectName)); !s.ok()) return s.error();
+    return true;
+}
+
 Result<FeedbackAddResult> add_feedback_entry_to_file(const std::string& path, const FeedbackInput& input, std::string_view projectNameIfNew) {
     if (input.kind == "efficiency") return efficiency_needs_the_gate();
+    FeedbackFileLock lock(share_env(), path);  // the whole read-modify-write (callers that hold it already nest)
+    if (!lock.held()) return feedback_lock_error(lock);
     return add_entry_to_file_gated(path, input, projectNameIfNew);
 }
 
@@ -756,6 +774,9 @@ FeedbackArchiveResult archive_closed_feedback(Json& doc, Json& archive) {
 }
 
 Result<FeedbackArchiveResult> archive_closed_feedback_file(const std::string& path) {
+    // The whole read-modify-write under the lock every writer of this file takes (two programs never undo each other's entry).
+    FeedbackFileLock lock(share_env(), path);
+    if (!lock.held()) return feedback_lock_error(lock);
     auto loaded = load_feedback(path);
     if (!loaded.ok()) return loaded.error();
     Json doc = std::move(loaded.value());
@@ -780,7 +801,7 @@ Result<FeedbackArchiveResult> archive_closed_feedback_file(const std::string& pa
 Result<void> record_fix_check(const std::string& path, std::string_view id, const Json& check) {
     // A read-modify-write of the file a report, the editor or another retrospective may be writing: under the lock they take.
     FeedbackFileLock lock(share_env(), path);
-    if (!lock.held()) return make_error(lock.error(), "Run the command again in a moment; the other program is only writing a small file.");
+    if (!lock.held()) return feedback_lock_error(lock);
     const std::string archivePath = feedback_archive_path(path);
     for (const std::string& file : {path, archivePath}) {
         std::error_code ec;
@@ -812,6 +833,9 @@ Json list_archived_feedback(const std::string& path, const FeedbackFilter& filte
 }
 
 Result<Json> set_feedback_share_file(const std::string& path, std::string_view id, const FeedbackShareEdit& edit) {
+    // The whole read-modify-write under the lock every writer of this file takes (two programs never undo each other's entry).
+    FeedbackFileLock lock(share_env(), path);
+    if (!lock.held()) return feedback_lock_error(lock);
     auto loaded = load_feedback(path);
     if (!loaded.ok()) return loaded.error();
     Json doc = std::move(loaded.value());
@@ -854,6 +878,9 @@ Result<Json> set_feedback_share_file(const std::string& path, std::string_view i
 Result<Json> update_feedback_file(const std::string& path, std::string_view id, std::string_view status,
                                   std::string_view engineIssue, std::string_view note, std::string_view reason,
                                   std::string_view by) {
+    // The whole read-modify-write under the lock every writer of this file takes (two programs never undo each other's entry).
+    FeedbackFileLock lock(share_env(), path);
+    if (!lock.held()) return feedback_lock_error(lock);
     auto loaded = load_feedback(path);
     if (!loaded.ok()) return loaded.error();
     Json doc = std::move(loaded.value());
@@ -919,6 +946,9 @@ bool feedback_entry_deletable(const Json& e, std::string* whyNot) {
 }
 
 Result<Json> delete_feedback_file(const std::string& path, std::string_view id, const std::function<Result<void>()>& beforeWrite) {
+    // The whole read-modify-write under the lock every writer of this file takes (two programs never undo each other's entry).
+    FeedbackFileLock lock(share_env(), path);
+    if (!lock.held()) return feedback_lock_error(lock);
     auto loaded = load_feedback(path);
     if (!loaded.ok()) return loaded.error();
     Json doc = std::move(loaded.value());

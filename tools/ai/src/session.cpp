@@ -321,7 +321,7 @@ void AgentSession::maybe_retrospective(const SessionResult& r) {
     auto result = run_retrospective(config_, ro, opt_.projectDir);
     AgentEvent info;
     info.type = AgentEvent::Type::Info;
-    if (!result.ok()) info.text = "Retrospective skipped: " + result.error().message;
+    if (!result.ok()) info.text = result.error().message == "cancelled" ? "Retrospective stopped: nothing was filed." : "Retrospective skipped: " + result.error().message;
     else if (!result->filed.empty() || !result->facts.empty()) info.text = "Retrospective: " + result->note;
     else return;  // nothing to say: the run did not waste anything worth a report
     emit(info, 0, opt_.role);
