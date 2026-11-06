@@ -1,16 +1,22 @@
 #include "validate_anim.h"
 
+#include <algorithm>
+#include <format>
 #include <map>
+#include <string>
 #include <vector>
 
+#include "fa/audio/analysis.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/scene/anim3d.h"
 #include "fa/scene/anim_clip.h"
 #include "fa/scene/components.h"
+#include "fa/scene/feel.h"
 #include "fa/scene/ik3d.h"
 #include "fa/scene/rig3d.h"
 #include "fa/scene/skeleton.h"
+#include "fa/scene/sprite_animator.h"
 
 namespace fa::validate_detail {
 
@@ -36,6 +42,126 @@ std::vector<std::string> project_clip_files() {
         if (!skip) out.push_back(f);
     }
     return out;
+}
+
+// True when a prefab ends itself without a `lifetime`: it carries a Script (which can destroy it), a ParticleEmitter with `autoDestroy`
+// or a Vfx with `autoDestroy`, in the prefab itself, in a child, or in a prefab it instances (`{"prefab": "prefabs/x.prefab.json"}`, followed
+// up to 8 levels, a cycle ends the walk). Anything else lives as long as the scene unless the spawn action gives a `lifetime`. Read from the files, no scene.
+bool prefab_ends_itself(const Json& node, std::vector<std::string>& stack) {
+    if (node.is_array()) {
+        for (const Json& n : node)
+            if (prefab_ends_itself(n, stack)) return true;
+        return false;
+    }
+    if (!node.is_object()) return false;
+    if (const auto comps = node.find("components"); comps != node.end() && comps->is_object()) {
+        if (comps->contains("Script")) return true;
+        for (const char* type : {"ParticleEmitter", "Vfx"}) {
+            const auto c = comps->find(type);
+            if (c != comps->end() && c->is_object() && c->value("autoDestroy", false)) return true;
+        }
+    }
+    if (const auto inst = node.find("prefab"); inst != node.end() && inst->is_string() && stack.size() < 8) {
+        const std::string path = inst->get<std::string>();
+        if (std::find(stack.begin(), stack.end(), path) == stack.end()) {
+            if (auto nested = load_json_file(path); nested.ok()) {
+                stack.push_back(path);
+                const bool ends = prefab_ends_itself(*nested, stack);
+                stack.pop_back();
+                if (ends) return true;
+            }
+        }
+    }
+    for (auto it = node.begin(); it != node.end(); ++it)
+        if ((it.key() == "children" || it.key() == "entity" || it.key() == "entities") && prefab_ends_itself(*it, stack)) return true;
+    return false;
+}
+
+bool prefab_ends_itself(const Json& node, const std::string& path) {
+    std::vector<std::string> stack{path};
+    return prefab_ends_itself(node, stack);
+}
+
+// The files a clip event's game feel actions name (a spawn's prefab, a sound's path) must exist, and a spawn that never ends is a
+// warning. `event` is the event object, `pointer` its place in `file`.
+void check_feel_files(const std::string& file, const std::string& pointer, const Json& event, ValidationReport& report) {
+    if (!event.is_object() || !event.contains("feel")) return;
+    const Json& feel = event["feel"];
+    std::size_t index = 0;
+    auto one = [&](const Json& action) {
+        const std::string ap = feel.is_array() ? pointer + "/feel/" + std::to_string(index) : pointer + "/feel";
+        ++index;
+        if (!action.is_object()) return;
+        const std::string kind = action.value("action", std::string());
+        const char* key = kind == "spawn" ? "prefab" : kind == "sound" ? "path" : nullptr;
+        if (!key || !action.contains(key) || !action[key].is_string()) return;
+        const std::string path = action[key].get<std::string>();
+        if (path.empty()) return;
+        // A sound is found as the audio system finds it: an export replaces assets/x.wav by assets/x.wav.qoa, and the game still plays "assets/x.wav".
+        if (kind == "spawn" ? fs::exists(path) : !resolve_audio_path(path).empty()) {
+            if (kind != "spawn") return;
+            const auto life = action.find("lifetime");
+            if (life != action.end() && life->is_number() && life->get<double>() > 0.0) return;
+            auto prefab = load_json_file(path);
+            if (prefab.ok() && prefab_ends_itself(*prefab, path)) return;
+            report.warnings.push_back({file, ap + "/prefab",
+                                       std::format("the spawn of '{}' has no `lifetime` and the prefab has no Script or autoDestroy particles or effect to end it: every time the event fires an effect stays for the rest of the scene", path),
+                                       "Add \"lifetime\": 0.5 (seconds) to the action, or end the effect from a script or with ParticleEmitter.autoDestroy."});
+            return;
+        }
+        std::vector<std::string> existing;
+        if (kind == "spawn") {
+            for (const std::string& f : fs::list(".", true, ".json"))
+                if (ends_with(to_lower(f), ".prefab.json")) existing.push_back(f);
+        } else {
+            for (const char* ext : {".wav", ".ogg", ".mp3", ".qoa"})
+                for (const std::string& f : fs::list(".", true, ext)) existing.push_back(f);
+        }
+        report.errors.push_back({file, ap + "/" + key, std::format("the {} '{}' does not exist. {}", kind == "spawn" ? "prefab" : "sound", path, did_you_mean(path, existing)),
+                                 kind == "spawn" ? "Name an existing prefab (prefabs/*.prefab.json)." : "Name an existing sound file of the project (audio/*.wav, .ogg, .mp3)."});
+    };
+    if (feel.is_array()) {
+        for (const Json& a : feel) one(a);
+    } else {
+        one(feel);
+    }
+}
+
+// Clip events written inside scenes and prefabs: the `events` of an Animator ({clip, time, name?, feel?}) and of a SpriteAnimator
+// ({frame, clip?, name?, data?, feel?}) are checked like the ones of a clip file, and the files their actions name must exist.
+void check_inline_events(const std::string& file, const World& world, const Json& source, ValidationReport& report) {
+    std::map<std::string, std::string> pointers;
+    if (source.is_object()) {
+        if (source.contains("entities") && source["entities"].is_array()) {
+            int i = 0;
+            for (const Json& e : source["entities"]) collect_pointers(e, "/entities/" + std::to_string(i++), pointers);
+        }
+        if (source.contains("entity")) collect_pointers(source["entity"], "/entity", pointers);
+    }
+    auto base_of = [&](Entity e) {
+        auto at = pointers.find(world.id_of(e));
+        return at == pointers.end() ? std::string() : at->second;
+    };
+    for (Entity e : world.entities_with(TypeRegistry::global().of<Animator>())) {
+        const Animator* an = world.get<Animator>(e);
+        if (!an || an->events.is_null() || (an->events.is_array() && an->events.empty())) continue;
+        const std::string base = base_of(e) + "/components/Animator/events";
+        const std::vector<ClipIssue> issues = check_animator_events(an->events, base);
+        for (const ClipIssue& p : issues) report.errors.push_back({file, p.pointer, "Animator '" + world.id_of(e) + "': " + p.message, p.hint});
+        if (issues.empty())
+            for (std::size_t i = 0; i < an->events.size(); ++i) check_feel_files(file, base + "/" + std::to_string(i), an->events[i], report);
+    }
+    for (Entity e : world.entities_with(TypeRegistry::global().of<SpriteAnimator>())) {
+        const SpriteAnimator* sa = world.get<SpriteAnimator>(e);
+        if (!sa || !sa->events.is_array() || sa->events.empty()) continue;
+        const std::string base = base_of(e) + "/components/SpriteAnimator/events";
+        const Sprite* sprite = world.get<Sprite>(e);
+        const auto sheet = sprite && !sprite->texture.empty() ? assets::sheet(sprite->texture) : nullptr;
+        const std::vector<ClipIssue> issues = check_sprite_events(sa->events, base, sheet);
+        for (const ClipIssue& p : issues) report.errors.push_back({file, p.pointer, "SpriteAnimator '" + world.id_of(e) + "': " + p.message, p.hint});
+        if (issues.empty())
+            for (std::size_t i = 0; i < sa->events.size(); ++i) check_feel_files(file, base + "/" + std::to_string(i), sa->events[i], report);
+    }
 }
 
 // The glTF an Animator plays: its `model`, else the mesh of the MeshRenderer on the same entity ("" when it has none).
@@ -98,6 +224,7 @@ void check_animator_clips(const std::string& file, const World& world, const Jso
         }
         if (source.contains("entity")) collect_pointers(source["entity"], "/entity", pointers);
     }
+    check_inline_events(file, world, source, report);
     const TypeInfo* type = TypeRegistry::global().of<Animator>();
     const std::vector<std::string> existing = project_clip_files();
     for (Entity e : world.entities_with(type)) {
@@ -198,7 +325,12 @@ void check_clip_files(const std::set<std::string>& named, ValidationReport& repo
             ok = clip.ok();
             if (!ok) { message = clip.error().message; hint = clip.error().hint; }
         }
-        if (ok) continue;
+        if (ok) {
+            if (json->is_object() && json->contains("events") && (*json)["events"].is_array())
+                for (std::size_t i = 0; i < (*json)["events"].size(); ++i)
+                    check_feel_files(f, "/events/" + std::to_string(i), (*json)["events"][i], report);
+            continue;
+        }
         if (issues.empty()) report.errors.push_back({f, "", message, hint});
         for (const ClipIssue& i : issues) report.errors.push_back({f, i.pointer, i.message, i.hint});
     }

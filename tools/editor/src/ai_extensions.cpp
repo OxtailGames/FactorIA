@@ -267,6 +267,30 @@ void Editor::draw_ai_savers_view(const ai::AiConfig& cfg) {
     at_track("aiset:saver:facts");
     ImGui::SetItemTooltip("A command that fails the same way in several runs until a fix works proposes one line for this project's AGENTS.md. It is written "
                           "only when you accept it here.");
+    ImGui::Checkbox("Retrospective", &x.savers.retrospective);
+    at_track("aiset:saver:retrospective");
+    ImGui::SetItemTooltip("After a long run, one short call of the fast role looks over the run's transcripts for waste (the same failure again and again, a doc "
+                          "read many times...) and files at most three efficiency entries in ENGINE_FEEDBACK.json. It costs a model call, counted in the run's "
+                          "cost. Off by default. Nothing is sent anywhere. The Feedback panel's Retrospective button does the same on demand.");
+    ImGui::BeginDisabled(!x.savers.retrospective);
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("after");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(em * 6.0f);
+    if (ImGui::InputInt("steps##retrosteps", &x.savers.retrospectiveSteps, 0, 0)) x.savers.retrospectiveSteps = std::max(1, x.savers.retrospectiveSteps);
+    at_track("aiset:saver:retrospective:steps");
+    ImGui::SetItemTooltip("Run the retrospective after a run of this many model calls ...");
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("or");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(em * 6.0f);
+    if (ImGui::InputDouble("USD##retrocost", &x.savers.retrospectiveCostUsd, 0.0, 0.0, "%.2f"))
+        x.savers.retrospectiveCostUsd = std::max(0.01, x.savers.retrospectiveCostUsd);
+    at_track("aiset:saver:retrospective:cost");
+    ImGui::SetItemTooltip("... or one that cost this many US dollars.");
+    ImGui::EndDisabled();
 
     const Json groups = x.saversReport.value("proposals", Json::object()).value("toolGroups", Json::array());
     const Json facts = x.saversReport.value("proposals", Json::object()).value("facts", Json::array());
@@ -887,6 +911,7 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
                 if (loaded) aiConfig_ = *loaded;
                 aiConfigError_ = loaded ? std::string() : loaded.error().to_string();
             }
+            ai_project_invalidate();
             if (loaded) {
                 ai_settings_load(*loaded, true, true);  // the other tabs keep what they had typed
                 ai_extensions_load(*loaded);

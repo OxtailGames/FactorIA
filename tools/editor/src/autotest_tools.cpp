@@ -19,11 +19,13 @@
 #include <iterator>
 #include <memory>
 
+#include "ai_project_edit.h"
 #include "autotest_sections.h"
 #include "editor_internal.h"
 #include "fa/ai/command_hooks.h"
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/savers.h"
+#include "fa/core/date.h"
 #include "sokol_app.h"
 #include "imgui_internal.h"
 #include "ui_backend.h"
@@ -47,6 +49,13 @@ ImGuiID panel_node(const char* name) {
 float panel_width(const char* name) {
     const ImGuiWindow* w = panel_window(name);
     return w ? w->Size.x : 0.0f;
+}
+
+// The value at a JSON pointer of a file the test parsed, or null when the file is not an object or does not say it. (A const Json's
+// operator[] on a key that is missing is undefined: the checks of a file that may lack a section go through here.)
+Json json_at(const Json& file, const char* pointer) {
+    const Json::json_pointer p(pointer);
+    return file.is_object() && file.contains(p) ? file.at(p) : Json();
 }
 
 void write_file(const std::string& path, const std::string& bytes) {
@@ -249,6 +258,48 @@ Json Editor::at_section_report() {
     std::fflush(stdout);
     return list;
 }
+
+namespace {
+// Section R2's scripted "model" for the retrospective: whatever it is asked, it answers with one efficiency entry for the candidate
+// whose pattern is "failure" (the one transcript the section writes: scene.load failing with not_found), the way the fast role is asked to.
+class RetrospectiveProvider : public ai::ChatProvider {
+public:
+    std::string name() const override { return "mock"; }
+    Result<ai::ChatResponse> chat(const ai::ChatRequest& req, const ai::ChatHooks&, const ai::CancelFlag*) override {
+        ai::ChatResponse r;
+        r.message.role = ai::Role::Assistant;
+        r.message.raw = Json::object();
+        r.usage.inputTokens = 1200;
+        r.usage.outputTokens = 200;
+        // The prompt names the candidates c1, c2...; the one whose pattern is "failure" is the one to write up.
+        std::string candidate = "c1";
+        for (const ai::Message& m : req.messages) {
+            const std::size_t at = m.text.find("  pattern: failure");
+            const std::size_t line = at == std::string::npos ? at : m.text.rfind("\nc", at);
+            if (line != std::string::npos) {
+                candidate = "c" + std::to_string(std::atoi(m.text.c_str() + line + 2));
+                break;
+            }
+        }
+        const Json entry = Json::object(
+            {{"candidate", candidate},
+             {"category", "scene"},
+             {"title", "Loading a scene by name keeps failing with not_found"},
+             {"suggestion", "A scene guide that lists how scene names resolve to files before the first load"},
+             {"waste", "Every load guessed a name and failed, so the run repeated the same call many times"},
+             {"fixType", "guide"},
+             {"appliesTo", "every-game"},
+             {"saveShare", 0.9},
+             {"saveWhy", "the guide gives the name rule"},
+             {"whyNotCheaper", ""},
+             {"searched", Json::array()},
+             {"factLine", ""}});
+        r.message.text = Json::object({{"entries", Json::array({entry})}, {"facts", Json::array()}}).dump();
+        r.stopReason = ai::StopReason::EndTurn;
+        return r;
+    }
+};
+}  // namespace
 
 namespace {
 // Section P's scripted "model": in one turn it overwrites a script, writes a new one (fs.write, like an API provider) and
@@ -584,6 +635,14 @@ void Editor::at_build_tools_script() {
             anim_ = AnimUi{};
             bone_ = BoneUi{};
             showAnimation_ = showBoneTools_ = showImage_ = showVector_ = showSound_ = showMusic_ = showModeler_ = false;
+            particle_close_document();   // section P3: the Particles panel, its effect and its preview are not carried over
+            particle_ = ParticleUi{};
+            showParticle_ = false;
+            showLevelGen_ = false;   // section R3: the Level generator window, its sample, its preview and its history are not carried over
+            levelGen_.clear(level_gen_caller());
+            levelGenOpt_ = LevelGenOptions{};
+            levelGenMessage_.clear();
+            levelGenSelId_.clear();
             sound_close_document();   // section K3: the Sound panel, its sound and its playback are not carried over
             sound_release_textures();
             if (sound_.player) sound_.player->stop();
@@ -3413,7 +3472,8 @@ void Editor::at_build_tools_script() {
     // is set for the section and put back after). What a person types in the fields is set on the draft; Save and Close are
     // real clicks. A site that is not a web address stops Save with a message and leaves the file as it was; a good Save
     // rewrites only assets / assetSources / the provider fields the routes need (roles and limits stay), stores a typed key in
-    // a file only the user can read and forgets it, and a stored key can be removed again.
+    // a file only the user can read and forgets it, and a stored key can be removed again. The fixture is an open project, so the
+    // test presses Save as my defaults (what Save does without a project; section Q2 covers the project's own Save).
     {
         struct XState {
             std::string path, previousEnv;
@@ -3485,7 +3545,7 @@ void Editor::at_build_tools_script() {
             d.sources.fonts.push_back({"not a site", ""});
         });
         snap("editor_ai_settings.png");
-        click("aiset:save");
+        click("aiset:save-defaults");  // a project is open: Save would write the project's file, this one ai.json
         step(4, [this, x] {
             at_check(aiSettings_.saveError.find("not a web address") != std::string::npos,
                      "a site that is not a web address stops Save and says so (" + aiSettings_.saveError + ")");
@@ -3493,7 +3553,7 @@ void Editor::at_build_tools_script() {
             at_check(showAiSettings_ && !aiSettings_.keys.empty(), "...with the window and the typed values still there");
             aiSettings_.sources.fonts.clear();
         });
-        click("aiset:save");
+        click("aiset:save-defaults");  // a project is open: Save would write the project's file, this one ai.json
         step(6, [this, x] {
             const std::string text = read_file(x->path);
             Json j = Json::parse(text, nullptr, false);
@@ -3537,7 +3597,7 @@ void Editor::at_build_tools_script() {
             aiSettings_.removeKey.insert("elevenlabs");
             aiSettings_.routes["music"] = {};
         });
-        click("aiset:save");
+        click("aiset:save-defaults");  // a project is open: Save would write the project's file, this one ai.json
         step(6, [this, x] {
             Json j = Json::parse(read_file(x->path), nullptr, false);
             at_check(j.is_object() && (!j.contains("providers") || !j["providers"].contains("elevenlabs")),
@@ -3565,6 +3625,422 @@ void Editor::at_build_tools_script() {
                 atSavedConfig_.reset();
             }
             aiStatus_ = std::move(x->savedStatus);
+        });
+    }
+
+    // ------------------------------------------------------------------------------------------ Q2. AI settings per project
+    section("Q2");
+    // The AI settings window edits the open project's <project>/.factoria/ai/settings.json (docs/EDITOR.md, "AI settings"). Two
+    // projects with different worker models: a file that came with a project waits for Accept (Ignore leaves it off, Save is locked
+    // until then), then applies; switching project shows the other project's roles and the AI runs use them; Reset puts one row back
+    // on the user's value; Save as my defaults writes ai.json and leaves the project's file with what still differs; an invalid
+    // file shows its error and no Accept. ai.json is a scratch file (FACTORIA_AI_CONFIG, put back at the end).
+    {
+        struct Q2State {
+            std::string root, userPath, dirA, dirB, fixtureDir, previousEnv, cameWith, nameA = "Q2 Project A", nameB = "Q2 Project B";
+            bool hadEnv = false;
+            std::vector<ai::ProviderStatus> savedStatus;
+            std::unique_ptr<AiRun> run;  // the run whose proxy registry the ai.settings.set checks call
+        };
+        auto st = std::make_shared<Q2State>();
+        auto set_env = [](const char* name, const std::string& value) {
+#ifdef _WIN32
+            _putenv_s(name, value.c_str());
+#else
+            setenv(name, value.c_str(), 1);
+#endif
+        };
+        // The model an AI run of the open project would give a role: the config its loader reads (ai_project_config(true)).
+        auto run_model = [this](const char* role) {
+            auto c = ai_project_config(true);
+            return c ? c->role(role).model : "(no config: " + c.error().message + ")";
+        };
+        auto reopen = [this](const std::string& name) {
+            const std::uint64_t u0 = uiFrame_;
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, u0, name] {
+                return engine_ && pendingOpen_.empty() && !pendingWelcome_ && atReopenIn_ == 0 && projectName_ == name && uiFrame_ >= u0 + 8;
+            };
+        };
+        // The window shows the draft of the open project, with its resolution read.
+        auto window_ready = [this](const std::string& name) {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, name] {
+                return showAiSettings_ && aiSettings_.loaded && aiSettings_.project == projectDir_ && projectName_ == name && aiProj_.have &&
+                       aiProj_.dir == projectDir_ && !aiRolesOpen_ && aiDetected_.load() && !aiDetecting_.load();
+            };
+        };
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiDetected_.load() && !aiDetecting_.load(); };
+        });
+        step(2, [this, st, set_env] {
+            std::error_code ec;
+            st->root = atOutDir_ + "/q2";
+            stdfs::remove_all(st->root, ec);
+            stdfs::create_directories(st->root, ec);
+            st->userPath = st->root + "/ai.json";
+            st->fixtureDir = projectDir_;
+            const char* current = std::getenv("FACTORIA_AI_CONFIG");
+            st->hadEnv = current != nullptr;
+            st->previousEnv = current ? current : "";
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                st->savedStatus = aiStatus_;
+            }
+            write_file(st->userPath, R"({ "roles": { "worker": { "provider": "anthropic", "model": "sonnet" } } })");
+            set_env("FACTORIA_AI_CONFIG", st->userPath);  // ai-trust.json is written next to it, never in the real ~/.factoria
+            for (const auto& [dirKey, name] : {std::pair{&st->dirA, st->nameA}, std::pair{&st->dirB, st->nameB}}) {
+                ScaffoldOptions so;
+                so.name = name;
+                const std::string where = st->root + (dirKey == &st->dirA ? "/project-a" : "/project-b");
+                auto made = create_project(where, "2d-empty", so);
+                at_check(bool(made), "a scratch project was created for " + name + (made ? "" : ": " + made.error().message));
+                if (made) *dirKey = made->dir;
+            }
+            // A came with its own file (a copied project: nobody accepted it here); B's was saved on this computer through the editor.
+            stdfs::create_directories(stdfs::path(st->dirA) / ".factoria" / "ai", ec);
+            write_file(st->dirA + "/.factoria/ai/settings.json", R"({ "roles": { "worker": { "model": "a-worker-model" } } })");
+            auto saved = ai::save_project_settings(st->dirB, Json::parse(R"({ "roles": { "worker": { "model": "b-worker-model" } } })"), st->userPath,
+                                                   ai::system_env(), true);
+            at_check(bool(saved), "B's file was saved with the trust recorded" + (saved ? std::string() : ": " + saved.error().message));
+            ai_refresh_providers();  // the editor now reads the scratch ai.json
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this, st, reopen] {
+            open_project(st->dirA);
+            reopen(st->nameA);
+        });
+        step(2, [this] { open_ai_settings(true); });  // the Roles tab
+        step(1, [window_ready, st] { window_ready(st->nameA); });
+        step(4, [this, st, run_model] {
+            at_check(aiSettings_.title == "AI settings - This project: " + st->nameA, "the title says which project this is (" + aiSettings_.title + ")");
+            at_check(aiProj_.resolved.fileExists && aiProj_.resolved.pendingTrust && !aiProj_.resolved.invalidError,
+                     "a file that came with the project waits for Accept");
+            at_check(std::ranges::any_of(aiProj_.resolved.pending, [](const ai::SettingChange& c) { return c.pointer == "/roles/worker/model"; }),
+                     "...and the pending list says it would change the worker's model");
+            at_check(at_visible("aiset:project:accept") && at_visible("aiset:project:ignore"), "...with Accept and Ignore");
+            at_check(run_model("worker") == "sonnet" && aiRolesEdit_["worker"].model == "sonnet",
+                     "until it is accepted the project runs, and the window shows, the user's worker model (" + run_model("worker") + ")");
+            at_check(at_visible("ai:roles:save") && !at_enabled("ai:roles:save"), "Save is locked while the file waits");
+        });
+        snap("editor_ai_project_pending.png");
+        click("aiset:project:ignore");
+        step(4, [this, run_model] {
+            at_check(at_visible("aiset:project:review") && !at_visible("aiset:project:accept"), "Ignore hides the list and offers Review it");
+            at_check(at_enabled("ai:roles:save") && run_model("worker") == "sonnet", "...Save works again and the file still has no effect");
+        });
+        click("aiset:project:review");
+        step(4, [this] { at_check(at_visible("aiset:project:accept"), "Review it brings the list and Accept back"); });
+        click("aiset:project:accept");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiProj_.have && !aiProj_.resolved.pendingTrust && !aiRolesOpen_; };
+        });
+        step(4, [this, st, run_model] {
+            at_check(aiProj_.resolved.applied && ai_group_source(aiProj_.resolved, "/roles/worker") == ai::SettingSource::Project,
+                     "Accept applies the file: the worker row comes from this project");
+            at_check(run_model("worker") == "a-worker-model", "...and the next AI run uses the project's worker model (" + run_model("worker") + ")");
+            at_check(aiRolesEdit_["worker"].model == "a-worker-model", "...and the Roles tab shows it");
+            at_check(at_visible("ai:roles:reset:worker") && !at_visible("ai:roles:reset:orchestrator"), "only the row the project sets has Reset");
+            at_check(stdfs::exists(st->root + "/ai-trust.json"), "the acceptance is in ai-trust.json next to the scratch ai.json");
+        });
+        snap("editor_ai_project_applied.png");
+        // Switching project: B's roles, then A's again, without closing the window.
+        step(2, [this, st, reopen] {
+            open_project(st->dirB);
+            reopen(st->nameB);
+        });
+        step(1, [window_ready, st] { window_ready(st->nameB); });
+        step(4, [this, st, run_model] {
+            at_check(showAiSettings_ && aiSettings_.title == "AI settings - This project: " + st->nameB, "switching project retitles the open window (" + aiSettings_.title + ")");
+            at_check(aiRolesEdit_["worker"].model == "b-worker-model", "...and shows the other project's worker model (" + aiRolesEdit_["worker"].model + ")");
+            at_check(run_model("worker") == "b-worker-model", "...and the next AI run uses it (" + run_model("worker") + ")");
+            at_check(aiProj_.resolved.applied && !aiProj_.resolved.pendingTrust, "a file saved here needs no Accept");
+        });
+        step(2, [this, st, reopen] {
+            open_project(st->dirA);
+            reopen(st->nameA);
+        });
+        step(1, [window_ready, st] { window_ready(st->nameA); });
+        step(4, [this, run_model] {
+            at_check(aiRolesEdit_["worker"].model == "a-worker-model" && run_model("worker") == "a-worker-model",
+                     "back in the first project: its roles again (" + run_model("worker") + ")");
+        });
+        // Reset of one row.
+        click("ai:roles:reset:worker");
+        step(4, [this, st, run_model] {
+            at_check(aiRolesEdit_["worker"].model == "sonnet", "Reset puts the worker row back on the user's value");
+            at_check(run_model("worker") == "sonnet", "...and the next AI run uses it (" + run_model("worker") + ")");
+            at_check(!at_visible("ai:roles:reset:worker") && ai_group_source(aiProj_.resolved, "/roles/worker") == ai::SettingSource::You,
+                     "...the row says it comes from the user's defaults");
+            const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
+            at_check(json_at(file, "/roles/worker").is_null(),
+                     "...and the project's file no longer says anything about the worker");
+        });
+        // Save as my defaults (in B, which sets the worker): ai.json gets the values, B's file keeps nothing that equals them.
+        step(2, [this, st, reopen] {
+            open_project(st->dirB);
+            reopen(st->nameB);
+        });
+        step(1, [window_ready, st] { window_ready(st->nameB); });
+        step(2, [this] { aiRolesEdit_["orchestrator"].model = "defaults-orchestrator"; });
+        click("ai:roles:save-defaults");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiRolesOpen_ && aiProj_.have; };
+        });
+        step(4, [this, st, run_model] {
+            const Json user = Json::parse(read_file(st->userPath), nullptr, false);
+            at_check(json_at(user, "/roles/orchestrator/model") == "defaults-orchestrator" &&
+                         json_at(user, "/roles/worker/model") == "b-worker-model",
+                     "Save as my defaults writes the roles into the user's ai.json");
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                at_check(aiConfig_.role("orchestrator").model == "defaults-orchestrator", "...and the editor's copy of ai.json is reloaded");
+            }
+            at_check(run_model("orchestrator") == "defaults-orchestrator" && run_model("worker") == "b-worker-model",
+                     "...the project still runs with the same roles");
+            at_check(ai_group_source(aiProj_.resolved, "/roles/worker") == ai::SettingSource::You,
+                     "...and its rows now say Your defaults: its file keeps nothing that equals them");
+            at_check(!aiProj_.resolved.pendingTrust, "...and its file needs no new Accept");
+        });
+        // A project that is not B any more is in step with the new defaults too.
+        step(2, [this, st, reopen] {
+            open_project(st->dirA);
+            reopen(st->nameA);
+        });
+        step(1, [window_ready, st] { window_ready(st->nameA); });
+        step(4, [this, run_model] {
+            at_check(run_model("worker") == "b-worker-model" && aiRolesEdit_["worker"].model == "b-worker-model",
+                     "a project without its own worker model starts from the new defaults (" + run_model("worker") + ")");
+        });
+        // A project's own Save writes its file only.
+        step(2, [this] { aiRolesEdit_["worker"].model = "a-saved-model"; });
+        click("ai:roles:save");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiRolesOpen_ && aiProj_.have; };
+        });
+        step(4, [this, st, run_model] {
+            const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
+            at_check(json_at(file, "/roles/worker/model") == "a-saved-model" && json_at(file, "/roles/orchestrator").is_null(),
+                     "Save writes the project's file with only what differs from the defaults");
+            const Json user = Json::parse(read_file(st->userPath), nullptr, false);
+            at_check(json_at(user, "/roles/worker/model") == "b-worker-model", "...and leaves ai.json alone");
+            at_check(run_model("worker") == "a-saved-model" && !aiProj_.resolved.pendingTrust, "...the next run uses it, with no Accept asked for the user's own Save");
+        });
+        // The Assets tab: a route and a site saved in the project's file only, each row with its own Reset.
+        step(2, [this] {
+            aiSettingsTab_ = 2;
+            atWaitCount_ = 0;
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("aiset:provider:image") && at_visible("aiset:save"); };
+        });
+        step(2, [this] {
+            aiSettings_.routes["image"] = {"openai", "", ""};
+            aiSettings_.sources.images.push_back({"opengameart.org", "CC0"});
+            at_check(at_visible("aiset:save") && at_enabled("aiset:save") && at_visible("aiset:save-defaults"), "the Assets tab has Save and Save as my defaults");
+        });
+        click("aiset:save");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiProj_.have && ai_group_source(aiProj_.resolved, "/assets/image") == ai::SettingSource::Project; };
+        });
+        step(4, [this, st] {
+            const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
+            at_check(json_at(file, "/assets/image/provider") == "openai" && json_at(file, "/assetSources/images").size() == 1,
+                     "Save in the Assets tab writes the route and the site into the project's file");
+            const Json user = Json::parse(read_file(st->userPath), nullptr, false);
+            at_check(user.is_object() && !user.contains("assets") && !user.contains("assetSources"), "...and not into ai.json");
+            auto run = ai_project_config(true);
+            at_check(run && run->assets.count("image") && run->assets.at("image").provider == "openai" && run->assetSources.images.size() == 1,
+                     "...the next AI run uses them");
+            at_check(at_visible("aiset:reset:image"), "...and the image row says it is the project's, with Reset");
+        });
+        click("aiset:reset:image");
+        step(4, [this, st] {
+            at_check(aiSettings_.routes["image"].provider.empty() && !aiSettings_.sources.images.empty(),
+                     "Reset on the image row clears only that row (the site stays in the draft)");
+            const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
+            at_check(file.is_object() && json_at(file, "/assets/image").is_null() && file.contains("assetSources"),
+                     "...and the project's file keeps the sites");
+        });
+        scroll_to("aiset:reset:images", "AI settings###AiSettings");
+        click("aiset:reset:images");
+        step(4, [this, st] {
+            at_check(aiSettings_.sources.images.empty(), "Reset on a list of sites puts it back to the user's (empty)");
+            auto run = ai_project_config(true);
+            at_check(run && run->assetSources.images.empty() && !run->assets.count("image"), "...and the next AI run has neither the route nor the site");
+        });
+        // A file that cannot be accepted: its error, no Accept.
+        step(2, [this, st] {
+            write_file(st->dirA + "/.factoria/ai/settings.json", R"({ "roles": { "worker": { "command": "evil" } } })");
+            ai_project_invalidate();
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiProj_.have && aiProj_.resolved.invalidError.has_value(); };
+        });
+        step(4, [this, run_model] {
+            at_check(aiProj_.resolved.pendingTrust && aiProj_.resolved.invalidError.has_value() && !aiProj_.resolved.invalidError->message.empty(),
+                     "a changed file that is not valid shows its error");
+            at_check(!at_visible("aiset:project:accept") && at_visible("aiset:project:ignore") && at_visible("aiset:project:delete"),
+                     "...with no Accept, and a way to ignore or delete it");
+            at_check(run_model("worker") == "b-worker-model", "...and it changes nothing the project runs with (" + run_model("worker") + ")");
+        });
+        snap("editor_ai_project_invalid.png");
+        // Delete the file: it asks first (Cancel keeps the file), and Delete removes it and forgets that it was accepted.
+        step(2, [this, st] {
+            const Json trust = Json::parse(read_file(st->root + "/ai-trust.json"), nullptr, false);
+            at_check(json_at(trust, "/aiSettings").contains(ai::ai_settings_trust_key(st->dirA)),
+                     "(before Delete) the project's file was accepted here once: ai-trust.json has its record");
+            aiSettingsTab_ = 1;  // the Roles tab again: the Save of the next flow lives there
+        });
+        click("aiset:project:delete");
+        step(4, [this, st] {
+            at_check(at_visible("aiset:project:delete-ok") && at_visible("aiset:project:delete-cancel"),
+                     "Delete the file asks for a confirmation (the popup is on screen)");
+            at_check(stdfs::exists(st->dirA + "/.factoria/ai/settings.json"), "...and nothing was deleted yet");
+        });
+        snap("editor_ai_project_delete_confirm.png");
+        click("aiset:project:delete-cancel");
+        step(4, [this, st] {
+            at_check(!at_visible("aiset:project:delete-ok") && stdfs::exists(st->dirA + "/.factoria/ai/settings.json"),
+                     "Cancel closes the popup and keeps the file");
+        });
+        click("aiset:project:delete");
+        step(4, [this] { at_check(at_visible("aiset:project:delete-ok"), "Delete the file opens the confirmation again"); });
+        click("aiset:project:delete-ok");
+        step(1, [this, st] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, st] {
+                return !stdfs::exists(st->dirA + "/.factoria/ai/settings.json") && aiProj_.have && !aiProj_.resolved.fileExists;
+            };
+        });
+        step(4, [this, st, run_model] {
+            const Json trust = Json::parse(read_file(st->root + "/ai-trust.json"), nullptr, false);
+            at_check(!json_at(trust, "/aiSettings").contains(ai::ai_settings_trust_key(st->dirA)),
+                     "Delete removes the file and forgets its acceptance in ai-trust.json");
+            at_check(run_model("worker") == "b-worker-model" && aiProj_.actionError.empty(), "...the project runs with the user's defaults, no error");
+        });
+        // Save after Ignore replaces a file that came with the project: it asks, and keeps a copy of that file.
+        step(2, [this, st] {
+            st->cameWith = R"({ "roles": { "worker": { "model": "came-with-project" } } })";
+            write_file(st->dirA + "/.factoria/ai/settings.json", st->cameWith);
+            ai_project_invalidate();
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] {
+                return aiProj_.have && aiProj_.resolved.pendingTrust && !aiProj_.resolved.invalidError && at_visible("aiset:project:ignore") &&
+                       !aiRolesOpen_;
+            };
+        });
+        click("aiset:project:ignore");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("aiset:project:review") && at_enabled("ai:roles:save"); };
+        });
+        step(2, [this] { aiRolesEdit_["worker"].model = "my-own-model"; });
+        click("ai:roles:save");
+        step(4, [this, st] {
+            at_check(at_visible("aiset:project:replace-ok") && at_visible("aiset:project:replace-cancel"),
+                     "Save after Ignore asks before it replaces the file that came with the project");
+            at_check(read_file(st->dirA + "/.factoria/ai/settings.json") == st->cameWith && !stdfs::exists(st->dirA + "/.factoria/ai/settings.replaced.json"),
+                     "...and nothing was written yet");
+        });
+        snap("editor_ai_project_replace_confirm.png");
+        click("aiset:project:replace-cancel");
+        step(4, [this, st] {
+            at_check(!at_visible("aiset:project:replace-ok") && read_file(st->dirA + "/.factoria/ai/settings.json") == st->cameWith,
+                     "Cancel closes the popup and leaves the file as it came");
+        });
+        click("ai:roles:save");
+        step(4, [this] { at_check(at_visible("aiset:project:replace-ok"), "Save asks again"); });
+        click("aiset:project:replace-ok");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiProj_.have && !aiProj_.resolved.pendingTrust && aiProj_.resolved.applied && !aiRolesOpen_; };
+        });
+        step(4, [this, st, run_model] {
+            const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
+            at_check(json_at(file, "/roles/worker/model") == "my-own-model", "Replace saves the user's roles into the project's file");
+            at_check(read_file(st->dirA + "/.factoria/ai/settings.replaced.json") == st->cameWith,
+                     "...and the file that came with the project is kept as settings.replaced.json");
+            at_check(run_model("worker") == "my-own-model", "...the next run uses the saved model (" + run_model("worker") + ")");
+        });
+        // ai.settings.set from an AI (the proxy registry of a run, as MCP and the agent use it): an MCP client cannot change the user's
+        // defaults, a project-scope change reaches the windows, and a change the user's own caller makes (no scope) reloads them.
+        step(2, [this, st] {
+            st->run = std::make_unique<AiRun>("autotest-q2");
+            auto proxy = make_proxy_registry(*st->run);
+            const std::string before = read_file(st->userPath);
+            CommandResult refused;
+            {
+                CommandCallerScope as(CommandCaller::Mcp);
+                refused = proxy->call("ai.settings.set", Json::object({{"scope", "user"}, {"pointer", "/roles/orchestrator/model"}, {"value", "by-mcp"}}));
+            }
+            at_check(!refused.ok && refused.error.value("code", "") == "user_only" && read_file(st->userPath) == before,
+                     "an MCP client cannot change the user's defaults (ai.json is untouched)");
+            CommandResult project = proxy->call("ai.settings.set", Json::object({{"scope", "project"}, {"pointer", "/roles/artist/enabled"}, {"value", false}}));
+            at_check(project.ok && project.result.value("needsAcceptance", false), "...but it can change the project's file (it then waits for the user)");
+            CommandResult user = proxy->call("ai.settings.set", Json::object({{"scope", "user"}, {"pointer", "/roles/orchestrator/model"}, {"value", "by-user"}}));
+            at_check(user.ok, "the user's own caller can change the user's defaults" + (user.ok ? std::string() : ": " + user.error.dump()));
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] {
+                // A detection that was running can make this true one frame before the reload: wait until neither file's
+                // change flag is pending (the reload consumes them) as well.
+                return !aiDetecting_.load() && !aiRolesOpen_ && !aiUserFileChanged_.load() && !aiProjectFileChanged_.load() && aiProj_.have &&
+                       aiProj_.resolved.pendingTrust && !aiProj_.resolved.invalidError;
+            };
+        });
+        step(4, [this, run_model] {
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                at_check(aiConfig_.role("orchestrator").model == "by-user", "the editor reloaded ai.json after the command wrote it");
+            }
+            at_check(run_model("orchestrator") == "by-user" && aiRolesEdit_["orchestrator"].model == "by-user",
+                     "...the next run and the Roles tab have the new value (" + run_model("orchestrator") + ")");
+            at_check(aiProj_.resolved.pendingTrust, "...and a project-scope change shows up as a file that waits for Accept (the cache was dropped)");
+        });
+        // Put everything back.
+        step(2, [this, st, set_env] {
+            st->run.reset();
+            showAiSettings_ = false;
+            ai_settings_discard();
+            set_env("FACTORIA_AI_CONFIG", st->hadEnv ? st->previousEnv : std::string());
+            open_project(st->fixtureDir);
+        });
+        step(1, [this, st] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, st] { return engine_ && pendingOpen_.empty() && !pendingWelcome_ && atReopenIn_ == 0 && projectDir_ == st->fixtureDir; };
+        });
+        step(2, [this, st] {
+            ai_refresh_providers();
+            std::error_code ec;
+            stdfs::remove_all(st->root, ec);
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this, st] {
+            ai_project_invalidate();
+            std::lock_guard<std::mutex> lock(aiMu_);
+            if (atSavedConfig_) {
+                aiConfig_ = std::move(*atSavedConfig_);
+                atSavedConfig_.reset();
+            }
+            aiStatus_ = std::move(st->savedStatus);
         });
     }
 
@@ -4017,6 +4493,44 @@ void Editor::at_build_tools_script() {
             at_check(at_visible("anim:event:0"), "...and the ruler shows it");
         });
 
+        // ---- the event popup says what is wrong inside the popup, and leaves the panel's own error line alone
+        scroll_until_at([] { return std::string("anim:addevent"); }, 6, rows_point, 100000, -1e9f);
+        click_widget("anim:addevent");
+        wait_until([this] { return at_visible("anim:event:ok"); });
+        step(2, [this] { anim_.error = "panel message"; });
+        for (int i = 0; i < 5; ++i) {   // the name box has the focus and holds "event": its own edit buffer, so it is emptied with the keys
+            step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_BACKSPACE); });
+            step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_BACKSPACE); });
+        }
+        step(2, [this] { at_check(anim_.eventName.empty(), "Backspace emptied the name box"); });
+        click_widget("anim:event:ok");
+        step(3, [this, clip_now] {
+            at_check(anim_.eventError.find("name or game feel") != std::string::npos, "an event with no name and no actions is refused inside the popup: " + anim_.eventError);
+            at_check(anim_.error == "panel message", "...and the panel's own error line is not touched");
+            const auto clip = clip_now();
+            at_check(clip && clip->events.size() == 1, "...nothing was added");
+            anim_.error.clear();
+        });
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ESCAPE); });
+        step(4, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ESCAPE); });
+        wait_until([this] { return !at_visible("anim:event:ok"); });
+
+        // ---- an event that runs a game feel action: a preset button fills the box, the command checks it and the clip keeps it
+        scroll_until_at([] { return std::string("anim:addevent"); }, 6, rows_point, 100000, -1e9f);
+        click_widget("anim:addevent");
+        wait_until([this] { return at_visible("anim:event:fx:shake"); });
+        click_widget("anim:event:fx:shake");
+        click_widget("anim:event:ok");
+        step(5, [this, clip_now] {
+            const auto clip = clip_now();
+            at_check(clip && clip->events.size() == 2, "a second event is added");
+            bool found = false;
+            if (clip)
+                for (const ClipEvent& ev : clip->events)
+                    found = found || (ev.feel.size() == 1 && ev.feel[0].value("action", std::string()) == "shake");
+            at_check(found, "the Shake preset writes a game feel action into the event, which the clip loads");
+        });
+
         // ---- onion skin
         scroll_until_at([] { return std::string("anim:onion"); }, 6, rows_point, 100000, -1e9f);
         click_widget("anim:onion");
@@ -4465,7 +4979,8 @@ void Editor::at_build_tools_script() {
     // fake server of on_init: no network, and the settings and the outbox live in the autotest's own folder.
     {
         struct EState {
-            std::string path, installBefore, alwaysId;
+            std::string path, installBefore, alwaysId, projectSentId, projectAskId, projectAskKey;
+            size_t reportsBeforeAsk = 0;
             std::optional<ai::AiConfig> savedConfig;
             ImGuiID row = 0, sibling = 0;  // the dock row of the panel made taller for this section, and the one it took from
             float grown = 0;
@@ -4955,12 +5470,89 @@ void Editor::at_build_tools_script() {
         click("share:settings:sendnow");
         wait_until([x, shared_of] { return shared_of(x->alwaysId) == "sent"; });
         step(3, [this, reports] { at_check(reports() >= 3, "Send now sent what was waiting once the server answered"); });
+        // The upload thread ends a few frames after the entry reads "sent" (later on a slow Windows run); as it finishes, the
+        // window's outbox rows change and move the radio buttons, so a click aimed at the old place would miss Never.
+        wait_until([this] { return !share_.flushRunning; });
+        step(2, [] {});
         click("share:settings:mode:never");
         step(3, [this, grow_panel_row] {
             at_check(load_share_settings(share_env()).mode == ShareMode::Never && load_outbox(share_env()).items.empty(),
                      "the Never radio button writes the mode and the outbox is empty");
             at_check(at_visible("feedback:send") && at_enabled("feedback:add") && !at_enabled("feedback:send"),
                      "with sharing off, Send feedback is disabled and Add feedback is not");
+        });
+        // ---- a mode for this project alone (feedback-sharing.json `projects`, never inside the project)
+        scroll_to("share:settings:project:always", "Feedback Settings###share-settings");
+        step(3, [this] {
+            at_check(at_visible("share:settings:project") && at_visible("share:settings:project:default") && at_visible("share:settings:project:always") &&
+                         at_visible("share:settings:project:ask") && at_visible("share:settings:project:never"),
+                     "Feedback Settings has \"This project\" with Follow default, Always, Ask and Never");
+            // On a small window the row wraps: every radio button has its centre inside the visible part of the window.
+            at_check(at_shown("share:settings:project:default") && at_shown("share:settings:project:always") && at_shown("share:settings:project:ask") &&
+                         at_shown("share:settings:project:never"),
+                     "the project's radio buttons wrap to the window's width: none of them is clipped at its right edge");
+        });
+        click("share:settings:project:always");
+        step(3, [this, x, add_entry] {
+            const ShareSettings st = load_share_settings(share_env());
+            at_check(st.mode == ShareMode::Never && share_project_mode(st, projectDir_) == ShareMode::Always &&
+                         effective_share_mode(st, projectDir_) == ShareMode::Always,
+                     "the project's Always writes `projects` in the user's file and leaves the default (Never) alone");
+            at_check(share_.mode == ShareMode::Always && at_enabled("feedback:send"), "the project's mode is the one that applies: Send feedback is enabled again");
+            at_check(!stdfs::exists(projectDir_ + "/.factoria/feedback-sharing.json"), "nothing about the choice is written inside the project");
+            // A report made now goes out although the default is Never: the project's own mode is the one that counts.
+            x->projectSentId = add_entry("Sprites cannot be skewed on one axis", "Sprite has no skew, so a slanted shadow needs a separate image for every angle.",
+                                         Json::object({{"title", "Sprites cannot be skewed on one axis"},
+                                                       {"missing", "Sprite has no skew, so a slanted shadow needs a separate image for every angle."}}));
+        });
+        wait_until([x, shared_of] { return shared_of(x->projectSentId) == "sent"; });
+        step(3, [this, x, shared_of] {
+            at_check(shared_of(x->projectSentId) == "sent" && load_share_settings(share_env()).mode == ShareMode::Never,
+                     "with the default Never and the project Always, the project's new report was sent");
+        });
+        // The flush that sent the report above may still be applying its results (the outbox is saved after the entry is marked
+        // sent): on a slow machine clicking Ask now would race with it. Wait until it is done and the outbox is empty.
+        wait_until([this] { return !share_.flushRunning.load() && load_outbox(share_env()).items.empty(); });
+        // Ask: a new report is queued with the project's key and waits; nothing goes until the person says yes.
+        scroll_to("share:settings:project:ask", "Feedback Settings###share-settings");
+        click("share:settings:project:ask");
+        step(3, [this, x, add_entry, reports] {
+            at_check(effective_share_mode(load_share_settings(share_env()), projectDir_) == ShareMode::Ask, "the project's Ask is the mode that applies");
+            x->reportsBeforeAsk = reports();
+            x->projectAskId = add_entry("Tilemaps have no animated tiles", "Tilemap cannot play a tile animation, so water needs one entity per tile.",
+                                        Json::object({{"title", "Tilemaps have no animated tiles"},
+                                                      {"missing", "Tilemap cannot play a tile animation, so water needs one entity per tile."}}));
+        });
+        wait_until([x] {
+            for (const OutboxItem& it : load_outbox(share_env()).items)
+                if (it.localId == x->projectAskId) return true;
+            return false;
+        });
+        step(3, [this, x, reports, shared_of] {
+            const Outbox box = load_outbox(share_env());
+            const OutboxItem* item = nullptr;
+            for (const OutboxItem& it : box.items)
+                if (it.localId == x->projectAskId) item = &it;
+            at_check(item && item->state == OutboxState::Waiting && item->projectKey == share_project_key(projectDir_),
+                     "the report of a project set to Ask waits for the person's yes, and the outbox item stores the project's key");
+            if (item) x->projectAskKey = item->key;
+            at_check(shared_of(x->projectAskId) == "pending" && reports() == x->reportsBeforeAsk, "nothing of it was sent");
+            at_check(share_status(share_env(), projectDir_)["outbox"].value("waitingForConfirmation", 0) == 1, "the status counts it as waiting for the person's answer");
+        });
+        scroll_to("share:settings:project:never", "Feedback Settings###share-settings");
+        click("share:settings:project:never");
+        step(3, [this, x, reports, shared_of] {
+            at_check(effective_share_mode(load_share_settings(share_env()), projectDir_) == ShareMode::Never && !at_enabled("feedback:send"),
+                     "the project's Never disables Send feedback");
+            at_check(load_outbox(share_env()).items.empty() && shared_of(x->projectAskId) == "skipped" && reports() == x->reportsBeforeAsk,
+                     "the project's Never dropped the item that waited and marked its entry skipped; nothing was sent");
+        });
+        scroll_to("share:settings:project:default", "Feedback Settings###share-settings");
+        click("share:settings:project:default");
+        step(3, [this, grow_panel_row] {
+            const ShareSettings st = load_share_settings(share_env());
+            at_check(st.projects.empty() && !share_project_mode(st, projectDir_) && share_.mode == ShareMode::Never,
+                     "Follow default removes the project's choice: the default (Never) applies again");
             share_.settingsOpen = false;
             grow_panel_row(false);
         });
@@ -5463,15 +6055,20 @@ void Editor::at_build_tools_script() {
         step(3, [this, factId] {
             const ai::Savers& s = aiSettings_.ext.savers;
             at_check(s.loopGuard && s.learnedToolGroups && s.projectFacts && s.loopGuardJudge.empty(), "the savers start on, without a judge");
+            at_check(!s.retrospective && s.retrospectiveSteps == 150 && s.retrospectiveCostUsd == 3.0, "...and the retrospective starts off, after 150 steps or $3");
             const Json& props = aiSettings_.ext.saversReport.value("proposals", Json::object());
             at_check(props.value("toolGroups", Json::array()).size() == 2, "the report lists the two tool group proposals");
             const Json facts = props.value("facts", Json::array());
             at_check(facts.size() == 1 && facts[0].value("id", std::string()) == factId, "...and the one fact");
         });
-        scroll_to("aiset:saver:loopguard", "AI settings###AiSettings");
+        // One notch at a time: the Extensions tab's scroll area is about 270 px high on a 1024x642 display and a default 6-notch
+        // wheel event moves it further than that, so the switch would skip over the visible part and end above it.
+        scroll_to("aiset:saver:loopguard", "AI settings###AiSettings", -1);
         step(3, [this] {
-            at_check(at_shown("aiset:saver:loopguard") && at_shown("aiset:saver:groups") && at_shown("aiset:saver:facts"),
-                     "the Token savers section shows the three switches");
+            // (on a small display the window shows the first of them; the clicks below scroll to the others)
+            at_check(at_shown("aiset:saver:loopguard") && at_visible("aiset:saver:groups") && at_visible("aiset:saver:facts") &&
+                         at_visible("aiset:saver:retrospective"),
+                     "the Token savers section is scrolled to the Loop guard switch and draws the other two and the Retrospective switch");
         });
         // Switches off, a judge picked.
         click("aiset:saver:loopguard");
@@ -5481,10 +6078,12 @@ void Editor::at_build_tools_script() {
         click("aiset:saver:judge:worker");
         click("aiset:saver:groups");
         click("aiset:saver:facts");
+        scroll_to("aiset:saver:retrospective", "AI settings###AiSettings");
+        click("aiset:saver:retrospective");
         step(3, [this] {
             const ai::Savers& s = aiSettings_.ext.savers;
-            at_check(s.loopGuard && s.loopGuardJudge == "worker" && !s.learnedToolGroups && !s.projectFacts,
-                     "the judge is worker, learned groups and facts are off, the loop guard is on again");
+            at_check(s.loopGuard && s.loopGuardJudge == "worker" && !s.learnedToolGroups && !s.projectFacts && s.retrospective,
+                     "the judge is worker, learned groups and facts are off, the retrospective is on, the loop guard is on again");
         });
         scroll_to("aiset:ext:save", "AI settings###AiSettings");
         click("aiset:ext:save");
@@ -5492,7 +6091,8 @@ void Editor::at_build_tools_script() {
             const std::string text = read_file(x->path);
             const Json j = Json::parse(text, nullptr, false);
             at_check(j.is_object() && j.contains("savers") && j["savers"].value("loopGuardJudge", std::string()) == "worker" &&
-                         !j["savers"].value("learnedToolGroups", true) && !j["savers"].value("projectFacts", true) && !j["savers"].contains("loopGuard"),
+                         !j["savers"].value("learnedToolGroups", true) && !j["savers"].value("projectFacts", true) && j["savers"].value("retrospective", false) && !j["savers"].contains("loopGuard") &&
+                         !j["savers"].contains("retrospectiveSteps"),
                      "Save wrote only the non-default savers keys: " + text);
             at_check(j.is_object() && j.contains("limits") && j.contains("roles"), "...and kept the other keys of ai.json");
             aiSettings_.ext.saversAt = -10;
@@ -7159,6 +7759,213 @@ void Editor::at_build_tools_script() {
         });
     }
 
+    section("P3");
+    // The Particles panel (docs/EDITOR.md, "Particles panel"): New writes a starter effect and opens it, the preview plays it, the time scrubber
+    // is dragged (the same moment shows the same particles every time), a gradient key and a curve key are dragged (ONE vfx.edit and one undo step
+    // each), a part is added and removed, and Undo/Redo walk every step through the editor's stack back to the file as it was. Every wait counts
+    // frames or state.
+    {
+        struct Ps {
+            size_t undo = 0;
+            std::string original, afterGradient;
+            double len = 0, t1 = 0;
+            int count = 0;
+            float x0 = 0, y0 = 0;
+            Vec2 start{};
+        };
+        auto ps = std::make_shared<Ps>();
+        const std::string rel = "assets/vfx/effect.vfx.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        // Press at the widget's centre plus `from`, move in three steps by `by` and let go.
+        auto drag = [this, &step, ps](const std::string& name, Vec2 from, Vec2 by) {
+            step(2, [this, name, from, ps] {
+                const Vec2 c = at_widget(name);
+                ps->start = Vec2{c.x + from.x, c.y + from.y};
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, ps->start);
+            });
+            step(2, [this, ps] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, ps->start); });
+            for (int i = 1; i <= 3; ++i)
+                step(2, [this, ps, by, i] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{ps->start.x + by.x * float(i) / 3.0f, ps->start.y + by.y * float(i) / 3.0f}); });
+            step(4, [this, ps, by] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, Vec2{ps->start.x + by.x, ps->start.y + by.y}); });
+        };
+        auto read_text = [this](const std::string& r) {
+            std::ifstream in(projectDir_ + "/" + r, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+        auto file_json = [read_text, rel]() {
+            Json j = Json::parse(read_text(rel), nullptr, false);
+            return j.is_discarded() ? Json::object() : j;
+        };
+        auto emitter_of = [file_json]() {
+            const Json j = file_json();
+            return j.contains("parts") && j["parts"].is_array() && !j["parts"].empty() && j["parts"][0].contains("emitter") ? j["parts"][0]["emitter"] : Json::object();
+        };
+        auto parts_in_file = [file_json]() { const Json j = file_json(); return j.contains("parts") && j["parts"].is_array() ? j["parts"].size() : size_t(0); };
+        auto ready = [this] {
+            return particle_.model && particle_.model->is_open() && particle_.model->valid() && particle_.model->doc() && particle_.preview &&
+                   at_visible("pt:timeline") && at_visible("pt:canvas") && at_visible("pt:part:0") && particle_.canvasW > 100 && particle_.tlW > 100;
+        };
+        step(2, [this, ps, rel] {
+            std::error_code ec;
+            stdfs::remove(projectDir_ + "/" + rel, ec);   // a leftover of an earlier run
+            project_files_changed();
+            ps->undo = undo_depth();
+            showParticle_ = true;
+            focus_window("Particles");
+        });
+        wait_until([this] { return at_visible("pt:new") && at_visible("pt:open"); });
+        step(3, [this] { at_check(!particle_.model || !particle_.model->is_open(), "the Particles panel opens with no effect, offering New and the list of files"); });
+        click_widget("pt:new");
+        wait_until(ready);
+        step(3, [this, ps, rel, read_text] {
+            ps->original = read_text(rel);
+            at_check(!ps->original.empty(), "New wrote " + rel);
+            at_check(particle_.model->path() == rel && particle_.model->parts().size() == 1, "...and opened it with its one emitter part");
+            at_check(undo_depth() == ps->undo, "...which is not an undo step (a new file)");
+            at_check(particle_.preview->timeline_length() >= 0.25, "the timeline covers the burst and its particles' lives");
+            at_check(at_visible("pt:play") && at_visible("pt:restart") && at_visible("pt:add_emitter") && at_visible("pt:add_light") && at_visible("pt:add_sound") &&
+                         at_visible("pt:add_command"),
+                     "the toolbar and the add buttons are on screen");
+        });
+        wait_until([this] { return particle_.preview->live_particles() > 0; });
+        step(3, [this] { at_check(particle_.preview->live_particles() > 0 && particle_.playing, "the preview plays the burst: particles are alive"); });
+        snap("editor_particle_panel.png");
+
+        // ---- the time scrubber: Pause, drag the playhead, the same moment shows the same particles
+        click_widget("pt:play");
+        step(3, [this, ps] {
+            at_check(!particle_.playing, "Pause stopped the preview");
+            ps->len = particle_.preview->timeline_length();
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, particle_time_pos(ps->len * 0.25, 0.12));
+        });
+        step(2, [this, ps] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, particle_time_pos(ps->len * 0.25, 0.12)); });
+        step(2, [] {});   // the frames in which the panel sees the mouse and seeks
+        wait_until([this] { return particle_.preview && !particle_.preview->catching_up(); });   // the preview rebuilds a share of its steps per frame
+        step(3, [this, ps] {
+            const ParticlePreview& pv = *particle_.preview;
+            at_check(particle_.scrubbing && !particle_.playing, "pressing on the timeline picks up the playhead");
+            at_check(std::fabs(pv.time() - ps->len * 0.25) < 0.04, "...and puts it at the mouse: " + std::to_string(pv.time()) + " s of " + std::to_string(ps->len));
+            ps->t1 = pv.time();
+            ps->count = pv.live_particles();
+            ps->x0 = pv.dots().empty() ? 0.0f : pv.dots()[0].x;
+            ps->y0 = pv.dots().empty() ? 0.0f : pv.dots()[0].y;
+            at_check(ps->count > 0, "...where the burst is still alive");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, particle_time_pos(ps->len * 0.95, 0.12));
+        });
+        step(2, [] {});
+        wait_until([this] { return !particle_.preview->catching_up(); });
+        step(3, [this, ps] {
+            at_check(particle_.preview->time() > ps->len * 0.85, "dragging to the right end moved the playhead there");
+            at_check(particle_.preview->live_particles() == 0, "...where every particle is gone");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, particle_time_pos(ps->len * 0.25, 0.12));
+        });
+        step(2, [] {});
+        wait_until([this] { return !particle_.preview->catching_up(); });
+        step(3, [this, ps] {
+            const ParticlePreview& pv = *particle_.preview;
+            at_check(pv.time() == ps->t1, "dragging back to the same pixel gave the same time");
+            at_check(pv.live_particles() == ps->count && !pv.dots().empty() && std::fabs(pv.dots()[0].x - ps->x0) < 1e-4f && std::fabs(pv.dots()[0].y - ps->y0) < 1e-4f,
+                     "...and the same particles in the same places (a seeded, repeatable preview)");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, particle_time_pos(ps->len * 0.25, 0.12));
+        });
+        step(3, [this] { at_check(!particle_.scrubbing, "letting go dropped the playhead"); });
+        snap("editor_particle_scrub.png");
+
+        // ---- a gradient key dragged: one vfx.edit, one undo step
+        step(2, [this, ps] { ps->undo = undo_depth(); });
+        drag("pt:grad:colorGradient", Vec2{0, 0}, Vec2{40, 0});
+        step(3, [this, ps, emitter_of] {
+            const Json g = emitter_of().contains("colorGradient") ? emitter_of()["colorGradient"] : Json::array();
+            at_check(g.is_array() && g.size() == 3, "a click on the gradient bar added a key, and the document on disk has three");
+            at_check(g.is_array() && g.size() == 3 && g[1][0].get<double>() > 0.55, "...which the drag moved to the right: " + g.dump());
+            at_check(undo_depth() == ps->undo + 1, "...as ONE undo step");
+            ps->afterGradient = emitter_of().dump();
+        });
+
+        // ---- curve keys: one added by dragging out of a click, a second one by a click
+        drag("pt:curve:sizeCurve", Vec2{0, 0}, Vec2{50, -12});
+        step(3, [this, ps, emitter_of] {
+            const Json c = emitter_of().contains("sizeCurve") ? emitter_of()["sizeCurve"] : Json::array();
+            at_check(c.is_array() && c.size() == 1, "a click on the size curve added one key to the document");
+            at_check(c.is_array() && !c.empty() && c[0].is_array() && c[0][0].get<double>() > 0.55, "...which the drag moved to the right: " + c.dump());
+            at_check(undo_depth() == ps->undo + 2, "...as ONE more undo step");
+        });
+        drag("pt:curve:sizeCurve", Vec2{-80, 0}, Vec2{0, 0});
+        step(3, [this, ps, emitter_of] {
+            const Json c = emitter_of().contains("sizeCurve") ? emitter_of()["sizeCurve"] : Json::array();
+            at_check(c.is_array() && c.size() == 2 && c[0][0].get<double>() < c[1][0].get<double>(), "a second click added a second key, in order");
+            at_check(undo_depth() == ps->undo + 3, "...as one undo step");
+        });
+
+        // ---- a part added and removed
+        click_widget("pt:add_light");
+        wait_until([this] { return particle_.model->parts().size() == 2 && at_visible("pt:part:1"); });
+        step(3, [this, ps, parts_in_file] {
+            at_check(parts_in_file() == 2 && particle_.model->parts()[1].type == "light", "+ Light wrote a light part to the document");
+            at_check(undo_depth() == ps->undo + 4 && particle_.selectedPart == 1, "...as one undo step, and selected it");
+            at_check(at_visible("pt:add_light_settings") || at_visible("insp:pt:/parts/1/at"), "...with its fields in the inspector");
+        });
+        click_widget("pt:part_remove");
+        wait_until([this] { return particle_.model->parts().size() == 1; });
+        step(3, [this, ps, parts_in_file] {
+            at_check(parts_in_file() == 1 && undo_depth() == ps->undo + 5, "Remove took the part out of the document as one undo step");
+        });
+
+        // ---- Undo and Redo through the editor's stack
+        for (int i = 0; i < 5; ++i) step(3, [this] { undo(); });
+        step(3, [this, ps, rel, read_text, emitter_of] {
+            at_check(undo_depth() == ps->undo, "five Undos used up the panel's steps");
+            at_check(read_text(rel) == ps->original, "...and the document is byte for byte what New wrote");
+            at_check(emitter_of().contains("colorGradient") && emitter_of()["colorGradient"].size() == 2 && !emitter_of().contains("sizeCurve"), "...with the two gradient keys and no size curve");
+        });
+        for (int i = 0; i < 4; ++i) step(3, [this] { redo(); });
+        step(3, [this, ps, emitter_of] {
+            at_check(undo_depth() == ps->undo + 4, "four Redos put the steps back");
+            at_check(emitter_of().dump() != ps->afterGradient && emitter_of().contains("sizeCurve") && emitter_of()["sizeCurve"].size() == 2, "...with both curve keys");
+        });
+        for (int i = 0; i < 4; ++i) step(3, [this] { undo(); });
+        step(3, [this, ps, rel, read_text] { at_check(read_text(rel) == ps->original, "four more Undos: the file is as New wrote it again"); });
+
+        // ---- the file is changed by another program: Redo refuses to overwrite it, keeps the step, and Reload takes the file as it is
+        step(2, [this, ps, rel, read_text] {
+            ps->count = int(redo_.size());
+            write_file(projectDir_ + "/" + rel, read_text(rel) + "\n");
+            redo();   // in the same frame: a later one could find the panel's poll has already taken the change (and the step with it)
+        });
+        step(3, [this, ps, rel, read_text] {
+            at_check(particle_.model->conflict(), "Redo of a file that was changed outside the editor was refused");
+            at_check(read_text(rel) == ps->original + "\n", "...the other program's change is still in the file");
+            at_check(int(redo_.size()) == ps->count, "...and the step stays on the Redo stack");
+        });
+        // The panel polls the file every 20 frames: it must not take the change by itself while the warning is up (Reload decides).
+        step(45, [this] {});
+        step(2, [this, ps] {
+            at_check(particle_.model->conflict(), "...and the warning is still there after the panel polled the file");
+            at_check(int(redo_.size()) == ps->count, "...with the step on the Redo stack");
+            particle_reload();
+            at_check(!particle_.model->conflict(), "Reload took the file as it is and cleared the warning");
+            at_check(int(redo_.size()) == ps->count - 1, "...and dropped the step that cannot be applied any more, so Undo and Redo are not stuck");
+        });
+
+        step(2, [this, rel] {
+            showParticle_ = false;
+            particle_close_document();
+            std::error_code ec;
+            stdfs::remove(projectDir_ + "/" + rel, ec);
+            project_files_changed();
+        });
+    }
+
     section("O3");
     // The Animation panel's 3D mode (docs/EDITOR.md, "Animation panel, 3D clips"): a generated walk opens on the rigged model, a bone is picked in the list and
     // in the view, the rotation gizmo is dragged (ONE key, one undo step) and an IK handle too, a key is moved and deleted in the dopesheet, Mirror pose keys
@@ -7358,6 +8165,54 @@ void Editor::at_build_tools_script() {
         wait_until([this] { return anim3d_.playhead > 0.05 && anim3d_.playing; });
         click("a3:play");
         step(3, [this] { at_check(!anim3d_.playing, "Play ran the playhead and a second click stopped it"); });
+
+        // ---- an event that only runs game feel actions: typed into the new-event row, with no name
+        wait_until([this] { return at_visible("a3:event:newfeel") && at_visible("a3:event:add"); });
+        step(2, [this, os] {
+            anim3d_.eventName.clear();
+            anim3d_.newEventFeel.clear();
+            os->undo = undo_depth();
+        });
+        click("a3:event:add");
+        step(3, [this, os] {
+            at_check(undo_depth() == os->undo && !anim3d_.newEventError.empty(), "Add with no name and no feel actions was refused, with the reason");
+        });
+        click("a3:event:newfeel");
+        step(3, [this] {
+            for (char c : std::string("[{\"action\":\"hitStop\"")) inject_char(unsigned(static_cast<unsigned char>(c)));
+        });
+        click("a3:event:add");
+        step(3, [this, os] {
+            at_check(undo_depth() == os->undo && anim3d_.newEventError.find("JSON") != std::string::npos, "feel actions that are not JSON were refused, naming JSON");
+        });
+        click("a3:event:newfeel");   // the click on Add took the focus away: back in the box; a click puts the cursor where it lands, so End first
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_END); });
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_END); });
+        step(3, [this] {
+            for (char c : std::string(",\"duration\":0.05}]")) inject_char(unsigned(static_cast<unsigned char>(c)));
+        });
+        click("a3:event:add");
+        wait_until([this, os, settled] { return settled() && undo_depth() == os->undo + 1; });
+        step(3, [this] {
+            const Anim3DModel& m = *anim3d_.model;
+            const ClipEvent* found = nullptr;
+            if (m.clip())
+                for (const ClipEvent& ev : m.clip()->events)
+                    if (ev.name.empty()) found = &ev;
+            at_check(found && found->feel.size() == 1 && found->feel[0].value("action", "") == "hitStop", "Add made a nameless event that holds the hitStop action");
+            at_check(anim3d_.newEventError.empty(), "...and cleared the error");
+            at_check(anim3d_.selectedEvent >= 0 && anim3d_.eventFeel.find("hitStop") != std::string::npos, "...the new event is the picked one and its feel field shows the actions");
+        });
+        step(2, [this] { undo(); });
+        wait_until([this, os, settled] { return settled() && undo_depth() == os->undo; });
+        step(3, [this] {
+            bool any = false;
+            if (anim3d_.model->clip())
+                for (const ClipEvent& ev : anim3d_.model->clip()->events) any = any || ev.name.empty();
+            at_check(!any, "Undo took the feel-only event back out of the clip");
+            anim3d_.selectedEvent = -1;
+            anim3d_.newEventFeel.clear();
+        });
 
         // ---- the filmstrip and the weights
         click("a3:filmstrip");
@@ -7644,6 +8499,281 @@ void Editor::at_build_tools_script() {
             feedbackPolled_ = -10;
         });
         step(2, [grow_panel_row] { grow_panel_row(false); });
+    }
+
+    section("R2");
+    // The retrospective (docs/AI_PROVIDERS.md, "Retrospective"): the Feedback panel's button looks back at the transcripts of the open
+    // project's runs and, with the fast role's model (a scripted one here), files an efficiency entry; the panel says what happened, lists
+    // the entry and adds up what its fix would save. The button is off while it runs and without a project.
+    {
+        struct R2State {
+            std::string path, archive, transcript;
+            std::string envBefore;
+        };
+        auto x = std::make_shared<R2State>();
+        step(2, [this, x] {
+            x->path = projectDir_ + "/" + engine_->project().feedbackFile;
+            x->archive = projectDir_ + "/ENGINE_FEEDBACK.archive.json";
+            x->transcript = projectDir_ + "/.factoria/ai/sessions/at-retro.jsonl";
+            std::error_code ec;
+            stdfs::remove(x->path, ec);
+            stdfs::remove(x->archive, ec);
+            (void)set_share_mode(share_env(), ShareMode::Never);
+            share_.mode = ShareMode::Never;
+            // A run that called scene.load 20 times, a minute each, and got not_found every time.
+            const std::int64_t t0 = 1'793'000'000'000;
+            std::string text = Json::object({{"kind", "start"}, {"t", iso_utc_ms(t0)}}).dump() + "\n";
+            for (int i = 0; i < 20; ++i) {
+                const std::string id = "tu" + std::to_string(i + 1);
+                const std::int64_t t = t0 + std::int64_t(i) * 60000;
+                Json call = Json::object({{"type", "tool_use"}, {"id", id}, {"name", "tool_call"},
+                                          {"input", Json::object({{"command", "scene.load"}, {"arguments", Json::object({{"scene", "main"}})}})}});
+                text += Json::object({{"kind", "assistant"}, {"t", iso_utc_ms(t + 59999)},
+                                      {"usage", Json::object({{"inputTokens", 4500}, {"outputTokens", 500}})},
+                                      {"costUsd", 0.05}, {"content", Json::array({call})}}).dump() + "\n";
+                Json result = Json::object({{"toolUseId", id}, {"isError", true}, {"ms", 40},
+                                            {"content", "{\"code\":\"not_found\",\"message\":\"no such scene\"}"}});
+                text += Json::object({{"kind", "tool_results"}, {"t", iso_utc_ms(t + 60000)}, {"results", Json::array({result})}}).dump() + "\n";
+            }
+            stdfs::create_directories(utf8_path(projectDir_) / ".factoria" / "ai" / "sessions", ec);
+            write_file(x->transcript, text);
+            FeedbackInput in;  // an entry already there, so the file exists and the panel is not on "No feedback file yet"
+            in.category = feedback_categories().front();
+            in.severity = "minor";
+            in.title = "Sprites cannot be tinted per frame";
+            in.missing = "Animation frames have no tint, so a flash needs a second sprite for every frame.";
+            in.workaround = "A second sprite.";
+            in.reporter = Json::object({{"kind", "human"}, {"agent", "factoria-editor"}});
+            at_check(add_feedback_entry_to_file(x->path, in, "Autotest Platformer").ok(), "the first entry is added");
+            aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
+                return std::shared_ptr<ai::ChatProvider>(std::make_shared<RetrospectiveProvider>());
+            };
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                if (aiConfig_.providers.empty()) aiConfig_ = ai::default_config();
+                ai::RoleConfig& fast = aiConfig_.roles[ai::kRoleFast];
+                fast.provider = "anthropic";
+                if (fast.model.empty()) fast.model = "mock";
+            }
+            fbSelected_.clear();
+            fbShowClosed_ = false;
+            fbMessage_.clear();
+            feedbackMtime_ = INT64_MIN;
+            feedbackPolled_ = -10;
+            showFeedback_ = true;
+            focus_window("Engine Feedback");
+        });
+        step(3, [this] {
+            at_check(at_shown("feedback:retrospective"), "the Feedback panel has a Retrospective button");
+            at_check(!at_visible("feedback:saving"), "no efficiency entry yet: no saving line");
+        });
+        click("feedback:retrospective");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] {
+                std::lock_guard<std::mutex> lock(fbRetro_->mu);
+                return !fbRetro_->running && !fbRetro_->finished;
+            };
+        });
+        step(1, [this, x] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, x] {
+                auto doc = load_feedback(x->path);
+                if (!doc || !doc->contains("entries")) return false;
+                for (const Json& e : (*doc)["entries"])
+                    if (e.value("kind", std::string()) == "efficiency") return at_visible("feedback:saving");
+                return false;
+            };
+        });
+        step(3, [this, x] {
+            auto doc = load_feedback(x->path);
+            at_check(doc.ok(), "the feedback file reads");
+            int efficiency = 0;
+            Json entry = Json::object();
+            if (doc.ok())
+                for (const Json& e : (*doc)["entries"])
+                    if (e.value("kind", std::string()) == "efficiency") ++efficiency, entry = e;
+            at_check(efficiency == 1, "the retrospective filed one efficiency entry (" + std::to_string(efficiency) + "); the panel says: " + fbMessage_);
+            at_check(entry.value("title", std::string()).find("scene by name") != std::string::npos && entry.contains("saving") &&
+                         entry["saving"].value("minutes", 0.0) > 0,
+                     "...with the model's title and a measured saving: " + entry.dump());
+            at_check(entry.contains("reporter") && entry["reporter"].is_object(), "...and a reporter");
+            at_check(at_visible("feedback:message") && fbMessage_.rfind("1 efficiency entry filed", 0) == 0,
+                     "the panel says what the retrospective did: " + fbMessage_);
+            at_check(at_visible("feedback:saving"), "the panel adds up what the open efficiency entries would save");
+            at_check(share_.mode == ShareMode::Never, "the sharing mode is the one the person chose");
+            at_check(stdfs::exists(utf8_path(x->transcript)), "the transcript is left as it was");
+        });
+        snap("editor_retrospective.png");
+        // A second click finds nothing new: the entry counts the evidence.
+        click("feedback:retrospective");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] {
+                std::lock_guard<std::mutex> lock(fbRetro_->mu);
+                return !fbRetro_->running && !fbRetro_->finished;
+            };
+        });
+        step(3, [this, x] {
+            auto doc = load_feedback(x->path);
+            int efficiency = 0;
+            if (doc.ok())
+                for (const Json& e : (*doc)["entries"])
+                    if (e.value("kind", std::string()) == "efficiency") ++efficiency;
+            at_check(efficiency == 1, "a second retrospective files nothing new (" + std::to_string(efficiency) + ")");
+            at_check(fbMessage_.find("Nothing new") != std::string::npos || fbMessage_.find("already") != std::string::npos,
+                     "...and says so: " + fbMessage_);
+        });
+        step(2, [this, x] {
+            aiFactory_ = nullptr;
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                if (atSavedConfig_) {
+                    aiConfig_ = std::move(*atSavedConfig_);
+                    atSavedConfig_.reset();
+                }
+            }
+            (void)set_share_mode(share_env(), ShareMode::Never);
+            std::error_code ec;
+            stdfs::remove(utf8_path(x->transcript), ec);
+            stdfs::remove(utf8_path(x->path), ec);
+            stdfs::remove(utf8_path(x->archive), ec);
+            fbMessage_.clear();
+            feedbackMtime_ = INT64_MIN;
+            feedbackPolled_ = -10;
+        });
+    }
+
+    // ----------------------------------------------------------------------------------------- R3. Level generator
+    section("R3");
+    // View > Level generator (docs/EDITOR.md, "Level generator"): a drawn level is the sample, Generate makes a level, Next / Previous seed
+    // walk the seeds (the same seed gives the same rows again), Keep builds the preview in the open scene as ONE undo step, Save writes a
+    // level file. Every wait is a state, not a number of frames.
+    {
+        struct Ps {
+            size_t undo = 0;
+            std::vector<std::string> first;
+            std::int64_t firstSeed = 0;
+            std::string saved;
+        };
+        auto ps = std::make_shared<Ps>();
+        // Waits for the end of the generation (Ready or Failed) and then checks it is Ready: a failure is fast and says why, instead
+        // of a 60 s wait that times out.
+        auto wait_ready = [this, &step] {
+            step(1, [this] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = [this] {
+                    return levelGen_.state() == LevelGenSession::State::Ready || levelGen_.state() == LevelGenSession::State::Failed;
+                };
+            });
+            step(1, [this] {
+                at_check(levelGen_.state() == LevelGenSession::State::Ready, "the generation ended with a level (" + levelGen_.error() + ")");
+            });
+        };
+        step(2, [this] {
+            run_console_line(
+                "scene.import_ascii {\"rows\":[\"............\",\"..####..##..\",\"..#..#..##..\",\"..#..#......\",\"..####..#...\",\"..........#.\","
+                "\"....#.......\",\"............\"],\"legend\":{\"#\":0},\"entity\":\"at_sample\",\"tilemap\":{\"tileSize\":[16,16],\"solidTiles\":[0]}}");
+        });
+        click("menu:view");
+        step(3, [] {});
+        click("menu:levelgen");
+        step(4, [this] {
+            at_check(showLevelGen_, "View > Level generator shows the Level generator window");
+            pendingFocus_ = "Level generator";
+            levelGenKeepName_ = "at_generated";
+            levelGenSavePath_ = "levels/at-generated.json";
+            levelGenOpt_.width = 20;
+            levelGenOpt_.height = 12;
+            levelGenOpt_.seed = 1;
+            levelGenOpt_.n = 2;
+            select_id("at_sample");
+        });
+        step(3, [this] { at_check(at_enabled("levelgen:use-selected") && at_shown("levelgen:use-selected"), "the sample button is on and on screen with a Tilemap selected"); });
+        click("levelgen:use-selected");
+        step(3, [this] {
+            at_check(levelGenOpt_.sampleEntity == "at_sample", "Use the selected Tilemap makes the selected level the sample (" + levelGenOpt_.sampleEntity + ")");
+        });
+        click("levelgen:generate");
+        wait_ready();
+        step(3, [this, ps] {
+            const LevelGenPreview& p = levelGen_.preview();
+            at_check(p.valid && p.width == 20 && p.height == 12 && p.rows.size() == 12, "Generate fills the preview: a 20 x 12 level");
+            at_check(p.cells.size() == 240, "...with a table of its 240 cells, built once when the generation ended");
+            at_check(p.seed == 1, "...for the seed in the window");
+            ps->first = p.rows;
+            ps->firstSeed = p.seed;
+            at_check(at_shown("levelgen:stats") && at_shown("levelgen:preview"), "...the numbers and the plan are on screen");
+        });
+        snap("editor_level_generator.png");
+        click("levelgen:next");
+        wait_ready();
+        step(3, [this] {
+            at_check(levelGenOpt_.seed == 2 && levelGen_.preview().seed == 2, "Next seed generates the level of seed 2 at once");
+            at_check(levelGen_.tries().size() >= 2, "...and the history keeps both seeds");
+        });
+        click("levelgen:prev");
+        wait_ready();
+        step(3, [this, ps] {
+            at_check(levelGen_.preview().seed == ps->firstSeed && levelGen_.preview().rows == ps->first, "Previous seed brings the first level back, row by row");
+            ps->undo = undo_depth();
+        });
+        click("levelgen:keep");
+        step(4, [this, ps] {
+            Entity kept = world().find_by_id("at_generated");
+            at_check(!kept.is_null(), "Keep builds the level as the entity at_generated");
+            const Tilemap* tm = kept.is_null() ? nullptr : world().get<Tilemap>(kept);
+            at_check(tm && tm->width == 20 && tm->height == 12 && tm->tileSize.x == 16.0f, "...a 20 x 12 Tilemap with the sample's tile size");
+            at_check(tm && tm->solidTiles.is_array() && tm->solidTiles.size() == 1, "...and the sample's solid tiles");
+            at_check(undo_depth() == ps->undo + 1 && dirty(), "...as one undo step, and the scene is marked changed");
+            at_check(selected_id() == "at_generated", "...selected");
+        });
+        click("levelgen:save");
+        step(4, [this, project_file, ps] {
+            ps->saved = read_file(project_file("levels/at-generated.json"));
+            Result<Json> parsed = parse_json(ps->saved, "levels/at-generated.json");
+            const Json doc = parsed.ok() ? parsed.value() : Json();
+            at_check(doc.is_object() && doc.contains("rows") && doc["rows"].size() == 12 && doc.contains("legend"),
+                     "Save level file writes the rows and the legend to levels/at-generated.json");
+            at_check(!levelGenMessageBad_ && levelGenMessage_.find("at-generated.json") != std::string::npos, "...and says so");
+            at_check(!at_shown("levelgen:replace"), "...a new file is written without asking");
+            undo();
+            at_check(world().find_by_id("at_generated").is_null(), "Ctrl+Z takes the kept level away");
+        });
+        // The file exists now: Save asks before it replaces it.
+        click("levelgen:next");
+        wait_ready();
+        step(3, [] {});
+        click("levelgen:save");
+        step(4, [this, project_file, ps] {
+            at_check(at_shown("levelgen:replace") && at_shown("levelgen:replace-cancel"), "Saving over an existing file opens the Replace popup");
+            at_check(read_file(project_file("levels/at-generated.json")) == ps->saved, "...and has not touched the file yet");
+        });
+        click("levelgen:replace-cancel");
+        step(4, [this, project_file, ps] {
+            at_check(!at_shown("levelgen:replace"), "Cancel closes the popup");
+            at_check(read_file(project_file("levels/at-generated.json")) == ps->saved, "...and leaves the file as it was");
+        });
+        click("levelgen:save");
+        step(4, [this] { at_check(at_shown("levelgen:replace"), "Save asks again"); });
+        click("levelgen:replace");
+        step(4, [this, project_file, ps] {
+            const std::string now = read_file(project_file("levels/at-generated.json"));
+            at_check(now != ps->saved, "Replace writes the new level over the file");
+            Result<Json> parsed = parse_json(now, "levels/at-generated.json");
+            at_check(parsed.ok() && parsed.value().contains("rows") && parsed.value()["rows"] == Json(levelGen_.preview().rows),
+                     "...the rows shown in the window");
+            at_check(!levelGenMessageBad_ && levelGenMessage_.find("Wrote") == 0, "...and says so");
+            at_check(!at_shown("levelgen:replace"), "...and the popup is gone");
+        });
+        // ---- leave the editor as the other sections expect it
+        step(2, [this, project_file] {
+            showLevelGen_ = false;
+            levelGen_.clear(level_gen_caller());
+            std::error_code ec;
+            stdfs::remove(project_file("levels/at-generated.json"), ec);
+        });
     }
 
     // ------------------------------------------------------------------------------------------------------ done

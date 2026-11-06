@@ -72,6 +72,7 @@ struct AnimUi {
     float newClipDuration = 1.0f;
     bool newClipLoop = true;
     std::string eventName = "event";
+    std::string eventFeel;  // the event's game feel actions as JSON text (an array), "" = none
     double eventAt = 0;
     int eventEditing = -1;  // -1 = adding, else the index being renamed
     // ---- the pose the panel leaves the world in (edit mode only)
@@ -98,6 +99,7 @@ struct AnimUi {
     int onionDrawn = 0;                 // ghost quads the viewport drew in the last frame
     // ---- the last problem
     std::string error;
+    std::string eventError;             // the event popup's own problem (a bad feel JSON, a refused command): the panel's `error` is not its to write or show
 };
 
 // What the bone tools window asks of the viewport.

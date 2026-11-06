@@ -63,6 +63,12 @@
       "description": "One engine gap and the workaround used.",
       "required": ["id", "date", "category", "severity", "title", "missing", "workaround", "occurrences", "status"],
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "efficiency" } } },
+          "then": { "required": ["waste", "fixType", "appliesTo", "measured", "saving"] }
+        }
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -147,6 +153,143 @@
         "engineIssue": {
           "type": "string",
           "description": "Link or id of the engine issue/PR that tracks or fixed this entry."
+        },
+        "kind": {
+          "enum": ["gap", "efficiency"],
+          "description": "gap (default, written only when it is not the default): the engine lacked something or got something wrong. efficiency: the engine could have let the AI do the same work in fewer steps, minutes or tokens; it carries waste, evidence, fixType, expectedSaving, appliesTo, measured and saving, measured by the engine from the session transcripts (docs/ENGINE_FEEDBACK.md, \"Efficiency feedback\")."
+        },
+        "waste": {
+          "type": "string",
+          "description": "Efficiency entries: what took the time, in engine terms (not the game's names)."
+        },
+        "evidence": {
+          "type": "array",
+          "description": "Efficiency entries: the spans of the session transcripts (.factoria/ai/sessions) where the waste happened. The engine measures them into `measured`. Steps count from 1: one model call of the built-in agent, one model turn of a CLI agent.",
+          "items": {
+            "type": "object",
+            "required": ["session", "fromStep", "toStep"],
+            "additionalProperties": false,
+            "properties": {
+              "session": { "type": "string", "description": "The transcript's id: its file name in .factoria/ai/sessions without .jsonl." },
+              "fromStep": { "type": "integer", "minimum": 1, "description": "First step of the span (1-based)." },
+              "toStep": { "type": "integer", "minimum": 1, "description": "Last step of the span, inclusive." }
+            }
+          }
+        },
+        "fixType": {
+          "enum": ["doc", "guide", "example", "commandOption", "newCommand", "engineChange"],
+          "description": "Efficiency entries: the fix, cheapest first: doc (a section, or the title and keywords of one that exists), guide (an on-demand topic guide), example, commandOption (an option on a command), newCommand, engineChange (only a candidate for triage)."
+        },
+        "expectedSaving": {
+          "type": "object",
+          "description": "Efficiency entries: how much of the measured span the fix removes.",
+          "required": ["share", "why"],
+          "additionalProperties": false,
+          "properties": {
+            "share": { "type": "number", "minimum": 0.01, "maximum": 1, "description": "The share of the measured steps, minutes and tokens the fix removes (0.5 = half)." },
+            "why": { "type": "string", "description": "One line on why the fix removes that share." }
+          }
+        },
+        "appliesTo": {
+          "enum": ["every-game", "genre", "feature", "this-game"],
+          "description": "Efficiency entries: who the fix helps: every-game, genre, feature (one engine feature), this-game (not engine feedback: the report is refused and becomes a project fact)."
+        },
+        "whyNotCheaper": {
+          "type": "string",
+          "description": "Efficiency entries with fixType commandOption, newCommand or engineChange: why a doc section, a topic guide and an example would not have removed the waste."
+        },
+        "searched": {
+          "type": "array",
+          "description": "Efficiency entries about a doc that exists but was not found (findability): the words given to docs.search that did not answer with it.",
+          "items": { "type": "string" }
+        },
+        "existingDoc": {
+          "type": "string",
+          "description": "Written by the engine for a findability entry: where the thing is documented (file:line and heading). The fix is that section's title and keywords."
+        },
+        "everyStepTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Efficiency entries: tokens the fix adds to every step of every run (text in AGENTS.md or the system prompt). It must save more than it adds."
+        },
+        "measured": {
+          "type": "object",
+          "description": "Efficiency entries, written by the engine from the transcripts: the numbers of all the evidence spans (summed when reports are merged).",
+          "additionalProperties": false,
+          "properties": {
+            "steps": { "type": "integer", "minimum": 0, "description": "Model calls (turns of a CLI agent) in the spans." },
+            "toolCalls": { "type": "integer", "minimum": 0, "description": "Tool calls in the spans." },
+            "minutes": { "type": "number", "minimum": 0, "description": "Time of the spans, tools and waiting included (0.1 minute resolution)." },
+            "tokens": { "type": "integer", "minimum": 0, "description": "Tokens processed: input + cache + output for the built-in agent, estimated from bytes for a CLI agent." },
+            "costUsd": { "type": "number", "minimum": 0, "description": "Cost in USD; 0 when unknown (a CLI agent writes none)." },
+            "estimated": { "type": "boolean", "description": "True when the tokens are estimated from bytes and the cost is not known (a CLI agent)." }
+          }
+        },
+        "saving": {
+          "type": "object",
+          "description": "Efficiency entries, written by the engine: measured times the expected share, summed over merged reports. The same fields as measured.",
+          "additionalProperties": false,
+          "properties": {
+            "steps": { "type": "integer", "minimum": 0 },
+            "toolCalls": { "type": "integer", "minimum": 0 },
+            "minutes": { "type": "number", "minimum": 0 },
+            "tokens": { "type": "integer", "minimum": 0 },
+            "costUsd": { "type": "number", "minimum": 0 },
+            "estimated": { "type": "boolean" }
+          }
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Efficiency entries the retrospective filed: the id of the waste pattern it was found by (\"failure:scene.load:not_found\", \"reread:docs.read:NAVIGATION.md\"). Written by the engine, never sent: a later retrospective looks for the same pattern after the fix."
+        },
+        "afterFix": {
+          "type": "string",
+          "pattern": "^[0-9][0-9A-Za-z.+_-]{0,31}$",
+          "description": "Efficiency entries: the engine version whose fix for this pattern did not remove it (the retrospective found the pattern again, at about the same cost, in runs made since that fix). Sent with the report, so the engine developer sees a fix that saved nothing."
+        },
+        "fixedIn": {
+          "type": "string",
+          "pattern": "^[0-9][0-9A-Za-z.+_-]{0,31}$",
+          "description": "Written by the engine when an entry becomes fixed-in-engine (from engineIssue \"FactorIA <version>\"): the engine version that fixed it. Removed when the entry is reopened."
+        },
+        "fixedAt": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "description": "UTC date the entry became fixed-in-engine, YYYY-MM-DD. The runs of this project from that day on are the ones a fix check looks at."
+        },
+        "fixBaseline": {
+          "type": "object",
+          "description": "Efficiency entries fixed in the engine: what ONE occurrence of the waste cost before the fix (the measured numbers divided by the evidence spans), written when the entry is closed. A fix check compares the same pattern after the fix against it.",
+          "required": ["spans"],
+          "additionalProperties": false,
+          "properties": {
+            "spans": { "type": "integer", "minimum": 1, "description": "Evidence spans the averages are over." },
+            "steps": { "type": "number", "minimum": 0, "description": "Model calls per occurrence." },
+            "toolCalls": { "type": "number", "minimum": 0, "description": "Tool calls per occurrence." },
+            "minutes": { "type": "number", "minimum": 0, "description": "Minutes per occurrence." },
+            "tokens": { "type": "integer", "minimum": 0, "description": "Tokens per occurrence." },
+            "costUsd": { "type": "number", "minimum": 0, "description": "Cost in USD per occurrence; 0 when unknown." },
+            "estimated": { "type": "boolean", "description": "True when the tokens are estimated from bytes (a CLI agent)." }
+          }
+        },
+        "fixCheck": {
+          "type": "object",
+          "description": "Efficiency entries fixed in the engine: how the fix did, written by `ai.retrospective` from the transcripts made since the fix (the last check wins).",
+          "required": ["result"],
+          "additionalProperties": false,
+          "properties": {
+            "result": { "enum": ["gone", "worked", "partial", "no_change", "waiting"], "description": "gone: the pattern is not found any more. worked: one occurrence costs half or less of what it did. partial: less, but more than half. no_change: about the same (more than 80%) or more. waiting: no run since the fix." },
+            "sessionsAfter": { "type": "integer", "minimum": 0, "description": "Transcripts that began on or after fixedAt." },
+            "spansAfter": { "type": "integer", "minimum": 0, "description": "Occurrences of the pattern found in them." },
+            "ratio": { "type": "number", "minimum": 0, "description": "Cost of one occurrence after / before (tokens and minutes together); 0 when gone or waiting." },
+            "before": { "type": "object", "description": "Per occurrence before the fix: {spans, steps, minutes, tokens}." },
+            "after": { "type": "object", "description": "Per occurrence after the fix: {spans, steps, minutes, tokens}; absent when gone or waiting." },
+            "text": { "type": "string", "description": "The result in one sentence." }
+          }
+        },
+        "candidate": {
+          "type": "boolean",
+          "description": "Efficiency entries with fixType engineChange: only a candidate for triage. It goes on the roadmap when the reports that ask for it add up to $1000 or 20 hours across games."
         },
         "share": {
           "type": "object",

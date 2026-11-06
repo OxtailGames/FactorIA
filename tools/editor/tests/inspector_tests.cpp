@@ -127,6 +127,10 @@ TEST_CASE("inspector: command errors are shown with their hint") {
 TEST_CASE("inspector: asset fields list the project's files of the right type") {
     CHECK(asset_file_matches("texture", "assets/Hero.PNG"));
     CHECK_FALSE(asset_file_matches("texture", "assets/hero.wav"));
+    CHECK(asset_file_matches("vfx", "assets/vfx/hit.vfx.json"));
+    CHECK_FALSE(asset_file_matches("vfx", "assets/data.json"));
+    CHECK_FALSE(asset_file_matches("vfx", "scenes/main.scene.json"));
+    CHECK_FALSE(asset_file_matches("texture", "assets/vfx/hit.vfx.json"));
     CHECK(asset_file_matches("material", "materials/water.material.json"));
     CHECK_FALSE(asset_file_matches("material", "scenes/main.scene.json"));
     CHECK(asset_file_matches("scene", "scenes/main.scene.json"));

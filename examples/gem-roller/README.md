@@ -21,7 +21,7 @@ Controls: W/A/S/D or the arrows roll the ball relative to the camera, Space jump
   `mover.js` (kinematic platform), `checkpoint.js`, `gem.js` (pickup), `game.js` (timer, counter, HUD, win/lose).
 - `assets/models/gem.model.json`: the gem's model document (docs/MODELING.md). `gem.glb` next to it is what it bakes to;
   the test fails when the .glb is older than the document.
-- `prefabs/gem_burst.prefab.json`: the one-shot sparkle a gem spawns when it is picked up.
+- `assets/vfx/gem_burst.vfx.json`: the pickup effect a gem plays when it is picked up: sparks, a flash of light and the sound.
 - `tools/scatter_gems.js`: project tool `project.scatter_gems`. Places N gems on the platforms (entities tagged
   `platform`), deterministically from a seed. The game manager calls it on start, so the layout is the same on
   every run: `factoria call project.scatter_gems '{"count":8,"seed":7,"clear":true}'`.
@@ -48,8 +48,12 @@ The scripts are short because the engine covers these things (see `docs/AI_GUIDE
   No collider layers are needed to keep the ray from hitting the ball.
 - **HUD.** Panels and texts use `anchor` and `pivot`, so they stay glued to the screen corners (and the win/lose
   overlay and messages to the centre) at any window size.
-- **Gem sparkle.** `gem_burst.prefab.json` is a `ParticleEmitter` with `emitting: false`, `burst: 40` and
-  `autoDestroy: true`: it bursts when spawned and removes itself when the last particle dies.
+- **Gem sparkle.** `assets/vfx/gem_burst.vfx.json` is an effect document: a 3D `ParticleEmitter` burst of 40
+  sparks, a short point-light flash and the pickup sound on one timeline, played with `vfx.play(path, { position })`.
+  The effect removes itself when its last particle has died. It was graded with the review loop: `vfx.budget`
+  (40 live particles, well inside a phone's budget) and `vfx.filmstrip` (in a 3D game it plays the effect 5 m in front of the main camera unless a `position` is given).
+  The first version used additive white-cyan sparks, which vanished on the pale floor in the filmstrip; the
+  saturated cyan-to-teal gradient with normal blending reads.
 - **Ids.** `world.destroy()` frees an id at once, so `project.scatter_gems` with `clear` always produces
   `gem_1` ... `gem_N`.
 

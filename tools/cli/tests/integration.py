@@ -495,6 +495,19 @@ def test_misc(tmp):
     code, out, err = run(["ai", "config"], env=env)
     check(code == 0 and "no-ai.json" in out and "sk-" not in out, "ai config")
 
+    # ai settings per project: a command writes the project's file but never accepts it (ai-trust.json is not written)
+    aiproj = os.path.join(tmp, "aiproj")
+    run(["new", aiproj])
+    os.makedirs(os.path.join(aiproj, "scripts"), exist_ok=True)
+    code, rep, err = jrun(["call", "ai.settings.set", json.dumps({"scope": "project", "pointer": "/roles/artist/enabled", "value": False}), "--project", aiproj], env=env)
+    check(code == 0 and rep is not None and rep.get("needsAcceptance") is True, "ai.settings.set project: needs acceptance")
+    check(not os.path.exists(os.path.join(tmp, "ai-trust.json")), "ai.settings.set did not write ai-trust.json")
+    code, rep, err = jrun(["ai", "doctor", "--json"], cwd=os.path.join(aiproj, "scripts"), env=env)
+    check(code == 0 and rep is not None and rep.get("projectSettings", {}).get("pendingTrust") is True, "ai doctor in a project subfolder sees the pending file")
+    code, rep, err = jrun(["call", "ai.settings.get", json.dumps({"scope": "resolved"}), "--project", aiproj], env=env)
+    row = [v for v in (rep or {}).get("values", []) if v["pointer"] == "/roles/artist/enabled"]
+    check(code == 0 and row and row[0]["value"] is True and row[0]["source"] == "default", "ai.settings.get: a pending file has no effect")
+
     # feedback
     proj = os.path.join(tmp, "fb")
     run(["new", proj])
@@ -563,6 +576,10 @@ def test_misc(tmp):
 
 def main():
     tmp = tempfile.mkdtemp(prefix="factoria-cli-it-")
+    # Every command that writes ENGINE_FEEDBACK.json takes the lock of the user's sharing files (feedback-share.lock next to ai.json):
+    # the whole run uses a scratch user folder, so nothing here creates or touches the real ~/.factoria (a test with its own
+    # FACTORIA_AI_CONFIG, like the ai ones, keeps it).
+    os.environ["FACTORIA_AI_CONFIG"] = os.path.join(tmp, "user-config", "ai.json")
     try:
         for t in TEMPLATES:
             test_template(tmp, t)

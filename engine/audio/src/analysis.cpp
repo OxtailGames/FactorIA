@@ -64,6 +64,13 @@ double mean_of(const std::vector<double>& v) { return std::accumulate(v.begin(),
 
 }  // namespace
 
+std::string resolve_audio_path(std::string_view path) {
+    const std::string normal = fs::normalize(path);
+    if (fs::exists(normal)) return normal;
+    if (fs::extension(normal) != ".qoa" && fs::exists(normal + ".qoa")) return normal + ".qoa";
+    return {};
+}
+
 Result<AudioFile> read_audio_file(std::string_view path) {
     AudioFile f;
     f.path = fs::normalize(path);

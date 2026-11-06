@@ -188,7 +188,8 @@ export default class Rat extends Behaviour {
   of a cell (or eight with `diagonals`).
 - No route is a result, not an exception: `found: false` with `reason` (`start_off_map`, `goal_off_map`, `goal_blocked`,
   `blocked`, `too_far`), `message` and `hint`. A map that is not a Tilemap or a grid, or a malformed cell, throws.
-- Deterministic: the open list breaks ties by (f, h, cell index), so the same map and query give the same path on every run.
+- Deterministic: the open list breaks ties by (f, h, cell index), so the same map and query give the same path on every run. The costs are summed in fixed point (units of 2^-20, a diagonal step rounded once), not in floats: two routes of equal cost are told apart the same way on every compiler and CPU, and `cost` is that sum converted back (so 0.1 entered ten times reports 1.000004, within the rounding of one unit per step).
+- Costs and `Infinity`: scripts and the command turn `Infinity`, a negative number, `null` and NaN into a blocked cell before the search. Engine code that fills a `NavTileGrid` itself (the level generator's reachability check does) can pass a cost of +infinity: that cell is not blocked, it can be entered at an infinite price, so a finite way round is always preferred and a path that has to cross it reports the cost infinity. A single cost above 2^30 counts as 2^30 and sums saturate, so no length of map overflows.
 - `nav.tileVersion(tilemap)` is a counter that goes up whenever the tiles of that Tilemap change, to tell that a path you
   kept is stale: `setTile` / `tilemap.set_tile`, autotile painting (`paintTerrain`, `eraseTerrain`, `retile` / `tilemap.paint_terrain`,
   `tilemap.retile`, which also re-tile the cells around the painted ones), and any write that replaces `tiles` (a script assigning `tilemap.tiles`,

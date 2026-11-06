@@ -15,6 +15,7 @@
 #include "fa/scene/anim_clip.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/components.h"
+#include "fa/scene/feel.h"
 #include "fa/scene/serialize.h"
 
 using namespace fa;
@@ -745,5 +746,228 @@ TEST_CASE("schemas/anim.schema.json lists what the loader accepts") {
     CHECK(tracks == std::set<std::string>{"path", "component", "field", "keys"});
     std::set<std::string> events;
     for (auto& [k, v] : schema["$defs"]["event"]["properties"].items()) events.insert(k);
-    CHECK(events == std::set<std::string>{"t", "name", "data"});
+    CHECK(events == std::set<std::string>{"t", "name", "data", "feel"});
+}
+
+
+// ======================================================================================= game feel actions in events ======
+
+TEST_CASE("clip events with feel actions: the file loads them as data, with or without a name, and a typo is found at load") {
+    TempProject p;
+    auto c = parse(clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])"),
+                        R"([{"t":0.5,"feel":[{"action":"sound","path":"audio/hit.wav"},{"action":"flash","duration":0.1}]},
+                            {"t":0.25,"name":"swing","feel":{"action":"hitStop","duration":0.05}}])"));
+    REQUIRE(c->events.size() == 2);
+    CHECK(c->events[0].name == "swing");  // sorted by t
+    CHECK(c->events[0].feel.size() == 1);  // one object = a list of one
+    CHECK(c->events[1].name.empty());
+    CHECK(c->events[1].feel.size() == 2);
+    CHECK(c->events[1].feel[0]["action"] == "sound");
+
+    auto typo = issues_of(clip(1, true, "", R"([{"t":0.1,"feel":{"action":"flsh"}}])"));
+    CHECK(has_issue(typo, "/events/0/feel", "flash"));  // did you mean
+    auto second = issues_of(clip(1, true, "", R"([{"t":0.1,"feel":[{"action":"shake"},{"action":"hitStop","duration":-1}]}])"));
+    CHECK(has_issue(second, "/events/0/feel/1", "duration"));
+    CHECK_FALSE(has_issue(second, "/events/0/feel/0", "shake"));
+    auto key = issues_of(clip(1, true, "", R"([{"t":0.1,"feel":{"action":"shake","amout":0.3}}])"));
+    CHECK(has_issue(key, "/events/0/feel", "amount"));
+    CHECK(has_issue(issues_of(clip(1, true, "", R"([{"t":0.1,"feel":5}])")), "/events/0/feel", "action object"));
+    CHECK(has_issue(issues_of(clip(1, true, "", R"([{"t":0.1,"name":"x","feel":[]}])")), "/events/0/feel", "empty"));
+    CHECK(has_issue(issues_of(clip(1, true, "", R"([{"t":0.1}])")), "/events/0/name", "feel"));  // neither name nor feel
+    CHECK(has_issue(issues_of(clip(1, true, "", R"([{"t":0.1,"feel":{"action":"sound"}}])")), "/events/0/feel", "path"));
+}
+
+TEST_CASE("clip events with feel actions: they run once per loop on the entity that plays the clip, a nameless event sends no game event") {
+    TempProject p;
+    p.write("anim/hit.anim.json",
+            clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])"),
+                 R"([{"t":0.5,"feel":[{"action":"sound","path":"audio/hit.wav"},{"action":"flash","duration":0.1}]},
+                     {"t":0.75,"name":"both","feel":{"action":"squash","amount":0.2}}])"));
+    Rig rig;
+    rig.clips(R"({"hit":"anim/hit.anim.json"})");
+    rig.a->clip = "hit";
+    std::vector<std::string> names;
+    for (int i = 0; i < 12; ++i)  // 3 seconds = 3 loops
+        for (const std::string& n : rig.step(0.25f)) names.push_back(n);
+    CHECK(names == std::vector<std::string>{"both", "both", "both"});  // the nameless event is no game event
+    const std::vector<FeelSound> sounds = feel_take_sounds(rig.world);
+    REQUIRE(sounds.size() == 3);
+    CHECK(sounds[0].options.path == "audio/hit.wav");
+    CHECK(sounds[0].source == "hero");
+    const auto rec = rig.world.feel().entities.find(rig.hero.bits());
+    REQUIRE(rec != rig.world.feel().entities.end());
+    CHECK((rec->second.flash || rec->second.squash));
+}
+
+TEST_CASE("clip events with feel actions: the Animator's inline events carry them too, and a seek fires nothing") {
+    TempProject p;
+    p.write("anim/walk.anim.json", clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])")));
+    Rig rig;
+    rig.clips(R"({"walk":"anim/walk.anim.json"})");
+    rig.a->clip = "walk";
+    rig.a->events = Json::parse(R"([{"clip":"walk","time":0.5,"feel":{"action":"sound","path":"audio/step.wav"}},
+                                    {"clip":"other","time":0.5,"feel":{"action":"sound","path":"audio/other.wav"}}])");
+    for (int i = 0; i < 8; ++i) rig.step(0.25f);  // two loops
+    const std::vector<FeelSound> sounds = feel_take_sounds(rig.world);
+    REQUIRE(sounds.size() == 2);
+    CHECK(sounds[1].options.path == "audio/step.wav");  // another clip's event never fires
+    rig.a->time = 0.9f;  // a seek past the event
+    rig.step(0.05f);
+    CHECK(feel_take_sounds(rig.world).empty());
+}
+
+TEST_CASE("clip events with feel actions: a failing action is logged once and the rest of the event still runs") {
+    TempProject p;
+    p.write("anim/walk.anim.json", clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])")));
+    Rig rig;
+    rig.clips(R"({"walk":"anim/walk.anim.json"})");
+    rig.a->clip = "walk";
+    // written by hand into the scene: not checked at load, so the playback must cope with it
+    rig.a->events = Json::parse(R"([{"clip":"walk","time":0.5,"feel":[{"action":"flsh"},{"action":"sound","path":"audio/a.wav"}]}])");
+    for (int i = 0; i < 4; ++i) rig.step(0.25f);
+    CHECK(feel_take_sounds(rig.world).size() == 1);
+    CHECK(rig.world.feel().warnedClipActions.size() == 1);
+}
+
+TEST_CASE("feel actions as data: push local follows the facing, spawn instantiates at the entity and lifetime removes it, sound queues") {
+    TempProject p;
+    p.write("prefabs/spark.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"spark","components":{"Transform":{}}}})");
+    Rig rig;
+    rig.world.get<Transform>(rig.hero)->position = {10, 0, 0};
+    rig.world.get<Transform>(rig.hero)->scale = {-2, 2, 1};  // facing left, drawn twice as big
+    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json","offset":[1,2,0],"local":true,"lifetime":0.5})")).ok());
+    CHECK(rig.world.feel().spawns.size() == 1);  // queued: nothing is created inside the caller's iteration
+    CHECK(rig.world.find_by_id("spark").is_null());
+    feel_update(rig.world, 0.1, 0.1);
+    const Entity spark = rig.world.find_by_id("spark");
+    REQUIRE_FALSE(spark.is_null());
+    const Vec3 at = rig.world.world_position(spark);
+    CHECK(at.x == doctest::Approx(9.0f));  // the offset's x is mirrored by the facing, not stretched by the scale
+    CHECK(at.y == doctest::Approx(2.0f));
+    for (int i = 0; i < 6; ++i) feel_update(rig.world, 0.1, 0.1);
+    rig.world.flush();
+    CHECK(rig.world.find_by_id("spark").is_null());
+    CHECK(rig.world.feel().lifetimes.empty());
+    // a missing prefab is logged once, never thrown
+    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/none.prefab.json"})")).ok());
+    feel_update(rig.world, 0.1, 0.1);
+    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/none.prefab.json"})")).ok());
+    feel_update(rig.world, 0.1, 0.1);
+    CHECK(rig.world.feel().warnedClipActions.size() == 1);
+
+    // a prefab that loads only in part (its child has a component that does not exist) leaves nothing behind
+    p.write("prefabs/half.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"half","components":{"Transform":{}},
+        "children":[{"id":"half_child","components":{"NoSuchComponent":{}}}]}})");
+    rig.world.flush();   // the children of the spark that ended above go on the second flush
+    const std::size_t before = rig.world.entity_count();
+    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/half.prefab.json"})")).ok());
+    feel_update(rig.world, 0.1, 0.1);
+    rig.world.flush();
+    CHECK(rig.world.find_by_id("half").is_null());
+    CHECK(rig.world.find_by_id("half_child").is_null());
+    CHECK(rig.world.entity_count() == before);
+
+    // sound: validated, queued, taken once; the queue is bounded
+    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"sound","path":"audio/hit.wav","volume":0.5,"pitch":1.2,"pan":-1,"bus":"ui"})")).ok());
+    CHECK_FALSE(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"sound","path":"audio/hit.wav","pan":3})")).ok());
+    const std::vector<FeelSound> taken = feel_take_sounds(rig.world);
+    REQUIRE(taken.size() == 1);
+    CHECK(taken[0].options.bus == "ui");
+    CHECK(taken[0].options.pitch == doctest::Approx(1.2f));
+    CHECK(feel_take_sounds(rig.world).empty());
+    for (std::size_t i = 0; i < kMaxQueuedSounds + 10; ++i)
+        CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"sound","path":"audio/hit.wav"})")).ok());
+    CHECK(feel_take_sounds(rig.world).size() == kMaxQueuedSounds);
+
+    // push is knockback; local turns the direction with the entity (a body-less entity slides in the pushed direction)
+    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"push","direction":[1,0],"speed":5,"local":true})")).ok());
+    const auto rec = rig.world.feel().entities.find(rig.hero.bits());
+    REQUIRE(rec != rig.world.feel().entities.end());
+    REQUIRE(rec->second.knock);
+    CHECK(rec->second.knock->velocity.x < 0.0f);  // facing left: local +x is world -x
+    // feel_check_action: the same verdicts without a world
+    CHECK(feel_check_action(Json::parse(R"({"action":"spawn","prefab":"a.prefab.json"})")).ok());
+    CHECK_FALSE(feel_check_action(Json::parse(R"({"action":"spawn"})")).ok());
+    CHECK_FALSE(feel_check_action(Json::parse(R"({"action":"spawn","prefab":"a","lifetime":-1})")).ok());
+    auto bad = feel_check_action(Json::parse(R"({"action":"sond"})"));
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("sound") != std::string::npos);
+}
+
+TEST_CASE("inline Animator events with the wrong JSON types never throw in the frame loop: said once, skipped, the rest still fire") {
+    TempProject p;
+    p.write("anim/walk.anim.json", clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])")));
+    Rig rig;
+    rig.clips(R"({"walk":"anim/walk.anim.json"})");
+    rig.a->clip = "walk";
+    rig.a->events = Json::parse(R"([{"clip":"walk","time":0.25,"name":5},
+                                    {"clip":"walk","time":0.25,"feel":{"action":5}},
+                                    {"clip":"walk","time":0.25,"feel":"hitStop"},
+                                    {"clip":"walk","time":"soon","name":"late"},
+                                    {"clip":7,"time":0.25,"name":"noclip"},
+                                    {"clip":"walk","time":0.5,"feel":[5,{"action":"sound","path":"audio/ok.wav"}]},
+                                    "not an object",
+                                    {"clip":"walk","time":0.75,"name":"fine"}])");
+    std::vector<std::string> names;
+    CHECK_NOTHROW([&] {
+        for (int i = 0; i < 8; ++i)  // two loops
+            for (const std::string& n : rig.step(0.25f)) names.push_back(n);
+    }());
+    CHECK(names == std::vector<std::string>{"fine", "fine"});
+    CHECK(feel_take_sounds(rig.world).size() == 2);  // the good action of an event with a bad sibling still runs
+    // 4 bad entries said once each (not once per loop pass or per step), plus the bad action 5 twice-fired but said once
+    const auto& said = rig.world.feel().warnedClipActions;
+    CHECK(said.size() >= 5);
+    CHECK(said.size() <= 8);
+    bool pointer = false, hint = false;
+    for (const std::string& s : said) {
+        pointer = pointer || s.find("events/0") != std::string::npos;
+        hint = hint || s.find("hint:") != std::string::npos;
+    }
+    CHECK(pointer);
+    CHECK(hint);
+    // feel_run_clip_actions itself copes with an action that is not a string
+    CHECK_NOTHROW(feel_run_clip_actions(rig.world, rig.hero, {Json::parse(R"({"action":5})"), Json(7), Json::object()}, "test"));
+}
+
+TEST_CASE("check_animator_events: the pointer, the field and the fix of every mistake") {
+    const auto issues = check_animator_events(Json::parse(R"([{"clip":"walk","time":0.1,"name":"a"},{"clip":"walk","time":-1,"name":"b"},
+        {"clip":"walk","time":"x","name":"c"},{"time":0.1,"name":"d"},{"clip":"walk","time":0.1},{"clip":"walk","time":0.1,"name":5},
+        {"clip":"walk","tme":0.1,"name":"e"},{"clip":"walk","time":0.1,"feel":{"action":5}},"x"])"), "/events");
+    auto has = [&](const std::string& pointer, const std::string& text) {
+        for (const ClipIssue& i : issues)
+            if (i.pointer == pointer && (i.message + " " + i.hint).find(text) != std::string::npos) return true;
+        return false;
+    };
+    CHECK(has("/events/1/time", "from 0"));
+    CHECK(has("/events/2/time", "number"));
+    CHECK(has("/events/3/clip", "never fires"));
+    CHECK(has("/events/4", "name"));
+    CHECK(has("/events/5/name", "string"));
+    CHECK(has("/events/6/tme", "time"));  // did you mean
+    CHECK(has("/events/7/feel", "action"));
+    CHECK(has("/events/8", "object"));
+    CHECK(check_animator_events(Json::parse(R"([{"clip":"walk","time":0.1,"name":"a"}])"), "/events").empty());
+    CHECK_FALSE(check_animator_events(Json::parse(R"({"clip":"walk"})"), "/events").empty());
+}
+
+TEST_CASE("spawn actions: at most kMaxQueuedSpawns wait for a frame, the rest are refused with an error") {
+    TempProject p;
+    p.write("prefabs/spark.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"spark","components":{"Transform":{}}}})");
+    Rig rig;
+    for (std::size_t i = 0; i < kMaxQueuedSpawns; ++i)
+        CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json","lifetime":1})")).ok());
+    for (int i = 0; i < 10; ++i) {
+        const auto refused = feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json","lifetime":1})"));
+        REQUIRE_FALSE(refused.ok());   // the caller is told: a script's feel.spawn throws, a clip event logs it
+        CHECK(refused.error().message.find("already waiting") != std::string::npos);
+        CHECK_FALSE(refused.error().hint.empty());
+    }
+    CHECK(rig.world.feel().spawns.size() == kMaxQueuedSpawns);
+    feel_update(rig.world, 0.016, 0.016);
+    CHECK(rig.world.feel().spawns.empty());
+    CHECK(rig.world.feel().lifetimes.size() == kMaxQueuedSpawns);
+    // a new frame has room again
+    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json"})")).ok());
+    CHECK(rig.world.feel().spawns.size() == 1);
 }

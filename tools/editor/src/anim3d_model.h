@@ -112,7 +112,8 @@ public:
     Anim3DEdit key_sampled(const std::string& bone, int channel, double t);
     Anim3DEdit ik_key(double t, const Json& solver);
     Anim3DEdit mirror(double t, double to, const std::string& from);
-    Anim3DEdit add_event(double t, const std::string& name, const Json& data = Json::object());
+    // `name` may be empty when `feel` (game feel actions, an object or array) is given: an event that only runs actions.
+    Anim3DEdit add_event(double t, const std::string& name, const Json& data = Json::object(), const Json& feel = Json());
     Anim3DEdit set_event(int index, const Json& changes);   // any of t, name, data
     Anim3DEdit remove_event(int index);
     Anim3DEdit set_clip(const Json& changes);                // any of duration, loop, groundSpeed, doc

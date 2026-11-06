@@ -1,0 +1,19 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Spikes",
+    "tags": ["trap"],
+    "components": {
+      "Transform": {
+        "position": [0, 0, 0]
+      },
+      "Shape2D": {
+        "shape": "star",
+        "size": [22, 22],
+        "color": [0.9, 0.3, 0.3, 1],
+        "layer": 4,
+        "points": 6
+      }
+    }
+  }
+}

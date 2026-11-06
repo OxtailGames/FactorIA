@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "fa/core/asset_manifest.h"
+#include "fa/scene/anim_clip.h"
 #include "fa/scene/components.h"
 #include "fa/scene/world.h"
 
@@ -46,6 +47,22 @@ int sprite_anim_frame(const SpriteAnimPlan& plan, int step);  // the grid index 
 // clip that does not loop reached its end during this step (once: `ended` is set, `playing` becomes false and the animation
 // stays on its last frame; for pingpong back on the first frame).
 bool sprite_animator_step(SpriteAnimator& a, const SpriteAnimPlan& plan, float dt);
+
+// Runs the frame events of `a` (SpriteAnimator::events) for the frames the animation showed since the last call: every step of
+// the pass from the one after the last handled up to the current one, in order, so a long frame time skips no event and a loop
+// fires its frame once per pass. A frame event sends the game event `name` {id, clip, frame, ...data} and runs its `feel`
+// actions for the entity (feel.h). Call it once per animation step after sprite_animator_step. A rewind of `time` (a script
+// seeked) fires nothing; at most kMaxSpriteEventSteps steps are visited per call (a work count, not a clock).
+inline constexpr int kMaxSpriteEventSteps = 1000;
+void sprite_animator_fire_events(World& world, Entity e, SpriteAnimator& a, const SpriteAnimPlan& plan);
+
+// Problems of a SpriteAnimator `events` value, as issues pointing below `pointer` ("/entities/0/components/SpriteAnimator/events"):
+// not an array, an entry that is not an object, a missing or negative `frame`, an unknown key, an entry with neither `name` nor
+// `feel`, a `clip` the sheet of `texture` does not have (checked only when `sheet` is not null), a wrong action.
+std::vector<ClipIssue> check_sprite_events(const Json& events, const std::string& pointer,
+                                           const std::shared_ptr<const assets::Sheet>& sheet);
+// The same for one entry of the list, `pointer` being the entry's own.
+std::vector<ClipIssue> check_sprite_event(const Json& event, const std::string& pointer, const std::shared_ptr<const assets::Sheet>& sheet);
 
 // The pixel rectangle of grid index `frame` in a texture of texW x texH pixels (top-left origin, like Sprite.region).
 Rect sprite_frame_rect(const SpriteAnimPlan& plan, int frame, int texW, int texH);

@@ -20,6 +20,8 @@ struct AnimFrame {
     double progress = 0;  // 0..1 through the clip
     int width = 0, height = 0;  // the cell, in pixels
     Json params = Json::object();
+    std::string layer;                  // "back", "front" or "light" when the sheet is baked in layers; "" otherwise
+    std::vector<std::string> ramp;      // "#rrggbb" from the darkest to the brightest; empty without a `ramp`
     std::uint32_t seed = 0;      // seeds `rng` and Math.random for this frame
     std::uint32_t baseSeed = 0;  // the `seed` argument of the command: `seed` of the frame argument, and what rngFor(key) uses
 };

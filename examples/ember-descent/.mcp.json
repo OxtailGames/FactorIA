@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "factoria": {
+      "command": "factoria",
+      "args": [
+        "mcp",
+        "--project",
+        "."
+      ],
+      "timeout": 14400000
+    }
+  }
+}

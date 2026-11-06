@@ -254,6 +254,30 @@ TEST_CASE("savers: ai.json section is validated, kept by save_savers and left ou
     CHECK(has(read_file(path), "\"loopGuardJudge\""));
 }
 
+TEST_CASE("savers: the retrospective switch and its thresholds are parsed, validated and kept") {
+    CHECK_FALSE(Savers{}.retrospective);  // off by default: it costs a model call nobody asked for
+    CHECK(Savers{}.retrospectiveSteps == 150);
+    CHECK(Savers{}.retrospectiveCostUsd == doctest::Approx(3.0));
+    auto cfg = parse_config(Json::parse(R"({"savers":{"retrospective":true,"retrospectiveSteps":40,"retrospectiveCostUsd":1.5}})"));
+    REQUIRE(cfg);
+    CHECK(cfg->savers.retrospective);
+    CHECK(cfg->savers.retrospectiveSteps == 40);
+    CHECK(cfg->savers.retrospectiveCostUsd == doctest::Approx(1.5));
+    CHECK(validate_config_json(Json::parse(R"({"savers":{"retrospectiveSteps":0}})")).size() > 0);
+    CHECK(validate_config_json(Json::parse(R"({"savers":{"retrospective":"yes"}})")).size() > 0);
+    TempDir dir;
+    const std::string path = (dir.path / "ai.json").string();
+    REQUIRE(save_savers(cfg->savers, path));
+    auto again = load_config(path);
+    REQUIRE(again);
+    CHECK(again->savers.retrospective);
+    CHECK(again->savers.retrospectiveSteps == 40);
+    CHECK(again->savers.retrospectiveCostUsd == doctest::Approx(1.5));
+    auto report = savers_report(*cfg, make_registry(), dir.str());
+    CHECK(report["switches"]["retrospective"] == true);
+    CHECK(report["switches"]["retrospectiveSteps"] == 40);
+}
+
 // --- learned tool groups ---------------------------------------------------------------------------------------------------
 
 namespace {

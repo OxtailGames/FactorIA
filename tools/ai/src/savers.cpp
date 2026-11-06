@@ -257,12 +257,34 @@ std::vector<FactProposal> fact_proposals(std::string_view projectDir) {
     return out;
 }
 
+bool propose_fact(std::string_view projectDir, std::string_view id, std::string_view command, std::string_view line) {
+    if (projectDir.empty() || id.empty()) return false;
+    std::error_code ec;
+    if (!fsys::is_directory(fsys::path(std::string(projectDir)), ec)) return false;
+    std::string text = one_line(std::string(line), 400);
+    if (text.empty()) return false;
+    if (text.rfind("- ", 0) != 0) text = "- " + text;
+    std::lock_guard<std::mutex> lock(g_storeMutex);
+    Json store = load_store(projectDir);
+    Json& f = store["facts"][std::string(id)];
+    if (!f.is_object()) f = Json::object();
+    f["command"] = std::string(command);
+    f["code"] = "retrospective";
+    f["runs"] = std::max(static_cast<int>(num(f, "runs", 0)), kFactProposalRuns);  // proposed at once: the retrospective measured it
+    if (str(f, "status").empty()) f["line"] = text;  // an answered proposal keeps the line the user saw
+    if (!f.contains("status")) f["status"] = "";
+    return save_store(projectDir, store).ok();
+}
+
 Json savers_report(const AiConfig& cfg, const CommandRegistry& registry, std::string_view projectDir) {
     Json out = Json::object();
     out["switches"] = Json::object({{"loopGuard", cfg.savers.loopGuard},
                                     {"loopGuardJudge", cfg.savers.loopGuardJudge},
                                     {"learnedToolGroups", cfg.savers.learnedToolGroups},
-                                    {"projectFacts", cfg.savers.projectFacts}});
+                                    {"projectFacts", cfg.savers.projectFacts},
+                                    {"retrospective", cfg.savers.retrospective},
+                                    {"retrospectiveSteps", cfg.savers.retrospectiveSteps},
+                                    {"retrospectiveCostUsd", cfg.savers.retrospectiveCostUsd}});
     out["thresholds"] = Json::object({{"loopGuardFailures", kLoopGuardFailures}, {"groupProposalRuns", kGroupProposalRuns}, {"factProposalRuns", kFactProposalRuns}});
     out["projectFile"] = Json::object({{"path", projectDir.empty() ? std::string() : store_path(projectDir).string()}});
     Json store;

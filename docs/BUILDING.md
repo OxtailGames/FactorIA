@@ -686,7 +686,12 @@ and 1 everywhere else, so an optimized build keeps the tight budget.
 
 `--wsl` fetches the commit into its own clone `~/FactorIA-preflight` in WSL (made by the first run, from the PC's
 `repo.git`); your `~/FactorIA` there is not used. It needs the WSL set-up of "Continuous integration" above, with
-`ANDROID_NDK_HOME` exported in `~/.profile` for the android job.
+`ANDROID_NDK_HOME` exported in `~/.profile` for the android job. The linux job runs its tests under `xvfb-run` whenever it is
+installed (WSL sets `DISPLAY=:0` in an SSH session where no X server answers) and with `LP_NUM_THREADS=4`, like the CI job's
+4 vCPUs: llvmpipe's memory grows with its threads, and the examples' `peakMemoryMB` baselines were measured with four.
+The perf budget tests (`*_perf`) are left out of the WSL run, as in `scripts/ci-docker.sh`: WSL on the PC measures about
+10% more peak memory than GitHub's runner with the same commit, so they would fail without a regression
+(`FA_CI_WSL_PERF=1` runs them). The CI job on GitHub's runner checks them, and `scripts/test-all.sh` runs them on this host.
 
 ## Troubleshooting
 

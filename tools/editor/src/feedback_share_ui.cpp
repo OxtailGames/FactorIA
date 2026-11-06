@@ -6,6 +6,7 @@
 // radio buttons of Feedback Settings, both of which only a click can reach. No command, MCP tool, script or AI may set the mode
 // (there is no command for it, and ai.review_feedback never touches it): do not add one.
 #include <algorithm>
+#include <cstring>
 #include <sstream>
 
 #include "editor_internal.h"
@@ -40,10 +41,21 @@ std::string removals_text(const std::vector<Removal>& removed) {
 SendOutbox outbox_of_file(const ShareEnv& env, const std::string& file) {
     SendOutbox out;
     for (const OutboxItem& it : load_outbox(env).items) {
-        if (it.file != file) continue;
+        if (!share_same_path(it.file, file)) continue;
         (it.state == OutboxState::Waiting ? out.waiting : out.queued).insert(it.localId);
     }
     return out;
+}
+
+// A radio button on the line of the previous item while it fits in the window's content width, on a new line otherwise (a small
+// window must not clip the last choice). `label` may end in "##id".
+bool flow_radio(const char* label, bool active, bool first) {
+    const char* hidden = std::strstr(label, "##");
+    const float textW = ImGui::CalcTextSize(label, hidden ? hidden : nullptr).x;
+    const float width = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + textW;
+    const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    if (!first && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= right) ImGui::SameLine();
+    return ImGui::RadioButton(label, active);
 }
 
 const Json* entry_in(const Json& doc, const std::string& id) {
@@ -58,11 +70,11 @@ const Json* entry_in(const Json& doc, const std::string& id) {
 // ------------------------------------------------------------------------------------------------------------ the mode
 
 void Editor::share_choose_mode(ShareMode mode) {
-    if (auto r = set_share_mode(share_env(), mode); !r) {
+    if (auto r = set_share_mode(ui_share_env(), mode); !r) {
         notify(r.error().to_string(), 2);
         return;
     }
-    share_.mode = mode;
+    share_.mode = effective_share_mode(load_share_settings(share_env()), projectDir_);
     share_.consentOpen = false;
     share_.tickAt = -10;      // the next tick queues what the mode allows
     share_.flushAt = -100;    // ...and sends it at once
@@ -70,13 +82,49 @@ void Editor::share_choose_mode(ShareMode mode) {
     switch (mode) {
         case ShareMode::Always: notify("Feedback sharing: always. Entries with a share text go to the engine developers as they are written.", 0); break;
         case ShareMode::Ask: notify("Feedback sharing: you are asked before anything is sent (Send feedback in the Engine Feedback panel).", 0); break;
-        case ShareMode::Never: notify("Feedback sharing is off. Nothing leaves this computer.", 0); break;
+        case ShareMode::Never:
+            // A batch whose request is already on its way cannot be called back; the next one is not made.
+            notify(std::string("Feedback sharing is off. Nothing more leaves this computer.") +
+                       (share_.flushRunning ? " A batch that is already being uploaded finishes." : ""),
+                   0);
+            break;
         default: break;
     }
     // Send feedback was pressed while the mode was unset: the window opens now that a person chose.
     const bool after = share_.sendAfterConsent;
     share_.sendAfterConsent = false;
     if (after && (mode == ShareMode::Always || mode == ShareMode::Ask)) open_send_window();
+}
+
+// This project's own choice (nullopt = follow the default). Like share_choose_mode, only a person's click gets here.
+void Editor::share_choose_project_mode(std::optional<ShareMode> mode) {
+    if (projectDir_.empty()) return;
+    if (auto r = set_project_share_mode(ui_share_env(), projectDir_, mode); !r) {
+        notify(r.error().to_string(), 2);
+        return;
+    }
+    share_.mode = effective_share_mode(load_share_settings(share_env()), projectDir_);
+    share_.tickAt = -10;
+    share_.flushAt = -100;
+    share_.settingsPolled = -10;
+    const std::string name = fs::filename(projectDir_);
+    const std::string running = share_.flushRunning ? " A batch that is already being uploaded finishes." : "";
+    if (!mode) {
+        std::string text = "Feedback sharing for " + name + " follows your default again.";
+        // Removing the choice is not a yes: what waited for an answer while the project asked keeps waiting.
+        const std::size_t waiting = engine_ ? share_waiting(share_env(), fs::join(projectDir_, engine_->project().feedbackFile)).size() : 0;
+        if (waiting > 0 && share_.mode == ShareMode::Always)
+            text += " " + std::to_string(waiting) + (waiting == 1 ? " entry still waits" : " entries still wait") +
+                    " for your confirmation (Send feedback); " + (waiting == 1 ? "it is" : "they are") + " not sent until you say yes.";
+        else if (share_.mode == ShareMode::Never) text += " Nothing more leaves this computer." + running;
+        notify(text, 0);
+    }
+    else if (*mode == ShareMode::Never) notify("Feedback sharing is off for " + name + ". Nothing more of this project leaves this computer." + running, 0);
+    else if (*mode == ShareMode::Ask) notify("Feedback sharing for " + name + ": you are asked before anything is sent.", 0);
+    else notify("Feedback sharing for " + name + ": always.", 0);
+    const bool after = share_.sendAfterConsent;
+    share_.sendAfterConsent = false;
+    if (after && (share_.mode == ShareMode::Always || share_.mode == ShareMode::Ask)) open_send_window();
 }
 
 // ---------------------------------------------------------------------------------------------------------------- threads
@@ -180,6 +228,17 @@ void Editor::share_start_ai_checks() {
         return aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
     };
     ao.projectDir = [dir = projectDir_] { return dir; };
+    // The same hooks as the AI panel's run: ai.settings.get/set read and write the ai.json the editor loaded, and the editor is told when
+    // a command changed a file, so the AI settings window does not keep showing (and later saving over) the old values.
+    ao.aiConfigPath = ai_user_config().sourcePath;
+    ao.onUserConfigChanged = [this] {
+        ai_project_invalidate();
+        aiUserFileChanged_ = true;
+    };
+    ao.onProjectConfigChanged = [this] {
+        ai_project_invalidate();
+        aiProjectFileChanged_ = true;
+    };
     ao.providerFactory = aiFactory_;
     ai::register_ai_commands(*reg, ao);
     s.aiRunning = true;
@@ -323,9 +382,10 @@ void Editor::feedback_share_tick() {
     }
     if (time_ - s.tickAt < 1.0) return;
     s.tickAt = time_;
-    const ShareEnv& env = share_env();
+    const ShareKeyCacheScope folderFacts(s.folderCache);  // the per-item stat calls of the outbox are not repeated every second
+    const ShareEnv env = ui_share_env();  // a busy lock is waited for 0.3 s at most: the tick tries again in a second
     const ShareSettings settings = load_share_settings(env);
-    s.mode = settings.mode;
+    s.mode = effective_share_mode(settings, projectDir_);  // this project's own choice, else the default
     s.sharingAvailable = !share_endpoint(env, settings).empty();
     const bool haveProject = engine_ && !projectDir_.empty();
 
@@ -364,6 +424,7 @@ void Editor::feedback_share_tick() {
                     for (const Json& e : doc["entries"])
                         if (e.value("status", std::string("open")) != "open") anyClosed = true;
                     if (anyClosed) {
+                        const ShareWaitCap shortWait(ui_lock_wait_sec());  // the UI thread does not wait seconds for a lock another program holds
                         if (auto moved = archive_closed_feedback_file(file); moved && moved->moved > 0) {
                             if (auto again = load_feedback(file); again && again->contains("entries") && (*again)["entries"].is_array()) doc = *again;
                             stamp = fs::modified_time(engine_->project().feedbackFile);
@@ -400,22 +461,36 @@ void Editor::feedback_share_tick() {
     // An entry without a share text waits for Send feedback, which makes the text and asks.
     if (docLoaded && (s.mode == ShareMode::Always || s.mode == ShareMode::Ask)) {
         const std::vector<std::string> ids = entries_to_queue(doc);
-        if (!ids.empty()) {
+        if (!ids.empty() && time_ >= s.queueRetryAt) {
             const EngineNames engine = collect_engine_names(&engine_->commands());
-            if (auto q = share_queue(env, file, projectDir_, engine, ids)) {
+            auto q = share_queue(env, file, projectDir_, engine, ids);
+            if (q) {
+                s.queueError.clear();
+                s.queueRetryAt = 0;
                 if (q->rejected > 0)
                     notify(std::to_string(q->rejected) + (q->rejected == 1 ? " share text was" : " share texts were") +
                                " not accepted by the sanitizer. The Engine Feedback panel says why.",
                            1);
+                feedbackMtime_ = INT64_MIN;
+                feedbackPolled_ = -10;
+            } else {
+                // The lock was busy (or a file could not be written): nothing was changed. A busy lock costs the UI thread up to
+                // 0.3 s, so it is not asked again every second; the person is told once per message, and again every two minutes
+                // while it lasts.
+                s.queueRetryAt = time_ + 10.0;
+                if (s.queueError != q.error().message || time_ - s.queueErrorAt > 120.0) {
+                    s.queueError = q.error().message;
+                    s.queueErrorAt = time_;
+                    notify("Feedback entries could not be queued for sharing yet: " + q.error().to_string(), 1);
+                }
             }
-            feedbackMtime_ = INT64_MIN;
-            feedbackPolled_ = -10;
         }
     }
 
-    // ask: the entries that wait for the person's answer (the Send feedback window lists them).
-    if (s.mode == ShareMode::Ask) {
-        s.waiting = share_waiting(env);
+    // ask (and always, for entries that were queued before it): the entries that wait for the person's answer (the Send feedback
+    // window lists them). `always` never answers yes for an item that waits.
+    if (s.mode == ShareMode::Ask || s.mode == ShareMode::Always) {
+        s.waiting = file.empty() ? std::vector<OutboxItem>{} : share_waiting(env, file);  // this project's entries only
         int fresh = 0;
         for (const OutboxItem& it : s.waiting)
             if (s.notified.insert(it.key).second) ++fresh;
@@ -534,9 +609,9 @@ void Editor::draw_share_consent() {
 void Editor::open_send_window() {
     ShareUi& s = share_;
     if (!engine_ || projectDir_.empty()) return;
-    const ShareEnv& env = share_env();
+    const ShareEnv env = ui_share_env();
     const ShareSettings settings = load_share_settings(env);
-    s.mode = settings.mode;
+    s.mode = effective_share_mode(settings, projectDir_);  // this project's own choice, else the default
     s.sharingAvailable = !share_endpoint(env, settings).empty();
     if (!s.sharingAvailable) {
         notify(share_unavailable_message(), 1);
@@ -565,7 +640,7 @@ void Editor::open_send_window() {
 
 void Editor::build_send_window() {
     ShareUi& s = share_;
-    const ShareEnv& env = share_env();
+    const ShareEnv env = ui_share_env();
     const std::string file = fs::join(projectDir_, engine_->project().feedbackFile);
     auto loaded = load_feedback(file);
     if (!loaded.ok()) {
@@ -612,7 +687,7 @@ void Editor::send_window_apply() {
     for (const ShareUi::SendRowUi& r : s.sendRows)
         if (r.row.canSend) choices.push_back({r.row.id, r.checked, r.row.fields, r.reviewPassed});
     const EngineNames names = collect_engine_names(&engine_->commands());
-    const SendApplied applied = apply_send(share_env(), s.sendFile, projectDir_, names, choices);
+    const SendApplied applied = apply_send(ui_share_env(), s.sendFile, projectDir_, names, choices);
     feedbackMtime_ = INT64_MIN;
     feedbackPolled_ = -10;
     s.tickAt = -10;
@@ -813,11 +888,11 @@ void Editor::open_share_settings() {
 void Editor::draw_share_settings_window() {
     ShareUi& s = share_;
     if (!s.settingsOpen) return;
-    const ShareEnv& env = share_env();
+    const ShareEnv env = ui_share_env();
     if (time_ - s.settingsPolled > 1.0) {
         s.settingsPolled = time_;
         s.settings = load_share_settings(env);
-        s.status = share_status(env);
+        s.status = share_status(env, projectDir_);
     }
     ImGui::SetNextWindowSize(ImVec2(560, 560), ImGuiCond_FirstUseEver);
     if (s.settingsFocus) {
@@ -845,7 +920,7 @@ void Editor::draw_share_settings_window() {
         ImGui::PopTextWrapPos();
     }
 
-    ImGui::SeparatorText("Mode");
+    ImGui::SeparatorText(projectDir_.empty() ? "Mode" : "Default (every project that has no choice of its own)");
     struct Choice {
         ShareMode mode;
         const char* name;
@@ -855,13 +930,42 @@ void Editor::draw_share_settings_window() {
         {ShareMode::Always, "Always", "Entries that carry a share text (an AI writes one when it reports) go to the engine developers in the background. "
          "Send feedback sends the others, after you read them."},
         {ShareMode::Ask, "Ask me each time", "Nothing leaves until you press Send in Send feedback (a notification opens it), where you read each text and choose what goes."},
-        {ShareMode::Never, "Never", "Nothing leaves this computer, and Send feedback is off. What waits in the outbox is dropped."}};
+        {ShareMode::Never, "Never", "Nothing leaves this computer, and Send feedback is off. What waits in the outbox of the projects that follow this default is dropped."}};
     for (const Choice& c : choices) {
         if (ImGui::RadioButton(c.name, s.settings.mode == c.mode) && s.settings.mode != c.mode) share_choose_mode(c.mode);
         at_track(std::string("share:settings:mode:") + share_mode_name(c.mode));
         ImGui::SetItemTooltip("%s", c.tip);
     }
     if (s.settings.mode == ShareMode::Unset) ImGui::TextDisabled("Not chosen yet: nothing is sent.");
+
+    if (engine_ && !projectDir_.empty()) {
+        const std::string title = "This project: " + fs::filename(projectDir_);
+        ImGui::SeparatorText(title.c_str());
+        at_track("share:settings:project");
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("This project can have its own choice (never for a game under NDA). It is kept in your own settings file, "
+                            "not in the project, and belongs to this folder: moving the folder drops it back to the default.");
+        ImGui::PopTextWrapPos();
+        const std::optional<ShareMode> own = share_project_mode(s.settings, projectDir_);
+        struct ProjectChoice {
+            std::optional<ShareMode> mode;
+            const char* name;
+            const char* track;
+        };
+        const ProjectChoice pchoices[] = {{std::nullopt, "Follow default", "default"},
+                                          {ShareMode::Always, "Always##project", "always"},
+                                          {ShareMode::Ask, "Ask me each time##project", "ask"},
+                                          {ShareMode::Never, "Never##project", "never"}};
+        bool firstChoice = true;
+        for (const ProjectChoice& c : pchoices) {
+            if (flow_radio(c.name, own == c.mode, firstChoice) && own != c.mode) share_choose_project_mode(c.mode);
+            firstChoice = false;
+            at_track(std::string("share:settings:project:") + c.track);
+        }
+        ImGui::TextDisabled("Applies now: %s (%s).", share_mode_name(effective_share_mode(s.settings, projectDir_)),
+                            own ? "this project's choice" : "your default");
+        at_track("share:settings:project:effective");
+    }
 
     ImGui::SeparatorText("Installation id");
     ImGui::PushTextWrapPos(0);
@@ -872,9 +976,7 @@ void Editor::draw_share_settings_window() {
     ImGui::SameLine();
     ImGui::BeginDisabled(s.settings.installId.empty());
     if (ImGui::SmallButton("Reset id")) {
-        ShareSettings fresh = load_share_settings(env);
-        fresh.installId.clear();
-        if (auto r = save_share_settings(env, fresh); !r) s.settingsMessage = r.error().to_string();
+        if (auto r = update_share_settings(env, [](ShareSettings& st) { st.installId.clear(); }); !r) s.settingsMessage = r.error().to_string();
         else if (auto id = ensure_install_id(env); id) s.settingsMessage = "New installation id made.";
         s.settingsPolled = -10;
     }
@@ -948,6 +1050,12 @@ void Editor::draw_share_settings_window() {
     const int queued = outbox.value("queued", 0), waiting = outbox.value("waitingForConfirmation", 0);
     ImGui::Text("%d to send, %d waiting for your answer (Send feedback)", queued, waiting);
     at_track("share:settings:outbox");
+    if (outbox.value("blocked", 0) > 0) {
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextColored(kAmber, "%d not sent: their project's sharing is never (or not chosen yet).", outbox.value("blocked", 0));
+        ImGui::PopTextWrapPos();
+        at_track("share:settings:blocked");
+    }
     if (waiting > 0) {
         ImGui::SameLine();
         if (ImGui::SmallButton("Review")) open_send_window();
@@ -968,13 +1076,13 @@ void Editor::draw_share_settings_window() {
         ImGui::PopTextWrapPos();
     }
     {
-        const bool canSend = available && (s.settings.mode == ShareMode::Always || s.settings.mode == ShareMode::Ask) && queued > 0 &&
-                             !s.flushRunning;
+        const ShareMode applied = effective_share_mode(s.settings, projectDir_);
+        const bool canSend = available && (applied == ShareMode::Always || applied == ShareMode::Ask) && queued > 0 && !s.flushRunning;
         ImGui::BeginDisabled(!canSend);
         if (ImGui::Button("Send now")) share_start_flush(true);
         at_track("share:settings:sendnow");
         ImGui::EndDisabled();
-        ImGui::SetItemTooltip("%s", s.settings.mode == ShareMode::Ask
+        ImGui::SetItemTooltip("%s", applied == ShareMode::Ask
                                         ? "Sends what you confirmed, now, without waiting for a retry time."
                                         : "Sends what waits in the outbox, now, without waiting for a retry time.");
         if (s.flushRunning) {

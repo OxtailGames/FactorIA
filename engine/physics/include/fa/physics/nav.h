@@ -12,6 +12,7 @@
 // the same cells and the same path on every run; nothing in a result depends on time.
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -101,6 +102,9 @@ struct NavTileGrid {
     float minOpenCost = -1.0f; // the cheapest open cell when the owner keeps it (NavCostGrid); < 0 = sweep the cells to find it
 };
 
+// A cost of +infinity is NOT blocked here: the cell can be entered at an infinite price (a path through it reports the cost
+// infinity, and any finite route is preferred). Only a negative cost or NaN blocks. The script API turns Infinity into blocked before
+// it builds a grid (NavCostGrid, `costs`).
 // The cheapest open cell of `grid` (0 when none is open): the A* heuristic scales by it.
 float nav_tile_min_open_cost(const NavTileGrid& grid);
 
@@ -153,6 +157,22 @@ Vec2 nav_tile_cell_center(const NavTileGrid& grid, int col, int row);
 // A Tilemap as a cost grid: tiles in `solidTiles` are blocked, every other cell (empty ones included) costs 1, and `costs`
 // ({"<tile index>": cost | null}, null or negative = blocked, key "-1" = empty cells) overrides either rule.
 NavTileGrid nav_tile_grid_from_tilemap(const Tilemap& tm, const Json& costs);
+
+// The rule nav_tile_grid_from_tilemap applies to a tile, as data: which tile indexes block and the per-tile cost overrides. Anything
+// that has to agree with `nav.find_tile_path` on a map it has not placed yet (the level generator's reachability check) builds its
+// grid through this type and nav_tile_grid_from_tiles, so there is one rule and not two copies of it.
+struct NavTileRules {
+    std::vector<int> solid;                      // tile indexes that block (tile_index(): flip flags already stripped)
+    std::vector<std::pair<int, float>> costs;    // tile index -> cost; < 0 blocks; ascending by index (call sort_costs() after adding)
+    void sort_costs() { std::sort(costs.begin(), costs.end()); }
+    // The cost of ENTERING a tile index (-1 = the empty cell): solid tiles block (-1), every other cell costs 1, and an entry
+    // of `costs` overrides either rule.
+    float cost(int tileIndex) const;
+};
+
+// The cost grid of `tiles` (width * height tile VALUES, row-major, -1 = empty): each cell costs rules.cost(tile_index(value)).
+// The grid has no origin or cell size (the caller sets them when it needs cell centres).
+NavTileGrid nav_tile_grid_from_tiles(const std::vector<int>& tiles, int width, int height, const NavTileRules& rules);
 
 
 // ---------------------------------------------------------------------------------------------------------------------

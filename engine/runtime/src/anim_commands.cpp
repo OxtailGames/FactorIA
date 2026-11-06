@@ -16,6 +16,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/scene/anim_clip.h"
+#include "fa/scene/feel.h"
 
 namespace fa {
 
@@ -101,7 +102,7 @@ Json canonical(const Json& in) {
     out["tracks"] = std::move(tracks);
     if (in.contains("events") && in["events"].is_array()) {
         Json events = Json::array();
-        for (const Json& e : in["events"]) events.push_back(e.is_object() ? copy_known(e, {"t", "name", "data"}) : e);
+        for (const Json& e : in["events"]) events.push_back(e.is_object() ? copy_known(e, {"t", "name", "data", "feel"}) : e);
         const bool numeric = std::all_of(events.begin(), events.end(), [](const Json& e) { return e.is_object() && e.contains("t") && e["t"].is_number(); });
         if (numeric)
             std::stable_sort(events.begin(), events.end(), [](const Json& x, const Json& y) { return x["t"].get<double>() < y["t"].get<double>(); });
@@ -361,7 +362,7 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
                "loop":{"type":"boolean","default":true,"description":"true repeats the clip, false stops on the last pose (anim.finished)."},
                "doc":{"type":"string","description":"What the clip shows."},
                "tracks":{"type":"array","description":"Tracks [{path, component, field, keys:[{t, value, interp?}]}]; none = an empty clip to fill with anim.set_keys."},
-               "events":{"type":"array","description":"Events [{t, name, data?}] sent to the game when the clip passes t."},
+               "events":{"type":"array","description":"Events [{t, name?, data?, feel?}]: a game event and/or game feel actions run when the clip passes t."},
                "overwrite":{"type":"boolean","default":false,"description":"Replace the file if it exists."}}})"),
            false, "anim"},
           [](const Json& a) {
@@ -638,7 +639,13 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
         const Json& events = doc.contains("events") && doc["events"].is_array() ? doc["events"] : empty;
         auto list = [&] {
             std::string s;
-            for (std::size_t i = 0; i < events.size(); ++i) s += (s.empty() ? "" : "; ") + std::format("[{}] t={} {}", i, events[i].value("t", 0.0), events[i].value("name", std::string()));
+            for (std::size_t i = 0; i < events.size(); ++i) {
+                std::string label = events[i].value("name", std::string());
+                std::string acts;
+                for (const Json& act : feel_event_actions(events[i])) acts += (acts.empty() ? "" : "+") + act.value("action", std::string("?"));
+                if (!acts.empty()) label += (label.empty() ? "feel:" : " feel:") + acts;
+                s += (s.empty() ? "" : "; ") + std::format("[{}] t={} {}", i, events[i].value("t", 0.0), label);
+            }
             return s.empty() ? std::string("The clip has no events (anim.add_event adds one).") : "The clip's events: " + s + ".";
         };
         if (sel.is_number_integer()) {
@@ -658,16 +665,20 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
         return found;
     };
 
-    I.commands.add({"anim.add_event", "Add an event to a clip: a game event sent when the clip passes its time.",
-           "The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` "
-           "(an object; the keys id, clip and time are reserved), once per loop. Events stay sorted by t. A time past the duration is "
-           "refused unless `extendDuration`. Result: {path, event (index), undo}. Example: anim.add_event "
-           "{\"path\":\"anim/hero_walk.anim.json\",\"t\":0.2,\"name\":\"footstep\",\"data\":{\"foot\":\"left\"}}",
-           parse_schema(R"({"type":"object","required":["path","t","name"],"properties":{
+    I.commands.add({"anim.add_event", "Add an event to a clip: a game event and/or game feel actions run when the clip passes its time.",
+           "The event {t, name?, data?, feel?} reaches world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data` "
+           "(an object; the keys id, clip and time are reserved), once per loop. `feel` is one game feel action or an array of them "
+           "(hitStop, shake, flash, knockback or push, squash, spawn, sound: docs/GAME_FEEL.md, \"Effects as data\"), run on the entity "
+           "that plays the clip; they are checked now, so a typo is refused with the option names. An event needs `name` or `feel`. "
+           "Events stay sorted by t. A time past the duration is refused unless `extendDuration`. Result: {path, event (index), undo}. "
+           "Example: anim.add_event {\"path\":\"anim/hero_attack.anim.json\",\"t\":0.3,\"feel\":[{\"action\":\"hitStop\",\"duration\":0.06},"
+           "{\"action\":\"shake\",\"amount\":0.3}]}",
+           parse_schema(R"({"type":"object","required":["path","t"],"properties":{
                "path":{"type":"string","description":"The clip file (.anim.json)."},
                "t":{"type":"number","minimum":0,"description":"Seconds from the start of the clip."},
-               "name":{"type":"string","minLength":1,"description":"The game event name."},
+               "name":{"type":"string","minLength":1,"description":"The game event name. Optional when `feel` is given."},
                "data":{"type":"object","description":"Extra fields sent with the event."},
+               "feel":{"type":["object","array"],"description":"Game feel action(s) to run, each {action: shake|hitStop|flash|knockback|push|squash|spawn|sound, ...options}."},
                "extendDuration":{"type":"boolean","default":false}}})"),
            false, "anim"},
           [](const Json& a) {
@@ -676,8 +687,13 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
               Json doc = before;
               const double t = round_time(need_time(a.contains("t") ? a["t"] : Json(), "t"));
               fit_duration(doc, t, a.value("extendDuration", false), "An event");
-              Json ev = Json::object({{"t", t}, {"name", a.contains("name") ? a["name"] : Json()}});
+              if (!a.contains("name") && !a.contains("feel"))
+                  throw CommandError("invalid_argument", "An event needs `name` or `feel`.",
+                                     "`name` sends the game event world.on(name, fn) listens to; `feel` runs game feel actions, e.g. [{\"action\":\"hitStop\"}].");
+              Json ev = Json::object({{"t", t}});
+              if (a.contains("name")) ev["name"] = a["name"];
               if (a.contains("data")) ev["data"] = a["data"];
+              if (a.contains("feel")) ev["feel"] = a["feel"];
               if (!doc.contains("events") || !doc["events"].is_array()) doc["events"] = Json::array();
               doc["events"].push_back(ev);
               Json out = commit(path, doc, before);
@@ -718,29 +734,39 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
               return out;
           });
 
-    I.commands.add({"anim.set_event", "Rename an event of a clip or replace its data.",
-           "`event` is the event's index, or {t, name?}. Give `name` and/or `data` (an object that REPLACES the event's data; {} clears it). "
+    I.commands.add({"anim.set_event", "Rename an event of a clip, or replace its data or its game feel actions.",
+           "`event` is the event's index, or {t, name?}. Give `name`, `data` (an object that REPLACES the event's data; {} clears it) and/or "
+           "`feel` (an action or an array of actions that REPLACE the event's; null or [] removes them). `name` null removes the name; an event keeps `name` or `feel`. "
            "Result: {path, event, undo}. Example: anim.set_event {\"path\":\"anim/hero_walk.anim.json\",\"event\":0,\"name\":\"step\",\"data\":{\"foot\":\"right\"}}",
            parse_schema(R"({"type":"object","required":["path","event"],"properties":{
                "path":{"type":"string","description":"The clip file (.anim.json)."},
                "event":{"description":"Index of the event, or {t, name?}."},
-               "name":{"type":"string","minLength":1,"description":"The new event name."},
-               "data":{"type":"object","description":"The new data object."}}})"),
+               "name":{"type":["string","null"],"description":"The new event name; null removes it (the event then needs `feel`)."},
+               "data":{"type":"object","description":"The new data object."},
+               "feel":{"type":["object","array","null"],"description":"The new game feel action(s); null or [] removes them."}}})"),
            false, "anim"},
           [event_index](const Json& a) {
               const std::string path = need_clip_path(a);
               Json before = read_doc(path);
               Json doc = before;
-              if (!a.contains("name") && !a.contains("data")) throw CommandError("invalid_argument", "Nothing to change.", "Pass `name` and/or `data`.");
+              if (!a.contains("name") && !a.contains("data") && !a.contains("feel"))
+                  throw CommandError("invalid_argument", "Nothing to change.", "Pass `name`, `data` and/or `feel`.");
               const int at = event_index(doc, a.contains("event") ? a["event"] : Json());
               Json& ev = doc["events"][std::size_t(at)];
-              if (a.contains("name")) ev["name"] = a["name"];
+              if (a.contains("name")) {
+                  if (a["name"].is_null()) ev.erase("name");
+                  else ev["name"] = a["name"];
+              }
               if (a.contains("data")) { if (a["data"].empty()) ev.erase("data"); else ev["data"] = a["data"]; }
+              if (a.contains("feel")) {
+                  if (a["feel"].is_null() || (a["feel"].is_array() && a["feel"].empty())) ev.erase("feel");
+                  else ev["feel"] = a["feel"];
+              }
               return commit(path, doc, before, Json::object({{"event", at}}));
           });
 
     I.commands.add({"anim.remove_event", "Remove an event from a clip.",
-           "`event` is the event's index, or {t, name?}. Result: {path, removed: {t, name, data?}, undo}. Example: anim.remove_event "
+           "`event` is the event's index, or {t, name?}. Result: {path, removed: {t, name?, data?, feel?}, undo}. Example: anim.remove_event "
            "{\"path\":\"anim/hero_walk.anim.json\",\"event\":{\"t\":0.2,\"name\":\"footstep\"}}",
            parse_schema(R"({"type":"object","required":["path","event"],"properties":{
                "path":{"type":"string","description":"The clip file (.anim.json)."},

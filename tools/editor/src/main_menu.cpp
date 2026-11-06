@@ -106,6 +106,8 @@ menu::MainMenu Editor::build_main_menu(bool native) {
                         "The live audio.log: every sound played, with its bus, volume, source entity and whether the clip loaded"));
     view.push_back(with(toggle("Profiler", showProfiler_), "menu:profiler",
                         "Where the time goes while the game plays: milliseconds per engine system and per script behaviour class, GPU time, memory"));
+    view.push_back(with(toggle("Level generator", showLevelGen_), "menu:levelgen",
+                        "Make a level from a sample you drew: pick a seed, regenerate, preview it and keep the one you like"));
     view.push_back(with(toggle("Animation", showAnimation_), "menu:animation",
                         "The clips of the selected entity's Animator: dopesheet and curves, scrubbing, record mode, event markers and the onion skin"));
     view.push_back(with(toggle("Image", showImage_), "menu:image",
@@ -114,6 +116,8 @@ menu::MainMenu Editor::build_main_menu(bool native) {
                         "Draw and edit an SVG (*.svg): pen, node editing, shape tools, boolean buttons, layers and an inspector; every edit is a vector.* command"));
     view.push_back(with(toggle("Sound", showSound_), "menu:sound",
                         "Look at and edit a sound: waveform, spectrogram, loudness, macro knobs, a patch inspector, the step chain of an audio document with loop points, variants and an A/B at the same loudness; every edit is a sfx.* or audio.* command"));
+    view.push_back(with(toggle("Particles", showParticle_), "menu:particles",
+                        "Edit a particle effect document (*.vfx.json): emitters, lights, sounds and commands on one timeline with a time scrubber, a live preview played by the engine's own simulation, gradient and curve editors and an inspector; every edit is a vfx.edit command"));
     view.push_back(with(toggle("Music", showMusic_), "menu:music",
                         "Edit a song (*.song.json): a piano roll, a drum grid, the arrangement of sections and layers and a mixer, played by the player a game's entity.music uses (an intensity slider fades the layers); every edit is a music.* command and Save bakes the song"));
     view.push_back(with(toggle("Model", showModeler_), "menu:model",

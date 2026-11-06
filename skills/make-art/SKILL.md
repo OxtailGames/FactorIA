@@ -33,6 +33,8 @@ image_inpaint {"dryRun": true}, then image_inpaint {path, selection, prompt} add
 remove, and image_generate_layer {path, prompt, size?, placement?, selection?} adds a new picture as a layer. Both keep the provenance and
 the seed; without a provider (`no_provider`) the error names the offline route, so carry on with image_edit / image_paint / image_layer_add.
 Never call them in a loop hoping for a better picture: each call is paid. docs_read {"name":"images"}, "Pictures from a provider".
+A hit spark, a pickup glint or a fire is drawn as code and judged in a loop (draft, film at the size it is drawn at, look, refine): the
+`glow-and-effects` skill and docs_read {"name":"effects"}.
 A character that moves is built in parts (child Sprites with pivots at the joints, bones where a limb bends, IK for feet) and
 animated with the anim.* commands, then judged with anim_filmstrip and anim_check: docs_read {"name":"ai-guide","heading":"9.25.2"}.
 

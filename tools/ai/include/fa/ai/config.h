@@ -131,6 +131,13 @@ struct Savers {
     bool learnedToolGroups = true;
     // Propose one line for the project's AGENTS.md for a command that keeps failing the same way until a fix works.
     bool projectFacts = true;
+    // After a run that took at least `retrospectiveSteps` model calls or cost `retrospectiveCostUsd`, look back over it: a mechanical
+    // pass over the transcripts finds where the work went, and the fast role turns at most three findings that pass the efficiency
+    // gate into efficiency feedback entries (docs/ENGINE_FEEDBACK.md) and project-fact proposals. One extra fast-role call, only when
+    // the pass found a candidate; its cost is added to the run. Off by default: it is a model call nobody asked for.
+    bool retrospective = false;
+    int retrospectiveSteps = 150;
+    double retrospectiveCostUsd = 3.0;
 
     bool operator==(const Savers&) const = default;
     bool is_default() const { return *this == Savers{}; }
@@ -235,7 +242,8 @@ Json tool_server_to_json(const ToolServer& server, bool redactKeys);
 // permissions. A file that is not a JSON object is left alone (error).
 Result<void> save_tool_servers(const std::vector<ToolServer>& servers, std::string_view path);
 // Writes text where only the owner can read it, from the first byte (a temporary file made private before the text goes in,
-// then renamed over `path`). Windows: a plain write (the profile folder is already private to the user).
+// then renamed over `path`; a symlinked `path` is written through). Windows: a plain fs::write_text, no ACL is set: the file has
+// the permissions its folder gives it (the profile folder is normally closed to other users).
 Result<void> write_private_file(std::string_view path, const std::string& text);
 
 struct AiConfig {

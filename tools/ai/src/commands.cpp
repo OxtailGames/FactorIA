@@ -8,11 +8,14 @@
 #include "asset_commands.h"
 #include "fa/ai/image_provider.h"
 #include "assets_review.h"
+#include "vfx_review.h"
 #include "fa/ai/command_hooks.h"
 #include "fa/ai/detect.h"
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/mcp_client.h"
 #include "fa/ai/plugin_install.h"
+#include "fa/ai/project_settings.h"
+#include "fa/ai/retrospective.h"
 #include "fa/ai/review.h"
 #include "fa/ai/savers.h"
 #include "fa/ai/skills.h"
@@ -20,6 +23,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "feedback_review.h"
+#include "settings_commands.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -83,13 +87,15 @@ Json review_json(const Review& r, bool withText) {
 
 void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
     auto opts = std::make_shared<AiCommandOptions>(std::move(options));
-    auto load = [opts]() -> Result<AiConfig> {
-        if (opts->loadConfig) return opts->loadConfig();
-        return load_config();
-    };
     auto project_dir = [opts]() -> std::string {
         if (opts->projectDir) return opts->projectDir();
         return fs::project_root().string();
+    };
+    // The config of the open project: ai.json with the project's own settings applied (project_settings.h). A project without
+    // a settings file gets exactly load_config().
+    auto load = [opts, project_dir]() -> Result<AiConfig> {
+        if (opts->loadConfig) return opts->loadConfig();
+        return load_resolved_config(project_dir(), opts->aiConfigPath, opts->runtime.env ? opts->runtime.env : system_env());
     };
 
     {
@@ -331,8 +337,10 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         info.category = "ai";
         info.summary = "Show the engine's token savers (loop guard, learned tool groups, project facts), what this project's runs learned and the proposals waiting for an answer.";
         info.description =
-            "The built-in agent loop (the API providers) has three savers, each with a switch in ai.json \"savers\" and in the editor's AI settings > "
-            "Extensions tab (docs/AI_PROVIDERS.md, Token savers). Returns {switches:{loopGuard, loopGuardJudge, learnedToolGroups, projectFacts}, "
+            "The engine has these savers, each with a switch in ai.json \"savers\" and in the editor's AI settings > "
+            "Extensions tab (docs/AI_PROVIDERS.md, Token savers): the loop guard, learned tool groups and project facts of the built-in agent loop (the "
+            "API providers) and the retrospective after a long run (ai.retrospective). Returns {switches:{loopGuard, loopGuardJudge, learnedToolGroups, "
+            "projectFacts, retrospective, retrospectiveSteps, retrospectiveCostUsd}, "
             "thresholds, projectFile:{path, exists} (.factoria/ai/savers.json), runs:{<role>:n}, groups:{<role>:{<group>:{runs, commands:{<command>:n}, "
             "status accepted|declined|\"\"}}} (the commands the runs loaded from the tool catalog), acceptedGroups:{<role>:[group]}, "
             "facts:{<id>:{runs, status, line}}, proposals:{toolGroups:[{role, group, runs, commands, definitionBytes}], facts:[{id, command, "
@@ -423,8 +431,9 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "dryRun":{"type":"boolean","description":"Report the commands and whether each is needed; install nothing."}},
             "additionalProperties":false})");
         info.readOnly = false;
-        registry.add(std::move(info), [load](const Json& args) -> Json {
-            auto cfg = load();
+        registry.add(std::move(info), [opts](const Json& args) -> Json {
+            // It writes the entry into ai.json: it starts from the user's file, not from what this project switched on or off.
+            auto cfg = opts->loadConfig ? opts->loadConfig() : load_config();
             if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
             PluginInstallRequest req;
             if (const std::string preset = str(args, "preset"); !preset.empty()) {
@@ -513,7 +522,9 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         info.category = "ai";
         info.summary = "Run an AI agent on a task in the current project (blocks until it finishes).";
         info.description =
-            "Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchestrator). CLI providers "
+            "Uses the provider/model mapped to `role` in ~/.factoria/ai.json with this project's AI settings laid over it (the "
+            "project's .factoria/ai/settings.json, once the user accepted it; ai.settings.get says what the project runs with) "
+            "(default role orchestrator). CLI providers "
             "(claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in "
             "tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role \"worker\" (code), "
             "\"fast\" (small edits), \"artist\" (all the art) or \"audio\" (all the sound) and a self-contained task; the "
@@ -545,7 +556,11 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             if (!is_known_role(so.role)) {
                 throw CommandError("unknown_role", "No role named '" + so.role + "'", fa::did_you_mean(so.role, std::vector<std::string>{"orchestrator", "worker", "fast", "artist", "audio"}));
             }
-            if (!cfg->role_enabled(so.role)) throw CommandError("role_off", role_off_message(so.role), role_off_hint(so.role));
+            if (!cfg->role_enabled(so.role)) {
+                // When this project's AI settings turned it off, the refusal says which setting and how to change it.
+                const Error off = role_off_error(so.role, so.projectDir, opts->aiConfigPath, opts->runtime.env ? opts->runtime.env : system_env());
+                throw CommandError("role_off", off.message, off.hint);
+            }
             so.providerOverride = str(args, "provider");
             so.modelOverride = str(args, "model");
             so.maxTurns = static_cast<int>(num(args, "maxTurns"));
@@ -745,6 +760,64 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
     }
     {
         CommandInfo info;
+        info.name = "ai.retrospective";
+        info.category = "ai";
+        info.summary = "Look back at this project's recorded AI runs, find where they wasted steps, minutes or tokens and file at most three efficiency entries.";
+        info.description =
+            "Efficiency feedback without writing the report by hand (docs/ENGINE_FEEDBACK.md, \"Efficiency feedback\"; docs/AI_PROVIDERS.md, "
+            "\"Retrospective\"). Step 1 is mechanical, no model: it reads the transcripts of <project>/.factoria/ai/sessions and measures the usual waste "
+            "(the same command failing with the same code, the same doc or file read again and again, tool results over 40 KB, five or more screenshots in "
+            "a row, calls that waited a minute or more, long edit-run-check loops, commands an open ENGINE_FEEDBACK workaround already names). The same "
+            "transcripts always give the same candidates and numbers. Step 2 is one short call of the fast role that picks at most three candidates a fix in "
+            "the ENGINE would remove and writes each as an entry; every entry goes through the same gate as feedback.report with kind \"efficiency\" "
+            "(threshold per fix type, the cheapest fix, dedupe by fix), and what the gate refuses comes back in `dropped` with the reason. A lesson that is "
+            "true only of this game becomes a project-fact proposal instead (ai.savers shows it; ai.saver_fact accepts it). Nothing is shared or sent: "
+            "entries stay in ENGINE_FEEDBACK.json like any other. Evidence already counted by an open efficiency entry is skipped (`alreadyFiled`). "
+            "It also checks the fixes of earlier entries: an efficiency entry the engine fixed (fixed-in-engine, with the version, the day and what "
+            "one occurrence cost before) is compared with the same pattern in the transcripts since that day, when the engine of this build is at "
+            "least the fixing version; the answer (waiting, gone, worked, partial, no_change) is returned in `fixChecks` and recorded on the entry "
+            "(`fixCheck`, nothing is written with candidatesOnly), and a pattern a fix did not remove is filed again with `afterFix` set to that version. "
+            "Returns {sessions:[{id, agent, steps, minutes, tokens, costUsd, estimated}], candidates:[{id, pattern, summary, count, spans, measured, "
+            "maxShare, potentialSaving, suggestedFix, appliesTo, projectOnly}], alreadyFiled, fixChecks:[{entry, pattern, fixedIn, fixedAt, result, sessionsAfter, spansAfter, ratio, before, after?, text}], "
+            "filed:[{candidate, id, merged, title, fixType, saving, measured}], dropped:[{candidate, code, reason}], skipped:[{id, reason}] (transcripts not read: over 64 MB, or past the 256 MB one pass reads), facts:[{candidate, id, line}], model, usage, costUsd (what the model call cost), note}. Without a model "
+            "(no key, fast role off and no orchestrator) the candidates come back and `note` says why. It runs by itself after a long run when ai.json "
+            "savers.retrospective is on (150 model calls or $3 by default). One runs at a time: a second call gets code busy. A Stop while it works returns code cancelled and files nothing. Spends tokens of the fast role. "
+            "Example: {\"since\":\"2026-11-01\"}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "sessions":{"type":"array","items":{"type":"string"},"maxItems":40,"description":"Transcripts to read, by file name in .factoria/ai/sessions (20261014-153012-orchestrator, with or without .jsonl; ai.session_timeline names them). Omit for the newest 40."},
+            "since":{"type":"string","description":"Only transcripts that began at or after this UTC date (2026-11-01) or date and time (2026-11-01T09:30). Omit for all."},
+            "candidatesOnly":{"type":"boolean","default":false,"description":"Only the mechanical pass: no model is asked and nothing is filed. Free and repeatable."}},
+            "additionalProperties":false})");
+        info.readOnly = false;  // files entries; spends tokens
+        registry.add(std::move(info), [load, opts, project_dir](const Json& args) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            const std::string dir = project_dir();
+            if (dir.empty()) throw CommandError("no_project", "A retrospective needs a project", "Open a project (or pass --project).");
+            RetrospectiveOptions ro;
+            if (const Json* list = child(args, "sessions"); list && list->is_array())
+                for (const Json& id : *list) {
+                    if (!id.is_string() || id.get<std::string>().empty())
+                        throw CommandError("invalid_arguments", "/sessions must hold transcript names (strings), got " + id.dump(),
+                                           "Pass names like \"20261014-153012-orchestrator\"; ai.session_timeline shows them.");
+                    ro.sessions.push_back(id.get<std::string>());
+                }
+            ro.since = str(args, "since");
+            ro.candidatesOnly = flag(args, "candidatesOnly", false);
+            ro.providerFactory = opts->providerFactory;
+            ro.runtime = opts->runtime;
+            ro.cancel = opts->cancel;
+            auto r = run_retrospective(*cfg, ro, dir);
+            if (!r) {
+                const bool busy = r.error().message.rfind("busy", 0) == 0;
+                const bool stopped = r.error().message.rfind("cancelled", 0) == 0;  // Stop: not a wrong argument
+                throw CommandError(busy ? "busy" : stopped ? "cancelled" : "invalid_arguments", r.error().message, r.error().hint);
+            }
+            return r->to_json();
+        });
+    }
+    {
+        CommandInfo info;
         info.name = "ai.tool_plan";
         info.category = "ai";
         info.summary = "Show which commands the built-in AI agent of a role gets as tools in full and which only as catalog lines.";
@@ -816,9 +889,12 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             return out;
         });
     }
+    register_settings_commands(registry, project_dir, opts->aiConfigPath, opts->runtime.env ? opts->runtime.env : system_env(),
+                               opts->onUserConfigChanged, opts->onProjectConfigChanged);
     register_asset_commands(registry, load, project_dir, opts->runtime, opts->cancel);
     register_image_provider_commands(registry, load, project_dir, opts->runtime, opts->cancel);
     register_assets_review(registry, load, project_dir, *opts);
+    register_vfx_review(registry, load, project_dir, *opts);
 
     // beforeCommand / afterCommand hooks around every command of this registry, for every caller (docs/HOOKS.md).
     CommandHooksOptions hooksOptions;

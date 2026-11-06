@@ -329,6 +329,7 @@ struct QuadItem {
     TextureAsset* normal = nullptr;   // lit: the normal map laid out like `tex`; null = a flat surface
     bool plain = true;                // every quad is kModeTextured (QuadList::quad clears it)
     bool opaque = false;              // QuadList::set_opaque(): the quads hide what is under them
+    std::uint32_t flash = 0;          // QuadList::set_flash(): packed colour whose alpha is how much of it replaces the picture; 0 = none
 };
 
 struct QuadBatch {
@@ -362,6 +363,13 @@ public:
     // Marks the item opened by begin_item() as opaque: every pixel its quads cover is replaced, at full alpha (an opaque
     // picture with an opaque tint, such as a Video's). It is drawn without blending when its blend mode is Alpha.
     void set_opaque() { cur_.opaque = true; }
+    // Marks the item opened by begin_item() as flashing (feel.h): flatten() turns its quads into the shader's "flash" variant
+    // (mode + 32), which draws the picture's alpha in `packedColor`'s rgb by `packedColor`'s alpha. Not for the SDF shape mode
+    // (it uses color2 for its gradient: Shape2D mixes the colour on the CPU) nor glyphs.
+    void set_flash(std::uint32_t packedColor) {
+        cur_.flash = packedColor;
+        cur_.plain = false;
+    }
     void end_item();
     bool empty() const { return items.empty(); }
     // Sorts items (layer asc, secondary desc, seq asc) and appends the vertices in

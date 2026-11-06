@@ -446,6 +446,58 @@ animation (`cycleSeconds * fps` frames).
   `accumulate`. Numbers, lengths, colours (in RGB) and any value that is the same text around numbers (path data of the same
   structure, `points`, `viewBox`) are interpolated; any other value changes at its key time. Not sampled, each a warning that
   names the element: event begins (`click`...), CSS animations, `<style>` rules and `restart`/`min`/`max`.
+- **Colours of the effect: `ramp` and `rampAt`.** `ramp` is the effect's colours from dark to bright: a list of 2 to 32
+  `"#rrggbb"`, or the project path of an image document (`*.image.json`) that declares `ramps` (the ramps of `image.palette`;
+  `rampIndex` picks one, 0 is the first). The module receives `ramp` (the list) and `rampAt(u)`, the colour at `u` from 0
+  (dark) to 1 (bright), blended between neighbours, as `"#rrggbb"`. A flame that draws `fill="${rampAt(0.85)}"` is recoloured
+  as ice by baking again with another `ramp`, without touching the code:
+  `assets.animate_svg {"path":"assets/art/flame.png","source":"art/flame.anim.js","frames":8,"fps":12,"ramp":["#0b1d3a","#2a6fd6","#bfeaff"],"overwrite":true}`.
+  `rampAt` without a `ramp` is an error that says so, and a `ramp` the module never reads is a warning (the colours would
+  have no effect). `rampMap: true` recolours the finished frames instead: the darkest pixel takes the first colour of the ramp,
+  the brightest the last (by luminance, alpha kept). That is the way for a SMIL SVG (which has no code to read `ramp`; a
+  `ramp` without `rampMap` is an error there) and for a module that draws in greys. The order of the passes is rasterize,
+  `rampMap`, then `palette` snapping. The recipe records `ramp` (and `rampIndex`, `rampMap`), and an image document counts as an
+  input, so `assets.regenerate` and `project.validate` see a changed ramp as a stale sheet.
+- **Back, front and light layers.** An effect often goes behind the character, in front of it and glows. `layers` (module only)
+  is a list from `back`, `front` and `light`, in any order. The module is called once per layer and frame with `layer` set to
+  the name and returns the SVG of that layer (an empty `<svg/>` is a layer that is idle in that frame; a layer that draws
+  nothing in any frame is a warning). Each layer is its own sheet next to `path`: `assets/art/hit.png` gives
+  `hit_back.png`, `hit_front.png` and `hit_light.png`, each with its `sheet` entry (same `columns`, `rows`, cell size, `padding`,
+  `pivot`, clips, frames and `fps`), so the layers stay in step when each plays on its own entity. Every layer of a frame
+  draws from the same random stream, so a shape drawn in two layers lines up. Play them as three entities at the same place:
+  `back` with a lower `Sprite.layer` than the character, `front` with a higher one and `light` with `Sprite.blend` set to
+  `additive` (its colours add to what is under it: draw soft bright glows on it) and a `SpriteAnimator` with the same clip
+  on each. The result's `layers` lists `{layer, path, use}`, `path` is the first layer's sheet, and the image is the layers
+  stacked on a dark ground (the light added), so one look shows the whole effect. `ramp` and `rampMap` apply to every layer.
+  A module with several layers that never names `layer` is a warning (every sheet would be the same drawing). The frames and
+  sheets of all layers are held in memory together, at most 1024 MB: a larger bake is refused before anything is drawn (bake
+  fewer layers per call, or smaller frames). All sheets are encoded before the first file is written, and if a write fails the
+  sheets this call newly made are removed again (a sheet it replaced cannot be, and the error names it). Baking the same
+  `path` again with fewer layers deletes the sheets of the earlier bake that this command made for that `path` (its recipe
+  says so) together with their entries, and says so in a warning; a file of the same name made by anything else stays.
+- **The prefab of the layers: `prefab`.** With `layers`, `"prefab": "prefabs/hit.prefab.json"` also writes the entities that
+  play them together, so the effect is one call. The file is a parent entity (named after the file, "Hit"; `name` changes it)
+  with one child per baked layer in the order Back, Front, Light. Each child has a `Transform` at the parent's origin, a
+  `Sprite` on that layer's sheet and a `SpriteAnimator` on the sheet's first clip (the clip every layer shares, so they stay in
+  step; with several `clips`, the result warns that the first one plays). The Light child has `"blend": "additive"`. `prefab` is
+  the path, or an object `{path, name, tags, size, layers, pixelArt, overwrite}`: `size` is the `Sprite.size` in world units
+  `[w, h]` (default one frame in pixels), `layers` the `Sprite.layer` of each layer (`{"back": 2, "front": 20, "light": 21}`;
+  default -1, 1 and 2: put the character's layer between `back` and `front`), `tags` the parent's tags and `pixelArt` the
+  filtering (default `false`: smooth). The result has `prefab` (`{path, name, clip, size, children: [{name, texture, layer,
+  blend}]}`) and the next steps say how to spawn it (`feel.do({action: "spawn", prefab, offset, lifetime})` from a script,
+  or `scene.spawn`; a clip with `loop: false` stays on its last frame, so spawn it with a `lifetime`). A prefab that already
+  exists is never replaced unless the object has `overwrite: true`; the check happens before anything is drawn, because the
+  prefab may hold changes made by hand and the command's own `overwrite` is about the sheets. The prefab is written after the
+  sheets are recorded, with the same layout as `scene.save`. It is not part of the recipe: `assets.regenerate` remakes the
+  sheets and leaves the prefab as it is. Without `layers` the command refuses `prefab` and says so (one sheet is one Sprite you
+  place yourself).
+- **Sheet sizes on a phone.** When `factoria.json` lists `android` or `ios` in `platforms`, a sheet whose width or height is
+  not a multiple of 4 gets a warning: the export GPU-compresses textures on those platforms, which needs both sides to be
+  multiples of 4, and ships any other as an uncompressed PNG (see "Multiples of 4" under the export's texture
+  compression). The warning names the `padding` that fixes it (96 px frames with `padding: 1` in a 3 x 3 grid make 294 x 294;
+  `padding: 2` gives 300 x 300) and the larger frame size that would also do. It is not said for a project that targets no
+  phone, nor for a sheet whose import settings turn `compression` off or put it in an atlas.
+
 - **Warnings.** Frames that draw nothing (the shapes sit outside the viewBox, or the module returned an empty drawing), shapes
   touching the edge of the cell (they may be cut off: draw smaller, enlarge the frame, or add `padding`), a loop whose last
   frame jumps from the first (a pop when it repeats) or repeats it (a stop for one frame), SMIL that is not sampled, features
@@ -468,6 +520,9 @@ itself whenever its `columns` and `rows` are the sheet's, so a sheet with a gutt
 counts from the BOTTOM-left, so the animator uses `[x, 1 - y]`. It does so only when the `Sprite` has no pivot of its own
 (`Sprite.pivot` still `[0.5, 0.5]`) and `SpriteAnimator.sheetPivot` is true; a sprite that sets another pivot keeps it. The
 sheet's pivot is applied when the sprite is drawn and measured, it is not written into `Sprite.pivot`.
+
+The loop around it (draft, film at the game's size with `assets.contact_sheet`, look, refine) and three worked effects are in
+[EFFECTS.md](EFFECTS.md).
 
 ### Checking a sheet: assets.preview_sheet
 

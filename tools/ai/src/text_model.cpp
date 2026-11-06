@@ -56,7 +56,10 @@ Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOption
         if (!made.ok()) return made.error();
         const std::shared_ptr<ChatProvider> chat = *made;
         const std::string model = rc.model, effort = rc.effort;
-        return VisionModel([chat, model, effort, roleName](const std::string& system, const std::string& user,
+        const Pricing pricing = pc->pricing.known ? pc->pricing : builtin_pricing(model);
+        const auto onUsage = options.onUsage;
+        const CancelFlag* cancel = options.cancel;
+        return VisionModel([chat, model, effort, roleName, pricing, onUsage, cancel](const std::string& system, const std::string& user,
                                                  const std::vector<ImageData>& images) -> Result<std::string> {
             ChatRequest req;
             req.model = model;
@@ -64,8 +67,9 @@ Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOption
             req.maxTokens = 4096;
             req.system = system;
             req.messages.push_back(user_message(user, images));
-            auto res = chat->chat(req, {}, nullptr);
+            auto res = chat->chat(req, {}, cancel);
             if (!res.ok()) return with_vision_hint(res.error(), model, roleName);
+            if (onUsage) onUsage(res->usage, estimate_cost(res->usage, pricing));
             return res->message.text;
         });
     }
@@ -77,7 +81,9 @@ Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOption
         const ProviderConfig provider = *pc;
         const std::string model = rc.model;
         const std::string workDir = options.cliWorkDir.empty() ? default_work_dir() : options.cliWorkDir;
-        return VisionModel([provider, model, workDir](const std::string& system, const std::string& user,
+        const auto onUsage = options.onUsage;
+        const CancelFlag* cancel = options.cancel;
+        return VisionModel([provider, model, workDir, onUsage, cancel](const std::string& system, const std::string& user,
                                                       const std::vector<ImageData>& images) -> Result<std::string> {
             std::error_code ec;
             stdfs::create_directories(workDir, ec);
@@ -103,10 +109,11 @@ Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOption
             req.projectDir = workDir;
             req.readOnly = true;
             req.disallowedTools = {"Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", "Task"};
-            auto run = CliAgent(provider).run(req, [](const AgentEvent&) {}, nullptr);
+            auto run = CliAgent(provider).run(req, [](const AgentEvent&) {}, cancel);
             for (const auto& w : written) stdfs::remove(w, ec);
             if (!run.ok()) return run.error();
             if (!run->ok) return make_error(run->error.empty() ? "The CLI agent failed." : run->error, run->hint);
+            if (onUsage) onUsage(run->usage, run->costUsd);
             return run->finalText;
         });
     }
@@ -126,7 +133,10 @@ Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOption
     if (!provider.ok()) return provider.error();
     const std::shared_ptr<ChatProvider> chat = *provider;
     const std::string model = rc.model, effort = rc.effort;
-    return VisionModel([chat, model, effort, roleName](const std::string& system, const std::string& user,
+    const Pricing pricing = pc->pricing.known ? pc->pricing : builtin_pricing(model);
+    const auto onUsage = options.onUsage;
+    const CancelFlag* cancel = options.cancel;
+    return VisionModel([chat, model, effort, roleName, pricing, onUsage, cancel](const std::string& system, const std::string& user,
                                                  const std::vector<ImageData>& images) -> Result<std::string> {
         ChatRequest req;
         req.model = model;
@@ -134,8 +144,9 @@ Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOption
         req.maxTokens = 4096;
         req.system = system;
         req.messages.push_back(user_message(user, images));
-        auto res = chat->chat(req, {}, nullptr);
+        auto res = chat->chat(req, {}, cancel);
         if (!res.ok()) return with_vision_hint(res.error(), model, roleName);
+        if (onUsage) onUsage(res->usage, estimate_cost(res->usage, pricing));
         return res->message.text;
     });
 }

@@ -403,3 +403,97 @@ TEST_CASE("nav flow: the nav.flow_field command") {
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().message.find("goals") != std::string::npos);
 }
+
+TEST_CASE("nav tiles: equal-cost routes are told apart by (f, h, cell index), and the cost is exact") {
+    // Open ground: every monotone route from the corner to the opposite corner costs the same. The open list breaks the tie by
+    // (f, h, cell index) on integers, so the route is the same on every compiler; this one is what that order gives.
+    const NavTileGrid open = make_grid({"....", "....", "....", "...."});
+    const NavTilePath p = nav_find_tile_path(open, 0, 0, 3, 3);
+    REQUIRE(p.found);
+    CHECK(p.cost == doctest::Approx(6.0f).epsilon(1e-9));
+    const std::vector<std::pair<int, int>> expected = {{0, 0}, {1, 0}, {2, 0}, {3, 0}, {3, 1}, {3, 2}, {3, 3}};
+    CHECK(p.cells == expected);
+
+    // 8-way: three diagonal steps, each cost * sqrt(2) rounded once (to 2^-20): exact to the 6th digit, and the same twice.
+    NavTileOptions d;
+    d.diagonals = true;
+    const NavTilePath q = nav_find_tile_path(open, 0, 0, 3, 3, d);
+    REQUIRE(q.found);
+    CHECK(q.cells.size() == 4);
+    CHECK(q.cost == doctest::Approx(3.0 * 1.4142135623730951).epsilon(1e-6));
+    CHECK(nav_find_tile_path(open, 0, 0, 3, 3, d).cost == q.cost);
+
+    // 0.1 entered ten times: each step is rounded to 2^-20 once, so the sum is within 4e-6 of 1 and the same on every build.
+    NavTileGrid tenth;
+    tenth.width = 11;
+    tenth.height = 1;
+    tenth.cost.assign(11, 0.1f);
+    CHECK(nav_find_tile_path(tenth, 0, 0, 10, 0).cost == doctest::Approx(1.0f).epsilon(1e-5));
+
+    // Infinite and huge costs do not overflow the sums: the walk still finds the (dear) way.
+    NavTileGrid dear;
+    dear.width = 3;
+    dear.height = 1;
+    dear.cost = {1.0f, std::numeric_limits<float>::infinity(), 1.0f};
+    const NavTilePath far = nav_find_tile_path(dear, 0, 0, 2, 0);
+    CHECK(far.found);
+    CHECK(std::isinf(far.cost));
+    // a finite way round is preferred to an infinite one
+    NavTileGrid detour;
+    detour.width = 3;
+    detour.height = 2;
+    detour.cost = {1.0f, std::numeric_limits<float>::infinity(), 1.0f, 1.0f, 1.0f, 1.0f};
+    const NavTilePath around = nav_find_tile_path(detour, 0, 0, 2, 0);
+    CHECK(around.found);
+    CHECK(std::isfinite(around.cost));
+    CHECK(around.cost == doctest::Approx(4.0f));
+    // diagonal steps through an infinite cell do not overflow either
+    NavTileOptions diag;
+    diag.diagonals = true;
+    CHECK(nav_find_tile_path(dear, 0, 0, 2, 0, diag).found);
+    // a long map of dearest cells: (dx + dy) * step is far past int64 without the saturating multiply
+    NavTileGrid huge;
+    huge.width = 2000;
+    huge.height = 1;
+    huge.cost.assign(2000, 1.0e30f);
+    const NavTilePath dearest = nav_find_tile_path(huge, 0, 0, 1999, 0);
+    CHECK(dearest.found);
+}
+
+TEST_CASE("nav tiles: the Tilemap grid and the shared rules give the same cost in every cell") {
+    // nav_tile_grid_from_tilemap and nav_tile_grid_from_tiles (what the level generator's reachability check uses) read the same rules.
+    World world;
+    Entity map = world.create("ground", "ground");
+    Tilemap& tm = world.add<Tilemap>(map);
+    tm.tileSize = {16, 16};
+    tm.solidTiles = Json::array({1, 3});
+    tm.width = 5;
+    tm.height = 2;
+    // tile 0 plain, 1 solid, 2 plain with a cost, 3 solid with a cost, 4 plain made blocked, -1 empty, 1 flipped in X (solid still)
+    const int flipX = kTileFlipX;
+    const std::vector<int> tiles = {0, 1, 2, 3, 4, -1, 1 | flipX, 2 | flipX, 3, 0};
+    tm.tiles = Json(tiles);
+    const Json costs = Json::parse(R"({"2":2.5,"3":1.5,"4":null,"-1":0.5})");
+    const NavTileGrid fromMap = nav_tile_grid_from_tilemap(tm, costs);
+
+    NavTileRules rules;
+    rules.solid = {1, 3};
+    rules.costs = {{2, 2.5f}, {3, 1.5f}, {4, -1.0f}, {-1, 0.5f}};
+    rules.sort_costs();
+    const NavTileGrid fromTiles = nav_tile_grid_from_tiles(tiles, 5, 2, rules);
+    REQUIRE(fromMap.width == fromTiles.width);
+    REQUIRE(fromMap.height == fromTiles.height);
+    REQUIRE(fromMap.cost.size() == fromTiles.cost.size());
+    for (std::size_t i = 0; i < fromMap.cost.size(); ++i) CHECK_MESSAGE(fromMap.cost[i] == fromTiles.cost[i], "cell " << i);
+    const std::vector<float> expect = {1.0f, -1.0f, 2.5f, 1.5f, -1.0f, 0.5f, -1.0f, 2.5f, 1.5f, 1.0f};
+    CHECK(fromTiles.cost == expect);
+
+    // and a path through both grids is the same
+    for (int to = 1; to < 5; ++to) {
+        const NavTilePath a = nav_find_tile_path(fromMap, 0, 0, to, 1);
+        const NavTilePath b = nav_find_tile_path(fromTiles, 0, 0, to, 1);
+        CHECK(a.found == b.found);
+        CHECK(a.cells == b.cells);
+        CHECK(a.cost == b.cost);
+    }
+}

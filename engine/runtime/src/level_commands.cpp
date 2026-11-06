@@ -1206,6 +1206,46 @@ Json ascii_edit(Engine::Impl& I, const Json& a) {
 
 }  // namespace
 
+AsciiSample read_ascii_sample(const Json& a) {
+    const Grid grid = parse_rows(a);
+    const Json mergedLegend = merged_legend(a);
+    std::vector<LegendEntry> legend = parse_legend(mergedLegend);
+    const std::vector<Cell> cells = resolve_cells(grid, legend);
+    AsciiSample out;
+    out.width = int(grid.width);
+    out.height = int(grid.height);
+    std::map<std::string, int> seen;
+    for (std::size_t r = 0; r < grid.height; ++r)
+        for (std::size_t c = 0; c < grid.width; ++c) {
+            const std::string& g = grid.glyphs[r][c];
+            auto it = seen.find(g);
+            if (it == seen.end()) {
+                AsciiSampleGlyph glyph;
+                glyph.glyph = g;
+                const Cell& cell = cells[r * grid.width + c];
+                glyph.tile = cell.tile;
+                glyph.hasPrefab = cell.has_object();
+                if (cell.entry && mergedLegend.is_object() && mergedLegend.contains(g)) glyph.legendEntry = mergedLegend[g];
+                it = seen.emplace(g, int(out.glyphs.size())).first;
+                out.glyphs.push_back(std::move(glyph));
+            }
+            out.cells.push_back(it->second);
+        }
+    // The legend's other glyphs: not in the rows, so the learned patterns never hold them, but tilemap.generate's `constraints.place`
+    // can put them in the finished level (a marker the sample does not have to draw).
+    for (const LegendEntry& e : legend) {
+        if (seen.count(e.glyph)) continue;
+        AsciiSampleGlyph glyph;
+        glyph.glyph = e.glyph;
+        glyph.tile = e.hasTile ? e.tile : -1;
+        glyph.hasPrefab = !e.prefab.empty();
+        glyph.legendEntry = mergedLegend[e.glyph];
+        glyph.placeOnly = true;
+        out.legendOnly.push_back(std::move(glyph));
+    }
+    return out;
+}
+
 void register_level_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add(
         {"scene.import_ascii",

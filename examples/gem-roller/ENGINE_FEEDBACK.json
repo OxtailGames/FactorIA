@@ -341,6 +341,30 @@
       "suggestion": "Fit the rig from the parts, then merge the skinned submeshes by material when baking (skin weights are per vertex, so merging does not change the pose).",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-11-06",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "vfx.filmstrip needs a `position` in a 3D game, and vfx.budget cannot measure the overdraw of a 3D emitter",
+      "missing": "Without `position`, vfx.filmstrip films the world point under the middle of the view at depth 0, which in a 3D game is the camera itself, so the strip shows nothing of the effect. vfx.budget counts a 3D emitter's particles but does not measure its overdraw: its size is in world units and only the camera knows how much screen it covers.",
+      "workaround": "Passed `position` of the gem to vfx.filmstrip, and judged the overdraw from the filmstrip itself.",
+      "workaroundFiles": [
+        "assets/vfx/gem_burst.vfx.json"
+      ],
+      "suggestion": "For a 3D camera default `position` to the point a few metres in front of it, and let vfx.budget project the 3D quads through the project's main camera.",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "FactorIA 0.17.0",
+      "notes": [
+        "vfx.filmstrip and vfx.review default position to the point 5 m in front of the main 3D camera and say so in the result (position, positionDefault, positionNote); vfx.budget projects 3D emitters through the main camera and reports camera {used, ...} (or that there is none). docs/PARTICLES.md, Reviewing an effect."
+      ]
     }
   ]
 }
