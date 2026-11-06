@@ -417,6 +417,43 @@ std::map<std::string, RoleConfig> default_roles_for(const AiConfig& cfg) {
     return roles;
 }
 
+// The prices of the built-in asset providers, looked up on their pricing pages on the date in `checked` (docs/AI_COSTS.md, "Prices").
+// An estimate, never an invoice: providers change prices and bill by their own rules.
+static AssetPricing builtin_asset_pricing(std::string_view provider) {
+    AssetPricing p;
+    if (provider == "openai") {
+        // gpt-image-1 (the engine's default image model): the per-picture table of its model page. Quality "auto" is priced as "high",
+        // the top of the range, because the provider chooses and the estimate must not be low.
+        p.image["1024x1024"] = {{"low", 0.011}, {"medium", 0.042}, {"high", 0.167}, {"auto", 0.167}};
+        p.image["1024x1536"] = {{"low", 0.016}, {"medium", 0.063}, {"high", 0.25}, {"auto", 0.25}};
+        p.image["1536x1024"] = {{"low", 0.016}, {"medium", 0.063}, {"high", 0.25}, {"auto", 0.25}};
+        p.voicePer1000Chars = 0.015;  // gpt-4o-mini-tts: priced per token; OpenAI's own rule of thumb is about 0.015 USD per minute of speech
+        p.checked = "2026-11-06";
+        p.source = "https://developers.openai.com/api/docs/models/gpt-image-1";
+        p.note = "Images: the per-picture table of the gpt-image-1 model page, for the sizes the provider draws. Newer image models "
+                 "(gpt-image-2.5...) are priced per token: set assetPricing.image for the model you route to. Voice: about 0.015 USD per "
+                 "minute of speech (about 1000 characters) for gpt-4o-mini-tts, derived from its token price, not read from a table.";
+        p.unverified = {"voice"};
+    } else if (provider == "elevenlabs") {
+        p.voicePer1000Chars = 0.08;     // Text to Speech, Multilingual v2
+        p.soundPerSecond = 0.12 / 60;   // Sound Effects 0.12 USD per minute
+        p.musicPerSecond = 0.15 / 60;   // Music 0.15 USD per minute
+        p.checked = "2026-11-06";
+        p.source = "https://elevenlabs.io/pricing/api";
+        p.note = "API prices of the pay-as-you-go page: voice 0.08 USD per 1000 characters (Multilingual v2; Flash and Turbo models cost less), sound effects "
+                 "0.12 USD per minute, music 0.15 USD per minute. Your plan's credits can make it cheaper or dearer.";
+    } else if (provider == "meshy") {
+        p.model3d = 0.40;
+        p.checked = "2026-11-06";
+        p.source = "https://docs.meshy.ai/en/api/pricing";
+        p.note = "A text-to-3D preview costs 20 API credits on meshy-6 and the latest model (5 on the lite models). Meshy does not publish a price per "
+                 "API credit: 0.02 USD is the Pro plan's price (19 EUR for 1000 credits), so treat the figure as a rough guide and "
+                 "set assetPricing.model3d to your own price.";
+        p.unverified = {"model3d"};
+    }
+    return p;
+}
+
 AiConfig default_config() {
     AiConfig cfg;
     {
@@ -429,6 +466,7 @@ AiConfig default_config() {
         cfg.providers["anthropic"] = a;
     }
     for (const auto& p : kPresets) cfg.providers[p.name] = make_preset_provider(p);
+    cfg.providers["openai"].assetPricing = builtin_asset_pricing("openai");
     for (auto kind : {ProviderKind::ClaudeCode, ProviderKind::Codex}) {
         ProviderConfig c;
         c.name = provider_kind_name(kind);
@@ -443,11 +481,13 @@ AiConfig default_config() {
         e.name = "elevenlabs";
         e.kind = ProviderKind::ElevenLabs;
         e.baseUrl = default_asset_base_url(e.kind);
+        e.assetPricing = builtin_asset_pricing("elevenlabs");
         cfg.providers[e.name] = e;
         ProviderConfig m;
         m.name = "meshy";
         m.kind = ProviderKind::Meshy;
         m.baseUrl = default_asset_base_url(m.kind);
+        m.assetPricing = builtin_asset_pricing("meshy");
         cfg.providers[m.name] = m;
         ProviderConfig f;
         f.name = "fake";
@@ -484,6 +524,65 @@ static void read_pricing(const Json& j, Pricing& p) {
     p.cacheRead = num(j, "cacheReadPerMTok", p.input * 0.1);
     p.cacheWrite = num(j, "cacheWritePerMTok", p.input * 1.25);
     p.known = true;
+}
+
+// "assetPricing": the schema has checked the shape. A number for the image is the price of any size and quality.
+static AssetPricing read_asset_pricing(const Json& j) {
+    AssetPricing p;
+    if (const Json* img = child(j, "image"); img && img->is_number()) {
+        p.image["default"]["default"] = img->get<double>();
+    } else if (img && img->is_object()) {
+        for (auto it = img->begin(); it != img->end(); ++it) {
+            auto& bySize = p.image[it.key()];
+            if (it.value().is_number()) {
+                bySize["default"] = it.value().get<double>();
+            } else if (it.value().is_object()) {
+                for (auto q = it.value().begin(); q != it.value().end(); ++q) bySize[q.key()] = q.value().get<double>();
+            }
+        }
+    }
+    auto number = [&](const char* key) -> std::optional<double> {
+        const Json* v = child(j, key);
+        return v && v->is_number() ? std::optional<double>(v->get<double>()) : std::nullopt;
+    };
+    p.voicePer1000Chars = number("voicePer1000Chars");
+    p.soundPerSecond = number("soundPerSecond");
+    p.musicPerSecond = number("musicPerSecond");
+    p.model3d = number("model3d");
+    p.checked = str(j, "checked");
+    p.source = str(j, "source");
+    p.note = str(j, "note");
+    if (const Json* u = child(j, "unverified"); u && u->is_array()) {
+        for (const Json& k : *u) if (k.is_string()) p.unverified.push_back(k.get<std::string>());
+    }
+    return p;
+}
+
+Json asset_pricing_to_json(const AssetPricing& p) {
+    Json out = Json::object();
+    if (!p.image.empty()) {
+        Json img = Json::object();
+        for (const auto& [size, byQuality] : p.image) {
+            if (byQuality.size() == 1 && byQuality.begin()->first == "default") {
+                img[size] = byQuality.begin()->second;
+                continue;
+            }
+            Json q = Json::object();
+            for (const auto& [quality, usd] : byQuality) q[quality] = usd;
+            img[size] = std::move(q);
+        }
+        out["image"] = std::move(img);
+    }
+    if (p.voicePer1000Chars) out["voicePer1000Chars"] = *p.voicePer1000Chars;
+    if (p.soundPerSecond) out["soundPerSecond"] = *p.soundPerSecond;
+    if (p.musicPerSecond) out["musicPerSecond"] = *p.musicPerSecond;
+    if (p.model3d) out["model3d"] = *p.model3d;
+    if (out.empty()) return out;
+    if (!p.checked.empty()) out["checked"] = p.checked;
+    if (!p.source.empty()) out["source"] = p.source;
+    if (!p.note.empty()) out["note"] = p.note;
+    if (!p.unverified.empty()) out["unverified"] = p.unverified;
+    return out;
 }
 
 Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
@@ -563,6 +662,7 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             if (pj.contains("factoriaCommand")) c.factoriaCommand = str(pj, "factoriaCommand");
             if (pj.contains("license")) c.license = str(pj, "license");
             if (const Json* pr = child(pj, "pricing")) read_pricing(*pr, c.pricing);
+            if (const Json* ap = child(pj, "assetPricing"); ap && ap->is_object()) c.assetPricing = read_asset_pricing(*ap);  // replaces the whole table
             c.maxRetries = static_cast<int>(num(pj, "maxRetries", c.maxRetries));
             c.timeoutSeconds = num(pj, "timeoutSeconds", c.timeoutSeconds);
             if (is_cli_kind(c.kind) && c.command.empty()) {
@@ -747,6 +847,11 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
         cfg.limits.maxTotalTokens = static_cast<u64>(num(*l, "maxTotalTokens", 0));
         cfg.limits.stuckAfterSeconds = static_cast<int>(num(*l, "stuckAfterSeconds", cfg.limits.stuckAfterSeconds));
         cfg.limits.maxConcurrentRuns = static_cast<int>(num(*l, "maxConcurrentRuns", cfg.limits.maxConcurrentRuns));
+        if (const Json* ac = child(*l, "maxAssetCostUsd"); ac && ac->is_object()) {
+            cfg.limits.maxAssetCostPerRunUsd = num(*ac, "perRun", cfg.limits.maxAssetCostPerRunUsd);
+            cfg.limits.maxAssetCostPerDayUsd = num(*ac, "perDay", cfg.limits.maxAssetCostPerDayUsd);
+        }
+        cfg.limits.askAboveUsd = num(*l, "askAboveUsd", cfg.limits.askAboveUsd);
         if (cfg.limits.maxConcurrentRuns < 1 || cfg.limits.maxConcurrentRuns > kMaxConcurrentRunsCap) {
             cfg.warnings.push_back(std::string(sourceName) + ": limits.maxConcurrentRuns is " + std::to_string(cfg.limits.maxConcurrentRuns) +
                                    "; the editor runs between 1 and " + std::to_string(kMaxConcurrentRunsCap) +
@@ -842,6 +947,41 @@ Result<void> save_savers(const Savers& savers, std::string_view path) {
     return write_private_file(path, dump_json(j));
 }
 
+Result<void> save_asset_limits(const Limits& limits, std::string_view path) {
+    const std::pair<const char*, double> values[] = {{"limits.maxAssetCostUsd.perRun", limits.maxAssetCostPerRunUsd},
+                                                     {"limits.maxAssetCostUsd.perDay", limits.maxAssetCostPerDayUsd},
+                                                     {"limits.askAboveUsd", limits.askAboveUsd}};
+    for (const auto& [name, v] : values) {
+        if (!(v >= 0) || v > 1e6) {
+            return make_error(std::string(name) + " must be from 0 to 1000000 dollars, got " + std::to_string(v),
+                              "Use 0 for no limit (or for always asking, with askAboveUsd).");
+        }
+    }
+    Json j = Json::object();
+    std::error_code ec;
+    if (fsys::exists(fsys::path(path), ec)) {
+        auto text = fs::read_text(path);
+        if (!text) return text.error();
+        auto parsed = fa::parse_json(*text, path);
+        if (!parsed) return parsed.error();
+        if (!parsed->is_object()) {
+            return make_error("AI config '" + std::string(path) + "' is not a JSON object", "Fix or delete the file, then save the settings again.");
+        }
+        j = std::move(*parsed);
+    }
+    Json lim = j.contains("limits") && j["limits"].is_object() ? j["limits"] : Json::object();
+    Json cost = Json::object();
+    if (limits.maxAssetCostPerRunUsd > 0) cost["perRun"] = limits.maxAssetCostPerRunUsd;
+    if (limits.maxAssetCostPerDayUsd > 0) cost["perDay"] = limits.maxAssetCostPerDayUsd;
+    if (cost.empty()) lim.erase("maxAssetCostUsd");
+    else lim["maxAssetCostUsd"] = std::move(cost);
+    if (limits.askAboveUsd == Limits{}.askAboveUsd) lim.erase("askAboveUsd");
+    else lim["askAboveUsd"] = limits.askAboveUsd;
+    if (lim.empty()) j.erase("limits");
+    else j["limits"] = std::move(lim);
+    return write_private_file(path, dump_json(j));
+}
+
 // The "assetSources" object ({} when there is nothing to say: no site and onlyListed off).
 static Json asset_sources_to_json(const AssetSources& sources) {
     Json out = Json::object();
@@ -862,6 +1002,7 @@ static Json asset_sources_to_json(const AssetSources& sources) {
 Json config_to_json(const AiConfig& cfg, bool redactKeys) {
     Json out = Json::object();
     out["defaultProvider"] = cfg.defaultProvider;
+    const AiConfig builtin = default_config();
     Json provs = Json::object();
     for (const auto& [name, p] : cfg.providers) {
         Json pj = Json::object();
@@ -877,6 +1018,11 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
         }
         if (!p.defaultModel.empty()) pj["defaultModel"] = p.defaultModel;
         if (!p.license.empty()) pj["license"] = p.license;
+        if (Json ap = asset_pricing_to_json(p.assetPricing); !ap.empty()) {
+            // the built-in providers' own table is not written back into the user's file
+            const ProviderConfig* b = builtin.provider(name);
+            if (!b || asset_pricing_to_json(b->assetPricing) != ap) pj["assetPricing"] = std::move(ap);
+        }
         if (!p.command.empty()) pj["command"] = p.command;
         if (!p.argv.empty()) pj["argv"] = p.argv;
         if (!p.env.empty()) {
@@ -922,7 +1068,10 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
                                   {"maxCostUsd", cfg.limits.maxCostUsd},
                                   {"maxTotalTokens", cfg.limits.maxTotalTokens},
                                   {"stuckAfterSeconds", cfg.limits.stuckAfterSeconds},
-                                  {"maxConcurrentRuns", cfg.limits.maxConcurrentRuns}});
+                                  {"maxConcurrentRuns", cfg.limits.maxConcurrentRuns},
+                                  {"maxAssetCostUsd", Json::object({{"perRun", cfg.limits.maxAssetCostPerRunUsd},
+                                                                    {"perDay", cfg.limits.maxAssetCostPerDayUsd}})},
+                                  {"askAboveUsd", cfg.limits.askAboveUsd}});
     return out;
 }
 

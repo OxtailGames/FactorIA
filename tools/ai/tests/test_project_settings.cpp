@@ -600,3 +600,23 @@ TEST_CASE("project settings: an invalid ai.json is the user's error, not the pro
     REQUIRE_FALSE(r);
     CHECK(has(r.error().message, s.ai));
 }
+
+TEST_CASE("project settings: the asset cost limits are nested, merge leaf by leaf with the user's, and an AI-written file waits for acceptance") {
+    Setup s;
+    // the user's own ai.json asks for a per-day limit
+    write_file(s.ai, R"({"limits": {"maxAssetCostUsd": {"perDay": 5}, "askAboveUsd": 0.25}})");
+    REQUIRE(s.save(Json::parse(R"({"limits": {"maxAssetCostUsd": {"perRun": 1.5}}})")));
+    auto r = s.resolve();
+    REQUIRE(r);
+    CHECK(r->config.limits.maxAssetCostPerRunUsd == doctest::Approx(1.5));  // the project's
+    CHECK(r->config.limits.maxAssetCostPerDayUsd == doctest::Approx(5));    // the user's, untouched by the project's perRun
+    CHECK(r->config.limits.askAboveUsd == doctest::Approx(0.25));
+    CHECK(r->source_of("/limits/maxAssetCostUsd/perRun") == SettingSource::Project);
+    CHECK(r->source_of("/limits/maxAssetCostUsd/perDay") == SettingSource::You);
+    CHECK(r->source_of("/limits/askAboveUsd") == SettingSource::You);
+
+    // a wrong value names its pointer
+    const std::string err = s.error_of(R"({"limits": {"maxAssetCostUsd": {"perRun": -2}}})");
+    CHECK(has(err, "/limits/maxAssetCostUsd/perRun"));
+    CHECK(has(s.error_of(R"({"limits": {"maxAssetCostUsd": {"perDays": 2}}})"), "Did you mean 'perDay'"));
+}

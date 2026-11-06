@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/ai/asset_cost.h"
 #include "fa/ai/assets.h"
 #include "fa/core/command.h"
 #include "fa/tooling/image_provider.h"
@@ -45,10 +46,18 @@ struct ImageEditPlan {
     std::vector<std::string> warnings;
     Json args;                            // the call, for author and overwrite details
     Json estimate;                        // what would be sent and what it may cost (dryRun returns it)
+    AssetEstimate cost;                   // the price of the call (estimate_asset_cost): `estimate` carries it as text and numbers
+    Limits limits;                        // limits.maxAssetCostUsd and askAboveUsd of the project at the time of the plan
 };
 
 // Throws CommandError with a fix. The error for a missing provider says how to configure one and the offline route.
 ImageEditPlan plan_image_edit(const ImageEditEnv& env, bool inpaint, const Json& args);
+
+// Before the provider is called: the price against the limits (this run, today) and the user's yes. Throws CommandError like
+// AssetCostGuard::begin. `approved`: the user said yes to this call (the argument, or a button that showed the estimate). When go()
+// of the guard is false return needs_approval() and call nothing. Commit the guard when the provider answered; a guard that is
+// dropped gives the money back. Takes the cross-process lock of the user folder: not for the editor's UI thread.
+AssetCostGuard begin_image_edit_cost(const ImageEditPlan& plan, const ImageEditEnv& env, bool approved, const CancelFlag* cancel = nullptr);
 
 // Calls the provider. Errors say what to check.
 Result<AssetResult> run_image_edit(const ImageEditPlan& plan, const ProviderRuntime& runtime, const CancelFlag* cancel = nullptr);
@@ -63,6 +72,7 @@ struct ImageEditStored {
 ImageEditStored store_image_edit(const ImageEditEnv& env, const ImageEditPlan& plan, const AssetResult& made);
 
 void register_image_provider_commands(CommandRegistry& registry, std::function<Result<AiConfig>()> load,
-                                      std::function<std::string()> projectDir, ProviderRuntime runtime, const CancelFlag* cancel);
+                                      std::function<std::string()> projectDir, ProviderRuntime runtime, const CancelFlag* cancel,
+                                      std::string runKey = {});
 
 }  // namespace fa::ai

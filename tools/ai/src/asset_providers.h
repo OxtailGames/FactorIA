@@ -6,6 +6,10 @@
 
 namespace fa::ai {
 
+// The size OpenAI's image models draw at for `req` ("1024x1024", "1536x1024" or "1024x1536": the closest shape); the estimate of a
+// picture is priced at this size, not at the size the file ends up.
+const char* openai_image_size(const AssetRequest& req);
+
 Result<AssetResult> openai_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt, const CancelFlag* cancel);
 Result<AssetResult> elevenlabs_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt, const CancelFlag* cancel);
 Result<AssetResult> meshy_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt, const CancelFlag* cancel);

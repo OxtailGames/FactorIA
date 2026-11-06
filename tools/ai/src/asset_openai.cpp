@@ -13,6 +13,12 @@ namespace fa::ai {
 
 using namespace util;
 
+// gpt-image-1 draws at 1024x1024, 1536x1024 or 1024x1536 only: the closest shape; the caller resizes to what it asked for.
+const char* openai_image_size(const AssetRequest& req) {
+    const double aspect = req.height > 0 ? static_cast<double>(req.width) / req.height : 1.0;
+    return aspect > 1.25 ? "1536x1024" : aspect < 0.8 ? "1024x1536" : "1024x1024";
+}
+
 namespace {
 
 constexpr const char* kImageModel = "gpt-image-1";
@@ -20,11 +26,6 @@ constexpr const char* kSpeechModel = "gpt-4o-mini-tts";
 constexpr const char* kSpeechVoice = "alloy";  // accepted by every speech model
 constexpr std::size_t kMaxSpeechChars = 4096;
 
-// gpt-image-1 draws at 1024x1024, 1536x1024 or 1024x1536 only: the closest shape; the caller resizes to what it asked for.
-const char* image_size(const AssetRequest& req) {
-    const double aspect = req.height > 0 ? static_cast<double>(req.width) / req.height : 1.0;
-    return aspect > 1.25 ? "1536x1024" : aspect < 0.8 ? "1024x1536" : "1024x1024";
-}
 
 // multipart/form-data, built by hand: HttpRequest takes a raw body.
 class Multipart {
@@ -68,8 +69,9 @@ Result<AssetResult> image(const ProviderConfig& cfg, const AssetRequest& req, co
     if (req.references.empty() && !inpaint) {
         hr.url = trim_slashes(cfg.baseUrl) + "/images/generations";
         hr.headers.emplace_back("Content-Type", "application/json");
-        Json body = Json::object({{"model", model}, {"prompt", req.prompt}, {"n", 1}, {"size", image_size(req)}, {"output_format", "png"}});
+        Json body = Json::object({{"model", model}, {"prompt", req.prompt}, {"n", 1}, {"size", openai_image_size(req)}, {"output_format", "png"}});
         if (req.transparent) body["background"] = "transparent";
+        if (!req.quality.empty()) body["quality"] = req.quality;
         hr.body = dump(body);
     } else {
         // Reference images go to the edits endpoint as image[] parts. It takes PNG, JPEG and WebP.
@@ -90,9 +92,10 @@ Result<AssetResult> image(const ProviderConfig& cfg, const AssetRequest& req, co
         for (const ReferenceImage& r : req.references) form.file("image[]", r.name, r.mediaType, r.bytes);
         form.field("model", model);
         form.field("prompt", req.prompt);
-        form.field("size", image_size(req));
+        form.field("size", openai_image_size(req));
         form.field("output_format", "png");
         if (req.transparent) form.field("background", "transparent");
+        if (!req.quality.empty()) form.field("quality", req.quality);
         hr.url = trim_slashes(cfg.baseUrl) + "/images/edits";
         hr.headers.emplace_back("Content-Type", "multipart/form-data; boundary=" + form.boundary());
         hr.body = form.finish();

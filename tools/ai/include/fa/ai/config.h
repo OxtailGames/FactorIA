@@ -31,6 +31,27 @@ const char* media_kind_name(MediaKind k);  // "image", "sound", "music", "voice"
 // openai-compatible: image, voice. elevenlabs: sound, music, voice. meshy: model3d. fake and asset-command: all.
 bool provider_makes(ProviderKind k, MediaKind m);
 
+// What an asset provider charges, in US dollars: the numbers behind the estimate every generation result shows (`estimatedCostUsd`)
+// and the limits and the approval question (Limits::maxAssetCostUsd, askAboveUsd; fa/ai/asset_cost.h). A kind without a price is
+// unknown: its estimate is null, it always asks first, and a project with a cost limit refuses it. ai.json "assetPricing".
+struct AssetPricing {
+    // image: USD for one picture by the size the provider draws ("1024x1024", "1536x1024", "1024x1536") and the quality asked for
+    // ("low", "medium", "high", "auto"). The size "default" and the quality "default" are the fallbacks; a number in the file is
+    // stored as {"default": number}.
+    std::map<std::string, std::map<std::string, double>> image;
+    std::optional<double> voicePer1000Chars;  // voice: USD per 1000 characters of text
+    std::optional<double> soundPerSecond;     // sound: USD per second of audio
+    std::optional<double> musicPerSecond;     // music: USD per second of audio
+    std::optional<double> model3d;            // model3d: USD per model
+    std::string checked;                      // the day the prices were looked up ("2026-11-06"); "" = by the user
+    std::string source;                       // where they are published (a URL)
+    std::string note;                         // how they were derived, what they do not cover
+    std::vector<std::string> unverified;      // kinds ("voice", "model3d") whose figure is the engine's own derivation, not read from the provider's page
+    bool empty() const {
+        return image.empty() && !voicePer1000Chars && !soundPerSecond && !musicPerSecond && !model3d;
+    }
+};
+
 struct ProviderConfig {
     std::string name;
     ProviderKind kind = ProviderKind::OpenAICompatible;
@@ -49,10 +70,15 @@ struct ProviderConfig {
     std::vector<std::string> unsetEnv;
     std::string factoriaCommand = "factoria";
     Pricing pricing;                      // known=false unless configured
+    AssetPricing assetPricing;            // asset providers: what one image, second, 1000 characters or model costs ("assetPricing")
     std::string license;                  // asset providers: the license note recorded for what they generate ("" = a built-in note)
     int maxRetries = 5;
     double timeoutSeconds = 600;
 };
+
+// The "assetPricing" object of ai.json for `p` (see the schema); {} when there is nothing to say. The built-in providers' prices are
+// written only when the user changed them.
+Json asset_pricing_to_json(const AssetPricing& p);
 
 // Which provider (and model, voice) generates one kind of asset: an entry of "assets" in ai.json. There is no default:
 // generation costs money, so a missing kind is an error that shows what to add.
@@ -116,6 +142,13 @@ struct Limits {
     // How many AI chats the editor lets run at the same time (each chat has its own agent, status and Stop). Values outside
     // 1..kMaxConcurrentRunsCap are brought into that range with a warning. Only the editor reads it.
     int maxConcurrentRuns = 3;
+    // Most the asset providers may charge, estimated in US dollars (limits.maxAssetCostUsd). A paid call that would pass it is refused
+    // before the provider is called. 0 = no limit.
+    double maxAssetCostPerRunUsd = 0;   // all the asset calls of one agent run (a chat's run; the whole process for the CLI and MCP)
+    double maxAssetCostPerDayUsd = 0;   // all the asset calls of this project today, in every process (a file in the user's folder)
+    // A paid asset call whose estimate is above this waits for the user (limits.askAboveUsd). The fake provider and local programs
+    // cost nothing and never ask.
+    double askAboveUsd = 0.50;
 };
 inline constexpr int kMaxConcurrentRunsCap = 8;
 
@@ -304,6 +337,9 @@ Result<AiConfig> load_config(std::string_view path = {}, const EnvLookup& env = 
 // section. Owner-only permissions. A file that is not a JSON object is left alone (error).
 Result<void> save_savers(const Savers& savers, std::string_view path);
 Json savers_to_json(const Savers& savers);
+// Writes only limits.maxAssetCostUsd (perRun, perDay) and limits.askAboveUsd into the config file at `path` (created when missing),
+// keeping everything else in it; 0 per-run/per-day limits and the default askAboveUsd remove their keys. Owner-only permissions.
+Result<void> save_asset_limits(const Limits& limits, std::string_view path);
 Result<void> save_config(const AiConfig& cfg, std::string_view path);  // writes user-editable JSON (no defaults noise)
 // Writes only "roles" into the config file at `path` (created when missing) and keeps everything else in it: providers,
 // limits, a role's maxTokens. An empty model or effort (or maxContextTokens 0) removes that key, so the role's default
