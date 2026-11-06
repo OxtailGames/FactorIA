@@ -6057,7 +6057,9 @@ void Editor::at_build_tools_script() {
             const Json facts = props.value("facts", Json::array());
             at_check(facts.size() == 1 && facts[0].value("id", std::string()) == factId, "...and the one fact");
         });
-        scroll_to("aiset:saver:loopguard", "AI settings###AiSettings");
+        // One notch at a time: the Extensions tab's scroll area is about 270 px high on a 1024x642 display and a default 6-notch
+        // wheel event moves it further than that, so the switch would skip over the visible part and end above it.
+        scroll_to("aiset:saver:loopguard", "AI settings###AiSettings", -1);
         step(3, [this] {
             // (on a small display the window shows the first of them; the clicks below scroll to the others)
             at_check(at_shown("aiset:saver:loopguard") && at_visible("aiset:saver:groups") && at_visible("aiset:saver:facts") &&

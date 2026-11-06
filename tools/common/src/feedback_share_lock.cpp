@@ -50,11 +50,32 @@ thread_local double t_waitCap = std::numeric_limits<double>::infinity();
 
 enum class Created { Yes, Exists, Denied, Failed };
 
+// The system's own text of a Windows error code, as UTF-8 ("" when there is none). std::system_category().message() answers in the
+// ANSI code page of the machine (not UTF-8: a Json dump of it can throw), so Windows asks for the UTF-16 text and converts it.
+std::string system_error_message(unsigned long code) {
+#if defined(_WIN32)
+    wchar_t* wide = nullptr;
+    const DWORD length = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr,
+                                        static_cast<DWORD>(code), 0, reinterpret_cast<LPWSTR>(&wide), 0, nullptr);
+    if (length == 0 || wide == nullptr) return {};
+    std::string utf8;
+    const int bytes = WideCharToMultiByte(CP_UTF8, 0, wide, static_cast<int>(length), nullptr, 0, nullptr, nullptr);
+    if (bytes > 0) {
+        utf8.resize(static_cast<std::size_t>(bytes));
+        if (WideCharToMultiByte(CP_UTF8, 0, wide, static_cast<int>(length), utf8.data(), bytes, nullptr, nullptr) <= 0) utf8.clear();
+    }
+    LocalFree(wide);
+    return utf8;
+#else
+    return std::system_category().message(static_cast<int>(code));
+#endif
+}
+
 // "Windows error 5 (Access is denied.)": the number alone sends a person to a search engine.
 std::string windows_error_text(unsigned long code) {
     std::string text = "Windows error " + std::to_string(code);
     try {
-        std::string says = std::system_category().message(static_cast<int>(code));
+        std::string says = system_error_message(code);
         while (!says.empty() && (says.back() == '\n' || says.back() == '\r' || says.back() == ' ' || says.back() == '.')) says.pop_back();
         if (!says.empty()) text += " (" + says + ")";
     } catch (...) {
