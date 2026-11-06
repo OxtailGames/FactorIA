@@ -233,6 +233,7 @@ void World::clear() {
     scenePath_.clear();
     tooltip_ = UiTooltipView{};
     meshes_.clear();
+    feel_.clear_scene();
     vfxLive_ = 0;
 }
 
@@ -424,6 +425,21 @@ Mat4 World::world_matrix(Entity e) const {
     for (Entity cur = e; !cur.is_null(); cur = impl_->slots[cur.index].parent) {
         const auto* t = static_cast<const Transform*>(impl_->transformPool->get(cur));
         m = Mat4::trs(t->position, t->rotation, t->scale) * m;
+    }
+    return m;
+}
+
+Mat4 World::drawn_matrix(Entity e) const {
+    if (feel_.poseCount == 0) return world_matrix(e);
+    if (!alive(e)) return Mat4::identity();
+    Mat4 m = Mat4::identity();
+    for (Entity cur = e; !cur.is_null(); cur = impl_->slots[cur.index].parent) {
+        const auto* t = static_cast<const Transform*>(impl_->transformPool->get(cur));
+        if (const FeelPose* p = feel_.pose_of(cur))
+            m = Mat4::trs(t->position + p->position, t->rotation + p->rotation,
+                          {t->scale.x * p->scale.x, t->scale.y * p->scale.y, t->scale.z * p->scale.z}) * m;
+        else
+            m = Mat4::trs(t->position, t->rotation, t->scale) * m;
     }
     return m;
 }

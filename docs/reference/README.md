@@ -108,7 +108,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [anim](commands/anim.md)
 
-- [`anim.add_event`](commands/anim.md#animadd_event-modifies-state): Add an event to a clip: a game event sent when the clip passes its time. _Since 0.7.0._
+- [`anim.add_event`](commands/anim.md#animadd_event-modifies-state): Add an event to a clip: a game event and/or game feel actions run when the clip passes its time. _Since 0.7.0._
 - [`anim.add_track`](commands/anim.md#animadd_track-modifies-state): Add a track to a clip, with keys or the part's current value as its first key. _Since 0.7.0._
 - [`anim.check`](commands/anim.md#animcheck-modifies-state): Find what is wrong with a clip, and with how it fits its character. _Since 0.7.0._
 - [`anim.create_clip`](commands/anim.md#animcreate_clip-modifies-state): Write a new keyframed 2D clip file (*.anim.json). _Since 0.7.0._
@@ -122,10 +122,10 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`anim.remove_track`](commands/anim.md#animremove_track-modifies-state): Remove a whole track (all its keys) from a clip. _Since 0.7.0._
 - [`anim.restore`](commands/anim.md#animrestore-modifies-state): Put a clip file back to a whole document, or delete it: the undo and redo of the anim.* edits. _Since 0.7.0._
 - [`anim.set_clip`](commands/anim.md#animset_clip-modifies-state): Set the duration, loop or description of a clip. _Since 0.7.0._
-- [`anim.set_event`](commands/anim.md#animset_event-modifies-state): Rename an event of a clip or replace its data. _Since 0.7.0._
+- [`anim.set_event`](commands/anim.md#animset_event-modifies-state): Rename an event of a clip, or replace its data or its game feel actions. _Since 0.7.0._
 - [`anim.set_interp`](commands/anim.md#animset_interp-modifies-state): Set how selected keys reach the next key: interp or easing, and bezier tangents. _Since 0.7.0._
 - [`anim.set_keys`](commands/anim.md#animset_keys-modifies-state): Add or replace keys of one track of a clip, creating the track if it is missing. _Since 0.7.0._
-- [`anim3d.add_event`](commands/anim.md#anim3dadd_event): Add an event to a 3D clip: a game event the Animator sends when the clip passes its time. _Since 0.16.0._
+- [`anim3d.add_event`](commands/anim.md#anim3dadd_event): Add an event to a 3D clip: a game event and/or game feel actions the Animator runs when the clip passes its time. _Since 0.16.0._
 - [`anim3d.create`](commands/anim.md#anim3dcreate): Write a new, empty 3D bone clip (*.anim.json, format factoria.anim3d/1) for a skinned rig; add tracks with anim3d.set_keys. _Since 0.16.0._
 - [`anim3d.generate`](commands/anim.md#anim3dgenerate): Generate a 3D bone clip for a baked rig from parameters: walk and run (stride, cadence, bounce, arm swing), quadruped trot and gallop, idle breathing, swings of tails and chains, hit reactions. Planted feet do not slide. _Since 0.16.0._
 - [`anim3d.generators`](commands/anim.md#anim3dgenerators): List the clip generators of anim3d.generate (walk, run, trot, gallop, idle, swing, hit) with their parameters, ranges and defaults. _Since 0.16.0._
@@ -139,7 +139,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`anim3d.restore`](commands/anim.md#anim3drestore): Put a 3D clip file back to a whole document, or delete it: the undo and redo of the anim3d.* edits. _Since 0.16.0._
 - [`anim3d.retarget`](commands/anim.md#anim3dretarget): Carry a 3D clip from one baked rig to another (other proportions, a different template) by bone role, index and side; root motion and feet are scaled and planted feet stay planted. _Since 0.16.0._
 - [`anim3d.set_clip`](commands/anim.md#anim3dset_clip): Set the duration, loop, ground speed or description of a 3D clip. _Since 0.16.0._
-- [`anim3d.set_event`](commands/anim.md#anim3dset_event): Move, rename or change the data of an event of a 3D clip. _Since 0.16.0._
+- [`anim3d.set_event`](commands/anim.md#anim3dset_event): Move, rename or change the data or the game feel actions of an event of a 3D clip. _Since 0.16.0._
 - [`anim3d.set_interp`](commands/anim.md#anim3dset_interp): Set how selected keys of a 3D clip reach the next key: linear, step, bezier or an easing (the M42 curves). _Since 0.16.0._
 - [`anim3d.set_keys`](commands/anim.md#anim3dset_keys): Add or replace keys of one bone's track in a 3D clip (rotation as euler degrees or quaternion, translation, scale); a key at the time of an existing one replaces it. _Since 0.16.0._
 - [`ik3d.check`](commands/anim.md#ik3dcheck): Check the `solvers` of an IK3D component against a baked rig: types, keys, number ranges, bone names ('did you mean') and chains (root -> mid -> end). _Since 0.16.0._
@@ -350,6 +350,19 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`feedback.share_status`](commands/feedback.md#feedbackshare_status): Sharing with the engine developer: the mode, the server, whether the user signed in, and the outbox. _Since 0.10.0._
 - [`feedback.update`](commands/feedback.md#feedbackupdate-modifies-state): Change the status of a feedback entry (with a reason when it is rejected) or link it to an engine issue.
 - [`feedback.verdicts`](commands/feedback.md#feedbackverdicts-modifies-state): Ask the feedback server what the engine developers decided about the reports this installation sent. _Since 0.16.1._
+
+### [feel](commands/feel.md)
+
+- [`feel.cancel`](commands/feel.md#feelcancel-modifies-state): Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything. _Not released yet._
+- [`feel.flash`](commands/feel.md#feelflash-modifies-state): Draws an entity in one colour for a moment (a hit flash): sprites, shapes and 3D meshes, fading or square. _Not released yet._
+- [`feel.hitStop`](commands/feel.md#feelhitstop-modifies-state): Hit-stop: freezes or slows gameplay for a moment of real time; UI, audio and the stop's own timer keep going. _Not released yet._
+- [`feel.knockback`](commands/feel.md#feelknockback-modifies-state): Pushes an entity away and holds `isKnockedBack` for a moment: an impulse on its physics body, else a decaying velocity. _Not released yet._
+- [`feel.settings`](commands/feel.md#feelsettings-modifies-state): The accessibility choices of the game feel effects: reduceMotion and reducedEffects. _Not released yet._
+- [`feel.shake`](commands/feel.md#feelshake-modifies-state): Camera shake: adds trauma to a camera (2D and 3D); it stacks up to `cap` and dies out over `duration`. _Not released yet._
+- [`feel.sound`](commands/feel.md#feelsound-modifies-state): Plays a sound once through the audio system (the same one a clip event's "sound" action uses). _Not released yet._
+- [`feel.spawn`](commands/feel.md#feelspawn-modifies-state): Makes an effect appear: instantiates a prefab at an entity (or at a point) the next frame. _Not released yet._
+- [`feel.squash`](commands/feel.md#feelsquash-modifies-state): Squash and stretch: a short scale pulse that keeps the volume and springs back to exactly the entity's scale. _Not released yet._
+- [`feel.state`](commands/feel.md#feelstate): What the game feel effects are doing now: hit-stop, and per entity its shake, flash, squash, knockback and drawn pose. _Not released yet._
 
 ### [fs](commands/fs.md)
 

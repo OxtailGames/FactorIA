@@ -5,7 +5,7 @@
 //
 // Other scripts use: logs, hearts, hurt(from), addLog(), takeLog(), swinging, locked (ignores the input), heal().
 // Events it sends (world.emit): warden_hurt {hearts}, warden_swing {}, warden_down {} (no heart left).
-import { Behaviour, input, physics, audio, world, rng } from "factoria";
+import { Behaviour, input, physics, audio, world, rng, camera } from "factoria";
 import { DEG, yawOf, turnToward, angleDiff, flatDistance } from "./common.js";
 
 export default class Warden extends Behaviour {
@@ -174,7 +174,7 @@ export default class Warden extends Behaviour {
     const d = Math.hypot(dx, dz) || 1;
     this.vx = (dx / d) * 7;
     this.vz = (dz / d) * 7;
-    world.emit("camera_shake", { size: 0.25, time: 0.3 });
+    camera.shake(0.8, { duration: 0.3 });
     world.emit("warden_hurt", { hearts: this.hearts });
     if (this.hearts <= 0) world.emit("warden_down", {});
     return true;

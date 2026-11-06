@@ -105,7 +105,13 @@ std::vector<VisualFootprint> visual_footprints(const World& w, Entity e, const V
 // The world matrix the WORLD-SPACE visuals of `e` are drawn with: world_matrix(e) moved by Parallax.offset (the shift the
 // renderer applied for the camera this frame; zero without a Parallax). Use it, not world_matrix, to place visual_footprints
 // in the world. A Parallax with repeatX / repeatY is measured at its base copy.
+// It is the TRUE position: a game feel effect (shake, squash; feel.h) is not in it, so entity.bounds(), the pointer hit tests,
+// the 2D lights and the animation views see what the scene says. Only drawing uses drawn_visual_matrix.
 Mat4 visual_world_matrix(const World& w, Entity e);
+
+// visual_world_matrix with the draw-time pose of the game feel effects (World::drawn_matrix): the matrix the renderer draws
+// world-space visuals with. Equal to visual_world_matrix while no effect runs.
+Mat4 drawn_visual_matrix(const World& w, Entity e);
 
 // The world-space axis-aligned rectangle (x, y = the minimum corner, +Y up) around the world-space visuals of `e`
 // after the entity's world matrix (rotation, scale, parents). nullopt when there are none. Screen-space visuals are

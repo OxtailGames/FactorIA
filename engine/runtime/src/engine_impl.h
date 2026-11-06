@@ -199,6 +199,7 @@ void register_anim_commands(Engine& engine, Engine::Impl& impl);  // anim_comman
 void register_music_commands(Engine& engine, Engine::Impl& impl);  // music_commands.cpp: audio.music_state, audio.music
 void register_vfx_commands(Engine& engine, Engine::Impl& impl);  // vfx_commands.cpp: vfx.play, vfx.stop, vfx.list, vfx.check
 void register_mesh_commands(Engine& engine, Engine::Impl& impl);  // mesh_commands.cpp: mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
+void register_feel_commands(Engine& engine, Engine::Impl& impl);  // feel_commands.cpp: feel.shake, feel.hitStop, feel.flash, feel.knockback, feel.squash, feel.cancel, feel.settings, feel.state
 void register_bones_commands(Engine& engine, Engine::Impl& impl);  // bones_commands.cpp: bones.create, skin.*
 
 // The grid of an ASCII level in the format of scene.import_ascii (`rows`, `legend`, `legendFrom`), read for a command that learns

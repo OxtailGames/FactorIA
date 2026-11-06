@@ -696,3 +696,32 @@ TEST_CASE("vfx: VfxHost::load supplies the document instead of the file (the edi
         CHECK(w.children(e).empty());
     }
 }
+
+TEST_CASE("vfx: play scale scales the effect's entity and the offsets of its parts, not the sizes written in the file") {
+    TempDir tmp("fa_vfx_scale");
+    const std::string path = tmp.file("hit.vfx.json");
+    write(path, hit_effect());
+    World w;
+    VfxPlayOptions o;
+    o.position = {100, 50, 0};
+    o.scale = 2.0f;
+    auto r = vfx_play(w, path, o);
+    REQUIRE(r.ok());
+    VfxHost none;
+    update_vfx(w, 1.0f / 60.0f, none);
+    w.flush();
+    Entity flash = kNullEntity;
+    Entity sparks = kNullEntity;
+    for (Entity c : w.children(*r)) {
+        if (w.info(c).name == "flash") flash = c;
+        if (w.info(c).name == "sparks") sparks = c;
+    }
+    REQUIRE(flash != kNullEntity);
+    REQUIRE(sparks != kNullEntity);
+    // The flash is written 4 units above the effect: with scale 2 it is drawn 8 above it.
+    CHECK(w.get<Transform>(flash)->position.y == doctest::Approx(4.0f));
+    CHECK(w.world_position(flash).y == doctest::Approx(50.0f + 8.0f));
+    // The radius and the particle size are what the file says, as PARTICLES.md documents: scale a bigger effect by writing a bigger one.
+    CHECK(w.get<Light2D>(flash)->radius == doctest::Approx(120.0f));
+    CHECK(w.get<ParticleEmitter>(sparks)->startSize == doctest::Approx(ParticleEmitter{}.startSize));
+}

@@ -531,6 +531,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     register_music_commands(engine, I);         // audio.music_state, audio.music
     register_vfx_commands(engine, I);           // vfx.play, vfx.stop, vfx.list, vfx.check
     register_mesh_commands(engine, I);          // mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
+    register_feel_commands(engine, I);          // feel.shake, feel.hitStop, feel.flash, feel.knockback, feel.squash, feel.cancel, ...
     register_bones_commands(engine, I);         // bones.create, skin.bind, skin.auto_weights, skin.set_weights
     register_platform_commands(I.commands, I.platform);  // platform.state, platform.respond, ... (fa/services)
 

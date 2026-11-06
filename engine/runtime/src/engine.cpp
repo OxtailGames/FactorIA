@@ -17,6 +17,7 @@
 #include "fa/runtime/plugins.h"
 #include "fa/scene/camera_mask.h"
 #include "fa/scene/camera_query.h"
+#include "fa/scene/feel.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/ik3d.h"
@@ -80,6 +81,7 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
 
 void Engine::Impl::apply_project_settings() {
     fixedDt = 1.0 / std::max(1.0, project.fixedHz);
+    world.feel().pixelsPerMeter = project.pixelsPerMeter;  // the 2D default speed of entity.knockback (fa/scene/feel.h)
     input.set_gamepad_deadzone(float(project.inputDeadzone));
     // The interface scale of factoria.json: applied when it changes (the first time included), so reloading the project for
     // another setting does not undo what the player chose in the Options menu. The start-up change sends no ui.scale event.
@@ -397,6 +399,9 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         scripts.dispatch_back();  // the Back button of this frame: input.onBack handlers, else quit
         scripts.dispatch_gamepads();  // pads plugged in or out since the last frame: game.on("gamepadConnected" ...)
     }
+    // Hit-stop timers run in real time (they are what slows scripts.time_scale() below) and the effects learn the system's
+    // "reduce motion" for the actions that start this frame (fa/scene/feel.h).
+    feel_begin_frame(world, dt, scripts.system_reduce_motion());
     const float fdt = float(fixedDt);
     for (int i = 0; i < fixedSteps; ++i) {
         {
@@ -441,6 +446,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             ProfSystemScope prof(ProfSystem::Animation);
             update_videos(world, float(fixedDt * scale));
         }
+        feel_fixed_update(world, fixedDt * scale);  // knockback of entities without a physics body (the game clock WITH hit-stop)
         {
             // Effect documents (vfx.play, Vfx components) follow the game clock like videos: they wait at time.scale 0. The sounds and
             // commands a part fires go through the audio mixer and the command registry like any other call.
@@ -483,6 +489,10 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         ProfSystemScope prof(ProfSystem::Localization);
         apply_localization();  // keys of entities scripts spawned or edited this frame
     }
+    // Shake, flash and squash follow real time times the player's time.scale: they keep moving through a hit-stop. Before
+    // drawing, so the poses the renderer reads belong to this frame. The lifetimes of spawned effects run on the game clock
+    // (`time_scale()`: a hit-stop or a pause holds them).
+    feel_update(world, dt * scripts.user_time_scale(), dt * scripts.time_scale());
     render(dt);
     {
         ProfSystemScope prof(ProfSystem::EndOfFrame);
@@ -585,6 +595,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
 
     // World + input.
     I.world.rng().reseed(config.seed);
+    I.world.feel().reduceMotionSetting.reset();  // the player's feel choices belong to a run: an engine starts following the system
+    I.world.feel().reducedEffectsSetting.reset();
     I.apply_project_settings();
     I.setup_localization();
 

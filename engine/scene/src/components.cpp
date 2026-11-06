@@ -542,7 +542,8 @@ void register_builtin_components(TypeRegistry& r) {
                           "`assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then "
                           "names only the texture and the clip. The numeric fields override the clip when they differ from their default "
                           "(columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). "
-                          "A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}.",
+                          "A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame "
+                          "send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).",
                           "2D")
         .field("columns", &SpriteAnimator::columns, "Number of columns in the sprite sheet grid. With `clip`, set it (not 1) only to override the sheet entry.").range(1, 4096)
         .field("rows", &SpriteAnimator::rows, "Number of rows in the sprite sheet grid.").range(1, 4096)
@@ -562,6 +563,15 @@ void register_builtin_components(TypeRegistry& r) {
                "true = the pivot recorded in the sheet entry (or the clip's own pivot) is used as Sprite.pivot while the Sprite's own pivot "
                "is the default centre [0.5, 0.5]; a Sprite that sets another pivot keeps it. The sheet stores it from the TOP-left of the "
                "frame, Sprite.pivot counts from the bottom-left, so y is flipped. false = never touch the pivot.")
+        .field("events", &SpriteAnimator::events,
+               "Frame events, an array of {frame, clip?, name?, data?, feel?}: every time the animation shows grid frame `frame` (the "
+               "same row-major number as firstFrame and lastFrame) the game event `name` is sent with {id, clip, frame, ...data}, and "
+               "the game feel actions of `feel` run (one action object or an array of them, in the form of `feel.do(action)` in scripts: "
+               "shake, hitStop, flash, knockback or push, squash, spawn, sound; docs/GAME_FEEL.md, \"Effects as data\"). With `clip` "
+               "(a name of the sheet's clips) the event belongs to that clip only. An event needs `name` or `feel`. A frame is "
+               "shown once per pass over the clip, so a looping clip fires it once per loop, a frame that a long frame time "
+               "skips still fires, and pingpong shows its middle frames twice. Example: [{\"clip\": \"attack\", \"frame\": 9, "
+               "\"feel\": [{\"action\": \"hitStop\", \"duration\": 0.06}, {\"action\": \"shake\", \"amount\": 0.3}]}].")
         .field("ended", &SpriteAnimator::ended, "Runtime state: a non-looping clip reached its end (clipEnded was sent).").runtime_only()
         .field("playedClip", &SpriteAnimator::playedClip, "Runtime state: the clip `time` counts in.").runtime_only()
         .field("time", &SpriteAnimator::time, "Runtime state: seconds elapsed in the current clip.").runtime_only()
@@ -1213,9 +1223,12 @@ void register_builtin_components(TypeRegistry& r) {
                "Layers apply in order over the main clip. A layer at weight 0 is not playing; it starts from its first pose "
                "when its weight rises. Example: [{\"name\": \"arms\", \"clip\": \"shoot\", \"mask\": [\"body/arm_l\"]}].")
         .field("events", &Animator::events,
-               "Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event "
-               "`name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). "
-               "Example: [{\"clip\": \"Walk\", \"time\": 0.3, \"name\": \"footstep\"}].")
+               "Clip events, an array of {clip, time, name?, feel?}: when the clip's time passes `time` (seconds) the game event "
+               "`name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). `feel` (one action object "
+               "or an array, the form of `feel.do(action)`: shake, hitStop, flash, knockback or push, squash, spawn, sound; "
+               "docs/GAME_FEEL.md, \"Effects as data\") runs game feel actions on this entity at the same moment. An event needs "
+               "`name` or `feel`. Example: [{\"clip\": \"Walk\", \"time\": 0.3, \"name\": \"footstep\"}, "
+               "{\"clip\": \"Attack\", \"time\": 0.2, \"feel\": {\"action\": \"hitStop\", \"duration\": 0.06}}].")
         .field("state", &Animator::state,
                "State machine: the state the animator is in (the start state when set in the scene; empty = the first "
                "state of `states`). Updated as transitions fire.")
