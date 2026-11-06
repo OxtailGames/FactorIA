@@ -16,7 +16,6 @@ namespace {
 constexpr double kStep = 1.0 / 60.0;
 constexpr int kTimelineSamples = 24;
 constexpr double kExtraSeconds = 30.0;  // past kVfxMaxDuration: the longest the measuring plays on
-constexpr long long kMaxParticleSteps = 20'000'000;  // particle updates (live particles summed over the steps) the measuring may spend, however few steps that is
 constexpr int kMinFixCap = 4;           // a suggested maxParticles below this is no longer the effect: no fix is offered
 constexpr double kMinFixSize = 0.5;     // the same for a suggested startSize, in design pixels
 
@@ -169,11 +168,13 @@ VfxBudget vfx_measure(const VfxDoc& doc, const VfxBudgetOptions& options) {
         }
         const bool over = vfx && vfx->rt.finished;
         if (over && total == 0) break;
-        if (particleSteps >= kMaxParticleSteps) {
+        if (particleSteps >= options.maxParticleUpdates) {
             // Few steps can still be a lot of work: up to 8 emitters of 10 000 particles each is 80 000 updates per step.
             out.truncated = true;
-            out.notes.push_back(std::format("The measuring stopped at {:.2f} s after {} million particle updates (the effect holds a great many particles for a long time): "
-                                            "the numbers cover the first {:.2f} s only.", t, kMaxParticleSteps / 1'000'000, t));
+            const std::string updates = options.maxParticleUpdates >= 1'000'000 ? std::format("{} million", options.maxParticleUpdates / 1'000'000)
+                                                                                : std::to_string(options.maxParticleUpdates);
+            out.notes.push_back(std::format("The measuring stopped at {:.2f} s after {} particle updates (the effect holds a great many particles for a long time): "
+                                            "the numbers cover the first {:.2f} s only.", t, updates, t));
             break;
         }
         if (s == maxSteps) out.truncated = true;

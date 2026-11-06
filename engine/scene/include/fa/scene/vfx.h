@@ -88,8 +88,16 @@ Result<std::shared_ptr<const VfxDoc>> parse_vfx(const Json& json, std::string_vi
 // Reads a document through fa::fs. Cached per path, modification time and size: every Vfx that plays the same file shares one
 // VfxDoc, and a file that changed on disk is read again by the next call (hot reload: a play that has begun finishes the version it
 // started with; a looping effect reads the file again at the start of each round). A file touched in the last two seconds is also
-// compared by content, because a file's time moves in steps and a second edit of the same size can keep the same time. An unreadable or invalid file is an Error; the cache keeps the last good version.
+// compared by content, because a file's time moves in steps and a second edit of the same size can keep the same time. A file the backend gives
+// no time for (modified_time -1: the assets of an Android APK) is always compared by content, never parsed again while its text is the same.
+// An unreadable or invalid file is an Error; the cache keeps the last good version.
 Result<std::shared_ptr<const VfxDoc>> load_vfx(std::string_view path, std::vector<VfxIssue>* issues = nullptr);
+// What load_vfx does with the cache for a file (its decision, public for tests): Parse = no entry for this time and size (or the caller wants
+// the issues), read and parse; Compare = read the file and reuse the entry when the text hash is the same; Trust = reuse the entry without
+// reading. `nowNs` is the clock of fs::file_time_ns; an entry is given as `hasEntry` with the time and size it was made for.
+enum class VfxCacheUse { Parse, Compare, Trust };
+VfxCacheUse vfx_cache_use(std::int64_t mtime, std::int64_t size, std::int64_t nowNs, bool hasEntry, std::int64_t entryMtime, std::int64_t entrySize,
+                          bool wantIssues);
 void clear_vfx_cache();  // forgets every cached document (tests)
 
 // The files a document names that `exists` says are not there (the clips of its sound parts), as errors with the JSON pointer and
@@ -141,7 +149,7 @@ Result<Entity> vfx_play(World& world, std::string_view effect, const VfxPlayOpti
 void vfx_stop(World& world, Entity vfx, bool immediate);
 
 // True when the effect plays now, or will start at the next update_vfx (vfx_play just made it, or a scene has it on autoplay and the
-// system has not looked at it yet): what vfx.list and vfx.playing() list.
+// system has not looked at it yet): what the vfx.list command lists.
 inline bool vfx_starts_next_step(const Vfx& v) { return !v.playing && v.autoplay && !v.rt.seen && !v.effect.empty(); }
 
 // The longest the particles of `em` can be seen after it stopped emitting, in game seconds: lifetime with its variance, plus the trail, plus

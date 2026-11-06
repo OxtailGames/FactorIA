@@ -165,10 +165,14 @@ TEST_CASE("vfx_measure: a fix that would leave nothing of the effect is not offe
     }
 }
 
-TEST_CASE("vfx_measure stops at 20 million particle updates and says so") {
-    // Four emitters of 10 000 particles that live 30 s: 40 000 updates per step, so 20 million is reached long before the 30 s are played.
-    const auto d = doc_of(many_bursts(4, 10000, 2.0, 25.0, 10000));
-    const VfxBudget b = vfx_measure(*d);
+TEST_CASE("vfx_measure stops at its particle update limit and says so") {
+    // The limit is an option so that the test stays light (the default is 20 million): four emitters of 1000 particles that live 25 s are 4000
+    // updates per step, so 200 000 is reached after about 50 of the 1500 steps, the same proportion as 40 000 per step against 20 million.
+    CHECK(VfxBudgetOptions{}.maxParticleUpdates == 20'000'000);
+    const auto d = doc_of(many_bursts(4, 1000, 2.0, 25.0, 1000));
+    VfxBudgetOptions options;
+    options.maxParticleUpdates = 200'000;
+    const VfxBudget b = vfx_measure(*d, options);
     CHECK(b.truncated);
     CHECK(b.steps < 600);
     bool noted = false;
