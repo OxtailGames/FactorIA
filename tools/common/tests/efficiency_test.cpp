@@ -2,10 +2,12 @@
 // measured, and the report gate refuses what is not measured, not the cheapest fix, or not worth filing. Nothing here asks a model.
 #include <doctest.h>
 
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "fa/core/date.h"
 #include "fa/tooling/efficiency.h"
@@ -584,4 +586,117 @@ TEST_CASE("feedback: add_feedback_entry refuses kind efficiency (only the gate m
     auto done = registry.call("feedback.report", gap);
     REQUIRE_MESSAGE(done.ok, done.error.dump());
     CHECK(load_feedback(file).value()["entries"].size() == 1);
+}
+
+// ---- docs/ENGINE_FEEDBACK.md, "Efficiency feedback": the examples there are the ones the gate decides on ------------------------
+
+namespace {
+
+// The part of the document between the heading "## Efficiency feedback" and the next "## " heading.
+std::string efficiency_section(const std::string& doc) {
+    const std::size_t from = doc.find("\n## Efficiency feedback\n");
+    REQUIRE(from != std::string::npos);
+    const std::size_t to = doc.find("\n## ", from + 4);
+    return doc.substr(from, to == std::string::npos ? std::string::npos : to - from);
+}
+
+// "docs/NAVIGATION.md:212 (Off-mesh links)" -> "docs/NAVIGATION.md:N (Off-mesh links)": the line moves whenever that doc is edited.
+std::string without_doc_lines(std::string text) {
+    std::string out;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        out += text[i];
+        if (text[i] == ':' && i + 1 < text.size() && std::isdigit(static_cast<unsigned char>(text[i + 1])) && i > 3 &&
+            text.compare(i - 3, 3, ".md") == 0) {
+            while (i + 1 < text.size() && std::isdigit(static_cast<unsigned char>(text[i + 1]))) ++i;
+            out += 'N';
+        }
+    }
+    return out;
+}
+
+// Every ```json block of `section` that is an efficiency report.
+std::vector<Json> efficiency_reports_in(const std::string& section) {
+    std::vector<Json> out;
+    for (std::size_t at = section.find("```json\n"); at != std::string::npos; at = section.find("```json\n", at + 1)) {
+        const std::size_t from = at + 8;
+        const std::size_t to = section.find("\n```", from);
+        REQUIRE(to != std::string::npos);
+        auto parsed = Json::parse(section.substr(from, to - from), nullptr, false);
+        if (!parsed.is_discarded() && parsed.is_object() && parsed.value("kind", std::string()) == "efficiency") out.push_back(std::move(parsed));
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("efficiency: the good reports in docs/ENGINE_FEEDBACK.md pass the gate against a transcript of the length they name") {
+    const std::string section = efficiency_section(testing::read_text(std::filesystem::path(FA_REPO_ROOT) / "docs" / "ENGINE_FEEDBACK.md"));
+    const std::vector<Json> reports = efficiency_reports_in(section);
+    CHECK(reports.size() >= 3);
+    Project p;
+    for (const Json& r : reports)
+        for (const Json& span : r.value("evidence", Json::array()))
+            if (!std::filesystem::exists(p.dir.path / ".factoria" / "ai" / "sessions" / (span.value("session", std::string()) + ".jsonl")))
+                p.session(span.value("session", std::string()), builtin_session(80));
+    for (const Json& r : reports) {
+        EfficiencyInput in;
+        auto bad = efficiency_input_from_json(r, in);
+        REQUIRE_MESSAGE(!bad, r.value("title", std::string()) << ": " << (bad ? bad->message : std::string()));
+        EfficiencyVerdict v;
+        auto refused = check_efficiency_report(p.dir.str(), in, v);
+        CHECK_MESSAGE(!refused, "'" << r.value("title", std::string()) << "' is refused: " << (refused ? refused->message + " " + refused->hint : std::string()));
+    }
+}
+
+TEST_CASE("efficiency: the refusals quoted in docs/ENGINE_FEEDBACK.md are the text the gate gives") {
+    const std::string section = without_doc_lines(efficiency_section(testing::read_text(std::filesystem::path(FA_REPO_ROOT) / "docs" / "ENGINE_FEEDBACK.md")));
+    Project p;
+    p.session("20261014-153012-main", builtin_session(80));
+    auto quoted = [&](const char* code, const EfficiencyInput& in) {
+        EfficiencyVerdict v;
+        auto r = check_efficiency_report(p.dir.str(), in, v);
+        REQUIRE_MESSAGE(r, code << " was not refused");
+        CHECK(r->code == code);
+        INFO("the document must quote this refusal; update docs/ENGINE_FEEDBACK.md:\ncode: " << r->code << "\nmessage: " << r->message << "\nhint: " << r->hint);
+        CHECK(section.find("code: " + r->code + "\n") != std::string::npos);
+        CHECK(section.find("message: " + without_doc_lines(r->message) + "\n") != std::string::npos);
+        CHECK(section.find("hint: " + without_doc_lines(r->hint) + "\n") != std::string::npos);
+    };
+
+    EfficiencyInput scene;  // "rewrite the scene format to save 2k tokens"
+    scene.category = "scene";
+    scene.title = "Rewrite the scene format";
+    scene.suggestion = "Rewrite the scene format so that scene files are smaller";
+    scene.waste = "Reading the scene files cost about two thousand tokens in the first steps";
+    scene.fixType = "engineChange";
+    scene.whyNotCheaper = "A doc cannot make the scene files themselves smaller";
+    scene.appliesTo = "every-game";
+    scene.saveShare = 0.1;
+    scene.saveWhy = "the files would be a tenth smaller to read";
+    scene.evidence = {{"20261014-153012-main", 1, 4}};
+    quoted("below_threshold", scene);
+
+    EfficiencyInput model;  // "use a cheaper model"
+    model.category = "ai-integration";
+    model.title = "Use a cheaper model for the long runs";
+    model.suggestion = "Use a cheaper model for the routine steps";
+    model.waste = "The long run spent most of its money on the biggest model";
+    model.fixType = "doc";
+    model.appliesTo = "every-game";
+    model.saveShare = 0.5;
+    model.saveWhy = "a cheaper model costs a fraction per step";
+    model.evidence = {{"20261014-153012-main", 1, 40}};
+    quoted("user_setting", model);
+
+    EfficiencyInput guide;  // "a guide for X" when the guide exists and was found
+    guide.category = "docs";
+    guide.title = "Off-mesh links: jumps, climbs and drops";
+    guide.suggestion = "A guide for off-mesh links, jumps and drops";
+    guide.waste = "Working out how an agent crosses a gap took forty steps of trial";
+    guide.fixType = "guide";
+    guide.appliesTo = "every-game";
+    guide.saveShare = 0.5;
+    guide.saveWhy = "the guide gives the three calls in order";
+    guide.evidence = {{"20261014-153012-main", 1, 40}};
+    quoted("exists_in_docs", guide);
 }

@@ -677,6 +677,12 @@ std::string describe_hit(const DocHit& h) {
     return h.path + ":" + std::to_string(h.line) + (h.heading.empty() ? std::string() : " (" + h.heading + ")");
 }
 
+// "a doc", "an engineChange": the fix type with its article.
+std::string a_fix(const std::string& fixType, bool capital = false) {
+    const bool vowel = !fixType.empty() && std::string("aeiou").find(fixType[0]) != std::string::npos;
+    return std::string(capital ? (vowel ? "An " : "A ") : (vowel ? "an " : "a ")) + fixType;
+}
+
 std::string fix_types_text() {
     std::string out;
     for (const std::string& f : efficiency_fix_types()) out += (out.empty() ? "" : ", ") + f;
@@ -785,7 +791,7 @@ std::optional<EfficiencyRefusal> check_efficiency_report(const std::string& proj
     const bool beyondDocs = in.fixType == "commandOption" || in.fixType == "newCommand" || in.fixType == "engineChange";
     if (beyondDocs && std::count_if(in.whyNotCheaper.begin(), in.whyNotCheaper.end(), [](unsigned char c) { return std::isspace(c) != 0; }) < 4)
         return refuse("not_cheapest",
-                      "/whyNotCheaper is missing: the cheapest fix that removes the waste wins, and a " + in.fixType + " is not the cheapest.",
+                      "/whyNotCheaper is missing: the cheapest fix that removes the waste wins, and " + a_fix(in.fixType) + " is not the cheapest.",
                       "Say why a doc section, a topic guide and an example would not have removed the waste (the order is " + fix_types_text() + ").");
 
     // ---- the evidence: measured, not guessed
@@ -889,7 +895,7 @@ std::optional<EfficiencyRefusal> check_efficiency_report(const std::string& proj
     verdict.candidateOnly = th && th->candidateOnly;
     if (th && th->widerThanFeature && !wider_than_feature(in.appliesTo))
         return refuse("below_threshold",
-                      "A " + in.fixType + " is justified only for waste that every game or a genre meets; /appliesTo is " + in.appliesTo + ".",
+                      a_fix(in.fixType, true) + " is justified only for waste that every game or a genre meets; /appliesTo is " + in.appliesTo + ".",
                       "Say appliesTo every-game or genre if it is true, else use a doc section or an example for this one feature (" +
                           threshold_text(*threshold_of("doc")) + " per game).");
     if (th && !meets(*th, verdict.saving)) {
@@ -902,7 +908,7 @@ std::optional<EfficiencyRefusal> check_efficiency_report(const std::string& proj
         return refuse("below_threshold",
                       std::string("The saving is ") + saved + " per game (the measured span times /expectedSaving/share" +
                           (verdict.measured.estimated ? "; tokens are estimated from bytes, the cost of a CLI agent is not known" : "") +
-                          "); a " + in.fixType + " is justified from " + threshold_text(*th) + ".",
+                          "); " + a_fix(in.fixType) + " is justified from " + threshold_text(*th) + ".",
                       ok.empty() ? "Not worth filing. Waste this small is part of how the work goes; it is not engine feedback. (An engine change goes on the roadmap only when the reports add up to $" +
                                        number_text(kEfficiencyRoadmapUsd) + " or " + number_text(kEfficiencyRoadmapHours) + " hours across games.)"
                                  : "This saving justifies: " + ok + ". Would one of those remove the waste? If so report that fix; if not, it is not worth filing.");

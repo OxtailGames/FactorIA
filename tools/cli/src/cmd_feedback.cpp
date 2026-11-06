@@ -213,10 +213,10 @@ Command make_feedback_command() {
     add.examples = {"factoria feedback add --category physics --severity major --title \"No fluid simulation\" \\\n"
                     "    --missing \"There is no liquid solver\" --workaround \"scripts/water.js fakes a surface\" --files scripts/water.js",
                     "factoria feedback add --json '{\"category\":\"docs\",\"severity\":\"minor\",\"title\":\"...\",\"missing\":\"...\",\"workaround\":\"...\"}'",
-                    "factoria feedback add --kind efficiency --category scene --title \"Tilemap collision setup\" \\\n"
-                    "    --waste \"Learning how Tilemap layers become colliders took 40 steps\" --evidence 20261014-153012-main:12-52 \\\n"
-                    "    --fix-type guide --saving-share 0.7 --saving-why \"a guide gives the three calls\" --applies-to every-game \\\n"
-                    "    --suggestion \"A tilemap topic guide: layers, colliders, one-way tiles\""};
+                    "factoria feedback add --kind efficiency --category scripting --title \"Boss fight phases\" \\\n"
+                    "    --waste \"Making a boss that changes at health thresholds took 40 steps\" --evidence 20261014-153012-main:12-52 \\\n"
+                    "    --fix-type guide --saving-share 0.7 --saving-why \"a guide gives the three calls\" --applies-to genre \\\n"
+                    "    --suggestion \"A boss fight topic guide: phases at health thresholds, attack timers\""};
     add.run = [](Context& ctx) {
         const Args& a = ctx.args;
         std::string dir = resolve_project_dir(ctx, 0);

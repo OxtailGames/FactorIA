@@ -105,6 +105,12 @@ File it with `feedback.report` and `kind: "efficiency"` (CLI `factoria feedback 
 (`ai.retrospective`, docs/AI_PROVIDERS.md, "Retrospective") finds the candidates for you; you can also file one by hand. An efficiency
 entry has the same `category` list, and is only worth filing when it is **measured** and **worth its fix**.
 
+**When to file.** After a run, not during it: when you look back and one stretch of it (a system you understood only after forty steps, a
+doc you read five times, the same command called ten times where one call with an option would do) cost more than the thresholds below
+and a doc, a guide, an example or a command option would have removed it. File at most three per run, the ones with the biggest
+saving. Do not file what only cost this game (a project fact), what is about the model you ran (the user's setting), or a saving that
+is under its threshold: the gate refuses all of those, with the reason, before anything is written.
+
 From the editor, the Feedback panel's **Retrospective** button runs the retrospective in the background and says what it filed; the
 panel also adds up what the open efficiency entries' fixes would save per game. With `savers.retrospective` on in `ai.json` it also
 runs after a long run (150 model calls or $3 by default).
@@ -112,14 +118,14 @@ runs after a long run (150 model calls or $3 by default).
 ```json
 {
   "kind": "efficiency",
-  "category": "scene",
-  "title": "Tilemap collision setup",
-  "waste": "Learning how Tilemap layers become colliders took 40 steps of reading components and trying values.",
+  "category": "scripting",
+  "title": "Boss fight phases",
+  "waste": "Making a boss that changes its behaviour at health thresholds took 40 steps of wiring states and timers by hand.",
   "evidence": [{"session": "20261014-153012-main", "fromStep": 12, "toStep": 52}],
   "fixType": "guide",
   "expectedSaving": {"share": 0.7, "why": "a guide gives the three calls that took the other 30 steps to find"},
-  "appliesTo": "every-game",
-  "suggestion": "A tilemap topic guide: layers, colliders, one-way tiles."
+  "appliesTo": "genre",
+  "suggestion": "A boss fight topic guide: phases at health thresholds, attack timers, a telegraphed attack."
 }
 ```
 
@@ -166,6 +172,70 @@ similar `title` or `suggestion`: `occurrences` goes up, the `measured` and `savi
 appended. Reporting steps the entry already counts changes nothing (`alreadyCounted: true`), so a retry or a second retrospective of the
 same session never counts twice. `feedback.list` and `factoria feedback list` take `kind` / `--kind` (`gap` or `efficiency`) and show the
 saving of efficiency entries.
+
+### Three reports that pass the gate, three that are refused
+
+The report at the top of this section (a boss fight guide) is the first good one. Two more, a command option and an example (invented like the
+first; a test runs all three through the gate against a transcript of the length they name, so they stay valid):
+
+```json
+{
+  "kind": "efficiency",
+  "category": "scene",
+  "title": "Placing many entities of one prefab",
+  "waste": "Filling a level took one prefab spawn call per entity, 50 calls where one call with a list of positions would do.",
+  "evidence": [{"session": "20261014-153012-main", "fromStep": 8, "toStep": 58}],
+  "fixType": "commandOption",
+  "whyNotCheaper": "A doc cannot shorten the calls: each entity still needs its own call, and an example only shows the 50 calls.",
+  "expectedSaving": {"share": 0.8, "why": "one call with a positions list replaces the 40 calls that only repeated the first"},
+  "appliesTo": "every-game",
+  "suggestion": "A positions list on the prefab spawn command, so one call places all the copies."
+}
+```
+
+```json
+{
+  "kind": "efficiency",
+  "category": "ui",
+  "title": "A gamepad-navigable menu",
+  "waste": "Making a menu that the gamepad and the keyboard both move through took 26 steps of wiring focus by hand.",
+  "evidence": [{"session": "20261014-153012-main", "fromStep": 5, "toStep": 30}],
+  "fixType": "example",
+  "expectedSaving": {"share": 0.7, "why": "a menu scene to copy has the focus wiring, so the 26 steps become a rename"},
+  "appliesTo": "feature",
+  "suggestion": "An example menu scene with focus navigation for the gamepad and the keyboard."
+}
+```
+
+Three reports the gate refuses. Each refusal is what the gate answers (`code`, `message`, `hint`); nothing is written.
+
+1. **"Rewrite the scene format to save 2k tokens."** An `engineChange` for 2000 tokens (0.4 minutes, $0.02). An engine change is justified
+   from 60 minutes or $5 per game, and goes on the roadmap only when the reports add up to $1000 or 20 hours across games.
+
+```text
+code: below_threshold
+message: The saving is 0.4 minutes, 2000 tokens, $0.02 per game (the measured span times /expectedSaving/share); an engineChange is justified from 60 minutes or $5.
+hint: Not worth filing. Waste this small is part of how the work goes; it is not engine feedback. (An engine change goes on the roadmap only when the reports add up to $1000 or 20 hours across games.)
+```
+
+2. **"Use a cheaper model."** The model, the effort and the limits are the user's settings, not something the engine can fix.
+
+```text
+code: user_setting
+message: The report asks for a different model, effort or limit: those are the user's settings, not engine feedback.
+hint: The retrospective can suggest them to the user (ai.settings, the AI panel); an efficiency entry is about what the ENGINE could do so that any model needs fewer steps.
+```
+
+3. **"A guide for off-mesh links"** when docs/NAVIGATION.md already has the section and `docs.search` finds it. If you could not find it, say
+   so: list in `searched` the words you gave `docs.search`, and the report becomes a findability report on that section's title and keywords.
+
+```text
+code: exists_in_docs
+message: The docs already have a section that carries the words of this report: docs/NAVIGATION.md:83 (4. Off-mesh links: jumps, climbs and drops). A "missing guide" for something docs.search finds is not a missing guide.
+hint: Read it. If you did and it did not help, say what is missing from it. If you could not FIND it, this is a findability report: list in /searched the words you gave docs.search (they must not find this section), and make the fix the title and keywords of docs/NAVIGATION.md:83 (4. Off-mesh links: jumps, climbs and drops).
+```
+
+(The line number in `docs/NAVIGATION.md:83` follows that file; a test compares these blocks with the gate's answers apart from it.)
 
 ### Sharing an efficiency entry
 
