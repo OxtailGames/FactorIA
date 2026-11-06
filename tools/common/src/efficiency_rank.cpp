@@ -87,7 +87,11 @@ Json efficiency_clean_block(const Json& b) {
     if (!has(efficiency_fix_types(), fixType) || !has(efficiency_applies_to(), appliesTo)) return Json();
     if (!b.contains("measured") || !b["measured"].is_object() || !b.contains("saving") || !b["saving"].is_object()) return Json();
     const double share = b.contains("expectedShare") && b["expectedShare"].is_number() ? b["expectedShare"].get<double>() : 0.0;
-    const int spans = b.contains("spans") && b["spans"].is_number() ? static_cast<int>(b["spans"].get<double>()) : 0;
+    int spans = 0;  // a count from outside: clamped before the cast, NaN-proof (the comparison is false for it)
+    if (b.contains("spans") && b["spans"].is_number()) {
+        const double v = b["spans"].get<double>();
+        if (v >= 1.0) spans = static_cast<int>(std::min(v, 1000000.0));
+    }
     const bool candidate = b.contains("candidate") && b["candidate"].is_boolean() && b["candidate"].get<bool>();
     return block_from(fixType, appliesTo, b["measured"], b["saving"], share, spans, str_of(b, "afterFix"), candidate);
 }

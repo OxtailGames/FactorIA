@@ -2,7 +2,9 @@
 // measured, and the report gate refuses what is not measured, not the cheapest fix, or not worth filing. Nothing here asks a model.
 #include <doctest.h>
 
+#include <cmath>
 #include <filesystem>
+#include <sstream>
 #include <string>
 
 #include "fa/core/date.h"
@@ -422,4 +424,164 @@ TEST_CASE("feedback.report kind efficiency: a refusal writes nothing and an unkn
     r = registry.call("feedback.report", args);
     REQUIRE_FALSE(r.ok);
     CHECK(r.error.dump().find("efficiency") != std::string::npos);
+}
+
+// ---------------------------------------------------------------------------------------- review: streaming, budget, numbers --
+
+TEST_CASE("efficiency: a stream is read like the text, a line longer than the limit is dropped, a line may span chunks") {
+    const std::string text = builtin_session(30);
+    std::istringstream in(text);
+    const EfficiencySession streamed = read_efficiency_session(in, "s1");
+    const EfficiencySession whole = read_efficiency_session(text, "s1");
+    CHECK(streamed.steps.size() == whole.steps.size());
+    CHECK(measure_span(streamed, 1, 30).to_json() == measure_span(whole, 1, 30).to_json());
+    CHECK_FALSE(streamed.truncated);
+
+    // A line of 9 MB (past kEfficiencyMaxLine) between two good ones, and a good line of 200 KB (several 64 KB chunks).
+    const std::string big(9u * 1024 * 1024, 'x');
+    const std::string wide = Json::object({{"kind", "noise"}, {"pad", std::string(200 * 1024, 'y')}}).dump();
+    std::istringstream mixed(builtin_session(3) + big + "\n" + wide + "\n" + builtin_session(2));
+    const EfficiencySession s = read_efficiency_session(mixed, "mixed");
+    CHECK(s.skippedLines == 1);          // only the 9 MB line
+    CHECK(s.steps.size() == 5);          // the lines before and after it are read
+}
+
+TEST_CASE("efficiency: a stream past the byte limit is cut and says so") {
+    // 65 lines of 1 MiB: past the 64 MiB that are read. Unknown kinds, so nothing becomes a step; the point is that the read stops.
+    const std::string line = Json::object({{"kind", "noise"}, {"pad", std::string(1024 * 1024, 'y')}}).dump() + "\n";
+    std::string big;
+    big.reserve(line.size() * 65);
+    for (int i = 0; i < 65; ++i) big += line;
+    REQUIRE(big.size() > kEfficiencyMaxBytes);
+    std::istringstream in(std::move(big));
+    const EfficiencySession cut = read_efficiency_session(in, "big");
+    CHECK(cut.truncated);
+    std::istringstream small(line + line);
+    CHECK_FALSE(read_efficiency_session(small, "small").truncated);
+}
+
+TEST_CASE("efficiency: load_efficiency_session refuses a file over the per-file cap and one that no longer fits the budget, with the reason") {
+    Project p;
+    p.session("small-a", builtin_session(5));
+    p.session("small-b", builtin_session(5));
+    const std::uintmax_t size = std::filesystem::file_size(p.dir.path / ".factoria" / "ai" / "sessions" / "small-a.jsonl");
+    REQUIRE(size > 100);
+
+    EfficiencyLoadBudget budget;
+    budget.total = budget.bytesLeft = size + size / 2;  // room for one of them
+    auto first = load_efficiency_session(p.dir.str(), "small-a", &budget);
+    REQUIRE_MESSAGE(first.ok(), first.error().message);
+    CHECK(budget.bytesLeft == size / 2);
+    auto second = load_efficiency_session(p.dir.str(), "small-b", &budget);
+    REQUIRE_FALSE(second.ok());
+    CHECK(second.error().message.find("small-b") != std::string::npos);
+    CHECK(second.error().message.find("not read") != std::string::npos);
+    CHECK_FALSE(second.error().hint.empty());
+    CHECK(budget.bytesLeft == size / 2);  // a refused file takes nothing off
+    CHECK(load_efficiency_session(p.dir.str(), "small-b").ok());  // no budget, no total limit
+
+    // The per-file cap: a sparse file of one byte over it is refused before it is opened.
+    const std::filesystem::path huge = p.dir.path / ".factoria" / "ai" / "sessions" / "huge.jsonl";
+    p.session("huge", "{}\n");
+    std::error_code ec;
+    std::filesystem::resize_file(huge, kEfficiencyMaxBytes + 1, ec);
+    REQUIRE_FALSE(ec);
+    auto big = load_efficiency_session(p.dir.str(), "huge");
+    REQUIRE_FALSE(big.ok());
+    CHECK(big.error().message.find("huge") != std::string::npos);
+    CHECK(big.error().message.find(std::to_string(kEfficiencyMaxBytes / (1024 * 1024)) + " MB") != std::string::npos);
+    std::filesystem::remove(huge, ec);
+}
+
+TEST_CASE("efficiency: a number in a transcript or a block that is huge, negative or NaN cannot overflow a count") {
+    // The usage numbers are doubles in the file: past the range of the integer, they are clamped, never cast out of range.
+    const std::string line = R"({"kind":"assistant","t":"2027-01-15T10:00:00.000Z","usage":{"inputTokens":1e300,"outputTokens":-5,"cacheReadTokens":1.8446744073709552e19},)"
+                             R"("costUsd":1e300,"content":[]})";
+    const EfficiencySession s = read_efficiency_session(line + "\n" + line + "\n", "x");
+    REQUIRE(s.steps.size() == 2);
+    CHECK(s.steps[0].tokens <= 3'000'000'000'000'000ull);
+    CHECK(s.steps[0].tokens > 0);
+    const EfficiencyMeasure m = measure_span(s, 1, 2);
+    CHECK(m.tokens == s.steps[0].tokens + s.steps[1].tokens);
+    CHECK(std::isfinite(m.costUsd));
+
+    Json j = Json::object({{"steps", 1e300}, {"toolCalls", -4}, {"minutes", std::nan("")}, {"tokens", std::nan("")}, {"costUsd", -1.0}});
+    const EfficiencyMeasure from = EfficiencyMeasure::from_json(j);
+    CHECK(from.steps == 2'000'000'000);
+    CHECK(from.toolCalls == 0);
+    CHECK(from.minutes == 0.0);
+    CHECK(from.tokens == 0);
+    CHECK(from.costUsd == 0.0);
+    j["minutes"] = 1e300;
+    CHECK(EfficiencyMeasure::from_json(j).minutes <= 1e15);
+}
+
+TEST_CASE("efficiency: a session named with accented letters is listed, loaded and measured as UTF-8") {
+    Project p;
+    const std::string name = "20270115-sesi\xC3\xB3n-ni\xC3\xB1o";  // sesión-niño, as UTF-8 text
+    const std::filesystem::path file = p.dir.path / ".factoria" / "ai" / "sessions" /
+                                       (std::filesystem::path(std::u8string(u8"20270115-sesión-niño")) += ".jsonl");
+    testing::write_all(file, builtin_session(40));
+    REQUIRE(std::filesystem::exists(file));
+
+    const std::vector<std::string> names = list_efficiency_sessions(p.dir.str());
+    REQUIRE(names.size() == 1);
+    CHECK(names[0] == name);  // the id is the same bytes the file name has in UTF-8 on every platform
+    auto loaded = load_efficiency_session(p.dir.str(), name);
+    REQUIRE_MESSAGE(loaded.ok(), loaded.error().message);
+    CHECK(loaded->id == name);
+    CHECK(loaded->steps.size() == 40);
+    CHECK(load_efficiency_session(p.dir.str(), name + ".jsonl").ok());
+
+    // The gate and a report find it by that name too, and the entry holds the same UTF-8 text.
+    ScopedShareEnv scoped(p.env);
+    CommandRegistry registry;
+    register_feedback_commands(registry, p.dir.str());
+    Json args = report_args(1, 40);
+    args["evidence"][0]["session"] = name;
+    auto r = registry.call("feedback.report", args);
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(load_feedback(p.dir.sub("ENGINE_FEEDBACK.json")).value()["entries"][0]["evidence"][0]["session"] == name);
+}
+
+TEST_CASE("feedback: add_feedback_entry refuses kind efficiency (only the gate may write one); a gap report takes the share lock") {
+    Project p;
+    ScopedShareEnv scoped(p.env);
+    FeedbackInput in;
+    in.kind = "efficiency";
+    in.category = "scene";
+    in.title = "Quantum flux calibration routine";
+    in.efficiency = Json::object({{"waste", "Working out the order of the flux calibration calls took forty steps of trial"}});
+    Json doc = create_empty_feedback("p");
+    auto direct = add_feedback_entry(doc, in);
+    REQUIRE_FALSE(direct.ok());
+    CHECK(direct.error().message.find("efficiency") != std::string::npos);
+    CHECK(direct.error().hint.find("file_efficiency_feedback") != std::string::npos);
+    CHECK(doc["entries"].empty());
+    const std::string file = p.dir.sub("ENGINE_FEEDBACK.json");
+    CHECK_FALSE(add_feedback_entry_to_file(file, in, "p").ok());
+    CHECK_FALSE(std::filesystem::exists(file));
+
+    // The gap path of feedback.report writes under the share lock: while another program holds it, the report fails and writes nothing.
+    ShareEnv busy = p.env;
+    busy.lockWaitSec = 0.2;
+    busy.lockStaleSec = 600.0;
+    ScopedShareEnv scopedBusy(busy);
+    CommandRegistry registry;
+    register_feedback_commands(registry, p.dir.str());
+    const Json gap = Json::object({{"category", "scene"}, {"severity", "minor"}, {"title", "Zorblax wibble gauge is missing"},
+                                   {"missing", "The engine has no zorblax wibble gauge for the quuxel pipeline"},
+                                   {"workaround", "I counted the quuxel frames by hand"}});
+    std::error_code ec;
+    std::filesystem::create_directories(busy.config_dir(), ec);
+    const std::string lockPath = (std::filesystem::path(busy.config_dir()) / kFeedbackShareLockFile).string();
+    testing::write_all(lockPath, "alive");
+    auto blocked = registry.call("feedback.report", gap);
+    REQUIRE_FALSE(blocked.ok);
+    CHECK(blocked.error.value("code", std::string()) == "failed");
+    CHECK_FALSE(std::filesystem::exists(file));
+    std::filesystem::remove(lockPath, ec);
+    auto done = registry.call("feedback.report", gap);
+    REQUIRE_MESSAGE(done.ok, done.error.dump());
+    CHECK(load_feedback(file).value()["entries"].size() == 1);
 }

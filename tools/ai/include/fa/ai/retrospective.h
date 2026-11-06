@@ -108,7 +108,8 @@ struct RetrospectiveOptions {
     std::vector<std::string> sessions;
     // Only transcripts that began at or after this UTC date or time ("2026-11-01" or "2026-11-01T09:30"). Empty = all.
     std::string since;
-    // Only transcripts whose id starts with this (a run's own transcripts: its stamp). Empty = any.
+    // Only transcripts whose id starts with this (a run's own transcripts: its stamp and a dash). A prefix that ends with a dash also leaves
+    // out an id that goes on with a digit after it (a second run of the same second is "<stamp>-2-..."). Empty = any.
     std::string idPrefix;
     // true: the mechanical pass only. No model is asked and nothing is filed.
     bool candidatesOnly = false;
@@ -130,6 +131,8 @@ struct RetrospectiveResult {
     int alreadyFiled = 0;              // candidates left out because an open efficiency entry already counts their evidence
     Json filed = Json::array();        // [{candidate, id, merged, alreadyCounted, title, fixType, saving, measured}]
     Json fixChecks = Json::array();    // [FixCheck::to_json()]: how the fixes of earlier entries did, recorded on the entries too
+    Json skipped = Json::array();      // [{id, reason}]: transcripts that were not read (bigger than kEfficiencyMaxBytes, or past the total
+                                       // kEfficiencyMaxTotalBytes of the pass), so a finding may be missing for that session
     Json dropped = Json::array();      // [{candidate, code, reason}]: candidates the model gave up on or the gate refused, and why
     Json facts = Json::array();        // [{candidate, id, line}]: project-fact proposals
     Json model = Json();               // {role, provider, model} of the call, null when none was made

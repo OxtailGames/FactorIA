@@ -1024,7 +1024,14 @@ Where to start it:
   inside another retrospective. When it files an entry or proposes a fact, the run shows an Info line "Retrospective: ...";
   otherwise it says nothing.
 
-One retrospective runs at a time in a process: a second `ai.retrospective` call gets the error code `busy`.
+One retrospective runs at a time in a process: a second `ai.retrospective` call gets the error code `busy`. **Stop** (the editor's
+button, the cancel of the command) reaches the model call too: the request is dropped, a CLI agent's process is killed, and the
+retrospective returns at once with nothing filed.
+
+How much it reads: a transcript is read line by line (a line over 8 MB is skipped and counted), a file over 64 MB is not read, and
+one pass reads 256 MB in all. A transcript left out for that is listed in the result's `skipped` (`[{id, reason}]`) and the `note`
+says how many, so a finding may be missing for that session; naming one in `sessions` is an error with the same reason. Delete the
+oldest files of `.factoria/ai/sessions` to bring a project back under the limits.
 
 ## Extensions
 

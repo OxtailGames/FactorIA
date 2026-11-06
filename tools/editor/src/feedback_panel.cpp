@@ -110,7 +110,7 @@ void Editor::draw_feedback_panel() {
     }
     at_track("feedback:add");
     ImGui::SetItemTooltip("Write down something the engine lacked");
-    ImGui::SameLine();
+    fit_same_line("Send feedback");  // the row wraps in a narrow window instead of running out of it
     {
         const bool never = share_.mode == ShareMode::Never;
         const bool unavailable = !share_.sharingAvailable;
@@ -122,7 +122,7 @@ void Editor::draw_feedback_panel() {
                                       : never   ? "Sharing is off. Turn it on in File > Feedback Settings."
                                                 : "Choose which open entries go to the engine developers, and read exactly what is sent");
     }
-    ImGui::SameLine();
+    fit_same_line("Looking back...");  // the wider of the two labels the button has
     {
         bool running;
         {
@@ -136,7 +136,7 @@ void Editor::draw_feedback_panel() {
         ImGui::SetItemTooltip("Look back at this project's recorded AI runs: where they wasted steps, minutes or tokens. One short call of the fast role "
                               "files at most three efficiency entries here (nothing is sent anywhere). It costs a model call.");
     }
-    ImGui::SameLine();
+    fit_same_line("[] closed");  // a checkbox: its box counts as one more character
     ImGui::Checkbox("closed", &fbShowClosed_);
     at_track("feedback:closed");
     ImGui::SetItemTooltip("Also list the closed entries: fixed in the engine, won't fix, duplicate and rejected. They live in %s.",

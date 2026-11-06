@@ -313,7 +313,7 @@ void AgentSession::maybe_retrospective(const SessionResult& r) {
     if (r.stopReason == "cancelled" || !opt_.saveTranscript || opt_.projectDir.empty()) return;
     if (retrospective_running_here() || !retrospective_due(config_.savers, r.turns, totalCost_)) return;
     RetrospectiveOptions ro;
-    ro.idPrefix = stamp_;  // this run's own transcripts (the orchestrator's and its delegates')
+    ro.idPrefix = stamp_ + "-";  // this run's own transcripts (<stamp>-<role>...): the dash keeps a stamp that merely starts the same out
     if (factoryInjected_) ro.providerFactory = factory_;
     if (opt_.env) ro.runtime.env = opt_.env;
     ro.cancel = cancel_;
