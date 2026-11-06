@@ -1910,3 +1910,80 @@ Rules every package keeps:
   when the guide exists and was found); the rule in AI_GUIDE.md and the AGENTS.md template (one line, the rest on
   demand); AI_COSTS.md links it. Run the retrospective over the transcripts of a reference game built with the engine
   (M60 or a new short one) and file what passes, so the first entries are real.
+
+## M66-M69: ideas from the second look at outside projects (planned 2026-11-06)
+
+References: dsh-game-studio (one sentence to a browser game, a self-playing playtest that reports, art candidates with a
+cost card before spending, LAN play by QR, one-file HTML export) and a post about an agent that made hundreds of game
+and mockup variants that nobody could review. Their ideas only: nothing of theirs is bundled, and each milestone is
+FactorIA's own version over its commands. They start after the M61-M65 block ships.
+
+## M66. Paid asset generation shows its cost and asks first (M; 3 packages) — the user, 2026-11-06
+
+Today asset providers (image, voice, sound, 3D) bill per call and FactorIA does not know their prices
+(AI_PROVIDERS.md, "Cost"); `limits.maxCostUsd` covers LLM runs only, so a batch can spend without anyone seeing it.
+
+- M66.1 (S) Prices: `pricing` on asset providers (per image by size and quality, per 1000 characters of voice, per
+  second of sound, per 3D model), built-in defaults for the presets with the date they were checked and the pricing
+  page, and an `estimatedCostUsd` in every generation result and in the run's cost (said to be an estimate).
+- M66.2 (M) Limits and approval: `limits.maxAssetCostUsd` per run and per day (the project's AI settings, M61), checked
+  before each call with a teaching error (which limit, how to raise it). A call or batch over the project's
+  `askAboveUsd` (default $0.50) waits for the user: in the editor a card with what will be made, how many, the provider
+  and the estimate (Approve, Approve all for this run, Cancel); over MCP and the CLI the call returns
+  `needsApproval` with the plan, and runs with `approved: true` only after the user said yes. `fake` and local
+  providers never ask.
+- M66.3 (S) Candidates: `count` on image generation (default 1, at most 4) gives numbered candidates for one slot on one
+  contact sheet (M69), and `assets.pick {slot, n}` keeps one and moves the rest to `.factoria/assets/candidates/`
+  (cleaned after 7 days). The estimate is for all candidates. Docs (ASSETS.md, AI_COSTS.md), tests with the fake
+  provider.
+
+## M67. The AI plays the game and reports, with nobody at the keyboard (L; 4 packages) — the user, 2026-11-06
+
+`play.report` reads what happened while a person played; Lantern Keep and Clockwork Courier carry their own bot
+(`tests/helpers/autoplay.js`) for tests only. A game-making AI should be able to play its game end to end and read the
+same report before it shows the game to the user.
+
+- M67.1 (M) The bot hook: a game declares how to play itself in `scripts/autoplay.js` (`game.autoplay(fn)`: called
+  every step with the state, returns the actions to press), and the templates ship one that finishes their sample
+  level. Without a hook, a generic explorer presses the declared input actions in seeded patterns (never random:
+  `world.rng`) so a game still gets smoke-played.
+- M67.2 (M) `play.auto {scene?, seconds?, seed?, speed?}` runs the game headless at fast speed with the bot and writes a
+  session in the same format as an editor session (`.factoria/sessions/`, `"source": "auto"`): perf, spikes, warnings and
+  script errors, plus `phases` (the scenes and the game's own `game.phase("boss")` marks, with times), `score` and
+  `ended` (won, lost, timed out, stuck: no state change for N seconds) and a screenshot per phase and at the end.
+  `play.report` reads it unchanged.
+- M67.3 (S) Stuck and broken detection: same position or state for N seconds, an exception loop, falling out of the
+  world, a soft lock in a menu; each becomes a mark with a screenshot and the step, and `input.record` keeps the inputs
+  so `factoria run --input` replays the problem.
+- M67.4 (M) The loop: AI_GUIDE.md and the AGENTS.md template say to run `play.auto` after a feature and before asking
+  the user to play; the Play menu gets "Let the AI play" with the report in the Play sessions list; an example game
+  (Lantern Keep) swaps its test bot for the hook. Autotest section.
+
+## M68. Try it on the phone: LAN play by QR and a one-file web build (M; 3 packages) — the user, 2026-11-06
+
+Today the web export has to be served by hand (`python -m http.server`, EXPORTING.md) and a phone needs a full Android or
+iOS build to try the game.
+
+- M68.1 (M) `project.serve_web {lan?: bool}`: exports the web build in debug mode if it is stale, serves it from a small
+  HTTP server inside the editor (localhost by default; on the LAN only when asked, on a random port with a random path
+  token, stopped with the editor or `project.serve_web {stop:true}`), and returns the URLs. A changed script or asset
+  re-exports and the page reloads.
+- M68.2 (S) The editor's "Play on phone" button shows the LAN URL as a QR code drawn by the engine (our own encoder, no
+  library download) and says what to check when the phone cannot open it (same Wi-Fi, firewall prompt on Windows and
+  macOS, guest networks that isolate devices). Logs and errors from the phone's page come back to the editor console.
+- M68.3 (S) `project.export {platform:"web", singleFile:true}`: one HTML file with the player, wasm and `game.pak`
+  inlined (base64), that runs offline from a double click; refused with a teaching error over a size limit (default
+  64 MB) and when a feature needs a server (threads, which need cross-origin isolation). EXPORTING.md, MOBILE.md.
+
+## M69. Reviewing many variants at once: contact sheets (M; 2 packages) — the user, 2026-11-06
+
+When an AI makes many versions of something (candidates of a sprite, layouts of a menu, seeds of a level, effects,
+whole prototypes), looking at them one by one costs the user more than making them did.
+
+- M69.1 (M) `review.sheet {items, columns?, label?}`: one image with numbered thumbnails of scenes, prefabs, images,
+  levels (`tilemap.generate` seeds), vector art or effects (the middle frame of `vfx.filmstrip`), each with its label
+  and a short line of numbers (size, colours, particles); the result carries the picture so the art critic or the user
+  picks by number. `review.pick {sheet, n}` records the choice and drops the rest (asked first in the editor).
+- M69.2 (M) Editor: a Review window that shows a sheet big, with keyboard picking (1-9, arrows), a "compare two" view
+  and the history of past picks; the asset candidates (M66.3) and the Level generator's seeds open in it. Autotest
+  section; docs in EDITOR.md and AI_GUIDE.md ("make N, show one sheet, ask for one number").
