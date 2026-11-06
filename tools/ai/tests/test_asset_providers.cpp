@@ -471,6 +471,10 @@ TEST_CASE("asset providers are not chat providers: models, chat and the doctor r
     CHECK_FALSE(find("meshy").available);  // no MESHY_API_KEY
     CHECK(find("elevenlabs").makes == std::vector<std::string>{"sound", "music", "voice"});
     CHECK(find("meshy").makes == std::vector<std::string>{"model3d"});
+    // ai.providers shows each asset provider's price table (with the day it was looked up); fake has none.
+    CHECK(find("meshy").to_json()["assetPricing"].contains("model3d"));
+    CHECK(find("elevenlabs").to_json()["assetPricing"].contains("checked"));
+    CHECK_FALSE(find("fake").to_json().contains("assetPricing"));
 
     const std::string report = format_doctor_report(cfg, status);
     CHECK(report.find("[makes sound, music, voice]") != std::string::npos);

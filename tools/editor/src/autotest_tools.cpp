@@ -8907,7 +8907,7 @@ void Editor::at_build_tools_script() {
             at_check(std::abs(ai::asset_run_spent(x->chat) - 3.60) < 0.001, "...and still counts into the run (3 x $1.20)");
         });
         // ---- Cancel: the call is declined, nothing is spent
-        step(2, [this, x, call] {
+        step(2, [x, call] {
             ai::asset_run_begin(x->chat);  // a new run: the questions are back
             call(1.20);
         });
