@@ -232,20 +232,28 @@ stdfs::path canonical_of(const stdfs::path& given) {
     return canonical_of(given, resolved);
 }
 
+}  // namespace
+
 // What one call works out about folders is remembered while it runs (a load, a flush section, the editor's tick): every outbox item
 // of a project would otherwise cost several file system calls per item, every second. A scope made inside another one joins it. What
 // is kept are the answers of the file system (the resolved folder and its key, whether a stored key's folder exists, whether two
-// folders are the same one), not the modes: the settings may change inside one call, the folders do not.
-struct ResolvedDir {
-    stdfs::path canon;     // absolute, symlinks resolved where they could be
-    std::string key;       // share_project_key of it
-    bool resolved = true;  // false: the file system could not answer, `canon` is only the path as typed
-};
-struct KeyCache {
-    std::unordered_map<std::string, ResolvedDir> dirs;  // by the path as given
+// folders are the same one), not the modes: the settings may change inside one call, the folders do not. The editor keeps one across
+// its ticks (ShareKeyCache) and drops it every ttlSec.
+struct ShareKeyCacheData {
+    struct Dir {
+        stdfs::path canon;     // absolute, symlinks resolved where they could be
+        std::string key;       // share_project_key of it
+        bool resolved = true;  // false: the file system could not answer, `canon` is only the path as typed
+    };
+    std::unordered_map<std::string, Dir> dirs;          // by the path as given
     std::unordered_map<std::string, int> exists;        // by key: 0 no, 1 yes, 2 the file system could not say
     std::unordered_map<std::string, bool> same;         // by two keys: the same folder on disk
+    std::chrono::steady_clock::time_point builtAt = std::chrono::steady_clock::now();
 };
+
+namespace {
+using ResolvedDir = ShareKeyCacheData::Dir;
+using KeyCache = ShareKeyCacheData;
 thread_local KeyCache* t_keyCache = nullptr;
 struct KeyCacheScope {
     KeyCache cache;
@@ -300,6 +308,20 @@ int restrictiveness(ShareMode m) {
     return 0;
 }
 }  // namespace
+
+ShareKeyCache::ShareKeyCache(double ttlSec) : data_(std::make_unique<ShareKeyCacheData>()), ttlSec_(ttlSec) {}
+ShareKeyCache::~ShareKeyCache() = default;
+void ShareKeyCache::clear() { data_ = std::make_unique<ShareKeyCacheData>(); }
+
+ShareKeyCacheScope::ShareKeyCacheScope(ShareKeyCache& cache) : owner_(t_keyCache == nullptr) {
+    if (!owner_) return;  // inside another scope: that one's answers are used
+    if (std::chrono::duration<double>(std::chrono::steady_clock::now() - cache.data_->builtAt).count() > cache.ttlSec_) cache.clear();
+    t_keyCache = cache.data_.get();
+}
+ShareKeyCacheScope::~ShareKeyCacheScope() {
+    if (owner_) t_keyCache = nullptr;
+}
+
 
 std::string share_project_key(const std::string& projectDir, bool caseInsensitive) {
     if (projectDir.empty()) return {};
@@ -873,6 +895,50 @@ bool any_finished() {
     return !g_finishedKeys.empty();
 }
 
+// The same for a retry: when the server answered 5xx or 429 (or could not be reached) and the lock then stayed busy, the attempt count
+// and the next time of the items could not be written. They are kept here for the life of the process and applied to the outbox the
+// next time it is read (a flush, or share_has_due), so the backoff the server asked for is not lost and the items are not sent again
+// at once. Forgotten when they are applied and saved, or when the item is queued again.
+struct PendingRetry {
+    int attempts = 0;
+    std::string lastError;
+    std::int64_t nextAttempt = 0;
+};
+std::mutex g_retryMutex;
+std::map<std::string, PendingRetry> g_pendingRetries;
+
+void remember_retries(const std::map<std::string, OutboxItem>& items) {
+    std::lock_guard<std::mutex> g(g_retryMutex);
+    for (const auto& [key, it] : items) g_pendingRetries[key] = {it.attempts, it.lastError, it.nextAttempt};
+}
+// Applies what is remembered to the items of `box` (the later next time and the higher count win); the keys applied go to `applied`.
+bool apply_pending_retries(Outbox& box, std::set<std::string>& applied) {
+    std::lock_guard<std::mutex> g(g_retryMutex);
+    if (g_pendingRetries.empty()) return false;
+    bool changed = false;
+    {  // an item that left the outbox meanwhile (another program sent or dropped it) has nothing to apply
+        std::set<std::string> present;
+        for (const OutboxItem& it : box.items) present.insert(it.key);
+        for (auto r = g_pendingRetries.begin(); r != g_pendingRetries.end();) r = present.count(r->first) ? std::next(r) : g_pendingRetries.erase(r);
+    }
+    for (OutboxItem& it : box.items) {
+        const auto r = g_pendingRetries.find(it.key);
+        if (r == g_pendingRetries.end()) continue;
+        applied.insert(it.key);
+        if (r->second.attempts > it.attempts || r->second.nextAttempt > it.nextAttempt) {
+            it.attempts = std::max(it.attempts, r->second.attempts);
+            it.nextAttempt = std::max(it.nextAttempt, r->second.nextAttempt);
+            it.lastError = r->second.lastError;
+            changed = true;
+        }
+    }
+    return changed;
+}
+void forget_retries(const std::set<std::string>& keys) {
+    std::lock_guard<std::mutex> g(g_retryMutex);
+    for (const std::string& k : keys) g_pendingRetries.erase(k);
+}
+
 std::string mode_off_reason(ShareMode mode) {
     return mode == ShareMode::Never ? "sharing is off (mode never)" : "sharing is not set up (the user chooses the mode)";
 }
@@ -945,6 +1011,7 @@ Result<QueueResult> share_queue(const ShareEnv& env, const std::string& feedback
         r.entry = build_share_entry(e, clean);
         const std::string key = item_key(feedbackFile, id);
         forget_finished({key});  // a new occurrence of an entry this process sent: it goes again
+        forget_retries({key});
         OutboxItem* item = find_item(box, key);
         if (!item) {
             // The server is failing right now (an item is backing off): a new entry waits for the same time instead of
@@ -1078,7 +1145,9 @@ bool share_has_due(const ShareEnv& env, const std::string& file) {
     KeyCacheScope keys;
     const ShareSettings settings = load_share_settings(env);
     if (share_endpoint(env, settings).empty()) return false;
-    const Outbox box = load_outbox(env);
+    Outbox box = load_outbox(env);
+    std::set<std::string> pending;
+    apply_pending_retries(box, pending);  // a backoff the lock could not write yet still counts
     const std::int64_t now = env.clock();
     const std::string fileKey = share_project_key(file);
     for (const OutboxItem& it : box.items)
@@ -1143,6 +1212,9 @@ FlushResult share_flush(const ShareEnv& env, const FlushOptions& options) {
             settings = load_share_settings(env);
             box = load_outbox(env);
             bool boxChanged = demote_unauthorized(box, settings);
+            // The backoff of an earlier pass whose lock stayed busy after a 5xx or 429 answer: written now.
+            std::set<std::string> retriesApplied;
+            if (apply_pending_retries(box, retriesApplied)) boxChanged = true;
             // What an earlier pass of this process sent but could not take out of the outbox (the lock was busy): out now.
             std::set<std::string> leftOver;
             if (any_finished())
@@ -1154,7 +1226,12 @@ FlushResult share_flush(const ShareEnv& env, const FlushOptions& options) {
                     }
             if (boxChanged) {
                 if (auto sv = save_outbox(env, box); !sv.ok()) saveError = sv.error().message;
-                else forget_finished(leftOver);
+                else {
+                    forget_finished(leftOver);
+                    forget_retries(retriesApplied);
+                }
+            } else {
+                forget_retries(retriesApplied);
             }
             now = env.clock();
             std::size_t bytes = 256;
@@ -1295,6 +1372,7 @@ FlushResult share_flush(const ShareEnv& env, const FlushOptions& options) {
                 // The results are not in the outbox file: this process remembers these items as sent (the next flush takes them
                 // out without sending them), but another process would send them again.
                 saveError = lockPtr->error();
+                remember_retries(retried);  // the backoff of the items that go later is written the next time the outbox is read
                 res.outcome = outcome;
                 res.message = message + (finished.empty() ? std::string() :
                               " Warning: the lock of the sharing files stayed busy, so what was sent could not be taken out of the outbox yet;"

@@ -36,6 +36,7 @@ struct ShareAutotestNet {
 struct ShareUi {
     // --- polling (once a second, only the files that changed are read again)
     double tickAt = -10;
+    ShareKeyCache folderCache{30.0};   // the folder facts of the outbox items (stat calls), kept between ticks for 30 s
     std::string docFile;               // the feedback file the numbers below are about
     std::int64_t docStamp = INT64_MIN; // its modification time when they were read
     bool docRecheck = false;            // read once more next tick: a write right after the read may have kept the same time

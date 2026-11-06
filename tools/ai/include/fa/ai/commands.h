@@ -54,10 +54,10 @@ struct AiCommandOptions {
     ProviderRuntime runtime;
 };
 
-// Registers "ai.providers" (list/doctor), "ai.settings.get" / "ai.settings.set" (the AI settings of the project and the user's own), "ai.models" (the models each provider offers) and "ai.run" (run a task
-// synchronously with the configured role). The registry is also the tool source for the agent
-// (ai.* commands are hidden from the model to avoid recursion). It must outlive
-// the registered handlers.
+// Registers "ai.providers" (list/doctor), "ai.settings.get" / "ai.settings.set" (the AI settings of the project and the user's
+// own), "ai.models" (the models each provider offers) and "ai.run" (run a task synchronously with the configured role, under the
+// project's AI settings). The registry is also the tool source for the agent (ai.* commands are hidden from the model to avoid
+// recursion). It must outlive the registered handlers.
 void register_ai_commands(CommandRegistry& registry, AiCommandOptions options = {});
 
 }  // namespace fa::ai

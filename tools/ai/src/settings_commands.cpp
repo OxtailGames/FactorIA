@@ -2,8 +2,12 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <map>
+#include <optional>
 #include <set>
+#include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -19,6 +23,15 @@ namespace fsys = std::filesystem;
 namespace {
 
 const char* const kExtensionGroupNames[] = {"plugins", "skills", "hooks"};
+
+// The bytes of a file, nullopt when it cannot be read (it does not exist).
+std::optional<std::string> read_text_if_any(const std::string& file) {
+    std::ifstream in(fsys::path(file), std::ios::binary);
+    if (!in) return std::nullopt;
+    std::ostringstream text;
+    text << in.rdbuf();
+    return text.str();
+}
 
 void collect_leaves(const Json& j, const std::string& pointer, std::vector<std::pair<std::string, Json>>& out) {
     if (j.is_object()) {
@@ -161,7 +174,8 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
             "value (null) from an accepted file keeps it accepted (it only gets smaller; its acceptance is updated to the smaller file), and a "
             "removal that empties the file deletes it and forgets its acceptance; removing a value from a file that is not accepted leaves it "
             "waiting. The result says so: needsAcceptance true plus a hint. Returns {ok, scope, pointer, "
-            "removed, value (what you asked for), runsWith (what the project runs with right now, which is unchanged while its file waits), source "
+            "removed (true only when a value was really taken out: null for a setting the file did not hold changes nothing, says removed false "
+            "and a hint that nothing changed), value (what you asked for), runsWith (what the project runs with right now, which is unchanged while its file waits), source "
             "(where runsWith comes from), file, needsAcceptance, applied, hint}; scope \"user\" also returns changed: [{pointer, from, to}], "
             "every setting whose value is different now (a new provider for a role also drops its model, effort and voice). Example: {\"scope\":\"project\",\"pointer\":\"/roles/artist/enabled\",\"value\":false}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
@@ -229,12 +243,18 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
 
             Json out = Json::object({{"scope", scope}, {"pointer", pointer}});
             if (scope == "user") {
+                // What ai.json holds before, to tell afterwards whether a removal took anything out of it: the file is only rewritten when a
+                // key was erased (a server's or plugin's pointer erases its "enabled" switch, which a definition may not hold).
+                const std::string userFile = aiConfigPath.empty() ? default_config_path(env) : aiConfigPath;
+                const std::optional<std::string> fileBefore = value.is_null() ? read_text_if_any(userFile) : std::nullopt;
                 if (auto ok = set_user_setting(pointer, value, aiConfigPath, env); !ok) fail("invalid_setting", ok.error());
                 if (onUserConfigChanged) onUserConfigChanged();  // the file is written: the editor reloads before anything below can fail
                 auto after = resolve_ai_config("", aiConfigPath, env);
                 if (!after) throw CommandError("invalid_config", after.error().message, after.error().hint);
                 out["ok"] = true;
-                out["removed"] = value.is_null();
+                // `removed` says a value was taken out of ai.json: null for a setting the file did not set removes nothing.
+                const bool removed = value.is_null() && fileBefore && read_text_if_any(userFile) != fileBefore;
+                out["removed"] = removed;
                 const Json view = settings_view(after->config);
                 const Json::json_pointer jp{pointer};
                 out["value"] = view.contains(jp) ? view[jp] : Json(nullptr);
@@ -244,12 +264,20 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
                 out["needsAcceptance"] = false;
                 out["applied"] = true;
                 out["changed"] = changed_json(before->config, after->config);
-                out["hint"] = "Saved in your ai.json: it is the default of every project that does not set it itself.";
+                // A tool server's or extension's pointer is its on/off switch: null removes "enabled" from its entry, never the entry.
+                const bool isSwitch = pointer.rfind("/mcpServers/", 0) == 0 || pointer.rfind("/extensions/", 0) == 0;
+                out["hint"] = value.is_null() && !removed
+                                  ? (isSwitch ? "Nothing changed: your ai.json holds no \"enabled\" switch for " + escape_control_chars(pointer) +
+                                                    ", so there was nothing to remove (null removes the switch, never the server's or extension's entry)."
+                                              : "Nothing changed: your ai.json does not set " + escape_control_chars(pointer) +
+                                                    ", so there was nothing to remove (it is the engine's own value).")
+                                  : "Saved in your ai.json: it is the default of every project that does not set it itself.";
                 return out;
             }
 
             ProjectSettingsFile file = read_project_settings_file(dir);
             if (!file.error.empty()) throw CommandError("invalid_setting", file.error, "Fix the file or delete it, then try again.");
+            const bool fileSetsIt = file.overrides.is_object() && file.overrides.contains(Json::json_pointer(pointer));
             if (value.is_null()) {
                 if (auto ok = reset_project_setting(dir, pointer, aiConfigPath, env); !ok) fail("invalid_setting", ok.error());
             } else {
@@ -267,7 +295,8 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
             auto after = resolve_ai_config(dir, aiConfigPath, env);
             if (!after) throw CommandError("invalid_config", after.error().message, after.error().hint);
             out["ok"] = true;
-            out["removed"] = value.is_null();
+            const bool removed = value.is_null() && fileSetsIt;  // null for a value the project's file did not hold removes nothing
+            out["removed"] = removed;
             // `value` is what was asked for; `runsWith` is what the project runs with right now (its file may still wait).
             const Json view = settings_view(after->config);
             const Json::json_pointer jp{pointer};
@@ -278,7 +307,11 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
             out["fileExists"] = after->fileExists;
             out["applied"] = after->applied;
             out["needsAcceptance"] = after->pendingTrust;
-            if (after->pendingTrust) {
+            if (value.is_null() && !removed) {
+                out["hint"] = "Nothing changed: this project's AI settings file does not set " + escape_control_chars(pointer) + ", so there was nothing "
+                              "to remove (the value comes from source \"" + std::string(setting_source_name(after->source_of(pointer))) + "\")." +
+                              (after->pendingTrust ? " The file that is there still waits for the user to accept it once in the editor." : "");
+            } else if (after->pendingTrust) {
                 out["hint"] = "Saved, but NOT applied yet: the project keeps running with your settings until the user accepts " + after->projectFile +
                               " once in the editor (AI settings, with this project open). No command can accept it. Tell the user what you changed.";
             } else if (!after->fileExists) {

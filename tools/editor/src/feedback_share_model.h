@@ -109,6 +109,11 @@ bool set_send_text(SendRow& row, const Json& entry, const ShareFields& text, con
 
 // What Send writes into an entry before queueing it, or nothing when the entry already holds exactly this text and the flag:
 // the shown text when the entry has none or another one, and `reviewed` (true when the AI check passed or the entry already was).
+// How long the editor's UI thread waits for a feedback lock another program holds before the action says "busy, try again": 0.3 s, so
+// a frame never stalls. The autotest raises it (set_ui_lock_wait_sec): on a loaded 4-vCPU machine the editor's own send thread can
+// hold a lock for longer than 0.3 s while a scripted click needs the same file, and a test must not fail on that.
+double ui_lock_wait_sec();
+void set_ui_lock_wait_sec(double sec);
 std::optional<FeedbackShareEdit> share_edit_for_send(const Json& entry, const ShareFields& shown, bool reviewPassed);
 
 struct SendChoice {

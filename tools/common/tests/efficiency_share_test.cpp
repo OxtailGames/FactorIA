@@ -598,3 +598,36 @@ TEST_CASE("feedback collect: efficiency entries are ranked apart from the gaps, 
     CHECK(md.find("doc now") != std::string::npos);
     CHECK(md.find("feedback reject") != std::string::npos);
 }
+
+TEST_CASE("feedback file lock: the project's lock lands next to a feedback file whose folder is not ASCII (the same path conversion as load_feedback)") {
+    Game g;
+    ShareEnv env = g.env;
+    env.lockWaitSec = 0.3;
+    env.lockStaleSec = 600.0;
+    ScopedShareEnv scoped(env);
+    // "Próximo juego ñ": a folder a code page can spell differently than UTF-8 does. The path is handed over the way every
+    // caller does (narrow text), and load_feedback / save_feedback open it with the same std::filesystem::path conversion.
+    const std::filesystem::path folder = g.dir.path / std::filesystem::path(std::u8string(u8"Próximo juego ñ"));
+    std::error_code ec;
+    std::filesystem::create_directories(folder, ec);
+    if (ec) {
+        MESSAGE("skipped: this system cannot make a folder with a non-ASCII name here (" << ec.message() << ")");
+        return;
+    }
+    const std::string file = (folder / "ENGINE_FEEDBACK.json").string();
+    REQUIRE(save_feedback(file, create_empty_feedback("Proximo")).ok());
+    REQUIRE(load_feedback(file).ok());
+    const std::filesystem::path projectLock = folder / ".factoria" / kFeedbackShareLockFile;
+    {
+        FeedbackFileLock lock(env, file);
+        REQUIRE_MESSAGE(lock.held(), lock.error());
+        CHECK(std::filesystem::exists(projectLock));  // in the folder of the file it protects, not in a folder of another name
+    }
+    CHECK_FALSE(std::filesystem::exists(projectLock));
+    // A second spelling of the same folder (a `.` and a `..` in it) is the same lock for one thread: it does not wait for itself.
+    FeedbackFileLock outer(env, file);
+    REQUIRE_MESSAGE(outer.held(), outer.error());
+    const std::string again = (folder / "." / "ENGINE_FEEDBACK.json").string();
+    FeedbackFileLock inner(env, again);
+    CHECK_MESSAGE(inner.held(), inner.error());
+}

@@ -90,4 +90,61 @@ std::map<std::string, ai::RoleConfig> ai_roles_for_defaults(const ai::AiConfig& 
     return out;
 }
 
+bool ai_same_role(const ai::RoleConfig& a, const ai::RoleConfig& b) {
+    return a.provider == b.provider && a.model == b.model && a.effort == b.effort && a.maxTokens == b.maxTokens &&
+           a.maxContextTokens == b.maxContextTokens && a.enabled == b.enabled && a.toolGroups == b.toolGroups;
+}
+
+bool ai_roles_edited(const std::map<std::string, ai::RoleConfig>& edits, const ai::AiConfig& shown) {
+    return std::ranges::any_of(edits, [&](const auto& kv) { return !ai_same_role(kv.second, shown.role(kv.first)); });
+}
+
+std::map<std::string, ai::RoleConfig> ai_roles_keep_edits(const std::map<std::string, ai::RoleConfig>& edits, const ai::AiConfig& shown,
+                                                          const ai::AiConfig& now) {
+    std::map<std::string, ai::RoleConfig> out;
+    for (const char* name : ai::kAllRoles) {
+        const auto it = edits.find(name);
+        out[name] = it != edits.end() && !ai_same_role(it->second, shown.role(name)) ? it->second : now.role(name);
+    }
+    return out;
+}
+
+namespace {
+
+ai::AssetRoute route_of(const ai::AiConfig& cfg, const std::string& kind) {
+    const auto it = cfg.assets.find(kind);
+    return it == cfg.assets.end() ? ai::AssetRoute{} : it->second;
+}
+
+bool same_route(const ai::AssetRoute& a, const ai::AssetRoute& b) {
+    return a.provider == b.provider && a.model == b.model && a.voice == b.voice;
+}
+
+bool same_sites(const std::vector<ai::AssetSite>& a, const std::vector<ai::AssetSite>& b) {
+    return std::ranges::equal(a, b, [](const ai::AssetSite& x, const ai::AssetSite& y) { return x.url == y.url && x.note == y.note; });
+}
+
+}  // namespace
+
+std::map<std::string, ai::AssetRoute> ai_routes_keep_edits(const std::map<std::string, ai::AssetRoute>& edits, const ai::AiConfig& shown,
+                                                           const ai::AiConfig& now) {
+    std::map<std::string, ai::AssetRoute> out;
+    for (ai::MediaKind k : ai::kMediaKinds) {
+        const std::string kind = ai::media_kind_name(k);
+        const auto it = edits.find(kind);
+        const ai::AssetRoute edited = it == edits.end() ? ai::AssetRoute{} : it->second;
+        out[kind] = same_route(edited, route_of(shown, kind)) ? route_of(now, kind) : edited;
+    }
+    return out;
+}
+
+ai::AssetSources ai_sources_keep_edits(const ai::AssetSources& edits, const ai::AiConfig& shown, const ai::AiConfig& now) {
+    ai::AssetSources out = now.assetSources;
+    if (edits.onlyListed != shown.assetSources.onlyListed) out.onlyListed = edits.onlyListed;
+    for (ai::SiteCategory c : ai::kSiteCategories) {
+        if (!same_sites(edits.list(c), shown.assetSources.list(c))) out.list(c) = edits.list(c);
+    }
+    return out;
+}
+
 }  // namespace fa::editor
