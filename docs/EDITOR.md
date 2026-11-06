@@ -331,6 +331,17 @@ The height is kept with the layout.
   showing the worker's live steps. Play stays blocked. When the worker finishes, its report goes into the chat and the
   editor sends it to the orchestrator as a new message of the same conversation (Claude Code `--resume`), once. **Stop**
   stops the orchestrator and the worker, and sends no continuation.
+- **Paid assets ask first.** When the assistant asks a provider for a picture, sound, voice or model estimated above
+  `limits.askAboveUsd` (default $0.50; the estimates and limits are in [AI_COSTS.md](AI_COSTS.md#asset-generation), AI Settings >
+  Assets > Spending limits), the call waits and a card appears under that chat's messages: what will be made, how many, with
+  which provider, the estimate (an estimate from the provider's price list, not an invoice) and when the prices were looked up.
+  **Approve** lets this call go, **Approve all for this run** lets the rest of this chat's run go without asking (the spending
+  limits still hold), **Cancel** declines it and the assistant carries on without it. The editor stays usable while the card
+  waits; the chat's tab shows `?` and a card in a chat that is not in front raises a toast; the "may be stuck" warning does
+  not appear while a card waits, and Stop ends the wait as a Cancel. What you answered is written into the chat. While a run
+  has spent something, its status line ends with `assets ~$X (estimate)`. The `fake` provider and your own programs never ask.
+  A Claude Code or Codex run that waits for the card can hit the agent program's own tool-call timeout; if the call comes back
+  abandoned, answer the card and ask again.
 - Chats are saved in `.factoria/ai/chats/` after each answer and when a tab closes; the open tabs come back when the project opens.
 
 ### Several chats at once
@@ -736,7 +747,8 @@ one. An edit writes the document (and the layer's PNG) as it happens; the baked 
   `image.inpaint` and `image.generate_layer` make ([IMAGES.md](IMAGES.md), "Pictures from a provider"): the plan (provider, selection,
   size) is made first, so a mistake shows in the window before anything is paid for; the provider call runs on its own thread (the
   panel stays usable, a line shows the seconds and a **Cancel** button) and the picture is added as one undo step, selected, as a new
-  `provider` layer masked by the selection. The two are off, with a tooltip saying why, when no image provider is configured, the
+  `provider` layer masked by the selection. The popup shows the estimate for the provider's call (looked up when it opens), and **Make it** is your approval of that cost: the
+  spending limits still hold, and a refusal is shown in the panel. The two are off, with a tooltip saying why, when no image provider is configured, the
   configured one cannot inpaint, there is no selection (Inpaint) or the game is running. An answer that arrives after another document
   was opened is dropped with a message instead of being added to it.
 - **Transform** shows a box with eight handles around the selected pixels (or the whole layer without a selection): drag a handle to
@@ -1173,7 +1185,7 @@ The AI's commands run on the editor's main thread, but never for long at a time:
 ### Run only some sections
 
 The autotest is a list of sections, each a letter (`tools/editor/src/autotest_sections.h`): S (the start: select, edit, undo,
-play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Show-in-file-manager toast button), A (Audio panel), A2 (Profiler panel), B (commands that
+play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Show-in-file-manager toast button), A (Audio panel), A2 (Profiler panel) and A3 (the card of a paid asset call waiting for the user's yes, in the 1024x642 window: Approve, Approve all for this run, Cancel and Stop; it uses a scratch user folder, never your own ~/.factoria), B (commands that
 rebuild the open scene file), C (pick bounds and the selection outline), D (bloom), E (Ctrl+V into the AI input), F (AI text:
 wrapping, right-click menu), G (delete a project), H (Export window), I (Platform settings), J (Set Up This Computer), K
 (custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI
