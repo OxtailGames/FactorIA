@@ -1,10 +1,12 @@
 #include "validate_anim.h"
 
+#include <algorithm>
 #include <format>
 #include <map>
 #include <string>
 #include <vector>
 
+#include "fa/audio/analysis.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/scene/anim3d.h"
@@ -42,22 +44,42 @@ std::vector<std::string> project_clip_files() {
     return out;
 }
 
-// True when a prefab ends itself without a `lifetime`: it carries a Script (which can destroy it) or a ParticleEmitter with
-// `autoDestroy`. Anything else lives as long as the scene unless the spawn action gives a `lifetime`. Read from the file, no scene.
-bool prefab_ends_itself(const Json& node) {
+// True when a prefab ends itself without a `lifetime`: it carries a Script (which can destroy it), a ParticleEmitter with `autoDestroy`
+// or a Vfx with `autoDestroy`, in the prefab itself, in a child, or in a prefab it instances (`{"prefab": "prefabs/x.prefab.json"}`, followed
+// up to 8 levels, a cycle ends the walk). Anything else lives as long as the scene unless the spawn action gives a `lifetime`. Read from the files, no scene.
+bool prefab_ends_itself(const Json& node, std::vector<std::string>& stack) {
     if (node.is_array()) {
         for (const Json& n : node)
-            if (prefab_ends_itself(n)) return true;
+            if (prefab_ends_itself(n, stack)) return true;
         return false;
     }
     if (!node.is_object()) return false;
     if (const auto comps = node.find("components"); comps != node.end() && comps->is_object()) {
         if (comps->contains("Script")) return true;
-        if (const auto pe = comps->find("ParticleEmitter"); pe != comps->end() && pe->is_object() && pe->value("autoDestroy", false)) return true;
+        for (const char* type : {"ParticleEmitter", "Vfx"}) {
+            const auto c = comps->find(type);
+            if (c != comps->end() && c->is_object() && c->value("autoDestroy", false)) return true;
+        }
+    }
+    if (const auto inst = node.find("prefab"); inst != node.end() && inst->is_string() && stack.size() < 8) {
+        const std::string path = inst->get<std::string>();
+        if (std::find(stack.begin(), stack.end(), path) == stack.end()) {
+            if (auto nested = load_json_file(path); nested.ok()) {
+                stack.push_back(path);
+                const bool ends = prefab_ends_itself(*nested, stack);
+                stack.pop_back();
+                if (ends) return true;
+            }
+        }
     }
     for (auto it = node.begin(); it != node.end(); ++it)
-        if ((it.key() == "children" || it.key() == "entity" || it.key() == "entities") && prefab_ends_itself(*it)) return true;
+        if ((it.key() == "children" || it.key() == "entity" || it.key() == "entities") && prefab_ends_itself(*it, stack)) return true;
     return false;
+}
+
+bool prefab_ends_itself(const Json& node, const std::string& path) {
+    std::vector<std::string> stack{path};
+    return prefab_ends_itself(node, stack);
 }
 
 // The files a clip event's game feel actions name (a spawn's prefab, a sound's path) must exist, and a spawn that never ends is a
@@ -75,14 +97,15 @@ void check_feel_files(const std::string& file, const std::string& pointer, const
         if (!key || !action.contains(key) || !action[key].is_string()) return;
         const std::string path = action[key].get<std::string>();
         if (path.empty()) return;
-        if (fs::exists(path)) {
+        // A sound is found as the audio system finds it: an export replaces assets/x.wav by assets/x.wav.qoa, and the game still plays "assets/x.wav".
+        if (kind == "spawn" ? fs::exists(path) : !resolve_audio_path(path).empty()) {
             if (kind != "spawn") return;
             const auto life = action.find("lifetime");
             if (life != action.end() && life->is_number() && life->get<double>() > 0.0) return;
             auto prefab = load_json_file(path);
-            if (prefab.ok() && prefab_ends_itself(*prefab)) return;
+            if (prefab.ok() && prefab_ends_itself(*prefab, path)) return;
             report.warnings.push_back({file, ap + "/prefab",
-                                       std::format("the spawn of '{}' has no `lifetime` and the prefab has no Script or autoDestroy particles to end it: every time the event fires an effect stays for the rest of the scene", path),
+                                       std::format("the spawn of '{}' has no `lifetime` and the prefab has no Script or autoDestroy particles or effect to end it: every time the event fires an effect stays for the rest of the scene", path),
                                        "Add \"lifetime\": 0.5 (seconds) to the action, or end the effect from a script or with ParticleEmitter.autoDestroy."});
             return;
         }
@@ -91,7 +114,7 @@ void check_feel_files(const std::string& file, const std::string& pointer, const
             for (const std::string& f : fs::list(".", true, ".json"))
                 if (ends_with(to_lower(f), ".prefab.json")) existing.push_back(f);
         } else {
-            for (const char* ext : {".wav", ".ogg", ".mp3", ".flac"})
+            for (const char* ext : {".wav", ".ogg", ".mp3", ".qoa"})
                 for (const std::string& f : fs::list(".", true, ext)) existing.push_back(f);
         }
         report.errors.push_back({file, ap + "/" + key, std::format("the {} '{}' does not exist. {}", kind == "spawn" ? "prefab" : "sound", path, did_you_mean(path, existing)),

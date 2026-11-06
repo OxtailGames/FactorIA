@@ -469,6 +469,12 @@ animation (`cycleSeconds * fps` frames).
   `additive` (its colours add to what is under it: draw soft bright glows on it) and a `SpriteAnimator` with the same clip
   on each. The result's `layers` lists `{layer, path, use}`, `path` is the first layer's sheet, and the image is the layers
   stacked on a dark ground (the light added), so one look shows the whole effect. `ramp` and `rampMap` apply to every layer.
+  A module with several layers that never names `layer` is a warning (every sheet would be the same drawing). The frames and
+  sheets of all layers are held in memory together, at most 1024 MB: a larger bake is refused before anything is drawn (bake
+  fewer layers per call, or smaller frames). All sheets are encoded before the first file is written, and if a write fails the
+  sheets this call newly made are removed again (a sheet it replaced cannot be, and the error names it). Baking the same
+  `path` again with fewer layers deletes the sheets of the earlier bake that this command made for that `path` (its recipe
+  says so) together with their entries, and says so in a warning; a file of the same name made by anything else stays.
 
 - **Warnings.** Frames that draw nothing (the shapes sit outside the viewBox, or the module returned an empty drawing), shapes
   touching the edge of the cell (they may be cut off: draw smaller, enlarge the frame, or add `padding`), a loop whose last

@@ -67,3 +67,25 @@ TEST_CASE("validate: an effect warning does not fail the project") {
     for (const auto& e : r.errors) CHECK_MESSAGE(e.file != "assets/vfx/warm.vfx.json", e.to_string());
     CHECK(find(r.warnings, "assets/vfx/warm.vfx.json", "/parts/0/emitter/rate"));
 }
+
+TEST_CASE("validate: an effect in any folder of the project is checked, not only under assets/") {
+    Project p;
+    p.effect("fx/oops.vfx.json", R"({"format":"factoria.vfx/1","parts":[{"type":"command","command":"fs.delete"}]})");
+    p.effect("build/skipped.vfx.json", R"({"format":"factoria.vfx/1","parts":[{"type":"command","command":"fs.delete"}]})");
+    const ValidationReport r = validate_project(p.dir);
+    CHECK(find(r.errors, "fx/oops.vfx.json", "/parts/0/command"));
+    CHECK_FALSE(find(r.errors, "build/skipped.vfx.json", "/parts/0/command"));  // a top-level build/ holds exports, not sources
+}
+
+TEST_CASE("validate: the document a scene's Vfx.effect names is validated, even when its file name is not *.vfx.json") {
+    Project p;
+    p.effect("assets/vfx/torch.fx.json", R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","emitter":{"burts":6}}]})");
+    p.effect("assets/vfx/unused.fx.json", R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","emitter":{"burts":6}}]})");
+    p.effect("scenes/fire.scene.json", R"({"format":"factoria.scene/1","entities":[
+        {"name":"torch","components":{"Transform":{},"Vfx":{"effect":"assets/vfx/torch.fx.json"}}}]})");
+    const ValidationReport r = validate_project(p.dir);
+    const ValidationIssue* typo = find(r.errors, "assets/vfx/torch.fx.json", "/parts/0/emitter");
+    REQUIRE(typo);
+    CHECK(typo->message.find("burts") != std::string::npos);
+    CHECK_FALSE(find(r.errors, "assets/vfx/unused.fx.json", "/parts/0/emitter"));  // nothing names it, and its name is not an effect's
+}

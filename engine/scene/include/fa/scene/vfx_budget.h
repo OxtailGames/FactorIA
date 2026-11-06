@@ -33,6 +33,7 @@ struct VfxBudgetOptions {
     double viewWidth = 1280;         // the view in design pixels: overdraw is measured against its area
     double viewHeight = 720;
     std::string preset = "phone";    // which VfxBudgetLimits the findings use
+    long long maxParticleUpdates = 20'000'000;   // particle updates (live particles summed over the steps) the measuring may spend; past it the result is truncated
 };
 
 struct VfxEmitterBudget {

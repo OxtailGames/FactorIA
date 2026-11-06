@@ -218,6 +218,118 @@ TEST_CASE("particle model: a file changed behind the panel's back is read again"
     CHECK_FALSE(p.model->poll_external());
 }
 
+TEST_CASE("particle model: a same-size edit that keeps the file's time is still seen (the content is compared)") {
+    FxProject p;
+    p.open();
+    const stdfs::path file = p.dir / kFx;
+    std::string text;
+    {
+        std::ifstream in(file, std::ios::binary);
+        text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    std::error_code ec;
+    const auto when = stdfs::last_write_time(file, ec);
+    const auto pos = text.find("\"burst\"");
+    REQUIRE(pos != std::string::npos);
+    const auto digit = text.find_first_of("0123456789", pos);
+    REQUIRE(digit != std::string::npos);
+    std::string other = text;
+    other[digit] = other[digit] == '7' ? '8' : '7';   // one character: the size stays
+    REQUIRE(other != text);
+    std::ofstream(file, std::ios::binary | std::ios::trunc) << other;
+    stdfs::last_write_time(file, when, ec);           // and the time, as a file system with a coarse clock would
+    CHECK(p.model->poll_external());
+    CHECK(p.model->saved_json() == Json::parse(other));
+}
+
+TEST_CASE("particle model: undo and redo refuse to overwrite a file that was changed outside, and Reload takes the file as it is") {
+    FxProject p;
+    p.open();
+    const ParticleEditOutcome out = p.model->set_field("/parts/0/emitter/burst", 41, "Edit burst");
+    REQUIRE_MESSAGE(out.ok, out.error);
+    Json outside = p.file();
+    outside["doc"] = "edited in another program";
+    std::ofstream(p.dir / kFx, std::ios::binary | std::ios::trunc) << outside.dump(2);
+    CHECK_FALSE(p.model->apply_step(out.step, false));
+    CHECK(p.model->conflict());
+    CHECK(p.model->status().find("Reload") != std::string::npos);
+    CHECK(p.file()["doc"] == "edited in another program");   // the outside edit is still there
+    CHECK(p.file()["parts"][0]["emitter"]["burst"] == 41);
+    CHECK(p.model->reload());
+    CHECK_FALSE(p.model->conflict());
+    CHECK(p.model->doc()->description == "edited in another program");
+    CHECK_FALSE(p.model->apply_step(out.step, false));        // the file is not what the step left, still
+    CHECK(p.model->conflict());
+}
+
+TEST_CASE("particle model: while an undo conflict is shown, polling does not read the file; Reload does and names the stale step once") {
+    FxProject p;
+    p.open();
+    const ParticleEditOutcome first = p.model->set_field("/parts/0/emitter/burst", 41, "Edit burst");
+    const ParticleEditOutcome second = p.model->set_field("/parts/0/emitter/burst", 42, "Edit burst again");
+    REQUIRE_MESSAGE((first.ok && second.ok), (first.error + second.error));
+    Json outside = p.file();
+    outside["doc"] = "edited in another program";
+    std::ofstream(p.dir / kFx, std::ios::binary | std::ios::trunc) << outside.dump(2) << "\n\n";
+    CHECK_FALSE(p.model->apply_step(second.step, false));
+    REQUIRE(p.model->conflict());
+    for (int i = 0; i < 5; ++i) {
+        CHECK_FALSE(p.model->poll_external());
+        CHECK(p.model->conflict());
+    }
+    CHECK(p.model->doc()->description != "edited in another program");   // nothing was read
+    CHECK(p.model->step_count() == 2);
+    CHECK(p.model->reload());
+    CHECK_FALSE(p.model->conflict());
+    CHECK(p.model->doc()->description == "edited in another program");
+    CHECK(p.model->take_stale_step() == second.step);
+    CHECK(p.model->take_stale_step() == 0);
+    p.model->retain_steps({first.step});   // the editor's stacks, without the stale step
+    CHECK(p.model->step_count() == 1);
+    CHECK(p.model->step(second.step) == nullptr);
+    CHECK_FALSE(p.model->poll_external());   // polling works again, and finds nothing new
+}
+
+TEST_CASE("particle preview: the timeline counts the sub-emitters and the trail, like the effect system") {
+    FxProject p;
+    p.open();
+    REQUIRE(p.model->set_field("/parts/0/emitter/lifetime", 0.5, "Short").ok);
+    ParticlePreview pv;
+    pv.set_document(p.model->doc());
+    const double plain = pv.timeline_length();
+    REQUIRE(p.model->set_field("/parts/0/emitter/subEmitters", Json::parse(R"({"death":{"emitter":{"burst":3,"lifetime":4,"lifetimeVariance":0}}})"), "Sub").ok);
+    pv.set_document(p.model->doc());
+    CHECK(pv.timeline_length() >= plain + 3.9);
+    const double withSub = pv.timeline_length();
+    REQUIRE(p.model->set_field("/parts/0/emitter/trail", "particle", "Trail").ok);
+    REQUIRE(p.model->set_field("/parts/0/emitter/trailTime", 2.0, "Trail time").ok);
+    pv.set_document(p.model->doc());
+    CHECK(pv.timeline_length() >= withSub + 1.9);
+}
+
+TEST_CASE("particle preview: after begin_frame, seek + catch_up + advance of one frame do one bounded share") {
+    FxProject p;
+    p.open();
+    REQUIRE(p.model->set_field("/duration", 6.0, "Longer").ok);
+    REQUIRE(p.model->set_field("/parts/0/emitter/lifetime", 12.0, "Longer lives").ok);
+    REQUIRE(p.model->set_field("/parts/0/emitter/rate", 40.0, "Emit").ok);
+    ParticlePreview pv;
+    pv.set_document(p.model->doc());
+    pv.begin_frame();
+    pv.seek(10.0);
+    pv.catch_up();
+    pv.advance(0.016);
+    CHECK(pv.time() <= double(kPreviewStepBudget) * kPreviewStep + 1e-9);   // not three shares
+    CHECK(pv.catching_up());
+    pv.begin_frame();
+    const double t1 = pv.time();
+    pv.catch_up();
+    pv.catch_up();
+    pv.advance(0.016);
+    CHECK(pv.time() > t1);
+    CHECK(pv.time() - t1 <= double(kPreviewStepBudget) * kPreviewStep + 1e-9);   // the next frame: one more share
+}
+
 TEST_CASE("particle preview: the same seed and the same time show the same particles; a seek rebuilds from the start") {
     FxProject p;
     p.open();

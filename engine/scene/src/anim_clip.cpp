@@ -526,6 +526,10 @@ bool inline_event_usable(World& w, Entity e, bool sprite, std::size_t index, con
     FeelState& fs = w.feel();
     const char* component = sprite ? "SpriteAnimator" : "Animator";
     const std::string base = "events/" + std::to_string(index);
+    // This runs on every step that visits the event: said once per entity and event, so a bad one costs a set lookup afterwards, not the issue text.
+    const std::string key = std::format("inline-event|{}|{}|{}", component, w.id_of(e), base);
+    if (fs.warnedClipActions.count(key) || fs.warnedClipActions.size() >= 64) return false;
+    fs.warnedClipActions.insert(key);
     const std::vector<ClipIssue> issues = sprite ? check_sprite_event(ev, base, nullptr) : check_animator_event(ev, base);
     std::string text = std::format("{} '{}' skips the event {}: it has the wrong JSON type", component, w.id_of(e), base);
     std::size_t shown = 0;
@@ -533,7 +537,7 @@ bool inline_event_usable(World& w, Entity e, bool sprite, std::size_t index, con
         if (shown++ == 3) break;
         text += std::format("{}{}: {} (hint: {})", shown == 1 ? ". " : "; ", i.pointer, i.message, i.hint);
     }
-    if (fs.warnedClipActions.size() < 64 && fs.warnedClipActions.insert(text).second) FA_WARN("feel", "{}", text);
+    FA_WARN("feel", "{}", text);
     return false;
 }
 

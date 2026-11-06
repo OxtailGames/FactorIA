@@ -28,6 +28,9 @@ struct AudioFile {
     std::vector<std::uint8_t> bytes;
 };
 Result<AudioFile> read_audio_file(std::string_view path);
+// The file read_audio_file would read for `path` ("" when there is none): `path` itself, else its `.qoa` twin. Checks only that it exists
+// (what a validator needs); the audio system and this share the rule, so a sound the game can play is never reported missing.
+std::string resolve_audio_path(std::string_view path);
 
 // How loud a clip plays: the mixer feeds a mono clip to both sides and takes the first two channels of any other, and
 // that is what is measured. K-weighting filters derived for the file's own rate, 400 ms blocks every 100 ms, absolute

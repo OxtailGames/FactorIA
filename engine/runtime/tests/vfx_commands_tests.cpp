@@ -4,10 +4,13 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <vector>
 
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
 #include "fa/scene/vfx.h"
+#include "../src/engine_impl.h"  // Engine::Impl::vfxHost: the host an effect runs its commands with
 
 using namespace fa;
 namespace stdfs = std::filesystem;
@@ -119,6 +122,20 @@ TEST_CASE("vfx.play: the parts happen at their frames, the sound reaches the mix
     CHECK(r.result["dropped"] == false);
     CHECK(r.result["duration"].get<double>() == doctest::Approx(0.3));
     CHECK(e.world().get<Transform>(e.world().find_by_id(id))->position.x == doctest::Approx(120.0f));
+
+    // vfx.list shows the effect at once, before any step ran (time 0), with its duration.
+    {
+        auto now = c.call("vfx.list", Json::object());
+        REQUIRE(now.ok);
+        bool found = false;
+        for (const Json& fx : now.result["playing"])
+            if (fx["id"] == id) {
+                found = true;
+                CHECK(fx["time"].get<double>() == doctest::Approx(0.0));
+                CHECK(fx["duration"].get<double>() == doctest::Approx(0.3));
+            }
+        CHECK(found);
+    }
 
     // 0.1 s = 6 frames at 60 Hz: the sound is played in the 6th frame, not before.
     e.step(5);
@@ -232,6 +249,53 @@ TEST_CASE("vfx: a command part cannot write files or change settings, through vf
     e.shutdown();
 }
 
+TEST_CASE("vfx: the host of the engine checks the command name again (a document built in code cannot call audio.bake)") {
+    TempProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    const VfxHost& host = e.runtime_impl().vfxHost;
+    REQUIRE(host.call);
+    for (const char* name : {"audio.bake", "audio.create", "feel.settings", "fs.write", "game.quit"}) {
+        INFO(name);
+        const std::string why = host.call(name, Json::object());
+        CHECK(why.find("may not call") != std::string::npos);
+        CHECK(why.find(name) != std::string::npos);
+    }
+    CHECK(host.call("feel.shake", Json::parse(R"({"amount":0.1,"duration":0.1})")).empty());   // an allowed name runs
+    const std::string wrong = host.call("feel.shake", Json::parse(R"({"amount":"strong"})"));   // an allowed name with wrong arguments says why
+    CHECK_FALSE(wrong.empty());
+    CHECK(wrong.find("may not call") == std::string::npos);
+
+    // The same through the system: a document built in memory, handed over by VfxHost::load, never reaches the command.
+    auto doc = std::make_shared<VfxDoc>();
+    doc->duration = 0.2;
+    VfxPart part;
+    part.kind = VfxPartKind::Command;
+    part.name = "evil";
+    part.at = 0.0;
+    part.command = "audio.bake";
+    part.args = Json::object();
+    doc->parts.push_back(part);
+    VfxHost hosted = host;
+    std::vector<std::string> answers;   // what the host of the engine said to each command the system called
+    hosted.call = [&](const std::string& command, const Json& args) {
+        answers.push_back(host.call(command, args));
+        return answers.back();
+    };
+    hosted.load = [doc](const std::string&) { return std::shared_ptr<const VfxDoc>(doc); };
+    World w;
+    Entity fx = w.create("fx");
+    auto& v = w.add<Vfx>(fx);
+    v.effect = "memory.vfx.json";
+    v.autoplay = true;
+    update_vfx(w, 0.05f, hosted);
+    update_vfx(w, 0.05f, hosted);
+    REQUIRE(answers.size() == 1);
+    CHECK(answers[0].find("may not call 'audio.bake'") != std::string::npos);
+    e.shutdown();
+}
+
 TEST_CASE("vfx.check: lists errors with pointers, warnings, and a missing sound") {
     TempProject p;
     Engine e;
@@ -281,7 +345,7 @@ TEST_CASE("Vfx component: an effect placed in a scene plays at the start, and sc
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     INFO(r.result.dump());
     CHECK(r.result["value"][0].is_string());
-    CHECK(r.result["value"][1].get<int>() == 1);  // the new effect starts at the next step: only the torch plays now
+    CHECK(r.result["value"][1].get<int>() == 2);  // the torch and the new effect: one that vfx.play made counts before its first step
     e.step(2);
     CHECK(c.call("vfx.list", Json::object()).result["count"].get<int>() >= 2);
     auto bad = c.call("script.eval", Json::parse(R"j({"code":"vfx.play('assets/vfx/nope.vfx.json')"})j"));
@@ -300,6 +364,7 @@ TEST_CASE("vfx.budget: the numbers of an effect, repeatable, and findings with a
     std::string err;
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
     auto& c = e.commands();
+    const auto playingBefore = c.call("vfx.list", Json::object()).result["count"];  // the torch of the scene, which starts at the first step
     auto a = c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/hit.vfx.json"})"));
     REQUIRE_MESSAGE(a.ok, a.error.dump());
     CHECK(a.result["preset"] == "phone");
@@ -322,8 +387,8 @@ TEST_CASE("vfx.budget: the numbers of an effect, repeatable, and findings with a
     CHECK(f["fix"]["args"]["path"] == "assets/vfx/heavy.vfx.json");
     CHECK(c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/heavy.vfx.json","preset":"desktop"})")).result["ok"] == true);
 
-    // The game is untouched: nothing plays, no entity was made.
-    CHECK(c.call("vfx.list", Json::object()).result["count"] == 0);
+    // The game is untouched: the budget started no effect and made no entity.
+    CHECK(c.call("vfx.list", Json::object()).result["count"] == playingBefore);
 
     // Errors teach.
     auto bad = c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/nope.vfx.json"})"));
@@ -349,7 +414,7 @@ TEST_CASE("vfx.filmstrip films an effect, steps the game and leaves no effect be
     if (!r.ok) {
         // No graphics on this machine: the error says what works without them.
         CHECK(r.error.dump().find("vfx.budget") != std::string::npos);
-        CHECK(c.call("vfx.list", Json::object()).result["count"] == 0);
+        for (const Json& fx : c.call("vfx.list", Json::object()).result["playing"]) CHECK(fx["effect"] == "assets/vfx/torch.vfx.json");
         e.shutdown();
         return;
     }

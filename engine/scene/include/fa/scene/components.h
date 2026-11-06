@@ -182,6 +182,7 @@ struct SpriteAnimator {
     bool ended = false;               // runtime: a non-looping clip reached its end and sent clipEnded
     std::string playedClip;           // runtime: the clip `time` belongs to (a change of `clip` restarts the animation)
     std::int32_t eventStep = -1;      // runtime, not reflected: the last step of the pass whose frame events ran (-1 = none yet)
+    std::uint32_t advancedPass = 0;   // runtime, not reflected: the renderer's animation pass (Renderer::advance_animators) that last moved it
 };
 
 // ----------------------------------------------------------- 2D bones ---
@@ -806,6 +807,7 @@ struct VfxChild {
     float baseIntensity = 1.0f;
     float drainFor = 0.0f;    // emitter: seconds after it stops emitting until its last particle is certainly gone (vfx.cpp, drain_bound)
     float drainLeft = -1.0f;  // emitter: < 0 while it emits; from the moment it stops, counts down drainFor in game seconds; at 0 it is removed
+    std::int32_t origin = -1; // emitter: the part it was made from; kept when `part` goes to -1 (vfx_measure tells the emitters of a one-step effect apart)
 };
 
 // What the effect system (vfx.h) keeps per Vfx at run time. Never serialized. Copying it gives an EMPTY state (the children belong to

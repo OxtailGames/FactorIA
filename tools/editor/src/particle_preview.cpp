@@ -27,6 +27,7 @@ ParticlePreview::~ParticlePreview() = default;
 void ParticlePreview::set_document(std::shared_ptr<const VfxDoc> doc) {
     if (doc == doc_) return;
     doc_ = std::move(doc);
+    lengthValid_ = false;
     stale_ = true;
     seek(target_time());
 }
@@ -74,7 +75,20 @@ void ParticlePreview::seek(double t) {
     catch_up();
 }
 
+void ParticlePreview::begin_frame() {
+    framed_ = true;
+    slicedThisFrame_ = false;
+}
+
 void ParticlePreview::catch_up() {
+    if (framed_) {
+        if (slicedThisFrame_) return;   // seek, catch_up and advance of one frame share one bounded slice
+        slicedThisFrame_ = true;
+    }
+    run_slice();
+}
+
+void ParticlePreview::run_slice() {
     if (!doc_ || !catching_up()) return;
     long work = 0;
     int n = 0;
@@ -86,7 +100,7 @@ void ParticlePreview::catch_up() {
 }
 
 void ParticlePreview::settle() {
-    while (catching_up() && doc_) catch_up();
+    while (catching_up() && doc_) run_slice();
 }
 
 void ParticlePreview::advance(double dt) {
@@ -193,13 +207,15 @@ void ParticlePreview::snapshot() {
 
 double ParticlePreview::timeline_length() const {
     if (!doc_) return 1.0;
+    if (lengthValid_) return length_;
+    // The same wait the effect system gives an emitter's entity: lifetime with its variance, the trail and the sub-emitters (worked out once
+    // per document, not every frame: it parses the emitter fields).
     double longest = 0.0;
     for (const VfxPart& p : doc_->parts)
-        if (p.kind == VfxPartKind::Emitter) {
-            const ParticleEmitter pe = emitter_of(p);
-            longest = std::max(longest, double(pe.lifetime) * (1.0 + double(pe.lifetimeVariance)));
-        }
-    return std::clamp(doc_->duration + longest + kVfxDrainSlack, 0.25, kPreviewMaxTime);
+        if (p.kind == VfxPartKind::Emitter) longest = std::max(longest, vfx_emitter_drain_seconds(*world_, emitter_of(p)));
+    length_ = std::clamp(doc_->duration + longest + kVfxDrainSlack, 0.25, kPreviewMaxTime);
+    lengthValid_ = true;
+    return length_;
 }
 
 bool ParticlePreview::finished() const {

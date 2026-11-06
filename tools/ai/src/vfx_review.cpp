@@ -1,8 +1,10 @@
 #include "vfx_review.h"
 
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <sstream>
+#include <thread>
 
 #include "fa/ai/text_model.h"
 #include "review_util.h"
@@ -80,7 +82,7 @@ void register_vfx_review(CommandRegistry& registry, std::function<Result<AiConfi
         "PNG. Example: {\"effect\":\"assets/vfx/hit.vfx.json\",\"position\":[640,360],\"focus\":\"does it read on the dark floor?\"}";
     info.inputSchema = Json::parse(R"({"type":"object","required":["effect"],"properties":{
         "effect":{"type":"string","description":"Project path of the effect document, e.g. \"assets/vfx/hit.vfx.json\"."},
-        "position":{"type":"array","items":{"type":"number"},"description":"[x, y] or [x, y, z]: where in the game the effect is filmed, in world units (as vfx.filmstrip). Default: the middle of the view."},
+        "position":{"type":"array","items":{"type":"number"},"description":"[x, y] or [x, y, z]: where in the game the effect is filmed, in world units (as vfx.filmstrip). Default: the middle of the view in a 2D game; a 3D game must give it."},
         "preset":{"type":"string","enum":["phone","desktop"],"description":"Whose budget the review uses (as vfx.budget). Default phone."},
         "frames":{"type":"integer","minimum":2,"maximum":64,"description":"Pictures in the filmstrip (as vfx.filmstrip). Default 12."},
         "focus":{"type":"string","description":"What you want judged (\"does it read on the dark floor?\", \"is the hit too long?\"). Optional."},
@@ -143,8 +145,13 @@ void register_vfx_review(CommandRegistry& registry, std::function<Result<AiConfi
             bool armed = false;
             ~Cleanup() {
                 if (armed && !path.empty()) {
-                    std::error_code ec;
-                    stdfs::remove(path, ec);
+                    // On Windows a scanner (antivirus, the indexer) may hold the new PNG open for a moment: try again a few times.
+                    for (int attempt = 0; attempt < 3; ++attempt) {
+                        std::error_code ec;
+                        stdfs::remove(path, ec);
+                        if (!ec || !stdfs::exists(path, ec)) break;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(60));
+                    }
                 }
             }
         } cleanup{picture, temporary};

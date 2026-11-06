@@ -64,6 +64,7 @@ struct Ctx {
     std::string dir;
     std::vector<PropsCheck> propChecks;
     std::set<std::string> spriteTextures;  // what Sprites draw, for the asset checks
+    std::set<std::string> vfxEffects;      // the files scenes and prefabs name in a Vfx.effect (checked as effect documents)
     bool artRules = false;                 // assets.json style sets a rule a picture can be measured against
     ProjectArtUse artUse;                  // where the scenes draw each texture, for those rules (texelsPerUnit)
     std::map<std::string, Error> videoProblems;  // video path -> why the decoder refuses it (empty message = fine), each file is opened once
@@ -986,7 +987,6 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     assets_detail::check_model_documents(c.dir, c.report.errors, c.report.warnings);
     assets_detail::check_rig_documents(c.dir, c.report.errors, c.report.warnings);
     assets_detail::check_song_documents(c.dir, c.report.errors, c.report.warnings);
-    assets_detail::check_vfx_documents(c.dir, c.report.errors, c.report.warnings);
 
     std::set<std::string> scripts;
     if (options.checkScenes) {
@@ -1008,6 +1008,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 (m.severity == LoadMessage::Severity::Error ? c.report.errors : c.report.warnings).push_back(std::move(issue));
             }
             collect_if_not_canonical(handFormatted, rel);
+            world.each<Vfx>([&](Entity, Vfx& v) { if (!v.effect.empty()) c.vfxEffects.insert(v.effect); });
             if (c.artRules) collect_art_use(world, rel, c.artUse);
             check_fit_panels(c, rel, world);
             check_offscreen_widgets(c, rel, world);
@@ -1036,6 +1037,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 World prefabWorld;
                 LoadReport ignored;
                 instantiate_prefab(prefabWorld, rel, kNullEntity, ignored);
+                prefabWorld.each<Vfx>([&](Entity, Vfx& v) { if (!v.effect.empty()) c.vfxEffects.insert(v.effect); });
                 if (c.artRules) collect_art_use(prefabWorld, rel, c.artUse);
                 validate_detail::check_animator_clips(rel, prefabWorld, parsed.value(), namedClips, c.report);
                 validate_detail::check_ik3d(rel, prefabWorld, parsed.value(), c.report);
@@ -1056,6 +1058,9 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                    "mainScene '" + mainScene + "' is not named *.scene.json (or is in a hidden or build folder), so it is not validated.",
                    "Name it <something>.scene.json, e.g. scenes/main.scene.json.");
     }
+
+    // Effect documents: all of the project's, and the ones scenes and prefabs name in a Vfx.effect.
+    assets_detail::check_vfx_documents(c.dir, c.report.errors, c.report.warnings, c.vfxEffects);
 
     // String tables, the `key`s scenes use, and whether the fonts have a glyph for every character (not with a broken section).
     if (c.projectFileRead && c.localization.ok())

@@ -201,12 +201,16 @@ Two actions make something outside the entity, both from the same JSON form (and
   after which it is destroyed (a hit-stop, `time.scale` 0 or a paused game holds the count); with `0`, the default, the prefab has to end itself (a particle burst that
   stops, an animation that destroys its entity), or the effects pile up (`project.validate` warns about a clip event whose
   `spawn` has no `lifetime` and whose prefab has no Script or `autoDestroy` particles). A missing prefab is logged once and
-  nothing appears. At most 64 spawns wait for one frame: the extra ones are dropped with one warning per scene (a clip event
-  that fires on every step, or a script that calls `feel.spawn` in a loop, makes this).
+  nothing appears; a prefab that loads only in part (a child with a component that does not exist) is removed whole, so no
+  half effect stays in the scene. At most 64 spawns wait for one frame: past that `feel.spawn` and `feel.do` return an error
+  (a clip event logs it once per scene) and the effect is not queued (a clip event that fires on every step, or a script that
+  calls `feel.spawn` in a loop, makes this).
 - `sound {path, volume?, pitch?, pan?, bus?}` plays a sound once: `volume` 0 to 4 (default 1), `pitch` 0.1 to 4 (default 1),
   `pan` -1 to 1 (default 0) and `bus` (`sfx` by default). The sound waits in a queue that the audio system drains every frame,
   so a headless run without audio only holds it (`feel.state` lists the `queued` sounds and spawns; when more than 64 sounds
-  wait and nobody plays them, the oldest are dropped).
+  wait and nobody plays them, the oldest are dropped, with one warning per scene). A sound whose file cannot be played is
+  logged once; the audio system does not try that path again until the scene changes. The audio play log (`audio.log`) shows the
+  entity whose action asked for the sound as its `source`.
 - `knockback` and `push` take `local: true` too: the direction is in the entity's own space, so `[1, 0]` is "forward" for a
   sprite that faces left.
 

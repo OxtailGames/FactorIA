@@ -19,9 +19,9 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <type_traits>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "fa/core/json.h"
