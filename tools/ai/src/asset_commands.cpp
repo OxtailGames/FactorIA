@@ -32,6 +32,7 @@ struct Ctx {
     ProviderRuntime runtime;
     const CancelFlag* cancel = nullptr;
     std::string runKey;  // the run the cost of this registry's calls counts into ("" = the calling thread's)
+    AssetApprover approver;  // who is asked when a call needs the user's yes (empty = the process-wide one, else needsApproval)
 };
 
 [[noreturn]] void fail(const char* code, const Error& e) { throw CommandError(code, e.message, e.hint); }
@@ -66,7 +67,7 @@ void add_command(CommandRegistry& registry, const std::shared_ptr<Ctx>& ctx, con
         }
         ProjectScope scope(dir);
         std::optional<AssetRunScope> run;
-        if (!ctx->runKey.empty()) run.emplace(ctx->runKey);
+        if (!ctx->runKey.empty() || ctx->approver) run.emplace(ctx->runKey.empty() ? asset_run_key() : ctx->runKey, ctx->approver);
         return handler(*ctx, args);
     });
 }
@@ -578,8 +579,8 @@ Json schema(const std::string& properties, const std::string& required) {
 }  // namespace
 
 void register_asset_commands(CommandRegistry& registry, std::function<Result<AiConfig>()> load, std::function<std::string()> projectDir,
-                             ProviderRuntime runtime, const CancelFlag* cancel, std::string runKey) {
-    auto ctx = std::make_shared<Ctx>(Ctx{std::move(load), std::move(projectDir), std::move(runtime), cancel, std::move(runKey)});
+                             ProviderRuntime runtime, const CancelFlag* cancel, std::string runKey, AssetApprover approver) {
+    auto ctx = std::make_shared<Ctx>(Ctx{std::move(load), std::move(projectDir), std::move(runtime), cancel, std::move(runKey), std::move(approver)});
     const std::string pathProperty = R"J("path":{"type":"string","description":"Where to write the file, project-relative, under assets/ (for example \"assets/sfx/jump.wav\"). The extension must match what the provider makes."},)J";
 
     add_command(

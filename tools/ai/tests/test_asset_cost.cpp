@@ -491,6 +491,35 @@ TEST_CASE("approval: with an approver installed (the editor) the call waits for 
     CHECK(asked.size() == 4);
 }
 
+TEST_CASE("approval: the approver of a registry (AiCommandOptions::assetApprover) is asked only by that registry's calls") {
+    Home home;
+    const AiConfig cfg = config_from(paid_config(R"({"askAboveUsd":0.10})"));
+    int asked = 0;
+    CommandRegistry withApprover, without;
+    TempDir dir;
+    for (CommandRegistry* reg : {&withApprover, &without}) {
+        AiCommandOptions opt;
+        opt.loadConfig = [cfg] { return Result<AiConfig>(cfg); };
+        opt.projectDir = [&dir] { return dir.str(); };
+        opt.assetRunKey = "chat-x";
+        if (reg == &withApprover) opt.assetApprover = [&asked](const AssetApprovalRequest& req) {
+            ++asked;
+            CHECK(req.runKey == "chat-x");
+            return AssetDecision::Approve;
+        };
+        register_ai_commands(*reg, std::move(opt));
+    }
+    auto yes = withApprover.call("assets.generate_image", image_args("assets/a.png"));
+    REQUIRE_MESSAGE(yes.ok, yes.error.dump());
+    CHECK(asked == 1);
+    CHECK_FALSE(yes.result.contains("needsApproval"));
+    auto no = without.call("assets.generate_image", image_args("assets/b.png"));
+    REQUIRE_MESSAGE(no.ok, no.error.dump());
+    CHECK(asked == 1);
+    CHECK(no.result["needsApproval"] == true);  // no one to ask: the AI asks its user
+    CHECK(asset_run_key().empty());             // the scope ended with the call
+}
+
 TEST_CASE("approval: an approver that waits on another thread does not hold the lock of the user folder or the run's ledger") {
     Home home;
     Game game(config_from(paid_config(R"({"askAboveUsd":0.10,"maxAssetCostUsd":{"perDay":5}})")));
