@@ -28,7 +28,7 @@ struct LevelGenOptions {
     int n = 3;                       // overlapping: side of the windows, 2..5
     int symmetry = 1;                // overlapping: 1, 2, 4 or 8
     bool periodic = false;
-    std::string extra;               // a JSON object merged over the arguments: constraints, reachability, maxAttempts, ...
+    std::string extra;               // a JSON object merged over the arguments: constraints, reachability, maxAttempts, ... (not the keys the fields above own)
 };
 
 inline constexpr std::int64_t kLevelGenMaxSeed = 2147483647;
@@ -37,12 +37,21 @@ inline constexpr std::int64_t kLevelGenMaxSeed = 2147483647;
 // is out of range or `extra` is not a JSON object; the generator itself checks the rest and its errors are shown as they come.
 Result<Json> level_gen_arguments(const LevelGenOptions& o);
 
+// One cell of a preview, as the legend gives it: the glyph (a code point: a big palette uses more than ASCII), the tile number (-1 =
+// empty / not a tile) and whether the glyph also spawns a prefab (a marker: spawn point, coin, enemy).
+struct LevelGenCell {
+    char32_t glyph = 0;
+    int tile = -1;
+    bool marker = false;
+};
+
 // What a finished generation leaves for the window to draw.
 struct LevelGenPreview {
     bool valid = false;
     int width = 0, height = 0;
     std::int64_t seed = 0;
     std::vector<std::string> rows;   // row 0 = top, one glyph per cell
+    std::vector<LevelGenCell> cells; // width * height, row-major, built once when the generation ends (the legend is not looked up per drawn cell)
     Json legend = Json::object();    // glyph -> tile / object, as tilemap.generate returns it
     Json stats = Json::object();     // attempts, contradictions, work, patterns, ms...
     std::vector<std::string> warnings;
@@ -66,6 +75,8 @@ public:
     int job() const { return job_; }                        // the engine's job id while Running, else 0
     const std::string& error() const { return error_; }    // Failed: what went wrong
     const std::string& hint() const { return hint_; }      // Failed: how to fix it
+    // Why a run stopped without a result and without being a failure ("the scene changed under it"); "" otherwise. Cleared by start / clear.
+    const std::string& notice() const { return notice_; }
     const std::vector<LevelGenTry>& tries() const { return tries_; }   // oldest first, at most kMaxTries
     static constexpr std::size_t kMaxTries = 24;
 
@@ -86,17 +97,14 @@ private:
     double progress_ = 0;
     std::int64_t seed_ = 0;
     LevelGenPreview preview_;
-    std::string error_, hint_;
+    std::string error_, hint_, notice_;
     std::vector<LevelGenTry> tries_;
 };
 
-// The tile at cell (col, row) of a preview, as the legend gives it: the tile number (-1 = empty / not a tile) and whether the glyph
-// also spawns a prefab (a marker: spawn point, coin, enemy).
-struct LevelGenCell {
-    int tile = -1;
-    bool marker = false;
-};
+// The cell at (col, row) of a preview: see LevelGenPreview::cells (empty / outside the level: tile -1, no marker, glyph 0).
 LevelGenCell level_gen_cell(const LevelGenPreview& p, int col, int row);
+// The glyph of a cell as UTF-8 text ("" when it has none), for a tooltip or a label.
+std::string level_gen_glyph_text(const LevelGenCell& c);
 
 // scene.import_ascii arguments that build the preview in the open scene as the entity `entity`: the rows and legend, the Tilemap fields
 // `tilemap` (tileset, tileSize, solidTiles...; copy them from the sample), and the position of its top-left corner.
