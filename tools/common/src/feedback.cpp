@@ -84,6 +84,13 @@ static bool contains(const std::vector<std::string>& v, std::string_view s) {
 // ------------------------------------------------------------ similarity ----
 namespace {
 
+// A file or folder name as UTF-8 text (the JSON and the messages are UTF-8): string() on Windows is the ANSI code page, which turns
+// a letter outside it into '?'.
+std::string u8text(const stdfs::path& p) {
+    const std::u8string u = p.u8string();
+    return std::string(reinterpret_cast<const char*>(u.data()), u.size());
+}
+
 // Significant tokens of a title or suggestion: lower-case alphanumerics, plural "s" dropped, stop words and
 // boilerplate ("Bug:", "Generated", "Project", "docs"...) removed, a few synonyms canonicalised ("stub" ~ "placeholder").
 std::vector<std::string> title_tokens(std::string_view title) {
@@ -438,7 +445,30 @@ Result<FeedbackAddResult> add_efficiency_entry(Json& doc, const FeedbackInput& i
 
 }  // namespace
 
+namespace {
+
+// An efficiency entry carries numbers the engine measured from the transcripts (and a share text derived from them): it may only come
+// from file_efficiency_feedback, after check_efficiency_report. The public entry points refuse the kind.
+Error efficiency_needs_the_gate() {
+    return Error{"kind efficiency cannot be added with add_feedback_entry: an efficiency entry holds numbers the engine measured, and only the "
+                 "efficiency gate (check_efficiency_report) writes them.",
+                 "Use file_efficiency_feedback in code, or `feedback add --kind efficiency` / feedback.report with kind efficiency, which measure the "
+                 "evidence spans from the session transcripts first."};
+}
+
+// add_feedback_entry without that refusal: file_efficiency_feedback calls it after the gate.
+Result<FeedbackAddResult> add_entry_gated(Json& doc, const FeedbackInput& in, Json* archive);
+Result<FeedbackAddResult> add_entry_to_file_gated(const std::string& path, const FeedbackInput& input, std::string_view projectNameIfNew);
+
+}  // namespace
+
 Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& in, Json* archive) {
+    if (in.kind == "efficiency") return efficiency_needs_the_gate();
+    return add_entry_gated(doc, in, archive);
+}
+
+namespace {
+Result<FeedbackAddResult> add_entry_gated(Json& doc, const FeedbackInput& in, Json* archive) {
     if (!doc.is_object() || !doc.contains("entries") || !doc["entries"].is_array())
         return make_error("ENGINE_FEEDBACK.json has no \"entries\" array.",
                           "Start from create_empty_feedback() or run `factoria feedback init`.");
@@ -586,9 +616,15 @@ Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& in,
     result.shareProblem = shareProblem;
     return result;
 }
+}  // namespace
 
-Result<FeedbackAddResult> add_feedback_entry_to_file(const std::string& path, const FeedbackInput& input,
-                                                     std::string_view projectNameIfNew) {
+Result<FeedbackAddResult> add_feedback_entry_to_file(const std::string& path, const FeedbackInput& input, std::string_view projectNameIfNew) {
+    if (input.kind == "efficiency") return efficiency_needs_the_gate();
+    return add_entry_to_file_gated(path, input, projectNameIfNew);
+}
+
+namespace {
+Result<FeedbackAddResult> add_entry_to_file_gated(const std::string& path, const FeedbackInput& input, std::string_view projectNameIfNew) {
     Json doc;
     if (stdfs::exists(path)) {
         auto loaded = load_feedback(path);
@@ -596,7 +632,7 @@ Result<FeedbackAddResult> add_feedback_entry_to_file(const std::string& path, co
         doc = std::move(loaded.value());
     } else {
         std::string name(projectNameIfNew);
-        if (name.empty()) name = stdfs::path(path).parent_path().filename().string();
+        if (name.empty()) name = u8text(stdfs::path(path).parent_path().filename());
         doc = create_empty_feedback(name);
     }
     const std::string archivePath = feedback_archive_path(path);
@@ -608,7 +644,7 @@ Result<FeedbackAddResult> add_feedback_entry_to_file(const std::string& path, co
         archive = std::move(loaded.value());
         haveArchive = true;
     }
-    auto r = add_feedback_entry(doc, input, haveArchive ? &archive : nullptr);
+    auto r = add_entry_gated(doc, input, haveArchive ? &archive : nullptr);
     if (!r.ok()) return r;
     if (r->alreadyCounted) return r;  // nothing changed
     // The entry is in the file before it leaves the archive: a crash in between leaves it twice, never lost.
@@ -617,6 +653,7 @@ Result<FeedbackAddResult> add_feedback_entry_to_file(const std::string& path, co
         if (auto s = save_feedback(archivePath, archive); !s.ok()) return s.error();
     return r;
 }
+}  // namespace
 
 EfficiencyFiling file_efficiency_feedback(const std::string& projectDir, const std::string& feedbackFile, FeedbackInput base, const Json& args,
                                           std::string_view projectNameIfNew, const EfficiencyOrigin& origin) {
@@ -676,7 +713,7 @@ EfficiencyFiling file_efficiency_feedback(const std::string& projectDir, const s
         out.refusal = EfficiencyRefusal{"failed", lock.error(), "Run the command again in a moment; the other program is only writing a small file."};
         return out;
     }
-    auto added = add_feedback_entry_to_file(feedbackFile, base, projectNameIfNew);
+    auto added = add_entry_to_file_gated(feedbackFile, base, projectNameIfNew);
     if (!added.ok()) {
         out.refusal = EfficiencyRefusal{"invalid_argument", added.error().message, added.error().hint};
         return out;
@@ -686,8 +723,11 @@ EfficiencyFiling file_efficiency_feedback(const std::string& projectDir, const s
 }
 
 std::string feedback_archive_path(const std::string& feedbackPath) {
-    const stdfs::path p(feedbackPath);
-    if (p.extension() == ".json") return (p.parent_path() / (p.stem().string() + ".archive.json")).string();
+    // Text only, so that the bytes of the path stay as the caller gave them (a round trip through string() changes them on Windows).
+    const std::size_t slash = feedbackPath.find_last_of("/\\");
+    const std::size_t nameAt = slash == std::string::npos ? 0 : slash + 1;
+    if (feedbackPath.size() - nameAt > 5 && feedbackPath.compare(feedbackPath.size() - 5, 5, ".json") == 0)
+        return feedbackPath.substr(0, feedbackPath.size() - 5) + ".archive.json";
     return feedbackPath + ".archive.json";
 }
 
@@ -1115,7 +1155,7 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
             errors.push_back(f + ": no \"entries\" array");
             continue;
         }
-        std::string project = d.value("project", stdfs::path(f).parent_path().filename().string());
+        std::string project = d.value("project", u8text(stdfs::path(f).parent_path().filename()));
         sources.push_back(f);
         if (projectSet.insert(project).second) projects.push_back(project);
         // The closed entries archived next to the file belong to the same project: they count where closed ones count.
@@ -1397,7 +1437,7 @@ std::string feedback_project_name(const std::string& projectDir) {
             return pj.value()["name"].get<std::string>();
     }
     std::error_code ec;
-    return stdfs::weakly_canonical(projectDir, ec).filename().string();
+    return u8text(stdfs::weakly_canonical(projectDir, ec).filename());
 }
 
 namespace {
@@ -1559,7 +1599,7 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
                 out["merged"] = r.merged;
                 out["alreadyCounted"] = r.alreadyCounted;
                 out["occurrences"] = r.occurrences;
-                out["file"] = stdfs::path(path).filename().string();
+                out["file"] = u8text(stdfs::path(path).filename());
                 out["measured"] = f.verdict.measured.to_json();
                 out["saving"] = f.verdict.saving.to_json();
                 if (f.verdict.measured.estimated)
@@ -1610,13 +1650,21 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             }
             const ClaimResult claim = check_feedback_claim(claimIn, &registry, 3);
             if (claim.refused()) throw CommandError("already_exists", claim.message(), claim.hint());
-            auto r = add_feedback_entry_to_file(path, in, project_name_for(projectDir));
+            // A read-modify-write of a file that the editor, the CLI and an agent's retrospective may write at once: under the lock
+            // that file_efficiency_feedback takes too, and released before the sharing summary (which takes it again).
+            Result<FeedbackAddResult> r = make_error("not filed");
+            {
+                ShareLock lock(share_env());
+                if (!lock.held())
+                    throw CommandError("failed", lock.error(), "Run the command again in a moment; the other program is only writing a small file.");
+                r = add_feedback_entry_to_file(path, in, project_name_for(projectDir));
+            }
             if (!r.ok()) throw CommandError("invalid_argument", r.error().message, r.error().hint);
             Json out = Json::object();
             out["id"] = r->id;
             out["merged"] = r->merged;
             out["occurrences"] = r->occurrences;
-            out["file"] = stdfs::path(path).filename().string();
+            out["file"] = u8text(stdfs::path(path).filename());
             out["reopened"] = r->reopened;
             if (!claim.related.empty()) out["relatedDocs"] = claim.related;
             // Sharing never fails the report: whatever goes wrong is told in `share`.
@@ -1761,8 +1809,8 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             auto r = archive_closed_feedback_file(path);
             if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
             return Json::object({{"moved", r->moved}, {"ids", r->ids}, {"open", r->open}, {"archived", r->archived},
-                                 {"file", stdfs::path(path).filename().string()},
-                                 {"archiveFile", stdfs::path(feedback_archive_path(path)).filename().string()}});
+                                 {"file", u8text(stdfs::path(path).filename())},
+                                 {"archiveFile", u8text(stdfs::path(feedback_archive_path(path)).filename())}});
         });
     }
 }

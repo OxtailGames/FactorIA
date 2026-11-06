@@ -58,7 +58,8 @@ Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOption
         const std::string model = rc.model, effort = rc.effort;
         const Pricing pricing = pc->pricing.known ? pc->pricing : builtin_pricing(model);
         const auto onUsage = options.onUsage;
-        return VisionModel([chat, model, effort, roleName, pricing, onUsage](const std::string& system, const std::string& user,
+        const CancelFlag* cancel = options.cancel;
+        return VisionModel([chat, model, effort, roleName, pricing, onUsage, cancel](const std::string& system, const std::string& user,
                                                  const std::vector<ImageData>& images) -> Result<std::string> {
             ChatRequest req;
             req.model = model;
@@ -66,7 +67,7 @@ Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOption
             req.maxTokens = 4096;
             req.system = system;
             req.messages.push_back(user_message(user, images));
-            auto res = chat->chat(req, {}, nullptr);
+            auto res = chat->chat(req, {}, cancel);
             if (!res.ok()) return with_vision_hint(res.error(), model, roleName);
             if (onUsage) onUsage(res->usage, estimate_cost(res->usage, pricing));
             return res->message.text;
@@ -81,7 +82,8 @@ Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOption
         const std::string model = rc.model;
         const std::string workDir = options.cliWorkDir.empty() ? default_work_dir() : options.cliWorkDir;
         const auto onUsage = options.onUsage;
-        return VisionModel([provider, model, workDir, onUsage](const std::string& system, const std::string& user,
+        const CancelFlag* cancel = options.cancel;
+        return VisionModel([provider, model, workDir, onUsage, cancel](const std::string& system, const std::string& user,
                                                       const std::vector<ImageData>& images) -> Result<std::string> {
             std::error_code ec;
             stdfs::create_directories(workDir, ec);
@@ -107,7 +109,7 @@ Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOption
             req.projectDir = workDir;
             req.readOnly = true;
             req.disallowedTools = {"Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", "Task"};
-            auto run = CliAgent(provider).run(req, [](const AgentEvent&) {}, nullptr);
+            auto run = CliAgent(provider).run(req, [](const AgentEvent&) {}, cancel);
             for (const auto& w : written) stdfs::remove(w, ec);
             if (!run.ok()) return run.error();
             if (!run->ok) return make_error(run->error.empty() ? "The CLI agent failed." : run->error, run->hint);
@@ -133,7 +135,8 @@ Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOption
     const std::string model = rc.model, effort = rc.effort;
     const Pricing pricing = pc->pricing.known ? pc->pricing : builtin_pricing(model);
     const auto onUsage = options.onUsage;
-    return VisionModel([chat, model, effort, roleName, pricing, onUsage](const std::string& system, const std::string& user,
+    const CancelFlag* cancel = options.cancel;
+    return VisionModel([chat, model, effort, roleName, pricing, onUsage, cancel](const std::string& system, const std::string& user,
                                                  const std::vector<ImageData>& images) -> Result<std::string> {
         ChatRequest req;
         req.model = model;
@@ -141,7 +144,7 @@ Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOption
         req.maxTokens = 4096;
         req.system = system;
         req.messages.push_back(user_message(user, images));
-        auto res = chat->chat(req, {}, nullptr);
+        auto res = chat->chat(req, {}, cancel);
         if (!res.ok()) return with_vision_hint(res.error(), model, roleName);
         if (onUsage) onUsage(res->usage, estimate_cost(res->usage, pricing));
         return res->message.text;

@@ -776,7 +776,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "(`fixCheck`, nothing is written with candidatesOnly), and a pattern a fix did not remove is filed again with `afterFix` set to that version. "
             "Returns {sessions:[{id, agent, steps, minutes, tokens, costUsd, estimated}], candidates:[{id, pattern, summary, count, spans, measured, "
             "maxShare, potentialSaving, suggestedFix, appliesTo, projectOnly}], alreadyFiled, fixChecks:[{entry, pattern, fixedIn, fixedAt, result, sessionsAfter, spansAfter, ratio, before, after?, text}], "
-            "filed:[{candidate, id, merged, title, fixType, saving, measured}], dropped:[{candidate, code, reason}], facts:[{candidate, id, line}], model, usage, costUsd (what the model call cost), note}. Without a model "
+            "filed:[{candidate, id, merged, title, fixType, saving, measured}], dropped:[{candidate, code, reason}], skipped:[{id, reason}] (transcripts not read: over 64 MB, or past the 256 MB one pass reads), facts:[{candidate, id, line}], model, usage, costUsd (what the model call cost), note}. Without a model "
             "(no key, fast role off and no orchestrator) the candidates come back and `note` says why. It runs by itself after a long run when ai.json "
             "savers.retrospective is on (150 model calls or $3 by default). One runs at a time: a second call gets code busy. Spends tokens of the fast role. "
             "Example: {\"since\":\"2026-11-01\"}";

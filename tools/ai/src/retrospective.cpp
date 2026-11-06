@@ -283,8 +283,8 @@ void detect_loops(const EfficiencySession& s, Map& out) {
                 if (is_engine_command(c) && once.insert(c.command).second) most = std::max(most, ++uses[c.command]);
         }
         int regulars = 0;  // an edit-run-check loop uses at least two commands over and over
-        for (const auto& [command, n] : uses)
-            if (n >= kRetroLoopRepeats / 2) ++regulars;
+        for (const auto& entry : uses)
+            if (entry.second >= kRetroLoopRepeats / 2) ++regulars;
         if (len >= kRetroLoopSteps && most >= kRetroLoopRepeats && regulars >= 2) {
             std::string key;
             for (const std::string& c : cats) key += (key.empty() ? "" : "+") + c;
@@ -356,7 +356,14 @@ void lowest_threshold(double& minutes, std::uint64_t& tokens) {
     }
 }
 
-double rank_score(const RetroCandidate& c) { return static_cast<double>(c.potential.tokens) + 5000.0 * c.potential.minutes; }
+// What a measure costs, as a whole number: a token is 1, a tenth of a minute 500 (a minute = 5000 tokens). Whole numbers so that the order
+// of the spans and candidates never depends on how a machine rounds a sum of fractions.
+std::uint64_t cost_weight(const EfficiencyMeasure& m) {
+    const long long tenths = m.minutes > 0 ? std::llround(m.minutes * 10.0) : 0;
+    return m.tokens + static_cast<std::uint64_t>(tenths) * 500u;
+}
+
+std::uint64_t rank_score(const RetroCandidate& c) { return cost_weight(c.potential); }
 
 }  // namespace
 
@@ -394,16 +401,16 @@ std::vector<RetroCandidate> find_retro_candidates(const std::vector<EfficiencySe
         if (a.parts.empty()) continue;
         // The largest spans first (by what they cost), kept to kRetroMaxSpans; then in the order of the transcripts.
         std::sort(a.parts.begin(), a.parts.end(), [](const Part& x, const Part& y) {
-            const double wx = static_cast<double>(x.measure.tokens) + 5000.0 * x.measure.minutes;
-            const double wy = static_cast<double>(y.measure.tokens) + 5000.0 * y.measure.minutes;
+            const std::uint64_t wx = cost_weight(x.measure), wy = cost_weight(y.measure);
             if (wx != wy) return wx > wy;
             if (x.span.session != y.span.session) return x.span.session < y.span.session;
-            return x.span.fromStep < y.span.fromStep;
+            if (x.span.fromStep != y.span.fromStep) return x.span.fromStep < y.span.fromStep;
+            return x.span.toStep < y.span.toStep;
         });
         if (static_cast<int>(a.parts.size()) > kRetroMaxSpans) a.parts.resize(kRetroMaxSpans);
         double num = 0, den = 0;
         for (const Part& p : a.parts) {
-            const double w = static_cast<double>(p.measure.tokens) + 5000.0 * p.measure.minutes + 1.0;
+            const double w = static_cast<double>(cost_weight(p.measure) + 1);
             num += p.share * w;
             den += w;
             a.c.spans.push_back(p.span);
@@ -431,7 +438,7 @@ std::vector<RetroCandidate> find_retro_candidates(const std::vector<EfficiencySe
                              }),
               out.end());
     std::sort(out.begin(), out.end(), [](const RetroCandidate& x, const RetroCandidate& y) {
-        const double sx = rank_score(x), sy = rank_score(y);
+        const std::uint64_t sx = rank_score(x), sy = rank_score(y);
         if (sx != sy) return sx > sy;
         return x.id < y.id;
     });
@@ -450,8 +457,8 @@ Json RetrospectiveResult::to_json() const {
     Json cands = Json::array();
     for (const RetroCandidate& c : candidates) cands.push_back(c.to_json());
     Json j = Json::object({{"sessions", sessions}, {"candidates", cands}, {"alreadyFiled", alreadyFiled}, {"filed", filed},
-                           {"fixChecks", fixChecks}, {"dropped", dropped}, {"facts", facts}, {"model", model}, {"costUsd", std::round(costUsd * 1e6) / 1e6},
-                           {"usage", usage.to_json()}, {"note", note}});
+                           {"fixChecks", fixChecks}, {"dropped", dropped}, {"skipped", skipped}, {"facts", facts}, {"model", model}, {"costUsd", std::round(costUsd * 1e6) / 1e6},
+                           {"usage", usage.to_json()}, {"note", skipped.empty() ? note : note + " " + std::to_string(skipped.size()) + " transcript(s) were not read (see `skipped`)."}});
     return j;
 }
 
@@ -583,6 +590,11 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
         for (auto it = all.rbegin(); it != all.rend() && static_cast<int>(ids.size()) < kRetroMaxSessions && examined < kRetroMaxSessionsExamined; ++it) {
             ++examined;
             if (!options.idPrefix.empty() && !starts_with(*it, options.idPrefix)) continue;
+            // A run's ids are <stamp>-<role>[-<n>] and a second run begun in the same second is <stamp>-2: with the stamp and its dash as the
+            // prefix, an id that goes on with a digit is that other run's.
+            if (!options.idPrefix.empty() && options.idPrefix.back() == '-' && it->size() > options.idPrefix.size() &&
+                std::isdigit(static_cast<unsigned char>((*it)[options.idPrefix.size()])))
+                continue;
             if (!sinceDay.empty() && it->size() >= 8 && std::isdigit(static_cast<unsigned char>((*it)[0])) && it->substr(0, 8) < sinceDay) continue;
             ids.push_back(*it);
         }
@@ -590,12 +602,15 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
 
     RetrospectiveResult result;
     std::vector<EfficiencySession> sessions;
+    EfficiencyLoadBudget budget;  // the transcripts of the whole pass are read within one total limit
     for (const std::string& id : ids) {
         if (is_cancelled(options.cancel)) return make_error("cancelled", "");
-        auto loaded = load_efficiency_session(projectDir, id);
+        auto loaded = load_efficiency_session(projectDir, id, &budget);
         if (!loaded.ok()) {
-            if (options.sessions.empty()) continue;  // one transcript too big to read must not stop the others
-            return loaded.error();
+            if (!options.sessions.empty()) return loaded.error();
+            // One transcript too big to read must not stop the others: it is left out, and the result says which and why.
+            result.skipped.push_back(Json::object({{"id", id}, {"reason", loaded.error().message}}));
+            continue;
         }
         EfficiencySession s = std::move(loaded.value());
         if (s.steps.empty()) continue;
@@ -667,6 +682,7 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
     mo.role = options.role.empty() ? std::string(kRoleFast) : options.role;
     mo.providerFactory = options.providerFactory;
     mo.runtime = options.runtime;
+    mo.cancel = options.cancel;
     mo.onUsage = [&](const Usage& u, double cost) {
         result.usage += u;
         result.costUsd += cost;

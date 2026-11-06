@@ -4,11 +4,15 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <istream>
 #include <map>
 #include <set>
 #include <sstream>
+#include <string_view>
 
 #include "fa/core/date.h"
 #include "fa/core/fs.h"
@@ -33,10 +37,35 @@ const Json* jchild(const Json& j, const char* key) {
     auto it = j.find(key);
     return it == j.end() ? nullptr : &*it;
 }
+// A whole number a transcript line holds (tokens, milliseconds, bytes): 0 for a missing key, a negative, NaN or a non-number, and never
+// more than kMaxJsonCount, so that the cast below stays inside the range of the type (a double past it is undefined behaviour) and
+// the sums of many of them cannot wrap.
+constexpr double kMaxJsonCount = 1e15;
 std::uint64_t juint(const Json& j, const char* key) {
-    if (const Json* c = jchild(j, key); c && c->is_number() && c->get<double>() >= 0) return static_cast<std::uint64_t>(c->get<double>());
+    if (const Json* c = jchild(j, key); c && c->is_number()) {
+        const double v = c->get<double>();
+        if (v >= 1.0) return static_cast<std::uint64_t>(std::min(v, kMaxJsonCount));  // false for NaN and for anything below 1
+    }
     return 0;
 }
+// A non-negative amount (minutes, dollars): 0 for a missing key, a negative, NaN or a non-number, at most kMaxJsonCount.
+double jamount(const Json& j, const char* key) {
+    if (const Json* c = jchild(j, key); c && c->is_number()) {
+        const double v = c->get<double>();
+        if (v > 0.0) return std::min(v, kMaxJsonCount);
+    }
+    return 0.0;
+}
+// The same for a count held in an int (a step number...).
+int jint(const Json& j, const char* key) { return static_cast<int>(std::min<std::uint64_t>(juint(j, key), 2'000'000'000u)); }
+
+// A path as UTF-8 text and back, whatever the platform: string() on Windows is the ANSI code page, which turns an accented letter of a
+// session name into '?' or another byte sequence.
+std::string u8text(const stdfs::path& p) {
+    const std::u8string u = p.u8string();
+    return std::string(reinterpret_cast<const char*>(u.data()), u.size());
+}
+stdfs::path path_of_text(const std::string& text) { return stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size())); }
 double round_to(double v, double scale) { return std::round(v * scale) / scale; }
 bool contains_string(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
 bool jbool(const Json& j, const char* key) {
@@ -131,7 +160,7 @@ void resolve_cli_call(EfficiencyToolCall& c, const Json& input) {
     };
     const std::vector<std::string> w = words(cmdline);
     for (std::size_t i = 0; i < w.size(); ++i) {
-        const std::string bin = stdfs::path(w[i]).stem().string();
+        const std::string bin = u8text(path_of_text(w[i]).stem());
         if (bin != "factoria" || i + 1 >= w.size()) continue;
         if (w[i + 1] == "call" && i + 2 < w.size()) {
             c.command = w[i + 2];
@@ -169,19 +198,23 @@ std::uint64_t json_bytes(const Json& j) {
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------- transcripts --
-EfficiencySession read_efficiency_session(const std::string& text, const std::string& id) {
+namespace {
+
+// Where the lines of a transcript come from: `next` gives the following line (without its newline) and says when it was too long to
+// keep (then `line` is empty); false at the end.
+using LineSource = std::function<bool(std::string_view& line, bool& tooLong)>;
+
+EfficiencySession read_session_lines(const LineSource& next, const std::string& id) {
     EfficiencySession s;
     s.id = id;
     std::map<std::string, std::pair<std::size_t, std::size_t>> pending;  // tool call id -> (step index, call index)
     std::vector<std::uint64_t> cliBytes;                                  // per step, CLI agents
     bool cliLastWasEnd = true;
     std::int64_t lastMs = 0;
-    std::size_t pos = 0;
-    while (pos < text.size()) {
-        std::size_t eol = text.find('\n', pos);
-        if (eol == std::string::npos) eol = text.size();
-        const std::string_view raw(text.data() + pos, eol - pos);
-        pos = eol + 1;
+    std::string_view raw;
+    bool tooLong = false;
+    while (next(raw, tooLong)) {
+        if (tooLong) { ++s.skippedLines; continue; }
         if (raw.empty()) continue;
         if (raw.size() > kEfficiencyMaxLine) { ++s.skippedLines; continue; }
         const Json j = Json::parse(raw.begin(), raw.end(), nullptr, false);
@@ -203,7 +236,7 @@ EfficiencySession read_efficiency_session(const std::string& text, const std::st
             st.endMs = t > 0 ? t : (s.steps.empty() ? lastMs : s.steps.back().endMs);
             if (const Json* u = jchild(j, "usage"); u && u->is_object())
                 st.tokens = juint(*u, "inputTokens") + juint(*u, "outputTokens") + juint(*u, "cacheCreationTokens") + juint(*u, "cacheReadTokens");
-            if (const Json* c = jchild(j, "costUsd"); c && c->is_number()) st.costUsd = std::max(0.0, c->get<double>());
+            st.costUsd = jamount(j, "costUsd");
             const Json* content = jchild(j, "content");
             auto add_call = [&](const std::string& callId, const std::string& name, const Json& input) {
                 EfficiencyToolCall call;
@@ -314,8 +347,91 @@ EfficiencySession read_efficiency_session(const std::string& text, const std::st
     return s;
 }
 
+// Lines out of a stream, read in chunks: never more than one line (at most kEfficiencyMaxLine bytes) and one chunk in memory, and no more
+// than `limit` bytes of the stream. A longer line is dropped as it is read (reported as too long); `cut` says the limit stopped the read.
+class StreamLines {
+public:
+    StreamLines(std::istream& in, std::uint64_t limit) : in_(in), limit_(limit) {}
+    bool next(std::string_view& line, bool& tooLong) {
+        line_.clear();
+        tooLong = false;
+        bool any = false;
+        for (;;) {
+            if (pos_ == len_ && !fill()) break;
+            const char* begin = chunk_.data() + pos_;
+            const std::size_t avail = len_ - pos_;
+            const void* nl = std::memchr(begin, '\n', avail);
+            const std::size_t take = nl ? static_cast<std::size_t>(static_cast<const char*>(nl) - begin) : avail;
+            any = true;
+            if (!tooLong) {
+                if (line_.size() + take > kEfficiencyMaxLine) { tooLong = true; line_.clear(); }
+                else line_.append(begin, take);
+            }
+            pos_ += take + (nl ? 1 : 0);
+            if (nl) break;
+        }
+        if (!any) return false;
+        line = tooLong ? std::string_view() : std::string_view(line_);
+        return true;
+    }
+    bool cut() const { return cut_; }
+
+private:
+    bool fill() {
+        if (read_ >= limit_) {
+            // Anything left past the limit is not read.
+            char probe;
+            if (in_.read(&probe, 1)) cut_ = true;
+            return false;
+        }
+        chunk_.resize(65536);
+        const std::uint64_t room = limit_ - read_;
+        in_.read(chunk_.data(), static_cast<std::streamsize>(std::min<std::uint64_t>(chunk_.size(), room)));
+        len_ = static_cast<std::size_t>(in_.gcount());
+        pos_ = 0;
+        read_ += len_;
+        return len_ > 0;
+    }
+    std::istream& in_;
+    std::uint64_t limit_;
+    std::uint64_t read_ = 0;
+    std::string chunk_, line_;
+    std::size_t pos_ = 0, len_ = 0;
+    bool cut_ = false;
+};
+
+}  // namespace
+
+EfficiencySession read_efficiency_session(const std::string& text, const std::string& id) {
+    std::size_t pos = 0;
+    return read_session_lines(
+        [&](std::string_view& line, bool& tooLong) {
+            if (pos >= text.size()) return false;
+            std::size_t eol = text.find('\n', pos);
+            if (eol == std::string::npos) eol = text.size();
+            line = std::string_view(text.data() + pos, eol - pos);
+            tooLong = false;
+            pos = eol + 1;
+            return true;
+        },
+        id);
+}
+
+EfficiencySession read_efficiency_session(std::istream& in, const std::string& id) {
+    StreamLines lines(in, kEfficiencyMaxBytes);
+    EfficiencySession s = read_session_lines([&](std::string_view& line, bool& tooLong) { return lines.next(line, tooLong); }, id);
+    if (lines.cut()) s.truncated = true;
+    return s;
+}
+
 std::string efficiency_sessions_dir(const std::string& projectDir) {
-    return (stdfs::path(projectDir) / ".factoria" / "ai" / "sessions").generic_string();
+    // Text only: the bytes of the project folder stay as the caller gave them (a round trip through a path changes them on Windows).
+    std::string dir = projectDir;
+#ifdef _WIN32
+    std::replace(dir.begin(), dir.end(), '\\', '/');
+#endif
+    while (dir.size() > 1 && dir.back() == '/') dir.pop_back();
+    return (dir.empty() ? std::string() : dir + "/") + ".factoria/ai/sessions";
 }
 
 std::vector<std::string> list_efficiency_sessions(const std::string& projectDir) {
@@ -323,16 +439,16 @@ std::vector<std::string> list_efficiency_sessions(const std::string& projectDir)
     std::error_code ec;
     for (const auto& e : stdfs::directory_iterator(fs::os_path(stdfs::path(efficiency_sessions_dir(projectDir))), ec)) {
         std::error_code ec2;
-        if (e.is_regular_file(ec2) && e.path().extension() == ".jsonl") names.push_back(e.path().stem().string());
+        if (e.is_regular_file(ec2) && e.path().extension() == ".jsonl") names.push_back(u8text(e.path().stem()));
     }
     std::sort(names.begin(), names.end());
     return names;
 }
 
-Result<EfficiencySession> load_efficiency_session(const std::string& projectDir, const std::string& session) {
-    std::string id = stdfs::path(session).filename().string();
+Result<EfficiencySession> load_efficiency_session(const std::string& projectDir, const std::string& session, EfficiencyLoadBudget* budget) {
+    std::string id = u8text(path_of_text(session).filename());
     if (ends_with(id, ".jsonl")) id.resize(id.size() - 6);
-    const stdfs::path file = stdfs::path(efficiency_sessions_dir(projectDir)) / (id + ".jsonl");
+    const stdfs::path file = stdfs::path(efficiency_sessions_dir(projectDir)) / path_of_text(id + ".jsonl");
     std::error_code ec;
     if (id.empty() || !stdfs::is_regular_file(fs::os_path(file), ec)) {
         const std::vector<std::string> names = list_efficiency_sessions(projectDir);
@@ -345,11 +461,18 @@ Result<EfficiencySession> load_efficiency_session(const std::string& projectDir,
         return make_error("The session '" + id + "' is " + std::to_string(size / (1024 * 1024)) + " MB, more than the " +
                               std::to_string(kEfficiencyMaxBytes / (1024 * 1024)) + " MB that are read for a measurement.",
                           "Point at a shorter session (the sessions of one request each), or delete the oldest ones in " + efficiency_sessions_dir(projectDir) + ".");
+    // The budget is checked before the file is opened: a call that reads many sessions stays within kEfficiencyMaxTotalBytes in all.
+    if (budget && !ec) {
+        if (size > budget->bytesLeft)
+            return make_error("The session '" + id + "' (" + std::to_string(size / (1024 * 1024)) + " MB) was not read: this call already read " +
+                                  std::to_string((budget->total - budget->bytesLeft) / (1024 * 1024)) + " of the " +
+                                  std::to_string(budget->total / (1024 * 1024)) + " MB it may read in all.",
+                              "Name fewer or shorter sessions, or delete the oldest ones in " + efficiency_sessions_dir(projectDir) + ".");
+        budget->bytesLeft -= size;
+    }
     fs::ReadStream in(fs::os_path(file), std::ios::binary);
-    if (!in) return make_error("Cannot read " + file.generic_string() + ".", "Check that the file exists and that no other program has it locked.");
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    return read_efficiency_session(ss.str(), id);
+    if (!in) return make_error("Cannot read " + u8text(file) + ".", "Check that the file exists and that no other program has it locked.");
+    return read_efficiency_session(in, id);
 }
 
 // ------------------------------------------------------------------------------------------------------------- measuring --
@@ -371,11 +494,11 @@ Json EfficiencyMeasure::to_json() const {
 EfficiencyMeasure EfficiencyMeasure::from_json(const Json& j) {
     EfficiencyMeasure m;
     if (!j.is_object()) return m;
-    m.steps = static_cast<int>(juint(j, "steps"));
-    m.toolCalls = static_cast<int>(juint(j, "toolCalls"));
-    if (const Json* c = jchild(j, "minutes"); c && c->is_number()) m.minutes = c->get<double>();
+    m.steps = jint(j, "steps");
+    m.toolCalls = jint(j, "toolCalls");
+    m.minutes = jamount(j, "minutes");
     m.tokens = juint(j, "tokens");
-    if (const Json* c = jchild(j, "costUsd"); c && c->is_number()) m.costUsd = c->get<double>();
+    m.costUsd = jamount(j, "costUsd");
     m.estimated = jbool(j, "estimated");
     return m;
 }
@@ -572,10 +695,10 @@ std::optional<EfficiencyRefusal> efficiency_input_from_json(const Json& args, Ef
     out.appliesTo = text("appliesTo");
     out.whyNotCheaper = text("whyNotCheaper");
     if (const Json* c = jchild(args, "everyStepTokens")) {
-        if (!c->is_number() || c->get<double>() < 0)
+        if (!c->is_number() || !(c->get<double>() >= 0))
             return refuse("invalid_argument", "/everyStepTokens must be a number of tokens (0 or more).",
                           "It is the size, in tokens, of the text the fix adds to EVERY step of every run (AGENTS.md, the system prompt). Leave it out for a fix read only on demand.");
-        out.everyStepTokens = static_cast<std::uint64_t>(c->get<double>());
+        out.everyStepTokens = static_cast<std::uint64_t>(std::min(c->get<double>(), 1e12));  // times the steps of a run below: stays far from the 64-bit limit
     }
     if (const Json* c = jchild(args, "searched")) {
         if (c->is_string()) {
@@ -675,15 +798,16 @@ std::optional<EfficiencyRefusal> check_efficiency_report(const std::string& proj
                       "Name the 10 longest ones, or join consecutive steps into one span.");
     std::map<std::string, EfficiencySession> sessions;
     std::map<std::string, std::vector<std::pair<int, int>>> taken;
+    EfficiencyLoadBudget budget;  // the spans name at most 10 sessions: together they are read within the total limit
     verdict = EfficiencyVerdict{};
     for (std::size_t i = 0; i < in.evidence.size(); ++i) {
         const EfficiencySpan& sp = in.evidence[i];
         const std::string at = "/evidence/" + std::to_string(i);
-        std::string id = stdfs::path(sp.session).filename().string();
+        std::string id = u8text(path_of_text(sp.session).filename());
         if (ends_with(id, ".jsonl")) id.resize(id.size() - 6);
         auto found = sessions.find(id);
         if (found == sessions.end()) {
-            auto loaded = load_efficiency_session(projectDir, id);
+            auto loaded = load_efficiency_session(projectDir, id, &budget);
             if (!loaded.ok()) return refuse("no_evidence", at + "/session: " + loaded.error().message, loaded.error().hint);
             found = sessions.emplace(id, std::move(loaded.value())).first;
         }

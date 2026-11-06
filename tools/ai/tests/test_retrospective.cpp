@@ -1,6 +1,10 @@
 // The retrospective (fa/ai/retrospective.h): the mechanical pass over hand-made transcripts, the fast-role call with the fake provider
 // (never a real model), the gate that every entry goes through, project facts, the busy guard and the automatic run after a long run.
+#include <atomic>
+#include <chrono>
 #include <memory>
+#include <set>
+#include <thread>
 
 #include "fa/ai/commands.h"
 #include "fa/ai/retrospective.h"
@@ -359,6 +363,59 @@ TEST_CASE("ai.retrospective: since and sessions pick the transcripts; mistakes t
     CHECK(has(notAName.error["message"].get<std::string>(), "/sessions"));
 }
 
+TEST_CASE("ai.retrospective: a transcript that is too big is left out with its reason, the others are read") {
+    Fixture f;
+    f.session("20261026-100000-orchestrator", failing_run());
+    f.session("20261026-110000-orchestrator", failing_run());
+    const fsys::path huge = f.proj.path / ".factoria" / "ai" / "sessions" / "20261026-120000-orchestrator.jsonl";
+    fsys::create_directories(huge.parent_path());
+    std::ofstream(huge, std::ios::binary) << "{}\n";
+    std::error_code ec;
+    fsys::resize_file(huge, kEfficiencyMaxBytes + 1, ec);  // sparse where the file system allows
+    REQUIRE_FALSE(ec);
+    auto r = f.retro(Json::object({{"candidatesOnly", true}}));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["sessions"].size() == 2);
+    REQUIRE(r.result["skipped"].size() == 1);
+    CHECK(r.result["skipped"][0]["id"] == "20261026-120000-orchestrator");
+    CHECK(has(r.result["skipped"][0]["reason"].get<std::string>(), "MB"));
+    CHECK(has(r.result["note"].get<std::string>(), "1 transcript(s) were not read"));
+    // Named on purpose, it is an error that says why instead of a silent skip.
+    auto named = f.retro(Json::object({{"sessions", Json::array({"20261026-120000-orchestrator"})}, {"candidatesOnly", true}}));
+    REQUIRE_FALSE(named.ok);
+    CHECK(has(named.error["message"].get<std::string>(), "MB"));
+    fsys::remove(huge, ec);
+}
+
+TEST_CASE("ai.retrospective: the order of the candidates and the spans does not depend on the order of the transcripts") {
+    // Two patterns that cost exactly the same: they are told apart by id, whatever order the sessions come in.
+    const EfficiencySession a = session_of("20261026-100000-orchestrator", repeat(20, {"scene.load", Json::object({{"scene", "main"}}), "not_found"}));
+    const EfficiencySession b = session_of("20261026-110000-orchestrator", repeat(20, {"scene.save", Json::object({{"scene", "main"}}), "not_found"}));
+    const auto forward = find_retro_candidates({a, b}, Json::array());
+    const auto backward = find_retro_candidates({b, a}, Json::array());
+    REQUIRE(forward.size() == 2);
+    REQUIRE(backward.size() == 2);
+    for (std::size_t i = 0; i < 2; ++i) CHECK(forward[i].id == backward[i].id);
+    CHECK(forward[0].potential.to_json() == forward[1].potential.to_json());
+    CHECK(forward[0].id < forward[1].id);  // equal cost: by id
+}
+
+TEST_CASE("ai.retrospective: idPrefix with a dash keeps a run's own transcripts, not those of a run begun in the same second") {
+    Fixture f;
+    f.session("20261026-100000-orchestrator", failing_run());
+    f.session("20261026-100000-2-orchestrator", failing_run());
+    f.session("20261026-100000-orchestrator-1", failing_run());  // a delegate of the first run
+    f.session("20261026-1000007-orchestrator", failing_run());
+    RetrospectiveOptions ro;
+    ro.candidatesOnly = true;
+    ro.idPrefix = "20261026-100000-";
+    auto r = run_retrospective(f.cfg, ro, f.proj.str());
+    REQUIRE(r.ok());
+    std::set<std::string> ids;
+    for (const Json& s : r->sessions) ids.insert(s["id"].get<std::string>());
+    CHECK(ids == std::set<std::string>{"20261026-100000-orchestrator", "20261026-100000-orchestrator-1"});
+}
+
 TEST_CASE("ai.retrospective: no transcripts, or nothing wasted, says so and asks no model") {
     Fixture f;
     auto none = f.retro();
@@ -386,6 +443,46 @@ TEST_CASE("ai.retrospective: the model failing or answering with something else 
     auto err = f.retro();
     REQUIRE(err.ok);
     CHECK(has(err.result["note"].get<std::string>(), "did not answer"));
+    CHECK_FALSE(fsys::exists(f.feedback_file()));
+}
+
+namespace {
+// A provider that waits for its answer until the cancel flag it was given is set (a stuck connection): it gives up after a long time,
+// so a retrospective that does not pass the flag on fails the test instead of hanging it.
+class WaitingProvider : public FakeProvider {
+public:
+    Result<ChatResponse> chat(const ChatRequest&, const ChatHooks&, const CancelFlag* cancel) override {
+        sawFlag = cancel != nullptr;
+        entered = true;
+        for (int i = 0; i < 2000 && !is_cancelled(cancel); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        return is_cancelled(cancel) ? make_error("cancelled") : make_error("gave up waiting");
+    }
+    std::atomic<bool> entered{false};
+    bool sawFlag = false;
+};
+}  // namespace
+
+TEST_CASE("ai.retrospective: Stop reaches the model call, which returns at once and files nothing") {
+    Fixture f;
+    f.session("20261026-100000-orchestrator", failing_run());
+    auto waiting = std::make_shared<WaitingProvider>();
+    CancelFlag stop{false};
+    RetrospectiveOptions ro;
+    ro.cancel = &stop;
+    ro.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> { return std::static_pointer_cast<ChatProvider>(waiting); };
+    std::thread stopper([&] {
+        while (!waiting->entered) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        stop = true;
+    });
+    const auto began = std::chrono::steady_clock::now();
+    auto r = run_retrospective(f.cfg, ro, f.proj.str());
+    stopper.join();
+    const auto waited = std::chrono::steady_clock::now() - began;
+    REQUIRE(r.ok());
+    CHECK(waiting->sawFlag);
+    CHECK(waited < std::chrono::seconds(8));  // the provider's own give-up is 10 s
+    CHECK(r->filed.empty());
+    CHECK(has(r->note, "did not answer"));
     CHECK_FALSE(fsys::exists(f.feedback_file()));
 }
 

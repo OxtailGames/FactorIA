@@ -8,6 +8,7 @@
 
 #include "fa/ai/config.h"
 #include "fa/ai/session.h"
+#include "fa/core/process.h"
 #include "fa/core/types.h"
 
 namespace fa::ai {
@@ -35,6 +36,9 @@ struct TextModelOptions {
     // agent's is what it reports, 0 when it reports none), on the thread that asked. The caller adds it to its own run (the
     // retrospective of a long run). Not called when the call failed.
     std::function<void(const Usage&, double costUsd)> onUsage;
+    // Set (from another thread) to stop a call that is waiting for the answer: the API request is dropped, a CLI agent's process tree is
+    // killed, and the call returns an error. Not owned: it must outlive every call of the model. nullptr = the call cannot be cancelled.
+    const CancelFlag* cancel = nullptr;
 };
 
 struct TextModelInfo {

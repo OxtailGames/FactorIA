@@ -6009,7 +6009,7 @@ void Editor::at_build_tools_script() {
             // (on a small display the window shows the first of them; the clicks below scroll to the others)
             at_check(at_shown("aiset:saver:loopguard") && at_visible("aiset:saver:groups") && at_visible("aiset:saver:facts") &&
                          at_visible("aiset:saver:retrospective"),
-                     "the Token savers section shows the three switches and the Retrospective switch");
+                     "the Token savers section is scrolled to the Loop guard switch and draws the other two and the Retrospective switch");
         });
         // Switches off, a judge picked.
         click("aiset:saver:loopguard");
@@ -8285,7 +8285,7 @@ void Editor::at_build_tools_script() {
                          entry["saving"].value("minutes", 0.0) > 0,
                      "...with the model's title and a measured saving: " + entry.dump());
             at_check(entry.contains("reporter") && entry["reporter"].is_object(), "...and a reporter");
-            at_check(at_visible("feedback:message") && fbMessage_.find("1") != std::string::npos && fbMessage_.find("Looking back") == std::string::npos,
+            at_check(at_visible("feedback:message") && fbMessage_.rfind("1 efficiency entry filed", 0) == 0,
                      "the panel says what the retrospective did: " + fbMessage_);
             at_check(at_visible("feedback:saving"), "the panel adds up what the open efficiency entries would save");
             at_check(share_.mode == ShareMode::Never, "the sharing mode is the one the person chose");

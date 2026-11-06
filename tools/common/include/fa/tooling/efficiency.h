@@ -21,6 +21,7 @@
 #pragma once
 
 #include <cstdint>
+#include <istream>
 #include <optional>
 #include <string>
 #include <vector>
@@ -63,17 +64,28 @@ struct EfficiencySession {
 };
 
 inline constexpr int kEfficiencyMaxSteps = 20000;
-inline constexpr std::uint64_t kEfficiencyMaxBytes = 256ull * 1024 * 1024;  // of one transcript read
+inline constexpr std::uint64_t kEfficiencyMaxBytes = 64ull * 1024 * 1024;        // of one transcript read: a bigger file is refused
+inline constexpr std::uint64_t kEfficiencyMaxTotalBytes = 256ull * 1024 * 1024;   // of all the transcripts one call reads (EfficiencyLoadBudget)
 inline constexpr std::size_t kEfficiencyMaxLine = 8u * 1024 * 1024;         // a longer line is skipped
 
 // The steps of the transcript `text` (JSON lines). Never fails: a line that is not JSON is skipped and counted.
 EfficiencySession read_efficiency_session(const std::string& text, const std::string& id);
+// The same, read from a stream line by line: only one line (at most kEfficiencyMaxLine bytes) and one 64 KB chunk are held in memory, and
+// at most kEfficiencyMaxBytes bytes are read (the rest sets `truncated`).
+EfficiencySession read_efficiency_session(std::istream& in, const std::string& id);
+// How much a call that reads several transcripts may still read. Every load_efficiency_session given the budget takes the size of its file
+// off it before opening it, and refuses a file that no longer fits.
+struct EfficiencyLoadBudget {
+    std::uint64_t total = kEfficiencyMaxTotalBytes;
+    std::uint64_t bytesLeft = kEfficiencyMaxTotalBytes;
+};
 // The folder of a project's transcripts: <projectDir>/.factoria/ai/sessions
 std::string efficiency_sessions_dir(const std::string& projectDir);
 // The ids of the transcripts of a project, sorted.
 std::vector<std::string> list_efficiency_sessions(const std::string& projectDir);
-// Reads one transcript by id ("20261014-153012-main", with or without ".jsonl"). The error says which ids exist.
-Result<EfficiencySession> load_efficiency_session(const std::string& projectDir, const std::string& session);
+// Reads one transcript by id ("20261014-153012-main", with or without ".jsonl"). The error says which ids exist, or that the file is bigger
+// than kEfficiencyMaxBytes or does not fit what is left of `budget` (nullptr = no total limit). All strings are UTF-8.
+Result<EfficiencySession> load_efficiency_session(const std::string& projectDir, const std::string& session, EfficiencyLoadBudget* budget = nullptr);
 
 // ---- Measuring ----------------------------------------------------------------------------------------------------------
 struct EfficiencyMeasure {
