@@ -4,12 +4,14 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
 
 #include "feedback_admin.h"
 #include "fa/cli/cli.h"
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
+#include "fa/tooling/feedback_share.h"
 
 using namespace fa;
 using namespace fa::cli;
@@ -133,10 +135,17 @@ struct Fixture {
     std::string adminFile, inbox;
     int modelCalls = 0;
     std::map<std::string, std::string> env;
+    std::unique_ptr<ScopedShareEnv> scopedShare;  // the inbox files are rewritten under the feedback-file lock of the user's folder: this one's
 
     explicit Fixture(bool configured = true) {
         dir = fs::make_temp_dir("fa_feedback_admin");
         env["FACTORIA_AI_CONFIG"] = (dir / "cfg" / "ai.json").string();
+        {
+            ShareEnv shareEnv;
+            const std::string cfg = env["FACTORIA_AI_CONFIG"];
+            shareEnv.env = [cfg](const std::string& n) { return n == "FACTORIA_AI_CONFIG" ? cfg : std::string(); };
+            scopedShare = std::make_unique<ScopedShareEnv>(std::move(shareEnv));
+        }
         adminFile = (dir / "cfg" / "feedback-admin.json").string();
         inbox = (dir / "cfg" / "feedback-inbox").string();
         if (configured) spit(adminFile, R"({"endpoint": "https://feedback.example.test/", "adminToken": "tok-secret", "other": 1})");
@@ -148,6 +157,7 @@ struct Fixture {
     }
     ~Fixture() {
         feedback_admin_env() = FeedbackAdminEnv{};
+        scopedShare.reset();
         std::error_code ec;
         stdfs::remove_all(dir, ec);
     }

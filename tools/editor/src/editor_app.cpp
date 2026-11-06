@@ -670,6 +670,7 @@ bool Editor::boot(const std::string& dirIn) {
         // Closed engine feedback moves to ENGINE_FEEDBACK.archive.json so the file only holds what is still open.
         if (const std::string fbPath = fs::join(projectDir_, engine_->project().feedbackFile); fs::exists(engine_->project().feedbackFile)) {
             // First, the gaps this engine version fixed are closed (the list embedded in the binary), then archived below.
+            const ShareWaitCap shortWait(0.3);  // both rewrite the file under a lock another program may hold: the UI thread does not wait seconds
             if (auto c = check_fixed_feedback_file(fbPath); !c) FA_WARN("editor", "feedback fixed check: {}", c.error().to_string());
             else if (!c->closed.empty()) FA_INFO("editor", "{} feedback entries were fixed in this engine version", c->closed.size());
             if (auto r = archive_closed_feedback_file(fbPath); !r) FA_WARN("editor", "feedback archive: {}", r.error().to_string());

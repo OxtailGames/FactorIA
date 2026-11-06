@@ -143,6 +143,8 @@ Result<void> update_share_settings(const ShareEnv& env, const std::function<void
 class ShareLock {
 public:
     explicit ShareLock(const ShareEnv& env);
+    // The same lock in another folder (FeedbackFileLock's project lock). The wait and stale times are those of `env`.
+    ShareLock(const ShareEnv& env, const std::filesystem::path& folder);
     ~ShareLock();
     ShareLock(const ShareLock&) = delete;
     ShareLock& operator=(const ShareLock&) = delete;
@@ -158,7 +160,8 @@ public:
     static void keep_alive();
 
 private:
-    void acquire(const ShareEnv& env);
+    void init(const ShareEnv& env, const std::filesystem::path& folder);
+    void acquire(const ShareEnv& env, const std::filesystem::path& folder);
     void refresh();
     bool held_ = false, nested_ = false, unwritable_ = false;
     double staleSec_ = 10.0;
@@ -166,17 +169,22 @@ private:
     std::filesystem::path file_;
 };
 // The lock of a read-modify-write of a project's ENGINE_FEEDBACK.json (or its archive) that the editor, the CLI, an agent and a
-// retrospective may write at once. It is the ShareLock of the user's folder, so a write that also touches the outbox is covered by the
-// same one; when that folder cannot be written (a read-only or missing home, a sandbox) the file is still written, under a lock of the
-// same kind in the project's own `.factoria` folder (next to the feedback file), because the report of a gap must not need
-// ~/.factoria. held() / error() are those of the lock that was taken; error() names the folder when neither could be.
+// retrospective may write at once; every function that rewrites the file takes it for the whole read-modify-write. It is two
+// ShareLocks taken in a fixed order: the user's (so a write that also touches the outbox is covered by the same one) and then one in
+// the project's own `.factoria` folder (next to the feedback file). The project's lock is always taken, so a process that can write
+// ~/.factoria and one that cannot (a sandbox, a read-only home) still exclude each other; a process that cannot write the user's
+// folder takes only the project's, so the report of a gap does not need ~/.factoria. Only when the project's folder cannot hold a
+// lock either while the user's is held is the user's lock alone enough. held() / error() say whether the lock was taken; error()
+// names the folder when none could be.
 class FeedbackFileLock {
 public:
-    FeedbackFileLock(const ShareEnv& env, const std::string& feedbackPath);
+    // `projectOnly` takes the project's lock without the user's: for the one write that must go through while another program holds the
+    // outbox (the `sent` state of an entry whose outbox update failed: write_entry_shared). Still after the user's lock when the caller holds it.
+    FeedbackFileLock(const ShareEnv& env, const std::string& feedbackPath, bool projectOnly = false);
     bool held() const;
     const std::string& error() const { return error_; }
-    // True when the user's folder was not writable and the project's folder holds the lock.
-    bool in_project_folder() const { return local_ != nullptr; }
+    // True when the user's folder was not writable and only the project's folder holds the lock.
+    bool in_project_folder() const { return !user_ && local_; }
     ~FeedbackFileLock();
     FeedbackFileLock(const FeedbackFileLock&) = delete;
     FeedbackFileLock& operator=(const FeedbackFileLock&) = delete;
@@ -441,6 +449,7 @@ VerdictResult share_sync_verdicts(const ShareEnv& env, const std::string& feedba
 // Writes `shared` ({status, date, shareId?, reason?}) into entry `localId` of the feedback file (or its archive).
 // A null `shared` removes it.
 void write_entry_shared(const std::string& feedbackFile, const std::string& localId, const Json& shared);
+void write_entry_shared(const ShareEnv& env, const std::string& feedbackFile, const std::string& localId, const Json& shared);  // under `env`'s lock
 
 // ------------------------------------------------------------------------------------------------------------ GitHub sign-in
 

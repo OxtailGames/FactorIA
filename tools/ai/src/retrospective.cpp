@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 
@@ -15,6 +16,7 @@
 #include "fa/core/date.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/feedback.h"
+#include "fa/tooling/feedback_share.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -458,7 +460,11 @@ Json RetrospectiveResult::to_json() const {
     for (const RetroCandidate& c : candidates) cands.push_back(c.to_json());
     Json j = Json::object({{"sessions", sessions}, {"candidates", cands}, {"alreadyFiled", alreadyFiled}, {"filed", filed},
                            {"fixChecks", fixChecks}, {"dropped", dropped}, {"skipped", skipped}, {"facts", facts}, {"model", model}, {"costUsd", std::round(costUsd * 1e6) / 1e6},
-                           {"usage", usage.to_json()}, {"note", skipped.empty() ? note : note + " " + std::to_string(skipped.size()) + " transcript(s) were not read (see `skipped`)."}});
+                           {"usage", usage.to_json()}, {"note", note}});
+    std::string text = note;
+    if (!skipped.empty()) text += " " + std::to_string(skipped.size()) + " transcript(s) were not read (see `skipped`).";
+    if (!fixCheckProblem.empty()) text += " " + fixCheckProblem;
+    j["note"] = text;
     return j;
 }
 
@@ -638,14 +644,31 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
     }
     const std::vector<FixCheck> checks = check_efficiency_fixes(sessions, closed, options.engineVersion.empty() ? std::string(engine_version()) : options.engineVersion);
     std::map<std::string, std::string> afterFix;  // pattern -> the version whose fix did not remove it
+    // The notes on the entries are written under the lock every writer of the file takes, taken once for all of them: a lock that stays
+    // busy ends the writing at the first failure (each try would wait the whole time again), and the result says so.
+    std::unique_ptr<FeedbackFileLock> checkLock;
+    bool recording = !options.candidatesOnly;
     for (const FixCheck& c : checks) {
         result.fixChecks.push_back(c.to_json());
         if (c.result == "no_change" || c.result == "partial") afterFix[c.pattern] = c.fixedIn;
-        if (options.candidatesOnly || c.result == "waiting") continue;
+        if (!recording || c.result == "waiting") continue;
+        if (is_cancelled(options.cancel)) {
+            break;  // Stop: the rest are not written (answered right after the loop)
+        }
+        if (!checkLock) {
+            checkLock = std::make_unique<FeedbackFileLock>(share_env(), feedbackPath);
+            if (!checkLock->held()) {
+                result.fixCheckProblem = "The fix checks were not written on the entries (" + checkLock->error() + ") Run the retrospective again later.";
+                recording = false;
+                continue;
+            }
+        }
         Json stored = c.to_json();
         for (const char* key : {"entry", "pattern", "fixedIn", "fixedAt"}) stored.erase(key);
         (void)record_fix_check(feedbackPath, c.entry, stored);  // a file that cannot be written only loses the note: the result is returned anyway
     }
+    checkLock.reset();
+    if (is_cancelled(options.cancel)) return make_error("cancelled", "");
 
     std::vector<RetroCandidate> found = find_retro_candidates(sessions, entries);
     sessions.clear();  // the gate reads the transcripts again, one at a time: nothing big is held while the model works

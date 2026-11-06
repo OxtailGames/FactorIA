@@ -412,6 +412,7 @@ void Editor::feedback_share_tick() {
                     for (const Json& e : doc["entries"])
                         if (e.value("status", std::string("open")) != "open") anyClosed = true;
                     if (anyClosed) {
+                        const ShareWaitCap shortWait(0.3);  // the UI thread does not wait seconds for a lock another program holds
                         if (auto moved = archive_closed_feedback_file(file); moved && moved->moved > 0) {
                             if (auto again = load_feedback(file); again && again->contains("entries") && (*again)["entries"].is_array()) doc = *again;
                             stamp = fs::modified_time(engine_->project().feedbackFile);

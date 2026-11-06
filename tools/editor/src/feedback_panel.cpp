@@ -11,6 +11,14 @@
 namespace fa::editor {
 
 namespace {
+// The text for an error of a change to the feedback file. A lock another program holds is waited for 0.3 s at most (the UI thread
+// does not stall), so the text says to try again.
+std::string feedback_busy_text(const Error& e) {
+    std::string text = e.to_string();
+    if (e.message.find("Another FactorIA process") != std::string::npos) text += " Nothing was changed: try again in a moment.";
+    return text;
+}
+
 // `onItem` (optional) is told each entry of the open list after it is drawn (the autotest finds them by it).
 bool combo_strings(const char* label, int* cur, const std::vector<std::string>& items, bool withAny,
                    const std::function<void(const std::string&)>& onItem = {}) {
@@ -176,8 +184,8 @@ void Editor::draw_feedback_panel() {
     if (feedbackDoc_.is_null()) {
         ImGui::TextWrapped("No feedback file yet.");
         if (ImGui::Button("Create ENGINE_FEEDBACK.json")) {
-            Json doc = create_empty_feedback(projectName_);
-            if (auto r = save_feedback(path, doc); !r) notify(r.error().to_string(), 2);
+            const ShareWaitCap shortWait(0.3);  // the UI thread never waits seconds for another program's lock
+            if (auto r = create_feedback_file(path, projectName_); !r) notify(feedback_busy_text(r.error()), 2);
             feedbackMtime_ = INT64_MIN;
             feedbackPolled_ = -10;
         }
@@ -379,8 +387,9 @@ void Editor::draw_feedback_actions(const Json& en, const std::string& path) {
             fbAsk_ = FbAsk{id, "rejected", en.value("statusReason", std::string()), {}, true};
             ImGui::OpenPopup("Reject this entry?###fb-reject");
         } else {
+            const ShareWaitCap shortWait(0.3);  // the UI thread never waits seconds for another program's lock
             if (auto r = update_feedback_file(path, id, st[size_t(cur)], ""); !r) {
-                notify(r.error().to_string(), 2);
+                notify(feedback_busy_text(r.error()), 2);
             } else if (st[size_t(cur)] != "open") {
                 notify(id + " is " + st[size_t(cur)] + ": it moves to the archive next to " + engine_->project().feedbackFile + ".", 0);
             }
@@ -425,8 +434,9 @@ void Editor::draw_feedback_actions(const Json& en, const std::string& path) {
             const bool ready = !sanitize_status_reason(fbAsk_.reason).empty() && chars <= kFeedbackReasonMax;
             ImGui::BeginDisabled(!ready);
             if (ImGui::Button("Reject", ImVec2(110, 0))) {
+                const ShareWaitCap shortWait(0.3);  // the UI thread never waits seconds for another program's lock
                 if (auto r = update_feedback_file(path, id, "rejected", "", "", fbAsk_.reason, "user"); !r) {
-                    fbAsk_.error = r.error().to_string();
+                    fbAsk_.error = feedback_busy_text(r.error());
                 } else {
                     fbAsk_.open = false;
                     notify(id + " is rejected: it moves to the archive next to " + engine_->project().feedbackFile + ".", 0);
@@ -674,6 +684,7 @@ void Editor::draw_feedback_add_window() {
             Result<FeedbackAddResult> r = make_error(claim.message(), claim.hint());
             if (!claim.refused()) {
                 // Under the lock the other writers take; this is the UI thread, so a busy lock is waited for 0.3 s at most.
+                const ShareWaitCap shortWait(0.3);
                 FeedbackFileLock lock(ui_share_env(), path);
                 r = lock.held() ? add_feedback_entry_to_file(path, in, projectName_) : Result<FeedbackAddResult>(make_error(lock.error(), "Try again in a moment."));
             }

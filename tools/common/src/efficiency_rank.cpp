@@ -39,7 +39,7 @@ EfficiencyMeasure clamped_measure(const Json& j) {
 
 bool version_text_ok(const std::string& v) {
     if (v.empty() || v.size() > 32) return false;
-    if (!std::isalnum(static_cast<unsigned char>(v[0]))) return false;
+    if (!std::isdigit(static_cast<unsigned char>(v[0]))) return false;  // like the schema and the server: a version starts with a digit
     for (char c : v)
         if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '+' && c != '_' && c != '-') return false;
     return true;
