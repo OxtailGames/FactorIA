@@ -26,6 +26,7 @@ struct Cache {
     std::string text;           // the text of that read, while time and size alone cannot tell a second write (see settled)
     bool settled = false;       // the read came well after the file's time: a later write moves the time, so text is not kept
     Json doc;
+    std::uint64_t version = 0;  // grows every time the document above is replaced by another read (see manifest_version)
     std::unordered_map<std::string, std::shared_ptr<const Sheet>> sheets;  // parsed sheet entries of this read of the file
     std::string warnedFor;      // "root|mtime" of the last warning, so a broken file warns once
 };
@@ -183,6 +184,7 @@ void refresh_locked(Cache& c) {
     c.modified = modified;
     c.size = size;
     c.sheets.clear();
+    ++c.version;
     c.doc = empty_manifest();
     c.text.clear();
     c.settled = true;
@@ -210,6 +212,23 @@ Json manifest() {
     std::lock_guard lock(c.mutex);
     refresh_locked(c);
     return c.doc;
+}
+
+std::uint64_t manifest_version() {
+    Cache& c = cache();
+    std::lock_guard lock(c.mutex);
+    refresh_locked(c);
+    return c.version;
+}
+
+Json style_palette() {
+    Cache& c = cache();
+    std::lock_guard lock(c.mutex);
+    refresh_locked(c);
+    auto style = c.doc.find("style");
+    if (style == c.doc.end() || !style->is_object()) return Json();
+    auto pal = style->find("palette");
+    return pal == style->end() ? Json() : *pal;  // only the palette is copied, not the manifest
 }
 
 Json entry(std::string_view path) {

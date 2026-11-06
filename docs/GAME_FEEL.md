@@ -270,6 +270,8 @@ A test can check it without a window: call `hit`, then `game.step(1)` and read `
 The spark, the ring and the sparkle that appear on a hit or a pickup are a sprite sheet baked from code
 (`assets.animate_svg` with `ramp` and `layers`) and played by a `spawn` action; making one, looking at it at the game's size
 and refining it is the loop of [EFFECTS.md](EFFECTS.md), with three worked examples (an impact, a pickup, a fire loop).
+An effect made of particles, lights, sounds and these feel commands on one timeline is an effect document (`*.vfx.json`,
+[PARTICLES.md](PARTICLES.md)): its `command` parts call `feel.shake`, `feel.hitStop` and the others.
 Sky Hopper (`examples/sky-hopper`) uses it for its coins, and the shake, hit-stop, flash and squash of its stomp, hurt and jump.
 
 ## Limits

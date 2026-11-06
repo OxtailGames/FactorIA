@@ -38,7 +38,7 @@ std::string command_error_text(const Json& error);
 
 // ---------------------------------------------------------------------------------------------- asset fields
 // Whether a project-relative file is of an asset type of FieldInfo::assetType ("texture", "mesh", "audio", "font", "script",
-// "scene", "prefab", "material", "any").
+// "scene", "prefab", "material", "vfx", "any").
 bool asset_file_matches(std::string_view assetType, std::string_view relPath);
 // Folders the project listings never enter: hidden ones (.factoria, .git), build, node_modules, dist, export.
 bool skip_project_dir(std::string_view name);

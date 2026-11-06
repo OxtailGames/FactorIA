@@ -436,7 +436,7 @@ Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts 
 
 ## `assets.list`
 
-List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, other (by file name).
+List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, vfx, other (by file name).
 
 Example: assets.list {"folder":"assets","extension":".png"}
 
@@ -3378,4 +3378,35 @@ Moves the children of each picked <g> out into the group's parent, at the group'
 | `preview` | boolean | no | false skips the preview picture (`$image`): a live drag asks for the result many times a second and draws it itself. Default true. |
 | `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
 | `elements` | any | yes | The elements to work on: an SVG id, a selector, or a list of them. A group is one element. Selectors: #id, .class, tag, [attr=value], g > path, :nth-child(2), lists with commas. |
+
+## `vfx.create` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Write a new effect document (*.vfx.json) with one burst emitter, as a starting point to edit.
+
+Writes `path` (under assets/, ending in .vfx.json; format factoria.vfx/1, docs/PARTICLES.md "Effect documents") with one emitter part that bursts 16 soft dots, so there is something to see and edit. An existing file is an error unless `overwrite` is true. Change it with vfx.edit, play it with vfx.play, list its problems with vfx.check. The editor's Particle panel (View > Particles) edits the same file. Example: {"path":"assets/vfx/hit.vfx.json","doc":"A hit: sparks."}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The effect document, project-relative, under assets/ and ending in .vfx.json. |
+| `doc` | string | no | The file's `doc` text: what the effect is and where the game plays it. |
+| `overwrite` | boolean | no | Replace the file when it exists. Default false. |
+
+## `vfx.edit` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Change one field of an effect document by JSON pointer (set, remove, add to an array, move inside an array); the result must still be a valid effect.
+
+Edits `*.vfx.json` the way a hand edit would, but checked: the document is parsed again after the change (the same checks as vfx.check, without the files a sound names) and, when it would be invalid, nothing is written and the error lists the problems with their pointers. op `set` writes `value` at `pointer` (a field of an existing object, new or old); `remove` deletes the field or array element at `pointer`; `add` inserts `value` into the array at `pointer` (at `index`, default the end); `move` takes element `index` of the array at `pointer` to place `to`. The result has the effect's duration, its part count and the parser's warnings. Examples: {"path":"assets/vfx/hit.vfx.json","op":"set","pointer":"/parts/0/emitter/burst","value":24} and {"path":"assets/vfx/hit.vfx.json","op":"add","pointer":"/parts","value":{"type":"light","duration":0.1,"light":{"radius":80}}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The effect document, project-relative, ending in .vfx.json. |
+| `op` | string ["set","remove","add","move"] | yes | What to do. |
+| `pointer` | string | yes | JSON pointer into the document, e.g. /parts/0/emitter/burst or /parts. |
+| `value` | any | no | The new value (set) or the element to insert (add). Any JSON. |
+| `index` | integer | no | add: where to insert; move: the element to move. |
+| `to` | integer | no | move: the element's new place. |
 

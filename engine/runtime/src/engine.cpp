@@ -22,6 +22,7 @@
 #include "fa/scene/bones2d.h"
 #include "fa/scene/ik3d.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/vfx.h"
 #include "fa/scene/video.h"
 
 namespace fa {
@@ -258,6 +259,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
     bind_pending_skins(world);  // a SpriteSkin records the pose the scene was authored in, before any clip moves a bone
     ui.reset();
     apply_localization();  // the first frame (and the first onStart) already read the current language
+    if (renderer) renderer->reset_particles();  // emitters are kept by entity: the new scene's start from nothing, as on every Play (before the scripts, which may emit a burst)
     scripts.on_scene_loaded();
     if (renderer) renderer->debug().clear();
     // The picture of the previous scene is outdated: the next screenshot / render_now must draw the new one, also when
@@ -445,6 +447,12 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             update_videos(world, float(fixedDt * scale));
         }
         feel_fixed_update(world, fixedDt * scale);  // knockback of entities without a physics body (the game clock WITH hit-stop)
+        {
+            // Effect documents (vfx.play, Vfx components) follow the game clock like videos: they wait at time.scale 0. The sounds and
+            // commands a part fires go through the audio mixer and the command registry like any other call.
+            ProfSystemScope prof(ProfSystem::Animation);
+            update_vfx(world, float(fixedDt * scale), vfxHost);
+        }
         {
             ProfSystemScope prof(ProfSystem::ScriptsEvents);
             scripts.dispatch_events();

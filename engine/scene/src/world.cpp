@@ -234,6 +234,7 @@ void World::clear() {
     tooltip_ = UiTooltipView{};
     meshes_.clear();
     feel_.clear_scene();
+    vfxLive_ = 0;
 }
 
 bool World::active_in_hierarchy(Entity e) const {

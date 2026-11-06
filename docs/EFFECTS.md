@@ -160,8 +160,16 @@ Colours are the part to change last: the same module, baked again with
 `"ramp":["#0b1d3a","#2a6fd6","#8ec5ff","#eaf6ff"]` and `path` `assets/fx/flame_ice.png`, is an ice fire without touching the code.
 For a module (or a SMIL SVG) that draws in greys, `rampMap: true` colours the finished frames instead.
 
-## What the engine does not do (yet)
+## Checking an effect: effect documents and baked sheets
 
-There is no automatic check that grades an effect's readability or timing: the judging list above is read by the one who
-looks at the picture. The art critic (`assets.review`, when a vision model is set up) takes the contact sheet like any picture.
-A `ParticleEmitter` is the other way to make a burst (the `glow-and-effects` skill, and its fields in [COMPONENTS.md](COMPONENTS.md)); use it when the effect is many small random things rather than a drawn shape.
+Two kinds of effect, two ways to look at the result.
+
+- **An effect document** (`*.vfx.json`: emitters, lights, sounds and feel commands on one timeline, see [PARTICLES.md](PARTICLES.md)):
+  `vfx.budget` counts what it costs (particles alive, overdraw, lights) and says what to change for a phone, `vfx.filmstrip` plays it
+  and returns the frames as one picture, and `vfx.review` runs both and gives them to the art critic. Use it when the effect is many small
+  random things or needs sound and feel at the same instant; "Reviewing an effect" in [PARTICLES.md](PARTICLES.md) has the arguments.
+- **A baked sheet** (the drawn effect of this page, an `assets.animate_svg` sheet): `assets.contact_sheet` and `assets.preview_sheet`
+  show the frames, and the art critic (`assets.review`, when a vision model is set up) takes the sheet like any picture.
+
+None of these grades timing or readability for you: the judging list above is read by the one who looks at the picture. A drawn effect
+can also be played from an effect document (a prefab spawned by a `feel.spawn` command part), so the two ways combine.
