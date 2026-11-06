@@ -3,13 +3,14 @@
 // levels/sample.json (Wave Function Collapse), so the dungeon looks hand-made and is different on every run. The run seed
 // decides all four floors: the same seed is the same dungeon, so R replays it and a stored seed shares it.
 //
-// The generator places the walls, the coins (o) and the traps (x); this script adds what a rule decides: the player and
-// the stairs (floor_plan.js), the moves, the lives and the score.
+// The generator places the walls, the coins (o), the traps (x), the player (@) and the stairs (>): the last two are not
+// in the sample, `constraints.place` puts them on the finished floor (the player on any floor cell, the stairs as far
+// from it as a walk goes). This script adds what a rule decides: the moves, the lives and the score.
 import { Behaviour, input, rng, ui, world, tilemap } from "factoria";
-import { planFloor, solidGlyphs } from "./floor_plan.js";
 
 const FLOORS = 4;
 const LIVES = 3;
+const FLOOR_RETRIES = 3; // fresh seeds tried for one floor before the run gives up
 const COIN_SCORE = 10;
 const FLOOR_SCORE = 50;
 const SIZE = [36, 18]; // cells of a floor: 1152 x 576 px, leaves room for the HUD above and the help below
@@ -71,6 +72,7 @@ export default class Dungeon extends Behaviour {
     this.floorSeeds = [];
     for (let i = 0; i < FLOORS; i++) this.floorSeeds.push(draw.int(0, 2147483647));
     this.floorNumber = 1;
+    this.floorRetries = 0;
     this.lives = LIVES;
     this.coins = 0;
     this.score = 0;
@@ -81,7 +83,6 @@ export default class Dungeon extends Behaviour {
   startFloor() {
     this.clearFloor();
     this.state = "generating";
-    this.plan = null;
     this.player = null;
     this.job = tilemap.generate({
       sample: "levels/sample.json",
@@ -89,7 +90,14 @@ export default class Dungeon extends Behaviour {
       seed: this.floorSeeds[this.floorNumber - 1],
       n: 3,
       maxAttempts: 40,
-      constraints: { border: { tile: "#" }, counts: [{ tile: "o", min: 4, max: 12 }, { tile: "x", max: 8 }] },
+      constraints: {
+        border: { tile: "#" },
+        counts: [{ tile: "o", min: 4, max: 12 }, { tile: "x", max: 8 }],
+        place: [
+          { tile: "@", on: [".", ","] },
+          { tile: ">", where: "farthest", from: "@", on: [".", ","] },
+        ],
+      },
       reachability: { allConnected: true, solidTiles: SOLID_TILES },
       place: {
         entity: "floor",
@@ -108,6 +116,15 @@ export default class Dungeon extends Behaviour {
     if (!job) return;
     if (job.error !== "") {
       this.job = null;
+      // A seed whose floor will not grow within its attempts is rare: dig again from a seed drawn from it (still
+      // deterministic: the same run seed retries the same way) before giving up on the run.
+      if (this.floorRetries < FLOOR_RETRIES) {
+        this.floorRetries++;
+        const i = this.floorNumber - 1;
+        this.floorSeeds[i] = rng.create(this.floorSeeds[i]).int(0, 2147483647);
+        this.startFloor();
+        return;
+      }
       this.state = "failed";
       this.showBanner(`The floor would not grow: ${job.error}\nPress Space or click for another dungeon`);
       return;
@@ -117,27 +134,30 @@ export default class Dungeon extends Behaviour {
       return;
     }
     this.job = null;
-    this.buildFloor(job.result);
+    this.buildFloor();
   }
 
-  /** The generator has placed the tiles, the coins and the traps; place the player and the stairs on the plan. */
-  buildFloor(result) {
-    const solid = solidGlyphs(result.legend, SOLID_TILES);
-    const plan = planFloor(result.rows, solid, { coin: "o", trap: "x" });
-    if (!plan) {
+  /** The generator has placed the tiles, the coins, the traps, the player and the stairs: read where the player stands. */
+  buildFloor() {
+    this.floorRetries = 0;
+    this.floor = world.find("floor");
+    this.player = world.findByTag("player")[0];
+    this.stairs = world.findByTag("stairs")[0];
+    if (!this.floor || !this.player || !this.stairs) {
       this.state = "failed";
-      this.showBanner("This floor has no free cell\nPress Space or click for another dungeon");
+      this.showBanner("This floor has no player or stairs\nPress Space or click for another dungeon");
       return;
     }
-    this.plan = plan;
-    this.floor = world.find("floor");
-    this.player = world.spawnPrefab("prefabs/player.prefab.json", { position: this.cellWorld(plan.start) });
-    this.stairs = world.spawnPrefab("prefabs/stairs.prefab.json", { position: this.cellWorld(plan.stairs) });
-    this.cell = [plan.start[0], plan.start[1]];
-    this.solid = solid;
-    this.rows = result.rows;
+    this.cell = this.cellOf(this.player);
+    this.stairsCell = this.cellOf(this.stairs);
     this.state = "playing";
     this.refresh();
+  }
+
+  /** The [column, row] of the placed floor under an entity. */
+  cellOf(entity) {
+    const at = this.floor.tilemap.cellAt(entity.position);
+    return [at.col, at.row];
   }
 
   /** The world point of the centre of a cell of the placed floor. */
@@ -147,7 +167,7 @@ export default class Dungeon extends Behaviour {
   }
 
   isSolid(c, r) {
-    return c < 0 || r < 0 || c >= SIZE[0] || r >= SIZE[1] || this.solid.has(this.rows[r][c]);
+    return c < 0 || r < 0 || c >= SIZE[0] || r >= SIZE[1] || SOLID_TILES.includes(this.floor.tilemap.getTile(c, r));
   }
 
   /** The coin or trap entity standing in a cell, if any. */
@@ -186,7 +206,7 @@ export default class Dungeon extends Behaviour {
         this.showBanner(`You fell on floor ${this.floorNumber}\nScore ${this.score}   seed ${this.runSeed}\nPress Space or click for a new dungeon, R to retry this one`);
       }
     }
-    if (this.state === "playing" && c === this.plan.stairs[0] && r === this.plan.stairs[1]) this.descend();
+    if (this.state === "playing" && c === this.stairsCell[0] && r === this.stairsCell[1]) this.descend();
     this.refresh();
     return true;
   }

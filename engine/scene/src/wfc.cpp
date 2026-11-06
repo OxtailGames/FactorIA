@@ -365,6 +365,17 @@ struct Generator::Impl {
     std::vector<char> ruleCell;                        // per output cell: a cell rule covers it
     std::vector<int> pendingPins;                      // per count rule: cells to pin in the next attempt (a minimum was missed)
     std::vector<char> pinTaken;                        // per output cell: pinned in this attempt
+    // Maximums that steer the solver (count rules with max >= 1). capHit[(klass * capRules.size() + c) * words + w]: the patterns of the
+    // wave cell of ownership class `klass` that put a symbol of rule capRules[c] on a cell the wave cell owns (see owned_offsets()).
+    std::vector<std::size_t> capRules;
+    std::vector<std::uint64_t> capHit;
+    std::vector<std::int64_t> committed;               // per capRules entry: cells whose symbol is already decided to be in the group
+    std::vector<char> capApplied, capDue;              // per capRules entry: the group's symbols were taken out of the undecided cells / are due to be
+    int capCurrent = -1;                               // the capRules entry whose symbols are being taken out, or -1
+    std::size_t capCursor = 0;
+    int overRule = -1;                                 // a count rule whose maximum the decided cells already pass (the attempt is refused)
+    std::int64_t overFound = 0;
+    std::int64_t owed = 0;                             // work not yet charged (the scans of ban())
 
     // state of the attempt
     std::vector<std::uint64_t> wave;
@@ -405,7 +416,7 @@ struct Generator::Impl {
     // call of step() never does more than one chunk past its budget (a 2048 x 2048 grid used to reset, extract and check in one
     // piece). The chunk boundaries do not depend on the budget: the work counter, and so the work cap, stops at the same point however
     // step() is called.
-    enum class Phase { Reset, Special, Forbidden, Rules, Pins, Run, Extract, Output, Counts, Accept };
+    enum class Phase { Reset, Special, Forbidden, Rules, Pins, Run, Extract, Output, Counts, Accept, Finish };
     Phase phase = Phase::Reset;
     std::size_t cursor = 0;                    // position inside the phase: a cell, a cell rule or an output cell
     std::uint64_t totalW = 0;                  // sum of the weights / of weight * log2(weight): every fresh cell starts with them
@@ -415,6 +426,7 @@ struct Generator::Impl {
     int pinTries = 0, pinPlaced = 0;
     std::vector<std::int64_t> perSymbol;       // Counts: cells per symbol of the finished grid
     bool acceptBegun = false;
+    bool finishBegun = false;
     static constexpr std::int64_t kChunkWork = 16384;
     int flushStage = 0;                        // Run: 0 = no flush under way, 1 = stamping the dirty cells, 2 = pushing their entries
     std::size_t flushPos = 0;
@@ -442,6 +454,88 @@ struct Generator::Impl {
         }
     }
 
+    // The output cells a wave cell owns: the cell (cx, cy) of the output, and for the last wave column / row of a non-periodic overlapping model
+    // also the n - 1 cells beyond it (output_chunk() reads them from that wave cell). klass bit 0: the wave cell owns extra columns, bit 1: extra rows.
+    int cell_class(std::size_t cell) const {
+        const int cx = int(cell % std::size_t(wc)), cy = int(cell / std::size_t(wc));
+        return ((!opt.periodic && cx == wc - 1 && opt.width > wc) ? 1 : 0) | ((!opt.periodic && cy == hc - 1 && opt.height > hc) ? 2 : 0);
+    }
+    void owned_offsets(int klass, int& nx, int& ny) const {
+        nx = (klass & 1) ? opt.width - wc + 1 : 1;
+        ny = (klass & 2) ? opt.height - hc + 1 : 1;
+    }
+
+    // A cell has just been decided (one pattern left): the cells it owns count toward the maximums that steer the solver.
+    void note_decided(std::size_t cell) {
+        std::size_t p = 0;
+        for (std::size_t wi = 0; wi < words; ++wi) {
+            const std::uint64_t w = wave[cell * words + wi];
+            if (w) {
+                p = wi * 64 + std::size_t(std::countr_zero(w));
+                break;
+            }
+        }
+        owed += std::int64_t(words);
+        int nx = 1, ny = 1;
+        owned_offsets(cell_class(cell), nx, ny);
+        for (std::size_t c = 0; c < capRules.size(); ++c) {
+            const std::size_t r = capRules[c];
+            std::int64_t k = 0;
+            for (int dy = 0; dy < ny; ++dy)
+                for (int dx = 0; dx < nx; ++dx) k += countMask[r][std::size_t(model->symbol_at(p, dx, dy))] ? 1 : 0;
+            if (k == 0) continue;
+            committed[c] += k;
+            if (committed[c] > opt.counts[r].max) {
+                if (overRule < 0) {
+                    overRule = int(r);
+                    overFound = committed[c];
+                }
+            } else if (committed[c] == opt.counts[r].max && !capApplied[c]) {
+                capDue[c] = 1;
+            }
+        }
+    }
+
+    bool cap_pending() const {
+        if (capCurrent >= 0) return true;
+        for (char d : capDue)
+            if (d) return true;
+        return false;
+    }
+
+    // Takes the symbols of a group that reached its maximum out of the cells that are still undecided, a chunk of cells at a time. The bans
+    // propagate like any other; a cell that has nothing but the group's symbols left becomes a contradiction, which is what it is.
+    void cap_chunk() {
+        if (capCurrent < 0) {
+            for (std::size_t c = 0; c < capDue.size(); ++c)
+                if (capDue[c]) {
+                    capDue[c] = 0;
+                    capApplied[c] = 1;
+                    capCurrent = int(c);
+                    capCursor = 0;
+                    break;
+                }
+            if (capCurrent < 0) return;
+        }
+        const std::size_t c = std::size_t(capCurrent);
+        const std::size_t from = capCursor, to = std::min(cells, capCursor + chunk_cells(std::int64_t(words) + 1));
+        charge(std::int64_t(to - from) * (std::int64_t(words) + 1));
+        for (std::size_t cell = from; cell < to && !contradiction; ++cell) {
+            if (remaining[cell] <= 1) continue;
+            const std::uint64_t* hit = &capHit[(std::size_t(cell_class(cell)) * capRules.size() + c) * words];
+            for (std::size_t wi = 0; wi < words && !contradiction; ++wi) {
+                std::uint64_t bits = wave[cell * words + wi] & hit[wi];
+                while (bits && !contradiction) {
+                    const std::size_t p = wi * 64 + std::size_t(std::countr_zero(bits));
+                    bits &= bits - 1;
+                    ban(cell, p);
+                }
+            }
+        }
+        capCursor = to;
+        if (capCursor >= cells || contradiction) capCurrent = -1;
+    }
+
     void ban(std::size_t cell, std::size_t p) {
         std::uint64_t& w = wave[cell * words + (p >> 6)];
         const std::uint64_t bitMask = std::uint64_t(1) << (p & 63);
@@ -456,7 +550,10 @@ struct Generator::Impl {
             queue.push_back(std::uint32_t(cell));
         }
         touch(cell);
-        if (before == 2) --undecided;
+        if (before == 2) {
+            --undecided;
+            if (!capRules.empty()) note_decided(cell);
+        }
         if (before == 1 && !contradiction) {
             contradiction = true;
             contradictionCell = std::uint32_t(cell);
@@ -516,9 +613,16 @@ struct Generator::Impl {
         heap.clear();
         queue.clear();
         undecided = T > 1 ? cells : 0;
+        std::fill(committed.begin(), committed.end(), 0);
+        std::fill(capApplied.begin(), capApplied.end(), 0);
+        std::fill(capDue.begin(), capDue.end(), 0);
+        capCurrent = -1;
+        overRule = -1;
+        owed = 0;
         phase = Phase::Reset;
         cursor = 0;
         acceptBegun = false;
+        finishBegun = false;
     }
 
     // One chunk of the state reset of every cell. The noise comes from the attempt's rng in cell order, so cutting the reset into
@@ -809,6 +913,7 @@ struct Generator::Impl {
 
     // One step of the solve itself: the removals of one cell, or the choice of the next cell.
     void run_chunk() {
+        if (cap_pending()) return cap_chunk();
         if (!queue.empty()) {
             charge(propagate_cell());
             return;
@@ -855,6 +960,12 @@ struct Generator::Impl {
         charge(std::int64_t(to - from));
         cursor = to;
         if (cursor < total) return;
+        if (opt.finish) return enter(Phase::Finish);
+        after_finish();
+    }
+
+    // The grid is final (the caller's finish step has changed it): the counts are judged, then the caller's check.
+    void after_finish() {
         if (opt.counts.empty()) return enter(Phase::Accept);
         perSymbol.assign(std::size_t(model->symbolCount), 0);
         enter(Phase::Counts);
@@ -876,8 +987,8 @@ struct Generator::Impl {
             for (int sym : rule.symbols) found += perSymbol[std::size_t(sym)];
             const std::string name = count_rule_name(rule);
             if (found < rule.min) {
-                // A missed minimum is repaired on the next attempt by pinning cells (GenerateOptions::pinMissing); a maximum is
-                // only ever checked here, on the finished grid: the solver has no way to keep a count down while it collapses.
+                // A missed minimum is repaired on the next attempt by pinning cells (GenerateOptions::pinMissing). A maximum steers the solver
+                // (cap_chunk) and is checked here again, on the finished grid.
                 pendingPins[r] = opt.pinMissing ? int(std::min<std::int64_t>(rule.min - found, kMaxPins)) : 0;
                 if (firstBad < 0) {
                     firstBad = int(r);
@@ -915,8 +1026,28 @@ struct Generator::Impl {
             charge(std::max<std::int64_t>(acceptWork, 0));
             if (!ok) return fail_attempt(-1, -1, why.empty() ? "the finished level was refused" : why, false);
         }
+        done();
+    }
+
+    // The caller's step that changes the grid (GenerateOptions::finish), in pieces, before the counts are judged and the check runs.
+    void finish_chunk() {
+        if (!finishBegun) {
+            opt.finish->begin(output, stats.seedUsed);
+            finishBegun = true;
+        }
+        std::string why;
+        std::int64_t work = 0;
+        const GridCheck::Verdict v = opt.finish->step(kAcceptChunk, why, work);
+        charge(std::max<std::int64_t>(work, 1));
+        if (v == GridCheck::Verdict::More) return;
+        if (v == GridCheck::Verdict::Refused) return fail_attempt(-1, -1, why.empty() ? "the finished level could not be completed" : why, false);
+        after_finish();
+    }
+
+    void done() {
         stats.symbolCounts.assign(std::size_t(model->symbolCount), 0);
-        for (int s : output) ++stats.symbolCounts[std::size_t(s)];
+        for (int s : output)
+            if (s >= 0 && s < model->symbolCount) ++stats.symbolCounts[std::size_t(s)];
         std::fill(pendingPins.begin(), pendingPins.end(), 0);
         attemptRunning = false;
         status = GenStatus::Done;
@@ -937,7 +1068,8 @@ struct Generator::Impl {
                sumW.capacity() * sizeof(std::uint64_t) + sumWL.capacity() * sizeof(std::int64_t) + noise.capacity() * sizeof(std::uint32_t) +
                stamp.capacity() * sizeof(std::uint32_t) + dirtyFlag.capacity() + dirty.capacity() * sizeof(std::uint32_t) + pending.capacity() * sizeof(std::uint64_t) +
                queue.capacity() * sizeof(std::uint32_t) + queued.capacity() + heap.capacity() * sizeof(HeapEntry) + output.capacity() * sizeof(int) + pinTaken.capacity() +
-               logw.capacity() * sizeof(std::int64_t) + supportInit.capacity() * sizeof(std::uint16_t) + std::size_t(model_bytes(*model));
+               logw.capacity() * sizeof(std::int64_t) + supportInit.capacity() * sizeof(std::uint16_t) + capHit.capacity() * sizeof(std::uint64_t) +
+               std::size_t(model_bytes(*model));
     }
 
     GenStatus step(std::int64_t budget) {
@@ -957,6 +1089,18 @@ struct Generator::Impl {
                 fail_attempt(int(contradictionCell % std::uint32_t(wc)), int(contradictionCell / std::uint32_t(wc)), "contradiction", true);
                 continue;
             }
+            if (owed > 0) {
+                charge(owed);
+                owed = 0;
+            }
+            if (overRule >= 0) {
+                // The cells already decided hold more of the group than its maximum: whatever the rest becomes, the finished grid would be refused.
+                const std::size_t r = std::size_t(overRule);
+                const std::string why = "at least " + std::to_string(overFound) + " cells hold " + count_rule_name(opt.counts[r]) + ", at most " + std::to_string(opt.counts[r].max) + " are allowed";
+                overRule = -1;
+                fail_attempt(-1, -1, why, false, int(r));
+                continue;
+            }
             switch (phase) {
                 case Phase::Reset: reset_chunk(); break;
                 case Phase::Special: special_chunk(); break;
@@ -967,6 +1111,7 @@ struct Generator::Impl {
                 case Phase::Output: output_chunk(); break;
                 case Phase::Counts: counts_chunk(); break;
                 case Phase::Accept: accept_chunk(); break;
+                case Phase::Finish: finish_chunk(); break;
                 case Phase::Run: run_chunk(); break;
             }
         }
@@ -1038,8 +1183,12 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
         return make_error("maxAttempts is " + std::to_string(options.maxAttempts) + " but it must be between 1 and " + std::to_string(kMaxAttempts),
                           "Each attempt restarts from the next derived seed; 10 is the default and enough unless the sample is very restrictive.");
     if (options.maxWork < 0) return make_error("maxWork is " + std::to_string(options.maxWork) + " but it cannot be negative", "Use 0 for no cap, or the units of work to allow.");
-    // The size comes before everything that allocates per cell or per fixed cell.
-    auto memory = check_generator_memory(*model, options.width, options.height, options.periodic);
+    // The size comes before everything that allocates per cell or per fixed cell. The maximums that steer the solver keep four bit sets of one
+    // word per 64 patterns each.
+    std::uint64_t capBytes = 0;
+    for (const CountRule& rule : options.counts)
+        if (rule.max > 0) capBytes = sat_add(capBytes, sat_mul(4 * 8, (model->pattern_count() + 63) / 64));
+    auto memory = check_generator_memory(*model, options.width, options.height, options.periodic, capBytes);
     if (!memory.ok()) return memory.error();
     const std::uint64_t need = *memory;
     if (options.cellRules.size() > kMaxCellRules)
@@ -1308,6 +1457,30 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
         I.countMask.push_back(std::move(in));
     }
     I.pendingPins.assign(I.opt.counts.size(), 0);
+    for (std::size_t r = 0; r < I.opt.counts.size(); ++r)
+        if (I.opt.counts[r].max > 0) I.capRules.push_back(r);
+    I.committed.assign(I.capRules.size(), 0);
+    I.capApplied.assign(I.capRules.size(), 0);
+    I.capDue.assign(I.capRules.size(), 0);
+    if (!I.capRules.empty()) {
+        I.capHit.assign(std::size_t(4) * I.capRules.size() * I.words, 0);
+        for (int klass = 0; klass < 4; ++klass) {
+            int nx = 1, ny = 1;
+            I.owned_offsets(klass, nx, ny);
+            nx = std::min(nx, n);   // a window never reaches past n - 1 (a wave side below the output by more than that cannot happen)
+            ny = std::min(ny, n);
+            for (std::size_t c = 0; c < I.capRules.size(); ++c) {
+                const std::vector<char>& mask = I.countMask[I.capRules[c]];
+                std::uint64_t* bits = &I.capHit[(std::size_t(klass) * I.capRules.size() + c) * I.words];
+                for (std::size_t p = 0; p < I.T; ++p) {
+                    bool hit = false;
+                    for (int dy = 0; dy < ny && !hit; ++dy)
+                        for (int dx = 0; dx < nx && !hit; ++dx) hit = mask[std::size_t(m.symbol_at(p, dx, dy))] != 0;
+                    if (hit) bits[p >> 6] |= std::uint64_t(1) << (p & 63);
+                }
+            }
+        }
+    }
     I.heap.reserve(std::size_t(kHeapEntriesPerCell) * I.cells);
     I.dirty.reserve(I.cells);
     I.queue.reserve(I.cells);
@@ -1339,8 +1512,18 @@ GenStatus Generator::status() const { return impl_->status; }
 
 double Generator::progress() const {
     if (impl_->status == GenStatus::Done) return 1.0;
-    if (!impl_->attemptRunning || impl_->cells == 0) return 0.0;
-    return 1.0 - double(impl_->undecided) / double(impl_->cells);
+    // Attempt k (1-based) owns the window [lo, hi]: the first 0..0.8, each later one a quarter of what is left. Inside its window the progress
+    // is the share of cells decided; between attempts it stands at the end of the one that ended, so it never goes down.
+    double left = 1.0, lo = 0.0, hi = 0.0;
+    for (int k = 1; k <= impl_->attempt; ++k) {
+        lo = 1.0 - left;
+        left = k == 1 ? 0.2 : left * 0.75;
+        hi = 1.0 - left;
+    }
+    if (impl_->attempt == 0) return 0.0;
+    if (!impl_->attemptRunning || impl_->cells == 0) return std::min(hi, 0.999);
+    const double share = 1.0 - double(impl_->undecided) / double(impl_->cells);
+    return std::min(lo + (hi - lo) * share, 0.999);
 }
 
 const std::vector<int>& Generator::output() const { return impl_->output; }
@@ -1386,8 +1569,12 @@ std::string Generator::failure_hint() const {
             "symmetry 2, 4 or 8 to learn rotated and mirrored patterns, periodic true, more attempts (maxAttempts), another seed";
         if (!o.cellRules.empty())
             h += ", or fewer and looser fixed cells and borders (a border or a rect longer than the sample's own straight pieces, or a tile next to one the sample never shows beside it, cannot be built)";
-        bool anyMin = false;
-        for (const CountRule& c : o.counts) anyMin = anyMin || c.min > 0;
+        bool anyMin = false, anyMax = false;
+        for (const CountRule& c : o.counts) {
+            anyMin = anyMin || c.min > 0;
+            anyMax = anyMax || c.max >= 0;
+        }
+        if (anyMax) h += ", higher maximums (once a tile has reached its maximum it is taken out of every cell still open, which can leave a cell with nothing)";
         if (!o.forbidden.empty()) h += ", fewer forbidden tiles (they remove every pattern that holds them)";
         if (anyMin) h += ", lower minimums (a missing tile is pinned at a cell drawn from the seed, which can clash with its neighbours)";
         h += ".";

@@ -72,4 +72,26 @@ std::optional<std::string> loop_seam_warning(const std::vector<const Image*>& fr
     return std::nullopt;
 }
 
+std::optional<std::string> block_size_warning(int columns, int rows, int frameW, int frameH, int padding) {
+    const auto fits = [&](int fw, int fh, int pad) { return (long long)columns * (fw + 2 * pad) % 4 == 0 && (long long)rows * (fh + 2 * pad) % 4 == 0; };
+    const long long width = (long long)columns * (frameW + 2 * padding), height = (long long)rows * (frameH + 2 * padding);
+    if (std::min(width, height) < 4 || fits(frameW, frameH, padding)) return std::nullopt;
+    std::string fix;
+    // the padding nearest to the one asked for (the larger first) that fixes both sides
+    for (int d = 0; d <= 64 && fix.empty(); ++d)
+        for (int pad : {padding + d, padding - d}) {
+            if (pad < 0 || pad > 64 || !fits(frameW, frameH, pad)) continue;
+            fix = std::format("`padding: {}` gives a {}x{} sheet", pad, (long long)columns * (frameW + 2 * pad), (long long)rows * (frameH + 2 * pad));
+            break;
+        }
+    // or a frame a few pixels larger (always possible within 3 px on each side)
+    int fw = frameW, fh = frameH;
+    while (!((long long)columns * (fw + 2 * padding) % 4 == 0)) ++fw;
+    while (!((long long)rows * (fh + 2 * padding) % 4 == 0)) ++fh;
+    std::string size = std::format("`frameWidth: {}, frameHeight: {}` gives a {}x{} sheet", fw, fh, (long long)columns * (fw + 2 * padding), (long long)rows * (fh + 2 * padding));
+    return std::format("The sheet is {}x{} px ({} columns x {} rows of {}x{} cells): a width and a height that are not both multiples of 4 cannot be GPU-compressed, and this project targets a mobile "
+                       "platform, so the export ships it as an uncompressed PNG (about four times the video memory) and `project.validate` warns. Bake it again with {}{}.",
+                       width, height, columns, rows, frameW + 2 * padding, frameH + 2 * padding, fix.empty() ? size : fix, fix.empty() ? std::string() : " (or " + size + ")");
+}
+
 }  // namespace fa::assets_detail

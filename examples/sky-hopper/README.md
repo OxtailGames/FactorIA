@@ -19,7 +19,7 @@ factoria test
 - `levels/level1.json`, `level2.json`: the ASCII map of each hand-made level, the source of truth of its tiles,
   coins, crawlers, player and flag. `levels/generator_base.scene.json`: what a level has besides the map (settings,
   camera, `level` script, HUD).
-- `prefabs/`: `coin`, `enemy` (crawler), `player`, `goal` (flag). A map spawns them. `coin_sparkle` is the pickup effect the hero spawns (three layers of one sheet, baked from `assets/src/anim/coin_sparkle.anim.js` with a gold ramp: docs/EFFECTS.md). Game feel: a stomp and a hurt shake the camera and hold the game for a moment, a hurt flashes the hero red, and the jump's squash is an event of `anim/hero_jump.anim.json` (`tests/feel.test.js`). The player is built in parts
+- `prefabs/`: `coin`, `enemy` (crawler), `player`, `goal` (flag). A map spawns them. `coin_sparkle` is the pickup effect the hero spawns (three layers of one sheet, baked from `assets/src/anim/coin_sparkle.anim.js` with a gold ramp, and the prefab itself written by the `prefab` option of `assets.animate_svg`: docs/EFFECTS.md). Game feel: a stomp and a hurt shake the camera and hold the game for a moment, a hurt flashes the hero red, and the jump's squash is an event of `anim/hero_jump.anim.json` (`tests/feel.test.js`). The player is built in parts
   (child Sprites on a `rig`, Bone2D bones, a SpriteSkin scarf, two IK2D legs) and animated by `anim/hero_*.anim.json`
   through an Animator state machine; `crawler_rig` is the crawler built in parts, baked into `assets/crawler_sheet.png`
   by `assets.bake_sheet` (recipe in `assets.json`; `assets.regenerate` redraws it). The part art is `assets/src/svg`

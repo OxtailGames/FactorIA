@@ -25,9 +25,11 @@ double round3(double v) { return std::round(v * 1000.0) / 1000.0; }
 
 double round2(double v) { return std::round(v * 100.0) / 100.0; }
 
-// The area, in square world units, of the quads one sim draws now. A particle that is invisible (no size, no alpha) costs nothing.
-double quad_area(const ParticleSim& sim, const ParticleEmitter& root) {
-    double area = 0.0;
+// Sums `f(size)` over the quads one sim draws now (size in the emitter's own unit: design pixels, or world units for a 3D emitter).
+// A particle that is invisible (no size, no alpha) costs nothing.
+template <class F>
+double sum_quads(const ParticleSim& sim, const ParticleEmitter& root, F&& f) {
+    double total = 0.0;
     for (const Particle& p : sim.particles) {
         const int g = std::clamp(int(p.group), 0, sim.group_count() - 1);
         const ParticleEmitter& c = sim.group_emitter(g, root);
@@ -35,9 +37,34 @@ double quad_area(const ParticleSim& sim, const ParticleEmitter& root) {
         const float t = p.life > 0.0f ? std::clamp(p.age / p.life, 0.0f, 1.0f) : 1.0f;
         const float size = lerp(c.startSize, c.endSize, t) * st.size.eval_or(t, 1.0f) * p.sizeScale;
         const float alpha = (st.color.empty() ? lerp(c.startColor, c.endColor, t) : st.color.eval(t)).a * st.alpha.eval_or(t, 1.0f);
-        if (size > 0.0f && alpha > 0.0f) area += double(size) * double(size);
+        if (size > 0.0f && alpha > 0.0f) total += f(p, double(size));
     }
-    return area;
+    return total;
+}
+
+// The area, in square design pixels, of the quads of a 2D or screen-space emitter.
+double quad_area(const ParticleSim& sim, const ParticleEmitter& root) {
+    return sum_quads(sim, root, [](const Particle&, double size) { return size * size; });
+}
+
+// The screens covered by the quads of a 3D emitter seen through `cam`. The effect sits on the camera's axis `distance` in front of it and
+// the sim's positions are world positions around it, so a particle's depth is distance + its offset along the view axis. A quad is a
+// camera-facing square of `size` world units; one wholly outside the view or not past the near plane costs nothing, one partly outside
+// counts whole (the edge is not clipped).
+double quad_screens_3d(const ParticleSim& sim, const ParticleEmitter& root, const VfxBudgetCamera& cam, double distance, double aspect) {
+    return sum_quads(sim, root, [&](const Particle& p, double size) {
+        const double depth = distance + double(dot(p.pos, cam.forward));
+        double halfH = cam.orthoHalfHeight;
+        if (cam.perspective) {
+            if (depth <= std::max(cam.nearPlane, 1e-6)) return 0.0;
+            halfH = depth * std::tan(cam.fovDegrees * 0.5 * 3.14159265358979323846 / 180.0);
+        }
+        if (!(halfH > 1e-9)) return 0.0;
+        const double halfW = halfH * aspect;
+        const double x = double(dot(p.pos, cam.right)), y = double(dot(p.pos, cam.up));
+        if (std::fabs(x) - size * 0.5 > halfW || std::fabs(y) - size * 0.5 > halfH) return 0.0;
+        return size * size / (4.0 * halfH * halfW);
+    });
 }
 
 std::string pointer_of(int part, const char* field) { return "/parts/" + std::to_string(part) + "/emitter/" + field; }
@@ -67,6 +94,7 @@ VfxBudget vfx_measure(const VfxDoc& doc, const VfxBudgetOptions& options) {
     out.preset = limits.name;
     out.duration = doc.duration;
     const double viewArea = std::max(1.0, options.viewWidth * options.viewHeight);
+    const double aspect = std::max(1.0, options.viewWidth) / std::max(1.0, options.viewHeight);
 
     auto shared = std::make_shared<const VfxDoc>(doc);
     World world;
@@ -112,7 +140,7 @@ VfxBudget vfx_measure(const VfxDoc& doc, const VfxBudgetOptions& options) {
                 if (c.origin >= 0) partOf[c.entity.bits()] = c.origin;
         std::map<std::uint64_t, bool> seen;
         int total = 0;
-        double area = 0.0;
+        double screens = 0.0;   // the screens of quad area of all emitters at this step
         world.each<ParticleEmitter>([&](Entity e, ParticleEmitter& em) {
             seen[e.bits()] = true;
             const auto pit = partOf.find(e.bits());
@@ -124,13 +152,24 @@ VfxBudget vfx_measure(const VfxDoc& doc, const VfxBudgetOptions& options) {
             env.is3D = em.is3D;
             sim.step(em, env, float(kStep));
             const int n = int(sim.particles.size());
-            const double a = em.is3D ? 0.0 : quad_area(sim, em);
+            const double a = em.is3D ? (options.camera ? quad_screens_3d(sim, em, *options.camera, options.cameraDistance, aspect) : 0.0)
+                                     : quad_area(sim, em) / viewArea;
             VfxEmitterBudget& b = byPart[part];
             if (em.is3D && !is3d.count(part)) {
                 is3d[part] = true;
                 const std::string who = part >= 0 && part < int(doc.parts.size()) && !doc.parts[std::size_t(part)].name.empty()
                                             ? "'" + doc.parts[std::size_t(part)].name + "'" : "emitter " + std::to_string(part);
-                out.notes.push_back(std::format("{} is a 3D emitter: its particles are counted, but its overdraw is not measured (its size is in world units; the camera decides how much screen it covers).", who));
+                if (options.camera) {
+                    out.camera3d = true;
+                    out.notes.push_back(std::format("{} is a 3D emitter: its overdraw is measured by projecting its quads through the project's main camera ({}), with the effect {:.1f} m in "
+                                                    "front of it on its axis; a quad partly outside the view counts whole.", who,
+                                                    options.camera->perspective ? std::format("perspective, {:.0f} degrees vertical field of view", options.camera->fovDegrees)
+                                                                                : std::format("orthographic, {:.1f} units tall", options.camera->orthoHalfHeight * 2.0),
+                                                    options.cameraDistance));
+                } else {
+                    out.notes.push_back(std::format("{} is a 3D emitter: its particles are counted, but its overdraw is not measured: there is no camera to project its quads through "
+                                                    "(its size is in world units, the camera decides how much screen it covers). Load a scene that has a primary Camera, then measure again.", who));
+                }
             }
             b.part = part;
             if (b.name.empty() && part >= 0 && part < int(doc.parts.size())) b.name = doc.parts[std::size_t(part)].name;
@@ -140,9 +179,9 @@ VfxBudget vfx_measure(const VfxDoc& doc, const VfxBudgetOptions& options) {
                 b.peakParticles = n;
                 b.peakAt = t;
             }
-            b.peakOverdraw = std::max(b.peakOverdraw, a / viewArea);
+            b.peakOverdraw = std::max(b.peakOverdraw, a);
             total += n;
-            area += a;
+            screens += a;
         });
         for (auto it = sims.begin(); it != sims.end();) {
             if (seen.count(it->first)) ++it;
@@ -151,7 +190,7 @@ VfxBudget vfx_measure(const VfxDoc& doc, const VfxBudgetOptions& options) {
         world.flush();
         ++out.steps;
         particleSteps += total;
-        const double od = area / viewArea;
+        const double od = screens;
         raw.push_back({t, total, od});
         if (total > out.peakParticles) {
             out.peakParticles = total;

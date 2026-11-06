@@ -77,12 +77,12 @@ void register_vfx_review(CommandRegistry& registry, std::function<Result<AiConfi
         "review: call it once vfx.check passes and vfx.budget has no finding, not after every edit. "
         "Result: {verdict: good | fix | redo (never `good` while vfx.budget has a finding), summary, checklist: [{item, grade, note}], "
         "fixes: [{what, where, command}], budget: {peakParticles, peakOverdraw, findings, ...}, filmstrip: {frames, columns, rows, tileWidth, "
-        "tileHeight, zoom, region}, role, provider, model, warnings, nextSteps}. A fix names a command, usually a vfx.edit call; one that names "
+        "tileHeight, zoom, region, position (where it was filmed), positionDefault, positionNote}, role, provider, model, warnings, nextSteps}. A fix names a command, usually a vfx.edit call; one that names "
         "something this engine does not have is listed in `warnings`. The document is not changed. Pass `picturePath` to keep the filmstrip "
         "PNG. Example: {\"effect\":\"assets/vfx/hit.vfx.json\",\"position\":[640,360],\"focus\":\"does it read on the dark floor?\"}";
     info.inputSchema = Json::parse(R"({"type":"object","required":["effect"],"properties":{
         "effect":{"type":"string","description":"Project path of the effect document, e.g. \"assets/vfx/hit.vfx.json\"."},
-        "position":{"type":"array","items":{"type":"number"},"description":"[x, y] or [x, y, z]: where in the game the effect is filmed, in world units (as vfx.filmstrip). Default: the middle of the view in a 2D game; a 3D game must give it."},
+        "position":{"type":"array","items":{"type":"number"},"description":"[x, y] or [x, y, z]: where in the game the effect is filmed, in world units (as vfx.filmstrip). Default: the middle of the view in a 2D game, the point 5 m in front of the main camera in a 3D game (`filmstrip.position` and `filmstrip.positionNote` say which)."},
         "preset":{"type":"string","enum":["phone","desktop"],"description":"Whose budget the review uses (as vfx.budget). Default phone."},
         "frames":{"type":"integer","minimum":2,"maximum":64,"description":"Pictures in the filmstrip (as vfx.filmstrip). Default 12."},
         "focus":{"type":"string","description":"What you want judged (\"does it read on the dark floor?\", \"is the hit too long?\"). Optional."},
@@ -222,7 +222,7 @@ void register_vfx_review(CommandRegistry& registry, std::function<Result<AiConfi
                                  {"budget", summaryBudget}, {"role", modelInfo.role}, {"provider", modelInfo.provider}, {"model", modelInfo.model},
                                  {"effect", effect}, {"warnings", warnings}, {"nextSteps", steps}});
         Json filmOut = Json::object();
-        for (const char* key : {"frames", "columns", "rows", "tileWidth", "tileHeight", "zoom", "region", "everyFrames"})
+        for (const char* key : {"frames", "columns", "rows", "tileWidth", "tileHeight", "zoom", "region", "everyFrames", "position", "positionDefault", "positionNote"})
             if (const Json* v = child(film.result, key)) filmOut[key] = *v;
         if (!keep.empty()) filmOut["path"] = str(film.result, "path");
         out["filmstrip"] = filmOut;

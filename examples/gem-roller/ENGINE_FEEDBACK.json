@@ -360,7 +360,11 @@
       ],
       "suggestion": "For a 3D camera default `position` to the point a few metres in front of it, and let vfx.budget project the 3D quads through the project's main camera.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "FactorIA 0.17.0",
+      "notes": [
+        "vfx.filmstrip and vfx.review default position to the point 5 m in front of the main 3D camera and say so in the result (position, positionDefault, positionNote); vfx.budget projects 3D emitters through the main camera and reports camera {used, ...} (or that there is none). docs/PARTICLES.md, Reviewing an effect."
+      ]
     }
   ]
 }
