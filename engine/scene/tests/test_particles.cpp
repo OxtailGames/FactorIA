@@ -915,7 +915,7 @@ TEST_CASE("particle trails: a per-particle trail keeps at most kParticleTrailPoi
     CHECK(n.trail_pool_points() == 0);
 }
 
-TEST_CASE("particle trails: 10000 trailed particles draw at most the budget of quads, from one pool") {
+TEST_CASE("particle trails: 10000 particles of which the 512 trail slots are trailed draw at most the budget of quads, from one pool") {
     static_assert(std::is_trivially_copyable_v<Particle>);  // a particle owns no memory: no allocation per particle
     ParticleEmitter em = quiet();
     em.maxParticles = 10000;

@@ -184,7 +184,7 @@ TEST_CASE("particles: a bad curve is logged once and the emitter still draws") {
     CHECK(logged == 1);
 }
 
-TEST_CASE("particles: 10000 trailed particles draw, and reset_particles makes the next run start the same") {
+TEST_CASE("particles: 10000 particles with trails (the first 512 trailed) draw, and reset_particles makes the next run start the same") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     CleanEmitters clean;

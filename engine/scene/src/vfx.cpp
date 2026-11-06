@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <format>
 #include <map>
 #include <mutex>
@@ -80,6 +82,39 @@ bool read_number(Parser& p, const Json& obj, const char* key, const std::string&
     }
     out = it->get<double>();
     return true;
+}
+
+// The longest one particle of `em` can be seen: its lifetime plus its variance, plus the trail it leaves.
+double lifespan(const ParticleEmitter& em) {
+    const double life = double(std::max(em.lifetime, 0.0f)) * (1.0 + double(std::clamp(em.lifetimeVariance, 0.0f, 1.0f)));
+    return life + (em.trail != ParticleTrail::None ? double(std::max(em.trailTime, 0.0f)) : 0.0);
+}
+
+// An emitter of an effect (and the emitters written inline in its subEmitters) must not hold its particles longer than kVfxMaxLifespan: a
+// particle of 3600 s would keep the effect's entity, and one of the kVfxMaxPlaying slots, for an hour.
+void check_lifespan(Parser& p, const std::string& ptr, const ParticleEmitter& em, const Json& emitterJson, int depth) {
+    if (lifespan(em) > kVfxMaxLifespan)
+        p.err(ptr + "/lifetime",
+              std::format("a particle of this emitter can be seen for {:.1f} s (lifetime with its lifetimeVariance, plus trailTime); an effect allows at most {:.0f} s",
+                          lifespan(em), kVfxMaxLifespan),
+              "Lower `lifetime` (a spark lives 0.2 to 2 s). A particle that must stay on screen for long is not an effect: put a ParticleEmitter on an entity of the scene.");
+    auto subs = emitterJson.find("subEmitters");
+    if (depth >= kParticleSubDepth || subs == emitterJson.end() || !subs->is_object()) return;
+    for (auto ev = subs->begin(); ev != subs->end(); ++ev) {
+        std::vector<const Json*> links;
+        if (ev.value().is_object()) links.push_back(&ev.value());
+        else if (ev.value().is_array()) for (const Json& l : ev.value()) links.push_back(&l);
+        std::size_t n = 0;
+        for (const Json* l : links) {
+            const std::size_t at = n++;
+            if (!l->is_object()) continue;
+            auto inner = l->find("emitter");
+            if (inner == l->end() || !inner->is_object()) continue;
+            ParticleEmitter child;
+            if (!object_patch_from_json(type_of_component<ParticleEmitter>(), &child, *inner)) continue;
+            check_lifespan(p, ptr + "/subEmitters/" + ev.key() + (ev.value().is_array() ? "/" + std::to_string(at) : std::string()) + "/emitter", child, *inner, depth + 1);
+        }
+    }
 }
 
 void unknown_keys(Parser& p, const Json& obj, const std::string& pointer, VfxPartKind kind) {
@@ -162,6 +197,7 @@ void parse_part(Parser& p, const Json& j, std::size_t index, VfxDoc& doc, std::s
                 if (issue.error) p.err(ptr + "/emitter" + issue.pointer, issue.message, issue.hint);
                 else p.warn(ptr + "/emitter" + issue.pointer, issue.message, issue.hint);
             }
+            check_lifespan(p, ptr + "/emitter", scratch, *it, 0);
             for (const char* k : {"emitting", "autoDestroy"})
                 if (it->contains(k))
                     p.warn(ptr + "/emitter/" + k, std::string("the effect sets `") + k + "` of its emitters itself, so this is ignored",
@@ -346,9 +382,15 @@ Result<std::shared_ptr<const VfxDoc>> parse_vfx(const Json& json, std::string_vi
 
 namespace {
 
+// A file's modification time moves in steps (15.6 ms on Windows, whole seconds on some network drives), so a second edit of the same
+// size within a step keeps the same (mtime, size). Until the file has been left alone for kSettleNs the cache therefore compares the
+// content too (a hash of the text); an older file is trusted by (mtime, size), which costs no read.
+constexpr std::int64_t kSettleNs = 2'000'000'000;
+
 struct CacheEntry {
     std::int64_t mtime = 0;
     std::int64_t size = 0;
+    std::uint64_t hash = 0;
     std::shared_ptr<const VfxDoc> doc;
 };
 std::mutex g_mutex;
@@ -357,21 +399,38 @@ std::map<std::string, CacheEntry>& cache() {
     return *c;
 }
 
+std::uint64_t content_hash(std::string_view text) {
+    std::uint64_t h = 1469598103934665603ULL;  // FNV-1a
+    for (unsigned char c : text) h = (h ^ c) * 1099511628211ULL;
+    return h;
+}
+
+std::int64_t now_ns() { return fs::file_time_ns(std::filesystem::file_time_type::clock::now()); }
+
 }  // namespace
 
 Result<std::shared_ptr<const VfxDoc>> load_vfx(std::string_view pathView, std::vector<VfxIssue>* issues) {
     const std::string path(pathView);
     const std::int64_t mtime = fs::modified_time(path);
     const std::int64_t size = fs::file_size(path);
-    if (!issues) {
+    const bool settled = mtime >= 0 && now_ns() - mtime > kSettleNs;
+    std::shared_ptr<const VfxDoc> cached;
+    std::uint64_t cachedHash = 0;
+    if (mtime >= 0) {
         std::lock_guard lock(g_mutex);
         auto it = cache().find(path);
-        if (it != cache().end() && it->second.mtime == mtime && it->second.size == size) return it->second.doc;
+        if (it != cache().end() && it->second.mtime == mtime && it->second.size == size) {
+            cached = it->second.doc;
+            cachedHash = it->second.hash;
+        }
     }
+    if (cached && settled && !issues) return cached;
     auto text = fs::read_text(path);
     if (!text)
         return make_error(path + ": cannot read the effect: " + text.error().message,
                           text.error().hint.empty() ? "Effects are *.vfx.json files; check the path." : text.error().hint);
+    const std::uint64_t hash = content_hash(*text);
+    if (cached && !issues && hash == cachedHash) return cached;
     auto json = parse_json(*text, path);
     if (!json) return json.error();
     auto parsed = parse_vfx(*json, path, issues);
@@ -380,7 +439,7 @@ Result<std::shared_ptr<const VfxDoc>> load_vfx(std::string_view pathView, std::v
     doc->mtime = mtime;
     std::shared_ptr<const VfxDoc> shared = doc;
     std::lock_guard lock(g_mutex);
-    cache()[path] = CacheEntry{mtime, size, shared};
+    cache()[path] = CacheEntry{mtime, size, hash, shared};
     return shared;
 }
 
@@ -420,11 +479,6 @@ bool usable(const World& w, Entity e) { return !e.is_null() && w.alive(e) && !w.
 // fixed number of game seconds later: the most its particles can live (lifetime plus its variance, plus the trail they leave), plus,
 // for each sub-emitter level, the same again (a particle's death can start the next one). The same on every machine, with or
 // without a GPU.
-
-double lifespan(const ParticleEmitter& em) {
-    const double life = double(std::max(em.lifetime, 0.0f)) * (1.0 + double(std::clamp(em.lifetimeVariance, 0.0f, 1.0f)));
-    return life + (em.trail != ParticleTrail::None ? double(std::max(em.trailTime, 0.0f)) : 0.0);
-}
 
 double drain_bound(const World& w, const ParticleEmitter& em, int depth) {
     double deepest = 0.0;
@@ -506,6 +560,78 @@ void drain_children(World& w, Vfx& v, float dt) {
     list.resize(keep);
 }
 
+// ---- the scale of an effect ----
+// `vfx.play` `scale` (or the Transform scale of a Vfx placed in a scene) makes the effect look like the same effect that much larger:
+// the entity's matrix already scales the offsets of the parts and, through the emitter children, where particles are born and (for an
+// emitter that is not in worldSpace) how far they fly. What the matrix does not reach is multiplied here, when a part starts: the size
+// of the particles and of their trails, the speed, gravity and turbulence of particles that live in world space, the light radius. Times
+// (lifetime, rate, timeline) stay as written, so an effect twice as large lasts as long. A sound or a command part is not touched.
+
+constexpr double kMinEffectScale = 0.001;
+constexpr double kMaxEffectScale = 1000.0;
+
+// The size factor of the effect: the geometric mean of the x and y scale of the Vfx entity's world matrix (the scale in the plane;
+// equal to the scale of a uniform one).
+double effect_scale(const World& w, Entity e) {
+    const Mat4 m = w.world_matrix(e);
+    const double sx = double(length(Vec3{m.at(0, 0), m.at(0, 1), m.at(0, 2)}));
+    const double sy = double(length(Vec3{m.at(1, 0), m.at(1, 1), m.at(1, 2)}));
+    const double k = std::sqrt(sx * sy);
+    if (!std::isfinite(k)) return 1.0;
+    return std::clamp(k, kMinEffectScale, kMaxEffectScale);
+}
+
+Json vec3_json(Vec3 v) { return Json::array({v.x, v.y, v.z}); }
+
+// Scales an emitter. `world`: its particles live in world space (the emitter's matrix does not stretch their motion), so their speed,
+// gravity and turbulence are lengths of the world and grow with `k`; `shape`: the emission shape is not stretched by a matrix either
+// (a sub-emitter's), so its size grows too.
+void scale_emitter(ParticleEmitter& pe, float k, bool world, bool shape) {
+    pe.startSize *= k;
+    pe.endSize *= k;
+    pe.trailWidth *= k;
+    if (world) {
+        pe.speed *= k;
+        pe.gravity = pe.gravity * k;
+        pe.noiseStrength *= k;
+        pe.noiseScale *= k;
+    }
+    if (shape) pe.shapeSize = pe.shapeSize * k;
+}
+
+// The same for the inline sub-emitters of a patch (`subEmitters`): they are patches over the defaults, so the scaled values are written
+// out explicitly. A sub-emitter given as a prefab or an entity keeps the size that file has (returned in `external`).
+void scale_sub_emitters(Json& spec, float k, bool world, int depth, bool& external) {
+    if (depth >= kParticleSubDepth || !spec.is_object()) return;
+    for (auto ev = spec.begin(); ev != spec.end(); ++ev) {
+        std::vector<Json*> links;
+        if (ev.value().is_object()) links.push_back(&ev.value());
+        else if (ev.value().is_array()) for (Json& l : ev.value()) links.push_back(&l);
+        for (Json* l : links) {
+            if (!l->is_object()) continue;
+            auto it = l->find("emitter");
+            if (it == l->end() || !it->is_object()) {
+                if (l->contains("prefab") || l->contains("entity")) external = true;
+                continue;
+            }
+            ParticleEmitter child;
+            if (!object_patch_from_json(type_of_component<ParticleEmitter>(), &child, *it)) continue;
+            scale_emitter(child, k, world, world);
+            (*it)["startSize"] = child.startSize;
+            (*it)["endSize"] = child.endSize;
+            (*it)["trailWidth"] = child.trailWidth;
+            if (world) {
+                (*it)["speed"] = child.speed;
+                (*it)["gravity"] = vec3_json(child.gravity);
+                (*it)["noiseStrength"] = child.noiseStrength;
+                (*it)["noiseScale"] = child.noiseScale;
+                (*it)["shapeSize"] = vec3_json(child.shapeSize);
+            }
+            if (it->contains("subEmitters")) scale_sub_emitters((*it)["subEmitters"], k, world, depth + 1, external);
+        }
+    }
+}
+
 void start_part(World& w, Entity e, Vfx& v, std::size_t index, const VfxHost& host) {
     const VfxDoc& doc = *v.rt.doc;
     const VfxPart& part = doc.parts[index];
@@ -521,9 +647,19 @@ void start_part(World& w, Entity e, Vfx& v, std::size_t index, const VfxHost& ho
             Entity c = child();
             auto& pe = w.add<ParticleEmitter>(c);
             (void)object_patch_from_json(type_of_component<ParticleEmitter>(), &pe, part.emitter);
+            if (const double k = effect_scale(w, e); std::fabs(k - 1.0) > 1e-6) {
+                scale_emitter(pe, float(k), pe.worldSpace, false);
+                bool external = false;
+                scale_sub_emitters(pe.subEmitters, float(k), pe.worldSpace, 0, external);
+                if (external)
+                    warn_once(doc.path + "|" + std::to_string(index) + "|scale-sub",
+                              std::format("{} /parts/{}/emitter/subEmitters: a sub-emitter given as a prefab or an entity keeps its own size when the effect is scaled",
+                                          doc.path, index));
+            }
             pe.autoDestroy = false;  // this system removes it, at the same game time on every machine (drain_bound)
             pe.emitting = part.duration > 0.0;
             VfxChild vc{c, std::int32_t(index), 1.0f};
+            vc.origin = std::int32_t(index);
             vc.drainFor = float(drain_bound(w, pe, 0) + kVfxDrainSlack);
             if (!pe.emitting) vc.drainLeft = vc.drainFor;  // a burst only: it stopped emitting before it began
             v.rt.children.push_back(vc);
@@ -536,10 +672,14 @@ void start_part(World& w, Entity e, Vfx& v, std::size_t index, const VfxHost& ho
                 auto& l = w.add<Light>(c);
                 l.type = LightType::Point;
                 (void)object_patch_from_json(type_of_component<Light>(), &l, part.light);
+                l.range *= float(effect_scale(w, e));
                 base = l.intensity;
             } else {
                 auto& l = w.add<Light2D>(c);
                 (void)object_patch_from_json(type_of_component<Light2D>(), &l, part.light);
+                const float k = float(effect_scale(w, e));
+                l.radius *= k;
+                l.height *= k;
                 base = l.intensity;
             }
             v.rt.children.push_back({c, std::int32_t(index), base});
@@ -590,6 +730,15 @@ void animate_children(World& w, Vfx& v) {
     list.resize(keep);
 }
 
+// A looping effect starts a new round: the file may have changed since the last one, so it is read again (hot reload; a round that has
+// begun finishes the version it started with). A document that cannot be read now keeps the last good version.
+void reload_for_round(Vfx& v, const VfxHost& host) {
+    Result<std::shared_ptr<const VfxDoc>> doc = host.load ? Result<std::shared_ptr<const VfxDoc>>(host.load(v.effect)) : load_vfx(v.effect);
+    if (!doc || !*doc) return;
+    v.rt.doc = *doc;
+    v.duration = float(v.rt.doc->duration);
+}
+
 void restart(Vfx& v) {
     v.time = 0.0f;
     v.rt.started = 0;
@@ -597,6 +746,8 @@ void restart(Vfx& v) {
 }
 
 }  // namespace
+
+double vfx_emitter_drain_seconds(const World& world, const ParticleEmitter& em) { return drain_bound(world, em, 0); }
 
 int vfx_playing_count(const World& world) { return world.vfx_live(); }
 
@@ -657,6 +808,7 @@ void update_vfx(World& world, float dt, const VfxHost& host) {
                 // part): lights end and emitters stop emitting, then drain.
                 end_children(world, v);
                 if (v.loop) {
+                    reload_for_round(v, host);
                     restart(v);
                 } else {
                     v.playing = false;
@@ -679,6 +831,9 @@ Result<Entity> vfx_play(World& world, std::string_view effect, const VfxPlayOpti
         return make_error("speed must be between 0.05 and 20, got " + std::to_string(o.speed), "1 plays the effect as written, 2 twice as fast.");
     if (!(o.scale > 0.0f && o.scale <= 1000.0f))
         return make_error("scale must be above 0 and at most 1000, got " + std::to_string(o.scale), "1 is the size the effect was written for.");
+    if (!o.parent.is_null() && !usable(world, o.parent))
+        return make_error("the parent entity of the effect is gone (destroyed, or about to be) so the effect cannot follow it",
+                          "Pass an entity that is alive when vfx.play runs (a script checks entity.alive), or leave `entity` out to play the effect in world space at a position.");
     if (vfx_playing_count(world) >= kVfxMaxPlaying) {
         warn_once("vfx-budget", std::format("{} effects are playing already: further vfx.play calls are dropped until some end (kVfxMaxPlaying)", kVfxMaxPlaying));
         return kNullEntity;
@@ -688,7 +843,7 @@ Result<Entity> vfx_play(World& world, std::string_view effect, const VfxPlayOpti
     if (ends_with(name, ".vfx.json")) name.resize(name.size() - 9);
     Entity e = world.create("vfx " + name);
     if (auto* info = world.get<EntityInfo>(e)) info->scriptSpawned = true;
-    if (usable(world, o.parent)) world.set_parent(e, o.parent, false);
+    if (!o.parent.is_null()) world.set_parent(e, o.parent, false);
     if (auto* t = world.get<Transform>(e)) {
         t->position = o.position;
         t->rotation = {0, 0, o.rotation};
