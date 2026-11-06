@@ -6,6 +6,7 @@
 #include "fa/audio/audio.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
+#include "fa/scene/feel.h"
 
 using namespace fa;
 using namespace audio_test;
@@ -154,6 +155,40 @@ TEST_CASE("audio: reload_clip swaps the data of a loaded clip") {
     fx.audio.play("sounds/sine.wav");
     fx.run(1.0);
     CHECK(fx.finish().sound_end() == doctest::Approx(22050.0).epsilon(0.01));
+}
+
+TEST_CASE("audio: a feel sound plays on its bus with the entity that asked for it; a clip that cannot play is not tried again in the scene") {
+    Fixture fx;
+    World world;
+    const Entity hero = world.create("hero", "hero");
+    SoundOptions good;
+    good.path = "sounds/sine.wav";
+    REQUIRE(feel_sound(world, hero, good).ok());
+    fx.audio.update(world, 1.0f / 60.0f);
+    std::vector<AudioEvent> log = fx.audio.play_log();
+    REQUIRE(log.size() == 1);
+    CHECK(log[0].ok);
+    CHECK(log[0].source == world.id_of(hero));
+
+    SoundOptions missing;
+    missing.path = "sounds/not_there.wav";
+    for (int i = 0; i < 3; ++i) {
+        REQUIRE(feel_sound(world, hero, missing).ok());
+        fx.audio.update(world, 1.0f / 60.0f);
+    }
+    log = fx.audio.play_log();
+    int failed = 0;
+    for (const AudioEvent& ev : log) failed += ev.ok ? 0 : 1;
+    CHECK(failed == 1);   // the first try is logged; the other two never reach the decoder
+    CHECK(world.feel().failedSounds.count("sounds/not_there.wav") == 1);
+
+    // a new scene tries again (the file may exist by now)
+    world.clear();
+    REQUIRE(feel_sound(world, kNullEntity, missing).ok());
+    fx.audio.update(world, 1.0f / 60.0f);
+    failed = 0;
+    for (const AudioEvent& ev : fx.audio.play_log()) failed += ev.ok ? 0 : 1;
+    CHECK(failed == 2);
 }
 
 TEST_CASE("audio: AudioSource playOnStart through a World") {

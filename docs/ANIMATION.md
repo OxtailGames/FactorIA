@@ -365,7 +365,9 @@ game plays a clip by its name:
   index in the sheet's grid, row by row) it sends the game event `name` with `{id, clip, frame, ...data}` and runs the game feel
   actions of `feel` ([GAME_FEEL.md](GAME_FEEL.md), "Effects as data"), for example a hit-stop and a shake on the frame where the
   sword lands. `clip` limits the event to one clip of the sheet. A loop fires the frame once per pass and a long step fires the
-  frames it skipped in order; a seek back fires nothing.
+  frames it skipped in order; a seek back fires nothing. The animators move on early in the frame, before the UI and the scripts,
+  so the game event, the sound and the effect of a frame event are handled in the frame that shows the frame. Time that does not
+  move (`time.scale` 0, the editor's edit mode) fires no event.
 - `mode` is `forward` (default), `reverse` or `pingpong` (forward then back, without repeating the end frames; one that does not loop stops back on its first frame).
 - The sheet's `padding` is skipped by itself; the sheet's `pivot` (and the clip's) is used when the Sprite has no pivot of its
   own. The sheet counts the pivot from the TOP-left, `Sprite.pivot` from the bottom-left (y flipped); see

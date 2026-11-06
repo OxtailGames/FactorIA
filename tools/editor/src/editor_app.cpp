@@ -1022,7 +1022,8 @@ void Editor::after_command(const std::string& name, const Json& args, const Comm
     // A clip file changed (the Console, the AI or the panel): the pose on screen is out of date.
     if (name.rfind("anim.", 0) == 0 && command_edits_scene(name, args) == false && name != "anim.check" && name != "anim.filmstrip") anim_.dirtyPose = true;
     // Commands that write or delete project files: the Project panel reads the folder again (it never walks the disk per frame).
-    if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly)
+    // vfx.play and vfx.stop change the running game only (they write no file), and a game plays many of them: no rescan for those.
+    if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly && name != "vfx.play" && name != "vfx.stop")
         for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "image.", "vector.", "sfx.", "vfx.", "audio.", "scene.save", "scene.format", "scene.import_ascii",
                                    "scene.ascii_edit"})
             if (name.rfind(prefix, 0) == 0) { project_files_changed(); break; }
