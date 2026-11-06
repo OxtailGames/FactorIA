@@ -28,6 +28,7 @@ constexpr int kVfxMaxParts = 16;           // parts (emitters, lights, sounds, c
 constexpr int kVfxMaxEmitters = 8;         // of those, emitters
 constexpr int kVfxMaxCommands = 8;         // of those, commands
 constexpr double kVfxMaxDuration = 30.0;   // seconds: the longest an effect, or a part of it, may last
+constexpr double kVfxMaxLifespan = 30.0;   // seconds: the longest one particle of an emitter of an effect may be seen (lifetime with variance, plus trailTime); parse_vfx refuses more
 constexpr double kVfxMinLoop = 0.1;        // seconds: a looping effect shorter than this waits until it is this long before it restarts
 constexpr double kVfxDrainSlack = 0.1;     // seconds added to the time an emitter's particles need to die before its entity is removed (the renderer steps by frames)
 constexpr int kVfxMaxPlaying = 64;         // Vfx playing, or still holding emitters and lights, at once: a play past this is dropped (and logged once)
@@ -85,8 +86,9 @@ bool vfx_command_allowed(std::string_view command);
 Result<std::shared_ptr<const VfxDoc>> parse_vfx(const Json& json, std::string_view file, std::vector<VfxIssue>* issues = nullptr);
 
 // Reads a document through fa::fs. Cached per path, modification time and size: every Vfx that plays the same file shares one
-// VfxDoc, and a file that changed on disk is read again by the next call (hot reload: effects already playing finish the version
-// they started with). An unreadable or invalid file is an Error; the cache keeps the last good version.
+// VfxDoc, and a file that changed on disk is read again by the next call (hot reload: a play that has begun finishes the version it
+// started with; a looping effect reads the file again at the start of each round). A file touched in the last two seconds is also
+// compared by content, because a file's time moves in steps and a second edit of the same size can keep the same time. An unreadable or invalid file is an Error; the cache keeps the last good version.
 Result<std::shared_ptr<const VfxDoc>> load_vfx(std::string_view path, std::vector<VfxIssue>* issues = nullptr);
 void clear_vfx_cache();  // forgets every cached document (tests)
 
@@ -117,12 +119,17 @@ void update_vfx(World& world, float dt, const VfxHost& host);
 
 // Starts an effect: a new entity with a Vfx component (autoDestroy on), at `position` in the world, or a child of `parent` at
 // `position` relative to it. Returns the entity, or the reason it could not start (file problem, budget). The effect starts at
-// the next update_vfx.
+// the next update_vfx. `scale` sets the Transform scale of the effect's entity, and the effect looks like the same one that many times
+// larger: the matrix scales the offsets of the parts, the emission shape and (for an emitter that is not in worldSpace) the distance
+// particles fly; when a part starts, the particle and trail size, and for worldSpace emitters the start speed, gravity and turbulence,
+// the light radius (range for a 3D light) and its height are multiplied by it too. Times stay as written, command parts call their
+// command with the arguments written in the file, and a sub-emitter given as a prefab or an entity keeps its own size. The factor is
+// the geometric mean of the x and y scale of the Vfx entity's world matrix, so a Vfx placed in a scene under a scaled parent scales too.
 struct VfxPlayOptions {
     Vec3 position{0, 0, 0};
     Entity parent = kNullEntity;  // not null: follows this entity, `position` is local to it
     float rotation = 0.0f;        // degrees around z (2D)
-    float scale = 1.0f;
+    float scale = 1.0f;           // 2 = the same effect twice as large (see update_vfx); times and command arguments are not scaled
     float speed = 1.0f;           // 1 = as written; 2 = twice as fast
     bool loop = false;
 };
@@ -132,6 +139,15 @@ Result<Entity> vfx_play(World& world, std::string_view effect, const VfxPlayOpti
 // started never do, lights end, and emitters stop emitting but let their particles finish (their entities go once those have had the
 // time to die, as at the end of an effect).
 void vfx_stop(World& world, Entity vfx, bool immediate);
+
+// True when the effect plays now, or will start at the next update_vfx (vfx_play just made it, or a scene has it on autoplay and the
+// system has not looked at it yet): what vfx.list and vfx.playing() list.
+inline bool vfx_starts_next_step(const Vfx& v) { return !v.playing && v.autoplay && !v.rt.seen && !v.effect.empty(); }
+
+// The longest the particles of `em` can be seen after it stopped emitting, in game seconds: lifetime with its variance, plus the trail, plus
+// for each sub-emitter level the longest chain of the same (a sub-emitter that cannot be read counts kVfxMaxDuration). The time an emitter
+// entity of an effect stays before the system removes it, less kVfxDrainSlack. `world` resolves sub-emitters given as an entity.
+double vfx_emitter_drain_seconds(const World& world, const ParticleEmitter& em);
 
 // How many effects play or still hold emitters and lights (the budget kVfxMaxPlaying counts them). A counter the system keeps
 // (World::vfx_live), not a scan.

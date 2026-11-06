@@ -135,7 +135,7 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
                "position":{"type":"array","items":{"type":"number"},"description":"[x, y] or [x, y, z]: world position, or relative to `entity` when that is given. Default [0, 0]."},
                "entity":{"type":"string","description":"Entity (id or name) the effect follows: it becomes the effect's parent."},
                "rotation":{"type":"number","description":"Degrees around z (2D). Default 0."},
-               "scale":{"type":"number","minimum":0.001,"maximum":1000,"default":1,"description":"Scale of the effect's entity: the offsets of its parts and the spawn shape of its emitters grow with it; the sizes written in the file (particle size, light radius) do not. 1 = as written."},
+               "scale":{"type":"number","minimum":0.001,"maximum":1000,"default":1,"description":"Makes the whole effect that many times larger: positions and offsets, the emission shape, how fast and how far particles fly (start speed, gravity, turbulence), the size of particles and trails and the light radius. Times (lifetimes, the timeline) stay as written, and a command part (feel.shake, ...) calls its command with the arguments written in the file. A sub-emitter given as a prefab or an entity keeps its own size. 1 = as written."},
                "speed":{"type":"number","minimum":0.05,"maximum":20,"default":1,"description":"Speed of the timeline: 2 plays the parts' times twice as fast. The particles keep their own speed."},
                "loop":{"type":"boolean","default":false,"description":"Start again at the end until vfx.stop."}}})"),
            false, "game"},
@@ -179,16 +179,22 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add({"vfx.list", "The effects that play now, and the limits of an effect.",
            "Returns {playing: [{id, effect, time, duration, loop, speed}], count, max, limits}. `time` is seconds into the effect "
-           "(the document's own clock), `duration` its length. Use it in a test to see that an effect started and ended: "
+           "(the document's own clock), `duration` its length. An effect started by vfx.play counts at once, before the next step "
+           "(time 0). Use it in a test to see that an effect started and ended: "
            "game.step, then vfx.list. Example: vfx.list {}.",
            parse_schema(R"({"type":"object","additionalProperties":false,"properties":{}})"), true, "game"},
           [&I](const Json&) {
               Json list = Json::array();
               for (Entity e : I.world.entities_with(&World::type_of<Vfx>())) {
                   const Vfx* v = I.world.get<Vfx>(e);
-                  if (!v || !v->playing) continue;
+                  if (!v || !(v->playing || vfx_starts_next_step(*v))) continue;
+                  double duration = double(v->duration);
+                  if (duration <= 0.0 && !v->playing) {  // started this step: the document is not read by the system yet (load_vfx has it cached)
+                      auto doc = load_vfx(v->effect);
+                      if (doc.ok()) duration = (*doc)->duration;
+                  }
                   list.push_back(Json::object({{"id", I.world.id_of(e)}, {"effect", v->effect}, {"time", std::round(double(v->time) * 1000.0) / 1000.0},
-                                               {"duration", std::round(double(v->duration) * 1000.0) / 1000.0}, {"loop", v->loop}, {"speed", v->speed}}));
+                                               {"duration", std::round(duration * 1000.0) / 1000.0}, {"loop", v->loop}, {"speed", v->speed}}));
               }
               Json limits = Json::object({{"parts", kVfxMaxParts}, {"emitters", kVfxMaxEmitters}, {"commands", kVfxMaxCommands},
                                           {"durationSeconds", kVfxMaxDuration}, {"allowedCommands", vfx_allowed_commands()}});
@@ -234,8 +240,8 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
            "capped}], timeline: [{t, particles, overdraw}], findings: [{kind, pointer, message, hint, fix: {command, args}}], notes, limits, "
            "ok}. `overdraw` is the sum of the particles' quads in screens (1.0 = as much quad area as the view has; stacked soft "
            "sprites are what a phone's GPU pays for). `findings` are what is over the `preset`'s budget (phone: 300 live particles, "
-           "1.5 screens, 5 emitters; desktop: 2000, 4.0, 8): each names the JSON pointer and carries a vfx.edit call that brings "
-           "the effect inside it. The numbers are the particles the sim keeps alive: a camera that does not see them, ribbon trails "
+           "1.5 screens, 5 emitters; desktop: 2000, 4.0, 8): each names the JSON pointer and, when one edit helps, carries a vfx.edit call (`fix`) that moves "
+           "the effect toward it (run vfx.budget again to see where it lands; `fix` is null when no single edit would do). The numbers are the particles the sim keeps alive: a camera that does not see them, ribbon trails "
            "and glow passes are not counted, and a 3D emitter's overdraw is not measured (`notes` says so). Example: vfx.budget {\"path\":\"assets/vfx/hit.vfx.json\"}",
            parse_schema(R"({"type":"object","additionalProperties":false,"required":["path"],"properties":{
                "path":{"type":"string","description":"Project path of the effect document, e.g. \"assets/vfx/hit.vfx.json\"."},
@@ -280,8 +286,11 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
            "length (from vfx.budget, at most 3 s) in `frames` pictures; `everyFrames` sets the game frames between two pictures "
            "instead. The view is `size` design pixels around the effect, `region` [x, y, width, height] overrides it, and `zoom` "
            "magnifies (default: a sheet about 1600 px wide). At most 64 pictures, a sheet at most 8192 px a side. Needs graphics. "
-           "Without `path` the picture is temporary (the MCP server shows it then deletes the file). Result: {width, height, "
-           "effect, duration, frames: [{index, frame, t}], columns, rows, tileWidth, tileHeight, zoom, region, $image}. "
+           "Without `path` the picture is temporary (the MCP server shows it then deletes the file). The effect's sound and command "
+           "parts really act on the game (a feel.hitStop stretches the labelled times, an audio.music keeps playing, a feel.spawn leaves its "
+           "prefab). A 3D game must give `position` (without it the middle of the view is the camera itself, and the call fails), and a "
+           "`position` the camera cannot project into the view fails too. Result: {path (only with `path`), effect, duration, width, height, "
+           "frames: [{index, frame, t}], columns, rows, tileWidth, tileHeight, zoom, everyFrames, region, $image}. "
            "vfx.review gives the picture to a vision model with the budget numbers. Example: "
            "vfx.filmstrip {\"effect\":\"assets/vfx/hit.vfx.json\",\"position\":[640,360],\"frames\":12}",
            parse_schema(R"({"type":"object","additionalProperties":false,"required":["effect"],"properties":{
@@ -323,6 +332,21 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
               Vec3 at{0, 0, 0};
               if (a.contains("position") && !a["position"].is_null()) at = position_arg(a, "position");
               else at = I.renderer->screen_to_world(Vec2{view.x * 0.5f, view.y * 0.5f});
+              const bool given = a.contains("position") && !a["position"].is_null();
+              if (!std::isfinite(at.x) || !std::isfinite(at.y) || !std::isfinite(at.z)) {
+                  throw CommandError("invalid_argument", "vfx.filmstrip: the middle of the view is not a point of this world, so there is no place to play the effect at.",
+                                     "Give `position` [x, y, z].");
+              }
+              if (!given) {
+                  // In a 2D game the middle of the view is a point on the z = 0 plane. In a 3D game screen_to_world(depth 0) is the camera
+                  // itself, where nothing can be filmed: refuse, instead of playing the effect inside the lens.
+                  Vec3 origin{}, dir{};
+                  I.renderer->screen_ray(Vec2{view.x * 0.5f, view.y * 0.5f}, origin, dir);
+                  const Vec3 gap = at - origin;
+                  if (gap.x * gap.x + gap.y * gap.y + gap.z * gap.z < 1e-6f)
+                      throw CommandError("invalid_argument", "vfx.filmstrip: without `position` the effect would play at the camera (this game has a 3D camera), where nothing can be filmed.",
+                                         "Give `position` [x, y, z]: the world point to film the effect at, in front of the camera.");
+              }
               Rect region{};
               if (a.contains("region")) {
                   std::string err;
@@ -330,6 +354,9 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
                   if (!(region.w > 0 && region.h > 0)) throw CommandError("invalid_argument", "region has no area.", "Width and height must be above 0.");
               } else {
                   const Vec2 s = I.renderer->world_to_screen(at);
+                  if (!std::isfinite(s.x) || !std::isfinite(s.y))
+                      throw CommandError("invalid_argument", "vfx.filmstrip: `position` does not project to a point of the view (it is behind the camera, or the camera cannot see it).",
+                                         "Aim the camera at the effect, or give `region` [x, y, width, height] in design pixels to film that part of the view.");
                   const float side = a.value("size", 256.0f);
                   const float x0 = std::clamp(s.x - side * 0.5f, 0.0f, std::max(0.0f, view.x - 1.0f));
                   const float y0 = std::clamp(s.y - side * 0.5f, 0.0f, std::max(0.0f, view.y - 1.0f));

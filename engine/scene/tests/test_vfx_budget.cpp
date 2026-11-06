@@ -101,6 +101,81 @@ TEST_CASE("vfx_measure: a screen full of big sprites is an overdraw finding that
     CHECK(found);
 }
 
+namespace {
+// `count` identical bursts, each its own part.
+std::string many_bursts(int count, int n, double size, double life, int cap) {
+    std::string parts;
+    for (int i = 0; i < count; ++i) {
+        if (i) parts += ",";
+        parts += R"({"type":"emitter","name":"e)" + std::to_string(i) + R"(","emitter":{"burst":)" + std::to_string(n) + R"(,"rate":0,"lifetime":)" +
+                 std::to_string(life) + R"(,"lifetimeVariance":0,"startSize":)" + std::to_string(size) + R"(,"endSize":)" + std::to_string(size) +
+                 R"(,"speed":0,"speedVariance":0,"maxParticles":)" + std::to_string(cap) + "}}";
+    }
+    return R"({"format":"factoria.vfx/1","parts":[)" + parts + "]}";
+}
+}  // namespace
+
+TEST_CASE("vfx_measure: the overdraw is compared as printed (two decimals), not as measured") {
+    // One particle of 1176 px in a 1280x720 view covers 1.5005 screens: it prints as 1.50, which is the phone limit, so it is no finding.
+    const auto d = doc_of(many_bursts(1, 1, 1176.0, 0.5, 10));
+    const VfxBudget b = vfx_measure(*d);
+    CHECK(b.peakOverdraw == doctest::Approx(1.5).epsilon(0.0001));
+    for (const VfxBudgetFinding& f : b.findings) CHECK(f.kind != "overdraw");
+}
+
+TEST_CASE("vfx_measure: a fix that would leave nothing of the effect is not offered") {
+    SUBCASE("particles: the other emitters already hold the budget") {
+        const auto d = doc_of(many_bursts(4, 100, 4.0, 1.0, 200));   // 400 live; the biggest holds 100; 100 over, so its cap would be 0
+        const VfxBudget b = vfx_measure(*d);
+        REQUIRE(b.peakParticles == 400);
+        const VfxBudgetFinding* f = nullptr;
+        for (const VfxBudgetFinding& x : b.findings)
+            if (x.kind == "particles") f = &x;
+        REQUIRE(f);
+        CHECK(f->fix.is_null());
+        CHECK(f->hint.find("no single edit") != std::string::npos);
+    }
+    SUBCASE("overdraw: the other emitters already cover the budget") {
+        const auto d = doc_of(many_bursts(4, 4, 356.0, 0.5, 20));    // 4 emitters of 0.55 screens: 2.2 together, the others alone 1.65
+        const VfxBudget b = vfx_measure(*d);
+        const VfxBudgetFinding* f = nullptr;
+        for (const VfxBudgetFinding& x : b.findings)
+            if (x.kind == "overdraw") f = &x;
+        REQUIRE(f);
+        CHECK(f->fix.is_null());
+        CHECK(f->hint.find("no single edit") != std::string::npos);
+    }
+    SUBCASE("overdraw: when the biggest emitter can do it alone, its size takes what the others cover into account") {
+        // big: 8 * 360^2 / 921600 = 1.125 screens; small: 4 * 322^2 / 921600 = 0.45; together 1.575, over the 1.5 of a phone.
+        const auto d = doc_of(R"({"format":"factoria.vfx/1","parts":[
+            {"type":"emitter","name":"big","emitter":{"burst":8,"rate":0,"lifetime":0.5,"lifetimeVariance":0,"startSize":360,"endSize":360,"speed":0,"maxParticles":20}},
+            {"type":"emitter","name":"small","emitter":{"burst":4,"rate":0,"lifetime":0.5,"lifetimeVariance":0,"startSize":322,"endSize":322,"speed":0,"maxParticles":20}}]})");
+        const VfxBudget b = vfx_measure(*d);
+        const VfxBudgetFinding* f = nullptr;
+        for (const VfxBudgetFinding& x : b.findings)
+            if (x.kind == "overdraw") f = &x;
+        REQUIRE(b.perEmitter.size() == 2);   // a one-step effect (duration 0) still tells its emitters apart
+        REQUIRE(f);
+        CHECK(f->pointer == "/parts/0/emitter/startSize");
+        REQUIRE(f->fix.is_object());
+        // room for big = 1.5 - 0.45 = 1.05: 360 * sqrt(1.05 / 1.125) = 347.8 (shrinking everything by the same share would give 351.4)
+        const double v = f->fix["args"]["value"].get<double>();
+        CHECK(v > 345.0);
+        CHECK(v < 349.0);
+    }
+}
+
+TEST_CASE("vfx_measure stops at 20 million particle updates and says so") {
+    // Four emitters of 10 000 particles that live 30 s: 40 000 updates per step, so 20 million is reached long before the 30 s are played.
+    const auto d = doc_of(many_bursts(4, 10000, 2.0, 25.0, 10000));
+    const VfxBudget b = vfx_measure(*d);
+    CHECK(b.truncated);
+    CHECK(b.steps < 600);
+    bool noted = false;
+    for (const std::string& n : b.notes) noted = noted || n.find("particle updates") != std::string::npos;
+    CHECK(noted);
+}
+
 TEST_CASE("vfx_measure: an emitter that reaches its cap says so") {
     const auto d = doc_of(burst(500, 4.0, 1.0, 120));
     const VfxBudget b = vfx_measure(*d);

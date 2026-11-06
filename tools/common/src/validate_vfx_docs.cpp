@@ -2,6 +2,7 @@
 // its JSON pointer and the fix, a sound clip that is not in the project is an error, and the warnings of the parser (a `rate` with no
 // duration, too many live particles) are warnings.
 #include <algorithm>
+#include <set>
 
 #include "assets_internal.h"
 #include "fa/core/strings.h"
@@ -15,10 +16,12 @@ namespace {
 std::vector<std::string> list_vfx_documents(const std::string& projectDir) {
     std::vector<std::string> out;
     std::error_code ec;
-    const stdfs::path root = stdfs::path(projectDir) / "assets";
+    const stdfs::path root = stdfs::path(projectDir);
     if (!stdfs::is_directory(root, ec)) return out;
+    // The whole project, as the scene validator walks it: an effect may live in any folder (vfx.play takes any project path).
     for (stdfs::recursive_directory_iterator it(root, stdfs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
-        if (it->is_directory(ec) && (it->path().filename() == "node_modules" || starts_with(it->path().filename().string(), "."))) {
+        const bool topBuild = it.depth() == 0 && it->path().filename() == "build";
+        if (it->is_directory(ec) && (topBuild || it->path().filename() == "node_modules" || starts_with(it->path().filename().string(), "."))) {
             it.disable_recursion_pending();
             continue;
         }
@@ -32,8 +35,17 @@ std::vector<std::string> list_vfx_documents(const std::string& projectDir) {
 
 }  // namespace
 
-void check_vfx_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings) {
-    for (const std::string& rel : list_vfx_documents(projectDir)) {
+void check_vfx_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings,
+                         const std::set<std::string>& referenced) {
+    std::vector<std::string> files = list_vfx_documents(projectDir);
+    std::set<std::string> have;
+    for (const std::string& f : files) have.insert(to_lower(f));
+    for (const std::string& ref : referenced) {
+        std::error_code ec;
+        if (ref.empty() || !have.insert(to_lower(ref)).second || !stdfs::is_regular_file(project_file(projectDir, ref), ec)) continue;
+        files.push_back(ref);
+    }
+    for (const std::string& rel : files) {
         auto text = tooling_detail::read_file(project_file(projectDir, rel));
         if (!text) {
             errors.push_back({rel, "", "The effect cannot be read.", "Check the file's permissions."});

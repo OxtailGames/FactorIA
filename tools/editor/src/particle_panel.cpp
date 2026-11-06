@@ -184,6 +184,8 @@ void Editor::particle_apply_undo(const Json& entry, bool forward) {
     const std::string doc = u.model->step_document(id);
     if (!doc.empty() && doc != u.model->path()) open_particle_document(doc);
     if (!u.model->apply_step(id, forward)) {
+        // A refusal because the file changed outside the editor leaves the step where it was (the Reload button of the panel decides).
+        if (u.model->conflict()) (forward ? redo_ : undo_).push_back(entry);
         notify("Could not " + std::string(forward ? "redo" : "undo") + " the effect edit: " + u.model->status(), 2);
         return;
     }
@@ -228,6 +230,13 @@ void Editor::draw_particle_panel() {
     }
 
     draw_particle_toolbar(m);
+    if (m.is_open() && m.conflict()) {
+        ImGui::TextColored(kWarn, "The file changed outside the editor: undo and redo would overwrite that change.");
+        ImGui::SameLine();
+        if (ImGui::Button("Reload##conflict")) m.reload();
+        ImGui::SameLine();
+        ImGui::TextDisabled("(Reload takes the file as it is on disk)");
+    }
     if (!m.is_open()) {
         ImGui::Spacing();
         ImGui::TextDisabled("Open an effect document (*.vfx.json) from the list above, make a new one with New, or double click one in the Project panel.");
@@ -247,8 +256,9 @@ void Editor::draw_particle_panel() {
     if (play_ != PlayState::Edit) ImGui::TextColored(kWarn, "The game is running: stop it to edit the effect.");
 
     // The preview plays the document as it is now (a drag in progress included).
+    u.preview->begin_frame();
     u.preview->set_document(m.doc());
-    u.preview->catch_up();   // a seek or an edit that is still being rebuilt does a bounded share of its steps per frame
+    u.preview->catch_up();   // a seek or an edit that is still being rebuilt does ONE bounded share of its steps per frame (begin_frame)
     if (u.playing && !u.scrubbing && m.doc()) {
         const double dt = std::min(0.1, double(ImGui::GetIO().DeltaTime)) * double(u.speed);
         if (u.preview->time() >= u.preview->timeline_length()) {
@@ -283,12 +293,13 @@ void Editor::draw_particle_panel() {
 void Editor::draw_particle_toolbar(ParticleModel& m) {
     ParticleUi& u = particle_;
     const bool editable = play_ == PlayState::Edit;
-    std::vector<std::string> files;
-    for (const BrowserFile& f : projBrowser_.listing.files)
-        if (ends_with(to_lower(f.path), ".vfx.json")) files.push_back(f.path);
-    std::sort(files.begin(), files.end());
     ImGui::SetNextItemWidth(260);
     if (ImGui::BeginCombo("##ptfile", m.is_open() ? m.title().c_str() : "Open an effect...")) {
+        // The list is made only while the combo is open (it lowercases every file name of the project).
+        std::vector<std::string> files;
+        for (const BrowserFile& f : projBrowser_.listing.files)
+            if (ends_with(to_lower(f.path), ".vfx.json")) files.push_back(f.path);
+        std::sort(files.begin(), files.end());
         for (const std::string& f : files) {
             if (ImGui::Selectable(f.c_str(), f == m.path())) open_particle_document(f);
             at_track("pt:file:" + f);
