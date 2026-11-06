@@ -51,7 +51,7 @@ The scripts are short because the engine covers these things (see `docs/AI_GUIDE
 - **Gem sparkle.** `assets/vfx/gem_burst.vfx.json` is an effect document: a 3D `ParticleEmitter` burst of 40
   sparks, a short point-light flash and the pickup sound on one timeline, played with `vfx.play(path, { position })`.
   The effect removes itself when its last particle has died. It was graded with the review loop: `vfx.budget`
-  (40 live particles, well inside a phone's budget) and `vfx.filmstrip` with a `position` (a 3D game must give one).
+  (40 live particles, well inside a phone's budget) and `vfx.filmstrip` (in a 3D game it plays the effect 5 m in front of the main camera unless a `position` is given).
   The first version used additive white-cyan sparks, which vanished on the pale floor in the filmstrip; the
   saturated cyan-to-teal gradient with normal blending reads.
 - **Ids.** `world.destroy()` frees an id at once, so `project.scatter_gems` with `clear` always produces
