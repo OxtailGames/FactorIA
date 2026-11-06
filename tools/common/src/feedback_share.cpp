@@ -19,6 +19,7 @@
 #include "fa/core/strings.h"
 #include "fa/core/utf8.h"
 #include "fa/runtime/project.h"
+#include "fa/tooling/efficiency.h"
 #include "fa/tooling/feedback.h"
 #include "fa/tooling/feedback_fixed.h"
 #include "util.h"
@@ -708,9 +709,14 @@ bool entry_is_shareable(const Json& e) {
         if (st == "rejected" || st == "declined") return false;  // refused by the server / rejected by the engine developer
         // A gap hit again after it was sent goes again (the server counts one more occurrence for this installation),
         // up to the most occurrences the developer's ranking counts.
-        if (st == "sent")
+        if (st == "sent") {
+            // An efficiency entry sends its running totals again whenever a new report added to them (the server keeps the latest, so
+            // there is nothing to inflate: it is not a count of voices), at most once per report.
+            if (e.value("kind", std::string()) == "efficiency")
+                return e["shared"].value("occurrences", 1) < std::min(e.value("occurrences", 1), kMaxSharedEfficiencySends);
             return e["shared"].value("occurrences", 1) <
                    std::min(e.value("occurrences", 1), kMaxSharedOccurrences);
+        }
     }
     return true;
 }
@@ -741,6 +747,10 @@ Json build_share_entry(const Json& local, const SanitizedShare& share) {
     if (local.contains("reporter") && local["reporter"].is_object()) kind = local["reporter"].value("kind", std::string("ai"));
     e["reporterKind"] = kind == "human" ? "human" : "ai";
     e["reviewed"] = local.contains("reviewed") && local["reviewed"].is_boolean() && local["reviewed"].get<bool>();
+    // An efficiency entry also sends what was measured and the fix it asks for: numbers and the engine's own fixed words only (never the
+    // waste text, the evidence or the sessions' names: efficiency_share_block builds the block from fixed lists and numbers).
+    if (local.is_object() && local.value("kind", std::string()) == "efficiency")
+        if (Json block = efficiency_share_block(local); block.is_object()) e["efficiency"] = std::move(block);
     return e;
 }
 

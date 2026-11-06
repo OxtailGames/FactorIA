@@ -193,6 +193,31 @@ Answer:
 `status` is `accepted`, `merged` or `rejected`; rejection codes: `invalid_field`, `too_short`, `too_long`,
 `not_text`, `personal_data`.
 
+### Efficiency entries
+
+An entry about time and tokens the engine's gap cost (`kind: efficiency` locally, docs/ENGINE_FEEDBACK.md, "Efficiency feedback") goes in the
+same `entries` array with the sanitized texts of a gap and one more member, `efficiency`: numbers and words of fixed lists only.
+
+```json
+{"localId": "FB-0007", "category": "scene", "severity": "minor", "title": "Tilemap collision setup", "missing": "...", "suggestion": "...",
+ "workaround": "...", "reporterKind": "ai", "reviewed": false,
+ "efficiency": {"fixType": "guide", "appliesTo": "every-game", "expectedShare": 0.7, "spans": 2,
+                "measured": {"steps": 80, "toolCalls": 40, "minutes": 80, "tokens": 400000, "costUsd": 2, "estimated": false},
+                "saving": {"steps": 56, "toolCalls": 28, "minutes": 56, "tokens": 280000, "costUsd": 1.4, "estimated": false},
+                "afterFix": "0.17.2"}}
+```
+
+- `fixType` is `doc`, `guide`, `example`, `commandOption`, `newCommand` or `engineChange`; `appliesTo` is `every-game`, `genre` or `feature`
+  (`this-game` is never sent). Every number is checked on its own (finite, from 0 to what a transcript can hold: steps 4 million, minutes 10
+  million, tokens 10^12, dollars 1 million; `expectedShare` 0 to 1, `spans` 0 to 200); `afterFix` is a version string. Anything else in the
+  block is dropped and a bad value rejects the entry with `invalid_field`. Never sent: the AI's waste text beyond the sanitized `missing`, the
+  evidence, the session ids.
+- The server stores `kind`, `fix_type` and the block (migration `0003_efficiency.sql`). An efficiency report merges only with an efficiency report
+  of the same installation, category, **fix type** and similar title. The numbers of an installation are cumulative (its running totals), so a
+  merge REPLACES the stored block with the new one and raises `occurrences`; it never adds, and an installation cannot count twice. The
+  client sends an entry again after each new report, up to 20 times. An old server ignores the block; an old client sends none.
+- `GET /v1/admin/reports` returns `kind` ("gap" or "efficiency") and the `efficiency` block of each report.
+
 ### `POST /v1/auth/github`
 
 Body `{githubToken}`. The server calls `GET https://api.github.com/user` with it, takes the numeric `id`, computes the
@@ -260,6 +285,12 @@ Reads `feedback-admin.json` (`{endpoint, adminToken}`).
 - **Ranking**: `feedback collect` scores a group as the sum, over its projects (installations), of
   `severity weight x trust x min(occurrences, 3)`, with trust 1 for a local project and a verified installation and 0.5
   for an anonymous one. The report shows installations, verified installations and occurrences.
+- **Efficiency ranking**: `pull` writes an efficiency report as an entry with `kind: efficiency` and its numbers (read through the same clamping the
+  client uses; a bad block leaves a plain entry), a later report of the same shareId replaces the numbers, and `pull` and `collect` rank the
+  efficiency entries apart from the gaps by the total saving across installations (an installation counts once, an anonymous one half), next to
+  the fix cost, with a verdict (`doc now`, `command: worth it`, `engine change: below threshold (N of the $1000 / 20 hours it needs)`) and a
+  ready reason for `feedback reject` for each entry (docs/ENGINE_FEEDBACK.md, "Efficiency entries"). An entry fixed in the engine records the
+  version, and the retrospectives of games on it compare the same pattern before and after.
 - `factoria feedback fixed add --category C --title T [--title T2] --version V [--note N]` and `feedback fixed list`:
   maintain `feedback/fixed.json`; `feedback update ... --status fixed-in-engine` on an inbox entry offers the same.
 

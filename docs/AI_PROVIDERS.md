@@ -999,6 +999,14 @@ engine change would save, and files the entries. Two steps:
    with the reason. A lesson that is true only of this game (its own scripts, scenes or assets) becomes a **project-fact
    proposal** instead: it waits in `ai.savers` and goes to `AGENTS.md` only when you accept it, like the savers' own facts.
 
+Before it looks for new waste it **checks the fixes of earlier entries** ([ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md), "Did the fix work?"): an
+efficiency entry the engine fixed (`fixed-in-engine`, with the version, the day and what one occurrence cost before) is compared with the same
+pattern in the transcripts since that day, when this engine is at least the fixing version. `fixChecks` in the answer says `waiting` (no run
+since), `gone`, `worked`, `partial` or `no_change`, each with one sentence, and the answer is recorded on the entry (`fixCheck`; with
+`candidatesOnly` nothing is written). A pattern a fix did not remove is filed again with `afterFix` set to that version, so the engine
+developer sees a fix that saved nothing. The transcripts do not record which engine ran them: the version of the running engine and the day of
+the fix stand for it.
+
 It never sends anything: the entries stay in `ENGINE_FEEDBACK.json` until you share them like any other. A model that cannot be asked
 (no key, the role off) is not an error: the candidates come back and `note` says why. The cost of the model call is returned as
 `costUsd`; inside a run it is added to the run's usage.

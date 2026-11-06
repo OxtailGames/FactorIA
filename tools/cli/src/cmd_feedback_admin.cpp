@@ -110,6 +110,18 @@ Command pull_command() {
             ctx.out << "Read them, then confirm with `factoria feedback reject --suggested` (all of them, or name the shareIds), or drop a suggestion with\n"
                        "`factoria feedback keep <shareId>`. Docs: factoria docs read engine-feedback (\"Triage loop\").\n";
         }
+        if (!r->efficiency.empty()) {
+            ctx.out << "Efficiency entries in the inbox, by what fixing them saves across installations (top " << std::min<std::size_t>(r->efficiency.size(), 5)
+                    << " of " << r->efficiency.size() << "):\n";
+            std::size_t shown = 0;
+            for (const Json& g : r->efficiency) {
+                if (++shown > 5) break;
+                ctx.out << "  E" << g.value("rank", 0) << "  " << g.value("title", std::string()) << " (" << g.value("fixType", std::string()) << ")\n    "
+                        << g["verdict"].value("text", std::string()) << "; " << g.value("installations", 0) << " installation(s), "
+                        << g["total"].value("hours", 0.0) << " h, $" << g["total"].value("costUsd", 0.0) << " in total\n";
+            }
+            ctx.out << "Each entry has a ready reason for `factoria feedback reject`: see `feedback collect` (Efficiency section) or --json.\n";
+        }
         ctx.out << "Next: factoria feedback collect \"" << r->inbox << "\" --out roadmap.md\n";
         return 0;
     };

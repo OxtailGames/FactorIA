@@ -6,7 +6,8 @@
 //
 //   sanitize_share     the deterministic sanitizer: paths, file names, URLs, e-mail addresses, quoted text, the project's
 //                      own names, control characters and runs of one character come out; a field under its minimum after
-//                      cleaning stops the entry. The preview shows its result.
+//                      cleaning stops the entry. The preview shows its result. (An efficiency entry's share text comes from its
+//                      waste, cleaned the same way; its numbers and fix type travel as a separate block of fixed words and numbers.)
 //   ShareSettings      <user config>/feedback-sharing.json: mode (unset | always | ask | never), installation id, GitHub
 //                      credential, endpoint override, and `projects`: a mode per project folder that overrides `mode` for that
 //                      project (kept here, in the USER's file, never inside the project). Only a person changes a mode (CLI,
@@ -54,6 +55,9 @@ inline constexpr int kShareMaxVerdictIds = 100;  // shareIds in one POST /v1/ver
 inline constexpr int kShareMaxBodyBytes = 64 * 1024;
 // The most times one entry is sent: the developer's ranking counts min(occurrences, 3) per installation.
 inline constexpr int kMaxSharedOccurrences = 3;
+// An efficiency entry sends its running totals again after each new report (the server keeps the latest numbers of the installation
+// instead of counting voices): at most this many sends per entry.
+inline constexpr int kMaxSharedEfficiencySends = 20;
 
 // ------------------------------------------------------------------------------------------------------------- environment
 
@@ -266,7 +270,8 @@ std::string sanitize_text(std::string_view field, std::string_view text, const E
                           const ProjectNames& project, std::vector<Removal>& removed);
 
 // The entry as the server receives it (docs/design/FEEDBACK_SHARING.md, "POST /v1/reports"): the sanitized share plus
-// localId, category, severity, effort, reporterKind and reviewed from the local entry.
+// localId, category, severity, effort, reporterKind and reviewed from the local entry. An efficiency entry adds an `efficiency` block (fix type,
+// applies-to, measured and saved numbers: efficiency_share_block in fa/tooling/efficiency.h, never its waste text, evidence or session ids).
 Json build_share_entry(const Json& localEntry, const SanitizedShare& share);
 // {format, engineVersion, platform, entries}.
 Json build_share_payload(const ShareEnv& env, const std::vector<Json>& entries);

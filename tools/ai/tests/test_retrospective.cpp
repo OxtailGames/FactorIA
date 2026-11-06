@@ -488,3 +488,144 @@ TEST_CASE("savers.retrospective: a run under both thresholds starts none") {
     REQUIRE(f.run().ok);
     CHECK(f.provider->calls == 2);
 }
+
+// ---------------------------------------------------------------------------------------------------- did the fix work?
+
+namespace {
+
+constexpr std::int64_t kDay = 86'400'000;  // ms
+
+// An efficiency entry the engine fixed in `fixedIn` on 2026-10-27: its pattern and what one occurrence cost before (20 steps, 20 minutes,
+// 100000 tokens).
+Json fixed_entry(const std::string& id = "FB-0001", const std::string& fixedIn = "0.17.2") {
+    return Json::parse(R"({"id":")" + id + R"(","kind":"efficiency","status":"fixed-in-engine","pattern":"failure:scene.load:not_found",
+        "fixedIn":")" + fixedIn + R"(","fixedAt":"2026-10-27","fixBaseline":{"spans":1,"steps":20,"minutes":20,"tokens":100000}})");
+}
+
+std::vector<Step> failing_run_of(int failures) {
+    std::vector<Step> steps = repeat(4, {"scene.inspect"});
+    append(steps, repeat(failures, {"scene.load", Json::object({{"scene", "main"}}), "not_found"}));
+    append(steps, repeat(4, {"scene.inspect"}));
+    return steps;
+}
+
+}  // namespace
+
+TEST_CASE("fix check: the same pattern after the fix is compared with what it cost before") {
+    const Json entries = Json::array({fixed_entry()});
+    const std::int64_t after = kT0 + 2 * kDay;  // 2026-10-28
+    SUBCASE("no run since the fix: waiting") {
+        const auto checks = check_efficiency_fixes({session_of("20261026-100000-orchestrator", failing_run())}, entries, "0.17.2");
+        REQUIRE(checks.size() == 1);
+        CHECK(checks[0].result == "waiting");
+        CHECK(checks[0].sessionsAfter == 0);
+    }
+    SUBCASE("the pattern is not found any more: gone") {
+        const auto checks = check_efficiency_fixes({session_of("20261028-100000-orchestrator", repeat(30, {"scene.inspect"}), after)}, entries, "0.17.2");
+        REQUIRE(checks.size() == 1);
+        CHECK(checks[0].result == "gone");
+        CHECK(checks[0].sessionsAfter == 1);
+        CHECK(checks[0].ratio == 0);
+        CHECK(has(checks[0].text, "it worked"));
+    }
+    SUBCASE("it costs the same: no_change; about half: partial; a lot less: worked") {
+        auto result = [&](int failures) {
+            const auto c = check_efficiency_fixes({session_of("20261028-100000-orchestrator", failing_run_of(failures), after)}, entries, "0.17.2");
+            REQUIRE(c.size() == 1);
+            return c[0];
+        };
+        const FixCheck same = result(20);
+        CHECK(same.result == "no_change");
+        CHECK(same.ratio == doctest::Approx(1.0).epsilon(0.05));
+        CHECK(same.spansAfter == 1);
+        CHECK(has(same.text, "No change"));
+        const FixCheck half = result(14);
+        CHECK(half.result == "partial");
+        CHECK(half.ratio > 0.5);
+        CHECK(half.ratio <= 0.8);
+        const FixCheck better = result(6);
+        CHECK(better.result == "worked");
+        CHECK(better.ratio <= 0.5);
+        CHECK(better.after["steps"] == 6);
+    }
+    SUBCASE("runs from before the fix do not count") {
+        const auto checks = check_efficiency_fixes({session_of("20261026-100000-orchestrator", failing_run()),
+                                                    session_of("20261028-100000-orchestrator", repeat(30, {"scene.inspect"}), after)}, entries, "0.17.2");
+        REQUIRE(checks.size() == 1);
+        CHECK(checks[0].result == "gone");
+        CHECK(checks[0].sessionsAfter == 1);
+    }
+    SUBCASE("a game on an older engine is not checked, and an entry without a pattern or baseline is left out") {
+        const std::vector<EfficiencySession> s = {session_of("20261028-100000-orchestrator", failing_run(), after)};
+        CHECK(check_efficiency_fixes(s, entries, "0.17.1").empty());
+        CHECK(check_efficiency_fixes(s, entries, "0.17.2-rc1").size() == 1);
+        CHECK(check_efficiency_fixes(s, entries, "0.18.0").size() == 1);
+        Json noPattern = fixed_entry();
+        noPattern.erase("pattern");
+        Json noBase = fixed_entry("FB-0002");
+        noBase.erase("fixBaseline");
+        Json open = fixed_entry("FB-0003");
+        open["status"] = "open";
+        CHECK(check_efficiency_fixes(s, Json::array({noPattern, noBase, open}), "0.17.2").empty());
+    }
+    SUBCASE("ordered by entry id, the same input gives the same answer") {
+        const std::vector<EfficiencySession> s = {session_of("20261028-100000-orchestrator", failing_run(), after)};
+        const Json both = Json::array({fixed_entry("FB-0009"), fixed_entry("FB-0002")});
+        const auto a = check_efficiency_fixes(s, both, "0.17.2");
+        const auto b = check_efficiency_fixes(s, both, "0.17.2");
+        REQUIRE(a.size() == 2);
+        CHECK(a[0].entry == "FB-0002");
+        CHECK(a[0].to_json() == b[0].to_json());
+    }
+}
+
+TEST_CASE("ai.retrospective: a fix that saved nothing shows in the next retrospective, is recorded on the entry and the pattern is filed again with afterFix") {
+    Fixture f;
+    f.session("20261026-100000-orchestrator", failing_run());
+    f.provider->script = {text_response(answer({entry_json("c1", "Quantum flux calibration order")}))};
+    REQUIRE(f.retro().ok);
+    REQUIRE(f.entries().size() == 1);
+    CHECK(f.entries()[0]["pattern"] == "failure:scene.load:not_found");  // kept for the check, never shared
+
+    // The engine developer fixed it in 0.1.0, which every build is at least (the day is set by hand: the test does not read the clock).
+    REQUIRE(update_feedback_file(f.feedback_file(), "FB-0001", "fixed-in-engine", "FactorIA 0.1.0").ok());
+    Json doc = *load_feedback(f.feedback_file());
+    CHECK(doc["entries"][0]["fixBaseline"]["steps"] == 20);
+    doc["entries"][0]["fixedAt"] = "2026-10-27";
+    REQUIRE(save_feedback(f.feedback_file(), doc).ok());
+
+    // Two days later the game did the same again.
+    f.session("20261028-100000-orchestrator", failing_run(), kT0 + 2 * kDay);
+    f.provider->script = {text_response(answer({entry_json("c1", "Quantum flux calibration order")}))};
+    f.provider->calls = 0;
+    auto r = f.retro(Json::object({{"since", "2026-10-26"}}));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    REQUIRE(r.result["fixChecks"].size() == 1);
+    CHECK(r.result["fixChecks"][0]["result"] == "no_change");
+    CHECK(r.result["fixChecks"][0]["entry"] == "FB-0001");
+    const Json entries = f.entries();
+    REQUIRE(entries.size() >= 1);
+    CHECK(entries[0]["fixCheck"]["result"] == "no_change");
+    CHECK(entries[0]["fixCheck"]["ratio"].get<double>() > 0.8);
+    bool refiled = false;
+    for (const Json& e : entries)
+        if (e.value("afterFix", std::string()) == "0.1.0") refiled = true;
+    CHECK_MESSAGE(refiled, r.result.dump(1));
+}
+
+TEST_CASE("ai.retrospective: candidatesOnly checks the fixes but writes nothing") {
+    Fixture f;
+    Json doc = create_empty_feedback("g");
+    doc["entries"] = Json::array({fixed_entry("FB-0001", "0.0.1")});
+    doc["entries"][0].update(Json::parse(R"({"date":"2026-10-20","category":"scene","severity":"minor","title":"Flux calibration",
+        "missing":"The order of the calls took many steps","workaround":"none","occurrences":1,"waste":"The order of the calls took many steps",
+        "fixType":"guide","appliesTo":"every-game","measured":{"steps":20},"saving":{"steps":10},"expectedSaving":{"share":0.5,"why":"x"}})"));
+    REQUIRE(save_feedback(f.feedback_file(), doc).ok());
+    f.session("20261028-100000-orchestrator", failing_run(), kT0 + 2 * kDay);
+    auto r = f.retro(Json::object({{"candidatesOnly", true}}));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    REQUIRE(r.result["fixChecks"].size() == 1);
+    CHECK(r.result["fixChecks"][0]["result"] == "no_change");
+    CHECK_FALSE(f.entries()[0].contains("fixCheck"));
+    CHECK(f.provider->requests.empty());
+}

@@ -135,6 +135,14 @@ struct EfficiencyInput {
     std::uint64_t everyStepTokens = 0;        // the tokens the fix adds to every step of every run (text loaded each time)
 };
 
+// What only the engine's own code knows about an entry (never the AI's arguments): the stable id of the waste pattern the retrospective
+// found it from (`pattern`: "failure:scene.load:not_found", kept in the local file only), and the engine version in which a fix for
+// the same pattern had been released when this report was made (`afterFix`: the report says "still costing after that fix").
+struct EfficiencyOrigin {
+    std::string pattern;
+    std::string afterFix;
+};
+
 // A report that does not pass: `code` is a CommandError code, `message` says what is wrong (with the JSON pointer of the field),
 // `hint` how to fix it or what to do instead.
 struct EfficiencyRefusal {
@@ -163,5 +171,54 @@ std::optional<EfficiencyRefusal> check_efficiency_report(const std::string& proj
 // appliesTo, whyNotCheaper?, searched?, everyStepTokens?} plus the report's category, title and suggestion. The refusal
 // names the JSON pointer of the field that is wrong.
 std::optional<EfficiencyRefusal> efficiency_input_from_json(const Json& args, EfficiencyInput& out);
+
+// ---- Sharing and the developer's ranking ----------------------------------------------------------------------------------
+// What an efficiency entry sends to the engine developer next to its sanitized `share` text (docs/ENGINE_FEEDBACK.md, "Sharing"):
+// {fixType, appliesTo, measured, saving, expectedShare, spans, afterFix?, candidate?}. Numbers and words of the engine's own fixed lists
+// only: the AI's `waste` text, the evidence (session ids, which carry the start time of a run) and the entry's other words never go; the
+// text of the report is the sanitized `share` and nothing else. Null when the entry is not an efficiency entry, its fix type or
+// applies-to is not one of the lists, or `appliesTo` is this-game (a project fact: it is not engine feedback and is not sent).
+Json efficiency_share_block(const Json& entry);
+// The same block read back from a server report (what `feedback pull` writes into the inbox entry): the numbers are clamped to what a
+// transcript can hold. Null when it is not a usable block.
+Json efficiency_clean_block(const Json& block);
+
+// What a fix costs to make, in hours of work: the rough figure the ranking sets the saving against (docs/ENGINE_FEEDBACK.md, "Ranking").
+// An engine change costs what the roadmap asks of the reports that want it (kEfficiencyRoadmapHours or kEfficiencyRoadmapUsd).
+double efficiency_fix_cost_hours(const std::string& fixType);
+// The exchange the ranking uses to put dollars and hours on one scale: the roadmap bar is $1000 or 20 hours, so an hour is $50.
+inline constexpr double kEfficiencyUsdPerHour = kEfficiencyRoadmapUsd / kEfficiencyRoadmapHours;
+// How much the numbers of an installation that is not signed in count: it cannot prove them (a verified one and a local project count 1).
+inline constexpr double kEfficiencyAnonymousWeight = 0.5;
+
+// One installation's (or project's) entry of a group of reports that ask for the same fix.
+struct EfficiencyVoice {
+    std::string project;     // the local project, or "install-<key>" of an installation in the inbox
+    std::string id;          // FB-0003
+    std::string shareId;     // r_8f3k2m for a pulled report ("" for a local entry): what `feedback reject` takes
+    std::string trust;       // local | verified | anonymous
+    int occurrences = 1;
+    EfficiencyMeasure measured, saving;
+    std::string afterFix;    // "" or the version of a fix the report says did not remove the waste
+};
+struct EfficiencyGroup {
+    std::string title, category, fixType, appliesTo, suggestion;
+    std::vector<EfficiencyVoice> voices;
+};
+
+// The ranking of groups: JSON array, most saved first, ties by cost, tokens, then title (the same inputs always give the same text).
+// Each item: {rank, title, category, fixType, appliesTo, suggestion?, installations, verifiedInstallations, reports,
+// total {steps, toolCalls, minutes, tokens, costUsd, estimated, hours}, perGame {minutes, tokens, costUsd}, fixCost {hours, usd?},
+// verdict {code, text}, afterFix[]?, entries [{project, id, shareId?, trust, occurrences, saving, measured, rejectReason}]}.
+// `total` is the sum over installations of each one's saving (its own entries added: an installation counts once, whatever number of
+// reports it sent), an anonymous installation weighted kEfficiencyAnonymousWeight; `hours` is the larger of its minutes and its dollars
+// at kEfficiencyUsdPerHour. Minutes are rounded to 0.1, dollars to cents, hours to 0.1.
+// verdict.code: doc-now (doc, guide, example: write it), command-worth-it / command-not-yet (commandOption, newCommand: the hours saved
+// against the hours the fix costs), engine-roadmap / engine-below-threshold (engineChange: against the roadmap bar of $1000 or 20 hours).
+// verdict.text is "doc now", "command: worth it", "command: not yet (H of the C hours it costs)", "engine change: below threshold (N of the
+// $1000 / 20 hours it needs)" with N = "H hours" and "$D", or "engine change: reached the roadmap bar (...)".
+// `rejectReason` is a ready reason for `factoria feedback reject` (plain text under 500 characters, it names only this entry's own
+// numbers: the installation reads it and must learn nothing about others).
+Json rank_efficiency(std::vector<EfficiencyGroup> groups);
 
 }  // namespace fa

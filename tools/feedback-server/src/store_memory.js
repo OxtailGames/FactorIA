@@ -9,9 +9,10 @@
 //   purge({installKey?, reporterKey?})-> number of reports deleted
 //   getCounters(keys, now)            -> {key: count} of the live counters (expiresAt > now)
 //   listCounters(prefix, now)         -> [{key, count}] of the live counters whose key starts with prefix
-//   listForMerge(installKey, limit)   -> [{shareId, category, titleNorm}], newest first
+//   listForMerge(installKey, limit)   -> [{shareId, category, fixType, titleNorm}], newest first; fixType is null for a gap
 //   commit({inserts, bumps, counters, now})
-//                                     inserts: full report objects; bumps: [{shareId, by}] occurrences;
+//                                     inserts: full report objects (kind "gap"|"efficiency", efficiency block or null);
+//                                     bumps: [{shareId, by, efficiency?}] occurrences, and the new efficiency block;
 //                                     counters: [{key, by, expiresAt}]; expired counters are dropped
 //   listReports(afterSeq, limit)      -> reports with seq > afterSeq in seq order, each with its `seq`
 //   deleteReport(shareId)             -> true when it existed
@@ -73,7 +74,9 @@ export class MemoryStore {
     async listForMerge(installKey, limit) {
         const rows = [...this.reports.values()].filter((r) => r.installKey === installKey);
         rows.sort((a, b) => b.seq - a.seq);
-        return rows.slice(0, limit).map((r) => ({ shareId: r.shareId, category: r.category, titleNorm: r.titleNorm }));
+        return rows
+            .slice(0, limit)
+            .map((r) => ({ shareId: r.shareId, category: r.category, fixType: r.efficiency ? r.efficiency.fixType : null, titleNorm: r.titleNorm }));
     }
 
     async commit({ inserts = [], bumps = [], counters = [], now }) {
@@ -83,7 +86,10 @@ export class MemoryStore {
         }
         for (const b of bumps) {
             const r = this.reports.get(b.shareId);
-            if (r) r.occurrences += b.by;
+            if (r) {
+                r.occurrences += b.by;
+                if (b.efficiency) r.efficiency = b.efficiency;
+            }
         }
         for (const c of counters) {
             const cur = this.counters.get(c.key);

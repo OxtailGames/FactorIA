@@ -516,6 +516,8 @@ Command make_ai_command() {
         for (const Json& c : res.value("candidates", Json::array()))
             ctx.out << "  candidate " << c.value("id", std::string()) << ": " << c.value("summary", std::string()) << " (could save about "
                     << c["potentialSaving"].value("minutes", 0.0) << " min, " << c["potentialSaving"].value("tokens", 0) << " tokens)\n";
+        for (const Json& f : res.value("fixChecks", Json::array()))
+            ctx.out << "  fix check " << f.value("entry", std::string()) << " (" << f.value("result", std::string()) << "): " << f.value("text", std::string()) << "\n";
         for (const Json& f : res.value("filed", Json::array()))
             ctx.out << "  filed " << f.value("id", std::string()) << ": " << f.value("title", std::string()) << " (" << f.value("fixType", std::string()) << ")\n";
         for (const Json& f : res.value("facts", Json::array()))

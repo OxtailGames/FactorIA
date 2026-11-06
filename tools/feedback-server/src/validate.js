@@ -11,6 +11,14 @@ export const SEVERITIES = ["blocker", "major", "minor", "nice-to-have"];
 export const EFFORTS = ["small", "medium", "large"];
 export const REPORTER_KINDS = ["ai", "human"];
 export const PLATFORMS = ["macos", "windows", "linux", "web", "other"];
+// Efficiency entries (docs/design/FEEDBACK_SHARING.md, "Efficiency entries"): the fix types and scopes the engine's gate knows.
+// "this-game" never leaves a machine, so it is not a value here.
+export const FIX_TYPES = ["doc", "guide", "example", "commandOption", "newCommand", "engineChange"];
+export const APPLIES_TO = ["every-game", "genre", "feature"];
+
+// The most a measure can hold; the engine clamps to the same numbers before it sends (efficiency_rank.cpp).
+const MEASURE_LIMITS = { steps: 4_000_000, toolCalls: 200_000_000, minutes: 1e7, tokens: 1e12, costUsd: 1e6 };
+const AFTER_FIX = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,31}$/;
 
 export const LIMITS = {
     title: { min: 8, max: 120 },
@@ -102,6 +110,53 @@ function checkText(entry, field) {
     return value;
 }
 
+function checkMeasure(block, field) {
+    const m = block[field];
+    if (!m || typeof m !== "object" || Array.isArray(m)) {
+        throw new Rejection("invalid_field", `efficiency.${field} must be an object`, `Send efficiency.${field} as {steps, toolCalls, minutes, tokens, costUsd}.`);
+    }
+    const out = {};
+    for (const [key, max] of Object.entries(MEASURE_LIMITS)) {
+        const v = m[key] === undefined ? 0 : m[key];
+        if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > max) {
+            throw new Rejection("invalid_field", `efficiency.${field}.${key} must be a number from 0 to ${max}`, `Send ${key} as a plain non-negative number.`);
+        }
+        out[key] = key === "minutes" ? Math.round(v * 10) / 10 : key === "costUsd" ? Math.round(v * 10000) / 10000 : Math.round(v);
+    }
+    out.estimated = m.estimated === true;
+    return out;
+}
+
+/** The measured numbers an efficiency entry carries: engine terms and numbers only, no free text. */
+function checkEfficiency(raw) {
+    const b = raw.efficiency;
+    if (b === undefined || b === null) return null;
+    if (typeof b !== "object" || Array.isArray(b)) {
+        throw new Rejection("invalid_field", "efficiency must be an object", "Send efficiency as {fixType, appliesTo, measured, saving, expectedShare, spans}, or leave it out.");
+    }
+    const fixType = checkEnum(b, "fixType", FIX_TYPES, true);
+    const appliesTo = checkEnum(b, "appliesTo", APPLIES_TO, true);
+    const share = b.expectedShare === undefined ? 0 : b.expectedShare;
+    if (typeof share !== "number" || !Number.isFinite(share) || share < 0 || share > 1) {
+        throw new Rejection("invalid_field", "efficiency.expectedShare must be a number from 0 to 1", "Send the share of the measured waste the fix removes, for example 0.8.");
+    }
+    const spans = b.spans === undefined ? 0 : b.spans;
+    if (!Number.isInteger(spans) || spans < 0 || spans > 200) {
+        throw new Rejection("invalid_field", "efficiency.spans must be an integer from 0 to 200", "Send how many stretches of sessions the numbers add up.");
+    }
+    let afterFix = null;
+    if (b.afterFix !== undefined && b.afterFix !== null) {
+        if (typeof b.afterFix !== "string" || !AFTER_FIX.test(b.afterFix)) {
+            throw new Rejection("invalid_field", "efficiency.afterFix must be a version such as 0.17.0", "Send the engine version whose fix did not remove the waste, or leave it out.");
+        }
+        afterFix = b.afterFix;
+    }
+    return {
+        fixType, appliesTo, measured: checkMeasure(b, "measured"), saving: checkMeasure(b, "saving"),
+        expectedShare: Math.round(share * 100) / 100, spans, afterFix, candidate: b.candidate === true,
+    };
+}
+
 /**
  * Validate one entry. Returns {ok:true, entry} with the clean fields, or {ok:false, code, reason, hint}.
  * Fields that are not part of the contract are dropped.
@@ -125,11 +180,12 @@ export function validateEntry(raw) {
         const missing = checkText(raw, "missing");
         const suggestion = checkText(raw, "suggestion");
         const workaround = checkText(raw, "workaround");
+        const efficiency = checkEfficiency(raw);
         return {
             ok: true,
             entry: {
                 localId: raw.localId, category, severity, effort, reporterKind, reviewed: raw.reviewed === true,
-                title, missing, suggestion, workaround,
+                title, missing, suggestion, workaround, efficiency,
             },
         };
     } catch (e) {
