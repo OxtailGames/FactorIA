@@ -434,6 +434,7 @@ ScriptError ScriptSystem::Impl::error_from_exception(JSValueConst exc, const std
 }
 
 void ScriptSystem::Impl::record_error(ScriptError e, const std::string& where) {
+    ++errorEvents;
     std::string key = e.file + ":" + std::to_string(e.line) + ":" + e.message;
     bool fresh = loggedKeys.insert(key).second;
     if (!fresh) return;

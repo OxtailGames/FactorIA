@@ -2362,6 +2362,14 @@
        "doc": "The third-party software inside the FactorIA runtime that every game ships (the parts whose full license texts `factoria export` writes to FACTORIA_NOTICES.txt next to the game), FactorIA first. Show it on a credits or licenses screen: e.g. game.notices().map((n) => `${n.name} (${n.license})`)."
       },
       {
+       "sig": "autoplay(fn: (bot: AutoplayState) => AutoplayAnswer): void",
+       "doc": "Declares how the game plays itself, for `play.auto` (the AI testing the game with nobody at the keyboard): fn is called once per step with the bot state and returns what to press. Put the call at the top level of scripts/autoplay.js, the file `play.auto` imports; a shipped game never imports it, so fn is never called outside play.auto. Return the action names to HOLD during this step (an array; the ones you leave out are released), or an object { actions?, end?: \"won\" | \"lost\", score?, note? }: end finishes the run with that result, score is reported in the session, note is the first line of the session's notes. Only action names of factoria.json \"input\" (and the ui_* ones) are accepted, so the run can be replayed with `factoria run --input`; a name that is not an action throws with a did-you-mean. The function must not change the game (no teleporting, no spawning): read the world, answer with actions. Use bot.rng for choices, never Math.random. Example: game.autoplay((bot) => { const p = world.find(\"player\"); return [\"move_right\", ...(p && p.isGrounded() && bot.rng.chance(0.05) ? [\"jump\"] : [])]; });"
+      },
+      {
+       "sig": "phase(name: string, options?: { ends?: \"won\" | \"lost\" }): void",
+       "doc": "Marks a stage of the run for the `play.auto` report (\"boss\", \"shop\", \"level 2\"): the session lists it in `phases` with its time and takes a screenshot. { ends: \"won\" } or { ends: \"lost\" } also ends the automatic run with that result, so a game without a bot hook can still tell the explorer it is over (game.phase(\"victory\", { ends: \"won\" })). Does nothing in a normal run. Example: game.phase(\"boss\");"
+      },
+      {
        "sig": "readonly platform: \"windows\" | \"macos\" | \"linux\" | \"ios\" | \"android\" | \"web\"",
        "doc": "The platform this runtime was built for. Menus use it for platform rules, e.g. phone and tablet apps have no Quit button (the system closes them)."
       },
@@ -2374,6 +2382,63 @@
        "doc": "The player's operating system accessibility settings, to start your options screen from: textScale (the system text size, 1 = 100 %, between 0.5 and 4), reduceMotion (animations turned off or reduced), highContrast and screenReader (a screen reader or touch exploration is running). Read when the game starts and again when the window regains focus or the app resumes. The engine applies none of them: apply them to your own options on the first run and save the player's choice (docs/MENUS.md). Where a platform cannot tell, the value is 1 / false: macOS and the web have no text size, the web and Linux outside GNOME have no screen reader. Headless runs, tests and the editor always give { textScale: 1, reduceMotion: false, highContrast: false, screenReader: false }; tests change it with game.setAccessibility(). Example: const size = storage.get(\"textScale\", game.accessibility.textScale)."
       }
      ]
+    },
+    {
+     "kind": "interface",
+     "name": "AutoplayState",
+     "doc": "What game.autoplay's function gets every step: where the run is, what the game declares and what the bot holds.",
+     "members": [
+      {
+       "sig": "readonly time: number",
+       "doc": "Game seconds since the run began (fixed steps run / fixedHz; never the wall clock)."
+      },
+      {
+       "sig": "readonly step: number",
+       "doc": "Fixed steps run since the run began (0 on the first call)."
+      },
+      {
+       "sig": "readonly dt: number",
+       "doc": "Game seconds this decision lasts: 1 / fixedHz, times play.auto's speed (at speed 4 the answer is held for 4 fixed steps, so dt is 4 / fixedHz)."
+      },
+      {
+       "sig": "readonly scene: string",
+       "doc": "The path of the current scene."
+      },
+      {
+       "sig": "readonly sceneTime: number",
+       "doc": "Game seconds since the current scene was loaded."
+      },
+      {
+       "sig": "readonly phase: string",
+       "doc": "The latest phase: the scene path, or the name of the last game.phase(name) mark."
+      },
+      {
+       "sig": "readonly actions: readonly string[]",
+       "doc": "The input actions the game declares in factoria.json (\"input\": { \"actions\": ... })."
+      },
+      {
+       "sig": "readonly uiActions: readonly string[]",
+       "doc": "The interface actions every game has (ui_up, ui_down, ui_left, ui_right, ui_next, ui_previous, ui_submit, ui_cancel) that move the focus of menus."
+      },
+      {
+       "sig": "readonly held: readonly string[]",
+       "doc": "The actions the function asked to hold in the previous step."
+      },
+      {
+       "sig": "readonly seed: number",
+       "doc": "The seed of the run (play.auto's seed)."
+      },
+      {
+       "sig": "readonly rng: Rng",
+       "doc": "A generator seeded with the run's seed, the same for the whole run: draw every random choice from it so the same seed plays the same game."
+      }
+     ]
+    },
+    {
+     "kind": "alias",
+     "name": "AutoplayAnswer",
+     "type": "readonly string[] | { actions?: readonly string[]; end?: \"won\" | \"lost\"; score?: number; note?: string } | void",
+     "doc": "What game.autoplay's function returns: the actions to hold during this step, or an object that can also end the run (end), report a score and add a note."
     },
     {
      "kind": "alias",

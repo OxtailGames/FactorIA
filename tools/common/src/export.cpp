@@ -414,6 +414,8 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
         bool skip = !name.empty() && name[0] == '.';
         if (!skip && tooling_detail::export_excluded(p.settings.exclude, generic(rel))) skip = true;  // export.exclude (a folder too)
         if (!skip && rel.has_parent_path() == false && excluded_top_level(name, p.feedbackFile)) skip = true;
+        // scripts/autoplay.js is the bot play.auto runs (docs/SCRIPTING.md, "The bot"): a shipped game never carries it.
+        if (!skip && generic(rel) == "scripts/autoplay.js") skip = true;
         if (!skip && (!outDirAbs.empty() || !p.pluginFolders.empty()) && it->is_directory(ec)) {
             std::error_code ec2;
             const stdfs::path dir = stdfs::weakly_canonical(full, ec2);

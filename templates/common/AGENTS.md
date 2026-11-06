@@ -27,6 +27,13 @@ When the user says they played the game (in the editor) and found problems (slow
 call `play.report` (MCP: `play_report`) first: it has the frame times, errors, the user's notes and
 screenshots, and an input replay of their session (`factoria run --headless --input <replay>`).
 
+To play the game yourself with nobody at the keyboard, call `play.auto` (MCP: `play_auto`): a bot presses the input actions
+headless and fast, for `seconds` of game time, and writes a session (`play.report` reads it: perf, errors, `phases`, the score,
+how it ended, a picture per phase, and a mark with a screenshot for every place it got stuck, fell out of the world or hit a
+script error loop). The bot is `scripts/autoplay.js`, a `game.autoplay((bot) => [...actions to hold])` hook that finishes the
+sample level; keep it in step with your game (`end: "won"` when the level is done). Without that file the bot explores the
+declared actions with the given `seed`. The session's `input.json` replays the problem: `factoria run --headless --input`.
+
 ## Where things live
 
 | Path | What |

@@ -16,6 +16,7 @@ factoria test
 - `prefabs/` `coin.prefab.json` and `player.prefab.json`, placed by the map
 - `assets/` `tileset.png` (32x32 tiles: grass 0, dirt 1, brick 2, flowers 3) and `sfx/jump.wav`, `sfx/coin.wav`
 - `scripts/player.js` run/jump/collect (plays the sounds), `follow_camera.js` (follows on both axes, stays inside the map), `hud.js` (listens to `coin_collected`)
+- `scripts/autoplay.js` the bot of `factoria call play.auto`: runs right, jumps when blocked, counts coins and ends the run as won at the right end of the map (never exported)
 - `tools/spawn_coin.js` project tool: `factoria call project.spawn_coin '{"x":300,"y":200}'`
 - `tests/platformer.test.js` movement, jumping, coins, sounds (`game.audioLog()`), camera; `tests/level.test.js` the scene is what the map builds, and canonical layout
 
