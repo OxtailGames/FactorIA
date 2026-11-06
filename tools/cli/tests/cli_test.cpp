@@ -915,14 +915,34 @@ struct EnvVar {
 #endif
     }
 };
+
+// A scratch folder that is removed when the test ends, also when a REQUIRE throws (and the working directory goes back first: a folder
+// that is the current directory cannot be removed on Windows).
+struct ScratchDir {
+    std::filesystem::path root;
+    std::filesystem::path oldCwd;
+    explicit ScratchDir(const std::string& prefix) {
+        namespace stdfs = std::filesystem;
+        std::error_code ec;
+        oldCwd = stdfs::current_path(ec);
+        root = stdfs::temp_directory_path() / (prefix + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        stdfs::create_directories(root / "home");
+        root = stdfs::canonical(root);
+    }
+    ~ScratchDir() {
+        std::error_code ec;
+        if (!oldCwd.empty()) std::filesystem::current_path(oldCwd, ec);
+        std::filesystem::remove_all(root, ec);
+    }
+    ScratchDir(const ScratchDir&) = delete;
+    ScratchDir& operator=(const ScratchDir&) = delete;
+};
 }  // namespace
 
 TEST_CASE("call: a factoria started by an AI agent (FACTORIA_CALLER) cannot change the user's AI defaults") {
     namespace stdfs = std::filesystem;
-    std::error_code ec;
-    stdfs::path root = stdfs::temp_directory_path() / ("fa_cli_caller_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    stdfs::create_directories(root / "home");
-    root = stdfs::canonical(root);
+    const ScratchDir scratch("fa_cli_caller_");
+    const stdfs::path root = scratch.root;
     const stdfs::path project = root / "game";
     auto made = run({"new", project.string(), "--template", "2d-empty", "--json"});
     REQUIRE_MESSAGE(made.code == 0, made.err);
@@ -960,16 +980,13 @@ TEST_CASE("call: a factoria started by an AI agent (FACTORIA_CALLER) cannot chan
         CHECK_MESSAGE(done.code == 0, done.out, done.err);
         CHECK(file_text().find("7") != std::string::npos);
     }
-    stdfs::remove_all(root, ec);
 }
 
 TEST_CASE("ai doctor and ai run use the AI settings of the project they run in") {
     namespace stdfs = std::filesystem;
     std::error_code ec;
-    const stdfs::path oldCwd = stdfs::current_path(ec);
-    stdfs::path root = stdfs::temp_directory_path() / ("fa_cli_aiproj_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    stdfs::create_directories(root / "home");
-    root = stdfs::canonical(root);
+    const ScratchDir scratch("fa_cli_aiproj_");  // restores the working directory, then removes the folder, also when a check throws
+    const stdfs::path root = scratch.root;
     const stdfs::path project = root / "game", sub = project / "assets" / "deep", elsewhere = root / "elsewhere";
     stdfs::create_directories(elsewhere);
     auto made = run({"new", project.string(), "--template", "2d-empty", "--json"});
@@ -1030,6 +1047,4 @@ TEST_CASE("ai doctor and ai run use the AI settings of the project they run in")
         CHECK((*rep)["projectSettings"]["pendingTrust"] == true);
         CHECK((*rep)["projectSettings"]["applied"] == false);
     }
-    stdfs::current_path(oldCwd, ec);
-    stdfs::remove_all(root, ec);
 }

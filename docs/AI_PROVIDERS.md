@@ -241,6 +241,9 @@ write these settings by JSON pointer (`/roles/artist/enabled`, `/limits/maxCostU
   what the file rules check: a pointer that is not a setting is `unknown_pointer` with a "Did you mean" (also when `value` is null: a typo
   is never "already the default"), a key that would define a provider, server or extension, or hold a command, address or key, is
   `rejected_key` (with where it belongs), a name you do not have or a wrong value is refused before anything is written.
+  The result's `removed` is true only when a value was really taken out: `value` null for a setting that the project's file (scope
+  `project`) or `ai.json` (scope `user`) did not hold changes nothing and returns `removed: false` with a hint that starts "Nothing
+  changed".
 * **`set` never accepts a project file.** The file it writes is NOT applied until you accept it in the editor (AI settings, with the project
   open): the result says `needsAcceptance: true` and `applied: false`, with a hint, and `runsWith` is what the project still runs with.
   Setting a value never writes `ai-trust.json`: changing a file you had accepted makes the whole file wait again (the record still holds
@@ -739,6 +742,15 @@ With a project open the window (and the Roles window) is titled **AI settings - 
   `<project>/.factoria/ai/settings.replaced.json` (the last one; nothing reads it). A file that cannot be accepted (invalid)
   shows `invalidError` and no Accept, only Ignore and Delete. A file you had accepted that no longer resolves is shown with its error and
   Delete. Warnings of the resolution are listed under it (five at most; `factoria ai doctor` has them all).
+* **Save as my defaults** writes every value you see in that tab, the ones this project sets and the ones that come from your defaults.
+  It writes two files in this order: `ai.json` first, then the project's file; when the second write fails the message says that your
+  defaults were saved and that the project's file was not updated. **Reset tab to my defaults** on the Assets tab resets the routes and
+  then the sites, and says so when the second step fails.
+* **A file that changes under the window.** When `ai.settings.set` (an AI agent, an MCP client) or another program changes `ai.json` or
+  the project's file while the window is open, the window reads the files again and keeps what you had changed and not saved: a row you
+  changed (a role, an asset route, a list of sites, a typed key or program) stays as you typed it and the other rows show the new values;
+  a notice says so. **Accept** works the same way: the rows you changed before accepting stay, and Save writes them over the file's values.
+  A box with many changes scrolls inside the window (it takes at most half of its height) so the tabs stay reachable on a small display.
 * **Switching project** reloads the roles and the asset settings the window shows (and drops a pending Ignore and unsaved edits).
 * **Not per project.** The Tools, Extensions and Token savers parts of the window stay your own (`ai.json`), and say so: a project's file
   can switch them on and off by name, which the window does not edit (write them in the file, [Per project](#per-project)). The `limits` of the file have no window either.
