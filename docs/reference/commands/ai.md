@@ -83,7 +83,7 @@ action "list" (default) shows providers and the role mapping from ~/.factoria/ai
 
 ## `ai.retrospective` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Look back at this project's recorded AI runs, find where they wasted steps, minutes or tokens and file at most three efficiency entries.
 
@@ -208,7 +208,7 @@ Reads one transcript of <project>/.factoria/ai/sessions/ (every event has "t", t
 
 ## `ai.settings.get`
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Show the AI settings (roles, limits, assets, savers, tool servers, extensions) with where each value comes from: this project, your defaults or the engine.
 
@@ -220,7 +220,7 @@ The AI settings of a project resolve key by key: the engine's defaults, then you
 
 ## `ai.settings.set` (modifies state)
 
-Not released yet (on main after 0.16.1).
+Since 0.17.0.
 
 Change one AI setting of this project; a project change waits for the user to accept it in the editor. Your own defaults (scope user) only the user changes.
 

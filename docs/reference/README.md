@@ -20,7 +20,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [Text](components/2d.md#text): Draws a string with a TrueType font (or the built-in font).
 - [Tilemap](components/2d.md#tilemap): A grid of tiles drawn from a tileset texture; tile index -1 is empty.
 - [Tint](components/2d.md#tint): Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, Video, CameraView, Chart, Captions) drawn by the renderer. _Since 0.4.0._
-- [Vfx](components/2d.md#vfx): A visual effect placed in the scene, like a prefab (docs/PARTICLES.md, "Effect documents"): plays the effect document `effect` (a *.vfx.json that bundles emitters, a light flash, sounds and commands such as a camera shake on one timeline). _Not released yet._
+- [Vfx](components/2d.md#vfx): A visual effect placed in the scene, like a prefab (docs/PARTICLES.md, "Effect documents"): plays the effect document `effect` (a *.vfx.json that bundles emitters, a light flash, sounds and commands such as a camera shake on one timeline). _Since 0.17.0._
 
 ### [3D](components/3d.md)
 
@@ -93,7 +93,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ai.models`](commands/ai.md#aimodels): List the models each AI provider offers (the values for roles.<role>.model).
 - [`ai.plugin_install`](commands/ai.md#aiplugin_install-modifies-state): Install a Claude Code marketplace plugin (the user's action) and add it to ai.json extensions. _Since 0.11.0._
 - [`ai.providers`](commands/ai.md#aiproviders): List configured AI providers and roles, or diagnose which ones are usable (doctor).
-- [`ai.retrospective`](commands/ai.md#airetrospective-modifies-state): Look back at this project's recorded AI runs, find where they wasted steps, minutes or tokens and file at most three efficiency entries. _Not released yet._
+- [`ai.retrospective`](commands/ai.md#airetrospective-modifies-state): Look back at this project's recorded AI runs, find where they wasted steps, minutes or tokens and file at most three efficiency entries. _Since 0.17.0._
 - [`ai.review`](commands/ai.md#aireview-modifies-state): Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done). _Since 0.4.0._
 - [`ai.review_feedback`](commands/ai.md#aireview_feedback-modifies-state): Check an ENGINE_FEEDBACK.json entry's `share` text before it can be shared: a real gap, about the engine, not possible yet. _Since 0.10.0._
 - [`ai.reviews`](commands/ai.md#aireviews): List the saved reviews of the art critics and the game reviewers, newest first, with their scores. _Since 0.4.0._
@@ -102,8 +102,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ai.saver_group`](commands/ai.md#aisaver_group-modifies-state): Accept or decline a proposed tool group for this project (loaded in full up front from the next run). _Since 0.11.0._
 - [`ai.savers`](commands/ai.md#aisavers): Show the engine's token savers (loop guard, learned tool groups, project facts), what this project's runs learned and the proposals waiting for an answer. _Since 0.11.0._
 - [`ai.session_timeline`](commands/ai.md#aisession_timeline): Show where the time of a recorded AI session went: the long gaps and what was going on in each. _Since 0.9.0._
-- [`ai.settings.get`](commands/ai.md#aisettingsget): Show the AI settings (roles, limits, assets, savers, tool servers, extensions) with where each value comes from: this project, your defaults or the engine. _Not released yet._
-- [`ai.settings.set`](commands/ai.md#aisettingsset-modifies-state): Change one AI setting of this project; a project change waits for the user to accept it in the editor. Your own defaults (scope user) only the user changes. _Not released yet._
+- [`ai.settings.get`](commands/ai.md#aisettingsget): Show the AI settings (roles, limits, assets, savers, tool servers, extensions) with where each value comes from: this project, your defaults or the engine. _Since 0.17.0._
+- [`ai.settings.set`](commands/ai.md#aisettingsset-modifies-state): Change one AI setting of this project; a project change waits for the user to accept it in the editor. Your own defaults (scope user) only the user changes. _Since 0.17.0._
 - [`ai.tool_plan`](commands/ai.md#aitool_plan): Show which commands the built-in AI agent of a role gets as tools in full and which only as catalog lines. _Since 0.11.0._
 - [`ai.tool_servers`](commands/ai.md#aitool_servers): List the external tool servers (MCP) the user configured in ai.json, and optionally test them. _Since 0.8.0._
 
@@ -313,8 +313,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`vector.to_rig`](commands/assets.md#vectorto_rig-modifies-state): Turn an SVG whose named groups are the parts of a character into part pictures, joints and a Bone2D prefab that animates in parts. _Since 0.16.0._
 - [`vector.transform`](commands/assets.md#vectortransform-modifies-state): Move, scale, rotate or flip SVG elements in the drawing space. _Since 0.16.0._
 - [`vector.ungroup`](commands/assets.md#vectorungroup-modifies-state): Dissolve SVG groups, keeping what is in them where it was. _Since 0.16.0._
-- [`vfx.create`](commands/assets.md#vfxcreate-modifies-state): Write a new effect document (*.vfx.json) with one burst emitter, as a starting point to edit. _Not released yet._
-- [`vfx.edit`](commands/assets.md#vfxedit-modifies-state): Change one field of an effect document by JSON pointer (set, remove, add to an array, move inside an array); the result must still be a valid effect. _Not released yet._
+- [`vfx.create`](commands/assets.md#vfxcreate-modifies-state): Write a new effect document (*.vfx.json) with one burst emitter, as a starting point to edit. _Since 0.17.0._
+- [`vfx.edit`](commands/assets.md#vfxedit-modifies-state): Change one field of an effect document by JSON pointer (set, remove, add to an array, move inside an array); the result must still be a valid effect. _Since 0.17.0._
 
 ### [audio](commands/audio.md)
 
@@ -354,16 +354,16 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [feel](commands/feel.md)
 
-- [`feel.cancel`](commands/feel.md#feelcancel-modifies-state): Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything. _Not released yet._
-- [`feel.flash`](commands/feel.md#feelflash-modifies-state): Draws an entity in one colour for a moment (a hit flash): sprites, shapes and 3D meshes, fading or square. _Not released yet._
-- [`feel.hitStop`](commands/feel.md#feelhitstop-modifies-state): Hit-stop: freezes or slows gameplay for a moment of real time; UI, audio and the stop's own timer keep going. _Not released yet._
-- [`feel.knockback`](commands/feel.md#feelknockback-modifies-state): Pushes an entity away and holds `isKnockedBack` for a moment: an impulse on its physics body, else a decaying velocity. _Not released yet._
-- [`feel.settings`](commands/feel.md#feelsettings-modifies-state): The accessibility choices of the game feel effects: reduceMotion and reducedEffects. _Not released yet._
-- [`feel.shake`](commands/feel.md#feelshake-modifies-state): Camera shake: adds trauma to a camera (2D and 3D); it stacks up to `cap` and dies out over `duration`. _Not released yet._
-- [`feel.sound`](commands/feel.md#feelsound-modifies-state): Plays a sound once through the audio system (the same one a clip event's "sound" action uses). _Not released yet._
-- [`feel.spawn`](commands/feel.md#feelspawn-modifies-state): Makes an effect appear: instantiates a prefab at an entity (or at a point) the next frame. _Not released yet._
-- [`feel.squash`](commands/feel.md#feelsquash-modifies-state): Squash and stretch: a short scale pulse that keeps the volume and springs back to exactly the entity's scale. _Not released yet._
-- [`feel.state`](commands/feel.md#feelstate): What the game feel effects are doing now: hit-stop, and per entity its shake, flash, squash, knockback and drawn pose. _Not released yet._
+- [`feel.cancel`](commands/feel.md#feelcancel-modifies-state): Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything. _Since 0.17.0._
+- [`feel.flash`](commands/feel.md#feelflash-modifies-state): Draws an entity in one colour for a moment (a hit flash): sprites, shapes and 3D meshes, fading or square. _Since 0.17.0._
+- [`feel.hitStop`](commands/feel.md#feelhitstop-modifies-state): Hit-stop: freezes or slows gameplay for a moment of real time; UI, audio and the stop's own timer keep going. _Since 0.17.0._
+- [`feel.knockback`](commands/feel.md#feelknockback-modifies-state): Pushes an entity away and holds `isKnockedBack` for a moment: an impulse on its physics body, else a decaying velocity. _Since 0.17.0._
+- [`feel.settings`](commands/feel.md#feelsettings-modifies-state): The accessibility choices of the game feel effects: reduceMotion and reducedEffects. _Since 0.17.0._
+- [`feel.shake`](commands/feel.md#feelshake-modifies-state): Camera shake: adds trauma to a camera (2D and 3D); it stacks up to `cap` and dies out over `duration`. _Since 0.17.0._
+- [`feel.sound`](commands/feel.md#feelsound-modifies-state): Plays a sound once through the audio system (the same one a clip event's "sound" action uses). _Since 0.17.0._
+- [`feel.spawn`](commands/feel.md#feelspawn-modifies-state): Makes an effect appear: instantiates a prefab at an entity (or at a point) the next frame. _Since 0.17.0._
+- [`feel.squash`](commands/feel.md#feelsquash-modifies-state): Squash and stretch: a short scale pulse that keeps the volume and springs back to exactly the entity's scale. _Since 0.17.0._
+- [`feel.state`](commands/feel.md#feelstate): What the game feel effects are doing now: hit-stop, and per entity its shake, flash, squash, knockback and drawn pose. _Since 0.17.0._
 
 ### [fs](commands/fs.md)
 
@@ -388,13 +388,13 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`input.record`](commands/game.md#inputrecord-modifies-state): Record the input the game receives as an input replay (start / stop). _Since 0.3.0._
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
-- [`vfx.budget`](commands/game.md#vfxbudget): What an effect document costs on a phone: live particles and the screen they cover, with the fixes. _Not released yet._
-- [`vfx.check`](commands/game.md#vfxcheck): Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix. _Not released yet._
-- [`vfx.filmstrip`](commands/game.md#vfxfilmstrip-modifies-state): Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once. _Not released yet._
-- [`vfx.list`](commands/game.md#vfxlist): The effects that play now, and the limits of an effect. _Not released yet._
-- [`vfx.play`](commands/game.md#vfxplay-modifies-state): Play an effect document (*.vfx.json) at a position, or on an entity. _Not released yet._
-- [`vfx.review`](commands/game.md#vfxreview-modifies-state): A cheap one-shot vision review of an effect: its filmstrip graded for readability, timing, palette and overdraw, with vfx.edit fixes. _Not released yet._
-- [`vfx.stop`](commands/game.md#vfxstop-modifies-state): End an effect started by vfx.play (or a Vfx entity). _Not released yet._
+- [`vfx.budget`](commands/game.md#vfxbudget): What an effect document costs on a phone: live particles and the screen they cover, with the fixes. _Since 0.17.0._
+- [`vfx.check`](commands/game.md#vfxcheck): Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix. _Since 0.17.0._
+- [`vfx.filmstrip`](commands/game.md#vfxfilmstrip-modifies-state): Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once. _Since 0.17.0._
+- [`vfx.list`](commands/game.md#vfxlist): The effects that play now, and the limits of an effect. _Since 0.17.0._
+- [`vfx.play`](commands/game.md#vfxplay-modifies-state): Play an effect document (*.vfx.json) at a position, or on an entity. _Since 0.17.0._
+- [`vfx.review`](commands/game.md#vfxreview-modifies-state): A cheap one-shot vision review of an effect: its filmstrip graded for readability, timing, palette and overdraw, with vfx.edit fixes. _Since 0.17.0._
+- [`vfx.stop`](commands/game.md#vfxstop-modifies-state): End an effect started by vfx.play (or a Vfx entity). _Since 0.17.0._
 
 ### [i18n](commands/i18n.md)
 
@@ -499,10 +499,10 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`skin.set_weights`](commands/scene.md#skinset_weights-modifies-state): Paint the bone weights of chosen vertices: set, add or smooth. _Since 0.7.0._
 - [`tilemap.cell_at`](commands/scene.md#tilemapcell_at): The cell of a Tilemap under a world point (orthogonal squares or isometric diamonds). _Since 0.3.0._
 - [`tilemap.cell_to_world`](commands/scene.md#tilemapcell_to_world): The world position of the centre of a Tilemap cell (orthogonal squares or isometric diamonds). _Since 0.3.0._
-- [`tilemap.generate`](commands/scene.md#tilemapgenerate-modifies-state): Generate a level from an example with Wave Function Collapse: a grid that only contains the patterns of the sample. _Not released yet._
-- [`tilemap.generate_cancel`](commands/scene.md#tilemapgenerate_cancel-modifies-state): Drop a generation started with tilemap.generate_start and free its memory. _Not released yet._
-- [`tilemap.generate_start`](commands/scene.md#tilemapgenerate_start-modifies-state): Check the arguments of tilemap.generate and start a generation that you advance yourself with tilemap.generate_step. _Not released yet._
-- [`tilemap.generate_step`](commands/scene.md#tilemapgenerate_step-modifies-state): Advance a generation started with tilemap.generate_start by a bounded amount of work. _Not released yet._
+- [`tilemap.generate`](commands/scene.md#tilemapgenerate-modifies-state): Generate a level from an example with Wave Function Collapse: a grid that only contains the patterns of the sample. _Since 0.17.0._
+- [`tilemap.generate_cancel`](commands/scene.md#tilemapgenerate_cancel-modifies-state): Drop a generation started with tilemap.generate_start and free its memory. _Since 0.17.0._
+- [`tilemap.generate_start`](commands/scene.md#tilemapgenerate_start-modifies-state): Check the arguments of tilemap.generate and start a generation that you advance yourself with tilemap.generate_step. _Since 0.17.0._
+- [`tilemap.generate_step`](commands/scene.md#tilemapgenerate_step-modifies-state): Advance a generation started with tilemap.generate_start by a bounded amount of work. _Since 0.17.0._
 - [`tilemap.paint_terrain`](commands/scene.md#tilemappaint_terrain-modifies-state): Paint (or erase) a terrain on a Tilemap's cells and re-tile the cells around them with its autotile rules. _Since 0.16.0._
 - [`tilemap.retile`](commands/scene.md#tilemapretile-modifies-state): Re-tile every terrain cell of a Tilemap from its neighbours. _Since 0.16.0._
 - [`tilemap.set_terrains`](commands/scene.md#tilemapset_terrains-modifies-state): Set a Tilemap's autotile rules from a list or a rules file (as image.tileset.build writes them). _Since 0.16.0._
