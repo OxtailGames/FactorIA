@@ -521,3 +521,34 @@ TEST_CASE("write_private_file: owner-only, a symlinked file is written through, 
     }
 #endif
 }
+
+TEST_CASE("ai.settings.set: null for a setting the file does not hold says removed false with a hint that nothing changed") {
+    World w;
+    // project: the project has no file at all, then a file that holds another value
+    auto none = w.set("project", "/limits/maxTurns", nullptr);
+    REQUIRE(none.ok);
+    CHECK(none.result["removed"] == false);
+    CHECK(has(none.result["hint"], "Nothing changed"));
+    CHECK(has(none.result["hint"], "/limits/maxTurns"));
+    CHECK_FALSE(fsys::exists(w.settings_file()));  // nothing was written
+    REQUIRE(save_project_settings(w.proj.str(), Json::parse(R"({"roles":{"artist":{"enabled":false}}})"), w.ai, fake_env({}), true));
+    auto other = w.set("project", "/limits/maxTurns", nullptr);
+    REQUIRE(other.ok);
+    CHECK(other.result["removed"] == false);
+    CHECK(has(other.result["hint"], "Nothing changed"));
+    auto real = w.set("project", "/roles/artist/enabled", nullptr);
+    REQUIRE(real.ok);
+    CHECK(real.result["removed"] == true);
+    CHECK_FALSE(has(real.result["hint"], "Nothing changed"));
+
+    // user: ai.json sets maxTurns, not artist.enabled
+    auto notSet = w.set("user", "/roles/artist/enabled", nullptr);
+    REQUIRE(notSet.ok);
+    CHECK(notSet.result["removed"] == false);
+    CHECK(has(notSet.result["hint"], "Nothing changed"));
+    CHECK(notSet.result["changed"].empty());
+    auto set = w.set("user", "/limits/maxTurns", nullptr);
+    REQUIRE(set.ok);
+    CHECK(set.result["removed"] == true);
+    CHECK(has(set.result["hint"], "Saved in your ai.json"));
+}
