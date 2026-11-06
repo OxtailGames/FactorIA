@@ -1923,11 +1923,17 @@
     h.$done = true; h.$progress = 1; h.$result = result;
     h.$resolve(result);
   }
+  // The work of all live generations in one frame: the budget is shared (each job gets an equal part), so eight jobs cost a frame
+  // what one does. Without a time budget (tests, headless) it is a fixed number of work units, kFrameWork of wfc_commands.cpp, shared too.
+  const GENERATE_FRAME_WORK = 500000;
   function generateTick(budgetMs) {
-    for (const [id, h] of Array.from(generateJobs)) {
+    const live = Array.from(generateJobs);
+    const share = Math.max(1, live.length);
+    for (const [id, h] of live) {
       if (N.sceneGeneration() !== h.$gen) { generateFail(h, { message: "the scene was unloaded before the level was finished", hint: "Start the generation again in the new scene." }, true); continue; }
       const args = { job: id };
-      if (budgetMs > 0) args.budgetMs = budgetMs;
+      if (budgetMs > 0) args.budgetMs = budgetMs / share;
+      else args.work = Math.max(1, Math.floor(GENERATE_FRAME_WORK / share));
       const r = N.callCommand("tilemap.generate_step", args);
       if (!r.ok) { generateFail(h, r.error || {}, false); continue; }
       const st = r.result;
@@ -1952,6 +1958,22 @@
         else if (p !== null && typeof p === "object" && !Array.isArray(p) && !(p instanceof Entity)) place = Object.assign({}, p);
         else if (p !== false) throw new Error(`tilemap.generate: \`place\` must be true or an object with the options of scene.import_ascii (entity, tilemap, position, anchor, replace), got ${inspect(p)}`);
         if (place) {
+          // Checked now: a mistake found by scene.import_ascii would only show after the whole generation, and lose its result.
+          const allowed = ["entity", "tilemap", "position", "anchor", "replace"];
+          for (const k of Object.keys(place)) {
+            if (allowed.includes(k) || ["rows", "legend", "legendFrom", "path", "from", "save", "dryRun"].includes(k)) continue;
+            const sug = closest(k, allowed);
+            throw new Error(`tilemap.generate: \`place.${k}\` is not an option of \`place\`.${sug ? ` Did you mean \`${sug}\`?` : ""} Allowed: ${allowed.join(", ")}.`);
+          }
+          const placeBad = (k, want) => { throw new Error(`tilemap.generate: \`place.${k}\` must be ${want}, got ${inspect(place[k])}`); };
+          if (place.entity !== undefined && (typeof place.entity !== "string" || place.entity === "")) placeBad("entity", "the id of the Tilemap entity (a non-empty string)");
+          if (place.tilemap !== undefined && (place.tilemap === null || typeof place.tilemap !== "object" || Array.isArray(place.tilemap))) placeBad("tilemap", "an object with the Tilemap fields (tileSize, tileset...)");
+          if (place.position !== undefined && !(Array.isArray(place.position) && (place.position.length === 2 || place.position.length === 3) && place.position.every((n) => typeof n === "number" && Number.isFinite(n)))) placeBad("position", "an array of 2 or 3 finite numbers such as [0, 0]");
+          if (place.anchor !== undefined && !["top-left", "bottom-left", "center"].includes(place.anchor)) {
+            const sug = typeof place.anchor === "string" ? closest(place.anchor, ["top-left", "bottom-left", "center"]) : "";
+            throw new Error(`tilemap.generate: \`place.anchor\` must be "top-left", "bottom-left" or "center", got ${inspect(place.anchor)}.${sug ? ` Did you mean "${sug}"?` : ""}`);
+          }
+          if (place.replace !== undefined && typeof place.replace !== "boolean") placeBad("replace", "true or false");
           for (const k of ["rows", "legend", "legendFrom", "path", "from", "save", "dryRun"]) {
             if (k in place) throw new Error(`tilemap.generate: \`place.${k}\` is not allowed: the generated rows and legend are what is placed (put the sample's legend in \`legend\`), and the level is placed in the running scene, never saved to a file. Allowed: entity, tilemap, position, anchor, replace.`);
           }

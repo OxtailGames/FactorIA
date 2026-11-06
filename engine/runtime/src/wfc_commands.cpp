@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <limits>
 #include <map>
 #include <memory>
@@ -31,8 +32,8 @@ constexpr int kDefaultMaxAttempts = 10;
 constexpr int kDefaultConstraintAttempts = 50;                         // with constraints or reachability a refused grid is common: more attempts
 constexpr long long kDefaultMaxWork = 600'000'000;                     // units of work (wfc::GenStats::work) over all attempts: the cap a result depends on (about 16 s of Debug CPU)
 constexpr long long kMaxWorkLimit = 100'000'000'000;
-constexpr double kDefaultMaxSeconds = 120.0;                           // CPU seconds of the process: a safety net far above what kDefaultMaxWork takes, even on a slow machine
-constexpr double kMaxSecondsLimit = 600.0;
+constexpr double kDefaultMaxSeconds = 1800.0;                          // CPU seconds of the process: a pure safety net, about 100 times what kDefaultMaxWork takes (16 s of Debug CPU), so no slow machine reaches it first
+constexpr double kMaxSecondsLimit = 86400.0;                           // a day: kMaxWorkLimit at the rate of a slow machine fits well inside it
 constexpr std::int64_t kFrameWork = 500'000;                           // default work of one tilemap.generate_step (the script API: per frame without a window)
 constexpr std::int64_t kStepWork = 1 << 16;                            // work per step() call: the caps are checked between calls
 constexpr std::size_t kReachPaths = 16;                                // paths the reachability report lists
@@ -398,6 +399,7 @@ struct Constraints {
     std::vector<wfc::CountRule> counts;
     std::vector<std::string> countLabels;
     int fixedCells = 0;
+    bool repair = true;   // a missed minimum is repaired on the next attempt by pinning cells (wfc::GenerateOptions::pinMissing)
     bool any() const { return !cellRules.empty() || !forbidden.empty() || !counts.empty(); }
 };
 
@@ -432,7 +434,8 @@ Constraints parse_constraints(const Json& a, const ModelView& mv, int width, int
     if (!c.is_object())
         bad_arg(base + ": 'constraints' must be an object, got " + describe_json_value(c),
                 "Example: {\"fixed\":[{\"at\":[1,1],\"tile\":\"@\"}],\"forbidden\":[\"%\"],\"required\":[\"$\"],\"counts\":[{\"tile\":\"E\",\"max\":3}],\"border\":{\"tile\":\"#\"}}.");
-    unknown_keys(c, {"fixed", "border", "forbidden", "required", "counts"}, base);
+    unknown_keys(c, {"fixed", "border", "forbidden", "required", "counts", "repair"}, base);
+    out.repair = bool_arg(c, "repair", true);
     auto list_of = [&](const char* key) -> const Json* {
         if (!c.contains(key)) return nullptr;
         if (!c[key].is_array()) bad_arg(base + "/" + key + ": must be an array, got " + describe_json_value(c[key]));
@@ -613,17 +616,8 @@ struct ReachSpec {
     std::string toLabel;
     bool allConnected = false;
     bool diagonals = false;
-    std::vector<int> solid;                     // tile indices that block
-    std::vector<std::pair<int, float>> costs;   // tile index -> cost override (< 0 blocks), sorted
+    NavTileRules rules;                         // which tile indexes block and what each costs: the rule nav.find_tile_path applies
 };
-
-// The cost of entering a tile index: solid tiles block (-1), everything else costs 1, and `costs` overrides either per tile index.
-float tile_cost(const ReachSpec& spec, int idx) {
-    float cost = std::find(spec.solid.begin(), spec.solid.end(), idx) != spec.solid.end() ? -1.0f : 1.0f;
-    auto o = std::lower_bound(spec.costs.begin(), spec.costs.end(), std::make_pair(idx, -std::numeric_limits<float>::infinity()));
-    if (o != spec.costs.end() && o->first == idx) cost = o->second;
-    return cost;
-}
 
 ReachSpec parse_reachability(const Json& a, const ModelView& mv, const SampleData& sample, const Tilemap* into, const Constraints& cons, int width, int height) {
     ReachSpec spec;
@@ -680,7 +674,7 @@ ReachSpec parse_reachability(const Json& a, const ModelView& mv, const SampleDat
         long long v = 0;
         if (!whole_number(j, v)) bad_arg(base + "/solidTiles: tile numbers only, got " + describe_json_value(j));
         if (v < -1 || v > std::numeric_limits<int>::max()) bad_arg(base + "/solidTiles: the tile number " + std::to_string(v) + " is out of range", "Tile numbers are 0 or more (-1 is the empty cell).");
-        spec.solid.push_back(tile_index(int(v)));
+        spec.rules.solid.push_back(tile_index(int(v)));
     }
     if (r.contains("costs")) {
         const Json& c = r["costs"];
@@ -693,10 +687,21 @@ ReachSpec parse_reachability(const Json& a, const ModelView& mv, const SampleDat
                 bad_arg(base + "/costs: the key '" + it.key() + "' is not a tile number", "Keys are tile numbers as text: {\"3\": 2.5}.");
             }
             if (key < -1 || key > kTileIndexMask) bad_arg(base + "/costs: the tile number " + it.key() + " is out of range");
-            const float v = it.value().is_number() ? it.value().get<float>() : -1.0f;
-            spec.costs.push_back({int(key), v < 0.0f || std::isnan(v) ? -1.0f : v});
+            // null blocks; a cost is read as a double and must be a finite number of 0 or more that a float can hold (a negative one
+            // blocks in nav.find_tile_path, here it is refused: say null)
+            float v = -1.0f;
+            if (!it.value().is_null()) {
+                const std::string at = base + "/costs/" + it.key();
+                if (!it.value().is_number()) bad_arg(at + ": a cost is a number of 0 or more, or null to block; got " + describe_json_value(it.value()), "Example: {\"3\": 2.5, \"7\": null}.");
+                const double d = it.value().get<double>();
+                if (!std::isfinite(d) || d < 0.0 || d > double(std::numeric_limits<float>::max()))
+                    bad_arg(at + ": the cost " + describe_json_value(it.value()) + " is not a finite number of 0 or more",
+                            "Use null to block a tile, or a cost such as 2.5 (entering the tile counts that much, a plain tile counts 1).");
+                v = float(d);
+            }
+            spec.rules.costs.push_back({int(key), v});
         }
-        std::sort(spec.costs.begin(), spec.costs.end());
+        spec.rules.sort_costs();
     }
 
     // A cell that is fixed to a blocking tile cannot be a start or a goal.
@@ -706,7 +711,7 @@ ReachSpec parse_reachability(const Json& a, const ModelView& mv, const SampleDat
             for (const wfc::CellRule& rule : cons.cellRules) {
                 if (rule.x != x || rule.y != y) continue;
                 for (int s : rule.allowed)
-                    if (tile_cost(spec, tile_index(mv.tile_of(s))) >= 0.0f) return false;
+                    if (spec.rules.cost(tile_index(mv.tile_of(s))) >= 0.0f) return false;
                 return true;
             }
             return false;
@@ -722,166 +727,262 @@ ReachSpec parse_reachability(const Json& a, const ModelView& mv, const SampleDat
     return spec;
 }
 
-// The cost grid nav.find_tile_path reads from a Tilemap (nav_tile_grid_from_tilemap): solid tiles block, every other cell, the
-// empty ones too, costs 1, and `costs` overrides either rule per tile index.
-NavTileGrid nav_grid_of(const ReachSpec& spec, int width, int height, const std::vector<int>& tiles) {
-    NavTileGrid g;
-    g.width = width;
-    g.height = height;
-    g.cost.resize(tiles.size());
-    for (std::size_t i = 0; i < tiles.size(); ++i) {
-        g.cost[i] = tile_cost(spec, tile_index(tiles[i]));
-    }
-    return g;
-}
-
-struct ReachResult {
-    bool ok = false;
-    std::string why;    // when !ok: what failed, in a sentence
-    Json report;
-};
-
 std::string cell_text(int x, int y) { return "(" + std::to_string(x) + ", " + std::to_string(y) + ")"; }
 
-// Is the level playable: the start reaches every goal, and (allConnected) all walkable cells form one area. `tiles` is what the
-// level will hold (after re-tiling), `symbols` the generator's own cells. The walk follows nav.find_tile_path: 4-way or 8-way
-// without cutting corners, a cell with a negative cost blocks.
-// `work` gets the deterministic cost: one unit per cell for the cost grid, one for the flood fill, one for the goal scan and
-// one per cell of the grid for each path searched (the search is bounded by the grid).
-ReachResult check_reachability(const ReachSpec& spec, int width, int height, const std::vector<int>& tiles, const std::vector<int>& symbols, std::int64_t& work) {
-    ReachResult res;
-    const std::int64_t gridCells = std::int64_t(width) * height;
-    work += 2 * gridCells;
-    const NavTileGrid grid = nav_grid_of(spec, width, height, tiles);
-    const std::size_t total = grid.cost.size();
-    auto at = [&](int x, int y) { return std::size_t(y) * std::size_t(width) + std::size_t(x); };
-    auto open = [&](int x, int y) { return x >= 0 && y >= 0 && x < width && y < height && grid.cost[at(x, y)] >= 0.0f; };
+// Is the level playable: the start reaches every goal, and (allConnected) all walkable cells form one area. The generator hands it
+// each finished grid (`symbols`); `tilesOf` turns that into what the level will hold (after re-tiling). The walk follows
+// nav.find_tile_path: each cell's cost comes from the same NavTileRules that nav_tile_grid_from_tiles uses (applied in chunks here), 4-way or
+// 8-way without cutting corners, a cell with a negative cost blocks. A test compares the verdicts with nav.find_tile_path.
+// It runs in pieces (wfc::GridCheck): the tiles, the cost grid, the flood fill, the goal scan and each path are separate steps of at
+// most `chunk` units, so a big grid does not make one frame long. `work` gets the deterministic cost: one unit per cell for the
+// tiles and for the cost grid, one per cell scanned and one per cell flooded, one per cell for the goal scan and one per cell of the
+// grid for each path searched (the search is bounded by the grid). Re-tiling a terrain level is one call of retile_terrain_grid.
+class ReachCheck : public wfc::GridCheck {
+public:
+    using TilesOf = std::function<std::vector<int>(const std::vector<int>&)>;
+    ReachCheck(const ReachSpec& spec, int width, int height, TilesOf tilesOf) : spec_(spec), width_(width), height_(height), tilesOf_(std::move(tilesOf)) {}
 
-    // Areas: flood fill every walkable cell, scanning rows top to bottom so the numbering never depends on anything but the grid.
+    Json report;   // what the last verdict was based on (a refused grid's report too)
+
+    void begin(const std::vector<int>& cells) override {
+        symbols_ = &cells;
+        phase_ = Phase::Tiles;
+        tiles_.clear();
+        grid_ = NavTileGrid();
+        areaOf_.clear();
+        areas_.clear();
+        queue_.clear();
+        goals_.clear();
+        want_.clear();
+        paths_ = Json::array();
+        lost_ = Json::array();
+        scan_ = 0;
+        head_ = 0;
+        flooding_ = false;
+        walkable_ = 0;
+        mainArea_ = -1;
+        cutCells_ = 0;
+        cut_.clear();
+        goalAt_ = 0;
+        lostCount_ = 0;
+        firstLost_.clear();
+        report = Json::object();
+    }
+
+    Verdict step(std::int64_t chunk, std::string& why, std::int64_t& work) override {
+        const std::int64_t cells = std::int64_t(width_) * height_;
+        switch (phase_) {
+            case Phase::Tiles:
+                tiles_ = tilesOf_(*symbols_);
+                work += cells;
+                phase_ = Phase::Costs;
+                scan_ = 0;
+                grid_.width = width_;
+                grid_.height = height_;
+                grid_.cost.resize(tiles_.size());
+                return Verdict::More;
+            case Phase::Costs: {
+                const std::size_t to = std::min(tiles_.size(), scan_ + std::size_t(chunk));
+                for (std::size_t i = scan_; i < to; ++i) grid_.cost[i] = spec_.rules.cost(tile_index(tiles_[i]));
+                work += std::int64_t(to - scan_);
+                scan_ = to;
+                if (scan_ >= tiles_.size()) {
+                    areaOf_.assign(tiles_.size(), -1);
+                    scan_ = 0;
+                    phase_ = Phase::Flood;
+                }
+                return Verdict::More;
+            }
+            case Phase::Flood:
+                flood(chunk, work);
+                return Verdict::More;
+            case Phase::Prepare:
+                return prepare(why, work);
+            case Phase::GoalScan: {
+                const std::size_t to = std::min(tiles_.size(), scan_ + std::size_t(chunk));
+                for (std::size_t i = scan_; i < to; ++i)
+                    if (want_.count((*symbols_)[i])) goals_.push_back({int(i % std::size_t(width_)), int(i / std::size_t(width_))});
+                work += std::int64_t(to - scan_);
+                scan_ = to;
+                if (scan_ >= tiles_.size()) phase_ = Phase::Paths;
+                return Verdict::More;
+            }
+            case Phase::Paths:
+                return paths(chunk, why, work);
+        }
+        return Verdict::Refused;
+    }
+
+private:
+    enum class Phase { Tiles, Costs, Flood, Prepare, GoalScan, Paths };
     struct Area {
         int cells = 0;
         int minX = 0, minY = 0, maxX = 0, maxY = 0;
         int firstX = 0, firstY = 0;
     };
-    std::vector<int> areaOf(total, -1);
-    std::vector<Area> areas;
-    std::vector<std::pair<int, int>> queue;
-    static constexpr int kStep[8][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {-1, 1}, {-1, -1}, {1, -1}};
-    const int dirs = spec.diagonals ? 8 : 4;
-    std::size_t walkable = 0;
-    for (int y = 0; y < height; ++y)
-        for (int x = 0; x < width; ++x) {
-            if (!open(x, y)) continue;
-            ++walkable;
-            if (areaOf[at(x, y)] >= 0) continue;
-            const int id = int(areas.size());
-            Area area;
-            area.minX = area.maxX = area.firstX = x;
-            area.minY = area.maxY = area.firstY = y;
-            queue.assign(1, {x, y});
-            areaOf[at(x, y)] = id;
-            for (std::size_t head = 0; head < queue.size(); ++head) {
-                const auto [cx, cy] = queue[head];
-                ++area.cells;
-                area.minX = std::min(area.minX, cx);
-                area.maxX = std::max(area.maxX, cx);
-                area.minY = std::min(area.minY, cy);
-                area.maxY = std::max(area.maxY, cy);
+
+    ReachSpec spec_;
+    int width_, height_;
+    TilesOf tilesOf_;
+    const std::vector<int>* symbols_ = nullptr;
+    Phase phase_ = Phase::Tiles;
+    std::vector<int> tiles_;
+    NavTileGrid grid_;
+    std::vector<int> areaOf_;
+    std::vector<Area> areas_;
+    std::vector<std::int32_t> queue_;     // the cells of the area being flooded
+    std::size_t head_ = 0, scan_ = 0;
+    bool flooding_ = false;
+    Area area_;
+    std::size_t walkable_ = 0;
+    int mainArea_ = -1;
+    std::vector<std::size_t> cut_;        // areas that are not the main one, biggest first
+    long long cutCells_ = 0;
+    std::vector<std::pair<int, int>> goals_;
+    std::set<int> want_;
+    std::size_t goalAt_ = 0, lostCount_ = 0;
+    std::string firstLost_;
+    Json paths_ = Json::array(), lost_ = Json::array();
+
+    std::size_t at(int x, int y) const { return std::size_t(y) * std::size_t(width_) + std::size_t(x); }
+    bool open(int x, int y) const { return x >= 0 && y >= 0 && x < width_ && y < height_ && grid_.cost[at(x, y)] >= 0.0f; }
+
+    // Areas: flood fill every walkable cell, scanning rows top to bottom so the numbering never depends on anything but the grid.
+    void flood(std::int64_t chunk, std::int64_t& work) {
+        static constexpr int kStep[8][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {-1, 1}, {-1, -1}, {1, -1}};
+        const int dirs = spec_.diagonals ? 8 : 4;
+        std::int64_t units = 0;
+        while (units < chunk) {
+            if (flooding_) {
+                if (head_ >= queue_.size()) {
+                    areas_.push_back(area_);
+                    flooding_ = false;
+                    continue;
+                }
+                const std::int32_t idx = queue_[head_++];
+                ++units;
+                const int cx = int(idx % width_), cy = int(idx / width_);
+                ++area_.cells;
+                area_.minX = std::min(area_.minX, cx);
+                area_.maxX = std::max(area_.maxX, cx);
+                area_.minY = std::min(area_.minY, cy);
+                area_.maxY = std::max(area_.maxY, cy);
+                const int id = int(areas_.size());
                 for (int d = 0; d < dirs; ++d) {
                     const int nx = cx + kStep[d][0], ny = cy + kStep[d][1];
-                    if (!open(nx, ny) || areaOf[at(nx, ny)] >= 0) continue;
+                    if (!open(nx, ny) || areaOf_[at(nx, ny)] >= 0) continue;
                     if (d >= 4 && !(open(cx + kStep[d][0], cy) && open(cx, cy + kStep[d][1]))) continue;   // no corner cutting
-                    areaOf[at(nx, ny)] = id;
-                    queue.push_back({nx, ny});
+                    areaOf_[at(nx, ny)] = id;
+                    queue_.push_back(std::int32_t(at(nx, ny)));
                 }
+                continue;
             }
-            areas.push_back(area);
+            if (scan_ >= grid_.cost.size()) {
+                phase_ = Phase::Prepare;
+                break;
+            }
+            const std::size_t i = scan_++;
+            ++units;
+            const int x = int(i % std::size_t(width_)), y = int(i / std::size_t(width_));
+            if (!open(x, y)) continue;
+            ++walkable_;
+            if (areaOf_[i] >= 0) continue;
+            area_ = Area();
+            area_.minX = area_.maxX = area_.firstX = x;
+            area_.minY = area_.maxY = area_.firstY = y;
+            queue_.assign(1, std::int32_t(i));
+            head_ = 0;
+            areaOf_[i] = int(areas_.size());
+            flooding_ = true;
         }
-
-    // The area everything is measured from: the start's, or (allConnected alone) the biggest one.
-    int mainArea = -1;
-    if (spec.hasFrom) {
-        mainArea = open(spec.fromX, spec.fromY) ? areaOf[at(spec.fromX, spec.fromY)] : -1;
-    } else {
-        for (std::size_t i = 0; i < areas.size(); ++i)
-            if (mainArea < 0 || areas[i].cells > areas[std::size_t(mainArea)].cells) mainArea = int(i);
-    }
-    Json report = Json::object();
-    if (spec.hasFrom) report["from"] = Json::array({spec.fromX, spec.fromY});
-    report["walkableCells"] = walkable;
-    report["reachableCells"] = mainArea >= 0 ? areas[std::size_t(mainArea)].cells : 0;
-    std::vector<std::size_t> cut;   // areas that are not the main one, biggest first
-    for (std::size_t i = 0; i < areas.size(); ++i)
-        if (int(i) != mainArea) cut.push_back(i);
-    std::stable_sort(cut.begin(), cut.end(), [&](std::size_t l, std::size_t r) { return areas[l].cells > areas[r].cells; });
-    long long cutCells = 0;
-    for (std::size_t i : cut) cutCells += areas[i].cells;
-    Json cutList = Json::array();
-    for (std::size_t k = 0; k < cut.size() && k < kReachAreas; ++k) {
-        const Area& ar = areas[cut[k]];
-        cutList.push_back(Json::object({{"cells", ar.cells},
-                                        {"rect", Json::array({ar.minX, ar.minY, ar.maxX - ar.minX + 1, ar.maxY - ar.minY + 1})},
-                                        {"at", Json::array({ar.firstX, ar.firstY})}}));
-    }
-    report["unreachable"] = Json::object({{"cells", cutCells}, {"areas", cut.size()}, {"largest", cutList}});
-
-    if (spec.hasFrom && !open(spec.fromX, spec.fromY)) {
-        res.why = "the start " + cell_text(spec.fromX, spec.fromY) + " is a blocked cell (tile " + std::to_string(tile_index(tiles[at(spec.fromX, spec.fromY)])) + ")";
-        res.report = report;
-        return res;
+        work += units;
     }
 
-    // Goals: explicit cells first, then every cell holding a goal tile, top to bottom.
-    std::vector<std::pair<int, int>> goals = spec.toCells;
-    if (!spec.toSymbols.empty()) {
-        work += gridCells;
-        std::set<int> want(spec.toSymbols.begin(), spec.toSymbols.end());
-        for (int y = 0; y < height; ++y)
-            for (int x = 0; x < width; ++x)
-                if (want.count(symbols[at(x, y)])) goals.push_back({x, y});
-    }
-    Json paths = Json::array();
-    Json lost = Json::array();
-    std::size_t lostCount = 0;
-    NavTileOptions nopt;
-    nopt.diagonals = spec.diagonals;
-    nopt.maxNodes = int(std::min<std::size_t>(total * 2 + 16, std::size_t(std::numeric_limits<int>::max())));
-    std::string firstLost;
-    for (std::size_t i = 0; i < goals.size(); ++i) {
-        const auto [gx, gy] = goals[i];
-        const bool reachable = open(gx, gy) && areaOf[at(gx, gy)] == mainArea;
-        if (!reachable) {
-            if (lostCount++ < kReachAreas) lost.push_back(Json::array({gx, gy}));
-            if (firstLost.empty()) firstLost = cell_text(gx, gy);
-            continue;
+    // The area everything is measured from, the report of what is cut off, and the goals.
+    Verdict prepare(std::string& why, std::int64_t& work) {
+        if (spec_.hasFrom) {
+            mainArea_ = open(spec_.fromX, spec_.fromY) ? areaOf_[at(spec_.fromX, spec_.fromY)] : -1;
+        } else {
+            for (std::size_t i = 0; i < areas_.size(); ++i)
+                if (mainArea_ < 0 || areas_[i].cells > areas_[std::size_t(mainArea_)].cells) mainArea_ = int(i);
         }
-        if (paths.size() < kReachPaths) {
-            work += gridCells;
-            const NavTilePath path = nav_find_tile_path(grid, spec.fromX, spec.fromY, gx, gy, nopt);
-            // The cost is a float sum: rounded, so the report does not differ in the last digit between compilers.
-            if (path.found)
-                paths.push_back(Json::object({{"to", Json::array({gx, gy})},
-                                              {"steps", path.cells.empty() ? 0 : path.cells.size() - 1},
-                                              {"cost", std::round(double(path.cost) * 1000.0) / 1000.0}}));
+        if (spec_.hasFrom) report["from"] = Json::array({spec_.fromX, spec_.fromY});
+        report["walkableCells"] = walkable_;
+        report["reachableCells"] = mainArea_ >= 0 ? areas_[std::size_t(mainArea_)].cells : 0;
+        for (std::size_t i = 0; i < areas_.size(); ++i)
+            if (int(i) != mainArea_) cut_.push_back(i);
+        std::stable_sort(cut_.begin(), cut_.end(), [&](std::size_t l, std::size_t r) { return areas_[l].cells > areas_[r].cells; });
+        for (std::size_t i : cut_) cutCells_ += areas_[i].cells;
+        work += std::int64_t(areas_.size());
+        Json cutList = Json::array();
+        for (std::size_t k = 0; k < cut_.size() && k < kReachAreas; ++k) {
+            const Area& ar = areas_[cut_[k]];
+            cutList.push_back(Json::object({{"cells", ar.cells},
+                                            {"rect", Json::array({ar.minX, ar.minY, ar.maxX - ar.minX + 1, ar.maxY - ar.minY + 1})},
+                                            {"at", Json::array({ar.firstX, ar.firstY})}}));
         }
+        report["unreachable"] = Json::object({{"cells", cutCells_}, {"areas", cut_.size()}, {"largest", cutList}});
+        if (spec_.hasFrom && !open(spec_.fromX, spec_.fromY)) {
+            why = "the start " + cell_text(spec_.fromX, spec_.fromY) + " is a blocked cell (tile " + std::to_string(tile_index(tiles_[at(spec_.fromX, spec_.fromY)])) + ")";
+            return Verdict::Refused;
+        }
+        // Goals: explicit cells first, then every cell holding a goal tile, top to bottom (the goal scan).
+        goals_ = spec_.toCells;
+        if (!spec_.toSymbols.empty()) {
+            want_ = std::set<int>(spec_.toSymbols.begin(), spec_.toSymbols.end());
+            scan_ = 0;
+            phase_ = Phase::GoalScan;
+        } else {
+            phase_ = Phase::Paths;
+        }
+        return Verdict::More;
     }
-    report["goals"] = goals.size();
-    report["paths"] = paths;
-    if (lostCount > 0) report["unreachableGoals"] = lost;
-    res.report = report;
-    if (lostCount > 0) {
-        res.why = "no route from the start " + cell_text(spec.fromX, spec.fromY) + " to " + std::to_string(lostCount) + " of " + std::to_string(goals.size()) +
-                  " goal cell(s), the first at " + firstLost + "; " + std::to_string(cutCells) + " walkable cells in " + std::to_string(cut.size()) + " other area(s) are cut off";
-        return res;
+
+    // Each goal: reachable or lost, and a path for the first kReachPaths of the reachable ones. One A* search is one unit of this step.
+    Verdict paths(std::int64_t chunk, std::string& why, std::int64_t& work) {
+        const std::int64_t cells = std::int64_t(width_) * height_;
+        NavTileOptions nopt;
+        nopt.diagonals = spec_.diagonals;
+        nopt.maxNodes = int(std::min<std::size_t>(grid_.cost.size() * 2 + 16, std::size_t(std::numeric_limits<int>::max())));
+        std::int64_t units = 0;
+        while (goalAt_ < goals_.size() && units < chunk) {
+            const auto [gx, gy] = goals_[goalAt_++];
+            const bool reachable = open(gx, gy) && areaOf_[at(gx, gy)] == mainArea_;
+            ++units;
+            ++work;
+            if (!reachable) {
+                if (lostCount_++ < kReachAreas) lost_.push_back(Json::array({gx, gy}));
+                if (firstLost_.empty()) firstLost_ = cell_text(gx, gy);
+                continue;
+            }
+            if (paths_.size() < kReachPaths) {
+                units += cells;
+                work += cells;
+                const NavTilePath path = nav_find_tile_path(grid_, spec_.fromX, spec_.fromY, gx, gy, nopt);
+                // The cost is a sum in fixed point: rounded, so the report does not differ in the last digit between builds.
+                if (path.found)
+                    paths_.push_back(Json::object({{"to", Json::array({gx, gy})},
+                                                   {"steps", path.cells.empty() ? 0 : path.cells.size() - 1},
+                                                   {"cost", std::round(double(path.cost) * 1000.0) / 1000.0}}));
+            }
+        }
+        if (goalAt_ < goals_.size()) return Verdict::More;
+        report["goals"] = goals_.size();
+        report["paths"] = paths_;
+        if (lostCount_ > 0) report["unreachableGoals"] = lost_;
+        if (lostCount_ > 0) {
+            why = "no route from the start " + cell_text(spec_.fromX, spec_.fromY) + " to " + std::to_string(lostCount_) + " of " + std::to_string(goals_.size()) +
+                  " goal cell(s), the first at " + firstLost_ + "; " + std::to_string(cutCells_) + " walkable cells in " + std::to_string(cut_.size()) + " other area(s) are cut off";
+            return Verdict::Refused;
+        }
+        if (spec_.allConnected && !cut_.empty()) {
+            const Area& ar = areas_[cut_.front()];
+            why = std::to_string(cut_.size()) + " walkable area(s) are cut off from the main one (" + std::to_string(cutCells_) + " cells), the biggest around " + cell_text(ar.firstX, ar.firstY);
+            return Verdict::Refused;
+        }
+        return Verdict::Accepted;
     }
-    if (spec.allConnected && !cut.empty()) {
-        const Area& ar = areas[cut.front()];
-        res.why = std::to_string(cut.size()) + " walkable area(s) are cut off from the main one (" + std::to_string(cutCells) + " cells), the biggest around " + cell_text(ar.firstX, ar.firstY);
-        return res;
-    }
-    res.ok = true;
-    return res;
-}
+};
 
 
 // ------------------------------------------------------------------------------------------------------------ one generation
@@ -907,7 +1008,7 @@ struct GenRun {
     ModelView view;
     Constraints cons;
     ReachSpec reach;
-    Json reachReport;
+    std::shared_ptr<ReachCheck> reachCheck;   // the reachability check the generator runs on every finished grid (its report is the result's)
     std::unique_ptr<wfc::Generator> gen;
     std::uint64_t memoryBytes = 0;     // what the solver may hold (wfc::estimate_generator_memory + the reachability check)
     double cpuSeconds = 0.0;           // CPU the process spent inside step_generation() calls of this generation
@@ -1132,10 +1233,23 @@ std::shared_ptr<GenRun> prepare_generation(Engine::Impl& I, const Json& a) {
         symbolTile = built->tileValues;
     }
 
-    // ---- the size first: nothing below allocates per cell or per fixed cell before the memory estimate is known to fit
-    // (the reachability check holds a few grids of its own: tiles, costs, areas, a queue, about 32 bytes a cell)
-    const std::uint64_t reachBytes = a.contains("reachability") ? std::uint64_t(width) * std::uint64_t(height) * 32u : 0u;
-    if (auto fits = wfc::check_generator_memory(*patternModel, width, height, periodic, reachBytes + heldBytes); !fits.ok()) throw_error(fits.error());
+    // ---- the size first: nothing below allocates per cell or per fixed cell before the memory estimate is known to fit.
+    // The reachability check holds grids of its own, per cell: the tile (4 bytes) and the cost (4), the area number (4), the flood fill's
+    // queue (4, up to twice that in a vector's spare capacity), the A* search's arrays (cost 8, parent 4, two stamps 8, which stay allocated
+    // for the thread) and a share of its open list: 64 bytes, so the estimate has room for the capacity the vectors grow to.
+    constexpr std::uint64_t kReachBytesPerCell = 64;
+    const std::uint64_t reachBytes = a.contains("reachability") ? std::uint64_t(width) * std::uint64_t(height) * kReachBytesPerCell : 0u;
+    if (auto fits = wfc::check_generator_memory(*patternModel, width, height, periodic, reachBytes + heldBytes); !fits.ok()) {
+        // The hint blames the map; when other generations hold part of the budget, the same request may fit alone.
+        if (heldBytes > 0 && wfc::check_generator_memory(*patternModel, width, height, periodic, reachBytes).ok())
+            throw CommandError("invalid_argument",
+                               "Generating " + std::to_string(width) + " x " + std::to_string(height) + " cells needs about " +
+                                   std::to_string((reachBytes + wfc::estimate_generator_memory(*patternModel, width, height, periodic)) / (1024 * 1024)) +
+                                   " MB, but " + std::to_string(heldBytes / (1024 * 1024)) + " MB of the " + std::to_string(wfc::kWfcMemoryBudget / (1024 * 1024)) +
+                                   " MB limit are held by " + std::to_string(I.wfcJobs.size()) + " other generation(s) still running",
+                               "The map is not too big: wait for one of them to finish (tilemap.generate_step until done), or drop one with tilemap.generate_cancel {job}, and ask again.");
+        throw_error(fits.error());
+    }
 
     // ---- constraints and reachability (checked against the model before anything is generated)
     view.tiled = tiled;
@@ -1157,14 +1271,11 @@ std::shared_ptr<GenRun> prepare_generation(Engine::Impl& I, const Json& a) {
     go.cellRules = cons.cellRules;
     go.counts = cons.counts;
     go.maxWork = maxWork;
-    if (reach.enabled)
-        go.accept = [self = run.get()](const std::vector<int>& symbols, std::string& why, std::int64_t& work) {
-            work += std::int64_t(self->width) * self->height;   // tiles_of
-            ReachResult res = check_reachability(self->reach, self->width, self->height, self->tiles_of(symbols), symbols, work);
-            self->reachReport = res.report;
-            why = res.why;
-            return res.ok;
-        };
+    go.pinMissing = cons.repair;
+    if (reach.enabled) {
+        r.reachCheck = std::make_shared<ReachCheck>(reach, width, height, [self = run.get()](const std::vector<int>& symbols) { return self->tiles_of(symbols); });
+        go.check = r.reachCheck;
+    }
     auto gen = wfc::Generator::create(patternModel, go);
     if (!gen.ok()) throw_error(gen.error());
     run->gen = std::move(*gen);
@@ -1299,7 +1410,7 @@ Json finish_generation(Engine::Impl& I, GenRun& r) {
         }
         out["constraints"] = Json::object({{"fixedCells", cons.fixedCells}, {"forbiddenTiles", cons.forbidden.size()}, {"counts", counted}, {"pinnedCells", st.pinned}});
     }
-    if (reach.enabled) out["reachability"] = r.reachReport;
+    if (reach.enabled && r.reachCheck) out["reachability"] = r.reachCheck->report;
     if (!warnings.empty()) out["warnings"] = warnings;
     return out;
 }
@@ -1335,11 +1446,11 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
                "symmetry":{"type":"integer","default":1,"description":"One of 1, 2, 4, 8 (checked only for the overlapping model). 1 = the sample as drawn, 2 = also mirrored left-right, 4 = also turned 90/180/270 degrees, 8 = turned and mirrored. Only for tiles that look the same turned (floor, wall); overlapping model; ignored by tiled."},
                "periodic":{"type":"boolean","default":false,"description":"The output wraps around its edges (a tileable level). Also lets the sample wrap unless periodicInput is given."},
                "periodicInput":{"type":"boolean","description":"The sample wraps around its edges (patterns cross them). Default: the value of `periodic`."},
-               "maxAttempts":{"type":"integer","default":10,"minimum":1,"maximum":1000,"description":"Attempts before giving up: a dead end (or a grid that breaks a constraint or is not reachable) restarts with the next derived seed. Default 10, 50 with constraints or reachability."},
+               "maxAttempts":{"type":"integer","default":10,"minimum":1,"maximum":1000,"description":"Attempts before giving up: a dead end (or a grid that breaks a constraint or is not reachable) restarts with the next derived seed. When `constraints` or `reachability` is given and this is left out, 50 attempts are made instead of the default, because those refuse many grids."},
                "maxWork":{"type":"integer","default":600000000,"minimum":1,"maximum":100000000000,"description":"Cap on the work (stats.work of an earlier run shows what a level needs: pattern removals and the adjacency they touch, cells observed, the fixed cells and the reachability check) over all attempts. It counts the same on every machine, so a level either always fits or never does. Hit it and the call fails with how to shrink the level or raise the cap."},
-               "maxSeconds":{"type":"number","default":120,"exclusiveMinimum":0,"maximum":600,"description":"Safety net on the CPU seconds the process may spend on this call (all threads count; the web build counts wall-clock seconds). The cap a result depends on is maxWork: this one only stops a machine that is far slower than expected."},
-               "constraints":{"type":"object","description":"Rules the level must follow. fixed: [{at:[x,y] | rect:[x,y,w,h], tile}] pins cells; border: {tile, thickness (default 1)}; forbidden: [tile]; required: [tile] (at least one each); counts: [{tile, min?, max?}]. A tile is a glyph of an ASCII sample, a tile number (-1 = empty) or a terrain name (tiled); a list = any of them. Contradictions are reported before generating, with the JSON pointer.","properties":{"fixed":{"type":"array","items":{"type":"object"}},"border":{"type":"object"},"forbidden":{"type":"array"},"required":{"type":"array"},"counts":{"type":"array","items":{"type":"object"}}}},
-               "reachability":{"type":"object","description":"The level must be playable: {from:[x,y], to:[x,y] | [[x,y]...], toTiles:[tile] (every cell with one must be reachable), allConnected:true, solidTiles:[tile numbers that block] (default: Tilemap.solidTiles of `into`, then of the sample), costs:{tile:cost|null}, diagonals:bool}. Same walking rules as nav.find_tile_path. A grid that fails restarts with the next derived seed. The result's `reachability` reports unreachable cells and areas and the path lengths.","properties":{"from":{"type":"array","items":{"type":"integer"}},"to":{"type":"array"},"toTiles":{"type":["array","string","integer"]},"allConnected":{"type":"boolean"},"solidTiles":{"type":"array","items":{"type":"integer"}},"costs":{"type":"object"},"diagonals":{"type":"boolean"}}},
+               "maxSeconds":{"type":"number","default":1800,"exclusiveMinimum":0,"maximum":86400,"description":"Pure safety net on the CPU seconds the process may spend on this call (all threads count; the web build counts wall-clock seconds), about a hundred times what the default maxWork takes. The cap a result depends on is maxWork: this one only stops a machine that is stuck or far slower than any expected."},
+               "constraints":{"type":"object","description":"Rules the level must follow. A tile is a glyph of an ASCII sample, a tile number (-1 = empty) or a terrain name (tiled); a list = any of them. Contradictions are reported before generating, with the JSON pointer.","properties":{"fixed":{"type":"array","items":{"type":"object","properties":{"at":{"type":"array","items":{"type":"integer"},"description":"One cell [x, y] to pin (x the column, y the row, from 0 at the top-left). Give `at` or `rect`."},"rect":{"type":"array","items":{"type":"integer"},"description":"A block of cells [x, y, width, height] to pin, all to the same tile. Give `rect` or `at`."},"tile":{"description":"The tile (or list of tiles, any of them) the pinned cells hold."}}},"description":"Cells that are pinned before generating (an entrance, an exit, a room), each an object {at | rect, tile}."},"border":{"type":"object","properties":{"tile":{"description":"The tile the edge of the level is made of."},"thickness":{"type":"integer","minimum":1,"description":"Cells deep from each edge (1 when left out)."}},"description":"Walls in the edge of the level: {tile, thickness?}. An explicit `fixed` cell on the edge replaces it."},"forbidden":{"type":"array","description":"Tiles that never appear (a list of tiles; each entry may itself be a list of alternatives): the patterns that hold one are removed before the solve."},"required":{"type":"array","description":"Tiles that appear at least once each (a list of tiles; each entry may itself be a list of alternatives). Shorthand for a count with min 1."},"counts":{"type":"array","items":{"type":"object","properties":{"tile":{"description":"The tile (or list of tiles, counted together)."},"min":{"type":"integer","minimum":0,"description":"At least this many cells hold it. A grid that misses it is refused, and unless `repair` is false the next attempt pins the missing cells."},"max":{"type":"integer","minimum":0,"description":"At most this many cells hold it. Checked only on the finished grid, which is refused when it is over (there is no repair for a maximum: lower it or give more attempts)."}}},"description":"How many cells of some tiles the finished level holds: [{tile, min?, max?}]."},"repair":{"type":"boolean","default":true,"description":"A minimum the finished grid missed is repaired on the next attempt by pinning the missing cells at positions drawn from the seed. false: the grid is only refused and the next attempt starts from scratch (a rare tile then turns up only by chance). A maximum is never repaired."}}},
+               "reachability":{"type":"object","description":"The level must be playable. Same walking rules as nav.find_tile_path (the rules are the same code): 4-way, or 8-way without cutting corners, entering a tile costs its cost. A grid that fails restarts with the next derived seed. The result's `reachability` reports unreachable cells and areas and the path lengths.","properties":{"from":{"type":"array","items":{"type":"integer"},"description":"The start cell [x, y]. Needed by `to` and `toTiles`."},"to":{"type":"array","description":"One goal cell [x, y] or a list of them [[x, y], ...]: each must be reachable from `from`."},"toTiles":{"type":["array","string","integer"],"description":"Tiles (a glyph, tile number, terrain name, or a list): every cell holding one is a goal, found by scanning the finished level."},"allConnected":{"type":"boolean","default":false,"description":"All walkable cells form one area (from `from`'s area, or the biggest one without `from`): no pocket is cut off."},"solidTiles":{"type":"array","items":{"type":"integer"},"description":"Tile numbers that block the way. Without it: Tilemap.solidTiles of `into`, then of the sample."},"costs":{"type":"object","description":"Per tile number: {\"<tile>\": cost | null}. A finite number of 0 or more is the cost of entering it (a plain tile costs 1), null blocks, key \"-1\" is the empty cell; either overrides `solidTiles`. Cost 0 or more only changes the path costs in the report; null (or a tile made walkable or solid here) changes what is reachable."},"diagonals":{"type":"boolean","default":false,"description":"8 neighbours instead of 4; a diagonal step never cuts a corner."}}},
                "into":{"type":"string","description":"Id of an entity with a Tilemap to write the result into (its tiles, width and height are replaced; tileset, tileSize and solidTiles stay). RUNNING world only."},
                "rows":{"type":"boolean","description":"Return the level as ASCII `rows`. Default: true without `into`, false with it."},
                "terrains":{"type":"array","items":{"type":"object"},"description":"Tiled model: autotile rules to use instead of the Tilemap's own (same objects as Tilemap.terrains)."}}})json");
@@ -1370,19 +1481,20 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
          "pins cells (an entrance, an exit), `border` {tile, thickness?} walls in the edge, `forbidden` [tile] never appear, `required` [tile] "
          "appear at least once, `counts` [{tile, min?, max?}]. A `tile` is a glyph of an ASCII sample, a tile number (-1 = empty) or, for the tiled model, a "
          "terrain name; a list of them means any of them. A tile the sample never shows cannot be placed. A missing minimum is repaired on the next attempt "
-         "by pinning cells (positions drawn from the seed); a maximum or any other miss restarts. REACHABILITY (`reachability`): {from:[x,y], to:[x,y] | "
+         "by pinning cells (positions drawn from the seed; `constraints.repair` false turns that off); a maximum is only checked on the finished grid, which is refused "
+         "and restarted when it is over, and so is any other miss. REACHABILITY (`reachability`): {from:[x,y], to:[x,y] | "
          "[[x,y]...], toTiles:[tile] (every cell holding one is a goal), allConnected:true (all walkable cells form one area), solidTiles:[tile numbers that "
          "block] (default: those of `into` or of the sample), costs:{tile: cost|null}, diagonals}. It uses the rules of nav.find_tile_path, on the finished "
-         "level; a grid that fails restarts with the next derived seed, so the level you get is playable. The report lists walkable cells, the cells and "
+         "level (`solidTiles` and `costs` are the final tile numbers, after the tiled model's blob47 corners are fixed; `counts` and `toTiles` look at the cells as the generator decided them, before that re-tiling); a grid that fails restarts with the next derived seed, so the level you get is playable. The report lists walkable cells, the cells and "
          "areas that were cut off (a few rects) and the path length to each goal. Everything derives from `seed`, never the clock. "
          "LIMITS: `maxWork` (default 600000000 units of work over all attempts, counted the same on every machine: it is what decides whether a level is too big) "
-         "and `maxSeconds` (default 120, a safety net: CPU seconds of the whole process counting every thread; on the web build wall-clock seconds) stop a level "
+         "and `maxSeconds` (default 1800, a pure safety net far above the work cap: CPU seconds of the whole process counting every thread; on the web build wall-clock seconds) stop a level "
          "that cannot be solved with a teaching error. Returns {model, width, height, seed, rows?, legend, "
          "counts: {glyph: cells}, into?, warnings?, sample: {source, width, height}, constraints?: {fixedCells, forbiddenTiles, counts: [{tile, found, min?, max?}], "
          "pinnedCells}, reachability?, stats: {attempts, contradictions, rejected, patterns, cells, observations, propagations, work, pinned, ms, memoryBytes, "
          "peakBytes}}. The level and the counters (attempts, work...) are the same on every machine; stats.ms (the time it took), memoryBytes and peakBytes (bytes: they depend on the compiler and standard library) are not part of the determinism promise. "
          "Limits: output sides up to 2048, sample up to 262144 cells, 20000 patterns, "
-         "about 256 MB of solver memory (checked first, before anything is built for the constraints; the error says what to shrink), 65536 fixed cells. Example: tilemap.generate {\"sample\":[\"........\",\"..##....\",\"..##..#.\","
+         "about 256 MB of solver memory (checked first, before anything is built for the constraints; the error says what to shrink), 65536 fixed cells. An argument name that is not listed is refused with the valid ones (`place` belongs to the script API's tilemap.generate, which places the objects of the sample; with this command call scene.import_ascii on the returned rows and legend). Example: tilemap.generate {\"sample\":[\"........\",\"..##....\",\"..##..#.\","
          "\"......#.\",\"..#.....\",\"........\"],\"legend\":{\"#\":0},\"size\":[32,20],\"seed\":7,\"n\":3,\"symmetry\":8,"
          "\"constraints\":{\"border\":{\"tile\":\"#\"},\"fixed\":[{\"at\":[1,1],\"tile\":\".\"}]},\"reachability\":{\"from\":[1,1],\"allConnected\":true,\"solidTiles\":[0]}}",
          generateSchema,
@@ -1401,7 +1513,9 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
         {"tilemap.generate_start",
          "Check the arguments of tilemap.generate and start a generation that you advance yourself with tilemap.generate_step.",
          "Takes exactly the arguments of tilemap.generate, checks them at once (the same errors, before anything is generated) and returns "
-         "{job, width, height, seed, cells, patterns, memoryBytes} without generating. Then call tilemap.generate_step {job} until it answers "
+         "{job, width, height, seed, cells, patterns, memoryBytes} without generating. The sample is read and its pattern model is BUILT in this call (the "
+         "cost of the sample, not of the level: milliseconds for a small one, longer for a 512 x 512 sample with n 5 and symmetry 8), so call it at a loading point "
+         "or from a tool, not in the middle of a busy frame; everything after it, the solve included, is paced by tilemap.generate_step. Then call tilemap.generate_step {job} until it answers "
          "done: its `result` is what tilemap.generate returns, and `into` is written at that moment, not before. The level does not depend on "
          "how the steps are cut: any `work` or `budgetMs` gives the same level and the same stats.work for the same arguments. A job belongs to "
          "the scene that started it (a scene load drops it) and holds its solver memory until it finishes, fails or is cancelled; at most 8 "
@@ -1428,7 +1542,7 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
          "that many milliseconds have passed (at least one step). Returns {done:false, progress, attempts, work, contradictions, rejected} while it runs "
          "(progress 0..1 is the share of cells decided in the current attempt: it goes back to 0 when an attempt restarts) and {done:true, progress:1, "
          "result} when the level is finished, `result` being what tilemap.generate returns. A step can overshoot its budget by one unit of the algorithm: "
-         "the start of an attempt and the end of one (the reachability check) each run in one piece, so they cost more on a very big level. Errors "
+         "an attempt (its reset, the output, the counts and every step of the reachability check) advances in chunks of about 16384 units, and one path search of the reachability check is one chunk, so a step stays near its budget. Errors "
          "(the generation failed, hit `maxWork`, the entity of `into` is gone) end the job. A job whose scene was unloaded no longer exists. "
          "Example: tilemap.generate_step {\"job\":1,\"work\":200000}",
          parse_schema(R"json({"type":"object","required":["job"],"properties":{
@@ -1441,8 +1555,8 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
             const int id = job_id_arg(a);
             std::shared_ptr<GenRun> run = job_of(I, id);
             if (!run)
-                bad_arg("There is no generation with job " + std::to_string(id),
-                        "A job ends when it finishes, fails, is cancelled, or when its scene is unloaded. tilemap.generate_start returns the number to use.");
+                throw CommandError("not_found", "There is no generation with job " + std::to_string(id),
+                                   "A job ends when it finishes, fails, is cancelled, or when its scene is unloaded. tilemap.generate_start returns the number to use.");
             long long work = kFrameWork;
             if (a.contains("work") && (!whole_number(a["work"], work) || work < 1 || work > 100'000'000))
                 bad_arg("'work' must be a whole number between 1 and 100000000, got " + describe_json_value(a["work"]), "Units of work for this call. Default " + std::to_string(kFrameWork) + ".");

@@ -1024,13 +1024,18 @@ job.promise.then((r) => { if (scene.generation === gen) console.log("ready", r.p
 - The handle has `progress` (0..1, never goes down), `done`, `error`, `hint`, `result` (`null` until ready), `attempts`,
   `work`, `promise` (resolves with `result`, rejects with an Error that has `.hint`) and `cancel()`.
 - `place` builds the Tilemap and the sample's markers (glyphs with a `prefab`) as entities, like `scene.import_ascii`;
-  `into` writes only tiles into an existing Tilemap. They exclude each other.
-- Per frame: **tests, headless runs and replays do 500000 units of generator work**, so the frames it takes are the same
-  on every machine; **a game with a window** works until about 4 ms of the frame are used by each running generation (the same budget as
-  `scene.preload`; up to 8 generations can run at once, so up to about 32 ms of a frame: run one at a time), so the game
+  `into` writes only tiles into an existing Tilemap. They exclude each other. `place` is checked when you call
+  `tilemap.generate` (allowed keys `entity`, `tilemap`, `position`, `anchor`, `replace`, each with its type), not after the
+  generation: a mistake in it throws at once instead of costing a finished level.
+- Per frame: **tests, headless runs and replays do 500000 units of generator work in all**, so the frames it takes are the same
+  on every machine; **a game with a window** works until about 4 ms of the frame are used (the same budget as
+  `scene.preload`). The budget is **shared by all running generations**, not given to each: with several running (up to 8) each
+  gets an equal part, so starting more of them makes every one slower and never makes a frame longer. The game
   must not depend on how many frames it takes. `stats.ms` and `memoryBytes` of the result are informative and not
-  deterministic (they depend on the machine): a game must not compare them. One attempt starts and ends in one piece of
-  work: a very big level (a side above about 500) can still make a frame long.
+  deterministic (they depend on the machine): a game must not compare them. The model is built (and the options checked)
+  by the `tilemap.generate` call itself, so a very big sample or many tiles makes that one frame long; after that a step
+  stays near its budget, because an attempt (the reset, the output, the counts and every step of the reachability check)
+  advances in pieces, the smallest being one path search.
 - A generation belongs to the scene that started it: a scene load (a reload too) ends it with an error, places nothing
   and frees its memory. A script that awaits `promise` checks `scene.generation` before it uses the result.
 
