@@ -31,6 +31,10 @@ struct TextModelOptions {
     // Folder a CLI agent (Claude Code, Codex...) runs in: an empty one, so the model sees nothing of the project. Created when
     // missing. Empty = a folder in the system temp directory.
     std::string cliWorkDir;
+    // Called after every answer with what it used and cost (US dollars; an API provider's is estimated from its price list, a CLI
+    // agent's is what it reports, 0 when it reports none), on the thread that asked. The caller adds it to its own run (the
+    // retrospective of a long run). Not called when the call failed.
+    std::function<void(const Usage&, double costUsd)> onUsage;
 };
 
 struct TextModelInfo {

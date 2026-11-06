@@ -25,6 +25,7 @@
 #include "fa/ai/command_hooks.h"
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/savers.h"
+#include "fa/core/date.h"
 #include "sokol_app.h"
 #include "imgui_internal.h"
 #include "ui_backend.h"
@@ -250,6 +251,48 @@ Json Editor::at_section_report() {
     std::fflush(stdout);
     return list;
 }
+
+namespace {
+// Section R2's scripted "model" for the retrospective: whatever it is asked, it answers with one efficiency entry for the candidate
+// whose pattern is "failure" (the one transcript the section writes: scene.load failing with not_found), the way the fast role is asked to.
+class RetrospectiveProvider : public ai::ChatProvider {
+public:
+    std::string name() const override { return "mock"; }
+    Result<ai::ChatResponse> chat(const ai::ChatRequest& req, const ai::ChatHooks&, const ai::CancelFlag*) override {
+        ai::ChatResponse r;
+        r.message.role = ai::Role::Assistant;
+        r.message.raw = Json::object();
+        r.usage.inputTokens = 1200;
+        r.usage.outputTokens = 200;
+        // The prompt names the candidates c1, c2...; the one whose pattern is "failure" is the one to write up.
+        std::string candidate = "c1";
+        for (const ai::Message& m : req.messages) {
+            const std::size_t at = m.text.find("  pattern: failure");
+            const std::size_t line = at == std::string::npos ? at : m.text.rfind("\nc", at);
+            if (line != std::string::npos) {
+                candidate = "c" + std::to_string(std::atoi(m.text.c_str() + line + 2));
+                break;
+            }
+        }
+        const Json entry = Json::object(
+            {{"candidate", candidate},
+             {"category", "scene"},
+             {"title", "Loading a scene by name keeps failing with not_found"},
+             {"suggestion", "A scene guide that lists how scene names resolve to files before the first load"},
+             {"waste", "Every load guessed a name and failed, so the run repeated the same call many times"},
+             {"fixType", "guide"},
+             {"appliesTo", "every-game"},
+             {"saveShare", 0.9},
+             {"saveWhy", "the guide gives the name rule"},
+             {"whyNotCheaper", ""},
+             {"searched", Json::array()},
+             {"factLine", ""}});
+        r.message.text = Json::object({{"entries", Json::array({entry})}, {"facts", Json::array()}}).dump();
+        r.stopReason = ai::StopReason::EndTurn;
+        return r;
+    }
+};
+}  // namespace
 
 namespace {
 // Section P's scripted "model": in one turn it overwrites a script, writes a new one (fs.write, like an API provider) and
@@ -5955,6 +5998,7 @@ void Editor::at_build_tools_script() {
         step(3, [this, factId] {
             const ai::Savers& s = aiSettings_.ext.savers;
             at_check(s.loopGuard && s.learnedToolGroups && s.projectFacts && s.loopGuardJudge.empty(), "the savers start on, without a judge");
+            at_check(!s.retrospective && s.retrospectiveSteps == 150 && s.retrospectiveCostUsd == 3.0, "...and the retrospective starts off, after 150 steps or $3");
             const Json& props = aiSettings_.ext.saversReport.value("proposals", Json::object());
             at_check(props.value("toolGroups", Json::array()).size() == 2, "the report lists the two tool group proposals");
             const Json facts = props.value("facts", Json::array());
@@ -5962,8 +6006,10 @@ void Editor::at_build_tools_script() {
         });
         scroll_to("aiset:saver:loopguard", "AI settings###AiSettings");
         step(3, [this] {
-            at_check(at_shown("aiset:saver:loopguard") && at_shown("aiset:saver:groups") && at_shown("aiset:saver:facts"),
-                     "the Token savers section shows the three switches");
+            // (on a small display the window shows the first of them; the clicks below scroll to the others)
+            at_check(at_shown("aiset:saver:loopguard") && at_visible("aiset:saver:groups") && at_visible("aiset:saver:facts") &&
+                         at_visible("aiset:saver:retrospective"),
+                     "the Token savers section shows the three switches and the Retrospective switch");
         });
         // Switches off, a judge picked.
         click("aiset:saver:loopguard");
@@ -5973,10 +6019,12 @@ void Editor::at_build_tools_script() {
         click("aiset:saver:judge:worker");
         click("aiset:saver:groups");
         click("aiset:saver:facts");
+        scroll_to("aiset:saver:retrospective", "AI settings###AiSettings");
+        click("aiset:saver:retrospective");
         step(3, [this] {
             const ai::Savers& s = aiSettings_.ext.savers;
-            at_check(s.loopGuard && s.loopGuardJudge == "worker" && !s.learnedToolGroups && !s.projectFacts,
-                     "the judge is worker, learned groups and facts are off, the loop guard is on again");
+            at_check(s.loopGuard && s.loopGuardJudge == "worker" && !s.learnedToolGroups && !s.projectFacts && s.retrospective,
+                     "the judge is worker, learned groups and facts are off, the retrospective is on, the loop guard is on again");
         });
         scroll_to("aiset:ext:save", "AI settings###AiSettings");
         click("aiset:ext:save");
@@ -5984,7 +6032,8 @@ void Editor::at_build_tools_script() {
             const std::string text = read_file(x->path);
             const Json j = Json::parse(text, nullptr, false);
             at_check(j.is_object() && j.contains("savers") && j["savers"].value("loopGuardJudge", std::string()) == "worker" &&
-                         !j["savers"].value("learnedToolGroups", true) && !j["savers"].value("projectFacts", true) && !j["savers"].contains("loopGuard"),
+                         !j["savers"].value("learnedToolGroups", true) && !j["savers"].value("projectFacts", true) && j["savers"].value("retrospective", false) && !j["savers"].contains("loopGuard") &&
+                         !j["savers"].contains("retrospectiveSteps"),
                      "Save wrote only the non-default savers keys: " + text);
             at_check(j.is_object() && j.contains("limits") && j.contains("roles"), "...and kept the other keys of ai.json");
             aiSettings_.ext.saversAt = -10;
@@ -8136,6 +8185,150 @@ void Editor::at_build_tools_script() {
             feedbackPolled_ = -10;
         });
         step(2, [grow_panel_row] { grow_panel_row(false); });
+    }
+
+    section("R2");
+    // The retrospective (docs/AI_PROVIDERS.md, "Retrospective"): the Feedback panel's button looks back at the transcripts of the open
+    // project's runs and, with the fast role's model (a scripted one here), files an efficiency entry; the panel says what happened, lists
+    // the entry and adds up what its fix would save. The button is off while it runs and without a project.
+    {
+        struct R2State {
+            std::string path, archive, transcript;
+            std::string envBefore;
+        };
+        auto x = std::make_shared<R2State>();
+        step(2, [this, x] {
+            x->path = projectDir_ + "/" + engine_->project().feedbackFile;
+            x->archive = projectDir_ + "/ENGINE_FEEDBACK.archive.json";
+            x->transcript = projectDir_ + "/.factoria/ai/sessions/at-retro.jsonl";
+            std::error_code ec;
+            stdfs::remove(x->path, ec);
+            stdfs::remove(x->archive, ec);
+            (void)set_share_mode(share_env(), ShareMode::Never);
+            share_.mode = ShareMode::Never;
+            // A run that called scene.load 20 times, a minute each, and got not_found every time.
+            const std::int64_t t0 = 1'793'000'000'000;
+            std::string text = Json::object({{"kind", "start"}, {"t", iso_utc_ms(t0)}}).dump() + "\n";
+            for (int i = 0; i < 20; ++i) {
+                const std::string id = "tu" + std::to_string(i + 1);
+                const std::int64_t t = t0 + std::int64_t(i) * 60000;
+                Json call = Json::object({{"type", "tool_use"}, {"id", id}, {"name", "tool_call"},
+                                          {"input", Json::object({{"command", "scene.load"}, {"arguments", Json::object({{"scene", "main"}})}})}});
+                text += Json::object({{"kind", "assistant"}, {"t", iso_utc_ms(t + 59999)},
+                                      {"usage", Json::object({{"inputTokens", 4500}, {"outputTokens", 500}})},
+                                      {"costUsd", 0.05}, {"content", Json::array({call})}}).dump() + "\n";
+                Json result = Json::object({{"toolUseId", id}, {"isError", true}, {"ms", 40},
+                                            {"content", "{\"code\":\"not_found\",\"message\":\"no such scene\"}"}});
+                text += Json::object({{"kind", "tool_results"}, {"t", iso_utc_ms(t + 60000)}, {"results", Json::array({result})}}).dump() + "\n";
+            }
+            stdfs::create_directories(utf8_path(projectDir_) / ".factoria" / "ai" / "sessions", ec);
+            write_file(x->transcript, text);
+            FeedbackInput in;  // an entry already there, so the file exists and the panel is not on "No feedback file yet"
+            in.category = feedback_categories().front();
+            in.severity = "minor";
+            in.title = "Sprites cannot be tinted per frame";
+            in.missing = "Animation frames have no tint, so a flash needs a second sprite for every frame.";
+            in.workaround = "A second sprite.";
+            in.reporter = Json::object({{"kind", "human"}, {"agent", "factoria-editor"}});
+            at_check(add_feedback_entry_to_file(x->path, in, "Autotest Platformer").ok(), "the first entry is added");
+            aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
+                return std::shared_ptr<ai::ChatProvider>(std::make_shared<RetrospectiveProvider>());
+            };
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                if (aiConfig_.providers.empty()) aiConfig_ = ai::default_config();
+                ai::RoleConfig& fast = aiConfig_.roles[ai::kRoleFast];
+                fast.provider = "anthropic";
+                if (fast.model.empty()) fast.model = "mock";
+            }
+            fbSelected_.clear();
+            fbShowClosed_ = false;
+            fbMessage_.clear();
+            feedbackMtime_ = INT64_MIN;
+            feedbackPolled_ = -10;
+            showFeedback_ = true;
+            focus_window("Engine Feedback");
+        });
+        step(3, [this] {
+            at_check(at_shown("feedback:retrospective"), "the Feedback panel has a Retrospective button");
+            at_check(!at_visible("feedback:saving"), "no efficiency entry yet: no saving line");
+        });
+        click("feedback:retrospective");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] {
+                std::lock_guard<std::mutex> lock(fbRetro_->mu);
+                return !fbRetro_->running && !fbRetro_->finished;
+            };
+        });
+        step(1, [this, x] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, x] {
+                auto doc = load_feedback(x->path);
+                if (!doc || !doc->contains("entries")) return false;
+                for (const Json& e : (*doc)["entries"])
+                    if (e.value("kind", std::string()) == "efficiency") return at_visible("feedback:saving");
+                return false;
+            };
+        });
+        step(3, [this, x] {
+            auto doc = load_feedback(x->path);
+            at_check(doc.ok(), "the feedback file reads");
+            int efficiency = 0;
+            Json entry = Json::object();
+            if (doc.ok())
+                for (const Json& e : (*doc)["entries"])
+                    if (e.value("kind", std::string()) == "efficiency") ++efficiency, entry = e;
+            at_check(efficiency == 1, "the retrospective filed one efficiency entry (" + std::to_string(efficiency) + "); the panel says: " + fbMessage_);
+            at_check(entry.value("title", std::string()).find("scene by name") != std::string::npos && entry.contains("saving") &&
+                         entry["saving"].value("minutes", 0.0) > 0,
+                     "...with the model's title and a measured saving: " + entry.dump());
+            at_check(entry.contains("reporter") && entry["reporter"].is_object(), "...and a reporter");
+            at_check(at_visible("feedback:message") && fbMessage_.find("1") != std::string::npos && fbMessage_.find("Looking back") == std::string::npos,
+                     "the panel says what the retrospective did: " + fbMessage_);
+            at_check(at_visible("feedback:saving"), "the panel adds up what the open efficiency entries would save");
+            at_check(share_.mode == ShareMode::Never, "the sharing mode is the one the person chose");
+            at_check(stdfs::exists(utf8_path(x->transcript)), "the transcript is left as it was");
+        });
+        snap("editor_retrospective.png");
+        // A second click finds nothing new: the entry counts the evidence.
+        click("feedback:retrospective");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] {
+                std::lock_guard<std::mutex> lock(fbRetro_->mu);
+                return !fbRetro_->running && !fbRetro_->finished;
+            };
+        });
+        step(3, [this, x] {
+            auto doc = load_feedback(x->path);
+            int efficiency = 0;
+            if (doc.ok())
+                for (const Json& e : (*doc)["entries"])
+                    if (e.value("kind", std::string()) == "efficiency") ++efficiency;
+            at_check(efficiency == 1, "a second retrospective files nothing new (" + std::to_string(efficiency) + ")");
+            at_check(fbMessage_.find("Nothing new") != std::string::npos || fbMessage_.find("already") != std::string::npos,
+                     "...and says so: " + fbMessage_);
+        });
+        step(2, [this, x] {
+            aiFactory_ = nullptr;
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                if (atSavedConfig_) {
+                    aiConfig_ = std::move(*atSavedConfig_);
+                    atSavedConfig_.reset();
+                }
+            }
+            (void)set_share_mode(share_env(), ShareMode::Never);
+            std::error_code ec;
+            stdfs::remove(utf8_path(x->transcript), ec);
+            stdfs::remove(utf8_path(x->path), ec);
+            stdfs::remove(utf8_path(x->archive), ec);
+            fbMessage_.clear();
+            feedbackMtime_ = INT64_MIN;
+            feedbackPolled_ = -10;
+        });
     }
 
     // ------------------------------------------------------------------------------------------------------ done

@@ -71,7 +71,8 @@ namespace {
 const char* const kLimitKeys[] = {"maxTurns", "maxCostUsd", "maxTotalTokens", "stuckAfterSeconds", "maxConcurrentRuns"};
 const char* const kRoleKeys[] = {"enabled", "provider", "model", "effort", "maxTokens", "maxContextTokens", "toolGroups"};
 const char* const kAssetKeys[] = {"provider", "model", "voice"};
-const char* const kSaverKeys[] = {"loopGuard", "loopGuardJudge", "learnedToolGroups", "projectFacts"};
+const char* const kSaverKeys[] = {"loopGuard", "loopGuardJudge", "learnedToolGroups", "projectFacts",
+                                      "retrospective", "retrospectiveSteps", "retrospectiveCostUsd"};
 const char* const kExtensionGroups[] = {"plugins", "skills", "hooks"};
 
 const char* extension_group(ExtensionKind k) {
@@ -201,7 +202,10 @@ Json settings_view(const AiConfig& cfg) {
     view["savers"] = Json::object({{"loopGuard", cfg.savers.loopGuard},
                                    {"loopGuardJudge", cfg.savers.loopGuardJudge},
                                    {"learnedToolGroups", cfg.savers.learnedToolGroups},
-                                   {"projectFacts", cfg.savers.projectFacts}});
+                                   {"projectFacts", cfg.savers.projectFacts},
+                                   {"retrospective", cfg.savers.retrospective},
+                                   {"retrospectiveSteps", cfg.savers.retrospectiveSteps},
+                                   {"retrospectiveCostUsd", cfg.savers.retrospectiveCostUsd}});
     Json servers = Json::object();
     for (const ToolServer& s : cfg.toolServers) servers[s.name] = s.enabled;
     view["mcpServers"] = std::move(servers);

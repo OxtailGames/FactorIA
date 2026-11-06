@@ -230,6 +230,8 @@ Editor::~Editor() {
     if (aiToolTestThread_.joinable()) aiToolTestThread_.join();
     aiPluginJob_->cancel = true;
     if (aiPluginThread_.joinable()) aiPluginThread_.join();
+    fbRetro_->cancel = true;
+    if (fbRetroThread_.joinable()) fbRetroThread_.join();
     if (atThread_.joinable()) atThread_.join();
     atWatchdogStop_ = true;
     if (atWatchdog_.joinable()) atWatchdog_.join();

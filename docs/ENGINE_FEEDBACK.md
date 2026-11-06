@@ -105,6 +105,10 @@ File it with `feedback.report` and `kind: "efficiency"` (CLI `factoria feedback 
 (`ai.retrospective`, docs/AI_PROVIDERS.md, "Retrospective") finds the candidates for you; you can also file one by hand. An efficiency
 entry has the same `category` list, and is only worth filing when it is **measured** and **worth its fix**.
 
+From the editor, the Feedback panel's **Retrospective** button runs the retrospective in the background and says what it filed; the
+panel also adds up what the open efficiency entries' fixes would save per game. With `savers.retrospective` on in `ai.json` it also
+runs after a long run (150 model calls or $3 by default).
+
 ```json
 {
   "kind": "efficiency",
