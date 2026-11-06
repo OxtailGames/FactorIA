@@ -1,0 +1,18 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Player",
+    "tags": ["player"],
+    "components": {
+      "Transform": {
+        "position": [0, 0, 0]
+      },
+      "Shape2D": {
+        "shape": "circle",
+        "size": [24, 24],
+        "color": [0.95, 0.78, 0.3, 1],
+        "layer": 10
+      }
+    }
+  }
+}

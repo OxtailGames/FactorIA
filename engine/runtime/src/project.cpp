@@ -23,6 +23,7 @@ std::string asset_type_of(std::string_view path) {
     if (ends_with(p, ".scene.json")) return "scene";
     if (ends_with(p, ".prefab.json")) return "prefab";
     if (ends_with(p, ".material.json")) return "material";
+    if (ends_with(p, ".vfx.json")) return "vfx";
     const auto dot = p.rfind('.');
     const auto slash = p.find_last_of('/');
     if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) return "other";

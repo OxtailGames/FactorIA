@@ -18,6 +18,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/platform/accessibility.h"
 #include "fa/platform/input.h"
 #include "fa/scene/components.h"
 #include "fa/script/bytecode.h"
@@ -1148,6 +1149,15 @@ void ScriptSystem::dispatch_platform() {
             I.run_jobs();
         }
     }
+    if (I.generateJobs > 0) {  // tilemap.generate: this frame's share of the work (same budget as the preload)
+        JSValue budget = JS_NewFloat64(I.ctx, I.host->preload_time_budget_ms());
+        JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "generateTick");
+        JSValue r = I.call("tilemap.generate", "", fn, I.hooks.get(), {budget});
+        JS_FreeValue(I.ctx, r);
+        JS_FreeValue(I.ctx, fn);
+        JS_FreeValue(I.ctx, budget);
+        I.run_jobs();
+    }
     PlatformServices* services = I.host->platform_services();
     if (!services) return;
     const std::vector<PlatformAnswer> answers = services->take_answers();
@@ -1197,13 +1207,14 @@ void ScriptSystem::dispatch_gamepads() {
 
 void ScriptSystem::update(float dt) {
     if (!impl_->initialized) return;
+    const double scale = time_scale();  // time.scale times the running hit-stop (feel.h)
     impl_->lastDt = dt;
     impl_->host->speech().update();
     impl_->sync();
-    float scaled = static_cast<float>(dt * impl_->timeScale);
+    float scaled = static_cast<float>(dt * scale);
     impl_->service_call("serviceTick", {JS_NewFloat64(impl_->ctx, dt)});  // analytics and remote config: the engine clock, never scaled
     if (impl_->quitDeferred) impl_->update_quit_wait(dt);
-    if (impl_->timeScale > 0.0) {
+    if (scale > 0.0) {
         {
             ProfBehaviourScope prof(kProfOtherName, kProfNoPath);
             impl_->call_method("timers", "", impl_->hooks.get(), "tick", {JS_NewFloat64(impl_->ctx, scaled)});
@@ -1217,14 +1228,16 @@ void ScriptSystem::update(float dt) {
 
 void ScriptSystem::fixed_update(float dt) {
     if (!impl_->initialized) return;
+    const double scale = time_scale();
     impl_->sync();
-    if (impl_->timeScale > 0.0) impl_->run_callbacks("onFixedUpdate", static_cast<float>(dt * impl_->timeScale), false);
+    if (scale > 0.0) impl_->run_callbacks("onFixedUpdate", static_cast<float>(dt * scale), false);
     impl_->run_jobs();
 }
 
 void ScriptSystem::late_update(float dt) {
     if (!impl_->initialized) return;
-    if (impl_->timeScale > 0.0) impl_->run_callbacks("onLateUpdate", static_cast<float>(dt * impl_->timeScale), false);
+    const double scale = time_scale();
+    if (scale > 0.0) impl_->run_callbacks("onLateUpdate", static_cast<float>(dt * scale), false);
     else impl_->run_callbacks("onLateUpdate", dt, true);
     impl_->run_jobs();
 }
@@ -1321,7 +1334,13 @@ Json ScriptSystem::api_manifest() const { return impl_->api_manifest(); }
 std::string ScriptSystem::typescript_declarations(const SinceFn& since) const { return impl_->typescript_declarations(since); }
 std::vector<std::string> ScriptSystem::script_api_keys() const { return impl_->script_api_keys(); }
 
-double ScriptSystem::time_scale() const { return impl_->timeScale; }
+double ScriptSystem::time_scale() const { return impl_->timeScale * impl_->host->world().feel().hit_stop_factor(); }
+
+double ScriptSystem::user_time_scale() const { return impl_->timeScale; }
+
+bool ScriptSystem::system_reduce_motion() const {
+    return impl_->host->window() ? system_accessibility().reduceMotion : impl_->testAccessibility.reduceMotion;
+}
 
 CalendarDate ScriptSystem::today() const { return impl_->date; }
 

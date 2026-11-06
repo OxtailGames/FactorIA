@@ -366,6 +366,10 @@ void Editor::autotest_pre_frame() {
         play();
         at_check(play_state() == PlayState::Playing, "Play starts the game");
         atOriginalPos_ = player_pos();
+        w.feel().reduceMotionSetting = true;  // what a game's own accessibility option does: it must not outlive the session
+        w.feel().reducedEffectsSetting = false;
+        at_check(!command_edits_scene("feel.shake", Json::object()) && !command_edits_scene("feel.settings", Json::object()),
+                 "feel.* commands neither take an undo step nor mark the scene dirty");
     } else if (f == 50) {
         at_check(w.frame() > 0 || engine_->frame_index() > 10, "game simulated while playing");
         pause();
@@ -381,6 +385,8 @@ void Editor::autotest_pre_frame() {
         at_check(play_state() == PlayState::Edit, "Stop returns to edit mode");
         at_check(near(player_pos(), atOriginalPos_) || true, "scene restored after stop");
         at_check(!w.find_by_id("player").is_null(), "player exists after stop");
+        at_check(!w.feel().reduceMotionSetting && !w.feel().reducedEffectsSetting,
+                 "Stop puts the game's reduce motion / reduced effects choices back to following the system");
     } else if (f == 53) {
         // The AI providers are detected on a background thread since the project opened: a slow PATH scan (WSL: many
         // Windows dirs) outlasts the frames so far. Hold the script until it is done (bounded like every wait), then check.

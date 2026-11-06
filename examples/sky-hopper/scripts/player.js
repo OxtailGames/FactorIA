@@ -1,11 +1,16 @@
 // @ts-check
 // Platformer hero: run, variable-height jump with coyote time + jump buffering,
-// stomp enemies, collect coins (particle burst + sound), lose a life on side contact.
+// stomp enemies, collect coins (a baked sparkle + sound), lose a life on side contact.
+//
+// Game feel (docs/GAME_FEEL.md): the jump's stretch is DATA, an event of anim/hero_jump.anim.json (`feel` squash at t=0);
+// the rest is a few calls where the hit happens: a coin plays prefabs/coin_sparkle.prefab.json (the three layers of
+// assets/src/anim/coin_sparkle.anim.js, baked with a gold ramp), a stomp shakes the camera and holds the game for a
+// moment, and a hurt flashes red, shakes harder and holds longer.
 //
 // The hero is built in parts (prefabs/player.prefab.json): child Sprites on a rig, an Animator that plays the
 // idle / walk / jump clips of anim/ through a state machine, and two IK2D legs. This script only feeds the animation:
 // the state machine parameters, the mirror when it turns, and the ground under each foot (feet()).
-import { Behaviour, input, audio, scene, world, physics, vec2 } from "factoria";
+import { Behaviour, input, audio, scene, world, physics, vec2, feel, camera, time } from "factoria";
 import { state } from "scripts/game_state.js";
 
 export default class Player extends Behaviour {
@@ -124,7 +129,8 @@ export default class Player extends Behaviour {
     state.coins += 1;
     state.totalCoins += 1;
     audio.play("assets/sfx/coin.wav", { volume: 0.6 });
-    this.burst(p.x, p.y, [1, 0.85, 0.2, 1], 14);
+    // the sparkle ends itself after `lifetime` (game time); it appears where the coin was
+    feel.do({ action: "spawn", prefab: "prefabs/coin_sparkle.prefab.json", offset: [p.x, p.y, 0], lifetime: 0.55 });
     world.emit("coin_collected", { by: this.entity.id });
   }
 
@@ -150,6 +156,8 @@ export default class Player extends Behaviour {
     if (feet >= top && this.body.velocity.y <= 80) {
       this.burst(other.position.x, other.position.y, [0.7, 0.3, 0.8, 1], 12);
       other.destroy();
+      camera.shake(0.25, { duration: 0.25 });
+      time.hitStop(0.05);
       this.body.velocity.y = input.down("jump") ? this.stompBounce * 1.4 : this.stompBounce;
       audio.play("assets/sfx/stomp.wav", { volume: 0.7 });
       world.emit("enemy_stomped", {});
@@ -162,6 +170,9 @@ export default class Player extends Behaviour {
     if (this.dead) return;
     state.lives -= 1;
     audio.play("assets/sfx/hurt.wav", { volume: 0.7 });
+    this.entity.flash({ color: "#ff4040", duration: 0.3 });
+    camera.shake(0.45, { duration: 0.35 });
+    time.hitStop(0.08);
     world.emit("player_hurt", { lives: state.lives });
     if (state.lives <= 0) {
       this.dead = true;

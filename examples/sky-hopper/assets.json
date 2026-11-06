@@ -164,6 +164,198 @@
         }
       }
     },
+    "assets/fx/coin_sparkle_back.png": {
+      "sheet": {
+        "columns": 3,
+        "rows": 3,
+        "frameWidth": 96,
+        "frameHeight": 96,
+        "frames": 8,
+        "padding": 2,
+        "clips": [
+          {
+            "name": "coin_sparkle",
+            "firstFrame": 0,
+            "lastFrame": 7,
+            "fps": 16.0,
+            "loop": false
+          }
+        ]
+      },
+      "provenance": {
+        "origin": "generated",
+        "ai": true,
+        "kind": "image",
+        "provider": "factoria assets.animate_svg",
+        "license": "CC0-1.0",
+        "notes": "8 frames of 96x96 baked from module 'assets/src/anim/coin_sparkle.anim.js', layer back, 4 colour ramp.",
+        "date": "2026-11-06",
+        "recipe": {
+          "command": "assets.animate_svg",
+          "args": {
+            "path": "assets/fx/coin_sparkle.png",
+            "fps": 16.0,
+            "loop": false,
+            "columns": 3,
+            "frameWidth": 96,
+            "frameHeight": 96,
+            "padding": 2,
+            "seed": 0,
+            "overwrite": true,
+            "source": "assets/src/anim/coin_sparkle.anim.js",
+            "frames": 8,
+            "ramp": [
+              "#5a3a05",
+              "#c98a14",
+              "#f2c94c",
+              "#fff6c8"
+            ],
+            "layers": [
+              "back",
+              "front",
+              "light"
+            ],
+            "timeLimitMs": 2000,
+            "license": "CC0-1.0"
+          },
+          "inputs": [
+            {
+              "path": "assets/src/anim/coin_sparkle.anim.js",
+              "sha256": "e886dcf66d9f4bafdafe30fd58db97f3df0b040ca727ec3d27e84e2742d033b2"
+            }
+          ]
+        },
+        "source": "assets/src/anim/coin_sparkle.anim.js"
+      }
+    },
+    "assets/fx/coin_sparkle_front.png": {
+      "sheet": {
+        "columns": 3,
+        "rows": 3,
+        "frameWidth": 96,
+        "frameHeight": 96,
+        "frames": 8,
+        "padding": 2,
+        "clips": [
+          {
+            "name": "coin_sparkle",
+            "firstFrame": 0,
+            "lastFrame": 7,
+            "fps": 16.0,
+            "loop": false
+          }
+        ]
+      },
+      "provenance": {
+        "origin": "generated",
+        "ai": true,
+        "kind": "image",
+        "provider": "factoria assets.animate_svg",
+        "license": "CC0-1.0",
+        "notes": "8 frames of 96x96 baked from module 'assets/src/anim/coin_sparkle.anim.js', layer front, 4 colour ramp.",
+        "date": "2026-11-06",
+        "recipe": {
+          "command": "assets.animate_svg",
+          "args": {
+            "path": "assets/fx/coin_sparkle.png",
+            "fps": 16.0,
+            "loop": false,
+            "columns": 3,
+            "frameWidth": 96,
+            "frameHeight": 96,
+            "padding": 2,
+            "seed": 0,
+            "overwrite": true,
+            "source": "assets/src/anim/coin_sparkle.anim.js",
+            "frames": 8,
+            "ramp": [
+              "#5a3a05",
+              "#c98a14",
+              "#f2c94c",
+              "#fff6c8"
+            ],
+            "layers": [
+              "back",
+              "front",
+              "light"
+            ],
+            "timeLimitMs": 2000,
+            "license": "CC0-1.0"
+          },
+          "inputs": [
+            {
+              "path": "assets/src/anim/coin_sparkle.anim.js",
+              "sha256": "e886dcf66d9f4bafdafe30fd58db97f3df0b040ca727ec3d27e84e2742d033b2"
+            }
+          ]
+        },
+        "source": "assets/src/anim/coin_sparkle.anim.js"
+      }
+    },
+    "assets/fx/coin_sparkle_light.png": {
+      "sheet": {
+        "columns": 3,
+        "rows": 3,
+        "frameWidth": 96,
+        "frameHeight": 96,
+        "frames": 8,
+        "padding": 2,
+        "clips": [
+          {
+            "name": "coin_sparkle",
+            "firstFrame": 0,
+            "lastFrame": 7,
+            "fps": 16.0,
+            "loop": false
+          }
+        ]
+      },
+      "provenance": {
+        "origin": "generated",
+        "ai": true,
+        "kind": "image",
+        "provider": "factoria assets.animate_svg",
+        "license": "CC0-1.0",
+        "notes": "8 frames of 96x96 baked from module 'assets/src/anim/coin_sparkle.anim.js', layer light, 4 colour ramp.",
+        "date": "2026-11-06",
+        "recipe": {
+          "command": "assets.animate_svg",
+          "args": {
+            "path": "assets/fx/coin_sparkle.png",
+            "fps": 16.0,
+            "loop": false,
+            "columns": 3,
+            "frameWidth": 96,
+            "frameHeight": 96,
+            "padding": 2,
+            "seed": 0,
+            "overwrite": true,
+            "source": "assets/src/anim/coin_sparkle.anim.js",
+            "frames": 8,
+            "ramp": [
+              "#5a3a05",
+              "#c98a14",
+              "#f2c94c",
+              "#fff6c8"
+            ],
+            "layers": [
+              "back",
+              "front",
+              "light"
+            ],
+            "timeLimitMs": 2000,
+            "license": "CC0-1.0"
+          },
+          "inputs": [
+            {
+              "path": "assets/src/anim/coin_sparkle.anim.js",
+              "sha256": "e886dcf66d9f4bafdafe30fd58db97f3df0b040ca727ec3d27e84e2742d033b2"
+            }
+          ]
+        },
+        "source": "assets/src/anim/coin_sparkle.anim.js"
+      }
+    },
     "assets/parts_atlas.png": {
       "provenance": {
         "origin": "original",

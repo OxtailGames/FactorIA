@@ -1,4 +1,6 @@
 #include "fa/scene/animation.h"
+#include "fa/scene/anim_clip.h"
+#include "fa/scene/feel.h"
 
 #include <algorithm>
 #include <cctype>
@@ -377,13 +379,23 @@ void run_state_machine(World& w, Entity e, Animator& a) {
 
 // ================================================================================================== playback ======
 
+// The game feel actions of an event that fired (feel.h): they act on the entity that plays the clip.
+void run_feel(World& w, Entity e, const std::vector<Json>& actions, const std::string& clip, float time) {
+    if (actions.empty()) return;
+    feel_run_clip_actions(w, e, actions, std::format("Animator '{}' clip '{}' at {:.2f} s", w.id_of(e), clip, time));
+}
+
 void fire_events(World& w, Entity e, Animator& a, float from, float to) {
     struct Hit { float time; const Json* ev; const AnimClipEvent* own; };
     std::vector<Hit> hits;
     if (a.events.is_array())
-        for (const Json& ev : a.events) {
-            if (!ev.is_object() || ev.value("clip", "") != a.rt.activeClip) continue;
-            const float t = ev.value("time", 0.0f);
+        for (std::size_t index = 0; index < a.events.size(); ++index) {
+            const Json& ev = a.events[index];
+            if (!inline_event_usable(w, e, false, index, ev)) continue;  // a wrong JSON type: said once, skipped
+            const auto cit = ev.find("clip");
+            if (cit == ev.end() || cit->get<std::string>() != a.rt.activeClip) continue;
+            const auto tit = ev.find("time");
+            const float t = tit != ev.end() ? tit->get<float>() : 0.0f;
             if (t > from && t <= to) hits.push_back({t, &ev, nullptr});
         }
     if (a.rt.clipIndex >= 0)  // the events written in a 3D clip file
@@ -397,10 +409,13 @@ void fire_events(World& w, Entity e, Animator& a, float from, float to) {
             data["clip"] = a.rt.activeClip;
             data["time"] = h.time;
             if (!h.own->name.empty()) emit(w, h.own->name, e, std::move(data));
+            run_feel(w, e, h.own->feel, a.rt.activeClip, h.time);
             continue;
         }
-        const std::string name = h.ev->value("name", "");
+        const auto nit = h.ev->find("name");
+        const std::string name = nit != h.ev->end() ? nit->get<std::string>() : std::string();
         if (!name.empty()) emit(w, name, e, Json::object({{"clip", a.rt.activeClip}, {"time", h.time}}));
+        run_feel(w, e, feel_event_actions(*h.ev), a.rt.activeClip, h.time);
     }
 }
 

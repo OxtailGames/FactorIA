@@ -14,6 +14,7 @@
 #include "fa/runtime/input_recorder.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/vfx.h"
 #include "fa/services/platform.h"
 #include "fa/ui/ui.h"
 
@@ -92,6 +93,7 @@ struct Engine::Impl {
     Input input;
     Physics physics;
     Audio audio;
+    VfxHost vfxHost;  // what the effect system plays sounds and calls commands with (filled by register_vfx_commands)
     ScriptSystem scripts;
     UiSystem ui;
     std::function<Vec2(Vec2)> designToWindow;  // Engine::set_design_to_window; empty = design pixels
@@ -128,6 +130,10 @@ struct Engine::Impl {
     // The current scene is the project's mainScene, loaded at start because no start scene was given (no EngineConfig::scene),
     // and no scene was loaded since. scene.import_ascii refuses `save` without `path` then: see level_commands.cpp.
     bool implicitStartScene = false;
+    // tilemap.generate_start jobs (wfc_commands.cpp): the generations the script API advances a little every frame, by id. The
+    // pointers are really std::shared_ptr<GenRun>; the type stays private to wfc_commands.cpp. Dropped when the scene changes.
+    std::map<int, std::shared_ptr<void>> wfcJobs;
+    int nextWfcJob = 1;
     std::vector<std::string> sceneIssues;  // every LoadMessage of the last scene load (errors + warnings)
     std::size_t sceneErrorCount = 0;
     std::vector<std::string> startupProblems;
@@ -183,6 +189,7 @@ UiSurfaceFn make_ui_surface_pointer(Engine::Impl& impl);  // surface_pointer.cpp
 void register_builtin_commands(Engine& engine, Engine::Impl& impl);
 void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
 void register_terrain_commands(Engine& engine, Engine::Impl& impl);  // terrain_commands.cpp: tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
+void register_wfc_commands(Engine& engine, Engine::Impl& impl);  // wfc_commands.cpp: tilemap.generate
 void register_scene_file_commands(Engine& engine, Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
 void register_play_session_commands(Engine& engine, Engine::Impl& impl);  // play_sessions.cpp: play.sessions, play.report
 void register_i18n_commands(Engine& engine, Engine::Impl& impl);  // localization.cpp: i18n.state, i18n.set_language
@@ -190,8 +197,27 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& impl);  // ui_chec
 void register_shot_commands(Engine& engine, Engine::Impl& impl);  // shot_commands.cpp: game.screenshot, render.inspect, render.pick
 void register_anim_commands(Engine& engine, Engine::Impl& impl);  // anim_commands.cpp (+ anim_view_commands.cpp): anim.*
 void register_music_commands(Engine& engine, Engine::Impl& impl);  // music_commands.cpp: audio.music_state, audio.music
+void register_vfx_commands(Engine& engine, Engine::Impl& impl);  // vfx_commands.cpp: vfx.play, vfx.stop, vfx.list, vfx.check
 void register_mesh_commands(Engine& engine, Engine::Impl& impl);  // mesh_commands.cpp: mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
+void register_feel_commands(Engine& engine, Engine::Impl& impl);  // feel_commands.cpp: feel.shake, feel.hitStop, feel.flash, feel.knockback, feel.squash, feel.cancel, feel.settings, feel.state
 void register_bones_commands(Engine& engine, Engine::Impl& impl);  // bones_commands.cpp: bones.create, skin.*
+
+// The grid of an ASCII level in the format of scene.import_ascii (`rows`, `legend`, `legendFrom`), read for a command that learns
+// from it (tilemap.generate). Checks it with the errors of scene.import_ascii (ragged rows, unknown glyphs with suggestions).
+// Throws CommandError. The legend need not define '.' and ' ' (empty tiles).
+struct AsciiSampleGlyph {
+    std::string glyph;                  // one character (UTF-8)
+    int tile = -1;                      // tile value (flags included), -1 = no tile
+    bool hasPrefab = false;             // the legend entry also spawns an object
+    Json legendEntry;                   // the entry as the (merged) legend wrote it; null for a default-empty glyph
+};
+struct AsciiSample {
+    int width = 0;
+    int height = 0;
+    std::vector<int> cells;             // row-major, row 0 = TOP: index into `glyphs`
+    std::vector<AsciiSampleGlyph> glyphs;  // in order of first appearance
+};
+AsciiSample read_ascii_sample(const Json& args);
 
 // Entity named by the string argument `key` (id or name). Throws CommandError("not_found") with a "did you mean".
 Entity need_entity(World& world, const Json& args, const char* key = "id");

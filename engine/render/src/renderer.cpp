@@ -741,7 +741,7 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     Mat4 camWorld;
     if (best) {
         cam = *world.get<Camera>(best);
-        camWorld = world.world_matrix(best);
+        camWorld = world.drawn_matrix(best);
         ci.fromEntity = true;
         ci.entity = best;
         ci.depth = cam.depth;
@@ -1102,6 +1102,7 @@ Vec2 Renderer::design_to_framebuffer(Vec2 d, int fbW, int fbH, ScaleMode mode) c
 // ---------------------------------------------------------------------------
 // render_world
 // ---------------------------------------------------------------------------
+void Renderer::reset_particles() { clear_particles(); }
 render::Gpu* render::renderer_gpu(Renderer& r) { return r.impl_ ? &r.impl_->gpu : nullptr; }
 
 void Renderer::update(World& world, float dt) {
@@ -1402,7 +1403,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 if (!mr) continue;
                 if (!fr.mask.draws(world, ref.e)) continue;  // a mesh this camera does not draw shows nothing to it
                 const MeshAsset* mesh = assets->mesh(mr->mesh);
-                if (!box_in_frustum(fr.cam.viewProj, z01, mesh->bmin, mesh->bmax, world.world_matrix(ref.e))) continue;
+                if (!box_in_frustum(fr.cam.viewProj, z01, mesh->bmin, mesh->bmax, world.drawn_matrix(ref.e))) continue;
                 for (int t : ref.targets) {
                     if (t == i) self = true;
                     else targetDeps[std::size_t(i)].insert(t);
@@ -1534,10 +1535,12 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     std::vector<LightData> lights;
     int shadowLight = -1;
     Vec3 lightDirForShadow{0, -1, 0};
+    fr.anyFlash = world.feel().any_flash();
     if (fr.wantWorld) world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
         if (!entity_active(world, fr, e) || !fr.mask.draws(world, e)) return;  // Camera.showTags / hideTags
         MeshItem mi;
-        mi.model = world.world_matrix(e);
+        if (const auto flash = inherited_flash(world, fr, e)) mi.flash = *flash;  // feel.h: flashing items never share a draw
+        mi.model = world.drawn_matrix(e);
         mi.dist = length(mi.model.translation() - fr.cam.position);
         mi.mesh = assets->mesh(mr.lods.empty() ? mr.mesh : lod_mesh(mr, mi.dist));  // MeshRenderer::lods
         mi.mr = &mr;
@@ -1811,6 +1814,18 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
         fu.fa_maps[0] = mi.normalTex ? mr.normalScale : part.normalScale;
         fu.fa_maps[1] = part.occlusionStrength;
         fu.fa_maps[2] = d.normal ? 1.0f : 0.0f;
+        if (mi.flash.a > 0.0f && !d.error) {
+            // A flash (feel.h) needs no shader change: the surface colour fades to nothing and the emission, which both the lit
+            // and the unlit path add at the end (fog comes after), carries the flash colour. Lit meshes keep a little
+            // specular and image-based reflection of their own.
+            const float k = 1.0f - std::min(mi.flash.a, 1.0f), a = 1.0f - k;
+            const float flash[3] = {mi.flash.r, mi.flash.g, mi.flash.b};
+            for (int i = 0; i < 3; ++i) {
+                fu.fa_base_color[i] *= k;
+                fu.fa_emissive[i] = fu.fa_emissive[i] * k + flash[i] * a;
+                fu.fa_model_emissive[i] *= k;
+            }
+        }
         return fu;
     };
     // The packed params and textures of a custom material for one batch (its overrides are the same for every item).

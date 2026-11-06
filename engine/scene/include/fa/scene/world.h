@@ -26,6 +26,7 @@
 #include "fa/core/math.h"
 #include "fa/core/reflect.h"
 #include "fa/scene/components.h"
+#include "fa/scene/feel.h"
 #include "fa/scene/mesh_store.h"
 #include "fa/scene/ui_tooltip.h"
 
@@ -143,6 +144,10 @@ public:
 
     Mat4 world_matrix(Entity e) const;  // parent chain * local TRS
     Vec3 world_position(Entity e) const;
+    // world_matrix() with the visual poses of the game feel effects (shake, squash; feel.h) multiplied into each entity of the
+    // chain: what is DRAWN. Equal to world_matrix() while no such effect runs. Only drawing uses it; picking, bounds, physics, audio
+    // and scripts read world_matrix() / the Transform, which an effect never changes.
+    Mat4 drawn_matrix(Entity e) const;
     void set_world_position(Entity e, Vec3 p);  // converts into the parent's space
 
     // --------------------------------------------------------------- misc
@@ -150,6 +155,10 @@ public:
     const SceneSettings& settings() const { return settings_; }
     WorldEvents& events() { return events_; }
     Rng& rng() { return rng_; }
+    // Game feel (feel.h): the running camera shakes, flashes, squashes, knockbacks and hit-stops, and the player's reduce motion /
+    // reduced effects choices. clear() drops the effects and keeps the choices.
+    FeelState& feel() { return feel_; }
+    const FeelState& feel() const { return feel_; }
     // The part of the screen covered by a notch, rounded corners or system bars, in DESIGN pixels (the renderer's target
     // size, origin top-left). The windowed runtime sets it every frame from the device; a headless run or a test sets
     // it to try a "notched device". Anchored items with `safeArea` stay inside what is left (anchor_point, ui_rect.h).
@@ -200,6 +209,11 @@ public:
     std::uint64_t scene_generation() const { return sceneGeneration_; }
     void bump_scene_generation() { ++sceneGeneration_; }
 
+    // How many effects (Vfx) play or still hold child entities: what the `vfx.play` budget counts (kVfxMaxPlaying). update_vfx
+    // recounts it every step and vfx_play adds the effect it starts; clear() sets it back to 0.
+    int vfx_live() const { return vfxLive_; }
+    void set_vfx_live(int n) { vfxLive_ = n < 0 ? 0 : n; }
+
     // The procedural meshes (mesh_store.h) scripts built with mesh.create: used as MeshRenderer.mesh by their "mesh:N" id.
     // clear() (every scene load that is not additive) releases them all.
     MeshStore& meshes() { return meshes_; }
@@ -223,6 +237,7 @@ private:
     SceneSettings settings_;
     WorldEvents events_;
     Rng rng_;
+    FeelState feel_;
     EdgeInsets safeInsets_;
     float uiScale_ = 1.0f;
     UiTooltipSettings tooltipSettings_;
@@ -234,6 +249,7 @@ private:
     double time_ = 0.0;
     std::string scenePath_;
     std::uint64_t sceneGeneration_ = 0;
+    int vfxLive_ = 0;
     MeshStore meshes_;
 };
 

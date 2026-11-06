@@ -4,7 +4,7 @@
 // A rigged model with an Animator (idle, trot, gallop, bite, hit) moved by a CharacterController3D.
 //
 // Other scripts use: hurt(damage, [dx, dz]), flee(), dead, hp, kind. Events sent: wolf_down {kind}, wolf_roar {kind}.
-import { Behaviour, physics, world, rng } from "factoria";
+import { Behaviour, physics, world, rng, camera } from "factoria";
 import { yawOf, turnToward, flatDistance, behaviourOf, playAt } from "./common.js";
 
 export default class Wolf extends Behaviour {
@@ -204,7 +204,7 @@ export default class Wolf extends Behaviour {
     this.biteCooldown *= 0.75;
     playAt("assets/audio/alpha_howl.wav", this.entity, { volume: 1, range: 60 });
     world.emit("wolf_roar", { kind: this.kind });
-    world.emit("camera_shake", { size: 0.2, time: 0.5 });
+    camera.shake(0.7, { duration: 0.5 }); // the engine's shake: trauma squared, smooth, off with reduce motion
     behaviourOf("game")?.callWolves(2);
   }
 

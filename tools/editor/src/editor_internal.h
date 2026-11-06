@@ -38,6 +38,7 @@
 #include "fa/ai/skills.h"
 #include "fa/ai/session.h"
 #include "fa/core/asset_manifest.h"
+#include "level_gen_model.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
@@ -65,6 +66,7 @@
 #include "image_ui.h"
 #include "vector_ui.h"
 #include "sound_ui.h"
+#include "particle_ui.h"
 #include "modeler_ui.h"
 #include "music_ui.h"
 #include "imgui.h"
@@ -192,6 +194,7 @@ public:
     bool save_scene_now();
     void reload_scene_from_disk(bool keepUndo = false);   // keepUndo: Ctrl+Z brings back what was on screen before
     void restore_scene(const Json& snapshot);
+    void reset_feel_choices();   // feel.reduceMotion / reducedEffects back to following the system (a Play session starts and ends)
 
     // ---------------------------------------------------------------- play mode
     PlayState play_state() const { return play_; }
@@ -235,7 +238,7 @@ public:
     void run_console_line(const std::string& line);
     // Commands typed in the Console or called by the AI go through these two hooks (editor_app.cpp):
     // command_edits_scene() is false for commands that only write FILES (prefab.save, scene.format, scene.ascii_edit,
-    // scene.import_ascii with `path`), so they neither take an undo snapshot nor mark the scene dirty; after_command() reloads
+    // scene.import_ascii with `path`) and for the feel.* effects (a moment of the running game), so they neither take an undo snapshot nor mark the scene dirty; after_command() reloads
     // the scene when scene.import_ascii or scene.ascii_edit rebuilt the scene file that is open (Ctrl+Z brings back what was
     // on screen).
     bool command_edits_scene(const std::string& name, const Json& args) const;
@@ -511,6 +514,30 @@ public:
     Vec2 sound_screen_pos(double seconds, double yFraction) const;   // the autotest drives the waveform
     SoundUi sound_;
     bool showSound_ = false;
+    // Particle panel (particle_panel.cpp; View > Particles, or a double click on a *.vfx.json in the Project panel): an effect document played
+    // by the engine's own timeline (update_vfx and one ParticleSim per emitter, ParticlePreview) with a time scrubber, a parts list and an
+    // inspector built from the emitter's reflected fields, with gradient and curve editors. The rules are in particle_model.h: every edit it
+    // keeps is a vfx.edit call, so the Console and an AI make the same edit.
+    ParticleModel& particle_ensure_model();                // makes the panel's model and preview on first use
+    void draw_particle_panel();
+    void draw_particle_toolbar(ParticleModel& m);
+    void draw_particle_canvas(ParticleModel& m);
+    void draw_particle_timeline(ParticleModel& m);
+    void draw_particle_parts(ParticleModel& m);
+    void draw_particle_inspector(ParticleModel& m);
+    void draw_particle_object_fields(ParticleModel& m, const std::string& base, const TypeInfo& type, const Json& patch, bool essentialsOnly);
+    bool draw_particle_row(ParticleModel& m, const std::string& key, const FieldInfo& f, const std::string& pointer, const Json& cur, bool present);
+    bool draw_particle_curve_field(ParticleModel& m, const std::string& pointer, const std::string& label, const Json& cur, float lo, float hi);
+    bool draw_particle_gradient_field(ParticleModel& m, const std::string& pointer, const std::string& label, const Json& cur);
+    bool open_particle_document(const std::string& rel);   // *.vfx.json; false and a toast on failure
+    void particle_edited(const ParticleEditOutcome& out);  // after an edit: the undo entry, a toast for an error
+    void particle_apply_undo(const Json& entry, bool forward);
+    void particle_collect_steps();                         // drops the undo steps no stack entry points to
+    void particle_close_document();
+    Vec2 particle_time_pos(double seconds, double yFraction = 0.5) const;   // the autotest drives the timeline
+    Vec2 particle_canvas_pos(float worldX, float worldY) const;              // ...and the canvas
+    ParticleUi particle_;
+    bool showParticle_ = false;
     // Music panel (music_panel.cpp, music_mixer_panel.cpp; View > Music, or a double click on a *.song.json in the Project panel): a song as a
     // piano roll, a drum grid, an arrangement and a mixer, played by the same transport a game's entity.music uses (an intensity slider fades
     // the layers, a section can be looped). The rules are in music_model.h: every edit it keeps is a command call (music.edit, music.arpeggio,
@@ -598,6 +625,14 @@ public:
     void draw_animator_clips(Entity e, const std::string& id, const Json& current);
     void draw_material_params(Entity e, const Json& current);
     void draw_profiler_panel();
+    // Level generator window (level_gen_panel.cpp; the model, level_gen_model.h, has no ImGui).
+    void draw_level_gen_panel();
+    void draw_level_gen_preview(float height);
+    LevelGenCaller level_gen_caller();
+    void level_gen_keep();
+    void level_gen_save();
+    void level_gen_write(bool overwrite);   // fs.write of the level file; without overwrite an existing file opens the Replace popup
+    void level_gen_refresh_sample();   // the selection's Tilemap and the sample's solid tiles, for the buttons and the preview colours
     void draw_project_dialog();
     // AI panel text: the right-click menu of the InputText just submitted on `text` (Cut/Copy/Paste/Select all), and a
     // transcript message as a selectable read-only box (ai_panel.cpp)
@@ -806,6 +841,17 @@ public:
     bool showViewport_ = true;
     bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false, showProfiler_ = false, showProject_ = true;
     bool showAnimation_ = false, showBoneTools_ = false;
+    bool showLevelGen_ = false;
+    LevelGenSession levelGen_;
+    LevelGenOptions levelGenOpt_;
+    std::string levelGenKeepName_ = "generated", levelGenSavePath_ = "levels/generated.json", levelGenMessage_;
+    bool levelGenMessageBad_ = false;
+    std::string levelGenSaveTarget_, levelGenSaveContent_;   // the file Save asked about and what it would write (the Replace popup repeats it)
+    bool levelGenReplaceOpen_ = false;                       // open the "Replace <file>?" popup this frame
+    std::vector<int> levelGenSolid_;   // solid tile numbers of the sample, for the preview colours
+    std::string levelGenSelId_;        // the selection levelGenSelTilemap_ was read for
+    bool levelGenSelTilemap_ = false;  // the selected entity has a Tilemap
+    std::uint64_t levelGenSampleFrame_ = 0;
     ProjectBrowser projBrowser_;
     bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false;
     bool showQuitDialog_ = false, showReloadConfirm_ = false;
