@@ -220,6 +220,14 @@ fi
 
 if [ "$WSL" -eq 1 ] && [ -z "$LOST" ]; then
     echo "== WSL Ubuntu-24.04: scripts/ci-local.sh linux android"
+    # The perf budgets (CPU time, peak memory) are the numbers of GitHub's 4-vCPU runner; WSL on the PC measures about
+    # 10% more peak memory with the same commit (origin/main included), so they fail there without a regression, as in
+    # scripts/ci-docker.sh. FA_CI_WSL_PERF=1 runs them anyway.
+    WSL_EXCLUDE="${FA_CI_CTEST_EXCLUDE-}"
+    if [ -z "$WSL_EXCLUDE" ] && [ "${FA_CI_WSL_PERF:-}" != 1 ]; then
+        WSL_EXCLUDE='_perf$'
+        echo "   the perf budget tests (*_perf) are not run in WSL: it measures more memory than GitHub's runners (FA_CI_WSL_PERF=1 runs them)"
+    fi
     WSLSCRIPT="set -eu
 SRC=\$(wslpath -u '$(q "$REPO")'); WTL=\$(wslpath -u '$(q "$WT")')
 D=\"\$HOME/FactorIA-preflight\"
@@ -228,7 +236,7 @@ git -C \"\$D\" -c safe.directory='*' fetch -q --force \"\$SRC\" 'refs/heads/$REF
 git -C \"\$D\" checkout -q --force --detach refs/preflight/current
 git -C \"\$D\" clean -fdq
 cd \"\$D\"
-rc=0; ./scripts/ci-local.sh linux android || rc=\$?
+rc=0; FA_CI_CTEST_EXCLUDE='$(q "$WSL_EXCLUDE")' ./scripts/ci-local.sh linux android || rc=\$?
 mkdir -p \"\$WTL/build\"; rm -rf \"\$WTL/build/wsl-ci-logs\"; cp -r build/ci-logs \"\$WTL/build/wsl-ci-logs\" || true
 exit \$rc"
     if [ "$FLAVOR" = posix ]; then WSLCMD="sh -s"; else WSLCMD="wsl -d Ubuntu-24.04 --exec bash -l -s"; fi
