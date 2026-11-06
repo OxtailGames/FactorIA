@@ -596,7 +596,7 @@ bool Editor::boot(const std::string& dirIn) {
     layoutBuilt_ = false;
     profView_.reset();
     reset_audio_log(audioLog_);  // a new engine has a new play log that starts at seq 1
-    levelGen_.clear();           // its job belonged to the old engine
+    levelGen_.clear({});         // its job belonged to the old engine, which is gone: nothing to cancel
     levelGenOpt_.sampleEntity.clear();
     levelGenOpt_.sampleFile.clear();
     levelGenMessage_.clear();

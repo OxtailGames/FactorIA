@@ -83,7 +83,8 @@ void LevelGenSession::cancel(const LevelGenCaller& call) {
     if (state_ == State::Running) state_ = preview_.valid ? State::Ready : State::Idle;
 }
 
-void LevelGenSession::clear() {
+void LevelGenSession::clear(const LevelGenCaller& call) {
+    cancel(call);
     job_ = 0;
     state_ = State::Idle;
     progress_ = 0;

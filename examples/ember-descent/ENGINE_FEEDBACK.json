@@ -44,10 +44,7 @@
       "suggestion": "Say it in docs/AI_GUIDE.md section 9.8 next to allConnected (done in the same change as this example) and let the refused-level error name the sample shape as a cause when cut-off areas are the reason for more than half of the attempts.",
       "effort": "small",
       "occurrences": 1,
-      "status": "fixed-in-engine",
-      "statusReason": "docs/AI_GUIDE.md section 9.8 and skills/tile-levels now say which samples pass allConnected.",
-      "statusBy": "user",
-      "engineIssue": "M63.4"
+      "status": "open"
     },
     {
       "id": "FB-0003",

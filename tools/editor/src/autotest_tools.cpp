@@ -586,7 +586,7 @@ void Editor::at_build_tools_script() {
             bone_ = BoneUi{};
             showAnimation_ = showBoneTools_ = showImage_ = showVector_ = showSound_ = showMusic_ = showModeler_ = false;
             showLevelGen_ = false;   // section P3: the Level generator window, its sample, its preview and its history are not carried over
-            levelGen_.clear();
+            levelGen_.clear(level_gen_caller());
             levelGenOpt_ = LevelGenOptions{};
             levelGenMessage_.clear();
             levelGenSelId_.clear();
@@ -8035,12 +8035,20 @@ void Editor::at_build_tools_script() {
             size_t undo = 0;
             std::vector<std::string> first;
             std::int64_t firstSeed = 0;
+            std::string saved;
         };
         auto ps = std::make_shared<Ps>();
+        // Waits for the end of the generation (Ready or Failed) and then checks it is Ready: a failure is fast and says why, instead
+        // of a 60 s wait that times out.
         auto wait_ready = [this, &step] {
             step(1, [this] {
                 atWaitCount_ = 0;
-                atWaitUntil_ = [this] { return levelGen_.state() == LevelGenSession::State::Ready; };
+                atWaitUntil_ = [this] {
+                    return levelGen_.state() == LevelGenSession::State::Ready || levelGen_.state() == LevelGenSession::State::Failed;
+                };
+            });
+            step(1, [this] {
+                at_check(levelGen_.state() == LevelGenSession::State::Ready, "the generation ended with a level (" + levelGen_.error() + ")");
             });
         };
         step(2, [this] {
@@ -8101,19 +8109,47 @@ void Editor::at_build_tools_script() {
             at_check(selected_id() == "at_generated", "...selected");
         });
         click("levelgen:save");
-        step(4, [this, project_file] {
-            Result<Json> parsed = parse_json(read_file(project_file("levels/at-generated.json")), "levels/at-generated.json");
+        step(4, [this, project_file, ps] {
+            ps->saved = read_file(project_file("levels/at-generated.json"));
+            Result<Json> parsed = parse_json(ps->saved, "levels/at-generated.json");
             const Json doc = parsed.ok() ? parsed.value() : Json();
             at_check(doc.is_object() && doc.contains("rows") && doc["rows"].size() == 12 && doc.contains("legend"),
                      "Save level file writes the rows and the legend to levels/at-generated.json");
             at_check(!levelGenMessageBad_ && levelGenMessage_.find("at-generated.json") != std::string::npos, "...and says so");
+            at_check(!at_shown("levelgen:replace"), "...a new file is written without asking");
             undo();
             at_check(world().find_by_id("at_generated").is_null(), "Ctrl+Z takes the kept level away");
+        });
+        // The file exists now: Save asks before it replaces it.
+        click("levelgen:next");
+        wait_ready();
+        step(3, [] {});
+        click("levelgen:save");
+        step(4, [this, project_file, ps] {
+            at_check(at_shown("levelgen:replace") && at_shown("levelgen:replace-cancel"), "Saving over an existing file opens the Replace popup");
+            at_check(read_file(project_file("levels/at-generated.json")) == ps->saved, "...and has not touched the file yet");
+        });
+        click("levelgen:replace-cancel");
+        step(4, [this, project_file, ps] {
+            at_check(!at_shown("levelgen:replace"), "Cancel closes the popup");
+            at_check(read_file(project_file("levels/at-generated.json")) == ps->saved, "...and leaves the file as it was");
+        });
+        click("levelgen:save");
+        step(4, [this] { at_check(at_shown("levelgen:replace"), "Save asks again"); });
+        click("levelgen:replace");
+        step(4, [this, project_file, ps] {
+            const std::string now = read_file(project_file("levels/at-generated.json"));
+            at_check(now != ps->saved, "Replace writes the new level over the file");
+            Result<Json> parsed = parse_json(now, "levels/at-generated.json");
+            at_check(parsed.ok() && parsed.value().contains("rows") && parsed.value()["rows"] == Json(levelGen_.preview().rows),
+                     "...the rows shown in the window");
+            at_check(!levelGenMessageBad_ && levelGenMessage_.find("Wrote") == 0, "...and says so");
+            at_check(!at_shown("levelgen:replace"), "...and the popup is gone");
         });
         // ---- leave the editor as the other sections expect it
         step(2, [this, project_file] {
             showLevelGen_ = false;
-            levelGen_.clear();
+            levelGen_.clear(level_gen_caller());
             std::error_code ec;
             stdfs::remove(project_file("levels/at-generated.json"), ec);
         });

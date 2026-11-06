@@ -133,9 +133,24 @@ void Editor::level_gen_save() {
         levelGenMessageBad_ = true;
         return;
     }
-    const CommandResult r = engine_->commands().call(
-        "fs.write", Json::object({{"path", path},
-                                  {"content", level_gen_file_text(p, level_gen_safe_name(levelGenKeepName_), sample_tilemap_fields(*engine_, levelGenOpt_))}}));
+    levelGenSaveTarget_ = path;
+    levelGenSaveContent_ = level_gen_file_text(p, level_gen_safe_name(levelGenKeepName_), sample_tilemap_fields(*engine_, levelGenOpt_));
+    level_gen_write(false);
+}
+
+// Writes the level file Save asked about. Without `overwrite` an existing file is left alone and the "Replace" popup opens: Save must
+// never replace factoria.json, a scene, assets.json or the sample itself on a click.
+void Editor::level_gen_write(bool overwrite) {
+    if (!engine_ || levelGenSaveTarget_.empty()) return;
+    const std::string path = levelGenSaveTarget_;
+    const LevelGenPreview& p = levelGen_.preview();
+    const Json args = Json::object({{"path", path}, {"content", levelGenSaveContent_}, {"overwrite", overwrite}});
+    const CommandResult r = engine_->commands().call("fs.write", args);
+    if (!r.ok && !overwrite && r.error.is_object() && r.error.value("code", std::string()) == "exists") {
+        levelGenReplaceOpen_ = true;
+        return;
+    }
+    after_command("fs.write", args, r);   // the Project panel lists the new file
     if (!r.ok) {
         levelGenMessage_ = "Could not write " + path + ": " + command_error_message(r);
         levelGenMessageBad_ = true;
@@ -198,6 +213,8 @@ void Editor::draw_level_gen_panel() {
     first_floating_window(ImVec2(80, 40), ImVec2(640, 620));
     if (!ImGui::Begin("Level generator", &showLevelGen_)) {
         ImGui::End();
+        // Collapsed or a hidden tab: nothing ticks the job, so it must not stay in the engine holding its solver memory.
+        if (levelGen_.running()) levelGen_.cancel(level_gen_caller());
         return;
     }
     LevelGenOptions& o = levelGenOpt_;
@@ -216,7 +233,7 @@ void Editor::draw_level_gen_panel() {
     if (ImGui::Button("Use the selected Tilemap")) {
         o.sampleEntity = selected_id();
         o.sampleFile.clear();
-        levelGen_.clear();
+        levelGen_.clear(level_gen_caller());
         levelGenSampleFrame_ = 0;   // read the sample's solid tiles now
     }
     ImGui::EndDisabled();
@@ -226,7 +243,7 @@ void Editor::draw_level_gen_panel() {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-1);
     if (ImGui::InputTextWithHint("##levelgenfile", "or a level file: levels/sample.json", &o.sampleFile)) {
-        levelGen_.clear();
+        levelGen_.clear(call);
         levelGenSampleFrame_ = 0;
     }
     at_track("levelgen:file");
@@ -246,11 +263,11 @@ void Editor::draw_level_gen_panel() {
     ImGui::SameLine();
     int seed = int(std::min<std::int64_t>(o.seed, kLevelGenMaxSeed));
     ImGui::SetNextItemWidth(150);
-    if (ImGui::InputInt("Seed", &seed, 1, 100)) {
+    if (ImGui::InputInt("Seed", &seed, 1, 100, ImGuiInputTextFlags_EnterReturnsTrue)) {   // Enter or the +/- buttons, not every keystroke
         o.seed = std::clamp<std::int64_t>(seed, 0, kLevelGenMaxSeed);
         regenerate = true;
     }
-    ImGui::SetItemTooltip("Picks the level: the same sample, seed and options give the same level on every computer.");
+    ImGui::SetItemTooltip("Picks the level: the same sample, seed and options give the same level on every computer.\nPress Enter or use the + / - buttons to generate it.");
     at_track("levelgen:seed");
     if (ImGui::Button("Previous seed")) {
         o.seed = o.seed > 0 ? o.seed - 1 : kLevelGenMaxSeed;
@@ -379,6 +396,31 @@ void Editor::draw_level_gen_panel() {
     at_track("levelgen:save", p.valid && !running);
     ImGui::EndDisabled();
     ImGui::SetItemTooltip("Write the rows and legend as a level file: `factoria call scene.import_ascii @<file>` builds it, scene.ascii_edit edits it.");
+    if (levelGenReplaceOpen_) {
+        ImGui::OpenPopup("Replace level file?##levelgen");
+        levelGenReplaceOpen_ = false;
+    }
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Replace level file?##levelgen", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+        ImGui::Text("Replace %s?", levelGenSaveTarget_.c_str());
+        ImGui::TextWrapped("The file already exists; the level shown here would take its place.");
+        if (levelGenSaveTarget_ == o.sampleFile)
+            ImGui::TextColored(kStatusFailed, "It is the sample this window learns from: replacing it changes every level made from it.");
+        ImGui::PopTextWrapPos();
+        if (ImGui::Button("Replace")) {
+            level_gen_write(true);
+            ImGui::CloseCurrentPopup();
+        }
+        at_track("levelgen:replace");
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) {
+            levelGenMessage_ = "Kept the existing " + levelGenSaveTarget_ + "; nothing was written.";
+            ImGui::CloseCurrentPopup();
+        }
+        at_track("levelgen:replace-cancel");
+        ImGui::EndPopup();
+    }
     if (!levelGenMessage_.empty()) {
         if (levelGenMessageBad_) ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
         ImGui::TextWrapped("%s", levelGenMessage_.c_str());
