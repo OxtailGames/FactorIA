@@ -417,8 +417,8 @@ EfficiencySession read_efficiency_session(const std::string& text, const std::st
         id);
 }
 
-EfficiencySession read_efficiency_session(std::istream& in, const std::string& id) {
-    StreamLines lines(in, kEfficiencyMaxBytes);
+EfficiencySession read_efficiency_session(std::istream& in, const std::string& id, std::uint64_t maxBytes) {
+    StreamLines lines(in, maxBytes);
     EfficiencySession s = read_session_lines([&](std::string_view& line, bool& tooLong) { return lines.next(line, tooLong); }, id);
     if (lines.cut()) s.truncated = true;
     return s;
@@ -437,7 +437,7 @@ std::string efficiency_sessions_dir(const std::string& projectDir) {
 std::vector<std::string> list_efficiency_sessions(const std::string& projectDir) {
     std::vector<std::string> names;
     std::error_code ec;
-    for (const auto& e : stdfs::directory_iterator(fs::os_path(stdfs::path(efficiency_sessions_dir(projectDir))), ec)) {
+    for (const auto& e : stdfs::directory_iterator(fs::os_path(path_of_text(efficiency_sessions_dir(projectDir))), ec)) {
         std::error_code ec2;
         if (e.is_regular_file(ec2) && e.path().extension() == ".jsonl") names.push_back(u8text(e.path().stem()));
     }
@@ -448,7 +448,7 @@ std::vector<std::string> list_efficiency_sessions(const std::string& projectDir)
 Result<EfficiencySession> load_efficiency_session(const std::string& projectDir, const std::string& session, EfficiencyLoadBudget* budget) {
     std::string id = u8text(path_of_text(session).filename());
     if (ends_with(id, ".jsonl")) id.resize(id.size() - 6);
-    const stdfs::path file = stdfs::path(efficiency_sessions_dir(projectDir)) / path_of_text(id + ".jsonl");
+    const stdfs::path file = path_of_text(efficiency_sessions_dir(projectDir)) / path_of_text(id + ".jsonl");
     std::error_code ec;
     if (id.empty() || !stdfs::is_regular_file(fs::os_path(file), ec)) {
         const std::vector<std::string> names = list_efficiency_sessions(projectDir);
@@ -457,9 +457,10 @@ Result<EfficiencySession> load_efficiency_session(const std::string& projectDir,
                                         : did_you_mean(id, names) + " ai.session_timeline lists the newest one.");
     }
     const std::uintmax_t size = stdfs::file_size(fs::os_path(file), ec);
-    if (!ec && size > kEfficiencyMaxBytes)
+    const std::uint64_t maxFile = budget ? budget->maxFile : kEfficiencyMaxBytes;
+    if (!ec && size > maxFile)
         return make_error("The session '" + id + "' is " + std::to_string(size / (1024 * 1024)) + " MB, more than the " +
-                              std::to_string(kEfficiencyMaxBytes / (1024 * 1024)) + " MB that are read for a measurement.",
+                              std::to_string(maxFile / (1024 * 1024)) + " MB that are read for a measurement.",
                           "Point at a shorter session (the sessions of one request each), or delete the oldest ones in " + efficiency_sessions_dir(projectDir) + ".");
     // The budget is checked before the file is opened: a call that reads many sessions stays within kEfficiencyMaxTotalBytes in all.
     if (budget && !ec) {
@@ -472,7 +473,7 @@ Result<EfficiencySession> load_efficiency_session(const std::string& projectDir,
     }
     fs::ReadStream in(fs::os_path(file), std::ios::binary);
     if (!in) return make_error("Cannot read " + u8text(file) + ".", "Check that the file exists and that no other program has it locked.");
-    return read_efficiency_session(in, id);
+    return read_efficiency_session(in, id, maxFile);
 }
 
 // ------------------------------------------------------------------------------------------------------------- measuring --

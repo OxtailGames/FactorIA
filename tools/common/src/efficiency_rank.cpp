@@ -100,10 +100,10 @@ Json efficiency_clean_block(const Json& b) {
 
 double efficiency_fix_cost_hours(const std::string& fixType) {
     if (fixType == "doc") return 0.5;
-    if (fixType == "guide") return 1.0;
-    if (fixType == "example") return 2.0;
+    if (fixType == "guide") return 2.0;
+    if (fixType == "example") return 4.0;
     if (fixType == "commandOption") return 4.0;
-    if (fixType == "newCommand") return 8.0;
+    if (fixType == "newCommand") return 16.0;  // a command with its tests, docs and typings costs more than a day
     return kEfficiencyRoadmapHours;  // engineChange (and anything unknown): the bar the roadmap asks
 }
 
@@ -115,8 +115,9 @@ std::string fmt(const char* format, double v) {
     return buf;
 }
 // "6.4" and "$212.50": the numbers of a verdict.
-std::string hours_text(double h) { return fmt("%.1f", h); }
-std::string usd_text(double d) { return "$" + fmt("%.2f", d); }
+// Hours shown for a "not enough yet" verdict round DOWN: 3.96 of 4 must not read "4.0 of the 4 hours" while the verdict says it is short.
+std::string hours_text(double h) { return fmt("%.1f", std::floor(h * 10.0 + 1e-9) / 10.0); }
+std::string usd_text(double d) { return "$" + fmt("%.2f", std::floor(d * 100.0 + 1e-9) / 100.0); }
 
 double hours_of(const EfficiencyMeasure& m) { return std::max(m.minutes / 60.0, m.costUsd / kEfficiencyUsdPerHour); }
 
@@ -147,18 +148,15 @@ std::string own_saving_text(const EfficiencyMeasure& s) {
     return "very little";
 }
 
-std::string reject_reason_for(const std::string& code, const std::string& fixType, const EfficiencyMeasure& own) {
+// A ready reason only for the verdicts that mean "do not build this": the answer is in the docs, or the saving is far below the bar.
+// A command that is worth it, or one not yet worth it, or an engine change that reached the bar, is the developer's decision to make.
+bool has_reject_reason(const std::string& code) { return code == "doc-now" || code == "engine-below-threshold"; }
+
+std::string reject_reason_for(const std::string& code, const EfficiencyMeasure& own) {
     const std::string mine = own_saving_text(own);
     if (code == "doc-now")
         return "This is answered by documentation, not by new engine code: a doc section or guide will carry it. Thank you for the measured "
                "report (" + mine + " saved where it was filed); look for it in the docs.";
-    if (code == "command-worth-it" || code == "engine-roadmap")
-        return "Not taken as proposed: the saving measured here (" + mine + ") is real, and the engine developer chose to cover it another "
-               "way. Check the docs of the commands for it.";
-    if (code == "command-not-yet")
-        return "Not taken yet: a " + std::string(fixType == "commandOption" ? "command option" : "command") +
-               " is built when the time it saves adds up to more than it costs to make, and this report alone shows " + mine +
-               ". The commands that exist cover it for now.";
     return "Not taken as an engine change: a change like this is made only when the time it saves adds up to many hours across games, and "
            "this report shows " + mine + ". A doc section or a guide may cover it instead.";
 }
@@ -235,8 +233,8 @@ Json rank_efficiency(std::vector<EfficiencyGroup> groups) {
         Json entries = Json::array();
         for (const EfficiencyVoice& v : g.voices) {
             Json e = Json::object({{"project", v.project}, {"id", v.id}, {"trust", trust_of(v.trust)}, {"occurrences", v.occurrences},
-                                   {"saving", v.saving.to_json()}, {"measured", v.measured.to_json()},
-                                   {"rejectReason", reject_reason_for(verdict.code, g.fixType, v.saving)}});
+                                   {"saving", v.saving.to_json()}, {"measured", v.measured.to_json()}});
+            if (has_reject_reason(verdict.code)) e["rejectReason"] = reject_reason_for(verdict.code, v.saving);
             if (!v.shareId.empty()) e["shareId"] = v.shareId;
             entries.push_back(std::move(e));
         }

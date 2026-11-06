@@ -166,6 +166,7 @@ TEST_CASE("feedback: collect ranks by occurrences x severity weight") {
 }
 
 TEST_CASE("feedback: commands report/list/update work on a project dir") {
+    testing::ScratchShareHome scratchHome;  // the report takes the lock of the user's folder: a scratch one, never ~/.factoria
     testing::TempDir tmp;
     testing::write_all(tmp.path / "factoria.json", R"({"format":"factoria.project/1","name":"Cmd Game"})");
     CommandRegistry reg;
@@ -379,6 +380,7 @@ TEST_CASE("feedback archive: a report matching an archived fixed-in-engine entry
 }
 
 TEST_CASE("feedback archive: files, commands, list and collect") {
+    testing::ScratchShareHome scratchHome;
     testing::TempDir tmp;
     testing::write_all(tmp.path / "factoria.json", R"({"format":"factoria.project/1","name":"Arch Game"})");
     CommandRegistry reg;

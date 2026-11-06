@@ -871,7 +871,7 @@ TEST_CASE("feedback pull: efficiency entries are ranked by the total saving acro
     Fixture f;
     f.server.reports = {efficiency_report("r_1", kKeyA, "Flux calibration order", "doc", 30, "verified"),
                         efficiency_report("r_2", kKeyB, "Flux calibration order", "doc", 30),
-                        efficiency_report("r_3", kKeyA, "Scene load retries", "newCommand", 600, "verified"),
+                        efficiency_report("r_3", kKeyA, "Scene load retries", "newCommand", 1200, "verified"),
                         gap_report("r_4")};
     auto p = f.pull({"--no-classify", "--json"});
     REQUIRE_MESSAGE(p.code == 0, p.err);

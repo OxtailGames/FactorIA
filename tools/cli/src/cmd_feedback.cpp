@@ -270,7 +270,15 @@ Command make_feedback_command() {
         }
         const ClaimResult claim = check_feedback_claim(claimIn, nullptr, 3);
         if (claim.refused()) return report_failure(ctx, claim.message(), claim.hint());
-        auto r = add_feedback_entry_to_file(feedback_path(dir), in, project_name(dir));
+        // A read-modify-write of a file the editor, an agent and a retrospective may write at the same time: under the lock they take
+        // (the user's folder, else the project's own when ~/.factoria cannot be written), released before the sharing summary below.
+        Result<FeedbackAddResult> r = make_error("not filed");
+        {
+            FeedbackFileLock lock(share_env(), feedback_path(dir));
+            if (!lock.held())
+                return report_failure(ctx, lock.error(), "Run the command again in a moment; the other program is only writing a small file.");
+            r = add_feedback_entry_to_file(feedback_path(dir), in, project_name(dir));
+        }
         if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
         ctx.out << (r->reopened ? "Reopened (fixed before, reported again) " : r->merged ? "Merged into " : "Added ") << r->id << " (occurrences: " << r->occurrences << ")\n";
         if (!claim.related.empty()) {

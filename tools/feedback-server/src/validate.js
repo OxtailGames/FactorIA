@@ -18,7 +18,7 @@ export const APPLIES_TO = ["every-game", "genre", "feature"];
 
 // The most a measure can hold; the engine clamps to the same numbers before it sends (efficiency_rank.cpp).
 const MEASURE_LIMITS = { steps: 4_000_000, toolCalls: 200_000_000, minutes: 1e7, tokens: 1e12, costUsd: 1e6 };
-const AFTER_FIX = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,31}$/;
+const AFTER_FIX = /^[0-9][0-9A-Za-z.+_-]{0,31}$/;
 
 export const LIMITS = {
     title: { min: 8, max: 120 },

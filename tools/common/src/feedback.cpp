@@ -708,7 +708,7 @@ EfficiencyFiling file_efficiency_feedback(const std::string& projectDir, const s
     base.suggestion = in.suggestion;
     base.efficiency = std::move(eff);
     // A read-modify-write of a file that the editor, the CLI, an agent and a retrospective may write at once.
-    ShareLock lock(share_env());
+    FeedbackFileLock lock(share_env(), feedbackFile);
     if (!lock.held()) {
         out.refusal = EfficiencyRefusal{"failed", lock.error(), "Run the command again in a moment; the other program is only writing a small file."};
         return out;
@@ -778,6 +778,9 @@ Result<FeedbackArchiveResult> archive_closed_feedback_file(const std::string& pa
 }
 
 Result<void> record_fix_check(const std::string& path, std::string_view id, const Json& check) {
+    // A read-modify-write of the file a report, the editor or another retrospective may be writing: under the lock they take.
+    FeedbackFileLock lock(share_env(), path);
+    if (!lock.held()) return make_error(lock.error(), "Run the command again in a moment; the other program is only writing a small file.");
     const std::string archivePath = feedback_archive_path(path);
     for (const std::string& file : {path, archivePath}) {
         std::error_code ec;
@@ -790,7 +793,7 @@ Result<void> record_fix_check(const std::string& path, std::string_view id, cons
             if (!e.is_object() || e.value("id", std::string()) != id) continue;
             if (status_of(e) != "fixed-in-engine")
                 return make_error("Entry " + std::string(id) + " is not fixed in the engine, so there is no fix to check.",
-                                  "A fix check belongs to an entry with status fixed-in-engine (feedback check-fixed, or feedback update).");
+                                  "A fix check belongs to an entry with status fixed-in-engine (feedback update --status fixed-in-engine).");
             if (e.contains("fixCheck") && e["fixCheck"] == check) return {};  // nothing new: do not rewrite the file
             e["fixCheck"] = check;
             if (auto s = save_feedback(file, doc); !s.ok()) return s.error();
@@ -1364,7 +1367,7 @@ std::string FeedbackReport::markdown() const {
                 o << "  - " << e["project"].get<std::string>() << "/" << e["id"].get<std::string>();
                 if (e.contains("shareId")) o << " (" << e["shareId"].get<std::string>() << ")";
                 o << ": " << e["saving"].value("minutes", 0.0) << " minutes, " << e["occurrences"].get<int>() << " report(s)\n";
-                o << "    - reason for `feedback reject`: " << e["rejectReason"].get<std::string>() << "\n";
+                if (e.contains("rejectReason")) o << "    - reason for `feedback reject`: " << e["rejectReason"].get<std::string>() << "\n";
             }
             o << "\n";
         }
@@ -1654,7 +1657,7 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             // that file_efficiency_feedback takes too, and released before the sharing summary (which takes it again).
             Result<FeedbackAddResult> r = make_error("not filed");
             {
-                ShareLock lock(share_env());
+                FeedbackFileLock lock(share_env(), path);
                 if (!lock.held())
                     throw CommandError("failed", lock.error(), "Run the command again in a moment; the other program is only writing a small file.");
                 r = add_feedback_entry_to_file(path, in, project_name_for(projectDir));

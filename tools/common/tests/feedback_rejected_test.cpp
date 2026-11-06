@@ -157,6 +157,7 @@ TEST_CASE("feedback check: a command the engine has is named too") {
 // ----------------------------------------------------------------------------------------- feedback.report, the commands
 
 TEST_CASE("feedback.report refuses a claim the engine already covers, and files a bug about the same thing") {
+    testing::ScratchShareHome scratchHome;  // the report takes the lock of the user's folder: a scratch one, never ~/.factoria
     testing::TempDir dir;
     CommandRegistry registry;
     register_feedback_commands(registry, dir.str());

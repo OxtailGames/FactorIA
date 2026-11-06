@@ -704,6 +704,9 @@ Result<void> save_outbox(const ShareEnv& env, const Outbox& outbox) {
 bool entry_is_shareable(const Json& e) {
     if (!e.is_object() || e.value("status", std::string("open")) != "open") return false;
     if (!e.contains("share") || !e["share"].is_object()) return false;
+    // An efficiency entry is sent as its measured block: one with an unknown fix type, "this-game" (it stays on this machine) or
+    // numbers missing has no block to send, so it is never queued, whatever else the entry holds.
+    if (e.value("kind", std::string()) == "efficiency" && efficiency_share_block(e).is_null()) return false;
     if (e.contains("shared") && e["shared"].is_object()) {
         const std::string st = e["shared"].value("status", std::string());
         if (st == "rejected" || st == "declined") return false;  // refused by the server / rejected by the engine developer

@@ -602,7 +602,7 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
 
     RetrospectiveResult result;
     std::vector<EfficiencySession> sessions;
-    EfficiencyLoadBudget budget;  // the transcripts of the whole pass are read within one total limit
+    EfficiencyLoadBudget budget(options.maxTotalBytes, options.maxTranscriptBytes);  // the transcripts of the whole pass are read within one total limit
     for (const std::string& id : ids) {
         if (is_cancelled(options.cancel)) return make_error("cancelled", "");
         auto loaded = load_efficiency_session(projectDir, id, &budget);
@@ -697,6 +697,9 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
     }
     result.model = Json::object({{"role", modelInfo.role}, {"provider", modelInfo.provider}, {"model", modelInfo.model}});
     auto answer = (*model)(kSystem, prompt_for(asked));
+    // A stop pressed while the model worked: whatever it answered (or the partial answer of a call that was cut) is not filed, and the
+    // caller is told the run was cancelled, not that it finished with a note.
+    if (is_cancelled(options.cancel)) return make_error("cancelled", "");
     if (!answer.ok()) {
         result.note = "The " + modelInfo.role + " model did not answer (" + answer.error().message + "); the candidates are returned and nothing was filed.";
         return result;

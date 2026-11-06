@@ -330,7 +330,7 @@ void Editor::feedback_apply_retrospective() {
     }
     if (dir != projectDir_) return;  // another project is open now: this answer is about the one that was closed
     if (!ok) {
-        fbMessage_ = "Retrospective failed: " + message;
+        fbMessage_ = message.rfind("cancelled", 0) == 0 ? "Retrospective stopped: nothing was filed." : "Retrospective failed: " + message;
         return;
     }
     std::string text = result.value("note", std::string());
@@ -671,8 +671,12 @@ void Editor::draw_feedback_add_window() {
             in.reporter = Json::object({{"kind", "human"}, {"agent", "factoria-editor"}});
             // The same check as feedback.report and `factoria feedback add`: a gap the engine already covers is not filed.
             const ClaimResult claim = check_feedback_claim(ClaimInput{in.title, in.missing, in.suggestion}, &engine_->commands());
-            Result<FeedbackAddResult> r = claim.refused() ? Result<FeedbackAddResult>(make_error(claim.message(), claim.hint()))
-                                                          : add_feedback_entry_to_file(path, in, projectName_);
+            Result<FeedbackAddResult> r = make_error(claim.message(), claim.hint());
+            if (!claim.refused()) {
+                // Under the lock the other writers take; this is the UI thread, so a busy lock is waited for 0.3 s at most.
+                FeedbackFileLock lock(ui_share_env(), path);
+                r = lock.held() ? add_feedback_entry_to_file(path, in, projectName_) : Result<FeedbackAddResult>(make_error(lock.error(), "Try again in a moment."));
+            }
             if (r) {
                 fbMessage_ = (r->merged ? "Merged into " : "Added ") + r->id + (r->merged ? " (occurrences " + std::to_string(r->occurrences) + ")" : "");
                 fbSelected_ = r->id;

@@ -367,23 +367,30 @@ TEST_CASE("ai.retrospective: a transcript that is too big is left out with its r
     Fixture f;
     f.session("20261026-100000-orchestrator", failing_run());
     f.session("20261026-110000-orchestrator", failing_run());
+    // A 3 MB transcript against a per-transcript limit of 2 MB (the real limit is 64 MB: the test lowers it instead of writing that much).
     const fsys::path huge = f.proj.path / ".factoria" / "ai" / "sessions" / "20261026-120000-orchestrator.jsonl";
     fsys::create_directories(huge.parent_path());
-    std::ofstream(huge, std::ios::binary) << "{}\n";
     std::error_code ec;
-    fsys::resize_file(huge, kEfficiencyMaxBytes + 1, ec);  // sparse where the file system allows
-    REQUIRE_FALSE(ec);
-    auto r = f.retro(Json::object({{"candidatesOnly", true}}));
-    REQUIRE_MESSAGE(r.ok, r.error.dump());
-    CHECK(r.result["sessions"].size() == 2);
-    REQUIRE(r.result["skipped"].size() == 1);
-    CHECK(r.result["skipped"][0]["id"] == "20261026-120000-orchestrator");
-    CHECK(has(r.result["skipped"][0]["reason"].get<std::string>(), "MB"));
-    CHECK(has(r.result["note"].get<std::string>(), "1 transcript(s) were not read"));
+    {
+        std::ofstream out(huge, std::ios::binary);
+        out << std::string(3u * 1024 * 1024, ' ');
+    }
+    RetrospectiveOptions ro;
+    ro.candidatesOnly = true;
+    ro.maxTranscriptBytes = 2u * 1024 * 1024;
+    auto r = run_retrospective(f.cfg, ro, f.proj.str());
+    REQUIRE_MESSAGE(r.ok(), r.error().message);
+    CHECK(r->sessions.size() == 2);
+    REQUIRE(r->skipped.size() == 1);
+    CHECK(r->skipped[0]["id"] == "20261026-120000-orchestrator");
+    CHECK(has(r->skipped[0]["reason"].get<std::string>(), "MB"));
+    CHECK(has(r->to_json().value("note", std::string()), "1 transcript(s) were not read"));  // the note of the answer lists them
     // Named on purpose, it is an error that says why instead of a silent skip.
-    auto named = f.retro(Json::object({{"sessions", Json::array({"20261026-120000-orchestrator"})}, {"candidatesOnly", true}}));
-    REQUIRE_FALSE(named.ok);
-    CHECK(has(named.error["message"].get<std::string>(), "MB"));
+    RetrospectiveOptions named = ro;
+    named.sessions = {"20261026-120000-orchestrator"};
+    auto refused = run_retrospective(f.cfg, named, f.proj.str());
+    REQUIRE_FALSE(refused.ok());
+    CHECK(has(refused.error().message, "MB"));
     fsys::remove(huge, ec);
 }
 
@@ -470,19 +477,20 @@ TEST_CASE("ai.retrospective: Stop reaches the model call, which returns at once 
     RetrospectiveOptions ro;
     ro.cancel = &stop;
     ro.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> { return std::static_pointer_cast<ChatProvider>(waiting); };
+    // Bounded: a run that never reaches the model call still gets its Stop (and fails the checks below) instead of hanging the test.
     std::thread stopper([&] {
-        while (!waiting->entered) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        for (int i = 0; i < 6000 && !waiting->entered; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(1));
         stop = true;
     });
     const auto began = std::chrono::steady_clock::now();
     auto r = run_retrospective(f.cfg, ro, f.proj.str());
     stopper.join();
     const auto waited = std::chrono::steady_clock::now() - began;
-    REQUIRE(r.ok());
+    // A stopped retrospective is cancelled, not "finished with a note": the caller (the CLI, the panel) shows that it was stopped.
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.rfind("cancelled", 0) == 0);
     CHECK(waiting->sawFlag);
     CHECK(waited < std::chrono::seconds(8));  // the provider's own give-up is 10 s
-    CHECK(r->filed.empty());
-    CHECK(has(r->note, "did not answer"));
     CHECK_FALSE(fsys::exists(f.feedback_file()));
 }
 

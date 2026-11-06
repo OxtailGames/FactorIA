@@ -576,6 +576,10 @@ def test_misc(tmp):
 
 def main():
     tmp = tempfile.mkdtemp(prefix="factoria-cli-it-")
+    # Every command that writes ENGINE_FEEDBACK.json takes the lock of the user's sharing files (feedback-share.lock next to ai.json):
+    # the whole run uses a scratch user folder, so nothing here creates or touches the real ~/.factoria (a test with its own
+    # FACTORIA_AI_CONFIG, like the ai ones, keeps it).
+    os.environ["FACTORIA_AI_CONFIG"] = os.path.join(tmp, "user-config", "ai.json")
     try:
         for t in TEMPLATES:
             test_template(tmp, t)

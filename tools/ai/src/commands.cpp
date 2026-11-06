@@ -779,7 +779,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "maxShare, potentialSaving, suggestedFix, appliesTo, projectOnly}], alreadyFiled, fixChecks:[{entry, pattern, fixedIn, fixedAt, result, sessionsAfter, spansAfter, ratio, before, after?, text}], "
             "filed:[{candidate, id, merged, title, fixType, saving, measured}], dropped:[{candidate, code, reason}], skipped:[{id, reason}] (transcripts not read: over 64 MB, or past the 256 MB one pass reads), facts:[{candidate, id, line}], model, usage, costUsd (what the model call cost), note}. Without a model "
             "(no key, fast role off and no orchestrator) the candidates come back and `note` says why. It runs by itself after a long run when ai.json "
-            "savers.retrospective is on (150 model calls or $3 by default). One runs at a time: a second call gets code busy. Spends tokens of the fast role. "
+            "savers.retrospective is on (150 model calls or $3 by default). One runs at a time: a second call gets code busy. A Stop while it works returns code cancelled and files nothing. Spends tokens of the fast role. "
             "Example: {\"since\":\"2026-11-01\"}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "sessions":{"type":"array","items":{"type":"string"},"maxItems":40,"description":"Transcripts to read, by file name in .factoria/ai/sessions (20261014-153012-orchestrator, with or without .jsonl; ai.session_timeline names them). Omit for the newest 40."},
@@ -808,7 +808,8 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             auto r = run_retrospective(*cfg, ro, dir);
             if (!r) {
                 const bool busy = r.error().message.rfind("busy", 0) == 0;
-                throw CommandError(busy ? "busy" : "invalid_arguments", r.error().message, r.error().hint);
+                const bool stopped = r.error().message.rfind("cancelled", 0) == 0;  // Stop: not a wrong argument
+                throw CommandError(busy ? "busy" : stopped ? "cancelled" : "invalid_arguments", r.error().message, r.error().hint);
             }
             return r->to_json();
         });

@@ -72,12 +72,17 @@ inline constexpr std::size_t kEfficiencyMaxLine = 8u * 1024 * 1024;         // a
 EfficiencySession read_efficiency_session(const std::string& text, const std::string& id);
 // The same, read from a stream line by line: only one line (at most kEfficiencyMaxLine bytes) and one 64 KB chunk are held in memory, and
 // at most kEfficiencyMaxBytes bytes are read (the rest sets `truncated`).
-EfficiencySession read_efficiency_session(std::istream& in, const std::string& id);
+// `maxBytes` is kEfficiencyMaxBytes unless a test lowers it.
+EfficiencySession read_efficiency_session(std::istream& in, const std::string& id, std::uint64_t maxBytes = kEfficiencyMaxBytes);
 // How much a call that reads several transcripts may still read. Every load_efficiency_session given the budget takes the size of its file
 // off it before opening it, and refuses a file that no longer fits.
 struct EfficiencyLoadBudget {
     std::uint64_t total = kEfficiencyMaxTotalBytes;
     std::uint64_t bytesLeft = kEfficiencyMaxTotalBytes;
+    std::uint64_t maxFile = kEfficiencyMaxBytes;  // the most one transcript may weigh; tests lower it instead of making a 65 MB file
+    EfficiencyLoadBudget() = default;
+    EfficiencyLoadBudget(std::uint64_t totalBytes, std::uint64_t fileBytes = kEfficiencyMaxBytes)
+        : total(totalBytes), bytesLeft(totalBytes), maxFile(fileBytes) {}
 };
 // The folder of a project's transcripts: <projectDir>/.factoria/ai/sessions
 std::string efficiency_sessions_dir(const std::string& projectDir);
@@ -221,7 +226,7 @@ struct EfficiencyGroup {
 // The ranking of groups: JSON array, most saved first, ties by cost, tokens, then title (the same inputs always give the same text).
 // Each item: {rank, title, category, fixType, appliesTo, suggestion?, installations, verifiedInstallations, reports,
 // total {steps, toolCalls, minutes, tokens, costUsd, estimated, hours}, perGame {minutes, tokens, costUsd}, fixCost {hours, usd?},
-// verdict {code, text}, afterFix[]?, entries [{project, id, shareId?, trust, occurrences, saving, measured, rejectReason}]}.
+// verdict {code, text}, afterFix[]?, entries [{project, id, shareId?, trust, occurrences, saving, measured, rejectReason?}]}.
 // `total` is the sum over installations of each one's saving (its own entries added: an installation counts once, whatever number of
 // reports it sent), an anonymous installation weighted kEfficiencyAnonymousWeight; `hours` is the larger of its minutes and its dollars
 // at kEfficiencyUsdPerHour. Minutes are rounded to 0.1, dollars to cents, hours to 0.1.
@@ -229,8 +234,10 @@ struct EfficiencyGroup {
 // against the hours the fix costs), engine-roadmap / engine-below-threshold (engineChange: against the roadmap bar of $1000 or 20 hours).
 // verdict.text is "doc now", "command: worth it", "command: not yet (H of the C hours it costs)", "engine change: below threshold (N of the
 // $1000 / 20 hours it needs)" with N = "H hours" and "$D", or "engine change: reached the roadmap bar (...)".
-// `rejectReason` is a ready reason for `factoria feedback reject` (plain text under 500 characters, it names only this entry's own
-// numbers: the installation reads it and must learn nothing about others).
+// `rejectReason` (only on the entries of a group whose verdict is doc-now or engine-below-threshold: the two that mean "do not build
+// this") is a ready reason for `factoria feedback reject` (plain text under 500 characters, it names only this entry's own numbers:
+// the installation reads it and must learn nothing about others). The hours and dollars of a verdict text round DOWN, so a "not yet"
+// never reads as if it had reached its bar.
 Json rank_efficiency(std::vector<EfficiencyGroup> groups);
 
 }  // namespace fa
