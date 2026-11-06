@@ -74,13 +74,15 @@ a warning), `overwrite` and `author` (the credit in the provenance; default `fac
 
 **What it costs.** These calls bill money. Before the provider is called the command estimates the price from the provider's
 `assetPricing` ([AI_PROVIDERS.md](AI_PROVIDERS.md#asset-providers)), refuses a call that would pass `limits.maxAssetCostUsd`
-(`perRun`, `perDay`) and, above `limits.askAboveUsd` (default $0.50), does not make it: in the editor the user answers a card
+(`perRun`, `perDay`) and, above `limits.askAboveUsd` (default $0.50, counting the small calls since the user last said yes that
+were not asked about), does not make it: in the editor the user answers a card
 under the chat (Approve, Approve all for this run, Cancel); over MCP or the CLI the command returns
-`{"needsApproval": true, "plan": {...}}` with what, how many, the provider and the estimate. **Ask the user, and only after
+`{"needsApproval": true, "plan": {...}}` with what, how many, the provider and the estimate (in the editor `approved` is ignored: only the
+user's click on the card counts). **Ask the user, and only after
 they say yes call again with the same arguments and `approved: true`. Never set `approved: true` yourself and never raise a
 limit.** The result carries `estimatedCostUsd` (an estimate, not an invoice; 0 for `fake` and local programs, `null` when the
 price is unknown), `costIsEstimate: true` and `cost` (the basis, what the run and the day have spent). Details and the price
-table (looked up 2026-11-06, two figures unverified): [AI_COSTS.md](AI_COSTS.md#asset-generation).
+table (looked up 2026-11-06, several figures unverified): [AI_COSTS.md](AI_COSTS.md#asset-generation).
 
 - `path` is project-relative and under `assets/`. Its extension has to be the one the provider makes: `.png` for images;
   `.mp3` for OpenAI speech and ElevenLabs; `.wav` for `fake` and `asset-command` audio; `.glb` for Meshy and

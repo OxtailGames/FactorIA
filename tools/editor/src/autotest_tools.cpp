@@ -8784,32 +8784,40 @@ void Editor::at_build_tools_script() {
     section("A3");
     // docs/AI_COSTS.md, "Asset generation": a paid asset call of an AI run above limits.askAboveUsd waits for the user. The call is the
     // real AssetCostGuard on its own thread (what an agent or MCP thread does), its approver the editor's; the user folder is a scratch
-    // one (the day total never touches the real ~/.factoria). The card sits under the chat, in the window of the 1024x642 display too.
+    // one given to THAT thread only (AssetRunScope's spend env: no global that the editor's other threads could read), so the day total
+    // never touches the real ~/.factoria. The card sits under the chat, in the window of the 1024x642 display too, with a long prompt.
+    // Stop is the real button of a run (a stand-in AiRun, running, with no agent thread): its cancel flag ends the wait.
     {
         struct A3 {
-            std::unique_ptr<ScopedShareEnv> home;
+            ShareEnv env;                       // the scratch user folder; outlives the thread (the guard keeps a pointer to it)
             std::thread th;
             std::mutex mu;
             std::string outcome;
             std::atomic<bool> done{false};
-            std::string chat, project;
+            CancelFlag stop{false};             // what the thread's call waits on: set from the run's cancel flag, or when the section ends
+            std::string chat, project, prompt;
             std::size_t items = 0;
+            ~A3() {                             // a section that aborts must not leave the thread waiting for a card nobody answers
+                stop = true;
+                if (th.joinable()) th.join();
+            }
         };
         auto x = std::make_shared<A3>();
         // One paid call: 4 images, about $1.20 (above the 0.50 default).
         auto call = [this, x](double usd) {
             if (x->th.joinable()) x->th.join();
             x->done = false;
+            x->stop = false;
             x->outcome.clear();
             x->th = std::thread([this, x, usd] {
                 std::string outcome;
                 try {
-                    ai::AssetRunScope scope(x->chat, [this](const ai::AssetApprovalRequest& r) { return aiApprovals_.ask(r); });
+                    ai::AssetRunScope scope(x->chat, [this](const ai::AssetApprovalRequest& r) { return aiApprovals_.ask(r); }, &x->env);
                     ai::Limits limits;
                     ai::AssetCall c;
                     c.command = "assets.generate_image";
                     c.what = "4 images of a ruby at assets/gems/ruby.png";
-                    c.prompt = "a ruby, pixel art, 32x32";
+                    c.prompt = x->prompt;
                     c.projectDir = x->project;
                     c.provider = "openai";
                     c.model = "gpt-image-1";
@@ -8819,11 +8827,14 @@ void Editor::at_build_tools_script() {
                     c.estimate.basis = "4 x 1024x1024 auto at $0.30";
                     c.estimate.checked = "2026-11-06";
                     c.estimate.source = "https://example.com/prices";
+                    c.cancel = &x->stop;
                     ai::AssetCostGuard guard = ai::AssetCostGuard::begin(limits, c, false);
                     outcome = guard.go() ? "go" : "needsApproval";
                     if (guard.go()) guard.commit();
                 } catch (const CommandError& e) {
                     outcome = e.code;
+                } catch (const std::exception& e) {
+                    outcome = std::string("exception: ") + e.what();
                 }
                 {
                     std::lock_guard<std::mutex> lock(x->mu);
@@ -8845,18 +8856,21 @@ void Editor::at_build_tools_script() {
         auto wait_done = [this, x, &step] {
             step(1, [this, x] {
                 atWaitCount_ = 0;
-                atWaitUntil_ = [x] { return x->done.load(); };
+                // the run's cancel flag is what ai_start hands the commands; the stand-in run's is relayed to the thread's call
+                atWaitUntil_ = [this, x] {
+                    if (const AiRun* r = ai_run_of(x->chat); r && r->cancel.load()) x->stop = true;
+                    return x->done.load();
+                };
             });
         };
         step(2, [this, x] {
-            x->home = std::make_unique<ScopedShareEnv>([&] {
-                ShareEnv env;
-                const std::string home = atOutDir_ + "/asset_home";
-                env.env = [home](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : ""; };
-                return env;
-            }());
+            const std::string home = atOutDir_ + "/asset_home";
+            x->env.env = [home](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : ""; };
             x->chat = chat_.current().id;
             x->project = projectDir_;
+            // a long prompt: the card must keep its buttons in a narrow window
+            x->prompt = "a ruby, pixel art, 32x32, red with a white glint, on a transparent background, in the style of the house palette; " +
+                        std::string(300, 'x') + " (end of a long prompt)";
             x->items = chat_.current().items.size();
             ai::asset_run_begin(x->chat);
             focus_window("AI Assistant");
@@ -8919,25 +8933,47 @@ void Editor::at_build_tools_script() {
             at_check(ai::asset_run_spent(x->chat) == 0.0 && !ai::asset_run_approves_all(x->chat), "...and nothing is spent");
             at_check(chat_.current().items.back().text.find("You declined") == 0, "...and the chat says so");
         });
-        // ---- Stop while a card waits: the wait ends with Cancel, the card goes
-        step(2, [call] { call(1.20); });
-        wait_card();
-        step(2, [this] {
-            aiApprovals_.close();   // what ai_stop does
+        // ---- Stop while a card waits: the Stop button of the run ends the wait as "cancelled" (not "declined"), the card goes
+        step(2, [this, x, call] {
+            auto run = std::make_unique<AiRun>(x->chat);   // a run with no agent thread: it only has to be running for Stop
+            run->running = true;
+            const long long nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            run->lastActivityMs = nowMs;
+            run->startMs = nowMs;
+            aiRuns_.push_back(std::move(run));
+            call(1.20);
         });
+        wait_card();
+        step(3, [this, x] {
+            at_check(ai_run_of(x->chat) && !ai_run_of(x->chat)->cancel.load(), "a run is going and not stopped before the Stop button");
+            at_check(at_shown("ai:stop"), "the run's Stop button is on screen while its card waits");
+        });
+        click("ai:stop");
         wait_done();
         step(3, [this, x, outcome] {
-            aiApprovals_.reopen();
-            at_check(outcome() == "asset_declined" && !aiApprovals_.waiting_for(x->chat), "stopping the run ends the wait: the call is declined and the card goes");
+            at_check(ai_run_of(x->chat) && ai_run_of(x->chat)->cancel.load(), "the Stop button set the run's cancel flag");
+            at_check(outcome() == "cancelled" && !aiApprovals_.waiting_for(x->chat),
+                     "stopping the run ends the wait as cancelled (not declined) and the card goes: " + outcome());
+            at_check(ai::asset_run_spent(x->chat) == 0.0, "...and nothing is spent");
+            // the stand-in run ends like a real one whose turn ended
+            if (AiRun* r = ai_run_of(x->chat)) {
+                ai::SessionResult res;
+                res.ok = false;
+                res.stopReason = "cancelled";
+                r->turn_ended(std::move(res));
+            }
+        });
+        step(1, [this, x] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, x] { return ai_run_of(x->chat) == nullptr; };
         });
         // ---- leave the editor as the other sections expect it
         step(2, [this, x] {
             if (x->th.joinable()) x->th.join();
-            x->home.reset();
             ai::asset_run_begin(x->chat);
             std::error_code ec;
             stdfs::remove_all(atOutDir_ + "/asset_home", ec);
-            chat_.current().items.resize(x->items);
+            if (chat_.current().id == x->chat) chat_.current().items.resize(std::min(chat_.current().items.size(), x->items));
         });
     }
 

@@ -685,10 +685,10 @@ game project; keys go only to the provider's `baseUrl`, in headers, and are not 
 is sent to an asset provider is the prompt (with the house style), the reference images and, for voice, the text.
 
 **Cost.** Asset providers bill for every call. The built-in ones (`openai`, `elevenlabs`, `meshy`) carry a price table,
-`assetPricing`, looked up on 2026-11-06 (two figures are unverified: OpenAI voice and Meshy 3D, see
+`assetPricing`, looked up on 2026-11-06 (unverified: OpenAI voice, the three ElevenLabs figures, Meshy 3D, and OpenAI images made with a model other than `gpt-image-1`, see
 [AI_COSTS.md](AI_COSTS.md#asset-generation)): every result has `estimatedCostUsd` (an estimate, never an invoice), the limits
 `limits.maxAssetCostUsd.perRun` and `.perDay` refuse a call that would pass them, and a call above `limits.askAboveUsd`
-(default $0.50) waits for the user. `limits.maxCostUsd` covers LLM runs only. `fake` and local programs cost 0 and never ask.
+(default $0.50), or small calls that add up above it since the user last said yes, wait for the user. `limits.maxCostUsd` covers LLM runs only. `fake` and local programs cost 0 and never ask.
 Look at the first result before generating a batch and prefer `fake` while the flow is being built.
 
 `assetPricing` is a provider key, in `ai.json` only. It replaces the built-in table; every key is optional:
@@ -699,6 +699,8 @@ Look at the first result before generating a batch and prefer `fake` while the f
 | `voicePer1000Chars` | USD per 1000 characters of the text |
 | `soundPerSecond`, `musicPerSecond` | USD per second of audio (10 s and 60 s are assumed when the call leaves the length to the provider) |
 | `model3d` | USD per model |
+| `model` | the image model the `image` figures are for; a picture made with another model is priced with them but marked unverified |
+| `unverified` | the kinds whose figure was not confirmed (`image`, `voice`, `sound`, `music`, `model3d`) |
 | `checked`, `source`, `note` | the day the prices were looked up (`YYYY-MM-DD`), the page that publishes them and what they leave out; shown on the approval card and in results |
 
 An `asset-command` or a local server with no `assetPricing` is free. A remote provider with none has an unknown price: its call

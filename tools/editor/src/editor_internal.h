@@ -436,6 +436,7 @@ public:
     void image_provider_refresh();
     void image_provider_start(ImageModel& m);
     void image_provider_estimate(ImageModel& m);
+    void image_provider_estimate_poll(ImageModel& m);
     void image_provider_poll(ImageModel& m);
     void draw_image_layer_inspector(ImageModel& m);
     void draw_image_operations(ImageModel& m, const ImageLayer& layer, bool effect);

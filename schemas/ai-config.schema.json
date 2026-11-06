@@ -285,6 +285,7 @@
             "checked": { "type": "string", "description": "The day the prices were looked up (YYYY-MM-DD). Shown with every estimate." },
             "source": { "type": "string", "description": "Where the provider publishes the prices (a web address). Shown with every estimate." },
             "note": { "type": "string", "description": "How the figures were derived and what they leave out." },
+            "model": { "type": "string", "description": "The image model the `image` figures are for (\"gpt-image-1\"). A picture made with another model is priced from the same table and its estimate is marked unverified (priceUnverified). Empty: the table is for every model." },
             "unverified": {
               "type": "array",
               "items": { "type": "string", "enum": ["image", "sound", "music", "voice", "model3d"] },

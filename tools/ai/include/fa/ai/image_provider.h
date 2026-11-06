@@ -57,7 +57,7 @@ ImageEditPlan plan_image_edit(const ImageEditEnv& env, bool inpaint, const Json&
 // AssetCostGuard::begin. `approved`: the user said yes to this call (the argument, or a button that showed the estimate). When go()
 // of the guard is false return needs_approval() and call nothing. Commit the guard when the provider answered; a guard that is
 // dropped gives the money back. Takes the cross-process lock of the user folder: not for the editor's UI thread.
-AssetCostGuard begin_image_edit_cost(const ImageEditPlan& plan, const ImageEditEnv& env, bool approved, const CancelFlag* cancel = nullptr);
+AssetCostGuard begin_image_edit_cost(const ImageEditPlan& plan, const ImageEditEnv& env, bool approved, const CancelFlag* cancel = nullptr, bool userApproved = false);
 
 // Calls the provider. Errors say what to check.
 Result<AssetResult> run_image_edit(const ImageEditPlan& plan, const ProviderRuntime& runtime, const CancelFlag* cancel = nullptr);
