@@ -639,7 +639,11 @@
       "suggestion": "A prefab option on assets.animate_svg ({prefab: 'prefabs/coin_sparkle.prefab.json', layerOrder: {...}}) that writes the parent with the three children, the sheet clip, and the blend, so the effect is one call.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "FactorIA 0.17.0",
+      "notes": [
+        "assets.animate_svg takes prefab (with layers): a path or {path, name, tags, size, layers, pixelArt, overwrite}; it writes the parent with a Back, Front and Light child (the light additive) on the shared clip, and refuses to replace an existing prefab unless prefab.overwrite is true. prefabs/coin_sparkle.prefab.json is byte for byte what the command writes. docs/ASSETS.md, docs/EFFECTS.md."
+      ]
     },
     {
       "id": "FB-0029",
@@ -657,7 +661,11 @@
       "suggestion": "Warn in the animate_svg result (and say which padding or cell size gives a multiple of 4) when the project targets a mobile platform.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "FactorIA 0.17.0",
+      "notes": [
+        "assets.animate_svg warns, when factoria.json lists android or ios, that a sheet whose width or height is not a multiple of 4 cannot be GPU-compressed, and names the padding (and the frame size) that gives one (294x294 with padding 1: padding 2 gives 300x300). docs/ASSETS.md, Sheet sizes on a phone."
+      ]
     }
   ]
 }

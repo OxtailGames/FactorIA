@@ -475,6 +475,28 @@ animation (`cycleSeconds * fps` frames).
   sheets this call newly made are removed again (a sheet it replaced cannot be, and the error names it). Baking the same
   `path` again with fewer layers deletes the sheets of the earlier bake that this command made for that `path` (its recipe
   says so) together with their entries, and says so in a warning; a file of the same name made by anything else stays.
+- **The prefab of the layers: `prefab`.** With `layers`, `"prefab": "prefabs/hit.prefab.json"` also writes the entities that
+  play them together, so the effect is one call. The file is a parent entity (named after the file, "Hit"; `name` changes it)
+  with one child per baked layer in the order Back, Front, Light. Each child has a `Transform` at the parent's origin, a
+  `Sprite` on that layer's sheet and a `SpriteAnimator` on the sheet's first clip (the clip every layer shares, so they stay in
+  step; with several `clips`, the result warns that the first one plays). The Light child has `"blend": "additive"`. `prefab` is
+  the path, or an object `{path, name, tags, size, layers, pixelArt, overwrite}`: `size` is the `Sprite.size` in world units
+  `[w, h]` (default one frame in pixels), `layers` the `Sprite.layer` of each layer (`{"back": 2, "front": 20, "light": 21}`;
+  default -1, 1 and 2: put the character's layer between `back` and `front`), `tags` the parent's tags and `pixelArt` the
+  filtering (default `false`: smooth). The result has `prefab` (`{path, name, clip, size, children: [{name, texture, layer,
+  blend}]}`) and the next steps say how to spawn it (`feel.do({action: "spawn", prefab, offset, lifetime})` from a script,
+  or `scene.spawn`; a clip with `loop: false` stays on its last frame, so spawn it with a `lifetime`). A prefab that already
+  exists is never replaced unless the object has `overwrite: true`; the check happens before anything is drawn, because the
+  prefab may hold changes made by hand and the command's own `overwrite` is about the sheets. The prefab is written after the
+  sheets are recorded, with the same layout as `scene.save`. It is not part of the recipe: `assets.regenerate` remakes the
+  sheets and leaves the prefab as it is. Without `layers` the command refuses `prefab` and says so (one sheet is one Sprite you
+  place yourself).
+- **Sheet sizes on a phone.** When `factoria.json` lists `android` or `ios` in `platforms`, a sheet whose width or height is
+  not a multiple of 4 gets a warning: the export GPU-compresses textures on those platforms, which needs both sides to be
+  multiples of 4, and ships any other as an uncompressed PNG (see "Multiples of 4" under the export's texture
+  compression). The warning names the `padding` that fixes it (96 px frames with `padding: 1` in a 3 x 3 grid make 294 x 294;
+  `padding: 2` gives 300 x 300) and the larger frame size that would also do. It is not said for a project that targets no
+  phone, nor for a sheet whose import settings turn `compression` off or put it in an atlas.
 
 - **Warnings.** Frames that draw nothing (the shapes sit outside the viewBox, or the module returned an empty drawing), shapes
   touching the edge of the cell (they may be cut off: draw smaller, enlarge the frame, or add `padding`), a loop whose last

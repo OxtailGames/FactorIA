@@ -27,7 +27,7 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 |---|---|
 | `factoria.json` | project settings: name, display size, main scene, physics, input actions |
 | `scenes/*.scene.json` | levels: entities with components (format `factoria.scene/1`) |
-| `assets/vfx/*.vfx.json` | effect documents (`factoria.vfx/1`): emitters, a light flash and sounds on one timeline, played with `vfx.play`; here `gem_burst`, the pickup effect of a gem. Grade one with `vfx.check`, `vfx.budget` and `vfx.filmstrip` (give a `position`: this is a 3D game) |
+| `assets/vfx/*.vfx.json` | effect documents (`factoria.vfx/1`): emitters, a light flash and sounds on one timeline, played with `vfx.play`; here `gem_burst`, the pickup effect of a gem. Grade one with `vfx.check`, `vfx.budget` and `vfx.filmstrip` (in this 3D game it plays the effect a few metres in front of the main camera unless you give a `position`; `vfx.budget` projects the 3D emitters through that camera) |
 | `materials/*.material.json`, `shaders/*.surface.glsl` | custom material of the gems (`gem`: emission pulsing with `fa_time`), named by `MeshRenderer.material` in `tools/scatter_gems.js`. It is compiled by sokol-shdc: `factoria setup shaders` once, then `factoria validate` compiles it for every platform |
 | `scripts/*.js` | behaviours attached to entities via the `Script` component |
 | `tools/*.js` | project commands, become `project.<name>` / MCP tool `project_<name>` |

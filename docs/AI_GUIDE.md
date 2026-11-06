@@ -1526,6 +1526,11 @@ assets_animate_svg {"path":"assets/art/coin_spin.png","source":"art/coin_spin.an
   frames by brightness (for a SMIL SVG or a module that draws in greys). `layers: ["back","front","light"]` bakes one sheet per layer
   (`hit_back.png`, `hit_front.png`, `hit_light.png`) from the same module, which receives `layer`: put `back` at a lower
   `Sprite.layer` than the character, `front` at a higher one and `light` with `Sprite.blend` `additive`, all with the same clip.
+  Add `prefab` (`"prefab": "prefabs/hit.prefab.json"`, or an object with `size`, `layers` {back, front, light} as Sprite.layer
+  numbers, `tags`, `name`) and the same call writes that parent with its three children, the clip and the blend, so you do not
+  write them by hand; it never replaces an existing prefab unless the object has `overwrite: true`. When `factoria.json`
+  targets android or ios, a sheet whose width or height is not a multiple of 4 is a warning that names the `padding` that
+  fixes it (GPU compression needs multiples of 4): bake with that padding the first time.
 - **SMIL.** If you already have an animated SVG (`<animate>`, `<animateTransform>`, `<animateMotion>`), give it as `svg` (or as a
   project `.svg` in `source`): it is sampled at each frame; what cannot be sampled (click events, CSS animations) is a warning.
 - **Provenance** is recorded as AI-made unless you pass `ai: false`, with a `recipe` (the module and its imports, hashed) that
