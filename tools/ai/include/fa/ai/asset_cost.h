@@ -50,19 +50,39 @@ std::string format_usd(double usd);
 // The estimate as the fields of a result: {estimatedCostUsd (null when unknown), costIsEstimate: true, cost: {basis, ...}}.
 Json estimate_to_json(const AssetEstimate& estimate);
 
+// ---- who says yes (the hook; the guard below uses it) -------------------------------------------------------------------------
+
+// What the user answered to "make this?".
+enum class AssetDecision { Approve, ApproveAll, Cancel };
+// One call waiting for the user's yes. `plan` is the "plan" of the needsApproval answer ({command, what, kind, provider, model, count,
+// estimatedCostUsd, basis, prompt...}). `cancel` is the cancel flag of the run (may be null): the approver gives up with Cancel when it
+// is set. `runKey` is asset_run_key() of the calling thread (the editor: the chat id).
+struct AssetApprovalRequest {
+    std::string runKey;
+    Json plan;
+    const CancelFlag* cancel = nullptr;
+};
+// A host that has a person to ask (the editor) gives its generating commands one (AiCommandOptions::assetApprover, or
+// set_asset_approver for the whole process). It runs on the thread of the generating call (an agent or MCP thread,
+// never the UI thread), blocks until the user answers and returns the answer. Without an approver a call that needs the user's yes
+// returns the needsApproval answer instead (the CLI, MCP and scripts: the AI asks its user, then passes approved:true).
+using AssetApprover = std::function<AssetDecision(const AssetApprovalRequest&)>;
+
 // ---- the run a thread works for -----------------------------------------------------------------------------------------------
 
 // Within the life of the object the asset calls of this thread count into the run `key` (the editor: the chat id of the AI run
-// that made the call). Without one they count into the run "" (the process).
+// that made the call). Without one they count into the run "" (the process). `approver` (optional) is who these calls ask when
+// they need the user's yes: set_asset_approver()'s one is used when it is empty.
 class AssetRunScope {
 public:
-    explicit AssetRunScope(std::string key);
+    explicit AssetRunScope(std::string key, AssetApprover approver = {});
     ~AssetRunScope();
     AssetRunScope(const AssetRunScope&) = delete;
     AssetRunScope& operator=(const AssetRunScope&) = delete;
 
 private:
     std::string previous_;
+    AssetApprover previousApprover_;
 };
 // A run starts: its spent total goes back to 0 and "approve all" is off.
 void asset_run_begin(const std::string& key);
@@ -84,20 +104,6 @@ std::optional<double> asset_spent_today(const std::string& projectDir);
 
 // ---- who says yes -------------------------------------------------------------------------------------------------------------
 
-// What the user answered to "make this?".
-enum class AssetDecision { Approve, ApproveAll, Cancel };
-// One call waiting for the user's yes. `plan` is the "plan" of the needsApproval answer ({command, what, kind, provider, model, count,
-// estimatedCostUsd, basis, prompt...}). `cancel` is the cancel flag of the run (may be null): the approver gives up with Cancel when it
-// is set. `runKey` is asset_run_key() of the calling thread (the editor: the chat id).
-struct AssetApprovalRequest {
-    std::string runKey;
-    Json plan;
-    const CancelFlag* cancel = nullptr;
-};
-// A host that has a person to ask (the editor) installs one. It runs on the thread of the generating call (an agent or MCP thread,
-// never the UI thread), blocks until the user answers and returns the answer. Without an approver a call that needs the user's yes
-// returns the needsApproval answer instead (the CLI, MCP and scripts: the AI asks its user, then passes approved:true).
-using AssetApprover = std::function<AssetDecision(const AssetApprovalRequest&)>;
 // Installs `approver` (empty removes it) and returns the previous one.
 AssetApprover set_asset_approver(AssetApprover approver);
 // For tests: installs an approver for the life of the object.

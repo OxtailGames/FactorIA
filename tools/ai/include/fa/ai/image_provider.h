@@ -73,6 +73,6 @@ ImageEditStored store_image_edit(const ImageEditEnv& env, const ImageEditPlan& p
 
 void register_image_provider_commands(CommandRegistry& registry, std::function<Result<AiConfig>()> load,
                                       std::function<std::string()> projectDir, ProviderRuntime runtime, const CancelFlag* cancel,
-                                      std::string runKey = {});
+                                      std::string runKey = {}, AssetApprover approver = {});
 
 }  // namespace fa::ai

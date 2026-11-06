@@ -213,11 +213,19 @@ std::map<std::string, RunLedger>& runs() {
     return m;
 }
 thread_local std::string tRunKey;
+thread_local AssetApprover tApprover;
 
 }  // namespace
 
-AssetRunScope::AssetRunScope(std::string key) : previous_(std::move(tRunKey)) { tRunKey = std::move(key); }
-AssetRunScope::~AssetRunScope() { tRunKey = std::move(previous_); }
+AssetRunScope::AssetRunScope(std::string key, AssetApprover approver)
+    : previous_(std::move(tRunKey)), previousApprover_(std::move(tApprover)) {
+    tRunKey = std::move(key);
+    tApprover = std::move(approver);
+}
+AssetRunScope::~AssetRunScope() {
+    tRunKey = std::move(previous_);
+    tApprover = std::move(previousApprover_);
+}
 std::string asset_run_key() { return tRunKey; }
 
 void asset_run_begin(const std::string& key) {
@@ -520,8 +528,8 @@ AssetCostGuard AssetCostGuard::begin(const Limits& limits, const AssetCall& call
         if (!e.checked.empty()) plan["priceChecked"] = e.checked;
         if (!e.source.empty()) plan["priceSource"] = e.source;
         if (!e.verified) plan["priceUnverified"] = true;
-        AssetApprover approver;
-        {
+        AssetApprover approver = tApprover;
+        if (!approver) {
             std::lock_guard<std::mutex> lock(gApproverMu);
             approver = approver_slot();
         }

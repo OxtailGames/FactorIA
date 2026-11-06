@@ -307,15 +307,17 @@ ImageEditStored store_image_edit(const ImageEditEnv& env, const ImageEditPlan& p
 }
 
 void register_image_provider_commands(CommandRegistry& registry, std::function<Result<AiConfig>()> load, std::function<std::string()> projectDir,
-                                      ProviderRuntime runtime, const CancelFlag* cancel, std::string runKey) {
+                                      ProviderRuntime runtime, const CancelFlag* cancel, std::string runKey,
+                                      AssetApprover approver) {
     struct Shared {
         std::function<Result<AiConfig>()> load;
         std::function<std::string()> projectDir;
         ProviderRuntime runtime;
         const CancelFlag* cancel;
         std::string runKey;
+        AssetApprover approver;
     };
-    auto shared = std::make_shared<Shared>(Shared{std::move(load), std::move(projectDir), std::move(runtime), cancel, std::move(runKey)});
+    auto shared = std::make_shared<Shared>(Shared{std::move(load), std::move(projectDir), std::move(runtime), cancel, std::move(runKey), std::move(approver)});
     auto add = [&](const char* name, const char* summary, const std::string& description, const std::string& properties, const char* required, bool inpaint) {
         CommandInfo info;
         info.name = name;
@@ -327,7 +329,7 @@ void register_image_provider_commands(CommandRegistry& registry, std::function<R
         registry.add(std::move(info), [shared, inpaint](const Json& args) -> Json {
             const ImageEditEnv env{shared->load, shared->projectDir(), shared->runtime};
             std::optional<AssetRunScope> run;
-            if (!shared->runKey.empty()) run.emplace(shared->runKey);
+            if (!shared->runKey.empty() || shared->approver) run.emplace(shared->runKey.empty() ? asset_run_key() : shared->runKey, shared->approver);
             ImageEditPlan plan = plan_image_edit(env, inpaint, args);
             if (flag(args, "dryRun", false)) {
                 return Json::object({{"dryRun", true}, {"sent", false}, {"estimate", plan.estimate}, {"warnings", plan.warnings},
