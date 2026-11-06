@@ -46,6 +46,8 @@ struct AssetPricing {
     std::string checked;                      // the day the prices were looked up ("2026-11-06"); "" = by the user
     std::string source;                       // where they are published (a URL)
     std::string note;                         // how they were derived, what they do not cover
+    std::string model;                        // the image model the `image` figures were read for; "" = any. A call for another model is priced from
+                                              // the same table and the estimate says it is unverified
     std::vector<std::string> unverified;      // kinds ("voice", "model3d") whose figure is the engine's own derivation, not read from the provider's page
     bool empty() const {
         return image.empty() && !voicePer1000Chars && !soundPerSecond && !musicPerSecond && !model3d;

@@ -239,7 +239,7 @@ ImageEditPlan plan_image_edit(const ImageEditEnv& env, bool inpaint, const Json&
     return plan;
 }
 
-AssetCostGuard begin_image_edit_cost(const ImageEditPlan& plan, const ImageEditEnv& env, bool approved, const CancelFlag* cancel) {
+AssetCostGuard begin_image_edit_cost(const ImageEditPlan& plan, const ImageEditEnv& env, bool approved, const CancelFlag* cancel, bool userApproved) {
     AssetCall call;
     call.command = plan.command;
     call.what = std::format("a {}x{} picture for the layer '{}' of {}", plan.layerWidth, plan.layerHeight, plan.layerName, plan.doc);
@@ -250,6 +250,7 @@ AssetCostGuard begin_image_edit_cost(const ImageEditPlan& plan, const ImageEditE
     call.kind = MediaKind::Image;
     call.estimate = plan.cost;
     call.cancel = cancel;
+    call.userApproved = userApproved;
     return AssetCostGuard::begin(plan.limits, call, approved);
 }
 

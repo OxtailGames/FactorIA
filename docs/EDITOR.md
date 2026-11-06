@@ -338,10 +338,14 @@ The height is kept with the layout.
   **Approve** lets this call go, **Approve all for this run** lets the rest of this chat's run go without asking (the spending
   limits still hold), **Cancel** declines it and the assistant carries on without it. The editor stays usable while the card
   waits; the chat's tab shows `?` and a card in a chat that is not in front raises a toast; the "may be stuck" warning does
-  not appear while a card waits, and Stop ends the wait as a Cancel. What you answered is written into the chat. While a run
+  not appear while a card waits, and the run's **Stop** ends the wait (the assistant is told the run was stopped, not that you said
+  no). Small calls that were not asked about count together: the card of the call that takes them over the limit says how much came
+  before it, and **Approve** starts that count again. The buttons are at the top of the card so that they stay visible in a
+  narrow panel; the text under them scrolls. The assistant's own `approved` argument is ignored here. What you answered is written into the chat. While a run
   has spent something, its status line ends with `assets ~$X (estimate)`. The `fake` provider and your own programs never ask.
-  A Claude Code or Codex run that waits for the card can hit the agent program's own tool-call timeout; if the call comes back
-  abandoned, answer the card and ask again.
+  A Claude Code, Codex or other MCP client that waits for the card can hit its own tool-call timeout (often 60 to 120 seconds); if the
+  call comes back abandoned the card stays, and approving it late still makes the picture, but the agent is not told: answer
+  soon, or ask the agent to try again.
 - Chats are saved in `.factoria/ai/chats/` after each answer and when a tab closes; the open tabs come back when the project opens.
 
 ### Several chats at once

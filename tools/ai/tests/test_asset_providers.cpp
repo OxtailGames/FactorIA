@@ -25,7 +25,7 @@ TEST_CASE("OpenAI images: POST /images/generations with the key, the answer is w
     const Json r = game.ok("assets.generate_image", {{"prompt", "a mossy stone wall"}, {"path", "assets/wall.png"}, {"width", 16}, {"height", 16}, {"transparent", true}});
 
     REQUIRE(wire.requests.size() == 1);
-    const HttpRequest& req = wire.requests[0];
+    const fa::ai::HttpRequest& req = wire.requests[0];
     CHECK(req.method == "POST");
     CHECK(req.url == "https://api.openai.com/v1/images/generations");
     CHECK(Wire::header(req, "Authorization") == "Bearer sk-test-0123456789abcdef");
@@ -60,7 +60,7 @@ TEST_CASE("OpenAI images: references go to /images/edits as multipart image[] pa
                                       {"references", Json::array({"assets/hero.png"})}});
 
     REQUIRE(wire.requests.size() == 1);
-    const HttpRequest& req = wire.requests[0];
+    const fa::ai::HttpRequest& req = wire.requests[0];
     CHECK(req.url == "https://api.openai.com/v1/images/edits");
     const std::string contentType = Wire::header(req, "Content-Type");
     REQUIRE(contentType.rfind("multipart/form-data; boundary=", 0) == 0);
@@ -83,7 +83,7 @@ TEST_CASE("OpenAI: no key, a rejected key and a gif reference stop the call with
         wire.replies = {Wire::reply(200, fixture("openai_image.json"))};
         Game game(config_from(R"({"assets":{"image":{"provider":"openai"}}})"), wire.runtime());
         auto r = game.call("assets.generate_image", {{"prompt", "x"}, {"path", "assets/a.png"}});
-        REQUIRE_FALSE(r.ok);
+        REQUIRE_MESSAGE(!r.ok, r.result.dump());
         CHECK(r.error["code"] == "generation_failed");
         CHECK(r.error["message"] == "No API key for provider 'openai'");
         CHECK(r.error["hint"].get<std::string>().find("OPENAI_API_KEY") != std::string::npos);

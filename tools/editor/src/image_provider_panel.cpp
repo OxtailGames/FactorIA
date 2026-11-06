@@ -3,7 +3,8 @@
 //   1. plan_image_edit   (main thread) reads the document, the selection and the configuration, resolves the provider;
 //   2. run_image_edit    (a worker thread) makes the call;
 //   3. store_image_edit + ImageModel::add_provider_layer (main thread) write the picture and add the layer as ONE undo step.
-// The picture is never added to another document than the one it was asked for.
+// The picture is never added to another document than the one it was asked for. The price shown in the popup is worked out on a
+// thread of its own when the popup opens (image_provider_estimate), the same planning without the call.
 
 #include <algorithm>
 #include <format>
@@ -61,24 +62,53 @@ std::string estimate_sentence(const ai::AssetEstimate& e, const std::string& pro
 
 }  // namespace
 
-// What "Make it" would cost, shown in the popup before the user clicks. Made when the popup opens, not every frame.
+// What "Make it" would cost, shown in the popup before the user clicks. Worked out on a thread when the popup opens (not every
+// frame, not on the UI thread: planning reads the document, the style references and the price list); image_provider_estimate_poll
+// takes the answer.
 void Editor::image_provider_estimate(ImageModel& m) {
     ImageUi& u = image_;
     u.providerEstimate.clear();
+    u.providerEstimateError.clear();
+    u.estimate.reset();   // joins an earlier one
     Json args = Json::object({{"prompt", "estimate"}});
     if (m.has_selection()) args["selection"] = ImageModel::kSelectionName;
     if (m.animated() || m.frame_count() > 1) args["frame"] = m.frame();
     args["path"] = m.path();
     ai::ImageEditEnv env;
     env.projectDir = projectDir_;
-    env.load = [this]() -> Result<ai::AiConfig> { return ai_project_config(true); };
-    try {
-        const ai::ImageEditPlan plan = ai::plan_image_edit(env, u.providerInpaint, args);
-        u.providerEstimate = estimate_sentence(plan.cost, plan.provider.name);
-        if (!plan.cost.free) u.providerEstimate += " Limits: AI Settings > Spending limits.";
-    } catch (const CommandError&) {
-        // the real request reports what is wrong
+    Result<ai::AiConfig> cfg = ai_project_config(true);   // read here: the thread must not call back into the editor
+    env.load = [cfg]() -> Result<ai::AiConfig> { return cfg; };
+    auto est = std::make_unique<ImageProviderEstimate>();
+    est->doc = m.path();
+    const bool inpaint = u.providerInpaint;
+    ImageProviderEstimate* raw = est.get();
+    est->thread = std::thread([raw, env, args, inpaint] {
+        try {
+            const ai::ImageEditPlan plan = ai::plan_image_edit(env, inpaint, args);
+            raw->text = estimate_sentence(plan.cost, plan.provider.name);
+            if (!plan.cost.free) raw->text += " Limits: AI Settings > Spending limits.";
+        } catch (const CommandError& e) {
+            raw->error = std::string(e.what()) + (e.hint.empty() ? std::string() : "\n" + e.hint);
+        } catch (const std::exception& e) {
+            raw->error = std::string("The estimate failed: ") + e.what();
+        } catch (...) {
+            raw->error = "The estimate failed.";
+        }
+        raw->done = true;
+    });
+    u.estimate = std::move(est);
+}
+
+// Takes the estimate once the thread has finished (every frame the popup is drawn; cheap).
+void Editor::image_provider_estimate_poll(ImageModel& m) {
+    ImageUi& u = image_;
+    if (!u.estimate || !u.estimate->done.load()) return;
+    if (u.estimate->thread.joinable()) u.estimate->thread.join();
+    if (m.is_open() && m.path() == u.estimate->doc) {   // a result of another document is not this one's price
+        u.providerEstimate = u.estimate->text;
+        u.providerEstimateError = u.estimate->error;
     }
+    u.estimate.reset();
 }
 
 // Starts the request: everything that can be wrong with it is found here, before a thread starts.
@@ -108,7 +138,8 @@ void Editor::image_provider_start(ImageModel& m) {
     // the cross-process lock of the day total, so it runs here and not on the UI thread.
     job->thread = std::thread([shared = job->shared, plan = job->plan, env] {
         try {
-            ai::AssetCostGuard guard = ai::begin_image_edit_cost(plan, env, true, &shared->cancel);
+            // userApproved: this click is the person's yes, whatever approver the registries of the AI runs have installed
+            ai::AssetCostGuard guard = ai::begin_image_edit_cost(plan, env, false, &shared->cancel, true);
             if (!guard.go()) {
                 shared->result.emplace(make_error("The call needs your approval and was not made.", "Click Make it again."));
             } else {
@@ -120,6 +151,10 @@ void Editor::image_provider_start(ImageModel& m) {
             }
         } catch (const CommandError& e) {
             shared->result.emplace(make_error(e.what(), e.hint));
+        } catch (const std::exception& e) {
+            shared->result.emplace(make_error(std::string("The request failed: ") + e.what(), "Try again; if it keeps failing, check the provider with ai.providers (action doctor)."));
+        } catch (...) {
+            shared->result.emplace(make_error("The request failed for a reason that was not reported.", "Try again; if it keeps failing, check the provider with ai.providers (action doctor)."));
         }
         shared->done = true;
     });
@@ -206,8 +241,14 @@ void Editor::draw_image_provider(ImageModel& m) {
         ImGui::TextWrapped("%s", u.providerInpaint
                                      ? "The picture and the selection go to the provider; what comes back is a new provider layer masked by the selection."
                                      : "The provider makes a picture; it becomes a new provider layer (masked by the selection, if there is one).");
-        if (!u.providerEstimate.empty()) {
+        image_provider_estimate_poll(m);
+        if (u.estimate) {
+            ImGui::TextDisabled("Working out the price...");
+        } else if (!u.providerEstimate.empty()) {
             ImGui::TextWrapped("%s", u.providerEstimate.c_str());
+            at_track("img:provider:estimate");
+        } else if (!u.providerEstimateError.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1), "No estimate: %s", u.providerEstimateError.c_str());
             at_track("img:provider:estimate");
         }
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();

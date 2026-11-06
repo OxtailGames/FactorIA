@@ -215,7 +215,7 @@ TEST_CASE("assets.generate_*: every result carries estimatedCostUsd, labelled an
     CHECK(r["costIsEstimate"] == true);
     CHECK(r["cost"]["free"] == true);
 
-    Game game(config_from(paid_config()));
+    Game game(config_from(paid_config(R"({"askAboveUsd":5})")));
     r = game.ok("assets.generate_image", image_args("assets/a.png"));
     CHECK(r["estimatedCostUsd"] == doctest::Approx(0.30));
     CHECK(r["costIsEstimate"] == true);
@@ -575,6 +575,216 @@ TEST_CASE("AssetCostGuard: a call that fails gives its money back, one that succ
     }
     CHECK(asset_run_spent("guard-run") == doctest::Approx(0.60));
     CHECK(*asset_spent_today(home.dir.str()) == doctest::Approx(0.60));
+}
+
+// ------------------------------------------------------------------------------------------------ approved cannot bypass the card
+
+TEST_CASE("approval: with an approver installed the approved argument is ignored, the person's answer decides") {
+    Home home;
+    Game game(config_from(paid_config(R"({"askAboveUsd":0.10})")));
+    AssetRunScope run("card-chat");
+    asset_run_begin("card-chat");
+    int asked = 0;
+    AssetDecision answer = AssetDecision::Cancel;
+    ScopedAssetApprover approver([&](const AssetApprovalRequest&) {
+        ++asked;
+        return answer;
+    });
+    Json args = image_args("assets/a.png");
+    args["approved"] = true;  // what an AI could pass to skip the question
+    auto declined = game.call("assets.generate_image", args);
+    REQUIRE_FALSE(declined.ok);
+    CHECK(declined.error["code"] == "asset_declined");
+    CHECK(asked == 1);
+    CHECK_FALSE(game.exists("assets/a.png"));
+    CHECK(asset_run_spent("card-chat") == 0);
+
+    answer = AssetDecision::Approve;
+    auto yes = game.call("assets.generate_image", args);
+    REQUIRE_MESSAGE(yes.ok, yes.error.dump());
+    CHECK(asked == 2);
+    CHECK(game.exists("assets/a.png"));
+    CHECK(has(yes.result["warnings"].dump(), "approved argument was ignored"));
+}
+
+TEST_CASE("approval: AssetCall::userApproved is the host's own yes and counts whatever approver there is") {
+    Home home;
+    const AiConfig cfg = config_from(paid_config(R"({"askAboveUsd":0.10})"));
+    AssetCall call;
+    call.command = "image.generate_layer";
+    call.projectDir = home.dir.str();
+    call.provider = "paid";
+    AssetRequest request;
+    request.kind = MediaKind::Image;
+    request.width = request.height = 8;
+    call.estimate = estimate_asset_cost(*cfg.provider("paid"), request, 1);
+    AssetRunScope run("panel");
+    asset_run_begin("panel");
+    int asked = 0;
+    ScopedAssetApprover approver([&](const AssetApprovalRequest&) {
+        ++asked;
+        return AssetDecision::Cancel;
+    });
+    CHECK_THROWS_AS(AssetCostGuard::begin(cfg.limits, call, true), CommandError);  // the argument: ignored, the approver says no
+    CHECK(asked == 1);
+    call.userApproved = true;
+    AssetCostGuard guard = AssetCostGuard::begin(cfg.limits, call, false);
+    CHECK(guard.go());
+    CHECK(asked == 1);  // nobody was asked: the person already pressed the button
+    guard.commit();
+}
+
+TEST_CASE("approval: a run that is stopped while the card waits gets cancelled, not declined, and nothing is counted") {
+    Home home;
+    Game game(config_from(paid_config(R"({"askAboveUsd":0.10})")));
+    AssetRunScope run("stop-chat");
+    asset_run_begin("stop-chat");
+    ScopedAssetApprover approver([](const AssetApprovalRequest&) { return AssetDecision::Stopped; });
+    auto r = game.call("assets.generate_image", image_args("assets/a.png"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "cancelled");
+    CHECK(has(r.error["message"].get<std::string>(), "stopped"));
+    CHECK_FALSE(game.exists("assets/a.png"));
+    CHECK(asset_run_spent("stop-chat") == 0);
+    CHECK(*asset_spent_today(game.dir.str()) == 0);
+}
+
+// ----------------------------------------------------------------------------------------------- a batch cut into small calls
+
+TEST_CASE("approval: calls under askAboveUsd that add up above it are asked about (no approver: needsApproval), and a yes starts the count again") {
+    Home home;
+    Game game(config_from(paid_config(R"({"askAboveUsd":0.50})")));
+    AssetRunScope run("batch");
+    asset_run_begin("batch");
+    // 3 x $0.30: the first is under 0.50, the second takes the unapproved total to 0.60
+    game.ok("assets.generate_image", image_args("assets/a.png"));
+    CHECK(asset_run_unapproved("batch") == doctest::Approx(0.30));
+    auto second = game.call("assets.generate_image", image_args("assets/b.png"));
+    REQUIRE_MESSAGE(second.ok, second.error.dump());
+    CHECK(second.result["needsApproval"] == true);
+    CHECK(second.result["plan"]["earlierUnapprovedUsd"] == doctest::Approx(0.30));
+    CHECK(has(second.result["message"].get<std::string>(), "$0.30"));
+    CHECK_FALSE(game.exists("assets/b.png"));
+    CHECK(asset_run_spent("batch") == doctest::Approx(0.30));  // asking counts nothing
+    // the user said yes: it goes, and the count starts from zero
+    Json yes = image_args("assets/b.png");
+    yes["approved"] = true;
+    game.ok("assets.generate_image", yes);
+    CHECK(asset_run_unapproved("batch") == 0);
+    game.ok("assets.generate_image", image_args("assets/c.png"));  // 0.30 again: no question
+    CHECK(game.exists("assets/c.png"));
+    CHECK(asset_run_spent("batch") == doctest::Approx(0.90));
+}
+
+TEST_CASE("approval: with an approver, small calls add up to a card; Approve resets the count, Approve all stops the questions for the run") {
+    Home home;
+    Game game(config_from(paid_config(R"({"askAboveUsd":0.50})")));
+    AssetRunScope run("batch-card");
+    asset_run_begin("batch-card");
+    std::vector<Json> asked;
+    AssetDecision answer = AssetDecision::Approve;
+    ScopedAssetApprover approver([&](const AssetApprovalRequest& req) {
+        asked.push_back(req.plan);
+        return answer;
+    });
+    game.ok("assets.generate_image", image_args("assets/a.png"));
+    CHECK(asked.empty());
+    game.ok("assets.generate_image", image_args("assets/b.png"));  // 0.30 + 0.30 > 0.50
+    REQUIRE(asked.size() == 1);
+    CHECK(asked[0]["earlierUnapprovedUsd"] == doctest::Approx(0.30));
+    game.ok("assets.generate_image", image_args("assets/c.png"));  // after the yes: 0.30 alone
+    CHECK(asked.size() == 1);
+    answer = AssetDecision::ApproveAll;
+    game.ok("assets.generate_image", image_args("assets/d.png"));  // 0.60 again: asks, and the answer turns the questions off
+    CHECK(asked.size() == 2);
+    game.ok("assets.generate_image", image_args("assets/e.png"));
+    game.ok("assets.generate_image", image_args("assets/f.png"));
+    CHECK(asked.size() == 2);
+    CHECK(asset_run_spent("batch-card") == doctest::Approx(1.80));
+}
+
+TEST_CASE("approval: a call that fails gives back its part of the unapproved count too") {
+    Home home;
+    const AiConfig cfg = config_from(paid_config(R"({"askAboveUsd":0.50})"));
+    AssetCall call;
+    call.command = "assets.generate_image";
+    call.projectDir = home.dir.str();
+    call.provider = "paid";
+    AssetRequest request;
+    request.kind = MediaKind::Image;
+    request.width = request.height = 8;
+    call.estimate = estimate_asset_cost(*cfg.provider("paid"), request, 1);
+    AssetRunScope run("refund-run");
+    asset_run_begin("refund-run");
+    {
+        AssetCostGuard guard = AssetCostGuard::begin(cfg.limits, call, false);
+        REQUIRE(guard.go());
+        CHECK(asset_run_unapproved("refund-run") == doctest::Approx(0.30));
+    }  // the provider failed
+    CHECK(asset_run_unapproved("refund-run") == 0);
+    CHECK(asset_run_spent("refund-run") == 0);
+}
+
+// ------------------------------------------------------------------------------------------------------------ the day total
+
+TEST_CASE("day total: a refund after midnight goes back to the day the money was counted on") {
+    std::int64_t now = 1800000000;
+    TempDir homeDir;
+    ScopedShareEnv scoped(Home::make(homeDir.str(), 2.0, [&now] { return now; }));
+    const AiConfig cfg = config_from(paid_config(R"({"askAboveUsd":5,"maxAssetCostUsd":{"perDay":5}})"));
+    AssetCall call;
+    call.command = "assets.generate_image";
+    call.projectDir = homeDir.str();
+    call.provider = "paid";
+    AssetRequest request;
+    request.kind = MediaKind::Image;
+    request.width = request.height = 8;
+    call.estimate = estimate_asset_cost(*cfg.provider("paid"), request, 1);
+    AssetRunScope run("midnight");
+    asset_run_begin("midnight");
+    {
+        AssetCostGuard guard = AssetCostGuard::begin(cfg.limits, call, false);
+        REQUIRE(guard.go());
+        now += 26 * 3600;  // the provider took until the next day and failed
+    }
+    const Json file = Json::parse(read_file(asset_spend_path()));
+    REQUIRE(file["days"].size() == 1);
+    double total = 0;
+    for (const auto& [date, projects] : file["days"].items())
+        for (const auto& [project, entry] : projects.items()) total += entry["usd"].get<double>();
+    CHECK(total == doctest::Approx(0.0));  // the first day was given back, not the new one (which would go below zero)
+    CHECK(*asset_spent_today(homeDir.str()) == doctest::Approx(0.0));
+}
+
+TEST_CASE("day total: a file with another shape is reported as unreadable, with where, and nothing is changed") {
+    Home home;
+    const std::vector<std::string> bad = {R"([1,2])", R"({"days":[]})", R"({"days":{"2027-01-15":5}})",
+                                          R"({"days":{"2027-01-15":{"p":{"usd":"a lot"}}}})"};
+    for (const std::string& text : bad) {
+        fsys::create_directories(home.spend_file().parent_path());
+        std::ofstream(home.spend_file(), std::ios::binary) << text;
+        Game game(config_from(paid_config(R"({"maxAssetCostUsd":{"perDay":5},"askAboveUsd":5})")));
+        auto r = game.call("assets.generate_image", image_args("assets/a.png"));
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "asset_cost_unavailable");
+        CHECK(has(r.error["message"].get<std::string>(), "shape"));
+        CHECK_FALSE(game.exists("assets/a.png"));
+        CHECK(read_file(asset_spend_path()) == text);
+        CHECK_FALSE(asset_spent_today(game.dir.str()).has_value());
+    }
+}
+
+TEST_CASE("day total: a user folder with accents in its name works") {
+    TempDir base;
+    const fsys::path folder = fsys::path(base.str()) / fsys::path(u8"carpeta áé ñ");
+    fsys::create_directories(folder);
+    const std::u8string utf8 = folder.u8string();   // (never .string(): on Windows that goes through the ANSI code page)
+    const std::string home(reinterpret_cast<const char*>(utf8.data()), utf8.size());
+    ScopedShareEnv scoped(Home::make(home, 2.0));
+    Game game(config_from(paid_config(R"({"askAboveUsd":5,"maxAssetCostUsd":{"perDay":5}})")));
+    game.ok("assets.generate_image", image_args("assets/a.png"));
+    CHECK(fsys::exists(fsys::path(base.str()) / fsys::path(u8"carpeta áé ñ") / ".factoria" / "asset-spend.json"));
+    CHECK(*asset_spent_today(game.dir.str()) == doctest::Approx(0.30));
 }
 
 // ------------------------------------------------------------------------------------------------------------------------- the image tools

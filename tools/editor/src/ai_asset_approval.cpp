@@ -15,7 +15,7 @@ std::string text_of(const Json& j, const char* key) {
 
 ai::AssetDecision AssetApprovals::ask(const ai::AssetApprovalRequest& req) {
     std::unique_lock<std::mutex> lock(mu_);
-    if (closed_ || (req.cancel && req.cancel->load())) return ai::AssetDecision::Cancel;
+    if (closed_ || (req.cancel && req.cancel->load())) return ai::AssetDecision::Stopped;
     Slot slot;
     slot.card.id = nextId_++;
     slot.card.chatId = req.runKey;
@@ -30,7 +30,7 @@ ai::AssetDecision AssetApprovals::ask(const ai::AssetApprovalRequest& req) {
         return slots_.end();
     };
     // A short poll on the cancel flag (it is not tied to this condition variable). It only costs a wake-up ten times a second.
-    ai::AssetDecision result = ai::AssetDecision::Cancel;
+    ai::AssetDecision result = ai::AssetDecision::Stopped;   // nobody answered: the run was stopped or the project closed
     for (;;) {
         auto it = find();
         if (it == slots_.end()) break;  // (cannot happen: only this thread erases its slot)
@@ -115,6 +115,8 @@ AssetCardText asset_card_text(const Json& plan) {
         t.estimate += ", prices checked " + checked;
         if (const std::string source = text_of(plan, "priceSource"); !source.empty()) t.estimate += " at " + source;
     }
+    if (const auto e = plan.find("earlierUnapprovedUsd"); e != plan.end() && e->is_number() && e->get<double>() > 0)
+        t.estimate += "; together with " + ai::format_usd(e->get<double>()) + " of earlier calls of this run you were not asked about";
     t.prompt = text_of(plan, "prompt");
     return t;
 }

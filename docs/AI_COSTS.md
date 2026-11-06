@@ -265,8 +265,10 @@ called FactorIA does three things, in this order, and the call is made only if a
    provider and your own programs (`asset-command`, a local server) cost 0 and never ask.
 2. **It checks the limits** (`limits.maxAssetCostUsd`, below). A call that would pass one is refused with an error that says
    which limit, what is spent, what this call would add and how to raise it. Nothing was sent.
-3. **It asks you** when the estimate is above `limits.askAboveUsd` (default $0.50), or when the price is unknown. Below that it
-   just goes on.
+3. **It asks you** when the estimate is above `limits.askAboveUsd` (default $0.50), when the price is unknown, or when this call
+   **together with the calls since your last yes that were not asked about** is above it: a batch of ten $0.10 pictures costs
+   what one $1.00 call costs, and is asked about the same way (the question comes with the call that takes the total over the
+   limit, and says what came before it). Below that it just goes on.
 
 ```json
 { "limits": { "askAboveUsd": 0.5, "maxAssetCostUsd": { "perRun": 5, "perDay": 20 } } }
@@ -276,7 +278,7 @@ called FactorIA does three things, in this order, and the call is made only if a
 |---|---|---|
 | `limits.maxAssetCostUsd.perRun` | estimated dollars of asset calls in one agent run (a chat's run in the editor; the whole process for the CLI and MCP; 0 = no limit) | 0 |
 | `limits.maxAssetCostUsd.perDay` | estimated dollars of asset calls of this project today, counted across every editor, terminal and agent (0 = no limit) | 0 |
-| `limits.askAboveUsd` | a call estimated above this waits for your yes; 0 asks before every paid call | 0.50 |
+| `limits.askAboveUsd` | a call estimated above this, or whose total with the unasked calls since your last yes is, waits for your yes; 0 asks before every paid call | 0.50 |
 
 They go in `ai.json` or in a project's `.factoria/ai/settings.json` ([AI_PROVIDERS.md](AI_PROVIDERS.md#per-project)), and
 in the editor in **AI > AI Settings... > Assets > Spending limits**. With a per-run or per-day limit set and a price the table does not
@@ -287,7 +289,11 @@ that has one.
 cross-process lock as your other FactorIA files, so a second editor or a terminal counts into the same total and one project's
 spending never counts against another's. A day is the local calendar day. If the lock cannot be taken (another program keeps it
 busy), the call is refused when a per-day limit is set (nothing is counted, and the error says so) and goes ahead with a
-warning in its result when there is none. A call that fails gives its estimate back.
+warning in its result when there is none. A call that fails gives its estimate back, on the day it was counted (a call that
+runs past midnight does not leave a hole in the next day). A refund that cannot be written (the lock is busy) is reported in
+the warnings of that result or of the next asset call, and in the log: the total then keeps the money until you edit
+`asset-spend.json`. The file is read with a few quick retries (another program may be replacing it); one that has another shape
+than this version writes (a hand edit) is reported with the JSON pointer of the problem and is never overwritten.
 
 **Who says yes.**
 
@@ -295,14 +301,23 @@ warning in its result when there is none. A call that fails gives its estimate b
   with which provider, the estimate and when the prices were looked up. **Approve** makes this one, **Approve all for this run**
   stops the questions for the rest of this chat's run (the limits still hold), **Cancel** declines it: the assistant is told
   you said no and carries on without it. The assistant waits meanwhile; the editor does not. The chat's tab shows `?`, a
-  card in another chat's tab raises a toast, and the "may be stuck" warning stays quiet while a card waits. Stop ends the
-  wait as a Cancel. The Image panel's popup shows the estimate, and **Make it** is your approval.
+  card in another chat's tab raises a toast, and the "may be stuck" warning stays quiet while a card waits. The buttons are the
+  first thing on the card, so a long prompt or a narrow panel never hides them (the text below them scrolls). **Approve** also
+  starts the count of unasked small calls again. The **Stop** button of the run ends the wait as `cancelled` (the assistant is
+  told you stopped it, not that you said no) and the card goes. In the editor the assistant's `approved` argument is **ignored**:
+  only your click on the card says yes, so an AI cannot answer for you. The Image panel's popup shows the estimate (worked out in
+  the background) and **Make it** is your approval; it asks the same limits and the same day total.
 - **From the CLI, MCP or a script** the command does not make the call: it returns `{"needsApproval": true, "plan": {...}}`
   (`command`, `what`, `count`, `provider`, `model`, `estimatedCostUsd`, `basis`, `prompt`, `priceChecked`). An AI must tell its
   user what will be made, how many, with which provider and the estimate, and **ask**. Only after the user says yes does it call
   again with the same arguments and `approved: true`. An AI never sets `approved: true` on its own and never raises a limit; the
-  user changes limits in the settings. A CLI agent (Claude Code, Codex) that waits for you in the editor can hit the agent
-  program's own tool-call timeout: if the call comes back abandoned, answer the card and ask again.
+  user changes limits in the settings. `approved` counts only here, where nobody else can be asked (no editor card): the editor
+  ignores it. Calls that name no run (the CLI, an MCP client outside the editor) add up **per process**: a CLI command is one
+  run, and an MCP server that stays up counts everything it did since it started (the unasked total, and `perRun`) until a yes
+  with `approved: true` starts the unasked count again. A CLI agent (Claude Code, Codex) or another MCP client that waits for
+  you in the editor can hit its own tool-call timeout (often 60 to 120 seconds): the card stays, and if you approve it later the
+  picture is still made and written, but the agent has already been told the call was abandoned. Answer the card soon, or ask
+  again after answering.
 
 `dryRun: true` on `image.inpaint` and `image.generate_layer` returns the estimate and sends nothing.
 
@@ -316,12 +331,14 @@ the engine's own derivation says so (`priceUnverified`).
 |---|---|---|---|
 | `openai` | image (`gpt-image-1`) | 1024x1024: $0.011 low, $0.042 medium, $0.167 high; 1024x1536 and 1536x1024: $0.016, $0.063, $0.25. Quality `auto` is priced as `high`: the provider chooses, and the estimate must not be low | the model page, https://developers.openai.com/api/docs/models/gpt-image-1 |
 | `openai` | voice (`gpt-4o-mini-tts`) | $0.015 per 1000 characters | **Unverified**: the model is billed per token; $0.015 is OpenAI's rule of thumb for a minute of speech, about 1000 characters |
-| `elevenlabs` | voice | $0.08 per 1000 characters (Multilingual v2; Flash and Turbo cost less) | https://elevenlabs.io/pricing/api |
-| `elevenlabs` | sound effects | $0.12 per minute of audio | the same page |
-| `elevenlabs` | music | $0.15 per minute of audio | the same page |
+| `elevenlabs` | voice | $0.08 per 1000 characters (Multilingual v2; Flash and Turbo cost less) | https://elevenlabs.io/pricing/api. **Unverified**: read off a summary of the page, not confirmed by hand |
+| `elevenlabs` | sound effects | $0.12 per minute of audio | the same page; **unverified** |
+| `elevenlabs` | music | $0.15 per minute of audio | the same page; **unverified** |
 | `meshy` | 3D model | $0.40 per model | **Unverified**: a text-to-3D preview is 20 API credits on meshy-6 and the latest model, and Meshy does not publish a price per credit; $0.02 is the Pro plan's, https://docs.meshy.ai/en/api/pricing |
 
-What the table does not cover: OpenAI's newer image models are billed per token and its page has no per-picture table for them,
+The `openai` image figures belong to `gpt-image-1` (`assetPricing.model`). A picture made with any other model (`model` in the
+call, or the model ai.json routes to) is priced with the same figures and marked `priceUnverified`, with a note naming both models:
+the engine did not read that model's price list. What the table does not cover: OpenAI's newer image models are billed per token and its page has no per-picture table for them,
 so route images to one of them with your own price (below); the figures above are for the model FactorIA defaults to, and we
 could not confirm that OpenAI still serves it (a report says it is retired from 2026-10-23, after this table was written: if
 the provider answers that the model does not exist, route to a current one). Sizes the providers draw are fixed (1024x1024,
@@ -339,7 +356,9 @@ needs one to be priced; without it its price is unknown: the call asks the user,
 ```
 
 `image` is a price for any size (`"image": 0.04`) or a table by size and quality; the sizes are the ones the provider draws.
-`checked` and `source` are shown on the card and in the results.
+`checked` and `source` are shown on the card and in the results. `model` names the image model the figures were read for; a picture
+made with another model is marked unverified. `unverified` lists the kinds (`image`, `voice`, `sound`, `music`, `model3d`)
+whose figure you did not confirm.
 
 ## 5. How to see what you spent
 

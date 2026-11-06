@@ -50,6 +50,21 @@ struct ImageProviderJob {
     }
 };
 
+// The price of the popup's "Make it", worked out on a thread: planning reads the document, the style references and the price list,
+// which is not work for the UI thread. The thread touches only this object (the configuration is copied in before it starts).
+struct ImageProviderEstimate {
+    std::atomic<bool> done{false};
+    std::string doc;                    // the document it is for
+    std::string text, error;            // set before `done`: the sentence to show, or why there is no estimate
+    std::thread thread;
+    ImageProviderEstimate() = default;
+    ImageProviderEstimate(const ImageProviderEstimate&) = delete;
+    ImageProviderEstimate& operator=(const ImageProviderEstimate&) = delete;
+    ~ImageProviderEstimate() {
+        if (thread.joinable()) thread.join();
+    }
+};
+
 struct ImageUi {
     std::unique_ptr<ImageModel> model;
     std::string openError;          // why the document the user asked for could not be opened
@@ -104,6 +119,8 @@ struct ImageUi {
     std::string providerPrompt;
     std::string providerError;                  // why the last request could not start or finish (shown in the popup)
     std::string providerEstimate;               // what the popup's "Make it" would cost, as text (the estimate of the price list)
+    std::string providerEstimateError;          // why there is no estimate (the request would fail the same way); shown in the popup
+    std::unique_ptr<ImageProviderEstimate> estimate;   // the one being worked out
     std::string noGenerate, noInpaint;          // why each action is off ("" = a provider is ready)
     int layersBefore = 0;                       // autotest bookkeeping
     std::size_t providerUndo = 0;               // autotest bookkeeping

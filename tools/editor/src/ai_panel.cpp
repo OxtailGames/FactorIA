@@ -738,7 +738,7 @@ void Editor::ai_launch(AiRun& run, const std::string& prompt, const std::vector<
 // endpoint stops, its last events are applied and its chat is saved.
 void Editor::ai_stop(const char* cause) {
     for (auto& r : aiRuns_) r->request_cancel(cause);
-    aiApprovals_.close();  // a call waiting for the user's yes ends with Cancel
+    aiApprovals_.close();  // a call waiting for the user's yes ends as stopped
     queue_.close();
     for (auto& r : aiRuns_) {
         if (r->thread.joinable()) r->thread.join();
@@ -1462,15 +1462,25 @@ std::string Editor::ai_roles_summary() {
 
 // ---- paid asset calls that wait for the user's yes (ai_asset_approval.h) ----------------------------------------------------------
 
+// The room of the strip: the title and up to three rows of buttons always fit (the buttons are drawn before the text, and the text
+// scrolls in a child of its own), so a narrow panel or a long prompt never hides Approve / Cancel. More than one card scrolls.
 float Editor::ai_asset_cards_height(const AiChat& chat, float availableY) {
     if (!aiApprovals_.waiting_for(chat.id)) return 0;
-    const float want = ImGui::GetTextLineHeightWithSpacing() * 10.5f + ImGui::GetStyle().WindowPadding.y * 2;
-    return std::min(want, std::max(ImGui::GetFrameHeightWithSpacing() * 3.0f, availableY * 0.6f));
+    const float pad = ImGui::GetStyle().WindowPadding.y * 2;
+    const float needed = ImGui::GetTextLineHeightWithSpacing() * 2 + ImGui::GetFrameHeightWithSpacing() * 3 + pad;   // title, buttons
+    const float want = needed + ImGui::GetTextLineHeightWithSpacing() * 5;                                          // and the text
+    return std::min(want, std::max(needed, availableY * 0.6f));
 }
 
 void Editor::ai_asset_notify_other_chats() {
     const std::string front = chat_.current().id;
-    for (const AssetCard& card : aiApprovals_.cards()) {
+    const std::vector<AssetCard> cards = aiApprovals_.cards();
+    // Forget the cards that are gone (answered, or their run or chat ended): the set never outgrows the cards waiting now.
+    for (auto it = aiCardNotified_.begin(); it != aiCardNotified_.end();) {
+        const bool alive = std::any_of(cards.begin(), cards.end(), [&](const AssetCard& c) { return c.id == *it; });
+        it = alive ? std::next(it) : aiCardNotified_.erase(it);
+    }
+    for (const AssetCard& card : cards) {
         if (card.chatId == front || !aiCardNotified_.insert(card.id).second) continue;
         const AiChat* c = chat_.find(card.chatId);
         notify("The assistant in chat \"" + (c && !c->title.empty() ? short_line(c->title, 40) : std::string("New chat")) +
@@ -1489,9 +1499,7 @@ void Editor::draw_ai_asset_cards(AiChat& chat, float height) {
         ImGui::PushID(static_cast<int>(card.id));
         const AssetCardText text = asset_card_text(card.plan);
         ImGui::TextColored(ImVec4(1, 0.82f, 0.4f, 1), "%s", text.title.c_str());
-        ImGui::TextUnformatted(text.what.c_str());
-        ImGui::TextDisabled("Estimate: %s. Not an invoice.", text.estimate.c_str());
-        // Three buttons, wrapped onto the next line when the panel is narrow.
+        // The buttons come first so that they are always on screen; they wrap onto the next line when the panel is narrow.
         std::optional<ai::AssetDecision> decision;
         const auto place = [&](const char* label, const char* track, const char* tip, ai::AssetDecision d, bool first) {
             const float w = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2;
@@ -1510,7 +1518,14 @@ void Editor::draw_ai_asset_cards(AiChat& chat, float height) {
               ai::AssetDecision::ApproveAll, false);
         place("Cancel", "ai:approve:cancel", "Do not make it. The assistant is told you said no and continues without it.",
               ai::AssetDecision::Cancel, false);
-        if (!text.prompt.empty()) ImGui::TextDisabled("Prompt: %s", short_line(text.prompt, 200).c_str());
+        // What will be made: a scrolling child, so a long prompt in a narrow panel is read by scrolling, not by losing the buttons.
+        ImGui::BeginChild("##cardtext", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 4), ImGuiChildFlags_None);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(text.what.c_str());
+        ImGui::TextDisabled("Estimate: %s. Not an invoice.", text.estimate.c_str());
+        if (!text.prompt.empty()) ImGui::TextDisabled("Prompt: %s", short_line(text.prompt, 300).c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::EndChild();
         if (decision) {
             if (aiApprovals_.answer(card.id, *decision)) {
                 ChatItem it;

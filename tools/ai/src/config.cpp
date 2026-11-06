@@ -433,6 +433,7 @@ static AssetPricing builtin_asset_pricing(std::string_view provider) {
         p.note = "Images: the per-picture table of the gpt-image-1 model page, for the sizes the provider draws. Newer image models "
                  "(gpt-image-2.5...) are priced per token: set assetPricing.image for the model you route to. Voice: about 0.015 USD per "
                  "minute of speech (about 1000 characters) for gpt-4o-mini-tts, derived from its token price, not read from a table.";
+        p.model = "gpt-image-1";
         p.unverified = {"voice"};
     } else if (provider == "elevenlabs") {
         p.voicePer1000Chars = 0.08;     // Text to Speech, Multilingual v2
@@ -441,7 +442,9 @@ static AssetPricing builtin_asset_pricing(std::string_view provider) {
         p.checked = "2026-11-06";
         p.source = "https://elevenlabs.io/pricing/api";
         p.note = "API prices of the pay-as-you-go page: voice 0.08 USD per 1000 characters (Multilingual v2; Flash and Turbo models cost less), sound effects "
-                 "0.12 USD per minute, music 0.15 USD per minute. Your plan's credits can make it cheaper or dearer.";
+                 "0.12 USD per minute, music 0.15 USD per minute. The figures were read off that page through a tool that summarizes it and were not "
+                 "confirmed by hand, so they are marked unverified: check them on the page. Your plan's credits can make it cheaper or dearer.";
+        p.unverified = {"voice", "sound", "music"};
     } else if (provider == "meshy") {
         p.model3d = 0.40;
         p.checked = "2026-11-06";
@@ -552,6 +555,7 @@ static AssetPricing read_asset_pricing(const Json& j) {
     p.checked = str(j, "checked");
     p.source = str(j, "source");
     p.note = str(j, "note");
+    p.model = str(j, "model");
     if (const Json* u = child(j, "unverified"); u && u->is_array()) {
         for (const Json& k : *u) if (k.is_string()) p.unverified.push_back(k.get<std::string>());
     }
@@ -581,6 +585,7 @@ Json asset_pricing_to_json(const AssetPricing& p) {
     if (!p.checked.empty()) out["checked"] = p.checked;
     if (!p.source.empty()) out["source"] = p.source;
     if (!p.note.empty()) out["note"] = p.note;
+    if (!p.model.empty()) out["model"] = p.model;
     if (!p.unverified.empty()) out["unverified"] = p.unverified;
     return out;
 }

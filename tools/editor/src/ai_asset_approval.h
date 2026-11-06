@@ -6,8 +6,8 @@
 // of the chat in front (what, how many, which provider, the estimate; Approve, Approve all for this run, Cancel) and answer()s
 // them from the UI thread; nothing on the UI thread waits for anything.
 //
-// A card ends one of three ways: the user answers, the run is stopped (its cancel flag: the wait gives up with Cancel), or the
-// editor closes the project (close(): every waiting call gets Cancel).
+// A card ends one of three ways: the user answers, the run is stopped (its cancel flag: the wait gives up with Stopped), or the
+// editor closes the project (close(): every waiting call gets Stopped).
 #pragma once
 
 #include <condition_variable>
@@ -30,7 +30,7 @@ struct AssetCard {
 
 class AssetApprovals {
 public:
-    // The agent thread's side: shows the card, waits for the answer. Cancel when `req.cancel` is set, or after close().
+    // The agent thread's side: shows the card, waits for the answer. Stopped when `req.cancel` is set, or after close().
     ai::AssetDecision ask(const ai::AssetApprovalRequest& req);
 
     // The UI thread's side. cards(): the cards still waiting, oldest first (a snapshot). answer(): false when the card is gone
@@ -42,7 +42,7 @@ public:
     // Counts up with every card that appears or goes away (the UI redraws a chat's strip only when it changes).
     u64 generation() const;
 
-    // Every waiting call gets Cancel and new ones are answered Cancel at once, until reopen().
+    // Every waiting call gets Stopped and new ones are answered Stopped at once, until reopen().
     void close();
     void reopen();
 
