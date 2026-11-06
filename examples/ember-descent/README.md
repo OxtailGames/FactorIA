@@ -28,7 +28,7 @@ dungeon again (same seed). Space, a click or a tap starts a new dungeon after yo
 - `art/tiles.sheet.js` + `assets/tiles.png`: the three tiles (wall, floor, cracked floor), drawn by code with
   `assets.animate_svg`; `assets.json` has their provenance. The player, coin, spikes and stairs are `Shape2D` prefabs.
 - `tests/dungeon.test.js`: the game headless: border, free start and stairs, the stairs farthest from the start, a
-  trap-free route to them on eight run seeds, determinism (same seed, same dungeon), moves,
+  trap-free route to them on eight run seeds (and a count over thirty more: floors with no way around the spikes, seeds whose floor does not grow), determinism (same seed, same dungeon), moves,
   coins, spikes and the loss, four floors to a win, R, R and a reload while a floor is growing, and a tap.
 - `ENGINE_FEEDBACK.json`: engine gaps found while building this game.
 

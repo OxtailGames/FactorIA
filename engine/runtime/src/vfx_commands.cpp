@@ -51,6 +51,8 @@ constexpr double kMaxFilmSpan = 3.0;      // seconds of effect a filmstrip cover
 
 // The project's main camera as vfx.budget projects 3D quads through it: the active primary Camera that draws to the screen with the
 // lowest depth (the one the renderer calls "the" camera). Empty when the world has none.
+// The renderer's own camera list (renderer.cpp, ordered by depth) is private to the render module, so this repeats its filter; it also
+// ignores Camera.viewport and the scale mode (Expand): the view is taken as the design size, so the aspect is the design size's.
 std::optional<VfxBudgetCamera> main_camera(Engine::Impl& I) {
     Entity best = kNullEntity;
     int bestDepth = 0;
@@ -270,7 +272,7 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
            "ok}. `overdraw` is the sum of the particles' quads in screens (1.0 = as much quad area as the view has; stacked soft "
            "sprites are what a phone's GPU pays for). `findings` are what is over the `preset`'s budget (phone: 300 live particles, "
            "1.5 screens, 5 emitters; desktop: 2000, 4.0, 8): each names the JSON pointer and, when one edit helps, carries a vfx.edit call (`fix`) that moves "
-           "the effect toward it (run vfx.budget again to see where it lands; `fix` is null when no single edit would do). The numbers are the particles the sim keeps alive: a camera that does not see them, ribbon trails "
+           "the effect toward it (run vfx.budget again to see where it lands; `fix` is null when no single edit would do). With 3D emitters the numbers also depend on that camera (its lens, and the scene that is loaded), so the same document can give other numbers in another scene. The numbers are the particles the sim keeps alive: a camera that does not see them, ribbon trails "
            "and glow passes are not counted. A 3D emitter's size is in world units, so its overdraw is measured through the project's main camera "
            "(the active primary Camera with the lowest depth in the loaded scene): its quads are projected with the effect "
            "5 m in front of the camera, on its axis (a perspective or an orthographic camera; a quad partly outside the view counts whole). `camera` in the result says "

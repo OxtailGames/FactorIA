@@ -1,7 +1,7 @@
 // What an effect document costs on a phone, worked out without a renderer (docs/PARTICLES.md, "Reviewing an effect"): vfx_measure plays
 // the document in a scratch World, step by step, with the same update_vfx and ParticleSim a game runs, and counts the live particles
-// and the screen they cover at every step. The numbers depend only on the document, the seed and the view size: the same call gives
-// the same result on every machine.
+// and the screen they cover at every step. The numbers depend only on the document, the seed and the view size (and, for an effect with
+// 3D emitters, on the camera it is given, see below): the same call gives the same result on every machine.
 //
 // Overdraw is the quad area of 2D and screen-space emitters, whose sizes are design pixels. A 3D emitter's size is in world units and
 // the camera decides what it covers: when VfxBudgetOptions::camera is given, its quads (camera-facing squares) are projected through

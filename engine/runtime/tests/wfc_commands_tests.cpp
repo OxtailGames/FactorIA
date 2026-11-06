@@ -690,10 +690,10 @@ TEST_CASE("tilemap.generate reachability: `costs` takes numbers of 0 or more, or
     CHECK_MESSAGE(ok.ok, error_text(ok));
 }
 
-TEST_CASE("tilemap.generate constraints: `repair` is optional, and a maximum is only checked on the finished grid") {
+TEST_CASE("tilemap.generate constraints: `repair` is optional, and a maximum is never repaired (the solver keeps to it)") {
     Session s;
     // The rules of the test above, with and without the repair of a missed minimum. Whichever way, a level that comes out meets them:
-    // the repair pins cells for a minimum and never for a maximum, which is only checked on the finished grid.
+    // the repair pins cells for a minimum and never for a maximum, which the solver keeps to while it works.
     const std::string counts = R"("counts":[{"tile":"E","min":2,"max":4},{"tile":"$","max":1}])";
     auto repaired = s.call("tilemap.generate", dungeon_call(R"("seed":9,"constraints":{)" + counts + "}"));
     REQUIRE_MESSAGE(repaired.ok, error_text(repaired));

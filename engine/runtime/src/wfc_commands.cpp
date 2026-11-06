@@ -1699,7 +1699,7 @@ std::shared_ptr<GenRun> prepare_generation(Engine::Impl& I, const Json& a) {
     // queue (4, up to twice that in a vector's spare capacity), the A* search's arrays (cost 8, parent 4, two stamps 8, which stay allocated
     // for the thread) and a share of its open list: 64 bytes, so the estimate has room for the capacity the vectors grow to.
     // constraints.place holds the tiles (4), the costs (4) and the distances (8) per cell, and the heap of the distance search (up to 8 entries of 16
-    // bytes per cell, in the worst case): 160 bytes.
+    // bytes per cell, in the worst case): 4 + 4 + 8 + 128 = 144, rounded up to 160 for the vectors' spare capacity.
     constexpr std::uint64_t kReachBytesPerCell = 64, kPlaceBytesPerCell = 160;
     const std::uint64_t outCells = std::uint64_t(width) * std::uint64_t(height);
     const std::uint64_t reachBytes = (a.contains("reachability") ? outCells * kReachBytesPerCell : 0u) +

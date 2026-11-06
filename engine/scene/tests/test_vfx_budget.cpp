@@ -224,7 +224,7 @@ TEST_CASE("vfx_measure: with a camera a 3D emitter's quads are projected through
     // Twice as far, a quarter of the area; a narrower lens covers more.
     o.cameraDistance = 10.0;
     CHECK(vfx_measure(*d, o).peakOverdraw == doctest::Approx(0.04).epsilon(0.03));
-    o.cameraDistance = 5.0;
+    o.cameraDistance = kVfxDefaultCameraDistance;
     o.camera->fovDegrees = 45.0;
     CHECK(vfx_measure(*d, o).peakOverdraw > b.peakOverdraw);
     // Repeatable, like the 2D numbers.

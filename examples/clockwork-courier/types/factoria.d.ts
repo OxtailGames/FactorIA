@@ -2064,7 +2064,7 @@ declare module "factoria" {
      */
     maxSeconds?: number;
     /**
-     * {fixed: [{at:[x,y] | rect:[x,y,w,h], tile}], border: {tile, thickness?}, forbidden: [tile], required: [tile], counts: [{tile, min?, max?}], repair?: boolean}. A missed minimum is repaired on the next attempt by pinning cells unless repair is false; a maximum is checked on the finished grid only and never repaired. See the command tilemap.generate.
+     * {fixed: [{at:[x,y] | rect:[x,y,w,h], tile}], border: {tile, thickness?}, forbidden: [tile], required: [tile], counts: [{tile, min?, max?}], place: [{tile, count?, where?: 'farthest'|'nearest'|'random', from?, on?}], repair?: boolean}. A missed minimum is repaired on the next attempt by pinning cells unless repair is false; a maximum steers the solver (a tile that reached it is taken out of the other cells) and is checked again on the finished grid, never repaired. `place` puts markers (an entrance, an exit, a boss) on the finished level: this is the `constraints.place` of the command, not the `place` option below that builds entities. See the command tilemap.generate.
      * @since unreleased
      */
     constraints?: Json;
@@ -2101,7 +2101,7 @@ declare module "factoria" {
    */
   export interface TilemapGeneration {
     /**
-     * How much of the level is decided, 0..1 (cells decided in the attempt that is running). Never goes down, 1 when the level is ready. It can stay put while a dead end restarts the attempt.
+     * How much of the level is decided, 0..1 (follows the solver inside the attempt that is running). Never goes down, 1 when the level is ready. It can stay put while a dead end restarts the attempt or while the finished grid is checked.
      * @since unreleased
      */
     readonly progress: number;
