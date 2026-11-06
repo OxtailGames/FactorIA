@@ -157,7 +157,7 @@ TEST_CASE("project settings: roles are partial, role by role and field by field"
 TEST_CASE("project settings: limits, savers, asset routes and sites, tool servers and extensions") {
     Setup s;
     REQUIRE(s.save(Json::parse(R"({
-      "limits": {"maxTurns": 7}, "savers": {"loopGuard": false},
+      "limits": {"maxTurns": 7}, "savers": {"loopGuard": false, "retrospective": true, "retrospectiveSteps": 60},
       "assetSources": {"images": ["kenney.nl", {"url": "opengameart.org", "note": "CC0"}], "onlyListed": true},
       "mcpServers": {"scenario": false}, "extensions": {"skills": {"gdd": false}}})")));
     auto cfg = s.load();
@@ -165,6 +165,8 @@ TEST_CASE("project settings: limits, savers, asset routes and sites, tool server
     CHECK(cfg->limits.maxTurns == 7);
     CHECK_FALSE(cfg->savers.loopGuard);
     CHECK(cfg->savers.learnedToolGroups);
+    CHECK(cfg->savers.retrospective);  // a project can turn the retrospective on, with its own threshold
+    CHECK(cfg->savers.retrospectiveSteps == 60);
     CHECK(cfg->assetSources.onlyListed);
     REQUIRE(cfg->assetSources.images.size() == 2);
     CHECK(cfg->assetSources.images[1].note == "CC0");

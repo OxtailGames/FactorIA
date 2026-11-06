@@ -4,12 +4,14 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
 
 #include "feedback_admin.h"
 #include "fa/cli/cli.h"
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
+#include "fa/tooling/feedback_share.h"
 
 using namespace fa;
 using namespace fa::cli;
@@ -133,10 +135,17 @@ struct Fixture {
     std::string adminFile, inbox;
     int modelCalls = 0;
     std::map<std::string, std::string> env;
+    std::unique_ptr<ScopedShareEnv> scopedShare;  // the inbox files are rewritten under the feedback-file lock of the user's folder: this one's
 
     explicit Fixture(bool configured = true) {
         dir = fs::make_temp_dir("fa_feedback_admin");
         env["FACTORIA_AI_CONFIG"] = (dir / "cfg" / "ai.json").string();
+        {
+            ShareEnv shareEnv;
+            const std::string cfg = env["FACTORIA_AI_CONFIG"];
+            shareEnv.env = [cfg](const std::string& n) { return n == "FACTORIA_AI_CONFIG" ? cfg : std::string(); };
+            scopedShare = std::make_unique<ScopedShareEnv>(std::move(shareEnv));
+        }
         adminFile = (dir / "cfg" / "feedback-admin.json").string();
         inbox = (dir / "cfg" / "feedback-inbox").string();
         if (configured) spit(adminFile, R"({"endpoint": "https://feedback.example.test/", "adminToken": "tok-secret", "other": 1})");
@@ -148,6 +157,7 @@ struct Fixture {
     }
     ~Fixture() {
         feedback_admin_env() = FeedbackAdminEnv{};
+        scopedShare.reset();
         std::error_code ec;
         stdfs::remove_all(dir, ec);
     }
@@ -847,4 +857,83 @@ TEST_CASE("feedback unreject takes a rejection back on the server and in the inb
     CHECK(reopened);
     CHECK(run({"feedback", "unreject", "r_404", "--out", f.inbox}).code == 1);
     CHECK(run({"feedback", "unreject", "--out", f.inbox}).code == 2);
+}
+
+// ------------------------------------------------------------------------------------------------ efficiency entries
+
+namespace {
+// A report the installation shared for an efficiency entry: its text in engine terms and the measured numbers.
+Json efficiency_report(const std::string& shareId, const std::string& installKey, const std::string& title, const std::string& fixType,
+                       double minutes, const std::string& trust = "anonymous") {
+    Json r = report(shareId, installKey, title, 1, trust);
+    r["kind"] = "efficiency";
+    r["category"] = "scene";
+    r["missing"] = "Working out the order of the calls took many steps of trial and error.";
+    r["efficiency"] = Json::object({{"fixType", fixType}, {"appliesTo", "every-game"},
+                                    {"measured", Json::object({{"steps", 40}, {"minutes", minutes * 2}, {"tokens", 200000}, {"costUsd", 1.0}})},
+                                    {"saving", Json::object({{"steps", 20}, {"minutes", minutes}, {"tokens", 100000}, {"costUsd", 0.5}})},
+                                    {"expectedShare", 0.5}, {"spans", 1}});
+    return r;
+}
+}  // namespace
+
+TEST_CASE("feedback pull: efficiency entries are ranked by the total saving across installations, with a verdict and a ready reason") {
+    Fixture f;
+    f.server.reports = {efficiency_report("r_1", kKeyA, "Flux calibration order", "doc", 30, "verified"),
+                        efficiency_report("r_2", kKeyB, "Flux calibration order", "doc", 30),
+                        efficiency_report("r_3", kKeyA, "Scene load retries", "newCommand", 1200, "verified"),
+                        gap_report("r_4")};
+    auto p = f.pull({"--no-classify", "--json"});
+    REQUIRE_MESSAGE(p.code == 0, p.err);
+    const Json j = Json::parse(p.out);
+    const Json& e = j["efficiency"];
+    REQUIRE(e.size() == 2);
+    CHECK(e[0]["title"] == "Scene load retries");
+    CHECK(e[0]["verdict"]["code"] == "command-worth-it");
+    CHECK(e[1]["title"] == "Flux calibration order");
+    CHECK(e[1]["verdict"]["text"] == "doc now");
+    CHECK(e[1]["installations"] == 2);
+    CHECK(e[1]["total"]["minutes"] == 45.0);  // one verified installation and one anonymous at half weight
+    REQUIRE(e[1]["entries"].size() == 2);
+    CHECK(e[1]["entries"][0]["rejectReason"].get<std::string>().size() >= 20);
+    // The entries in the inbox keep the numbers, and the gap is not mixed in.
+    const Json all = f.entries_of(kKeyA);
+    REQUIRE(all.size() == 3);
+    CHECK(all[0]["kind"] == "efficiency");
+    CHECK(all[0]["fixType"] == "doc");
+    CHECK(all[0]["saving"]["minutes"] == 30);
+    CHECK(all[2].value("kind", std::string("gap")) == "gap");
+    // The same ranking in the text of a pull, and the same again from `collect` (the two always agree).
+    Fixture g;
+    g.server.reports = f.server.reports;
+    auto text = g.pull({"--no-classify"});
+    CHECK(text.out.find("Efficiency entries") != std::string::npos);
+    CHECK(text.out.find("command: worth it") != std::string::npos);
+    auto c = run({"feedback", "collect", g.inbox, "--format", "json"});
+    REQUIRE_MESSAGE(c.code == 0, c.err);
+    CHECK(Json::parse(c.out)["efficiency"] == e);
+}
+
+TEST_CASE("feedback pull: a later report of an efficiency entry replaces its numbers (they are cumulative), and a bad block stays a plain entry") {
+    Fixture f;
+    f.server.reports = {efficiency_report("r_1", kKeyA, "Flux calibration order", "doc", 30)};
+    REQUIRE(f.pull({"--no-classify"}).code == 0);
+    f.server.reports[0] = efficiency_report("r_1", kKeyA, "Flux calibration order", "doc", 50);
+    f.server.reports[0]["occurrences"] = 2;
+    auto again = f.pull({"--no-classify", "--full"});
+    REQUIRE_MESSAGE(again.code == 0, again.err);
+    const Json e = f.entries_of(kKeyA);
+    REQUIRE(e.size() == 1);
+    CHECK(e[0]["saving"]["minutes"] == 50);
+    CHECK(e[0]["occurrences"] == 2);
+
+    Fixture g;
+    Json bad = efficiency_report("r_9", kKeyA, "Odd one", "doc", 30);
+    bad["efficiency"]["fixType"] = "magic";
+    g.server.reports = {bad};
+    REQUIRE(g.pull({"--no-classify"}).code == 0);
+    const Json b = g.entries_of(kKeyA);
+    REQUIRE(b.size() == 1);
+    CHECK(b[0].value("kind", std::string("gap")) == "gap");
+    CHECK(Json::parse(run({"feedback", "collect", g.inbox, "--format", "json"}).out)["efficiency"].empty());
 }

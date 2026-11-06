@@ -14,7 +14,20 @@ namespace {
 
 const char* kGoodShare = R"({"title":"No one-way platforms","missing":"Collider2D has no oneWay option, so a body cannot pass up through a platform and land on it.","suggestion":"Add Collider2D.oneWay (bool)."})";
 
+// The commands write the feedback file under a lock in the user's folder: a temporary one, never the real ~/.factoria.
+struct ScratchHome {
+    TempDir home;
+    ScopedShareEnv scoped;
+    static ShareEnv make(const std::string& h) {
+        ShareEnv env;
+        env.env = [h](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? h : ""; };
+        return env;
+    }
+    ScratchHome() : scoped(make(home.str())) {}
+};
+
 struct Fixture {
+    ScratchHome scratch;
     TempDir dir;
     CommandRegistry registry = make_registry();
     std::shared_ptr<FakeProvider> provider = std::make_shared<FakeProvider>();

@@ -230,6 +230,8 @@ Editor::~Editor() {
     if (aiToolTestThread_.joinable()) aiToolTestThread_.join();
     aiPluginJob_->cancel = true;
     if (aiPluginThread_.joinable()) aiPluginThread_.join();
+    fbRetro_->cancel = true;
+    if (fbRetroThread_.joinable()) fbRetroThread_.join();
     if (atThread_.joinable()) atThread_.join();
     atWatchdogStop_ = true;
     if (atWatchdog_.joinable()) atWatchdog_.join();
@@ -669,6 +671,7 @@ bool Editor::boot(const std::string& dirIn) {
         // Closed engine feedback moves to ENGINE_FEEDBACK.archive.json so the file only holds what is still open.
         if (const std::string fbPath = fs::join(projectDir_, engine_->project().feedbackFile); fs::exists(engine_->project().feedbackFile)) {
             // First, the gaps this engine version fixed are closed (the list embedded in the binary), then archived below.
+            const ShareWaitCap shortWait(0.3);  // both rewrite the file under a lock another program may hold: the UI thread does not wait seconds
             if (auto c = check_fixed_feedback_file(fbPath); !c) FA_WARN("editor", "feedback fixed check: {}", c.error().to_string());
             else if (!c->closed.empty()) FA_INFO("editor", "{} feedback entries were fixed in this engine version", c->closed.size());
             if (auto r = archive_closed_feedback_file(fbPath); !r) FA_WARN("editor", "feedback archive: {}", r.error().to_string());
@@ -920,6 +923,9 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
 }
 
 void Editor::on_frame(double dt) {
+    // Everything the UI thread does in a frame (the panels, the share tick, the commands it runs for the AI and MCP) waits at most
+    // 0.3 s for a feedback lock another program holds; the caller shows "busy, try again" and the next tick retries.
+    const ShareWaitCap uiWait(0.3);
     atHeartbeat_.fetch_add(1, std::memory_order_relaxed);  // the autotest's watchdog sees the editor alive
     time_ += dt;
     poll_disk_update();

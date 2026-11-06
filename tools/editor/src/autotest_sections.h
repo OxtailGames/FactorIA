@@ -57,6 +57,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"K2", "AI settings, Extensions tab, Skills: the engine's and the project's skills listed, a role and an On box switched, Save keeps them as skill entries"},
     {"F2", "AI settings, Extensions tab, Add TokenEconomizer: the confirmation, a fake Claude Code CLI run, the entry added, Save keeps the other keys, entry-only when the plugin is already installed"},
     {"E4", "Rejected feedback: the engine rejects what it already has, a double click opens an entry in a window, the status combo asks why, closed lists the archive, Copy, Delete asks first, the engine developers' verdict comes back"},
+    {"R2", "Retrospective: the Feedback panel's button looks back at the project's recorded runs, files an efficiency entry with the fast role's model, says what happened and adds up the saving; a second click finds nothing new"},
     {"I2", "Image panel: a document opened, a layer added, a stroke painted, a rectangle selected and moved, an adjustment edited, Undo/Redo through the editor's stack, Save bakes the PNG"},
     {"L3", "Image panel pixel-art tools: the pixel grid and the Tiled preview, the palette bar (add a colour, secondary colour, undo), a frame added with the onion skin, play, Save bakes"},
     {"J2", "Vector panel: an svg opened, a path drawn with the Pen, an anchor moved and made smooth with the Node tool, a marquee and Union, Undo/Redo through the editor's stack, an image document's svg layer edited from the Image panel and baked by Save"},

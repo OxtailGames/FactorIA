@@ -295,6 +295,7 @@ SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::
             continue;
         }
         if (auto edit = share_edit_for_send(e, c.text, c.reviewPassed)) {
+            const ShareWaitCap shortWait(0.3);  // the UI thread does not wait seconds for a lock another program holds
             if (auto r = set_feedback_share_file(file, c.id, *edit); !r) {
                 out.rows.push_back({c.id, "failed", "the share text could not be stored: " + r.error().message});
                 continue;

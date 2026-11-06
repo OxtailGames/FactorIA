@@ -9,6 +9,7 @@
 
 #include "fa/core/json.h"
 #include "fa/core/fs.h"
+#include "fa/tooling/feedback_share.h"
 
 namespace fa::testing {
 
@@ -31,6 +32,22 @@ struct TempDir {
     }
     std::string str() const { return path.string(); }
     std::string sub(const std::string& rel) const { return (path / rel).string(); }
+};
+
+// A scratch user folder for the span of a test: a command that writes ENGINE_FEEDBACK.json takes the cross-process lock of the sharing
+// files (feedback-share.lock in the user's config folder), and a test must never create it in the real ~/.factoria. HOME, USERPROFILE
+// and APPDATA point into a temporary folder; ScopedShareEnv puts it in place and takes it away.
+struct ScratchShareHome {
+    TempDir home;
+    fa::ScopedShareEnv scoped;
+    static fa::ShareEnv make_env(const std::string& h) {
+        fa::ShareEnv e;
+        e.env = [h](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? h : ""; };
+        e.sleep = [](double) {};
+        e.defaultEndpoint.clear();  // sharing is unavailable: nothing can be sent
+        return e;
+    }
+    ScratchShareHome() : scoped(make_env(home.str())) {}
 };
 
 inline std::string read_all(const std::filesystem::path& p) {

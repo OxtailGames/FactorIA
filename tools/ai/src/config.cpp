@@ -763,6 +763,11 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             flag("loopGuard", cfg.savers.loopGuard);
             flag("learnedToolGroups", cfg.savers.learnedToolGroups);
             flag("projectFacts", cfg.savers.projectFacts);
+            flag("retrospective", cfg.savers.retrospective);
+            if (const Json* v = child(*sv, "retrospectiveSteps"); v && v->is_number() && v->get<double>() >= 1)
+                cfg.savers.retrospectiveSteps = static_cast<int>(std::min(v->get<double>(), 1.0e6));
+            if (const Json* v = child(*sv, "retrospectiveCostUsd"); v && v->is_number() && v->get<double>() > 0)
+                cfg.savers.retrospectiveCostUsd = v->get<double>();
             cfg.savers.loopGuardJudge = str(*sv, "loopGuardJudge");
             if (!cfg.savers.loopGuardJudge.empty() && !is_known_role(cfg.savers.loopGuardJudge)) {
                 const std::vector<std::string> names(std::begin(kAllRoles), std::end(kAllRoles));
@@ -809,6 +814,9 @@ Json savers_to_json(const Savers& savers) {
     if (!savers.loopGuardJudge.empty()) out["loopGuardJudge"] = savers.loopGuardJudge;
     if (savers.learnedToolGroups != def.learnedToolGroups) out["learnedToolGroups"] = savers.learnedToolGroups;
     if (savers.projectFacts != def.projectFacts) out["projectFacts"] = savers.projectFacts;
+    if (savers.retrospective != def.retrospective) out["retrospective"] = savers.retrospective;
+    if (savers.retrospectiveSteps != def.retrospectiveSteps) out["retrospectiveSteps"] = savers.retrospectiveSteps;
+    if (savers.retrospectiveCostUsd != def.retrospectiveCostUsd) out["retrospectiveCostUsd"] = savers.retrospectiveCostUsd;
     return out;
 }
 

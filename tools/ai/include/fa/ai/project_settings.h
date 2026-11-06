@@ -64,7 +64,7 @@ const char* setting_source_name(SettingSource s);  // "default", "you", "project
 //   /limits/{maxTurns,maxCostUsd,maxTotalTokens,stuckAfterSeconds,maxConcurrentRuns}
 //   /assets/<kind>/{provider[,model][,voice]}                                              (the kinds that have a route)
 //   /assetSources/{images,models,audio,fonts,other,onlyListed}                              (a category: the array of sites)
-//   /savers/{loopGuard,loopGuardJudge,learnedToolGroups,projectFacts}
+//   /savers/{loopGuard,loopGuardJudge,learnedToolGroups,projectFacts,retrospective,retrospectiveSteps,retrospectiveCostUsd}
 //   /mcpServers/<name>                                                                      (true/false: the server is enabled)
 //   /extensions/{plugins,skills,hooks}/<name>                                               (true/false: the entry is enabled)
 // A "leaf" is a value of this document that is not an object (an array is a leaf); the JSON pointers of the leaves are the
