@@ -3,6 +3,7 @@
 // is being edited, a file that waits for Accept, its problems. The pure parts (what to write) are in ai_project_edit.h.
 // docs/EDITOR.md ("AI settings"), docs/AI_PROVIDERS.md ("Per project", "The AI settings window").
 #include <algorithm>
+#include <cfloat>
 #include <chrono>
 #include <filesystem>
 #include <mutex>
@@ -27,6 +28,7 @@ long long steady_ms() {
 void Editor::ai_project_invalidate() {
     aiProjStale_ = true;
     std::lock_guard<std::mutex> lock(aiProjMu_);
+    ++aiProjGen_;  // a resolution that is in flight (ai_with_project_config) must not store its answer after this
     aiProjFileDir_.clear();
     aiProjFileAtMs_ = 0;
     aiProjHasFile_ = false;
@@ -101,25 +103,31 @@ bool Editor::ai_project_save_retry(const char* from) {
     return true;
 }
 
+Result<void> Editor::ai_project_keep_replaced_copy() {
+    const AiProjectUi& p = ai_project_refresh();
+    if (!p.have || !p.resolved.pendingTrust || p.resolved.fileHash != p.ignoredHash) return {};  // nothing of the project's is replaced
+    // The file that came with the project is kept next to it: the user ignored it, never accepted it, and Save now replaces it.
+    if (!aiProj_.replaceOk) {
+        return Error{"Saving here replaces the AI settings file that came with this project.",
+                     "Press Save again and confirm, or Accept the file first."};
+    }
+    const std::string file = ai_project_settings_path();
+    const std::string copy = utf8_string(utf8_path(file).parent_path() / "settings.replaced.json");
+    auto bytes = fs::read_bytes(file);
+    Result<void> kept = bytes ? fs::write_bytes(copy, bytes->data(), bytes->size()) : Result<void>(bytes.error());
+    if (!kept) {
+        aiProj_.replaceOk = false;
+        return Error{"Cannot keep a copy of the file that Save would replace: " + kept.error().message,
+                     "Nothing was changed. Free the folder " + utf8_string(utf8_path(file).parent_path()) + " or Delete the file instead."};
+    }
+    return {};
+}
+
 Result<void> Editor::ai_project_save(const Json& overrides) {
     const ai::AiConfig user = ai_user_config();
     const AiProjectUi& p = ai_project_refresh();
     const bool replacing = p.have && p.resolved.pendingTrust && p.resolved.fileHash == p.ignoredHash;
-    if (replacing) {
-        // The file that came with the project is kept next to it: the user ignored it, never accepted it, and Save now replaces it.
-        if (!aiProj_.replaceOk) {
-            return Error{"Saving here replaces the AI settings file that came with this project.",
-                         "Press Save again and confirm, or Accept the file first."};
-        }
-        std::error_code ec;
-        const std::filesystem::path file = utf8_path(ai_project_settings_path());
-        std::filesystem::copy_file(file, file.parent_path() / "settings.replaced.json", std::filesystem::copy_options::overwrite_existing, ec);
-        if (ec) {
-            aiProj_.replaceOk = false;
-            return Error{"Cannot keep a copy of the file that Save would replace: " + ec.message(),
-                         "Nothing was changed. Free the folder " + utf8_string(file.parent_path()) + " or Delete the file instead."};
-        }
-    }
+    if (auto kept = ai_project_keep_replaced_copy(); !kept) return kept;
     auto saved = ai::save_project_settings(projectDir_, overrides, user.sourcePath, ai::system_env(), true);
     aiProj_.replaceOk = false;
     if (saved && replacing) aiProj_.ignoredHash.clear();
@@ -142,6 +150,7 @@ void Editor::ai_project_delete_file() {
     }
     ai_project_invalidate();
     aiRolesOpen_ = true;
+    aiRolesKeepEdits_ = false;  // deleting the file is a way back to the defaults: the roles start from them again
     if (!ec && aiSettings_.loaded) ai_settings_load(ai_user_config(), false, true);
 }
 
@@ -191,8 +200,11 @@ void Editor::ai_settings_changed_elsewhere() {
         ai_refresh_providers();
     }
     ai_project_invalidate();
-    aiRolesOpen_ = true;
-    ai_settings_discard();
+    // The window shows what the files say now; what the person had typed and not saved stays, on top of it.
+    if (ai_settings_reload_keeping_edits(user)) {
+        notify("The AI settings changed on disk (an AI agent, an MCP client or another program). The AI settings window shows the new values "
+               "and keeps the rows you had changed: Save writes them over the new ones.");
+    }
 }
 
 void Editor::ai_project_accept() {
@@ -208,9 +220,11 @@ void Editor::ai_project_accept() {
     }
     aiProj_.actionError.clear();
     aiProj_.ignoredHash.clear();
-    notify("This project's AI settings accepted. The next message uses them.");
-    aiRolesOpen_ = true;
-    if (aiSettings_.loaded) ai_settings_load(user, false, true);  // the window shows the values the file now sets
+    // The window shows the values the file now sets; a row the person had changed before accepting stays as they typed it.
+    const bool kept = ai_settings_reload_keeping_edits(false);
+    notify(kept ? "This project's AI settings accepted. The next message uses them. The rows you had changed in the window stay as you set "
+                  "them: Save writes them over the file's values."
+                : "This project's AI settings accepted. The next message uses them.");
 }
 
 void Editor::draw_ai_project_banner() {
@@ -245,6 +259,10 @@ void Editor::draw_ai_project_banner() {
         if (r.pendingTrust && !ignored) {
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.30f, 0.22f, 0.08f, 1));
             const float listH = line * static_cast<float>(std::clamp<int>(static_cast<int>(r.pending.size()), 1, 6)) + 6.0f;
+            // As tall as its text needs, but never more than about half of what is left of the window: on a small display (1024x642) the
+            // Roles and Assets tabs below stay reachable, and the box scrolls to the file's changes and the buttons.
+            const float maxH = std::max(line * 6.0f, ImGui::GetContentRegionAvail().y * 0.5f);
+            ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, maxH));
             ImGui::BeginChild("##aiprojpending", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
             ImGui::TextColored(kStatusWarn, "This project's AI settings file is waiting for your approval");
             ImGui::TextWrapped("%s came with the project (or changed since you last accepted it). Until you accept it the project uses your own "

@@ -316,6 +316,9 @@ public:
     bool ai_project_locked();               // a file that waits for Accept / Ignore, or one that cannot be read: nothing is saved or reset until then
     void draw_ai_project_banner();          // the top of the window: where the values are edited, what waits for Accept, the file's problems
     void ai_project_accept();
+    // Before a Save replaces the project's ignored file: its copy (settings.replaced.json), or the error that says Save must be confirmed or
+    // the copy could not be made. Nothing to do (ok) when no ignored file would be replaced. Called before anything else is written.
+    Result<void> ai_project_keep_replaced_copy();
     Result<void> ai_project_save(const Json& overrides);   // save_project_settings(..., recordTrust=true): what the user chose here
     // Save over a file the user ignored (it came with the project and was never accepted) replaces it: first ask. True = go ahead; false =
     // the popup was requested (`from` is the Save that asked; ai_project_save_retry(from) is true on the frame after the confirmation).
@@ -326,10 +329,10 @@ public:
     Result<void> ai_project_reset(const std::string& pointer);
     Result<void> ai_project_after_defaults(const ai::AiConfig& wanted);  // after Save as my defaults: the project's file keeps only what still differs
     Result<void> ai_user_config_reload();   // load ai.json again into aiConfig_ (and drop the caches)
-    // ai.settings.set through MCP, an AI agent or the console wrote the user's ai.json (aiUserFileChanged_) or the project's file
-    // (aiProjectFileChanged_) behind the windows' back. The callbacks run on the calling thread: they drop the caches and raise the
-    // flag, and this (main thread, once per frame) does the rest: reload ai.json, detect the providers again (the key and program
-    // checks), restart the Roles edits and close the AI settings window's draft so it loads what the file says now.
+    // ai.settings.set (run by an AI agent or an MCP client) wrote the user's ai.json (aiUserFileChanged_) or the
+    // project's file (aiProjectFileChanged_) behind the windows' back. The callbacks run on the calling thread: they drop the caches
+    // and raise the flag, and this (main thread, once per frame) does the rest: reload ai.json, detect the providers again (the key
+    // and program checks) and reload the AI settings window's Roles edits and draft, keeping the rows the person had changed.
     std::atomic<bool> aiUserFileChanged_{false}, aiProjectFileChanged_{false};
     void ai_settings_changed_elsewhere();
     std::string ai_project_settings_path() const;
@@ -1062,6 +1065,7 @@ public:
     long long aiProjAtMs_ = 0;
     std::shared_ptr<const ai::AiConfig> aiProjConfig_;  // null: the resolution failed (aiProjError_)
     Error aiProjError_;
+    std::uint64_t aiProjGen_ = 0;               // counts ai_project_invalidate() calls: a resolution started under an older count is not cached
     std::string aiConfigError_;
     std::vector<ai::ProviderStatus> aiStatus_;
     struct ProviderModels {  // what ai::list_models said about one available provider
@@ -1118,6 +1122,8 @@ public:
     std::vector<ChatHistoryEntry> aiHistory_;
     std::string aiHistoryDelete_;   // History row waiting for the second click on its Delete
     bool aiRolesOpen_ = false;      // request to restart the role edits from the loaded config this frame
+    std::optional<ai::AiConfig> aiRolesBase_;  // the config aiRolesEdit_ started from (what the Roles tab showed): an edit is a row that differs from it
+    bool aiRolesKeepEdits_ = false; // with aiRolesOpen_: the restart keeps the rows edited since aiRolesBase_ (a reload behind the window's back, Accept)
     float aiInputH_ = 0;            // the AI message box's height the user dragged it to (0 = 3 lines); kept in the layout file
     std::map<std::string, ai::RoleConfig> aiRolesEdit_;  // the roles being edited in the Roles tab
     std::set<std::string> aiRolesTyping_;                // roles whose model is a text box (Other... picked)
@@ -1128,6 +1134,7 @@ public:
         std::string title;                         // the window's title as drawn last ("AI settings - This project: <name>")
         std::string project;                       // the project the draft was loaded for ("" = your defaults): a switch reloads it
         std::string path;                          // the ai.json it saves into
+        ai::AiConfig base;                         // the config the routes and sources started from: an edit is a row that differs from it
         std::map<std::string, ai::AssetRoute> routes;  // by media kind name; provider "" = none (made procedurally)
         ai::AssetSources sources;
         std::map<std::string, std::string> keys;   // API keys typed this session, by provider (never shown, never logged)
@@ -1196,6 +1203,10 @@ public:
     Result<ai::ToolServer> ai_tool_form_build() const;  // the form as a server, validated like ai.json would
     void ai_tool_test(const ai::ToolServer& server);    // Test button: connects off the main thread, writes the draft's ToolTests
     void ai_settings_discard();  // closes the draft (stops a running Test)
+    // Loads what the files say now into the open window without losing what the person typed (ai_project_edit.h, ai_*_keep_edits): the
+    // rows they changed stay, the others show the new values. userChanged: ai.json changed too, so the providers' programs and the External
+    // tools / Extensions tabs show the file again. true when something unsaved was kept.
+    bool ai_settings_reload_keeping_edits(bool userChanged);
     void ai_settings_save_assets(bool asDefaults);  // Save / Save as my defaults of the Assets tab
     void draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable);  // ai_extensions.cpp
     // The Add TokenEconomizer section of that tab (ai_economizer.cpp): a dry run of ai::plugin_install says what is installed, the button
