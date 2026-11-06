@@ -1511,11 +1511,11 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             "finds with your own words (then it is a findability report: list the words you searched in `searched` and make the fix the "
             "doc's title and keywords), a lesson true only for this game (appliesTo this-game: it is a project fact, not engine "
             "feedback), and model, effort or limit settings (the user's, never filed). Entries of one fix merge and add their numbers. "
-            "Example (invented): {\"kind\":\"efficiency\",\"category\":\"scene\",\"title\":\"Tilemap collision setup\","
-            "\"waste\":\"Learning how Tilemap layers become colliders took 40 steps of reading components and trying values.\","
+            "Example (invented): {\"kind\":\"efficiency\",\"category\":\"scripting\",\"title\":\"Boss fight phases\","
+            "\"waste\":\"Making a boss that changes at health thresholds took 40 steps of wiring states and timers by hand.\","
             "\"evidence\":[{\"session\":\"20261014-153012-main\",\"fromStep\":12,\"toStep\":52}],\"fixType\":\"guide\","
             "\"expectedSaving\":{\"share\":0.7,\"why\":\"a guide gives the three calls that took the rest to find\"},"
-            "\"appliesTo\":\"every-game\",\"suggestion\":\"A tilemap topic guide: layers, colliders, one-way tiles.\"}";
+            "\"appliesTo\":\"genre\",\"suggestion\":\"A boss fight topic guide: phases at health thresholds, attack timers.\"}";
         Json props = Json::object();
         props["category"] = enum_schema(feedback_categories(), "Engine area of the gap.");
         props["severity"] = enum_schema(feedback_severities(),

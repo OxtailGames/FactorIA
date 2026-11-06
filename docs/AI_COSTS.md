@@ -187,6 +187,14 @@ optional judge costs one short call per redirect, counted in the run), tool grou
 for loading up front only when you accept, and project facts proposed for `AGENTS.md`. They are not measured on a paid run: the
 guard and the proposals are tested with a scripted provider.
 
+### Efficiency feedback: telling the engine where the steps went
+
+The savers above work on one project's runs. What an engine fix would save in every game (a topic guide, an example, an option on a
+command) is reported instead: `factoria ai retrospective` measures the waste in your transcripts, files at most three entries of
+`kind: "efficiency"` that pass the gate and costs one short call of the fast role (shown in the result). The thresholds, what is refused
+(a different model or limit is your setting, not the engine's) and how the numbers are measured:
+[ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md#efficiency-feedback) and [AI_PROVIDERS.md](AI_PROVIDERS.md#retrospective).
+
 ### TokenEconomizer with Claude Code: measured
 
 [TokenEconomizer](https://github.com/microsoft/TokenEconomizer) is a Claude Code plugin with similar savers for Claude Code
@@ -288,4 +296,5 @@ Run it after a session, or ask the AI to run it and report. For API providers ou
   re-reading context.
 - Keep chats short, one task per tab; let the orchestrator delegate; screenshots only where needed.
 - Set `limits.maxCostUsd` and `maxTurns` for API runs, and watch Session and Week for subscription runs.
+- After a long run, `factoria ai retrospective` files what an engine fix would save in every game ([ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md#efficiency-feedback)).
 - Generate assets with `fake` first; each real asset call is billed by its provider.
