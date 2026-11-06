@@ -121,6 +121,10 @@ struct RetrospectiveOptions {
     const CancelFlag* cancel = nullptr;
     // The engine version the fix checks compare with (a fix made in a newer one is not checked yet). Empty = this build's.
     std::string engineVersion;
+    // The most one transcript may weigh, and the most all of them together (tests lower them; the defaults are kEfficiencyMaxBytes and
+    // kEfficiencyMaxTotalBytes). A transcript over either is listed in `skipped`.
+    std::uint64_t maxTranscriptBytes = kEfficiencyMaxBytes;
+    std::uint64_t maxTotalBytes = kEfficiencyMaxTotalBytes;
     // Told what the model call used and cost (US dollars), once per call.
     std::function<void(const Usage&, double costUsd)> onUsage;
 };

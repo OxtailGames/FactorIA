@@ -1026,7 +1026,7 @@ Where to start it:
 
 One retrospective runs at a time in a process: a second `ai.retrospective` call gets the error code `busy`. **Stop** (the editor's
 button, the cancel of the command) reaches the model call too: the request is dropped, a CLI agent's process is killed, and the
-retrospective returns at once with nothing filed.
+retrospective returns at once with the error code `cancelled` and nothing filed.
 
 How much it reads: a transcript is read line by line (a line over 8 MB is skipped and counted), a file over 64 MB is not read, and
 one pass reads 256 MB in all. A transcript left out for that is listed in the result's `skipped` (`[{id, reason}]`) and the `note`

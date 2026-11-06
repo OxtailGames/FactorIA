@@ -401,6 +401,11 @@ confirming or discarding an entry (`feedback.delete` and `factoria feedback disc
 a deleted entry never stays sendable), and the command line says so and exits with an error. The editor never waits more than a third
 of a second for it: it tells you ("could not be queued for sharing yet", or the action's own message) and tries again.
 
+Writing `ENGINE_FEEDBACK.json` itself (a report, an efficiency entry a retrospective files, the note of a fix check) takes the same
+lock, so two programs writing the file at once never lose an entry. A report must not need your user folder: when `~/.factoria`
+cannot be written (a read-only home, a sandbox), the report is filed under a lock of the same kind in the project's own
+`.factoria` folder instead, and only when neither folder can be written does it fail, with a message that names both.
+
 The choice is stored in YOUR `feedback-sharing.json` (`"projects": {"<project folder path>": "never"}`), never inside the
 project, so a project you copy or download does not inherit the choice: it follows your default. The key is the folder's absolute
 path (symlinks resolved, UTF-8, forward slashes, no trailing slash, lower-cased on Windows and on a volume that ignores case, as
@@ -517,8 +522,9 @@ with a command's. Each group shows:
   asks of the reports that want it);
 - the **verdict**: `doc now` (a doc, guide or example), `command: worth it` or `command: not yet (H of the C hours it costs)` (the hours
   saved against the cost), `engine change: below threshold (N of the $1000 / 20 hours it needs)` or `engine change: reached the roadmap bar`;
-- a **ready reason** for each entry (`rejectReason`, plain text, only that entry's own numbers) to pass to `feedback reject` when the
-  entry is not worth doing;
+- a **ready reason** (`rejectReason`, plain text, only that entry's own numbers) for each entry of a `doc now` or `below threshold` group, to
+  pass to `feedback reject` when the entry is not worth doing; a command or an engine change that reached its bar has none (that is a
+  decision, not a refusal), and a command that is `not yet` has none either: it waits for more reports;
 - `afterFix`: the versions whose fix a report says did not remove the waste.
 
 Sorted by hours saved, then dollars, tokens and title; minutes round to 0.1, dollars to cents, so the same inbox always prints the same list.
@@ -544,8 +550,9 @@ its arguments, exits 0 when everything was done and 1 when a `shareId` is not on
    - `factoria feedback keep r_8f3k2m` drops a wrong suggestion (without shareIds: all); nothing is sent.
 4. **Unreject** a mistake: `factoria feedback unreject r_8f3k2m`: the installation's next check turns the entry back into a sent, open one.
 5. **Collect** what is left: `factoria feedback collect <inbox> --out roadmap.md`. Efficiency entries come ranked by what their fix saves, each with its verdict
-   and a ready reason ("Efficiency entries" above): do the `doc now` ones, build a command only when it is `worth it`, and for the rest
-   `feedback reject <shareId> --reason "<the entry's rejectReason>"` (the reason names only that entry's own numbers).
+   and a ready reason ("Efficiency entries" above): do the `doc now` ones, build a command only when it is `worth it`, and for the `doc now` and
+   `below threshold` ones that are not done, `feedback reject <shareId> --reason "<the entry's rejectReason>"` (the reason names only that
+   entry's own numbers).
 6. **Record the fix.** When an efficiency entry is fixed, `feedback update --status fixed-in-engine` with "FactorIA <version>" in the text
    (`feedback fixed add` for the list that ships) records `fixedIn`, `fixedAt` and the baseline; the retrospectives of the games on
    that version compare the same pattern before and after ("Did the fix work?"), and an entry filed again with `afterFix` is the proof that

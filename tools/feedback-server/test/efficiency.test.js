@@ -50,6 +50,7 @@ test("a bad block is rejected with a hint, and unknown block fields are dropped"
         efficiencyEntry(6, { spans: 2.5 }),
         efficiencyEntry(7, { afterFix: "0.1 0" }),
         efficiencyEntry(8, { measured: null }),
+        efficiencyEntry(10, { afterFix: "v0.17.0" }),  // a version starts with a digit (the schema and the engine say so too)
     ];
     const j = await (await sendReports(app, bad)).json();
     for (const r of j.results) {

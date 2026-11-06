@@ -26,6 +26,7 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -149,6 +150,9 @@ public:
     const std::string& error() const { return error_; }  // why it is not held; "" when it is
     const std::string& path() const { return path_; }    // the lock file, as text for messages (UTF-8)
     const std::filesystem::path& file() const { return file_; }
+    // True when the lock failed because no file can be made in the folder (no permission, a read-only home, a folder that cannot be
+    // created), not because another process holds it: the caller may take a lock somewhere else (FeedbackFileLock).
+    bool unwritable() const { return unwritable_; }
     // Refreshes the time of the lock file this thread holds (a no-op when it holds none, or when the time is fresh). Call it inside a
     // loop that may take seconds (many entries written under the lock).
     static void keep_alive();
@@ -156,10 +160,30 @@ public:
 private:
     void acquire(const ShareEnv& env);
     void refresh();
-    bool held_ = false, nested_ = false;
+    bool held_ = false, nested_ = false, unwritable_ = false;
     double staleSec_ = 10.0;
     std::string error_, path_, token_;
     std::filesystem::path file_;
+};
+// The lock of a read-modify-write of a project's ENGINE_FEEDBACK.json (or its archive) that the editor, the CLI, an agent and a
+// retrospective may write at once. It is the ShareLock of the user's folder, so a write that also touches the outbox is covered by the
+// same one; when that folder cannot be written (a read-only or missing home, a sandbox) the file is still written, under a lock of the
+// same kind in the project's own `.factoria` folder (next to the feedback file), because the report of a gap must not need
+// ~/.factoria. held() / error() are those of the lock that was taken; error() names the folder when neither could be.
+class FeedbackFileLock {
+public:
+    FeedbackFileLock(const ShareEnv& env, const std::string& feedbackPath);
+    bool held() const;
+    const std::string& error() const { return error_; }
+    // True when the user's folder was not writable and the project's folder holds the lock.
+    bool in_project_folder() const { return local_ != nullptr; }
+    ~FeedbackFileLock();
+    FeedbackFileLock(const FeedbackFileLock&) = delete;
+    FeedbackFileLock& operator=(const FeedbackFileLock&) = delete;
+
+private:
+    std::unique_ptr<ShareLock> user_, local_;
+    std::string error_;
 };
 // For the span of its life no lock taken by this thread waits longer than `sec`, whatever ShareEnv::lockWaitSec says. The editor's UI
 // thread uses it around commands it runs on its own thread (feedback.delete) so a frame never stalls on another process.

@@ -280,6 +280,7 @@ void ShareLock::acquire(const ShareEnv& env) {
             return;
         }
         if (c == Created::Failed) {
+            unwritable_ = true;
             error_ = "Cannot create the lock file " + path_ + " (" + why + "), so the sharing files were not changed. "
                      "Check the permissions of that folder.";
             return;
@@ -293,6 +294,7 @@ void ShareLock::acquire(const ShareEnv& env) {
                 probed = true;
                 std::string probeWhy;
                 if (!folder_is_writable(dir, token_, probeWhy)) {
+                    unwritable_ = true;
                     error_ = "Cannot create files in " + text_of(dir) + " (" + probeWhy + "), so the sharing files were not changed. "
                              "Check the permissions of that folder.";
                     return;
@@ -338,6 +340,39 @@ ShareLock::~ShareLock() {
         }
     } catch (...) {
     }
+}
+
+FeedbackFileLock::FeedbackFileLock(const ShareEnv& env, const std::string& feedbackPath) {
+    user_ = std::make_unique<ShareLock>(env);
+    if (user_->held() || !user_->unwritable()) {
+        if (!user_->held()) error_ = user_->error();
+        return;
+    }
+    // The user's folder cannot be written: lock in the project's folder instead, so the report is still written (the processes that
+    // also cannot write the user folder reach the same file, so they agree on it).
+    const std::string userError = user_->error();
+    std::string projectFolder;
+    try {
+        const stdfs::path parent = stdfs::path(feedbackPath).parent_path();
+        projectFolder = text_of(parent.empty() ? stdfs::path(".factoria") : parent / ".factoria");
+    } catch (...) {
+        projectFolder = ".factoria";
+    }
+    ShareEnv localEnv = env;
+    localEnv.env = [projectFolder](const std::string& key) { return key == "FACTORIA_AI_CONFIG" ? projectFolder + "/ai.json" : std::string(); };
+    user_.reset();
+    local_ = std::make_unique<ShareLock>(localEnv);
+    if (!local_->held()) {
+        error_ = local_->error().empty() ? userError : userError + " The project's own folder did not work either: " + local_->error();
+    }
+}
+
+bool FeedbackFileLock::held() const { return user_ ? user_->held() : (local_ && local_->held()); }
+
+FeedbackFileLock::~FeedbackFileLock() {
+    // Local first (declared last in use order): both are released by the destructors of the members anyway.
+    local_.reset();
+    user_.reset();
 }
 
 void ShareLock::keep_alive() {

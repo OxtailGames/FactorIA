@@ -449,17 +449,18 @@ TEST_CASE("efficiency: a stream is read like the text, a line longer than the li
 }
 
 TEST_CASE("efficiency: a stream past the byte limit is cut and says so") {
-    // 65 lines of 1 MiB: past the 64 MiB that are read. Unknown kinds, so nothing becomes a step; the point is that the read stops.
-    const std::string line = Json::object({{"kind", "noise"}, {"pad", std::string(1024 * 1024, 'y')}}).dump() + "\n";
+    // 5 lines of 64 KB read with a limit of 256 KB (the engine's own limit is 64 MB; the test lowers it instead of building that much).
+    // Unknown kinds, so nothing becomes a step; the point is that the read stops.
+    const std::uint64_t limit = 256 * 1024;
+    const std::string line = Json::object({{"kind", "noise"}, {"pad", std::string(64 * 1024, 'y')}}).dump() + "\n";
     std::string big;
-    big.reserve(line.size() * 65);
-    for (int i = 0; i < 65; ++i) big += line;
-    REQUIRE(big.size() > kEfficiencyMaxBytes);
+    for (int i = 0; i < 5; ++i) big += line;
+    REQUIRE(big.size() > limit);
     std::istringstream in(std::move(big));
-    const EfficiencySession cut = read_efficiency_session(in, "big");
+    const EfficiencySession cut = read_efficiency_session(in, "big", limit);
     CHECK(cut.truncated);
     std::istringstream small(line + line);
-    CHECK_FALSE(read_efficiency_session(small, "small").truncated);
+    CHECK_FALSE(read_efficiency_session(small, "small", limit).truncated);
 }
 
 TEST_CASE("efficiency: load_efficiency_session refuses a file over the per-file cap and one that no longer fits the budget, with the reason") {
@@ -482,16 +483,17 @@ TEST_CASE("efficiency: load_efficiency_session refuses a file over the per-file 
     CHECK(budget.bytesLeft == size / 2);  // a refused file takes nothing off
     CHECK(load_efficiency_session(p.dir.str(), "small-b").ok());  // no budget, no total limit
 
-    // The per-file cap: a sparse file of one byte over it is refused before it is opened.
+    // The per-file cap (lowered to 2 MB here instead of making a 65 MB file): a file of one byte over it is refused before it is opened.
     const std::filesystem::path huge = p.dir.path / ".factoria" / "ai" / "sessions" / "huge.jsonl";
-    p.session("huge", "{}\n");
-    std::error_code ec;
-    std::filesystem::resize_file(huge, kEfficiencyMaxBytes + 1, ec);
-    REQUIRE_FALSE(ec);
-    auto big = load_efficiency_session(p.dir.str(), "huge");
+    p.session("huge", std::string(2u * 1024 * 1024 + 1, ' '));
+    EfficiencyLoadBudget capped(kEfficiencyMaxTotalBytes, 2u * 1024 * 1024);
+    auto big = load_efficiency_session(p.dir.str(), "huge", &capped);
     REQUIRE_FALSE(big.ok());
     CHECK(big.error().message.find("huge") != std::string::npos);
-    CHECK(big.error().message.find(std::to_string(kEfficiencyMaxBytes / (1024 * 1024)) + " MB") != std::string::npos);
+    CHECK(big.error().message.find("2 MB") != std::string::npos);
+    CHECK(capped.bytesLeft == kEfficiencyMaxTotalBytes);  // a refused file takes nothing off
+    CHECK(load_efficiency_session(p.dir.str(), "huge").ok());  // under the real 64 MB cap it is read
+    std::error_code ec;
     std::filesystem::remove(huge, ec);
 }
 

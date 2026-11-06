@@ -10,6 +10,7 @@
 #include "fa/tooling/efficiency.h"
 #include "fa/tooling/feedback.h"
 #include "fa/tooling/feedback_share.h"
+#include "fa_test_paths.h"  // FA_REPO_ROOT
 #include "test_helpers.h"
 
 using namespace fa;
@@ -191,7 +192,7 @@ TEST_CASE("efficiency rank: ordered by the total saving, each with its verdict a
     // A doc fix wanted by two installations, a command that saves a lot, and an engine change that saves little.
     const Json ranked = rank_efficiency({
         group("Flux calibration order", "doc", {voice("install-a", "verified", measure(40, 10.04, 200000, 0.5)), voice("install-b", "anonymous", measure(40, 10, 200000, 0.5))}),
-        group("Scene load retries", "newCommand", {voice("install-a", "verified", measure(200, 600, 3000000, 30))}),
+        group("Scene load retries", "newCommand", {voice("install-a", "verified", measure(200, 1000, 3000000, 30))}),
         group("Physics layer lookup", "engineChange", {voice("install-c", "verified", measure(40, 60, 300000, 3))}),
     });
     REQUIRE(ranked.size() == 3);
@@ -214,22 +215,138 @@ TEST_CASE("efficiency rank: ordered by the total saving, each with its verdict a
     CHECK(ranked[2]["total"]["tokens"] == 300000);
     CHECK(ranked[2]["fixCost"]["hours"] == 0.5);
     CHECK(ranked[1]["fixCost"]["usd"] == 1000);
-    for (const Json& g : ranked)
+    // A ready reason only where the verdict says "do not build this": doc now and below threshold. A command that is worth it is not refused.
+    for (const Json& g : ranked) {
+        const std::string code = g["verdict"]["code"].get<std::string>();
         for (const Json& e : g["entries"]) {
-            const std::string reason = e["rejectReason"].get<std::string>();
-            CHECK(reason.size() >= 20);
-            CHECK(reason.size() <= 500);
+            if (code == "doc-now" || code == "engine-below-threshold") {
+                REQUIRE(e.contains("rejectReason"));
+                const std::string reason = e["rejectReason"].get<std::string>();
+                CHECK(reason.size() >= 20);
+                CHECK(reason.size() <= 500);
+            } else {
+                CHECK_FALSE(e.contains("rejectReason"));
+            }
         }
+    }
     // Deterministic: the same groups in another order give the same answer, and ties break by title.
     const Json again = rank_efficiency({
         group("Physics layer lookup", "engineChange", {voice("install-c", "verified", measure(40, 60, 300000, 3))}),
-        group("Scene load retries", "newCommand", {voice("install-a", "verified", measure(200, 600, 3000000, 30))}),
+        group("Scene load retries", "newCommand", {voice("install-a", "verified", measure(200, 1000, 3000000, 30))}),
         group("Flux calibration order", "doc", {voice("install-b", "anonymous", measure(40, 10, 200000, 0.5)), voice("install-a", "verified", measure(40, 10.04, 200000, 0.5))}),
     });
     CHECK(again == ranked);
     const Json tie = rank_efficiency({group("B title", "doc", {voice("x", "verified", measure(1, 5, 1000, 0))}),
                                       group("A title", "doc", {voice("y", "verified", measure(1, 5, 1000, 0))})});
     CHECK(tie[0]["title"] == "A title");
+}
+
+TEST_CASE("efficiency rank: the fix costs are the ones docs/ENGINE_FEEDBACK.md states") {
+    const std::string doc = testing::read_text(std::filesystem::path(FA_REPO_ROOT) / "docs" / "ENGINE_FEEDBACK.md");
+    REQUIRE_FALSE(doc.empty());
+    const std::string sentence = "(doc 0.5, guide 2, example 4, command option 4, new command 16;";
+    CHECK_MESSAGE(doc.find(sentence) != std::string::npos, "docs/ENGINE_FEEDBACK.md must state: " << sentence);
+    CHECK(efficiency_fix_cost_hours("doc") == 0.5);
+    CHECK(efficiency_fix_cost_hours("guide") == 2.0);
+    CHECK(efficiency_fix_cost_hours("example") == 4.0);
+    CHECK(efficiency_fix_cost_hours("commandOption") == 4.0);
+    CHECK(efficiency_fix_cost_hours("newCommand") == 16.0);
+}
+
+TEST_CASE("efficiency rank: a verdict text rounds its hours down, so a short saving never reads as the bar") {
+    // 3 hours 57 minutes against the 4 hours of a command option: "3.9", not "4.0".
+    const Json v = rank_efficiency({group("Option", "commandOption", {voice("a", "verified", measure(10, 237.5, 1000, 0))})})[0]["verdict"];
+    CHECK(v["code"] == "command-not-yet");
+    CHECK(v["text"].get<std::string>().find("3.9 of the 4.0 hours") != std::string::npos);
+}
+
+TEST_CASE("efficiency share: an efficiency entry that has no block to send is never shareable") {
+    Game g;
+    ScopedShareEnv scoped(g.env);
+    CommandRegistry registry;
+    register_feedback_commands(registry, g.dir.str());
+    REQUIRE(registry.call("feedback.report", g.report(1, 40)).ok);
+    Json entry = load_feedback(g.file()).value()["entries"][0];
+    CHECK(entry_is_shareable(entry));
+    Json unknownFix = entry;
+    unknownFix["fixType"] = "teleport";
+    CHECK_FALSE(entry_is_shareable(unknownFix));
+    Json thisGame = entry;
+    thisGame["appliesTo"] = "this-game";
+    CHECK_FALSE(entry_is_shareable(thisGame));  // it stays on this machine, however it was marked
+    Json noNumbers = entry;
+    noNumbers.erase("measured");
+    CHECK_FALSE(entry_is_shareable(noNumbers));
+}
+
+TEST_CASE("feedback file lock: the user's folder first, the project's own when the user's cannot be written, and an error that names both") {
+    Game g;
+    ShareEnv env = g.env;
+    env.lockWaitSec = 0.2;
+    env.lockStaleSec = 600.0;
+    ScopedShareEnv scoped(env);
+    const std::filesystem::path projectLock = g.dir.path / ".factoria" / kFeedbackShareLockFile;
+    {
+        FeedbackFileLock lock(env, g.file());
+        REQUIRE_MESSAGE(lock.held(), lock.error());
+        CHECK_FALSE(lock.in_project_folder());
+    }
+    // The user's folder cannot be made (a file is in its place): the report is still written, under a lock in the project's folder.
+    std::error_code removeEc;
+    std::filesystem::remove_all(env.config_dir(), removeEc);  // the first lock made it
+    testing::write_all(env.config_dir(), "this is a file, not a folder");
+    REQUIRE(std::filesystem::is_regular_file(env.config_dir()));
+    {
+        FeedbackFileLock lock(env, g.file());
+        REQUIRE_MESSAGE(lock.held(), lock.error());
+        CHECK(lock.in_project_folder());
+        CHECK(std::filesystem::exists(projectLock));  // held for the span of the object
+    }
+    CHECK_FALSE(std::filesystem::exists(projectLock));
+    CommandRegistry registry;
+    register_feedback_commands(registry, g.dir.str());
+    const Json gap = Json::object({{"category", "scene"}, {"severity", "minor"}, {"title", "Zorblax wibble gauge is missing"},
+                                   {"missing", "The engine has no zorblax wibble gauge for the quuxel pipeline"},
+                                   {"workaround", "I counted the quuxel frames by hand"}});
+    auto done = registry.call("feedback.report", gap);
+    REQUIRE_MESSAGE(done.ok, done.error.dump());
+    CHECK(load_feedback(g.file()).value()["entries"].size() == 1);
+
+    // A project lock that is busy is a wait that ends (not a silent write), and neither folder works: the error names them.
+    testing::write_all(projectLock, "alive");
+    {
+        FeedbackFileLock busy(env, g.file());
+        CHECK_FALSE(busy.held());
+        CHECK(busy.error().find("Another FactorIA process") != std::string::npos);
+    }
+    std::error_code ec;
+    std::filesystem::remove(projectLock, ec);
+    std::filesystem::remove_all(g.dir.path / ".factoria", ec);
+    testing::write_all(g.dir.path / ".factoria", "this is a file too");
+    FeedbackFileLock neither(env, g.file());
+    CHECK_FALSE(neither.held());
+    CHECK(neither.error().find(env.config_dir()) != std::string::npos);
+    CHECK(neither.error().find("project's own folder") != std::string::npos);
+}
+
+TEST_CASE("record_fix_check: takes the lock of the feedback files, so a report written at the same time is not undone") {
+    Game g;
+    ShareEnv busy = g.env;
+    busy.lockWaitSec = 0.2;
+    busy.lockStaleSec = 600.0;
+    ScopedShareEnv scoped(busy);
+    std::error_code ec;
+    std::filesystem::create_directories(busy.config_dir(), ec);
+    const std::string lockPath = (std::filesystem::path(busy.config_dir()) / kFeedbackShareLockFile).string();
+    testing::write_all(lockPath, "alive");
+    auto blocked = record_fix_check(g.file(), "FB-0001", Json::object());
+    REQUIRE_FALSE(blocked.ok());
+    CHECK(blocked.error().message.find("Another FactorIA process") != std::string::npos);
+    std::filesystem::remove(lockPath, ec);
+    auto free = record_fix_check(g.file(), "FB-0001", Json::object());  // no such file: the lock was taken, the entry is what is missing
+    REQUIRE_FALSE(free.ok());
+    CHECK(free.error().message.find("No feedback entry") != std::string::npos);
+    CHECK_FALSE(std::filesystem::exists(lockPath));  // released
 }
 
 TEST_CASE("efficiency rank: a command is worth it when its total saving covers its cost, and not before") {
