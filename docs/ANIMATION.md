@@ -67,6 +67,10 @@ world.on("footstep", (data, source) => {});                           // every a
 A non-looping clip (`loop: false`) stops on its last pose and sends `anim.finished` with `{ id, clip }`. Seeking with
 `animator.time = x` does not fire the events it jumps over.
 
+An event can also carry game feel actions, with or without a `name`: `{ "clip": "Walk", "time": 0.25, "feel": { "action":
+"spawn", "prefab": "prefabs/dust.prefab.json", "lifetime": 0.5 } }` runs the effect for the entity that plays the clip when the
+event fires (shake, hit-stop, flash, push, squash, spawn, sound: [GAME_FEEL.md](GAME_FEEL.md), "Effects as data").
+
 ### State machine
 
 A data-driven state machine is built into the component: parameters, states (a clip each) and transitions. No script is
@@ -260,7 +264,9 @@ world.on("footstep", (d, source) => {});                               // every 
 
 `data` is merged into the event next to `id`, `clip` (the name in `clips`) and `time` (the event's `t`); a layer's events
 also carry `layer`. Those three keys are the engine's: a file that uses them in `data` is an error. The component's
-`events` list (`{clip, time, name}`) works for 2D clips too. `anim.finished` carries `{ id, clip }` and `layer` when it comes from a layer.
+`events` list (`{clip, time, name?, feel?}`) works for 2D clips too. An event of a clip file takes `feel` as well: one game feel
+action or an array of them ([GAME_FEEL.md](GAME_FEEL.md), "Effects as data"), run for the entity that plays the clip; an event
+needs a `name`, `feel` or both. `anim.finished` carries `{ id, clip }` and `layer` when it comes from a layer.
 
 ### The pose is a runtime state
 
@@ -355,6 +361,11 @@ game plays a clip by its name:
   one of the clip (`fps` 24 over a clip's 12); one you leave at its default is taken from the clip. `loop` is the exception:
   only `loop: false` overrides (a looping clip then plays once); `loop: true` cannot make a clip baked as non-looping
   repeat, bake it with `loop: true`.
+- `events` is a list of frame events, `[{frame, clip?, name?, data?, feel?}]`: when the animation shows `frame` (the absolute
+  index in the sheet's grid, row by row) it sends the game event `name` with `{id, clip, frame, ...data}` and runs the game feel
+  actions of `feel` ([GAME_FEEL.md](GAME_FEEL.md), "Effects as data"), for example a hit-stop and a shake on the frame where the
+  sword lands. `clip` limits the event to one clip of the sheet. A loop fires the frame once per pass and a long step fires the
+  frames it skipped in order; a seek back fires nothing.
 - `mode` is `forward` (default), `reverse` or `pingpong` (forward then back, without repeating the end frames; one that does not loop stops back on its first frame).
 - The sheet's `padding` is skipped by itself; the sheet's `pivot` (and the clip's) is used when the Sprite has no pivot of its
   own. The sheet counts the pivot from the TOP-left, `Sprite.pivot` from the bottom-left (y flipped); see
@@ -615,7 +626,7 @@ the rotation gizmo and the IK handles in a 3D viewport of the posed model are th
 | `anim3d.remove_keys {path, keys}` | Removes those keys (a track left with no key is removed too). |
 | `anim3d.set_interp {path, keys, interp}` | Sets how the segment after each key is interpolated: `linear`, `step`, `bezier` or an easing name of `tween()`. |
 | `anim3d.set_clip {path, duration?, loop?, groundSpeed?, doc?}` | Changes the clip's own fields (the file is parsed again before it is written, so a clip the format refuses is not saved). |
-| `anim3d.add_event {path, t, name, data?, extendDuration?}` / `anim3d.set_event {path, event, t?, name?, data?, extendDuration?}` / `anim3d.remove_event {path, event}` | Clip events (`event` is the index in the clip's list, in time order). |
+| `anim3d.add_event {path, t, name?, data?, feel?, extendDuration?}` / `anim3d.set_event {path, event, t?, name?, data?, feel?, extendDuration?}` / `anim3d.remove_event {path, event}` | Clip events (`event` is the index in the clip's list, in time order). |
 | `anim3d.mirror_pose {path, rig, time?, from?, to?, interp?}` | Keys the pose at `time` mirrored left/right at `to` (default the same time): `from` is `swap` (the default: both sides trade places), `left` (the left pose is copied onto the right) or `right` (the other way). Bones are paired by their `_l` / `_r` names; bones on the mid plane are mirrored in place. |
 | `ik3d.key {path, rig, time?, solver, interp?, groundHeight?}` | Runs one IK solver (a `two_bone` with a pole, or a `look_at`, the objects of `ik3d.solve`) on the clip's pose at `time` and keys the bones it moved. |
 | `anim3d.restore {path, clip}` | Writes `clip` (the whole document) back, or deletes the file when `clip` is null. Every writing `anim3d.*` command returns the call that undoes it as `undo`; the editor keeps that on its undo stack. |

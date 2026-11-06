@@ -134,6 +134,7 @@ platforms/   packaging for Android (Gradle) and iOS
 - [docs/COMPONENTS.md](docs/COMPONENTS.md): every component and field in one file (generated).
 - [docs/DEBUGGING.md](docs/DEBUGGING.md): debug scripts: breakpoints and stepping in VS Code (F5), `script.trace` for AIs.
 - [docs/RENDERING.md](docs/RENDERING.md): cameras that draw into textures (a screen on a model, a mirror, a book page whose buttons work) and off-screen photographs of the world at a pixel scale.
+- [docs/PARTICLES.md](docs/PARTICLES.md): particle effects: colour gradient and curves, flipbook, emission shapes, turbulence, trails, sub-emitters, collision with a plane or a Tilemap, pixel mode, with worked examples (hit spark, smoke puff, pixel fire).
 - [docs/SHADERS.md](docs/SHADERS.md): custom shaders per material: the material file, the GLSL snippet contract, five worked examples.
 - [docs/EXTENDING.md](docs/EXTENDING.md): creating tools, commands, components and systems.
 - [docs/CLI.md](docs/CLI.md) and [docs/MCP.md](docs/MCP.md): the `factoria` CLI and the MCP server.

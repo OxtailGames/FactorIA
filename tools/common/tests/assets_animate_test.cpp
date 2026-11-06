@@ -495,3 +495,221 @@ TEST_CASE("assets.animate_svg: the sheet must fit, the path is checked and an ex
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["code"] == "exists");
 }
+
+namespace {
+
+// An effect that takes its colours from a ramp (rampAt) and splits into layers: a wide soft back disc, a small front disc, and a
+// light pass that is only on in the first half of the clip.
+const char* kLayeredFx =
+    "export default function frame({layer, progress, rampAt, rng}) {\n"
+    "  const svg = (inner) => `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>${inner}</svg>`;\n"
+    "  if (layer === 'back') return svg(`<circle cx='50' cy='50' r='34' fill='${rampAt(0.25)}'/>`);\n"
+    "  if (layer === 'front') return svg(`<circle cx='50' cy='50' r='14' fill='${rampAt(0.75)}'/>`);\n"
+    "  if (layer === 'light') return progress < 0.5 ? svg(`<circle cx='50' cy='50' r='44' fill='${rampAt(1)}'/>`) : svg('');\n"
+    "  return svg(`<circle cx='50' cy='50' r='20' fill='${rampAt(0.5)}'/>`);\n"
+    "}\n";
+
+Json fx_args(const std::string& path = "assets/fx/hit.png") {
+    return Json{{"path", path}, {"source", "art/fx.anim.js"}, {"frames", 4}, {"fps", 8}, {"frameWidth", 32}, {"frameHeight", 32}, {"columns", 2},
+                {"pivot", Json::array({0.5, 1.0})}, {"ramp", Json::array({"#000000", "#ff0000", "#ffffff"})}};
+}
+
+}  // namespace
+
+TEST_CASE("assets.animate_svg: a ramp recolours the effect without touching its code, and it is part of the recipe") {
+    AssetsProject p;
+    write_all(p.file("art/fx.anim.js"), kLayeredFx);
+    const Json r = p.ok("assets.animate_svg", fx_args());
+    CHECK(r["ramp"] == Json::array({"#000000", "#ff0000", "#ffffff"}));
+    CHECK_FALSE(r.contains("layers"));
+    // rampAt(0.5) is the middle colour of the ramp: the module's default drawing
+    Image img = read_png(p.file("assets/fx/hit.png"));
+    CHECK(get(img, 16, 16) == Rgba{255, 0, 0, 255});
+    const std::string red = read_all(p.file("assets/fx/hit.png"));
+    // the same code with another ramp: a different colour, the same shape, the same layout
+    Json blue = fx_args();
+    blue["ramp"] = Json::array({"#000000", "#0000ff", "#ffffff"});
+    blue["overwrite"] = true;
+    p.ok("assets.animate_svg", blue);
+    img = read_png(p.file("assets/fx/hit.png"));
+    CHECK(get(img, 16, 16) == Rgba{0, 0, 255, 255});
+    CHECK(read_all(p.file("assets/fx/hit.png")) != red);
+    // rampAt blends between two colours: 0.25 of [black, red, white] is half red
+    write_all(p.file("art/mid.anim.js"),
+              "export default function frame({rampAt}) { return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><rect width='10' height='10' fill='${rampAt(0.25)}'/></svg>`; }\n");
+    p.ok("assets.animate_svg", Json{{"path", "assets/fx/mid.png"}, {"source", "art/mid.anim.js"}, {"frames", 1}, {"frameWidth", 8}, {"ramp", fx_args()["ramp"]}});
+    const Rgba mid = get(read_png(p.file("assets/fx/mid.png")), 4, 4);
+    CHECK(mid.r == 128);  // 255 * 0.5 rounded
+    CHECK(mid.g == 0);
+    CHECK(mid.b == 0);
+    const Json prov = p.manifest()["assets"]["assets/fx/hit.png"]["provenance"];
+    CHECK(prov["recipe"]["args"]["ramp"] == Json::array({"#000000", "#0000ff", "#ffffff"}));
+    CHECK(prov["notes"].get<std::string>().find("3 colour ramp") != std::string::npos);
+    // the pivot and the timing are the sheet's, whatever the colours
+    const Json sheet = p.manifest()["assets"]["assets/fx/hit.png"]["sheet"];
+    CHECK(sheet["pivot"] == Json::array({0.5, 1.0}));
+    CHECK(sheet["clips"][0]["fps"] == 8);
+}
+
+TEST_CASE("assets.animate_svg: rampMap recolours a SMIL SVG or a module that draws in greys by brightness") {
+    AssetsProject p;
+    const std::string svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><rect x='0' y='0' width='5' height='10' fill='#000000'/>"
+                            "<rect x='5' y='0' width='5' height='10' fill='#ffffff'><animate attributeName='opacity' values='1;1' dur='1s'/></rect></svg>";
+    // a SMIL SVG cannot read the ramp, so asking for it without rampMap is refused with the way out
+    Json args = Json{{"path", "assets/fx/glow.png"}, {"svg", svg}, {"frames", 1}, {"frameWidth", 10}, {"ramp", Json::array({"#102030", "#f0e0d0"})}};
+    CommandResult refused = p.call("assets.animate_svg", args);
+    REQUIRE_FALSE(refused.ok);
+    CHECK(message(refused).find("/ramp") != std::string::npos);
+    CHECK(hint(refused).find("rampMap") != std::string::npos);
+    args["rampMap"] = true;
+    p.ok("assets.animate_svg", args);
+    const Image img = read_png(p.file("assets/fx/glow.png"));
+    CHECK(get(img, 2, 5) == Rgba{0x10, 0x20, 0x30, 255});   // black -> the first colour
+    CHECK(get(img, 7, 5) == Rgba{0xf0, 0xe0, 0xd0, 255});   // white -> the last
+    // a mid grey lands between them
+    write_all(p.file("art/grey.anim.js"),
+              "export default function frame() { return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><rect width='10' height='10' fill='#808080'/></svg>`; }\n");
+    p.ok("assets.animate_svg", Json{{"path", "assets/fx/grey.png"}, {"source", "art/grey.anim.js"}, {"frames", 1}, {"frameWidth", 8},
+                                   {"ramp", Json::array({"#000000", "#ff0000"})}, {"rampMap", true}});
+    const Rgba grey = get(read_png(p.file("assets/fx/grey.png")), 4, 4);
+    CHECK(grey.r == 128);
+    CHECK(grey.g == 0);
+    CHECK(grey.b == 0);
+    // a module that never names the ramp and has no rampMap gets a warning that says why the colours did not change
+    const Json warn = p.ok("assets.animate_svg", Json{{"path", "assets/fx/ignored.png"}, {"source", "art/grey.anim.js"}, {"frames", 1}, {"frameWidth", 8},
+                                                      {"ramp", Json::array({"#000000", "#ff0000"})}});
+    CHECK(has_warning(warn, "never reads `ramp`"));
+}
+
+TEST_CASE("assets.animate_svg: a ramp can be a ramp of an image document, and a bad ramp teaches") {
+    AssetsProject p;
+    write_all(p.file("art/fx.anim.js"), kLayeredFx);
+    write_all(p.file("assets/art/fire.image.json"),
+              R"({"format":"factoria.image/1","width":2,"height":2,"palette":["#000000",{"name":"ember","color":"#ff0000"},"#ffffff","#00ff00","#0000ff"],
+                  "ramps":[["#000000","ember","#ffffff"],["#00ff00","#0000ff"]],"layers":[]})");
+    Json a = fx_args();
+    a["ramp"] = "assets/art/fire.image.json";
+    const Json r = p.ok("assets.animate_svg", a);
+    CHECK(r["ramp"] == Json::array({"#000000", "#ff0000", "#ffffff"}));
+    CHECK(get(read_png(p.file("assets/fx/hit.png")), 16, 16) == Rgba{255, 0, 0, 255});
+    const Json prov = p.manifest()["assets"]["assets/fx/hit.png"]["provenance"];
+    bool hashed = false;
+    for (const Json& in : prov["recipe"]["inputs"]) hashed = hashed || in["path"] == "assets/art/fire.image.json";
+    CHECK(hashed);  // a changed ramp document makes the sheet stale
+    a["rampIndex"] = 1;
+    a["overwrite"] = true;
+    p.ok("assets.animate_svg", a);
+    CHECK(get(read_png(p.file("assets/fx/hit.png")), 16, 16) == Rgba{0, 128, 128, 255});  // the second ramp, [green, blue], at 0.5
+    a["rampIndex"] = 7;
+    CommandResult bad = p.call("assets.animate_svg", a);
+    REQUIRE_FALSE(bad.ok);
+    CHECK(message(bad).find("/rampIndex") != std::string::npos);
+    CHECK(message(bad).find("2 ramp(s)") != std::string::npos);
+
+    for (const Json& wrong : {Json::array({"#000000"}), Json::array({"#000000", "nope"}), Json(5), Json("art/fx.anim.js"), Json::array()}) {
+        Json b = fx_args();
+        b["ramp"] = wrong;
+        b["overwrite"] = true;
+        const CommandResult r2 = p.call("assets.animate_svg", b);
+        REQUIRE_FALSE(r2.ok);
+        CHECK(message(r2).find("/ramp") != std::string::npos);
+        CHECK(hint(r2).find("ramp") != std::string::npos);
+    }
+}
+
+TEST_CASE("assets.animate_svg: layers bake one sheet each with the same grid, pivot and timing, and a recipe that remakes them all") {
+    AssetsProject p;
+    write_all(p.file("art/fx.anim.js"), kLayeredFx);
+    Json a = fx_args();
+    a["layers"] = Json::array({"light", "back", "front"});  // any order: they are stacked back, front, light
+    const Json r = p.ok("assets.animate_svg", a);
+    REQUIRE(r["layers"].size() == 3);
+    CHECK(r["layers"][0]["layer"] == "back");
+    CHECK(r["layers"][1]["layer"] == "front");
+    CHECK(r["layers"][2]["layer"] == "light");
+    CHECK(r["layers"][2]["path"] == "assets/fx/hit_light.png");
+    CHECK(r["layers"][2]["use"].get<std::string>().find("additive") != std::string::npos);
+    CHECK(r["path"] == "assets/fx/hit_back.png");
+    CHECK(r.contains("$image"));
+    CHECK_FALSE(std::filesystem::exists(p.file("assets/fx/hit.png")));
+
+    const Json manifest = p.manifest();
+    const Json back = manifest["assets"]["assets/fx/hit_back.png"];
+    for (const char* name : {"back", "front", "light"}) {
+        const std::string path = std::string("assets/fx/hit_") + name + ".png";
+        const Json entry = manifest["assets"][path];
+        CHECK(entry["sheet"] == back["sheet"]);  // the same grid, frames, clips and pivot
+        CHECK(entry["provenance"]["recipe"] == back["provenance"]["recipe"]);
+        CHECK(entry["provenance"]["notes"].get<std::string>().find(std::string("layer ") + name) != std::string::npos);
+        const Image img = read_png(p.file(path));
+        CHECK(img.width == 64);
+        CHECK(img.height == 64);
+    }
+    CHECK(back["sheet"]["pivot"] == Json::array({0.5, 1.0}));
+    REQUIRE(back["sheet"]["clips"].size() == 1);
+    CHECK(back["sheet"]["clips"][0]["name"] == "hit");  // the same clip name on every layer, so they play together
+    CHECK(back["sheet"]["clips"][0]["fps"] == 8);
+    CHECK(back["provenance"]["recipe"]["args"]["layers"] == Json::array({"back", "front", "light"}));
+    CHECK(back["provenance"]["recipe"]["args"]["path"] == "assets/fx/hit.png");
+
+    // what each layer drew: the back disc is wider than the front one, the light is only in the first two frames
+    const Image bi = read_png(p.file("assets/fx/hit_back.png"));
+    const Image fi = read_png(p.file("assets/fx/hit_front.png"));
+    const Image li = read_png(p.file("assets/fx/hit_light.png"));
+    CHECK(get(bi, 16, 16) == Rgba{128, 0, 0, 255});   // rampAt(0.25)
+    CHECK(get(bi, 16 + 8, 16).a == 255);             // a pixel the front disc does not reach
+    CHECK(get(fi, 16 + 8, 16).a == 0);
+    CHECK(get(fi, 16, 16).a == 255);
+    CHECK(get(li, 16, 16) == Rgba{255, 255, 255, 255});   // frame 0 (progress 0): the light is on
+    CHECK(get(li, 32 + 16, 16).a == 255);                 // frame 1
+    CHECK(get(li, 16, 32 + 16).a == 0);                   // frame 2: off
+    CHECK(get(li, 32 + 16, 32 + 16).a == 0);              // frame 3: off
+    CHECK_FALSE(has_warning(r, "draw nothing (frame"));  // a layer idle in some frames is not a mistake
+
+    // the same bytes again, and assets.regenerate remakes every layer
+    const std::string backBytes = read_all(p.file("assets/fx/hit_back.png"));
+    const std::string lightBytes = read_all(p.file("assets/fx/hit_light.png"));
+    a["overwrite"] = true;
+    p.ok("assets.animate_svg", a);
+    CHECK(read_all(p.file("assets/fx/hit_back.png")) == backBytes);
+    CHECK(read_all(p.file("assets/fx/hit_light.png")) == lightBytes);
+    std::filesystem::remove(p.file("assets/fx/hit_front.png"));
+    const CommandResult regen = p.call("assets.regenerate", Json{{"path", "assets/fx/hit_back.png"}});
+    REQUIRE_MESSAGE(regen.ok, regen.error.dump());
+    CHECK(std::filesystem::exists(p.file("assets/fx/hit_front.png")));
+}
+
+TEST_CASE("assets.animate_svg: layers are checked, an idle layer is said, and an existing layer file needs overwrite") {
+    AssetsProject p;
+    write_all(p.file("art/fx.anim.js"), kLayeredFx);
+    Json a = fx_args();
+    a["layers"] = Json::array({"bak"});
+    CommandResult r = p.call("assets.animate_svg", a);
+    REQUIRE_FALSE(r.ok);
+    CHECK(message(r).find("/layers/0") != std::string::npos);
+    CHECK(hint(r).find("back") != std::string::npos);  // did you mean
+    for (const Json& wrong : {Json::array(), Json::array({"back", "back"}), Json::array({5}), Json("back")}) {
+        a["layers"] = wrong;
+        r = p.call("assets.animate_svg", a);
+        REQUIRE_FALSE(r.ok);
+        CHECK(message(r).find("/layers") != std::string::npos);
+    }
+    r = p.call("assets.animate_svg", Json{{"path", "assets/fx/x.png"}, {"svg", "<svg xmlns='http://www.w3.org/2000/svg'><rect width='1' height='1'/></svg>"}, {"layers", Json::array({"back"})}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(message(r).find("layers need a module") != std::string::npos);
+
+    // a layer that draws nothing anywhere
+    write_all(p.file("art/idle.anim.js"),
+              "export default function frame({layer}) {\n"
+              "  if (layer === 'light') return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'></svg>`;\n"
+              "  return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><circle cx='5' cy='5' r='2' fill='#fff'/></svg>`;\n"
+              "}\n");
+    const Json ok = p.ok("assets.animate_svg", Json{{"path", "assets/fx/idle.png"}, {"source", "art/idle.anim.js"}, {"frames", 2}, {"frameWidth", 16}, {"layers", Json::array({"back", "light"})}});
+    CHECK(has_warning(ok, "Layer \"light\": draws nothing in any frame"));
+
+    a["layers"] = Json::array({"back"});
+    p.ok("assets.animate_svg", a);
+    r = p.call("assets.animate_svg", a);  // hit_back.png exists
+    REQUIRE_FALSE(r.ok);
+    CHECK(message(r).find("hit_back.png") != std::string::npos);
+}

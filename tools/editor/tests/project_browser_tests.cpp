@@ -130,7 +130,7 @@ TEST_CASE("project browser: small helpers") {
     CHECK(type_badge("a/b.wav", "audio") == "WAV");
     CHECK(type_badge("a/b.prefab.json", "prefab") == "PFB");
     CHECK(browser_type_filters().front() == "all");
-    CHECK(browser_type_filters().size() == 9);
+    CHECK(browser_type_filters().size() == 10);
 }
 
 TEST_CASE("project browser: a prefab dropped in 3D lands on the ground plane, else in front of the camera") {

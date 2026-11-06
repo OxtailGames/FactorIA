@@ -160,13 +160,14 @@ test("picking up a gem increments the counter, plays the sound, sparkles and rem
   expect(game.world.find(id)).toBeNull();
   expect(game.find("hud_gems").get("Text").text).toBe(`Gems 1/${mgr.total}`);
   expect(game.audioLog()).toContainPlayed(GEM, { times: 1, bus: "sfx" });
-  // The burst is a one-shot emitter that removes itself when its last particle has died.
-  const fx = game.world.findByTag("fx");
-  expect(fx).toHaveLength(1);
-  expect(fx[0].get("ParticleEmitter").autoDestroy).toBe(true);
-  expect(Math.abs(fx[0].position.x - at.x)).toBeLessThan(0.3);
-  game.step(90); // 1.5 s: longer than particle lifetime
-  expect(game.world.findByTag("fx")).toHaveLength(0);
+  // The pickup is one effect document (sparks, flash, sound) that removes itself when its last particle has died.
+  const playing = fa.call("vfx.list", {}).playing;
+  expect(playing).toHaveLength(1);
+  expect(playing[0].effect).toBe("assets/vfx/gem_burst.vfx.json");
+  const fx = game.find(playing[0].id);
+  expect(Math.abs(fx.position.x - at.x)).toBeLessThan(0.3);
+  game.step(90); // 1.5 s: longer than the effect and its particles
+  expect(fa.call("vfx.list", {}).count).toBe(0);
 });
 
 test("falling resets to the last checkpoint, costs time and plays the fall sound", () => {

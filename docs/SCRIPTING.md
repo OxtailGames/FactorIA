@@ -708,7 +708,7 @@ export default class Rat extends Behaviour {
   recipe of the AI guide.
 
 ### time
-`dt`, `fixedDt`, `elapsed`, `frame`, `scale`, `unscaledDt`.
+`dt`, `fixedDt`, `elapsed`, `frame`, `scale`, `unscaledDt`. `time.hitStop(seconds, { scale })` freezes or slows gameplay for real seconds (UI and audio keep going; `time.hitStopRemaining`; GAME_FEEL.md). `time.scale` reads the value you set, not the hit-stop's.
 
 `time.scale` (writable, default 1) scales gameplay: the `dt` of `onUpdate`/`onFixedUpdate`, timers (`after`, `every`),
 physics steps, particles and sprite animators. `0` freezes all of them; `game.paused = true` is the same as
@@ -1007,6 +1007,33 @@ the press is released over the same widget; a Slider follows the pointer while p
   modification time, so calling it every frame is cheap. An empty or non-string `path` throws.
 - `assets.preload(paths)` → a preload handle (below): reads the files ahead of time, for assets a script uses later.
 
+### Generating a level: `tilemap.generate(options)`
+`tilemap.generate` makes a level from a small example at run time with Wave Function Collapse (the command of the same
+name, docs/AI_GUIDE.md section 9.8, run in pieces). It checks the options at once (a mistake throws with its JSON pointer
+and a hint), returns a handle and works a little every frame, so the game keeps drawing. The seed comes from
+`rng.create`, never from the clock; the same options give the same level as the command, whatever the frame rate.
+
+```js
+const gen = scene.generation;
+const job = tilemap.generate({ sample: "levels/sample.json", size: [48, 20],
+    seed: rng.create(runSeed).int(0, 2147483647), constraints: { border: { tile: "#" } },
+    place: { entity: "level", tilemap: { tileset: "assets/art/tiles.png", tileSize: [16, 16] } } });
+job.promise.then((r) => { if (scene.generation === gen) console.log("ready", r.placed); },
+                 (e) => console.error(e.message, e.hint));
+```
+- The handle has `progress` (0..1, never goes down), `done`, `error`, `hint`, `result` (`null` until ready), `attempts`,
+  `work`, `promise` (resolves with `result`, rejects with an Error that has `.hint`) and `cancel()`.
+- `place` builds the Tilemap and the sample's markers (glyphs with a `prefab`) as entities, like `scene.import_ascii`;
+  `into` writes only tiles into an existing Tilemap. They exclude each other.
+- Per frame: **tests, headless runs and replays do 500000 units of generator work**, so the frames it takes are the same
+  on every machine; **a game with a window** works until about 4 ms of the frame are used by each running generation (the same budget as
+  `scene.preload`; up to 8 generations can run at once, so up to about 32 ms of a frame: run one at a time), so the game
+  must not depend on how many frames it takes. `stats.ms` and `memoryBytes` of the result are informative and not
+  deterministic (they depend on the machine): a game must not compare them. One attempt starts and ends in one piece of
+  work: a very big level (a side above about 500) can still make a frame long.
+- A generation belongs to the scene that started it: a scene load (a reload too) ends it with an error, places nothing
+  and frees its memory. A script that awaits `promise` checks `scene.generation` before it uses the result.
+
 ### Preloading: `scene.preload(path)`, `assets.preload(paths)`
 `scene.load` reads the scene and everything it uses before the frame goes on, so a big level freezes the game for a
 moment. `scene.preload("scenes/level2.scene.json")` returns a handle at once and reads the scene file and what it points
@@ -1052,7 +1079,7 @@ job.promise.then(() => scene.load("scenes/level2.scene.json"));
 - `game.accessibility` (read-only, frozen) → `{ textScale, reduceMotion, highContrast, screenReader }`: the player's
   operating system settings, for your options screen to start from (recipe: MENUS.md). `textScale` 1 = 100 %, clamped to
   0.5 - 4; the others are booleans. Read when the game starts and again when the window regains focus or the app
-  resumes. The engine applies none of them: you apply them and save the player's own choice. Where each platform reads
+  resumes. The engine applies none of them except one: the game feel effects (shake, squash, hit-stop, flash; GAME_FEEL.md) follow `reduceMotion` unless the game sets `feel.reduceMotion` / `feel.reducedEffects` itself. You apply the rest and save the player's own choice. Where each platform reads
   them, and what it cannot: Windows (animations off, high contrast, screen reader, Text size setting), macOS (reduce
   motion, increase contrast, VoiceOver; text size always 1), iOS (reduce motion, darker colours, VoiceOver, Dynamic Type),
   Android (font scale, animator scale 0, high contrast text, TalkBack/touch exploration), Linux (GNOME settings through the
@@ -1730,7 +1757,7 @@ Tests run inside the current engine (only one renderer can exist per
 process). Between test files the runner reloads the project's start scene,
 reseeds the world RNG with the project seed, clears input overrides, timers and
 behaviours; `game.load` also reseeds. Before each test input overrides, the gamepads (unplugged),
-`input.deadzone` and `ui.scale` (back to the project's value), `ui.textScale` (1), `time.scale`, the audio log and the
+`input.deadzone` and `ui.scale` (back to the project's value), `ui.textScale` (1), `time.scale`, the game feel effects, hit-stops and `feel.reduceMotion` / `feel.reducedEffects` (back to following the system), the audio log and the
 mouse (position back at 0, 0, no wheel; a `game.click` or the last test of the previous file does not decide what the pointer hovers) are reset;
 keys, mouse buttons and touches are released. Results are deterministic. Extras: `describe.skip`,
 `beforeEach(fn)` / `afterEach(fn)` inside `describe`, matchers `toBeUndefined`,

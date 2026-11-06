@@ -11,6 +11,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -33,6 +34,13 @@ const char* kind_name(AssetKind kind);     // "texture" | "audio" | "model" | "f
 // The manifest as loaded through fa::fs, re-read when the file changes on disk (cheap to call every frame). A missing
 // file gives {"format": kManifestFormat}; an unreadable or invalid one logs one warning and gives the same.
 Json manifest();
+
+// A number that changes whenever manifest() reads the file again (it was edited, created, deleted, or the project root changed): a caller that derives
+// something from the manifest keeps it with this number and rebuilds when it differs. Costs a stat, like manifest(), and copies nothing.
+std::uint64_t manifest_version();
+// `style.palette` of the manifest (null when there is none): a list of colours, or the path of a palette image. Copies only that value,
+// not the whole manifest.
+Json style_palette();
 
 // The entry of `path` (normalized), or an empty object.
 Json entry(std::string_view path);

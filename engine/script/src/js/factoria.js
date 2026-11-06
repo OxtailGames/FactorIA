@@ -452,6 +452,22 @@
     throw new Error(`${what}: expected an Entity but got ${inspect(e)}`);
   }
 
+  // A game feel action ({ action: name, ...options }) from the options a script passed: colours and vectors become plain
+  // arrays, the rest goes through, so an option the engine does not know is reported there with a "did you mean".
+  function feelAction(name, opts, what) {
+    if (opts !== undefined && opts !== null && (!isObj(opts) || Array.isArray(opts)))
+      throw new Error(`${what}: the options must be an object such as { duration: 0.1 } but got ${inspect(opts)}`);
+    const a = { action: name };
+    for (const k of Object.keys(opts ?? {})) {
+      const v = opts[k];
+      if (v === undefined) continue;
+      if (k === "color") a[k] = typeof v === "string" ? v : Array.isArray(v) ? v : [v.r, v.g, v.b, v.a ?? 1];
+      else if (k === "direction") a[k] = vecArr(v, 3, `${what} \`direction\``);
+      else a[k] = v;
+    }
+    return a;
+  }
+
   class Entity {
     constructor(h) { this.$h = h; }
     get id() { return N.idOf(this.$h); }
@@ -497,6 +513,15 @@
     isGrounded(tolerance) { return N.isGrounded(this.$h, tolerance === undefined ? -1 : tolerance); }
     isTouching(direction, tolerance) { const d = vecArr(direction, 3, "entity.isTouching(direction)"); return N.isTouching(this.$h, d[0], d[1], d[2], tolerance === undefined ? (N.hasComp(this.$h, "RigidBody3D") || N.hasComp(this.$h, "Collider3D") ? 0.05 : 2) : tolerance); }
     emitBurst(count = 10) { N.particlesBurst(this.$h, count); }
+    // Game feel (docs/GAME_FEEL.md). Each one starts a short effect that never changes the entity's own Transform.
+    flash(opts) { N.feelDo(this.$h, feelAction("flash", opts, "entity.flash(opts)")); }
+    squash(opts) { N.feelDo(this.$h, feelAction("squash", opts, "entity.squash(opts)")); }
+    knockback(direction, opts) {
+      if (isObj(direction) && !Array.isArray(direction) && direction.x === undefined && opts === undefined) { opts = direction; direction = opts.direction; }
+      N.feelDo(this.$h, feelAction("knockback", { ...(opts ?? {}), direction }, "entity.knockback(direction, opts)"));
+    }
+    get isKnockedBack() { return N.feelInfo(this.$h)[0] > 0; }
+    get knockbackRemaining() { return N.feelInfo(this.$h)[0]; }
     get animator() {
       if (!N.hasComp(this.$h, "Animator"))
         throw new Error(`entity '${this.id}' has no Animator component; add one next to a MeshRenderer with a skinned glTF: entity.add("Animator", {clip: "Idle"})`);
@@ -1644,6 +1669,12 @@
       else { pausedScale = null; N.setTimeScale(v); }
     },
     get unscaledDt() { return N.timeInfo()[5]; },
+    // Freezes (scale 0) or slows the game for `seconds` of REAL time: the hit-stop that makes an impact land. UI, audio and
+    // runWhilePaused behaviours keep running, `time.scale` and `game.paused` do not change, and overlapping calls do not add
+    // up (the longest wins; the strongest scale applies while they overlap). Shorter with the player's reduce motion on.
+    hitStop(seconds, opts) { N.feelDo(null, feelAction("hitStop", { ...(opts ?? {}), duration: seconds }, "time.hitStop(seconds, opts)")); },
+    // Real seconds left of the longest running hit-stop (0 = none).
+    get hitStopRemaining() { return N.timeInfo()[6]; },
   };
 
   // The camera argument of a conversion: an Entity (or its id) naming one of the drawn cameras, or none (null for "the one
@@ -1668,6 +1699,16 @@
     get main() { return entityOf(N.cameraMain()); },
     // Every camera drawn, in draw order (ascending depth): one per player view in a split screen.
     get all() { return N.cameraAll().map(entityOf); },
+    // Camera shake (docs/GAME_FEEL.md): adds `amount` (0..1) of trauma, which stacks up to opts.cap and dies out over
+    // opts.duration seconds; the shake is trauma squared, so small bumps stay small. Only what is DRAWN moves: the camera's
+    // Transform does not change, so a follow script never chases it. opts.camera = which camera (default camera.main).
+    shake(amount = 0.4, opts) {
+      const o = { ...(opts ?? {}) };
+      const cam = o.camera;
+      delete o.camera;
+      N.feelDo(cam === undefined || cam === null ? null : entityHandle(cam, "camera.shake(amount, { camera })"),
+        feelAction("shake", { ...o, amount }, "camera.shake(amount, opts)"));
+    },
     // The camera whose viewport contains the screen point (design pixels), else the first one. Null when no camera is active.
     at(v) { const a = vecArr(v, 2, "camera.at(v)"); return entityOf(N.cameraAt(a[0], a[1])); },
     // World point to design pixels, as seen by `cam` (default: the first camera drawn).
@@ -1819,6 +1860,122 @@
     }
   }
   function preloadReset() { preloadJobs.clear(); }
+
+  // tilemap.generate: a level made from an example (Wave Function Collapse) while the game runs. The engine command
+  // tilemap.generate_start checks the arguments at once, then dispatch_platform calls generateTick every frame
+  // (script_system.cpp) and each job does a bounded amount of work through tilemap.generate_step: a fixed number of work units per
+  // frame in tests and headless runs (so the frames it takes never depend on the machine), as many as fit in a few ms in a game
+  // with a window. The level does not depend on how the work is cut. A generation belongs to the scene that started it: a scene
+  // load rejects it, and a result is placed only while that scene is still the current one.
+  const generateJobs = new Map();  // job id -> handle
+  class TilemapGeneration {
+    constructor(id, info, label, sceneGen, place) {
+      this.$id = id; this.$label = label; this.$gen = sceneGen; this.$place = place;
+      this.$progress = 0; this.$done = false; this.$error = ""; this.$hint = ""; this.$result = null;
+      this.$attempts = 0; this.$work = 0;
+      this.$info = info;
+      this.promise = new Promise((resolve, reject) => { this.$resolve = resolve; this.$reject = reject; });
+      this.promise.catch(() => {});  // a script that only polls `done` is not reported for a failure it can read in `error`
+    }
+    /** How much of the level is decided, 0..1 (cells decided in the attempt that is running). Never goes down; 1 when `done` and it worked. */
+    get progress() { return this.$progress; }
+    /** True once the level is ready (see `result`) or the generation failed (see `error`). */
+    get done() { return this.$done; }
+    /** Why it failed, or "". */
+    get error() { return this.$error; }
+    /** How to fix `error`, or "". */
+    get hint() { return this.$hint; }
+    /** What tilemap.generate returns (rows, legend, counts, stats...; `placed` has the scene.import_ascii report when `place` was given), or null until done. */
+    get result() { return this.$result; }
+    /** Attempts started so far (a dead end restarts with the next derived seed). */
+    get attempts() { return this.$attempts; }
+    /** Units of work done so far (the same unit as stats.work, counted the same on every machine). */
+    get work() { return this.$work; }
+    /** Stops a generation that is still running and frees its memory; the Promise rejects. */
+    cancel() {
+      if (this.$done) return;
+      generateFail(this, { message: "cancelled before it finished", hint: "" }, true);
+    }
+  }
+  function generateFail(h, err, cancelNative) {
+    generateJobs.delete(h.$id);
+    if (cancelNative) N.callCommand("tilemap.generate_cancel", { job: h.$id });
+    N.generateActive(generateJobs.size);
+    h.$done = true;
+    h.$error = err.message || "unknown error"; h.$hint = err.hint || "";
+    const e = new Error(`${h.$label} failed: ${h.$error}` + (h.$hint ? ` (hint: ${h.$hint})` : ""));
+    e.code = err.code; e.hint = h.$hint;
+    h.$reject(e);
+  }
+  function generateFinish(h, result) {
+    generateJobs.delete(h.$id);
+    N.generateActive(generateJobs.size);
+    if (h.$place) {
+      if (N.sceneGeneration() !== h.$gen) return generateFail(h, { message: "the scene that asked for this level is no longer the current one, so its objects were not placed", hint: "Start the generation again in the new scene." }, false);
+      const args = Object.assign({}, h.$place, { rows: result.rows, legend: result.legend });
+      const r = N.callCommand("scene.import_ascii", plain(args));
+      if (!r.ok) {
+        const err = r.error || {};
+        return generateFail(h, { message: `placing the level with scene.import_ascii failed: ${err.message || "unknown error"}`, hint: err.hint, code: err.code }, false);
+      }
+      result.placed = r.result;
+    }
+    h.$done = true; h.$progress = 1; h.$result = result;
+    h.$resolve(result);
+  }
+  function generateTick(budgetMs) {
+    for (const [id, h] of Array.from(generateJobs)) {
+      if (N.sceneGeneration() !== h.$gen) { generateFail(h, { message: "the scene was unloaded before the level was finished", hint: "Start the generation again in the new scene." }, true); continue; }
+      const args = { job: id };
+      if (budgetMs > 0) args.budgetMs = budgetMs;
+      const r = N.callCommand("tilemap.generate_step", args);
+      if (!r.ok) { generateFail(h, r.error || {}, false); continue; }
+      const st = r.result;
+      h.$progress = Math.max(h.$progress, st.progress); h.$attempts = st.attempts; h.$work = st.work;
+      if (st.done) generateFinish(h, st.result);
+    }
+  }
+  function generateReset() {
+    for (const h of Array.from(generateJobs.values())) generateFail(h, { message: "the scene was unloaded before the level was finished", hint: "Start the generation again in the new scene." }, true);
+  }
+  const tilemapApi = {
+    generate(options) {
+      if (options === null || typeof options !== "object" || Array.isArray(options)) {
+        throw new Error(`tilemap.generate(options) expects an object such as { sample: ["#####", "#...#", "#####"], legend: { "#": 0 }, size: [32, 20], seed: 7 }, got ${inspect(options)}`);
+      }
+      const args = Object.assign({}, options);
+      let place = null;
+      if (args.place !== undefined) {
+        const p = args.place;
+        delete args.place;
+        if (p === true) place = {};
+        else if (p !== null && typeof p === "object" && !Array.isArray(p) && !(p instanceof Entity)) place = Object.assign({}, p);
+        else if (p !== false) throw new Error(`tilemap.generate: \`place\` must be true or an object with the options of scene.import_ascii (entity, tilemap, position, anchor, replace), got ${inspect(p)}`);
+        if (place) {
+          for (const k of ["rows", "legend", "legendFrom", "path", "from", "save", "dryRun"]) {
+            if (k in place) throw new Error(`tilemap.generate: \`place.${k}\` is not allowed: the generated rows and legend are what is placed (put the sample's legend in \`legend\`), and the level is placed in the running scene, never saved to a file. Allowed: entity, tilemap, position, anchor, replace.`);
+          }
+          if (args.into !== undefined) throw new Error("tilemap.generate: give `place` or `into`, not both. `place` creates or updates the Tilemap entity itself (with the objects of the sample); `into` only writes the tiles of an entity that exists.");
+          args.rows = true;
+        }
+      }
+      for (const key of ["sample", "into"]) {
+        if (args[key] instanceof Entity) args[key] = args[key].id;
+      }
+      const r = N.callCommand("tilemap.generate_start", plain(args));
+      if (!r.ok) {
+        const err = r.error || {};
+        const e = new Error(`tilemap.generate failed: ${err.message || "unknown error"}` + (err.hint ? ` (hint: ${err.hint})` : ""));
+        e.code = err.code; e.hint = err.hint;
+        throw e;
+      }
+      const info = r.result;
+      const h = new TilemapGeneration(info.job, info, `tilemap.generate(${info.width} x ${info.height}, seed ${info.seed})`, N.sceneGeneration(), place);
+      generateJobs.set(info.job, h);
+      N.generateActive(generateJobs.size);
+      return h;
+    },
+  };
 
   const scene = {
     preload(path) {
@@ -2019,7 +2176,7 @@
 
   // Cross-scene game state: a plain object that survives scene loads for the whole run (reset per test file).
   const session = {};
-  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); storageReset(); servicesReset(); }
+  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); generateReset(); storageReset(); servicesReset(); }
 
   class ToolError extends Error {
     // Expected failure of a tool: `hint` says how to fix it, `data` (optional object) is reported with the error.
@@ -2318,6 +2475,27 @@
       return r.result;
     },
     commands() { return N.commands(); },
+  };
+
+  // vfx.play(effect, { position, entity, rotation, scale, speed, loop }) -> the entity that plays the effect (null when 64 effects already
+  // play). The effect is a *.vfx.json (docs/PARTICLES.md, "Effect documents"); a file with errors throws with the JSON pointer.
+  const vfx = {
+    play(effect, options = {}) {
+      if (typeof effect !== "string" || !effect)
+        throw new Error(`vfx.play(effect, options): effect is the path of an effect document such as "assets/vfx/hit.vfx.json", but got ${inspect(effect)}`);
+      if (!isObj(options) || Array.isArray(options))
+        throw new Error(`vfx.play(effect, options): options is an object like { position: [120, 64], scale: 2 }, but got ${inspect(options)}`);
+      const r = fa.call("vfx.play", { effect, ...plain(options) });
+      return r.id === null ? null : entityOf(N.find(r.id));
+    },
+    stop(entity, options = {}) {
+      if (!(entity instanceof Entity) && typeof entity !== "string")
+        throw new Error(`vfx.stop(entity, options): entity is what vfx.play returned (or its id), but got ${inspect(entity)}`);
+      if (!isObj(options) || Array.isArray(options))
+        throw new Error(`vfx.stop(entity, options): options is an object like { immediate: true }, but got ${inspect(options)}`);
+      fa.call("vfx.stop", { id: plain(entity), immediate: !!options.immediate });
+    },
+    playing() { return fa.call("vfx.list").playing; },
   };
 
   // plugins.<plugin>.<function>(...args): the functions of the game's native plugins (factoria.json "plugins",
@@ -3534,9 +3712,34 @@
     succeeder: (child) => ({ type: "succeeder", children: btChildren("succeeder", [child]) }),
   };
 
+  // Game feel settings and the generic action entry point (docs/GAME_FEEL.md).
+  const feelOpt = (v, what) => {
+    if (v === null || v === undefined) return null;
+    if (typeof v !== "boolean") throw new Error(`${what} must be true, false or null (follow the system) but got ${inspect(v)}`);
+    return v;
+  };
+  const feel = {
+    // Whether shake and squash are turned way down and hit-stop shortened: the game's own choice when it set one, else the
+    // operating system's "reduce motion". Assign true / false to set the player's choice, null to follow the system again.
+    get reduceMotion() { return N.feelInfo(null)[2]; },
+    set reduceMotion(v) { N.feelSet("reduceMotion", feelOpt(v, "feel.reduceMotion")); },
+    // Whether flashes are turned down (faint and always fading, never full-bright): the game's choice, else the system's reduce motion.
+    get reducedEffects() { return N.feelInfo(null)[3]; },
+    set reducedEffects(v) { N.feelSet("reducedEffects", feelOpt(v, "feel.reducedEffects")); },
+    // Runs an action given as data: { action: "shake" | "hitStop" | "flash" | "knockback" | "squash", ...options }, on `target`
+    // (an entity or its id; the camera to shake, default camera.main) - what clip events and the feel.* commands do.
+    do(action, target) {
+      if (!isObj(action) || Array.isArray(action)) throw new Error(`feel.do(action): expected an object like { action: "flash", color: "#fff" } but got ${inspect(action)}`);
+      const { action: name, ...opts } = action;
+      N.feelDo(target === undefined || target === null ? null : entityHandle(target, "feel.do(action, target)"), feelAction(name, opts, "feel.do(action)"));
+    },
+    // Ends the effects of `target` (flash, shake, squash, knockback) at once; no argument = every effect, hit-stops included.
+    cancel(target) { N.feelCancel(target === undefined || target === null ? null : entityHandle(target, "feel.cancel(target)")); },
+  };
+
   const factoria = {
-    Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
-    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, didYouMean, particles, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
+    Behaviour, Entity, feel, world, input, audio, physics, nav, time, camera, debug, scene, tilemap: tilemapApi, game, screen, storage, rng, fa,
+    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, didYouMean, particles, vfx, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
     window: windowApi, clipboard: clipboardApi, render, mesh, tween, ease, cancelTweens, bt,
   };
 
@@ -4170,6 +4373,7 @@
       N.testDevice();
       if (N.renderScaleGet() !== 1) N.renderScaleSet(1);
       N.setTimeScale(1); pausedScale = null; tweens.reset();
+      N.feelCancel(null); N.feelSet("reduceMotion", null); N.feelSet("reducedEffects", null);  // no effect, hit-stop or accessibility choice carries over
       N.testAppReset();
       // The fake's test ad ends "watched" and the consent sheets say granted again (the rest of the fake lasts the file).
       try { fa.call("platform.set_ad", { outcome: "watched", gdpr: "granted", tracking: "authorized" }); } catch (e) { /* a real backend: nothing to reset */ }
@@ -4205,11 +4409,13 @@
     }
     N.resetInput();
     N.setTimeScale(1); pausedScale = null; tweens.reset();
+    N.feelCancel(null); N.feelSet("reduceMotion", null); N.feelSet("reducedEffects", null);
     testCurrentName = "";
     return results;
   }
 
   function resetScene() {
+    generateReset();
     voiceEnded.clear(); timers.reset(); tweens.reset(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; N.inCursor(4, false); pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
     timers.now = 0;
     tooltipFns.clear(); worldTooltipFn = null; dropFns.clear(); worldDropFn = null;
@@ -4218,7 +4424,7 @@
   return {
     tooltipFor, worldTooltip, dropAccepts, worldDropAccepts,
     factoria, test: testApi,
-    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, storageDeliver, back: deliverBack,
+    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, generateTick, storageDeliver, back: deliverBack,
     tick: (dt) => { timers.tick(dt); tickTweens(dt); tickVoices(); },
     serviceTick, serviceSuspend, serviceQuit, servicePending,
     resetScene,

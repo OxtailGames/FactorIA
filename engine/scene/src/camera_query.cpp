@@ -52,7 +52,8 @@ OrthoView ortho_view(World& w, Vec2 design, Entity named, const Vec2* point) {
     const float viewH = design.y * v.viewport.h;
     const float ortho = c && c->orthoSize > 0 ? c->orthoSize : viewH * 0.5f;
     v.scale = viewH * 0.5f / ortho;
-    v.position = cam.is_null() ? Vec3{} : w.world_position(cam);
+    v.position = cam.is_null() ? Vec3{} : w.drawn_matrix(cam).translation();
+    if (const FeelPose* pose = cam.is_null() ? nullptr : w.feel().pose_of(cam)) v.roll = radians(pose->rotation.z);
     v.center = {(v.viewport.x + v.viewport.w * 0.5f) * design.x, (v.viewport.y + v.viewport.h * 0.5f) * design.y};
     return v;
 }

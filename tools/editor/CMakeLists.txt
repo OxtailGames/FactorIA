@@ -68,11 +68,11 @@ if(FA_BUILD_TESTS)
             # share an entry because they use the system clipboard. FA_EDITOR_AUTOTEST=1 alone still plays every section in one
             # window, and FA_EDITOR_AUTOTEST_SECTIONS=K,M only those (docs/EDITOR.md).
             set(editor_autotest_entries
-                "1:I,J,Q,R,U,X,Z,M3"
+                "1:I,J,Q,R,U,X,Z,M3,P3"
                 "2:S,A,G,H,L,V,B2,C2,E2"
                 "3:B,C,D,M,O,P,W,E3,S2"
                 "4:T,A2,E,F,K,N,Y,H2,K2,E4"
-                "5:D2,F2,I2,J2,K3,L3,N3,O3,Q2,R2")
+                "5:D2,F2,I2,J2,K3,L3,N3,O3,Q2,R2,R3")
             set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/autotest_sections.h)
             file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/src/autotest_sections.h editor_autotest_rows REGEX "^ *\\{\"[A-Z0-9]+\", ")
             set(editor_autotest_ids "")

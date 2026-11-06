@@ -25,6 +25,7 @@
 #include "fa/physics/physics.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/camera_query.h"
+#include "fa/scene/feel.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/sprite_animator.h"
 #include "fa/scene/bounds.h"
@@ -531,12 +532,63 @@ NATIVE(types) {
 NATIVE(timeInfo) {
     SETUP;
     JSValue a = JS_NewArray(ctx);
-    JS_SetPropertyUint32(ctx, a, 0, JS_NewFloat64(ctx, I->lastDt * I->timeScale));
+    JS_SetPropertyUint32(ctx, a, 0, JS_NewFloat64(ctx, I->lastDt * I->timeScale * W.feel().hit_stop_factor()));  // time.dt: a hit-stop slows it too
     JS_SetPropertyUint32(ctx, a, 1, JS_NewFloat64(ctx, I->host->fixed_dt()));
     JS_SetPropertyUint32(ctx, a, 2, JS_NewFloat64(ctx, W.time()));
     JS_SetPropertyUint32(ctx, a, 3, JS_NewFloat64(ctx, static_cast<double>(W.frame())));
     JS_SetPropertyUint32(ctx, a, 4, JS_NewFloat64(ctx, I->timeScale));
     JS_SetPropertyUint32(ctx, a, 5, JS_NewFloat64(ctx, I->lastDt));
+    JS_SetPropertyUint32(ctx, a, 6, JS_NewFloat64(ctx, W.feel().hit_stop_remaining()));
+    return a;
+}
+
+// ---- game feel (feel.h) ---------------------------------------------------------------------------------------------
+NATIVE(feelDo) {  // (entity handle or null, action object): runs one {"action": "shake" | "hitStop" | "flash" | ...}
+    SETUP;
+    const Entity e = argc > 0 ? ent_from(ctx, argv[0]) : kNullEntity;
+    if (argc > 0 && !JS_IsNull(argv[0]) && !JS_IsUndefined(argv[0]) && !W.alive(e)) {
+        const std::string id = I->destroyed_id(e);
+        return throw_err(ctx, id.empty() ? std::string("entity was destroyed; check entity.alive before using it")
+                                         : "entity '" + id + "' was destroyed; check entity.alive before using it");
+    }
+    W.feel().systemReduceMotion = I->owner->system_reduce_motion();  // fresh: a game.setAccessibility of this very frame counts
+    auto r = feel_apply_action(W, e, argc > 1 ? I->to_json(argv[1]) : Json());
+    if (!r.ok()) return throw_err(ctx, r.error().to_string());
+    return JS_UNDEFINED;
+}
+
+NATIVE(feelCancel) {  // (entity handle or null = everything, hit-stops included)
+    SETUP;
+    feel_cancel(W, argc > 0 ? ent_from(ctx, argv[0]) : kNullEntity);
+    return JS_UNDEFINED;
+}
+
+NATIVE(feelSet) {  // ("reduceMotion" | "reducedEffects", true | false | null = follow the system)
+    SETUP;
+    const std::string which = arg_str(ctx, argc, argv, 0);
+    std::optional<bool> value;
+    if (argc > 1 && !JS_IsNull(argv[1]) && !JS_IsUndefined(argv[1])) value = arg_bool(ctx, argc, argv, 1, false);
+    if (which == "reduceMotion") W.feel().reduceMotionSetting = value;
+    else if (which == "reducedEffects") W.feel().reducedEffectsSetting = value;
+    else return throw_err(ctx, "feel: unknown setting '" + which + "' (reduceMotion or reducedEffects)");
+    return JS_UNDEFINED;
+}
+
+// (entity handle or null) -> [knockbackRemaining of the entity, hitStopRemaining, reduceMotion, reducedEffects, the game's
+// reduceMotion choice (null = system), the game's reducedEffects choice]
+NATIVE(feelInfo) {
+    SETUP;
+    W.feel().systemReduceMotion = I->owner->system_reduce_motion();
+    const FeelState& fs = W.feel();
+    const Entity e = argc > 0 ? ent_from(ctx, argv[0]) : kNullEntity;
+    auto opt = [&](const std::optional<bool>& v) { return v ? JS_NewBool(ctx, *v) : JS_NULL; };
+    JSValue a = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, a, 0, JS_NewFloat64(ctx, e.is_null() ? 0.0 : fs.knockback_remaining(e)));
+    JS_SetPropertyUint32(ctx, a, 1, JS_NewFloat64(ctx, fs.hit_stop_remaining()));
+    JS_SetPropertyUint32(ctx, a, 2, JS_NewBool(ctx, fs.reduce_motion()));
+    JS_SetPropertyUint32(ctx, a, 3, JS_NewBool(ctx, fs.reduced_effects()));
+    JS_SetPropertyUint32(ctx, a, 4, opt(fs.reduceMotionSetting));
+    JS_SetPropertyUint32(ctx, a, 5, opt(fs.reducedEffectsSetting));
     return a;
 }
 
@@ -3395,7 +3447,8 @@ NATIVE(worldToScreen) {
         return array_of(ctx, {s.x, s.y});
     }
     const FallbackView fv = fallback_view(I, W, camera, nullptr);
-    return array_of(ctx, {fv.center.x + (p.x - fv.position.x) * fv.scale, fv.center.y - (p.y - fv.position.y) * fv.scale});
+    const Vec2 s = fv.to_screen(p);
+    return array_of(ctx, {s.x, s.y});
 }
 
 NATIVE(screenToWorld) {
@@ -3408,7 +3461,8 @@ NATIVE(screenToWorld) {
         return array_of(ctx, {w.x, w.y, w.z});
     }
     const FallbackView fv = fallback_view(I, W, camera, &sp);
-    return array_of(ctx, {fv.position.x + (sp.x - fv.center.x) / fv.scale, fv.position.y - (sp.y - fv.center.y) / fv.scale, depth});
+    const Vec3 wp = fv.to_world(sp, depth);
+    return array_of(ctx, {wp.x, wp.y, wp.z});
 }
 
 NATIVE(screenRay) {
@@ -3420,7 +3474,7 @@ NATIVE(screenRay) {
         r->screen_ray(sp, o, d, camera);
     } else {
         const FallbackView fv = fallback_view(I, W, camera, &sp);
-        o = {fv.position.x + (sp.x - fv.center.x) / fv.scale, fv.position.y - (sp.y - fv.center.y) / fv.scale, fv.position.z};
+        o = fv.to_world(sp, fv.position.z);
         d = kForward;
     }
     return array_of(ctx, {o.x, o.y, o.z, d.x, d.y, d.z});
@@ -3969,6 +4023,12 @@ NATIVE(preloadStart) {  // (kind 0 scene | 1 assets, path | [paths]) -> {id} | {
     return o;
 }
 
+NATIVE(generateActive) {  // (count): how many tilemap.generate generations the script side advances; 0 stops the per-frame generateTick
+    SETUP;
+    I->generateJobs = static_cast<int>(arg_num(ctx, argc, argv, 0, 0));
+    return JS_UNDEFINED;
+}
+
 NATIVE(preloadRelease) {  // (id)
     SETUP;
     I->preload.release(static_cast<int>(arg_num(ctx, argc, argv, 0, 0)));
@@ -4054,7 +4114,7 @@ struct Reg {
 #define R(n, a) {#n, n_##n, a}
 const Reg kRegs[] = {
     R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(sourceCaret, 3), R(logSeq, 0), R(types, 0), R(timeInfo, 0),
-    R(setTimeScale, 1), R(alive, 1), R(pendingDestroy, 1), R(idOf, 1), R(destroyedId, 1), R(find, 1), R(findAll, 1),
+    R(setTimeScale, 1), R(feelDo, 2), R(feelCancel, 1), R(feelSet, 2), R(feelInfo, 1), R(alive, 1), R(pendingDestroy, 1), R(idOf, 1), R(destroyedId, 1), R(find, 1), R(findAll, 1),
     R(findByTag, 1), R(entities, 0), R(tags, 1), R(setTags, 2), R(hasTag, 2), R(addTag, 2), R(removeTag, 2),
     R(setId, 2), R(getName, 1), R(setName, 2), R(getActive, 1), R(setActive, 2), R(activeInHierarchy, 1),
     R(destroy, 1), R(parent, 1), R(children, 1), R(setParent, 4), R(worldPos, 1), R(setWorldPos, 2),
@@ -4076,7 +4136,7 @@ const Reg kRegs[] = {
     R(raycast3d, 10), R(raycast2dAll, 8), R(raycast3dAll, 11), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(musicCall, 3), R(spriteAnimCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(tileCellAt, 3), R(tileCellToWorld, 3), R(tilePaintTerrain, 4), R(tileRetile, 1), R(tileTerrainAt, 3), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(uiMirrorRtl, 0), R(setUiMirrorRtl, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderCaptureWorld, 6), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(uiAim, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4), R(meshCreate, 2), R(meshUpdate, 3), R(meshDestroy, 1), R(meshInfo, 1), R(meshList, 0), R(meshSave, 2),
     R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 3), R(storageSetAsync, 3), R(storageSize, 1), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nGender, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
+    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nGender, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(generateActive, 1), R(testDiskReads, 0), R(testScreenshot, 3),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R

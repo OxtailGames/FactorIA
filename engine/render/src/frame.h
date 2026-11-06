@@ -78,6 +78,8 @@ struct Frame {
     // Tint components (scene/components.h): set by gather_2d when the scene has at least one, which makes every visual walk its
     // parent chain; false = no visual pays for the feature.
     bool anyTint = false;
+    // Some entity flashes now (World::feel(), feel.h): the draw passes then look for the flash of each visual (feel_flash_of).
+    bool anyFlash = false;
     // Renderer::capture_world of an entity: only this entity and its descendants are drawn, and the `active` flag of the entity
     // and of its ancestors is not looked at, so a hidden subject is captured. Null = the whole world as usual.
     Entity scopeRoot = kNullEntity;
@@ -89,6 +91,12 @@ struct Frame {
 // The product of the Tint colours of `e` and its ancestors (white when there are none). Cheap when the scene has no Tint:
 // the walk happens only if f.anyTint.
 Color inherited_tint(const World& world, const Frame& f, Entity e);
+
+// The flash colour of `e` (rgb, alpha = how much of it shows, 0..1): the nearest flash among `e` and its ancestors, so flashing
+// a parent flashes its whole drawn subtree. Null when nothing flashes (a walk only if f.anyFlash).
+std::optional<Color> inherited_flash(const World& world, const Frame& f, Entity e);
+// `base` pulled towards the flash colour by its alpha; the alpha of `base` is kept.
+Color flash_mix(const Color& base, const Color& flash);
 
 // Emits the 4 vertices of an axis-aligned local rectangle (y up) transformed by `m`.
 // flipY: local y is negated first (screen space is y down).
