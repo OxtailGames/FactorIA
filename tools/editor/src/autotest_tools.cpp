@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "ai_project_edit.h"
+#include "auto_play_job.h"
 #include "autotest_sections.h"
 #include "editor_internal.h"
 #include "fa/ai/command_hooks.h"
@@ -638,6 +639,7 @@ void Editor::at_build_tools_script() {
             particle_close_document();   // section P3: the Particles panel, its effect and its preview are not carried over
             particle_ = ParticleUi{};
             showParticle_ = false;
+            reset_auto_play_state();   // section S3: the Play sessions window, its list and a run still going are not carried over
             showLevelGen_ = false;   // section R3: the Level generator window, its sample, its preview and its history are not carried over
             levelGen_.clear(level_gen_caller());
             levelGenOpt_ = LevelGenOptions{};
@@ -8773,6 +8775,175 @@ void Editor::at_build_tools_script() {
             levelGen_.clear(level_gen_caller());
             std::error_code ec;
             stdfs::remove(project_file("levels/at-generated.json"), ec);
+        });
+    }
+
+    // ----------------------------------------------------------------------------------------- S3. Play > Let the AI Play
+    section("S3");
+    // Play > Let the AI Play and Play > Play Sessions (docs/EDITOR.md, "Play sessions"): the list marks the sessions the AI's bot played,
+    // "Attach last play session" never silently picks one of them, and a real play.auto run (a child `factoria`, FA_FACTORIA_EXE, on a
+    // worker thread) ends with its session listed, marked and opened, while the window keeps drawing. Waits are states; the window is
+    // the 1024x642 one of the macOS runner.
+    {
+        struct As {
+            std::string person = "29990101-000001", bot = "29990101-000002-auto";
+            std::string realSession;
+            std::uint64_t frames0 = 0;
+            bool exe = false, sawRunning = false;
+        };
+        auto as = std::make_shared<As>();
+        auto sessions_dir = [project_file](const std::string& name) { return project_file(".factoria/sessions/" + name); };
+        auto row_of = [this](const std::string& name) -> const PlaySessionRow* {
+            for (const PlaySessionRow& r : playSessionRows_)
+                if (r.name == name) return &r;
+            return nullptr;
+        };
+        step(2, [this, as, sessions_dir] {
+            as->exe = !auto_play_executable().empty();
+            stdfs::create_directories(stdfs::path(sessions_dir(as->person)));
+            stdfs::create_directories(stdfs::path(sessions_dir(as->bot)));
+            write_file(sessions_dir(as->person) + "/session.json",
+                       R"({"scene":"scenes/main.scene.json","durationSec":4.0,"frames":240,"marks":[{"n":1,"frame":10,"time":0.2,"note":"fake person mark","screenshot":""}],"logs":[]})");
+            write_file(sessions_dir(as->bot) + "/session.json",
+                       R"({"source":"auto","scene":"scenes/main.scene.json","durationSec":30.0,"frames":1800,"ended":"stuck","endedWhy":"fake bot stuck","score":null,"phases":[{"name":"main","kind":"scene","scene":"scenes/main.scene.json","frame":0,"time":0.0,"screenshot":""}],"marks":[{"n":1,"frame":900,"time":15.0,"kind":"stuck","note":"fake bot problem","screenshot":""}],"logs":[],"notes":["fake note"],"auto":{"bot":"explorer","replay":"factoria player --replay x"}})");
+            autoPlaySeconds_ = 5;  // a real run below plays the least the window allows, with no pictures: no graphics device in the child
+            autoPlayPictures_ = false;
+        });
+        click("menu:play");
+        step(3, [] {});
+        click("menu:play-sessions");
+        step(4, [this, as, row_of] {
+            at_check(showPlaySessions_, "Play > Play Sessions opens the Play sessions window");
+            const PlaySessionRow* p = row_of(as->person);
+            const PlaySessionRow* b = row_of(as->bot);
+            at_check(p && !p->isAuto && p->marks == 1, "the list has the session you played, not marked as the AI's");
+            at_check(b && b->isAuto && b->ended == "stuck" && b->marks == 1, "...and the AI's bot session, marked as auto with how it ended");
+            at_check(b && play_session_label(*b).find("AI") != std::string::npos && p && play_session_label(*p).find("you") != std::string::npos,
+                     "...the rows say who played");
+            at_check(at_shown("playsessions:row:" + as->person) && at_shown("playsessions:row:" + as->bot) && at_shown("playsessions:run"),
+                     "...the rows and the Let the AI play button are on screen");
+        });
+        click("playsessions:row:" + as->bot);
+        step(3, [this, as] {
+            at_check(playSessionsPick_ == as->bot, "a click on a row picks it");
+            at_check(at_shown("playsessions:ended") && at_shown("playsessions:attach"), "...its report shows how the bot's run ended, and the Attach button");
+            at_check(playSessionDoc_.is_object() && playSessionDoc_.value("endedWhy", std::string()) == "fake bot stuck", "...read from its session.json");
+        });
+        snap("editor_play_sessions.png");
+        // ---- "Attach last play session" is the person's, even when the bot's session is newer
+        step(2, [this, as] {
+            ai_sync_chats();
+            chat_.current().input.clear();
+            ai_attach_last_session();
+            const std::string in = chat_.current().input;
+            at_check(in.find("fake person mark") != std::string::npos, "Attach last play session puts in the session you played...");
+            at_check(in.find("play.auto") == std::string::npos && in.find("bot") == std::string::npos, "...not the newer one of the AI's bot");
+            chat_.current().input.clear();
+            std::error_code ec;
+            stdfs::remove_all(stdfs::path(projectDir_ + "/.factoria/sessions/" + as->person), ec);
+            playSessionsDirty_ = true;
+        });
+        step(3, [this, as] {
+            toasts_.clear();
+            ai_attach_last_session();
+            const std::string in = chat_.current().input;
+            at_check(in.find("played with play.auto, not one the user played") != std::string::npos,
+                     "with none of your own, the bot's session is attached and the text says whose play it was");
+            at_check(in.find("fake bot problem") != std::string::npos, "...with its problems");
+            at_check(!toasts_.empty() && toasts_.back().text.find("no play session of your own") != std::string::npos, "...and a toast says so");
+            chat_.current().input.clear();
+            std::error_code ec;
+            stdfs::remove_all(stdfs::path(projectDir_ + "/.factoria/sessions/" + as->bot), ec);
+            playSessionsDirty_ = true;
+        });
+        // ---- a real run. The script is built before anything runs, so what depends on this machine (is there a factoria next to the
+        // editor?) is decided inside the steps.
+        auto sessions_count = [this] {
+            std::error_code ec;
+            std::size_t n = 0;
+            for (const auto& e : stdfs::directory_iterator(stdfs::path(projectDir_ + "/.factoria/sessions"), ec)) n += e.is_directory(ec) ? 1 : 0;
+            return n;
+        };
+        auto wait_run_ends = [this, &step] {
+            for (int i = 0; i < 2; ++i)  // two waits of at most 60 s: a loaded VM
+                step(1, [this] {
+                    atWaitCount_ = 0;
+                    atWaitUntil_ = [this] { return !autoPlay_.running() && autoPlayLast_.has_value(); };
+                });
+        };
+        step(3, [this, as, row_of] {
+            at_check(row_of(as->bot) == nullptr, "the list follows the folder: a removed session is gone");
+            as->frames0 = atFramesDrawn_;
+            autoPlayLast_.reset();
+        });
+        click("playsessions:run");
+        step(1, [this, as] { as->sawRunning = autoPlay_.running() || autoPlayLast_.has_value(); });
+        wait_run_ends();
+        step(4, [this, as, row_of] {
+            at_check(as->sawRunning, "Let the AI play starts the run at once (the button does not wait for the bot)");
+            at_check(autoPlayLast_.has_value(), "the run ended");
+            if (!autoPlayLast_) return;
+            if (as->exe) {
+                at_check(autoPlayLast_->ok, "...with a session (" + autoPlayLast_->error + " " + autoPlayLast_->hint + ")");
+                at_check(atFramesDrawn_ - as->frames0 >= 5, "the window kept drawing frames while the bot played");
+                as->realSession = autoPlayLast_->session;
+                at_check(!as->realSession.empty() && playSessionsPick_ == as->realSession, "the finished run's session is picked in the list");
+                const PlaySessionRow* r = row_of(as->realSession);
+                at_check(r && r->isAuto, "...marked as the AI's");
+                at_check(r && !r->ended.empty(), "...with how the run ended (" + (r ? r->ended : std::string()) + ")");
+                at_check(at_shown("playsessions:ended"), "...and its report is open");
+                at_check(std::any_of(toasts_.begin(), toasts_.end(), [](const Toast& t) { return t.text.find("The AI played") == 0; }),
+                         "...and a toast says how it went");
+            } else {
+                atLog_.push_back("NOTE no factoria next to the editor and no FA_FACTORIA_EXE: the run's error path was tested instead");
+                at_check(!autoPlayLast_->ok && autoPlayLast_->error.find("not found") != std::string::npos && !autoPlayLast_->hint.empty(),
+                         "with no factoria tool the run says what is missing and how to fix it");
+                at_check(at_shown("playsessions:error"), "...under the button");
+            }
+        });
+        // ---- Cancel: the child is stopped and no session is written
+        step(3, [this, as, sessions_count] {
+            as->frames0 = sessions_count();  // sessions before the second run
+            autoPlaySeconds_ = 600;          // far more than the test waits for
+            autoPlayLast_.reset();
+            as->sawRunning = false;
+        });
+        click("playsessions:run");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return autoPlay_.running() || autoPlayLast_.has_value(); };
+        });
+        step(3, [this, as] {
+            as->sawRunning = autoPlay_.running();
+            if (as->sawRunning)
+                at_check(at_shown("playsessions:cancel") && at_shown("playsessions:running"), "while the bot plays the window shows its progress and Cancel");
+        });
+        step(2, [this, as] {
+            if (as->sawRunning && autoPlay_.running() && at_shown("playsessions:cancel")) inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("playsessions:cancel"));
+        });
+        step(2, [this, as] {
+            if (as->sawRunning && autoPlay_.running() && at_shown("playsessions:cancel")) inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget("playsessions:cancel"));
+        });
+        step(4, [this, as] {
+            if (as->sawRunning && autoPlay_.running() && at_shown("playsessions:cancel")) inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget("playsessions:cancel"));
+        });
+        wait_run_ends();
+        step(3, [this, as, sessions_count] {
+            if (!as->sawRunning || !autoPlayLast_ || !autoPlayLast_->cancelled) {
+                // The run was not seen going, or ended before the click reached Cancel: there is no stopped run to check.
+                atLog_.push_back("NOTE the 600 s run was not cancelled by the click (no factoria, or it ended first): the Cancel checks are skipped");
+                return;
+            }
+            at_check(!autoPlay_.running(), "Cancel stops the run");
+            at_check(sessions_count() == as->frames0, "...and a cancelled run writes no session");
+            at_check(!at_shown("playsessions:error"), "...and shows no error");
+        });
+        // ---- leave the editor as the other sections expect it
+        step(2, [this, as] {
+            reset_auto_play_state();
+            std::error_code ec;
+            if (!as->realSession.empty()) stdfs::remove_all(stdfs::path(projectDir_ + "/.factoria/sessions/" + as->realSession), ec);
+            toasts_.clear();
         });
     }
 

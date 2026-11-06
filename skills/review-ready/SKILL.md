@@ -9,8 +9,8 @@ to date as the game grows:
 - REVIEW.md at the project root (never exported): the note they read first. Sections: "How to play" (controls, the goal, what
   a session looks like), "Status" (what is finished and what is a placeholder, so they do not judge placeholders as final),
   "Reach everything fast" (every scene/level/state and how to get there in one step: scene paths for scene_load, a debug
-  menu or cheat keys, a tool in tools/*.js, saved states in review/, input replays), "Bot-playable flows" (replays or
-  tests that play the first minutes, a whole level, the ending) and "Known issues" (what not to report again).
+  menu or cheat keys, a tool in tools/*.js, saved states in review/, input replays), "Bot-playable flows" (scripts/autoplay.js, the
+  hook `play.auto` runs, plus replays or tests that play the first minutes, a whole level, the ending) and "Known issues" (what not to report again).
 - Every scene and state a reviewer should see (a boss, the shop, game over, the last level) reachable in one call, not by
   playing for an hour: a project tool, a start scene prop, or a save/state loaded by REVIEW.md.
 - Stable screenshots: deterministic seeds and no random camera shake or fades at the moment a screenshot is taken.

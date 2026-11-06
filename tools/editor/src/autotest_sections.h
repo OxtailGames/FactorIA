@@ -67,6 +67,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"P3", "Particles panel: New writes a starter effect and opens it, the preview plays it, the time scrubber is dragged (the same moment shows the same particles), a gradient key and curve keys are dragged (one vfx.edit and one undo step each), a part is added and removed, Undo/Redo through the editor's stack back to the file as New wrote it"},
     {"O3", "Animation panel, 3D clips: a generated walk opened on a rigged model, a bone picked in the list and in the view, the rotation gizmo dragged (one key, one undo step), an IK handle dragged, a key moved and deleted in the dopesheet, Mirror pose, the filmstrip sheet, Undo/Redo through the editor's stack"},
     {"R3", "Level generator window: a drawn level as the sample, Generate, Next / Previous seed (the same seed gives the same level), Keep builds it in the scene as one undo step, Save writes a level file"},
+    {"S3", "Play > Let the AI Play: the Play sessions list marks the AI's sessions, Attach last play session picks the one you played, a real play.auto run on a worker thread ends with its session listed and opened, Cancel writes none"},
 };
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).

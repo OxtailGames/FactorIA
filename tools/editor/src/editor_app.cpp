@@ -559,6 +559,7 @@ bool Editor::boot(const std::string& dirIn) {
     std::string dir = dirIn;
     ai_stop("project_closed");
     reset_export_state();  // an export of the previous project finishes first
+    reset_auto_play_state();  // a bot still playing the previous project is stopped
     reset_platform_settings_state();  // so does a keystore being created; the unsaved settings of the old project are dropped
     // Tear down: UI first (it owns GPU resources), then the engine (owns sg_setup).
     if (uiUp_) {
@@ -1437,6 +1438,7 @@ void Editor::build_ui() {
     ImGuiIO& io = ImGui::GetIO();
     ImGuiViewport* vp = ImGui::GetMainViewport();
     poll_export();
+    poll_auto_play();
     poll_platform_settings();
     poll_setup();
     draw_main_menu();
@@ -1547,6 +1549,7 @@ void Editor::build_ui() {
     draw_project_dialog();
     draw_validation_window();
     draw_export_window();
+    draw_play_sessions_window();
     draw_platform_settings_window();
     draw_ai_settings_window();
     draw_setup_window();

@@ -449,6 +449,14 @@ includeText?}`. `ai.review` is not read-only: it spends tokens and writes the re
   `Write`, `NotebookEdit` and `Bash`, plus every FactorIA MCP tool that changes something, and Codex with `--sandbox read-only` and a
   `factoria mcp --read-only` server (Codex is the least tested of the three). Loading a scene to look at it does not
   change the project on disk.
+* **The automatic player supports the reviewer, it does not replace playing.** A game reviewer (not the art critic) may run
+  `play.auto` (it plays the game headless with a bot and writes only a session under `.factoria/sessions/`; the other tools
+  that change something stay refused). Its instructions fix the order: play the first minutes by hand first, without reading
+  any automatic session, so the first impression of the controls, the goal and the onboarding is that of someone new; then
+  run `play.auto` and read its report (crashes, stuck and broken marks are taken as known, its phases show what was not
+  reached); then play by hand the phases it reached and the reviewer did not, before judging them; and back opinions with the
+  report's numbers, saying which parts were judged by hand and which only from the bot's report and screenshots. The prompt
+  states that the bot's success says nothing about whether a person finds the game clear or fair.
 * **REVIEW.md.** The reviewers read the `REVIEW.md` of the project first: controls, the goal, what is finished and what
   is a placeholder, and how to reach every scene and state quickly. A game that is easy to test gets a more useful review
   (`docs/AI_GUIDE.md`, "Keep the game reviewable"). `factoria export` leaves `REVIEW.md` out of the player's build.

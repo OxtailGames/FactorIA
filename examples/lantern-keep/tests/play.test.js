@@ -1,9 +1,9 @@
 import { test, expect, game } from "factoria:test";
 import { LEVELS, EMBERS_PER_LEVEL } from "../scripts/levels.js";
 import * as progress from "../scripts/progress.js";
-import { playLevel, listen } from "./helpers/autoplay.js";
+import { playLevel, listen } from "./helpers/level.js";
 
-// The bot of tests/helpers/autoplay.js runs right and jumps over what is ahead. Every level must be finishable by that,
+// The bot of tests/helpers/level.js runs right and jumps over what is ahead. Every level must be finishable by that,
 // well inside a minute: the levels are gentle on purpose (later packages drive them in their own tests).
 for (const level of LEVELS) {
   test(`the bot finishes level ${level.id}`, () => {

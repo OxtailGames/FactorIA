@@ -1858,7 +1858,7 @@ void Editor::draw_ai_panel() {
     ImGui::SetItemTooltip("Add a picture to your next message (png, jpg, gif, webp).\nYou can also drop image files on the window, or press Ctrl+V in the message box with a picture copied.");
     ImGui::SameLine();
     if (ImGui::Button("Attach last play session")) ai_attach_last_session();
-    ImGui::SetItemTooltip("Adds a summary of your last Play .. Stop (frame times, errors, the problems you marked with F9) and the mark screenshots to your next message.");
+    ImGui::SetItemTooltip("Adds a summary of your last Play .. Stop (frame times, errors, the problems you marked with F9) and the mark screenshots to your next message.\nA session the AI's bot played (Play > Let the AI Play) is only used when you have none of your own.");
     if (isRunTab || runsOn > 0 || gameRuns) {
         ImGui::SameLine();
         if (isRunTab) ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "running...");

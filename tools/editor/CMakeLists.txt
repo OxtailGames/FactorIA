@@ -72,7 +72,7 @@ if(FA_BUILD_TESTS)
                 "2:S,A,G,H,L,V,B2,C2,E2"
                 "3:B,C,D,M,O,P,W,E3,S2"
                 "4:T,A2,E,F,K,N,Y,H2,K2,E4"
-                "5:D2,F2,I2,J2,K3,L3,N3,O3,Q2,R2,R3")
+                "5:D2,F2,I2,J2,K3,L3,N3,O3,Q2,R2,R3,S3")
             set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/autotest_sections.h)
             file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/src/autotest_sections.h editor_autotest_rows REGEX "^ *\\{\"[A-Z0-9]+\", ")
             set(editor_autotest_ids "")
@@ -116,6 +116,10 @@ if(FA_BUILD_TESTS)
                 # APPEND: add_test (cmake/FactoriaHelpers.cmake) already put the Windows-rules variable in ENVIRONMENT.
                 set_property(TEST editor_autotest_${editor_autotest_n} APPEND PROPERTY ENVIRONMENT
                     "FA_EDITOR_AUTOTEST=1;FA_EDITOR_AUTOTEST_SECTIONS=${editor_autotest_sections};FA_EDITOR_AUTOTEST_OUT=${CMAKE_BINARY_DIR}/test-output/editor/autotest_${editor_autotest_n}")
+                # Section S3 (Play > Let the AI Play) runs the build tree's own factoria as the bot's child process: the editor
+                # autotest sits in tools/editor/, not next to it. Without it (a build without the command line tool) that section
+                # tests the "factoria not found" path instead.
+                set_property(TEST editor_autotest_${editor_autotest_n} APPEND PROPERTY ENVIRONMENT "FA_FACTORIA_EXE=$<TARGET_FILE:factoria>")
                 # Windows: one entry at a time (the other tests still run beside it). Five editors at once on the CI runner's
                 # software D3D11 (WARP) and 4 vCPUs all ran past their timeout; Linux gives each entry its own Xvfb.
                 if(FA_PLATFORM STREQUAL "windows")
