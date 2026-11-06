@@ -3720,6 +3720,8 @@ NATIVE(callCommand) {
     Json args = argc > 1 ? I->to_json(argv[1]) : Json::object();
     if (args.is_null()) args = Json::object();
     CommandResult r = I->host->commands().call(name, args);
+    if (r.ok && name == "tilemap.generate_start" && r.result.is_object() && r.result.contains("job") && r.result["job"].is_number_integer())
+        I->wfcJobIds.push_back(r.result["job"].get<int>());   // this context owns the job: it is dropped with it
     JSValue o = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, o, "ok", JS_NewBool(ctx, r.ok));
     if (r.ok) JS_SetPropertyStr(ctx, o, "result", I->from_json(r.result));

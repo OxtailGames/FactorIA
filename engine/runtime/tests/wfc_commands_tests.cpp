@@ -757,3 +757,27 @@ TEST_CASE("tilemap.generate reachability: the path costs are those nav.find_tile
         CHECK(nav.result["cells"].size() == p["steps"].get<std::size_t>() + 1);
     }
 }
+
+TEST_CASE("tilemap.generate_step: on a big level a step stays within a chunk of its work, reachability included (path searches apart)") {
+    Session s;
+    const int side = 160;   // 25600 cells: more than one chunk (16384) of every phase
+    const std::string size = "\"size\":[" + std::to_string(side) + "," + std::to_string(side) + "]";
+    auto start = s.call("tilemap.generate_start", dungeon_call(size + R"(,"seed":4,"maxAttempts":3,"reachability":{"from":[1,1],"allConnected":true,"solidTiles":[0]})"));
+    REQUIRE_MESSAGE(start.ok, error_text(start));
+    const Json job = start.result["job"];
+    long long before = 0, widest = 0;
+    int steps = 0;
+    for (; steps < 200000; ++steps) {
+        auto r = s.call("tilemap.generate_step", Json::object({{"job", job}, {"work", 1}}));
+        if (!r.ok) break;   // a seed that never makes a connected level ends with an error: the bound is what this test is about
+        const long long work = r.result["work"].get<long long>();
+        widest = std::max(widest, work - before);
+        before = work;
+        if (r.result["done"] == true) break;
+    }
+    // a chunk is about 16384 units (a propagated cell, an observed cell or a reachability pass are small beside it); the one piece
+    // that is not cut is a path search, and with `allConnected` and no `to` none is made
+    CHECK(widest <= 2 * 16384 + 4096);
+    CHECK(steps > 10);
+    s.call("tilemap.generate_cancel", Json::object({{"job", job}}));
+}

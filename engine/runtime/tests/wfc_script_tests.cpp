@@ -146,7 +146,7 @@ TEST_CASE("tilemap.generate (script): the per-frame budget is shared by the runn
     long long together = 0;
     for (int i = 0; i < 4; ++i) {
         const long long w = s.eval("globalThis.jobs[" + std::to_string(i) + "].work").get<long long>();
-        CHECK(w <= 140000);
+        CHECK(w <= 150000);   // a quarter of the frame plus one chunk (16384) of overshoot
         CHECK(w > 0);
         together += w;
     }

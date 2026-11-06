@@ -416,6 +416,8 @@ struct Generator::Impl {
     std::vector<std::int64_t> perSymbol;       // Counts: cells per symbol of the finished grid
     bool acceptBegun = false;
     static constexpr std::int64_t kChunkWork = 16384;
+    int flushStage = 0;                        // Run: 0 = no flush under way, 1 = stamping the dirty cells, 2 = pushing their entries
+    std::size_t flushPos = 0;
 
     GenStatus status = GenStatus::Running;
     std::vector<int> output;
@@ -509,6 +511,8 @@ struct Generator::Impl {
             totalWL += std::int64_t(model->weights[p]) * logw[p];
         }
         dirty.clear();
+        flushStage = 0;
+        flushPos = 0;
         heap.clear();
         queue.clear();
         undecided = T > 1 ? cells : 0;
@@ -664,30 +668,55 @@ struct Generator::Impl {
         return units;
     }
 
-    void flush_dirty() {
-        for (std::uint32_t c : dirty) {
-            dirtyFlag[c] = 0;
-            ++stamp[c];
+    // The cells that changed get a new heap entry, in two stages of chunks (a fresh attempt has every cell dirty: 4 million at
+    // 2048 x 2048, which used to be one step). Stage 1 invalidates the old entries (a new stamp) and then, when the heap could pass its
+    // allowance, drops the stale ones; stage 2 pushes the new entries. The entries are pushed in the order of `dirty`, as before, so the
+    // heap, its counters and every result are the same as when it was done in one piece. Only the rebuild itself (a pass over a heap
+    // that is at its allowance, at most 4 entries per cell) is not cut into chunks.
+    void flush_chunk() {
+        const std::size_t n = dirty.size();
+        if (flushStage == 0) {
+            flushStage = 1;
+            flushPos = 0;
         }
-        // Stale entries pile up (every change of a cell leaves its old entry behind): when the heap could pass its allowance, keep
-        // only the entry each undecided cell still has valid. The order of a heap of distinct (key, noise, cell) triples does not
-        // depend on how it was built, so this changes no result.
-        if (heap.size() + dirty.size() > kHeapEntriesPerCell * cells) {
-            std::size_t kept = 0;
-            for (const HeapEntry& e : heap)
-                if (e.stamp == stamp[e.cell] && remaining[e.cell] > 1) heap[kept++] = e;
-            heap.resize(kept);
-            std::make_heap(heap.begin(), heap.end(), heap_after);
-            ++stats.heapRebuilds;
+        const std::size_t to = std::min(n, flushPos + std::size_t(kChunkWork));
+        if (flushStage == 1) {
+            for (std::size_t i = flushPos; i < to; ++i) {
+                dirtyFlag[dirty[i]] = 0;
+                ++stamp[dirty[i]];
+            }
+            charge(std::int64_t(to - flushPos));   // one stamp per cell that changed
+            flushPos = to;
+            if (flushPos < n) return;
+            // Stale entries pile up (every change of a cell leaves its old entry behind): when the heap could pass its allowance, keep
+            // only the entry each undecided cell still has valid. The order of a heap of distinct (key, noise, cell) triples does not
+            // depend on how it was built, so this changes no result.
+            if (heap.size() + n > kHeapEntriesPerCell * cells) {
+                std::size_t kept = 0;
+                for (const HeapEntry& e : heap)
+                    if (e.stamp == stamp[e.cell] && remaining[e.cell] > 1) heap[kept++] = e;
+                heap.resize(kept);
+                std::make_heap(heap.begin(), heap.end(), heap_after);
+                ++stats.heapRebuilds;
+            }
+            flushStage = 2;
+            flushPos = 0;
+            return;
         }
-        for (std::uint32_t c : dirty) {
+        for (std::size_t i = flushPos; i < to; ++i) {
+            const std::uint32_t c = dirty[i];
             if (remaining[c] > 1) {
                 const std::int64_t entropy = log2_q20(sumW[c]) - sumWL[c] / std::int64_t(sumW[c]);
                 heap.push_back({entropy, noise[c], c, stamp[c]});
                 std::push_heap(heap.begin(), heap.end(), heap_after);
             }
         }
+        charge(std::int64_t(to - flushPos));   // one heap entry per cell that changed
+        flushPos = to;
+        if (flushPos < n) return;
         dirty.clear();
+        flushStage = 0;
+        flushPos = 0;
         stats.heapPeak = std::max(stats.heapPeak, heap.size());
     }
 
@@ -784,8 +813,7 @@ struct Generator::Impl {
             charge(propagate_cell());
             return;
         }
-        charge(std::int64_t(dirty.size()));   // one heap entry per cell that changed
-        flush_dirty();
+        if (!dirty.empty()) return flush_chunk();
         std::size_t cell = 0;
         if (!pick_cell(cell)) return begin_extract();
         observe(cell);

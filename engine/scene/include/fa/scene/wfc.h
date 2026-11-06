@@ -30,12 +30,13 @@
 // `peakBytes` are byte counts of this compiler's containers: they differ between runs and machines and are NOT part of the
 // determinism promise; `work` and the other counters are.
 // WORK is the one deterministic measure of effort. A unit is about one step of an inner loop: one pattern removed from a cell and one
-// look at each neighbouring pattern it supported (so the adjacency lists of the model count), one heap entry per cell that changed,
+// look at each neighbouring pattern it supported (so the adjacency lists of the model count), one stamp and one heap entry per cell that changed,
 // one pattern per observed cell, the state reset of every cell when an attempt starts, one pattern tested against one cell for the edge and
 // forbidden patterns, n * n * patterns for every fixed cell, one per cell for building the output and one more for counting it, and what
 // `accept` / `check` reports (one per cell it visits, per pass and per path searched). An attempt is a chain of phases (reset, edge
 // rules, forbidden, fixed cells, pins, solve, output, counts, check) and each advances in chunks of about 16384 units, so one call of step()
-// ends within a chunk of its budget; the chunks do not depend on the budget. GenerateOptions::maxWork caps the total over all attempts: the run fails with GenFailure::workLimit when the count passes
+// ends within a chunk of its budget (the solve flushes the cells that changed in chunks too; the one piece that is not cut is the
+// rebuild of a heap that is at its allowance, a pass over at most 4 entries per cell); the chunks do not depend on the budget. GenerateOptions::maxWork caps the total over all attempts: the run fails with GenFailure::workLimit when the count passes
 // it, at the same point on every machine and however the calls to step() are sized. A time limit is only a safety net the caller adds
 // on top: a result must never depend on speed.
 //
