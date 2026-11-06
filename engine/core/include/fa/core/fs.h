@@ -74,6 +74,11 @@ std::string normalize(std::string_view path);
 Result<std::string> normalize_checked(std::string_view path);
 bool is_absolute(std::string_view path);
 std::filesystem::path resolve(std::string_view path);  // absolute host path (desktop)
+// UTF-8 text <-> host path. On Windows std::filesystem::path(std::string) and path::string()/generic_string() go through the
+// ANSI code page and mangle accents (and can put bytes that are not UTF-8 into JSON); these two never do. path_to_utf8 gives the
+// forward-slash form.
+std::filesystem::path path_from_utf8(std::string_view text);
+std::string path_to_utf8(const std::filesystem::path& p);
 
 // The form of a host path to hand to the OS. On Windows a path of 248 characters or more (MAX_PATH, 260, minus room for
 // an 8.3 file name: the folder limit) comes back absolute, with backslashes and the \\?\ prefix, which lifts the limit

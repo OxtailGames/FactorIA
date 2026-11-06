@@ -42,7 +42,7 @@ struct PlayMark {
     double time = 0;         // seconds of game time (frame / fixedHz)
     std::string note;        // the user's one-line description (play.auto: what the bot found)
     std::string screenshot;  // file name inside the session folder ("" = none)
-    std::string kind;        // play.auto: "stuck", "menu", "fall", "exception loop" or "not finite"; "" for a mark of the player
+    std::string kind;        // play.auto: "stuck", "menu", "fall", "exception loop", "not finite" or "hook"; "" for a mark of the player
     std::int64_t step = -1;  // play.auto: the fixed step the problem was found at (-1 = not recorded)
 };
 
