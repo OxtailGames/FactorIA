@@ -71,6 +71,10 @@ const char* setting_source_name(SettingSource s);  // "default", "you", "project
 // keys of ResolvedAiConfig::sources, of SettingChange::pointer and of reset_project_setting.
 Json settings_view(const AiConfig& cfg);
 
+// Every JSON pointer of one value that ai.settings.set and set_user_setting take for `cfg`, sorted: the leaves of settings_view
+// (so the servers and extensions `cfg` has), plus every role's /toolGroups and the provider, model and voice of every kind of asset.
+std::vector<std::string> setting_pointers(const AiConfig& cfg);
+
 // One value that the project's file would change: the pointer, the value now (null when there is none) and the value the file gives.
 struct SettingChange {
     std::string pointer;  // "/roles/artist/enabled"
@@ -172,7 +176,9 @@ Result<void> accept_project_settings(std::string_view projectDir, std::string_vi
 // "/mcpServers/<name>", "/extensions/plugins/<name>", ...) and keeps everything else in the file; `value` null removes the key, so
 // the engine's default applies again. The value is checked like a project's file (names must exist, no key that runs a program) and
 // the result like ai.json (parse_config) before anything is written. A new provider for a role or asset route drops its model, effort
-// and voice, as the project's file does. Owner-only permissions. Nothing here touches ai-trust.json.
+// and voice, as the project's file does. Owner-only permissions. Nothing here touches ai-trust.json. The pointer must name a setting,
+// also when `value` is null (a typo is an error with "did you mean", not "already the default"); a setting that the file does not
+// set is not an error and writes nothing.
 Result<void> set_user_setting(std::string_view pointer, const Json& value, std::string_view aiConfigPath = {},
                               const EnvLookup& env = system_env());
 

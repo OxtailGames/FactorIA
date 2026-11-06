@@ -110,6 +110,7 @@ void register_draw_icon_command(CommandRegistry& registry, const std::string& pr
 void register_draw_capsules_command(CommandRegistry& registry, const std::string& projectDir);
 void register_synth_sound_command(CommandRegistry& registry, const std::string& projectDir);
 void register_sfx_commands(CommandRegistry& registry, const std::string& projectDir);  // sfx.render, sfx.bake, sfx.tweak, sfx.family, sfx.preset, sfx.info (assets_sfx.cpp)
+void register_vfx_commands(CommandRegistry& registry, const std::string& projectDir);  // vfx.create, vfx.edit (assets_vfx.cpp, docs/PARTICLES.md)
 void register_texture_command(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_texture
 void register_svg_command(CommandRegistry& registry, const std::string& projectDir);      // assets.rasterize_svg
 void register_animate_svg_command(CommandRegistry& registry, const std::string& projectDir);  // assets.animate_svg
@@ -218,6 +219,9 @@ void check_model_documents(const std::string& projectDir, std::vector<Validation
 // project.validate: every *.rig.json that does not load or fit is an error (file, JSON pointer, fix); one never baked, or whose .glb assets.json does not
 // record as its bake, is a warning with the rig.bake command.
 void check_rig_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
+// project.validate: every *.vfx.json under assets/ that does not load is an error (file, JSON pointer, fix), so is a sound clip it names that is not in the
+// project; the parser's warnings (a rate that never emits, too many live particles) are warnings.
+void check_vfx_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
 // project.validate: every *.song.json that does not parse is an error (file, JSON pointer, line and column inside note text, fix), so is an
 // instrument or drum-kit file it names that is missing or not a sound patch; the findings of the music checks that need no render (off-key
 // notes, clashes, mud, a track that never plays...) are warnings (docs/MUSIC.md).

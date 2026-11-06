@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "ai_project_edit.h"
+#include "fa/ai/extensions.h"
 #include "editor_internal.h"
 #include "fa/core/strings.h"
 
@@ -84,11 +85,64 @@ std::string Editor::ai_project_settings_path() const {
     return projectDir_.empty() ? std::string() : utf8_string(utf8_path(projectDir_) / ".factoria" / "ai" / "settings.json");
 }
 
+bool Editor::ai_project_replace_allowed(const char* from) {
+    if (!ai_project_open()) return true;
+    const AiProjectUi& p = ai_project_refresh();
+    if (!p.have || !p.resolved.pendingTrust || p.resolved.fileHash != p.ignoredHash) return true;  // nothing of the project's is replaced
+    if (aiProj_.replaceOk) return true;
+    aiProj_.replaceAsk = true;
+    aiProj_.askFrom = from;
+    return false;
+}
+
+bool Editor::ai_project_save_retry(const char* from) {
+    if (aiProj_.retryFrom.empty() || aiProj_.retryFrom != from) return false;
+    aiProj_.retryFrom.clear();
+    return true;
+}
+
 Result<void> Editor::ai_project_save(const Json& overrides) {
     const ai::AiConfig user = ai_user_config();
+    const AiProjectUi& p = ai_project_refresh();
+    const bool replacing = p.have && p.resolved.pendingTrust && p.resolved.fileHash == p.ignoredHash;
+    if (replacing) {
+        // The file that came with the project is kept next to it: the user ignored it, never accepted it, and Save now replaces it.
+        if (!aiProj_.replaceOk) {
+            return Error{"Saving here replaces the AI settings file that came with this project.",
+                         "Press Save again and confirm, or Accept the file first."};
+        }
+        std::error_code ec;
+        const std::filesystem::path file = utf8_path(ai_project_settings_path());
+        std::filesystem::copy_file(file, file.parent_path() / "settings.replaced.json", std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec) {
+            aiProj_.replaceOk = false;
+            return Error{"Cannot keep a copy of the file that Save would replace: " + ec.message(),
+                         "Nothing was changed. Free the folder " + utf8_string(file.parent_path()) + " or Delete the file instead."};
+        }
+    }
     auto saved = ai::save_project_settings(projectDir_, overrides, user.sourcePath, ai::system_env(), true);
+    aiProj_.replaceOk = false;
+    if (saved && replacing) aiProj_.ignoredHash.clear();
     ai_project_invalidate();
     return saved;
+}
+
+void Editor::ai_project_delete_file() {
+    const std::string file = ai_project_settings_path();
+    const ai::AiConfig user = ai_user_config();
+    std::error_code ec;
+    std::filesystem::remove(utf8_path(file), ec);
+    aiProj_.ignoredHash.clear();
+    aiProj_.actionError.clear();
+    if (ec) {
+        aiProj_.actionError = "Cannot delete " + file + ": " + ec.message();
+    } else if (auto forgot = ai::forget_project_ai_settings_trust(ai::extensions_trust_path(
+                   user.sourcePath.empty() ? ai::default_config_path() : user.sourcePath), projectDir_); !forgot) {
+        aiProj_.actionError = "Deleted the file, but its acceptance could not be forgotten: " + forgot.error().to_string();
+    }
+    ai_project_invalidate();
+    aiRolesOpen_ = true;
+    if (!ec && aiSettings_.loaded) ai_settings_load(ai_user_config(), false, true);
 }
 
 Result<void> Editor::ai_project_reset(const std::string& pointer) {
@@ -124,6 +178,23 @@ Result<void> Editor::ai_user_config_reload() {
     return {};
 }
 
+void Editor::ai_settings_changed_elsewhere() {
+    const bool project = aiProjectFileChanged_.exchange(false);
+    bool user = false;
+    if (aiUserFileChanged_.load() && !aiDetecting_.load()) {  // a detection that is running reads the file as it was: ask again next frame
+        aiUserFileChanged_ = false;
+        user = true;
+    }
+    if (!project && !user) return;
+    if (user) {
+        (void)ai_user_config_reload();
+        ai_refresh_providers();
+    }
+    ai_project_invalidate();
+    aiRolesOpen_ = true;
+    ai_settings_discard();
+}
+
 void Editor::ai_project_accept() {
     const AiProjectUi& p = ai_project_refresh();
     if (!p.have || !p.resolved.pendingTrust) return;
@@ -155,15 +226,7 @@ void Editor::draw_ai_project_banner() {
     const AiProjectUi& p = ai_project_refresh();
     const std::string file = ai_project_settings_path();
     const float line = ImGui::GetTextLineHeightWithSpacing();
-    auto delete_file = [&] {
-        std::error_code ec;
-        std::filesystem::remove(utf8_path(file), ec);
-        ai_project_invalidate();
-        aiProj_.ignoredHash.clear();
-        aiProj_.actionError = ec ? "Cannot delete " + file + ": " + ec.message() : std::string();
-        aiRolesOpen_ = true;
-        if (!ec && aiSettings_.loaded) ai_settings_load(ai_user_config(), false, true);
-    };
+    auto delete_file = [&] { aiProj_.deleteAsk = true; };  // the popup asks (draw_ai_project_popups)
 
     if (!p.have) {  // the file was accepted before and no longer resolves (for example ai.json changed under it)
         ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
@@ -244,6 +307,60 @@ void Editor::draw_ai_project_banner() {
         ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
         ImGui::TextWrapped("%s", aiProj_.actionError.c_str());
         ImGui::PopStyleColor();
+    }
+    draw_ai_project_popups();
+}
+
+// The two confirmations of the project's file. Both are opened here, at the ID level of the window that draws the banner, from the flags
+// the buttons in the tabs (child windows) raised. The text names the file relative to the project so it wraps at any window size.
+void Editor::draw_ai_project_popups() {
+    if (uiFrame_ != aiProj_.okFrame) {  // the confirmation is for the Save pressed again in the same frame (tabs draw after the banner)
+        aiProj_.replaceOk = false;
+        aiProj_.retryFrom.clear();
+    }
+    if (aiProj_.replaceAsk) {
+        ImGui::OpenPopup("Replace the project's AI settings file?##aiprojreplace");
+        aiProj_.replaceAsk = false;
+    }
+    if (aiProj_.deleteAsk) {
+        ImGui::OpenPopup("Delete the project's AI settings file?##aiprojdelete");
+        aiProj_.deleteAsk = false;
+    }
+    const float wrap = std::min(ImGui::GetFontSize() * 30, ImGui::GetMainViewport()->WorkSize.x - 80.0f);
+    if (ImGui::BeginPopupModal("Replace the project's AI settings file?##aiprojreplace", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::PushTextWrapPos(wrap);
+        ImGui::TextWrapped("Save replaces the AI settings file that came with this project (.factoria/ai/settings.json). You did not accept it, "
+                           "so it has had no effect here.");
+        ImGui::TextWrapped("A copy is kept as .factoria/ai/settings.replaced.json. Your defaults (ai.json) are not touched.");
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        if (ImGui::Button("Replace it")) {
+            aiProj_.replaceOk = true;
+            aiProj_.okFrame = uiFrame_;
+            aiProj_.retryFrom = aiProj_.askFrom;  // the Save that asked runs again and now goes through
+            ImGui::CloseCurrentPopup();
+        }
+        at_track("aiset:project:replace-ok");
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) ImGui::CloseCurrentPopup();
+        at_track("aiset:project:replace-cancel");
+        ImGui::EndPopup();
+    }
+    if (ImGui::BeginPopupModal("Delete the project's AI settings file?##aiprojdelete", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::PushTextWrapPos(wrap);
+        ImGui::TextWrapped("This removes .factoria/ai/settings.json from the project and forgets that you accepted it. Your defaults "
+                           "(ai.json) are not touched. There is no copy of the file.");
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        if (ImGui::Button("Delete the file")) {
+            ai_project_delete_file();
+            ImGui::CloseCurrentPopup();
+        }
+        at_track("aiset:project:delete-ok");
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) ImGui::CloseCurrentPopup();
+        at_track("aiset:project:delete-cancel");
+        ImGui::EndPopup();
     }
 }
 

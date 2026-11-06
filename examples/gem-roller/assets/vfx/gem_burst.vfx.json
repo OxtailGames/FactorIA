@@ -1,0 +1,14 @@
+{
+  "format": "factoria.vfx/1",
+  "doc": "The sparkle a gem makes when the ball picks it up: a burst of cyan sparks, a short flash of light and the pickup sound.",
+  "parts": [
+    { "type": "emitter", "name": "sparks",
+      "emitter": { "is3D": true, "burst": 40, "lifetime": 0.8, "speed": 4, "spread": 180, "gravity": [0, -6, 0],
+                   "startSize": 0.45, "endSize": 0.12,
+                   "colorGradient": [[0, "#18d4f0"], [0.5, "#0a96c8"], [1, "#0a96c800"]],
+                   "maxParticles": 60 } },
+    { "type": "light", "name": "flash", "is3D": true, "duration": 0.2,
+      "light": { "color": [0.4, 0.95, 1, 1], "intensity": 3, "range": 3 } },
+    { "type": "sound", "clip": "assets/sfx/gem.wav", "volume": 0.8, "bus": "sfx" }
+  ]
+}

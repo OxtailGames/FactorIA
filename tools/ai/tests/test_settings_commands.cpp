@@ -1,6 +1,9 @@
 // ai.settings.get / ai.settings.set: every scope, that set never accepts a project's file (ai-trust.json is not written), unknown
 // pointers, rejected keys, and that ai.run and agent_delegate honour a role the project turned off and say which setting did.
+#include <atomic>
 #include <fstream>
+#include <thread>
+#include <vector>
 
 #include "fa/ai/commands.h"
 #include "fa/ai/extensions.h"
@@ -28,6 +31,7 @@ struct World {
     std::string ai;
     CommandRegistry reg = make_registry();
     std::shared_ptr<FakeProvider> provider = std::make_shared<FakeProvider>();
+    int userChanged = 0, projectChanged = 0;  // how many times the editor's callbacks ran
     World() {
         ai = (home.path / "ai.json").string();
         write_file(ai, R"({
@@ -41,6 +45,8 @@ struct World {
         opt.aiConfigPath = ai;
         opt.runtime.env = fake_env({});
         opt.projectDir = [this] { return proj.str(); };
+        opt.onUserConfigChanged = [this] { ++userChanged; };
+        opt.onProjectConfigChanged = [this] { ++projectChanged; };
         opt.providerFactory = [this](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> {
             return std::static_pointer_cast<ChatProvider>(provider);
         };
@@ -267,6 +273,148 @@ TEST_CASE("ai.settings.set user: writes ai.json, keeps everything else, null rem
     CHECK(load_config(w.ai, fake_env({})).ok());
 }
 
+TEST_CASE("ai.settings.set user: the result lists what changed, and the callbacks tell the editor") {
+    World w;
+    auto s = w.set("user", "/limits/maxTurns", 12);
+    REQUIRE(s.ok);
+    REQUIRE(s.result["changed"].size() == 1);
+    CHECK(s.result["changed"][0]["pointer"] == "/limits/maxTurns");
+    CHECK(s.result["changed"][0]["from"] == 30);
+    CHECK(s.result["changed"][0]["to"] == 12);
+    CHECK(w.userChanged == 1);
+    CHECK(w.projectChanged == 0);
+
+    // a new provider for a role drops the model it had: both show up
+    auto p = w.set("user", "/roles/orchestrator/provider", "openrouter");
+    REQUIRE(p.ok);
+    bool provider = false, model = false;
+    for (const Json& c : p.result["changed"]) {
+        if (c["pointer"] == "/roles/orchestrator/provider") provider = c["from"] == "claude-code" && c["to"] == "openrouter";
+        if (c["pointer"] == "/roles/orchestrator/model") model = c["from"] == "opus" && c["to"] != "opus";
+    }
+    CHECK(provider);
+    CHECK(model);
+
+    // a removal says what went back to the engine's value; a value that was not set changes nothing
+    auto r = w.set("user", "/limits/maxTurns", nullptr);
+    REQUIRE(r.ok);
+    REQUIRE(r.result["changed"].size() == 1);
+    CHECK(r.result["changed"][0]["from"] == 12);
+    CHECK(r.result["changed"][0]["to"] != 12);
+    auto none = w.set("user", "/limits/maxCostUsd", nullptr);
+    REQUIRE(none.ok);
+    CHECK(none.result["changed"].empty());
+
+    // a project change tells the other callback; a refused one tells nobody
+    const int user = w.userChanged;
+    REQUIRE(w.set("project", "/roles/artist/enabled", false).ok);
+    CHECK(w.projectChanged == 1);
+    CHECK(w.userChanged == user);
+    CHECK_FALSE(w.set("project", "/roles/artst/enabled", false).ok);
+    CHECK_FALSE(w.set("user", "/limits/nope", 1).ok);
+    CHECK(w.projectChanged == 1);
+    CHECK(w.userChanged == user);
+}
+
+TEST_CASE("ai.settings.set user: only the user's own calls may change the user's defaults (not MCP, not an AI agent)") {
+    World w;
+    const std::string before = *fa::fs::read_text(w.ai);
+    for (CommandCaller who : {CommandCaller::Mcp, CommandCaller::Agent}) {
+        CommandCallerScope scope(who);
+        INFO(command_caller_name(who));
+        auto refused = w.set("user", "/roles/artist/enabled", false);
+        REQUIRE_FALSE(refused.ok);
+        CHECK(refused.error["code"] == "user_only");
+        const std::string text = refused.error["message"].get<std::string>() + " " + refused.error["hint"].get<std::string>();
+        CHECK(has(text, command_caller_name(who)));
+        CHECK(has(text, "AI settings window (Your defaults)"));
+        CHECK(has(text, "ask the user"));
+        // removing is refused the same way
+        auto removal = w.set("user", "/limits/maxTurns", nullptr);
+        REQUIRE_FALSE(removal.ok);
+        CHECK(removal.error["code"] == "user_only");
+        // reading the user's settings and changing the PROJECT's file stay open to an AI
+        CHECK(w.get("user").ok);
+        CHECK(w.set("project", "/limits/maxCostUsd", 3).ok);
+    }
+    CHECK(*fa::fs::read_text(w.ai) == before);  // ai.json was not touched
+    CHECK(w.userChanged == 0);
+    CHECK(w.projectChanged == 2);
+    // outside the scopes the same call works: `factoria call` installs none
+    CHECK(command_caller() == CommandCaller::User);
+    auto allowed = w.set("user", "/roles/artist/enabled", false);
+    REQUIRE(allowed.ok);
+    CHECK(allowed.result["changed"].size() == 1);
+    CHECK(w.userChanged == 1);
+}
+
+TEST_CASE("ai.settings.set project: removing a value keeps an accepted file accepted, a file nobody accepted stays pending") {
+    World w;
+    // accepted (as the editor does): two values
+    REQUIRE(save_project_settings(w.proj.str(), Json::parse(R"({"roles":{"artist":{"enabled":false}},"limits":{"maxTurns":5}})"), w.ai,
+                                  fake_env({}), true));
+    const std::string hashBefore = read_project_settings_file(w.proj.str()).hash;
+    CHECK(w.get("project").result["applied"] == true);
+    auto r = w.set("project", "/limits/maxTurns", nullptr);
+    REQUIRE(r.ok);
+    CHECK(r.result["needsAcceptance"] == false);
+    CHECK(r.result["applied"] == true);  // still accepted
+    CHECK(has(r.result["hint"], "already accepted"));
+    const std::string hashAfter = read_project_settings_file(w.proj.str()).hash;
+    CHECK(hashAfter != hashBefore);
+    // the trust record follows the smaller file: it is the one that is accepted now
+    CHECK(project_ai_settings_trusted(w.trust_file(), w.proj.str(), hashAfter, nullptr, false));
+    CHECK_FALSE(project_ai_settings_trusted(w.trust_file(), w.proj.str(), hashBefore, nullptr, false));
+    CHECK(w.get("project").result["pendingTrust"] == false);
+
+    // setting a value in it is not an acceptance: the file waits again and the record is the old one
+    REQUIRE(w.set("project", "/limits/maxTurns", 9).ok);
+    CHECK(w.get("project").result["pendingTrust"] == true);
+    CHECK(project_ai_settings_trusted(w.trust_file(), w.proj.str(), hashAfter, nullptr, false));
+    REQUIRE(w.set("project", "/limits/maxTurns", nullptr).ok);  // back to the accepted content: accepted again
+    CHECK(w.get("project").result["pendingTrust"] == false);
+
+    // emptying the file removes it and forgets the record
+    REQUIRE(w.set("project", "/roles/artist/enabled", nullptr).ok);
+    CHECK_FALSE(fsys::exists(w.settings_file()));
+    auto trust = fa::parse_json(*fa::fs::read_text(w.trust_file()), "trust");
+    REQUIRE(trust);
+    CHECK_FALSE(project_ai_settings_trusted(w.trust_file(), w.proj.str(), hashAfter, nullptr, false));
+    const Json section = trust->value("aiSettings", Json::object());
+    CHECK_FALSE(section.contains(ai_settings_trust_key(w.proj.str())));
+
+    // a file nobody accepted: removing a value leaves it waiting (and writes no trust)
+    write_file(w.settings_file(), R"({"roles":{"artist":{"enabled":false}},"limits":{"maxTurns":5}})");
+    const std::string trustText = *fa::fs::read_text(w.trust_file());
+    auto pending = w.set("project", "/limits/maxTurns", nullptr);
+    REQUIRE(pending.ok);
+    CHECK(pending.result["needsAcceptance"] == true);
+    CHECK(pending.result["applied"] == false);
+    CHECK(w.get("project").result["pendingTrust"] == true);
+    CHECK(*fa::fs::read_text(w.trust_file()) == trustText);
+}
+
+TEST_CASE("set_user_setting: a pointer that is not a setting is refused also when the value is null") {
+    World w;
+    const std::string before = *fa::fs::read_text(w.ai);
+    auto typo = set_user_setting("/roles/artst/enabled", Json(nullptr), w.ai, fake_env({}));
+    REQUIRE_FALSE(typo.ok());
+    CHECK(has(typo.error().message + " " + typo.error().hint, "artist"));
+    auto limit = set_user_setting("/limits/maxTurnz", Json(nullptr), w.ai, fake_env({}));
+    REQUIRE_FALSE(limit.ok());
+    CHECK(has(limit.error().message + " " + limit.error().hint, "/limits/maxTurns"));
+    auto ghost = set_user_setting("/mcpServers/ghost", Json(nullptr), w.ai, fake_env({}));
+    REQUIRE_FALSE(ghost.ok());
+    CHECK(has(ghost.error().message, "ghost"));
+    auto branch = set_user_setting("/roles", Json(nullptr), w.ai, fake_env({}));
+    REQUIRE_FALSE(branch.ok());
+    CHECK(has(branch.error().message, "/roles"));
+    CHECK(*fa::fs::read_text(w.ai) == before);
+    // a real setting the file does not set is not an error and writes nothing
+    CHECK(set_user_setting("/limits/maxCostUsd", Json(nullptr), w.ai, fake_env({})).ok());
+    CHECK(*fa::fs::read_text(w.ai) == before);
+}
+
 TEST_CASE("roles off in the project: ai.run and agent_delegate refuse and say which project setting turned the role off") {
     World w;
     REQUIRE(save_project_settings(w.proj.str(), Json::parse(R"({"roles":{"artist":{"enabled":false}}})"), w.ai, fake_env({}), true));
@@ -321,4 +469,55 @@ TEST_CASE("roles off in the project: ai.run and agent_delegate refuse and say wh
     w.provider->script = {text_response("painted")};
     w.provider->calls = 0;
     CHECK(w.reg.call("ai.run", Json::object({{"task", "paint"}, {"role", "fast"}})).ok);
+}
+
+TEST_CASE("write_private_file: owner-only, a symlinked file is written through, two writers never share a temporary file") {
+    TempDir t;
+    const fsys::path file = t.path / "sub" / "ai.json";
+    REQUIRE(write_private_file(file.string(), "one"));
+    CHECK(*fa::fs::read_text(file.string()) == "one");
+#ifndef _WIN32
+    const auto perms = fsys::status(file).permissions();
+    CHECK((perms & (fsys::perms::group_all | fsys::perms::others_all)) == fsys::perms::none);
+#endif
+    auto leftovers = [&](const fsys::path& dir) {
+        int n = 0;
+        for (const auto& e : fsys::directory_iterator(dir))
+            if (e.path().filename().string().find(".fa-tmp") != std::string::npos) ++n;
+        return n;
+    };
+    CHECK(leftovers(file.parent_path()) == 0);
+
+    // Writers at the same time (the editor's MCP threads and the agent can all save): none fails, one text wins whole.
+    std::atomic<int> failed{0};
+    std::vector<std::thread> writers;
+    for (int w = 0; w < 4; ++w) {
+        writers.emplace_back([&, w] {
+            for (int i = 0; i < 25; ++i) {
+                if (!write_private_file(file.string(), "writer " + std::to_string(w) + " round " + std::to_string(i))) ++failed;
+            }
+        });
+    }
+    for (auto& th : writers) th.join();
+#ifndef _WIN32
+    CHECK(failed == 0);  // on Windows a file another writer has open can refuse the replace: fs::replace_file retries but may give up
+#endif
+    CHECK(has(*fa::fs::read_text(file.string()), "writer "));
+    CHECK(leftovers(file.parent_path()) == 0);
+
+#ifndef _WIN32
+    // ai.json may be a link into a dotfiles repository: the link stays, the file behind it is replaced
+    const fsys::path real = t.path / "dotfiles" / "ai.json";
+    fsys::create_directories(real.parent_path());
+    write_file(real, "old");
+    const fsys::path link = t.path / "link.json";
+    std::error_code ec;
+    fsys::create_symlink(real, link, ec);
+    if (!ec) {
+        REQUIRE(write_private_file(link.string(), "two"));
+        CHECK(fsys::is_symlink(link));
+        CHECK(*fa::fs::read_text(real.string()) == "two");
+        CHECK(leftovers(t.path) == 0);
+    }
+#endif
 }

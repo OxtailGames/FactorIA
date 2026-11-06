@@ -31,6 +31,7 @@ ImU32 badge_color(std::string_view type) {
     if (type == "scene") return IM_COL32(170, 90, 70, 255);
     if (type == "prefab") return IM_COL32(70, 150, 190, 255);
     if (type == "material") return IM_COL32(160, 80, 140, 255);
+    if (type == "vfx") return IM_COL32(200, 110, 60, 255);
     return IM_COL32(100, 100, 108, 255);
 }
 
@@ -295,6 +296,7 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".svg")) open_vector_document(f.path);
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && (ends_with(f.path, ".sfx.json") || ends_with(f.path, ".audio.json") || ends_with(f.path, ".wav") || ends_with(f.path, ".ogg"))) open_sound_document(f.path);
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".song.json")) open_music_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && f.type == "vfx") open_particle_document(f.path);
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".model.json")) open_model_document(f.path);
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".anim.json") && anim3d_file_is_3d(projectDir_, f.path)) open_anim3d_clip(f.path);
     const AssetRecipeStatus* recipe = recipe_of_file(pb.listing, f.path);

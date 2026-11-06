@@ -66,6 +66,7 @@
 #include "image_ui.h"
 #include "vector_ui.h"
 #include "sound_ui.h"
+#include "particle_ui.h"
 #include "modeler_ui.h"
 #include "music_ui.h"
 #include "imgui.h"
@@ -111,6 +112,7 @@ private:
     struct Job {
         std::string name, tag;
         Json args;
+        CommandCaller caller = CommandCaller::User;  // who asked (command_caller() of the calling thread), installed again while it runs
         std::shared_ptr<std::promise<CommandResult>> promise;
         std::shared_ptr<std::atomic<bool>> abandoned;  // the caller gave up (Stop): the job is skipped, not run
     };
@@ -296,6 +298,13 @@ public:
         long long atMs = 0;
         std::string ignoredHash;            // the file the user chose to ignore (its hash): no banner, no effect, a Save replaces it
         std::string actionError;            // why Accept / Reset / Save of the project's file failed
+        // Two confirmations (draw_ai_project_popups). The Save and Delete buttons live in child windows, so they only raise a request
+        // here and the banner, at the window's own ID level, opens the popup.
+        bool replaceAsk = false;            // open "Replace the project's AI settings file?": a Save would replace the file the user ignored
+        bool replaceOk = false;             // the user confirmed: the next ai_project_save may replace it (and clears this)
+        std::uint64_t okFrame = 0;          // the UI frame of that confirmation: it counts for the rest of that frame only
+        std::string askFrom, retryFrom;     // which Save asked ("roles", "assets"), and which one the confirmation presses again
+        bool deleteAsk = false;             // open "Delete the project's AI settings file?"
     } aiProj_;
     std::atomic<bool> aiProjStale_{true};   // the next ai_project_refresh() resolves again
     void ai_project_invalidate();           // ANY thread: drop every cache of the project's resolution (a save, reset, accept, ai.json change, project switch)
@@ -307,9 +316,21 @@ public:
     void draw_ai_project_banner();          // the top of the window: where the values are edited, what waits for Accept, the file's problems
     void ai_project_accept();
     Result<void> ai_project_save(const Json& overrides);   // save_project_settings(..., recordTrust=true): what the user chose here
+    // Save over a file the user ignored (it came with the project and was never accepted) replaces it: first ask. True = go ahead; false =
+    // the popup was requested (`from` is the Save that asked; ai_project_save_retry(from) is true on the frame after the confirmation).
+    bool ai_project_replace_allowed(const char* from);
+    bool ai_project_save_retry(const char* from);
+    void ai_project_delete_file();                         // removes the project's file and forgets its trust record (after the popup)
+    void draw_ai_project_popups();                         // the two confirmations, at the level of the window that draws the banner
     Result<void> ai_project_reset(const std::string& pointer);
     Result<void> ai_project_after_defaults(const ai::AiConfig& wanted);  // after Save as my defaults: the project's file keeps only what still differs
     Result<void> ai_user_config_reload();   // load ai.json again into aiConfig_ (and drop the caches)
+    // ai.settings.set through MCP, an AI agent or the console wrote the user's ai.json (aiUserFileChanged_) or the project's file
+    // (aiProjectFileChanged_) behind the windows' back. The callbacks run on the calling thread: they drop the caches and raise the
+    // flag, and this (main thread, once per frame) does the rest: reload ai.json, detect the providers again (the key and program
+    // checks), restart the Roles edits and close the AI settings window's draft so it loads what the file says now.
+    std::atomic<bool> aiUserFileChanged_{false}, aiProjectFileChanged_{false};
+    void ai_settings_changed_elsewhere();
     std::string ai_project_settings_path() const;
     void draw_feedback_panel();
     void draw_feedback_add_window();            // the Add feedback modal of the panel
@@ -492,6 +513,30 @@ public:
     Vec2 sound_screen_pos(double seconds, double yFraction) const;   // the autotest drives the waveform
     SoundUi sound_;
     bool showSound_ = false;
+    // Particle panel (particle_panel.cpp; View > Particles, or a double click on a *.vfx.json in the Project panel): an effect document played
+    // by the engine's own timeline (update_vfx and one ParticleSim per emitter, ParticlePreview) with a time scrubber, a parts list and an
+    // inspector built from the emitter's reflected fields, with gradient and curve editors. The rules are in particle_model.h: every edit it
+    // keeps is a vfx.edit call, so the Console and an AI make the same edit.
+    ParticleModel& particle_ensure_model();                // makes the panel's model and preview on first use
+    void draw_particle_panel();
+    void draw_particle_toolbar(ParticleModel& m);
+    void draw_particle_canvas(ParticleModel& m);
+    void draw_particle_timeline(ParticleModel& m);
+    void draw_particle_parts(ParticleModel& m);
+    void draw_particle_inspector(ParticleModel& m);
+    void draw_particle_object_fields(ParticleModel& m, const std::string& base, const TypeInfo& type, const Json& patch, bool essentialsOnly);
+    bool draw_particle_row(ParticleModel& m, const std::string& key, const FieldInfo& f, const std::string& pointer, const Json& cur, bool present);
+    bool draw_particle_curve_field(ParticleModel& m, const std::string& pointer, const std::string& label, const Json& cur, float lo, float hi);
+    bool draw_particle_gradient_field(ParticleModel& m, const std::string& pointer, const std::string& label, const Json& cur);
+    bool open_particle_document(const std::string& rel);   // *.vfx.json; false and a toast on failure
+    void particle_edited(const ParticleEditOutcome& out);  // after an edit: the undo entry, a toast for an error
+    void particle_apply_undo(const Json& entry, bool forward);
+    void particle_collect_steps();                         // drops the undo steps no stack entry points to
+    void particle_close_document();
+    Vec2 particle_time_pos(double seconds, double yFraction = 0.5) const;   // the autotest drives the timeline
+    Vec2 particle_canvas_pos(float worldX, float worldY) const;              // ...and the canvas
+    ParticleUi particle_;
+    bool showParticle_ = false;
     // Music panel (music_panel.cpp, music_mixer_panel.cpp; View > Music, or a double click on a *.song.json in the Project panel): a song as a
     // piano roll, a drum grid, an arrangement and a mixer, played by the same transport a game's entity.music uses (an intensity slider fades
     // the layers, a section can be looped). The rules are in music_model.h: every edit it keeps is a command call (music.edit, music.arpeggio,

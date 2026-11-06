@@ -406,6 +406,17 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry(AiRun& run) {
     ai::AiCommandOptions ao;
     ao.loadConfig = [this]() -> Result<ai::AiConfig> { return ai_project_config(true); };
     ao.projectDir = [dir = projectDir_] { return dir; };
+    // ai.settings.get/set read and write the same ai.json the editor loaded, and tell the editor when a command changed a file so the
+    // windows do not keep showing (and later saving over) the old values.
+    ao.aiConfigPath = ai_user_config().sourcePath;
+    ao.onUserConfigChanged = [this] {
+        ai_project_invalidate();
+        aiUserFileChanged_ = true;
+    };
+    ao.onProjectConfigChanged = [this] {
+        ai_project_invalidate();
+        aiProjectFileChanged_ = true;
+    };
     ao.providerFactory = aiFactory_;
     ao.cancel = &r->cancel;
     ao.cancelCause = [r] { return r->cancel_cause(); };
@@ -1312,8 +1323,11 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
         ImGui::TextDisabled("Checking models...");
     }
     ImGui::BeginDisabled(locked);
-    if (ImGui::Button("Save")) {
-        if (projectMode) {
+    const bool saveRetried = projectMode && ai_project_save_retry("roles");  // the user confirmed replacing the ignored file
+    if (ImGui::Button("Save") || saveRetried) {
+        if (projectMode && !ai_project_replace_allowed("roles")) {
+            // the confirmation popup was requested; Replace presses this Save again
+        } else if (projectMode) {
             // The project's file keeps only what differs from your defaults; a role you did not touch is not pinned.
             auto overrides = ai_project_overrides_for(*res, &aiRolesEdit_, nullptr, nullptr);
             if (!overrides) {
