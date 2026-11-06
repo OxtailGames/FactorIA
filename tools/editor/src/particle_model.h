@@ -71,7 +71,7 @@ public:
     const Json& saved_json() const { return json_; }
     std::vector<ParticlePartInfo> parts() const;
     std::uint64_t doc_revision() const { return docRev_; }
-    // The file changed on disk behind our back: reads it again. Returns true when it did.
+    // The file changed on disk behind our back: reads it again. Returns true when it did. Does nothing while conflict() is set (Reload decides).
     bool poll_external();
     bool reload();
 
@@ -100,6 +100,9 @@ public:
     // what the step expects: it was edited outside the editor, and the restore would overwrite that.
     bool apply_step(int id, bool forward);
     bool conflict() const { return conflict_; }
+    // The step whose undo/redo was refused by a conflict (0 when none), once: the file no longer is what it expects, so the editor drops it
+    // from its undo and redo stacks when the user reloads (or edits again), and the steps behind it can be used.
+    int take_stale_step();
     void retain_steps(const std::set<int>& keep);
     std::size_t step_count() const { return steps_.size(); }
     std::string step_document(int id) const;
@@ -116,6 +119,7 @@ private:
     ParticleCommandFn call_;
     std::string rel_, error_, status_, text_;
     bool valid_ = false;
+    int staleStep_ = 0;       // the step the last refused undo/redo was about, until take_stale_step
     bool conflict_ = false;   // the last undo/redo was refused because the file changed outside the editor; cleared when the file is read again
     Json json_;
     std::shared_ptr<const VfxDoc> doc_;

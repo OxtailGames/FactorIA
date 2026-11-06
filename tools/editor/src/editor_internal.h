@@ -532,6 +532,8 @@ public:
     bool open_particle_document(const std::string& rel);   // *.vfx.json; false and a toast on failure
     void particle_edited(const ParticleEditOutcome& out);  // after an edit: the undo entry, a toast for an error
     void particle_apply_undo(const Json& entry, bool forward);
+    void particle_reload();                                // Reload: takes the file as it is and drops the undo/redo step it made stale
+    void particle_drop_stale_step();                       // removes the refused step from both stacks (the file is no longer what it expects)
     void particle_collect_steps();                         // drops the undo steps no stack entry points to
     void particle_close_document();
     Vec2 particle_time_pos(double seconds, double yFraction = 0.5) const;   // the autotest drives the timeline
