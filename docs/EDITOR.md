@@ -665,6 +665,8 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
   notes) to the message and the mark screenshots as pictures.
 - **For AIs and tools**: `play.sessions` lists the recent sessions, `play.report` returns one (the latest by default) with the replay path and a `profile` section: where the time went over the session (per engine system, per script behaviour class, GPU, memory; PERFORMANCE.md).
   The report says how to replay it: `factoria run --headless --frames <n> --input .factoria/sessions/<name>/input.json`.
+- **Sessions played by the bot**: `play.auto` ([DEBUGGING.md](DEBUGGING.md#let-the-game-play-itself)) writes the same folder with `"source": "auto"`
+  (phases, score, how it ended, the problems it found as marks). `play.report` and `play.sessions` read both kinds.
 
 ## Project panel
 

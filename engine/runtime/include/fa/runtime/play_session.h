@@ -4,6 +4,9 @@
 // input.json (the input replay: the format `factoria run --headless --input` reads) and the mark screenshots.
 // Everything here is pure data + file reading; the recording itself is the engine's (Engine::start_input_recording / the input.record command). The commands play.sessions
 // and play.report are registered with the other built-in commands.
+//
+// A session from play.auto (fa/runtime/play_auto.h) has the same files plus "source": "auto", the phases, the score, how it ended
+// and the bot's settings; the viewer of an editor session reads it unchanged.
 #pragma once
 
 #include <cstdint>
@@ -37,7 +40,19 @@ void keep_worst_spike(std::vector<PlaySpike>& spikes, PlaySpike spike, std::size
 struct PlayMark {
     std::uint64_t frame = 0;
     double time = 0;         // seconds of game time (frame / fixedHz)
-    std::string note;        // the user's one-line description
+    std::string note;        // the user's one-line description (play.auto: what the bot found)
+    std::string screenshot;  // file name inside the session folder ("" = none)
+    std::string kind;        // play.auto: "stuck", "menu", "fall", "exception loop" or "not finite"; "" for a mark of the player
+    std::int64_t step = -1;  // play.auto: the fixed step the problem was found at (-1 = not recorded)
+};
+
+// A stage of an automatic run: the scene it started in, or a game.phase(name) mark.
+struct PlayPhase {
+    std::string name;        // the scene path, or the name given to game.phase
+    std::string kind;        // "scene" or "mark"
+    std::string scene;       // the scene that was running
+    std::uint64_t frame = 0;
+    double time = 0;         // game seconds from the start of the run
     std::string screenshot;  // file name inside the session folder ("" = none)
 };
 
@@ -53,6 +68,16 @@ struct PlaySession {
     std::vector<PlayMark> marks;
     Json input = Json::object();  // {"frames": {"<n>": {...}}}
     Json profile;                 // the profiler's summary of the session (ProfileSummary::to_json); null = not measured
+    // ---- play.auto only (source "auto"); an editor session leaves them empty and session.json does not carry them
+    std::string source;                // "" = a person played in the editor; "auto" = play.auto
+    std::vector<PlayPhase> phases;
+    Json score;                        // the last score the bot reported (null = none)
+    std::string ended;                 // "won", "lost", "timeout", "stuck", "broken", "quit" or "aborted"
+    std::string endedWhy;              // one sentence: what ended the run
+    std::string endScreenshot;         // file name of the picture taken when the run ended ("" = none)
+    Json notes = Json::array();        // things the reader must know: no GPU so no pictures, a cap that was reached...
+    Json scriptErrors = Json::array(); // the script errors of the run (distinct ones), as text
+    Json autoInfo;                     // the bot's settings and the replay command: seed, speed, bot, stuckSeconds, replay...
 };
 Json play_session_json(const PlaySession& s);                                   // the content of session.json
 Result<void> write_play_session(const std::string& dir, const PlaySession& s);  // session.json + input.json
