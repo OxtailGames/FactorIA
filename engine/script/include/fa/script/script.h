@@ -128,9 +128,11 @@ public:
     // generator work (shared equally by the running jobs), so a run
     // does not depend on how fast the machine is; a game with a window returns a few milliseconds.
     virtual double preload_time_budget_ms() const { return 0.0; }
-    // Forgets every running tilemap.generate job (frees its solver memory). The script system calls it when its JavaScript context
-    // is created or closed: the handles that would cancel the jobs die with the context, and nothing else would ever step them.
-    virtual void drop_script_jobs() {}
+    // Forgets the tilemap.generate jobs the script side started (`jobs`: the numbers tilemap.generate_start answered to its calls;
+    // frees their solver memory). The script system calls it when its JavaScript context is created or closed: the handles that
+    // would cancel those jobs die with the context, and nothing else would ever step them. A job started by the console, the MCP
+    // server or the editor is not in the list and is left alone.
+    virtual void drop_script_jobs(const std::vector<int>& jobs) { (void)jobs; }
     // Deferred to the end of the current frame.
     virtual void request_scene_change(std::string_view scenePath) = 0;
     // Scene props (scene.load(path, { props }), game.sceneProps()): plain JSON the new scene's scripts read from their first

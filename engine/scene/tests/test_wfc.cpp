@@ -831,6 +831,27 @@ TEST_CASE("wfc phases: a step ends within one chunk of its budget, even while an
     CHECK(whole->stats().work == g->stats().work);
 }
 
+TEST_CASE("wfc phases: the first flush of a fresh attempt (every cell dirty) is cut into chunks on a big grid") {
+    auto model = overlapping(kMap16, 3, 1, true);
+    auto go = options_for(256, 256, 3, 1);   // 65536 cells: far more than one chunk of 16384
+    go.periodic = true;
+    auto g = make_generator(model, go);
+    std::int64_t before = 0, widest = 0;
+    int steps = 0;
+    // up to the first observed cell: the reset, the rules and the flush that gives every cell its heap entry
+    while (g->status() == wfc::GenStatus::Running && g->stats().observations == 0 && steps < 100000) {
+        g->step(1);
+        widest = std::max(widest, g->stats().work - before);
+        before = g->stats().work;
+        ++steps;
+    }
+    REQUIRE(g->stats().observations > 0);
+    CHECK(g->stats().heapPeak >= 65536u);   // every cell did get its entry
+    // 65536 cells in one piece would be 65536 units (stamps) and again as many (entries); a chunk is about 16384
+    CHECK(widest <= 2 * 16384 + 4096);
+    CHECK(steps > 4 * 4);
+}
+
 TEST_CASE("wfc check: a GridCheck runs in pieces, counts its work and can refuse") {
     struct Walls : wfc::GridCheck {
         int begun = 0, steps = 0;

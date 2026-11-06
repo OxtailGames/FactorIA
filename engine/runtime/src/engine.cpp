@@ -1180,7 +1180,9 @@ double Engine::preload_time_budget_ms() const {
     return impl_->windowed && !impl_->cfg.editorMode ? 4.0 : 0.0;
 }
 
-void Engine::drop_script_jobs() { impl_->wfcJobs.clear(); }
+void Engine::drop_script_jobs(const std::vector<int>& jobs) {
+    for (int id : jobs) impl_->wfcJobs.erase(id);
+}
 
 void Engine::request_scene_change(std::string_view scenePath) {
     impl_->pendingScene = std::string(scenePath);

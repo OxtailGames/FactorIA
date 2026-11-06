@@ -733,14 +733,18 @@ std::string cell_text(int x, int y) { return "(" + std::to_string(x) + ", " + st
 // each finished grid (`symbols`); `tilesOf` turns that into what the level will hold (after re-tiling). The walk follows
 // nav.find_tile_path: each cell's cost comes from the same NavTileRules that nav_tile_grid_from_tiles uses (applied in chunks here), 4-way or
 // 8-way without cutting corners, a cell with a negative cost blocks. A test compares the verdicts with nav.find_tile_path.
-// It runs in pieces (wfc::GridCheck): the tiles, the cost grid, the flood fill, the goal scan and each path are separate steps of at
-// most `chunk` units, so a big grid does not make one frame long. `work` gets the deterministic cost: one unit per cell for the
-// tiles and for the cost grid, one per cell scanned and one per cell flooded, one per cell for the goal scan and one per cell of the
-// grid for each path searched (the search is bounded by the grid). Re-tiling a terrain level is one call of retile_terrain_grid.
+// It runs in pieces (wfc::GridCheck): the tiles, the cost grid, the flood fill, the areas, the goal scan and each path are separate
+// steps, so a big grid does not make one frame long. The tiles, costs, flood fill, areas and goal scan advance in chunks of `chunk`
+// units. Two pieces are NOT cut and run to their end inside one step: the re-tiling of a terrain (Tiled) level, one call of
+// retile_terrain_grid over the whole grid, and each path search, one call of nav_find_tile_path (bounded by the grid; at most
+// kReachPaths of them, one per step). `work` gets the deterministic cost: one unit per cell for the tiles and for the cost grid, one
+// per cell scanned and one per cell flooded, one per area, one per cell for the goal scan and one per cell of the grid for each path.
 class ReachCheck : public wfc::GridCheck {
 public:
-    using TilesOf = std::function<std::vector<int>(const std::vector<int>&)>;
-    ReachCheck(const ReachSpec& spec, int width, int height, TilesOf tilesOf) : spec_(spec), width_(width), height_(height), tilesOf_(std::move(tilesOf)) {}
+    using TileOfSymbol = std::function<int(int)>;                    // the tile a solver symbol becomes (before re-tiling)
+    using Retile = std::function<void(std::vector<int>&)>;           // a terrain level: the whole-grid re-tiling; empty otherwise
+    ReachCheck(const ReachSpec& spec, int width, int height, TileOfSymbol tileOf, Retile retile)
+        : spec_(spec), width_(width), height_(height), tileOf_(std::move(tileOf)), retile_(std::move(retile)) {}
 
     Json report;   // what the last verdict was based on (a refused grid's report too)
 
@@ -762,7 +766,9 @@ public:
         walkable_ = 0;
         mainArea_ = -1;
         cutCells_ = 0;
-        cut_.clear();
+        top_.clear();
+        cutCount_ = 0;
+        areaScan_ = 0;
         goalAt_ = 0;
         lostCount_ = 0;
         firstLost_.clear();
@@ -772,14 +778,25 @@ public:
     Verdict step(std::int64_t chunk, std::string& why, std::int64_t& work) override {
         const std::int64_t cells = std::int64_t(width_) * height_;
         switch (phase_) {
-            case Phase::Tiles:
-                tiles_ = tilesOf_(*symbols_);
+            case Phase::Tiles: {
+                if (scan_ == 0) tiles_.assign(symbols_->size(), -1);
+                const std::size_t to = std::min(tiles_.size(), scan_ + std::size_t(chunk));
+                for (std::size_t i = scan_; i < to; ++i) tiles_[i] = tileOf_((*symbols_)[i]);
+                work += std::int64_t(to - scan_);
+                scan_ = to;
+                if (scan_ >= tiles_.size()) {
+                    scan_ = 0;
+                    phase_ = retile_ ? Phase::Retile : Phase::Costs;
+                    grid_.width = width_;
+                    grid_.height = height_;
+                    grid_.cost.resize(tiles_.size());
+                }
+                return Verdict::More;
+            }
+            case Phase::Retile:
+                retile_(tiles_);   // one call over the whole grid: see the comment of the class
                 work += cells;
                 phase_ = Phase::Costs;
-                scan_ = 0;
-                grid_.width = width_;
-                grid_.height = height_;
-                grid_.cost.resize(tiles_.size());
                 return Verdict::More;
             case Phase::Costs: {
                 const std::size_t to = std::min(tiles_.size(), scan_ + std::size_t(chunk));
@@ -796,8 +813,14 @@ public:
             case Phase::Flood:
                 flood(chunk, work);
                 return Verdict::More;
+            case Phase::Main:
+                find_main(chunk, work);
+                return Verdict::More;
+            case Phase::Cut:
+                count_cut(chunk, work);
+                return Verdict::More;
             case Phase::Prepare:
-                return prepare(why, work);
+                return prepare(why);
             case Phase::GoalScan: {
                 const std::size_t to = std::min(tiles_.size(), scan_ + std::size_t(chunk));
                 for (std::size_t i = scan_; i < to; ++i)
@@ -814,7 +837,7 @@ public:
     }
 
 private:
-    enum class Phase { Tiles, Costs, Flood, Prepare, GoalScan, Paths };
+    enum class Phase { Tiles, Retile, Costs, Flood, Main, Cut, Prepare, GoalScan, Paths };
     struct Area {
         int cells = 0;
         int minX = 0, minY = 0, maxX = 0, maxY = 0;
@@ -823,7 +846,8 @@ private:
 
     ReachSpec spec_;
     int width_, height_;
-    TilesOf tilesOf_;
+    TileOfSymbol tileOf_;
+    Retile retile_;
     const std::vector<int>* symbols_ = nullptr;
     Phase phase_ = Phase::Tiles;
     std::vector<int> tiles_;
@@ -836,7 +860,8 @@ private:
     Area area_;
     std::size_t walkable_ = 0;
     int mainArea_ = -1;
-    std::vector<std::size_t> cut_;        // areas that are not the main one, biggest first
+    std::vector<std::size_t> top_;        // the (at most kReachAreas) biggest areas that are not the main one, biggest first, ties by number
+    std::size_t cutCount_ = 0, areaScan_ = 0;   // areas that are not the main one; the area the Main / Cut passes are at
     long long cutCells_ = 0;
     std::vector<std::pair<int, int>> goals_;
     std::set<int> want_;
@@ -878,7 +903,8 @@ private:
                 continue;
             }
             if (scan_ >= grid_.cost.size()) {
-                phase_ = Phase::Prepare;
+                phase_ = Phase::Main;
+                areaScan_ = 0;
                 break;
             }
             const std::size_t i = scan_++;
@@ -898,30 +924,57 @@ private:
         work += units;
     }
 
-    // The area everything is measured from, the report of what is cut off, and the goals.
-    Verdict prepare(std::string& why, std::int64_t& work) {
+    // The area everything is measured from: the one holding the start, or the biggest (the first of equals). One pass over the areas.
+    void find_main(std::int64_t chunk, std::int64_t& work) {
         if (spec_.hasFrom) {
             mainArea_ = open(spec_.fromX, spec_.fromY) ? areaOf_[at(spec_.fromX, spec_.fromY)] : -1;
-        } else {
-            for (std::size_t i = 0; i < areas_.size(); ++i)
-                if (mainArea_ < 0 || areas_[i].cells > areas_[std::size_t(mainArea_)].cells) mainArea_ = int(i);
+            areaScan_ = 0;
+            phase_ = Phase::Cut;
+            return;
         }
+        const std::size_t to = std::min(areas_.size(), areaScan_ + std::size_t(chunk));
+        for (std::size_t i = areaScan_; i < to; ++i)
+            if (mainArea_ < 0 || areas_[i].cells > areas_[std::size_t(mainArea_)].cells) mainArea_ = int(i);
+        work += std::int64_t(to - areaScan_);
+        areaScan_ = to;
+        if (areaScan_ >= areas_.size()) {
+            areaScan_ = 0;
+            phase_ = Phase::Cut;
+        }
+    }
+
+    // The areas that are not the main one: how many, how many cells, and the kReachAreas biggest (a stable order: the bigger first,
+    // the lower number first among equals, as a stable sort by size would give). One pass over the areas.
+    void count_cut(std::int64_t chunk, std::int64_t& work) {
+        const std::size_t to = std::min(areas_.size(), areaScan_ + std::size_t(chunk));
+        for (std::size_t i = areaScan_; i < to; ++i) {
+            if (int(i) == mainArea_) continue;
+            ++cutCount_;
+            cutCells_ += areas_[i].cells;
+            std::size_t pos = top_.size();
+            while (pos > 0 && areas_[top_[pos - 1]].cells < areas_[i].cells) --pos;
+            if (pos >= kReachAreas) continue;
+            top_.insert(top_.begin() + std::ptrdiff_t(pos), i);
+            if (top_.size() > kReachAreas) top_.pop_back();
+        }
+        work += std::int64_t(to - areaScan_);
+        areaScan_ = to;
+        if (areaScan_ >= areas_.size()) phase_ = Phase::Prepare;
+    }
+
+    // The report of what is cut off, and the goals.
+    Verdict prepare(std::string& why) {
         if (spec_.hasFrom) report["from"] = Json::array({spec_.fromX, spec_.fromY});
         report["walkableCells"] = walkable_;
         report["reachableCells"] = mainArea_ >= 0 ? areas_[std::size_t(mainArea_)].cells : 0;
-        for (std::size_t i = 0; i < areas_.size(); ++i)
-            if (int(i) != mainArea_) cut_.push_back(i);
-        std::stable_sort(cut_.begin(), cut_.end(), [&](std::size_t l, std::size_t r) { return areas_[l].cells > areas_[r].cells; });
-        for (std::size_t i : cut_) cutCells_ += areas_[i].cells;
-        work += std::int64_t(areas_.size());
         Json cutList = Json::array();
-        for (std::size_t k = 0; k < cut_.size() && k < kReachAreas; ++k) {
-            const Area& ar = areas_[cut_[k]];
+        for (std::size_t k = 0; k < top_.size(); ++k) {
+            const Area& ar = areas_[top_[k]];
             cutList.push_back(Json::object({{"cells", ar.cells},
                                             {"rect", Json::array({ar.minX, ar.minY, ar.maxX - ar.minX + 1, ar.maxY - ar.minY + 1})},
                                             {"at", Json::array({ar.firstX, ar.firstY})}}));
         }
-        report["unreachable"] = Json::object({{"cells", cutCells_}, {"areas", cut_.size()}, {"largest", cutList}});
+        report["unreachable"] = Json::object({{"cells", cutCells_}, {"areas", cutCount_}, {"largest", cutList}});
         if (spec_.hasFrom && !open(spec_.fromX, spec_.fromY)) {
             why = "the start " + cell_text(spec_.fromX, spec_.fromY) + " is a blocked cell (tile " + std::to_string(tile_index(tiles_[at(spec_.fromX, spec_.fromY)])) + ")";
             return Verdict::Refused;
@@ -972,12 +1025,12 @@ private:
         if (lostCount_ > 0) report["unreachableGoals"] = lost_;
         if (lostCount_ > 0) {
             why = "no route from the start " + cell_text(spec_.fromX, spec_.fromY) + " to " + std::to_string(lostCount_) + " of " + std::to_string(goals_.size()) +
-                  " goal cell(s), the first at " + firstLost_ + "; " + std::to_string(cutCells_) + " walkable cells in " + std::to_string(cut_.size()) + " other area(s) are cut off";
+                  " goal cell(s), the first at " + firstLost_ + "; " + std::to_string(cutCells_) + " walkable cells in " + std::to_string(cutCount_) + " other area(s) are cut off";
             return Verdict::Refused;
         }
-        if (spec_.allConnected && !cut_.empty()) {
-            const Area& ar = areas_[cut_.front()];
-            why = std::to_string(cut_.size()) + " walkable area(s) are cut off from the main one (" + std::to_string(cutCells_) + " cells), the biggest around " + cell_text(ar.firstX, ar.firstY);
+        if (spec_.allConnected && cutCount_ > 0) {
+            const Area& ar = areas_[top_.front()];
+            why = std::to_string(cutCount_) + " walkable area(s) are cut off from the main one (" + std::to_string(cutCells_) + " cells), the biggest around " + cell_text(ar.firstX, ar.firstY);
             return Verdict::Refused;
         }
         return Verdict::Accepted;
@@ -1019,14 +1072,13 @@ struct GenRun {
     GenRun& operator=(const GenRun&) = delete;
 
     // The tiles a grid of symbols becomes: the sample's tiles, or the model's tile values re-tiled with the autotile rules.
+    int tile_of_symbol(int symbol) const {
+        return !tiled && sample.ascii ? sample.glyphs.glyphs[std::size_t(symbol)].tile : symbolTile[std::size_t(symbol)];
+    }
     std::vector<int> tiles_of(const std::vector<int>& symbols) {
         std::vector<int> t(symbols.size(), -1);
-        if (!tiled && sample.ascii) {
-            for (std::size_t i = 0; i < symbols.size(); ++i) t[i] = sample.glyphs.glyphs[std::size_t(symbols[i])].tile;
-        } else {
-            for (std::size_t i = 0; i < symbols.size(); ++i) t[i] = symbolTile[std::size_t(symbols[i])];
-            if (tiled) retile_terrain_grid(terrains, width, height, t);
-        }
+        for (std::size_t i = 0; i < symbols.size(); ++i) t[i] = tile_of_symbol(symbols[i]);
+        if (tiled) retile_terrain_grid(terrains, width, height, t);
         return t;
     }
 };
@@ -1273,7 +1325,9 @@ std::shared_ptr<GenRun> prepare_generation(Engine::Impl& I, const Json& a) {
     go.maxWork = maxWork;
     go.pinMissing = cons.repair;
     if (reach.enabled) {
-        r.reachCheck = std::make_shared<ReachCheck>(reach, width, height, [self = run.get()](const std::vector<int>& symbols) { return self->tiles_of(symbols); });
+        r.reachCheck = std::make_shared<ReachCheck>(reach, width, height, [self = run.get()](int symbol) { return self->tile_of_symbol(symbol); },
+                                                    run->tiled ? ReachCheck::Retile([self = run.get()](std::vector<int>& t) { retile_terrain_grid(self->terrains, self->width, self->height, t); })
+                                                               : ReachCheck::Retile());
         go.check = r.reachCheck;
     }
     auto gen = wfc::Generator::create(patternModel, go);
@@ -1542,7 +1596,7 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
          "that many milliseconds have passed (at least one step). Returns {done:false, progress, attempts, work, contradictions, rejected} while it runs "
          "(progress 0..1 is the share of cells decided in the current attempt: it goes back to 0 when an attempt restarts) and {done:true, progress:1, "
          "result} when the level is finished, `result` being what tilemap.generate returns. A step can overshoot its budget by one unit of the algorithm: "
-         "an attempt (its reset, the output, the counts and every step of the reachability check) advances in chunks of about 16384 units, and one path search of the reachability check is one chunk, so a step stays near its budget. Errors "
+         "an attempt (its reset, the solve, the output, the counts and the reachability check) advances in chunks of about 16384 units, so a step stays near its budget. Three pieces are not cut and run to their end inside one step: the rebuild of the entropy heap when it is at its allowance (a pass over at most 4 entries per cell), the re-tiling of a terrain (Tiled) level by the reachability check (one pass over the grid) and each path search of the reachability check (one A* bounded by the grid, at most 16 per attempt). Errors "
          "(the generation failed, hit `maxWork`, the entity of `into` is gone) end the job. A job whose scene was unloaded no longer exists. "
          "Example: tilemap.generate_step {\"job\":1,\"work\":200000}",
          parse_schema(R"json({"type":"object","required":["job"],"properties":{

@@ -224,7 +224,7 @@ public:
     const RichTextStyle* rich_text_style() override;
     std::string set_language(std::string_view language) override;
     double preload_time_budget_ms() const override;
-    void drop_script_jobs() override;
+    void drop_script_jobs(const std::vector<int>& jobs) override;
     void request_scene_change(std::string_view scenePath) override;
     void request_scene_change_with_props(std::string_view scenePath, const Json& props) override;
     void request_scene_reload(std::string_view scenePath) override;

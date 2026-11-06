@@ -27,6 +27,7 @@ constexpr std::int64_t kInfinite = std::int64_t(1) << 62;            // sums sat
 
 std::int64_t fixed_up(double v) {   // a cost as fixed point, rounded to nearest; NaN and negatives are 0, huge values saturate
     if (!(v > 0.0)) return 0;
+    if (std::isinf(v)) return kInfinite;   // an infinite cost is passable at an infinite price (the reported cost is infinity)
     if (v >= double(kMaxStep) / double(kOne)) return kMaxStep;
     return std::int64_t(std::llround(v * double(kOne)));
 }
@@ -35,8 +36,9 @@ std::int64_t fixed_down(double v) {   // the same rounded DOWN: the heuristic mu
     if (v >= double(kMaxStep) / double(kOne)) return kMaxStep;
     return std::int64_t(std::floor(v * double(kOne)));
 }
-std::int64_t diagonal_of(std::int64_t q) { return std::int64_t(std::llround(double(q) * kSqrt2)); }
+std::int64_t diagonal_of(std::int64_t q) { return q >= kInfinite ? kInfinite : std::int64_t(std::llround(double(q) * kSqrt2)); }
 std::int64_t add_sat(std::int64_t a, std::int64_t b) { return a >= kInfinite - b ? kInfinite : a + b; }
+std::int64_t mul_sat(std::int64_t count, std::int64_t step) { return count > 0 && step > kInfinite / count ? kInfinite : count * step; }
 
 // Search state that survives between queries (a script asks every few frames on the same map): stamps say which entries
 // belong to the current query, so nothing is cleared.
@@ -109,9 +111,9 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
     const std::int64_t minDiag = std::int64_t(std::floor(double(minStep) * kSqrt2));   // <= the rounded diagonal of any dearer step
     auto heuristic = [&](int c, int r) {
         const std::int64_t dx = std::abs(c - toCol), dy = std::abs(r - toRow);
-        if (!o.diagonals) return (dx + dy) * minStep;
+        if (!o.diagonals) return mul_sat(dx + dy, minStep);   // saturating: a lower bound stays a lower bound
         const std::int64_t diag = std::min(dx, dy);
-        return (dx + dy - 2 * diag) * minStep + diag * minDiag;
+        return add_sat(mul_sat(dx + dy - 2 * diag, minStep), mul_sat(diag, minDiag));
     };
 
     struct Item {
@@ -191,7 +193,7 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
                             "Raise maxNodes, search from nearer, or pass closest: true to walk toward the goal anyway.");
             return fail("blocked", std::format("no route from ({}, {}) to ({}, {}): walls or blocked cells close every way",
                                                fromCol, fromRow, toCol, toRow),
-                        "Open a way, give the blocked tiles a cost in `costs` instead of Infinity, or pass closest: true.");
+                        "Open a way, make a blocked tile passable with a cost in `costs`, or pass closest: true.");
         }
         end = nearest;
         out.complete = false;

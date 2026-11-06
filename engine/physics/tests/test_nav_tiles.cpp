@@ -437,6 +437,27 @@ TEST_CASE("nav tiles: equal-cost routes are told apart by (f, h, cell index), an
     dear.cost = {1.0f, std::numeric_limits<float>::infinity(), 1.0f};
     const NavTilePath far = nav_find_tile_path(dear, 0, 0, 2, 0);
     CHECK(far.found);
+    CHECK(std::isinf(far.cost));
+    // a finite way round is preferred to an infinite one
+    NavTileGrid detour;
+    detour.width = 3;
+    detour.height = 2;
+    detour.cost = {1.0f, std::numeric_limits<float>::infinity(), 1.0f, 1.0f, 1.0f, 1.0f};
+    const NavTilePath around = nav_find_tile_path(detour, 0, 0, 2, 0);
+    CHECK(around.found);
+    CHECK(std::isfinite(around.cost));
+    CHECK(around.cost == doctest::Approx(4.0f));
+    // diagonal steps through an infinite cell do not overflow either
+    NavTileOptions diag;
+    diag.diagonals = true;
+    CHECK(nav_find_tile_path(dear, 0, 0, 2, 0, diag).found);
+    // a long map of dearest cells: (dx + dy) * step is far past int64 without the saturating multiply
+    NavTileGrid huge;
+    huge.width = 2000;
+    huge.height = 1;
+    huge.cost.assign(2000, 1.0e30f);
+    const NavTilePath dearest = nav_find_tile_path(huge, 0, 0, 1999, 0);
+    CHECK(dearest.found);
 }
 
 TEST_CASE("nav tiles: the Tilemap grid and the shared rules give the same cost in every cell") {

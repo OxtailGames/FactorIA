@@ -1034,8 +1034,10 @@ job.promise.then((r) => { if (scene.generation === gen) console.log("ready", r.p
   must not depend on how many frames it takes. `stats.ms` and `memoryBytes` of the result are informative and not
   deterministic (they depend on the machine): a game must not compare them. The model is built (and the options checked)
   by the `tilemap.generate` call itself, so a very big sample or many tiles makes that one frame long; after that a step
-  stays near its budget, because an attempt (the reset, the output, the counts and every step of the reachability check)
-  advances in pieces, the smallest being one path search.
+  stays near its budget, because an attempt (the reset, the solve, the output, the counts and the reachability check)
+  advances in chunks of about 16384 work units. Three pieces run to their end inside one step: the rebuild of the
+  solver's entropy heap (a pass over at most 4 entries per cell), the re-tiling of a Tiled (terrain) level by the
+  `reachability` check, and each path search of that check (at most 16 per attempt, one per step).
 - A generation belongs to the scene that started it: a scene load (a reload too) ends it with an error, places nothing
   and frees its memory. A script that awaits `promise` checks `scene.generation` before it uses the result.
 

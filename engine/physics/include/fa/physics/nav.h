@@ -102,6 +102,9 @@ struct NavTileGrid {
     float minOpenCost = -1.0f; // the cheapest open cell when the owner keeps it (NavCostGrid); < 0 = sweep the cells to find it
 };
 
+// A cost of +infinity is NOT blocked here: the cell can be entered at an infinite price (a path through it reports the cost
+// infinity, and any finite route is preferred). Only a negative cost or NaN blocks. The script API turns Infinity into blocked before
+// it builds a grid (NavCostGrid, `costs`).
 // The cheapest open cell of `grid` (0 when none is open): the A* heuristic scales by it.
 float nav_tile_min_open_cost(const NavTileGrid& grid);
 
