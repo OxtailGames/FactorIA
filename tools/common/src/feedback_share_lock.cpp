@@ -17,6 +17,7 @@
 #include <thread>
 #include <vector>
 
+#include "fa/core/fs.h"
 #include "fa/tooling/feedback_share.h"
 
 #if defined(_WIN32)
@@ -49,6 +50,18 @@ thread_local double t_waitCap = std::numeric_limits<double>::infinity();
 
 enum class Created { Yes, Exists, Denied, Failed };
 
+// "Windows error 5 (Access is denied.)": the number alone sends a person to a search engine.
+std::string windows_error_text(unsigned long code) {
+    std::string text = "Windows error " + std::to_string(code);
+    try {
+        std::string says = std::system_category().message(static_cast<int>(code));
+        while (!says.empty() && (says.back() == '\n' || says.back() == '\r' || says.back() == ' ' || says.back() == '.')) says.pop_back();
+        if (!says.empty()) text += " (" + says + ")";
+    } catch (...) {
+    }
+    return text;
+}
+
 unsigned long process_id() {
 #if defined(_WIN32)
     return static_cast<unsigned long>(GetCurrentProcessId());
@@ -79,6 +92,31 @@ std::string read_small(const stdfs::path& file) {
     return text;
 }
 
+// Whose a lock file is. A file that exists but reads "" is not somebody else's: on Windows a virus scanner or another process that
+// has just made it can hold it open for a moment (the read fails, or it is not written yet), so it is read again a few times; only
+// another token ends the question, and a file that stays unreadable is `Unknown` (left alone, like another owner's).
+enum class Owner { Gone, Ours, Other, Unknown };
+Owner owner_of(const stdfs::path& file, const std::string& token, int tries = 20) {
+    for (int i = 0; i < tries; ++i) {
+        std::error_code ec;
+        if (!stdfs::exists(file, ec)) return Owner::Gone;
+        const std::string text = read_small(file);
+        if (!text.empty()) return text == token ? Owner::Ours : Owner::Other;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return Owner::Unknown;
+}
+
+// Whether two lock files of this thread are the same file: the same text, the same path once `.`, `..` and symlinks are resolved, or
+// (the file exists) the same file for the file system, which also settles another case on a volume that ignores it and NFC/NFD.
+bool same_lock_file(const stdfs::path& a, const stdfs::path& b) {
+    if (a == b) return true;
+    std::error_code ec;
+    if (stdfs::weakly_canonical(stdfs::absolute(a, ec), ec) == stdfs::weakly_canonical(stdfs::absolute(b, ec), ec) && !ec) return true;
+    ec.clear();
+    return stdfs::equivalent(a, b, ec) && !ec;
+}
+
 // Creates `file` and writes `content` into it; it must not exist. For Failed `why` says why; for Denied `code` is the Windows error.
 // Denied is Windows only: ERROR_ACCESS_DENIED on CREATE_NEW is what a file that is being deleted (delete pending) or held open by
 // a virus scanner gives, but also what a folder without write permission gives.
@@ -90,16 +128,17 @@ Created create_exclusive(const stdfs::path& file, const std::string& content, st
         code = static_cast<int>(e);
         if (e == ERROR_FILE_EXISTS || e == ERROR_ALREADY_EXISTS || e == ERROR_SHARING_VIOLATION) return Created::Exists;
         if (e == ERROR_ACCESS_DENIED) return Created::Denied;
-        why = "Windows error " + std::to_string(e);
+        why = windows_error_text(e);
         return Created::Failed;
     }
     DWORD written = 0;
     const BOOL wrote = WriteFile(h, content.data(), static_cast<DWORD>(content.size()), &written, nullptr);
+    const DWORD writeError = GetLastError();
     CloseHandle(h);
     if (!wrote || written != content.size()) {
         std::error_code ec;
         stdfs::remove(file, ec);
-        why = "the owner could not be written (Windows error " + std::to_string(GetLastError()) + ")";
+        why = "the owner could not be written (" + windows_error_text(writeError) + ")";
         return Created::Failed;
     }
     return Created::Yes;
@@ -133,7 +172,7 @@ bool folder_is_writable(const stdfs::path& dir, const std::string& token, std::s
         stdfs::remove(probe, ec);
         return true;
     }
-    if (why.empty()) why = "access denied (Windows error " + std::to_string(code) + ")";
+    if (why.empty()) why = "access denied (" + windows_error_text(static_cast<unsigned long>(code)) + ")";
     return false;
 }
 
@@ -210,7 +249,17 @@ bool take_over_stale(const stdfs::path& lockFile, const stdfs::path& takeoverFil
         std::error_code rc;
         stdfs::rename(lockFile, aside, rc);
         movedAway = !rc;
-        if (movedAway) remove_with_retries(aside);
+        if (movedAway && !is_stale(aside, staleSec)) {
+            // Between the look above and the rename the holder finished and somebody made a fresh lock (or the holder refreshed it):
+            // what was moved is alive. Put it back if the name is still free; the window between look and rename is microseconds,
+            // not zero, which is why the lock is documented as "one holder at a time except for that window".
+            std::error_code back;
+            if (!stdfs::exists(lockFile, back)) stdfs::rename(aside, lockFile, back);
+            if (back || stdfs::exists(aside, back)) remove_with_retries(aside);
+            movedAway = false;
+        } else if (movedAway) {
+            remove_with_retries(aside);
+        }
     }
     remove_with_retries(takeoverFile);
     if (movedAway) remove_leftovers(lockFile.parent_path(), staleSec);
@@ -245,7 +294,7 @@ void ShareLock::init(const ShareEnv& env, const stdfs::path& folder, double repo
     try {
         file_ = folder / kFeedbackShareLockFile;
         for (const ShareLock* owner : t_owners) {
-            if (owner->file_ == file_) {  // this thread holds it already
+            if (same_lock_file(owner->file_, file_)) {  // this thread holds it already (under whatever spelling of the folder)
                 held_ = true;
                 nested_ = true;
                 path_ = owner->path_;
@@ -318,7 +367,7 @@ void ShareLock::acquire(const ShareEnv& env, const stdfs::path& dir, double repo
                      " s (lock file " + path_ + "), so nothing was changed. "
                      "Try again; if no FactorIA program is running, delete that file.";
             if (deniedCode != 0)
-                error_ += " (Windows answered \"access denied\", error " + std::to_string(deniedCode) +
+                error_ += " (Windows answered \"access denied\", " + windows_error_text(static_cast<unsigned long>(deniedCode)) +
                           ", when the lock was made: a virus scanner or a delete in progress may be holding the file.)";
             return;
         }
@@ -335,9 +384,8 @@ ShareLock::~ShareLock() {
         // than the stale time) belongs to its new owner now. On Windows a virus scanner may hold the file for a moment: retry. A
         // lock that stays is taken over after lockStaleSec.
         for (int i = 0; i < 20; ++i) {
+            if (owner_of(file_, token_) != Owner::Ours) return;  // gone, somebody else's, or unreadable for good: leave it
             std::error_code ec;
-            if (!stdfs::exists(file_, ec)) return;
-            if (read_small(file_) != token_) return;
             stdfs::remove(file_, ec);
             if (!ec) return;
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -347,12 +395,12 @@ ShareLock::~ShareLock() {
 }
 
 FeedbackFileLock::FeedbackFileLock(const ShareEnv& env, const std::string& feedbackPath, bool projectOnly) {
-    // The path text is UTF-8 (like every path of the feedback file): never the narrow conversion, which turns a non-ASCII
-    // folder name into another one. A path with no folder part is the working directory.
+    // The path is converted the way load_feedback / save_feedback open it (std::filesystem::path from the narrow text: the ANSI code
+    // page on Windows, as the CLI and the editor pass it), so the lock lands in the folder of the file it protects whatever the
+    // folder is called. A path with no folder part is the working directory.
     stdfs::path parent;
     try {
-        const std::u8string u8(reinterpret_cast<const char8_t*>(feedbackPath.data()), feedbackPath.size());
-        parent = stdfs::path(u8).parent_path();
+        parent = stdfs::path(feedbackPath).parent_path();
         if (parent.empty()) parent = stdfs::path(".");
     } catch (const std::exception& e) {
         error_ = std::string("Cannot work out the project's lock folder from ") + feedbackPath + " (" + e.what() + "), so nothing was changed.";
@@ -361,7 +409,7 @@ FeedbackFileLock::FeedbackFileLock(const ShareEnv& env, const std::string& feedb
     // A folder that does not exist holds no file to protect, and a lock must not make the folder (nor `.factoria` in it): nothing is
     // taken, and the caller's own read or write says what is wrong with the path.
     std::error_code existsEc;
-    if (!stdfs::is_directory(parent, existsEc)) {
+    if (!stdfs::is_directory(fs::os_path(parent), existsEc)) {
         noFolder_ = true;
         return;
     }
@@ -438,7 +486,7 @@ void ShareLock::refresh() {
         // look dead. Only when a quarter of the stale time has passed, and only while the file is still ours.
         const std::optional<double> age = file_age_sec(file_);
         if (age && *age >= 0 && *age < staleSec_ / 4) return;
-        if (read_small(file_) != token_) return;
+        if (owner_of(file_, token_, 3) != Owner::Ours) return;  // (a UI thread calls this: a short retry)
         std::error_code ec;
         stdfs::last_write_time(file_, stdfs::file_time_type::clock::now(), ec);
     } catch (...) {
