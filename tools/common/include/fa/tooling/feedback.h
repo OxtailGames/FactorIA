@@ -129,6 +129,8 @@ Json list_feedback(const Json& doc, const FeedbackFilter& filter = {});  // arra
 
 // The feedback file of a project: <projectDir>/ENGINE_FEEDBACK.json, or the project's `feedbackFile` when factoria.json sets one.
 std::string feedback_file_for_project(const std::string& projectDir);
+// The name a new feedback file of the project gets: factoria.json "name", else the folder's name.
+std::string feedback_project_name(const std::string& projectDir);
 
 // "ENGINE_FEEDBACK.json" -> "ENGINE_FEEDBACK.archive.json": where the closed entries of a feedback file go.
 std::string feedback_archive_path(const std::string& feedbackPath);

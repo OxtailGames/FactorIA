@@ -183,7 +183,7 @@ model of the old provider means nothing on the new one). What the file may hold:
 | `limits` | `maxTurns`, `maxCostUsd`, `maxTotalTokens`, `stuckAfterSeconds`, `maxConcurrentRuns`, key by key |
 | `assets.<kind>` | `provider`, `model`, `voice` of one kind of asset (`image`, `sound`, `music`, `voice`, `model3d`); the file must name the provider when your `ai.json` has no route for that kind. It cannot remove a route |
 | `assetSources` | a category (`images`, `models`, `audio`, `fonts`, `other`) given here **replaces** that category of `ai.json`; `onlyListed` replaces yours |
-| `savers` | `loopGuard`, `loopGuardJudge`, `learnedToolGroups`, `projectFacts`, key by key (the learned tool groups and saved facts of a project go on working: they stay in `.factoria/ai/savers.json`) |
+| `savers` | `loopGuard`, `loopGuardJudge`, `learnedToolGroups`, `projectFacts`, `retrospective` (with `retrospectiveSteps` and `retrospectiveCostUsd`), key by key (the learned tool groups and saved facts of a project go on working: they stay in `.factoria/ai/savers.json`) |
 | `mcpServers` | `true` or `false` per **name** of a tool server of your `ai.json`: `{"scenario": false}` turns Scenario off in this project |
 | `extensions` | `true` or `false` per name of one of your plugins, skills or hooks, by kind: `{"plugins": {"notes": false}}`. The project's own extensions stay in `.factoria/extensions.json` ([trust](#trusting-a-projects-extensions)) |
 
@@ -945,12 +945,14 @@ called and nothing is spent).
 
 ## Token savers
 
-Three savers of FactorIA's own loop, for the providers that use it (the API providers; Claude Code and Codex run their own
+Savers of FactorIA's own loop, for the providers that use it (the API providers; Claude Code and Codex run their own
 loops and ignore them). Each has a switch in **AI settings > Extensions > Token savers** and in the `savers` section of `ai.json`
-(all on by default; Save writes only what differs from the default, and every other key stays):
+(the first three on by default, the [retrospective](#retrospective) off; Save writes only what differs from the default, and every
+other key stays):
 
 ```json
-"savers": { "loopGuard": true, "loopGuardJudge": "", "learnedToolGroups": true, "projectFacts": true }
+"savers": { "loopGuard": true, "loopGuardJudge": "", "learnedToolGroups": true, "projectFacts": true,
+            "retrospective": false, "retrospectiveSteps": 150, "retrospectiveCostUsd": 3.0 }
 ```
 
 * **Loop guard** (`loopGuard`). When the same command fails with the same error code three times in one turn, the third failure's
@@ -968,10 +970,53 @@ loops and ignore them). Each has a switch in **AI settings > Extensions > Token 
 * **Project facts** (`projectFacts`). A command that failed with the same code in 3 runs, where a later call of it worked, proposes
   one line for the project's `AGENTS.md`. The file is written only on accept, under a `## Project facts` heading (created when
   missing); accepting twice adds the line once.
+* **Retrospective** (`retrospective`, off by default because it spends a model call nobody asked for): after a long run, the
+  [retrospective](#retrospective) files efficiency feedback about it. `retrospectiveSteps` (150 model calls) and
+  `retrospectiveCostUsd` (3 US dollars) say what a long run is: either one reached starts it.
 
 The state and the answers go through commands, so the CLI and MCP can use them:
 `ai.savers` (read-only: switches, thresholds, counts and proposals), `ai.saver_group {role, group, answer}` and
 `ai.saver_fact {id, answer, line?}` with `answer` of `accept`, `decline` or `forget` (`line` replaces the proposed text when accepting).
+
+## Retrospective
+
+Efficiency feedback without writing the report by hand ([ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md), "Efficiency feedback"). The
+retrospective looks back at the recorded AI runs of the open project, finds where they spent steps, minutes or tokens that an
+engine change would save, and files the entries. Two steps:
+
+1. **A mechanical pass, no model.** It reads the transcripts of `<project>/.factoria/ai/sessions` (the newest 40, or the ones you
+   name, or those since a date) and measures the usual waste: the same command failing with the same code (3 times or more), the
+   same doc or file read again and again (3 times or more), a tool result over 40 KB (two or more from one command), five or more
+   screenshots in a row, calls that kept the run waiting a minute or more (or five minutes in all), long edit-run-check loops on one
+   or two systems, and commands that an open ENGINE_FEEDBACK workaround already names. The same transcripts always give the same
+   candidates and numbers. A candidate is kept when a fix could save at least what the lowest row of the
+   [threshold table](ENGINE_FEEDBACK.md#efficiency-feedback) asks (a doc or guide: 10 minutes or 100k tokens per game); the most
+   promising come first, at most 12. Evidence that an open efficiency entry already counts is skipped.
+2. **One call of the fast role** (the orchestrator when the fast role is off) with the 8 best candidates. The model picks **at most
+   three** that a fix in the engine would remove and writes each as an entry: the title, the cheapest fix that would work, what the
+   fix would save, why a cheaper one would not. Every entry goes through the gate of `feedback.report` with kind `efficiency` (the
+   threshold per fix type, the cheapest-fix rule, the dedupe by fix), so a candidate the gate refuses comes back in `dropped`
+   with the reason. A lesson that is true only of this game (its own scripts, scenes or assets) becomes a **project-fact
+   proposal** instead: it waits in `ai.savers` and goes to `AGENTS.md` only when you accept it, like the savers' own facts.
+
+It never sends anything: the entries stay in `ENGINE_FEEDBACK.json` until you share them like any other. A model that cannot be asked
+(no key, the role off) is not an error: the candidates come back and `note` says why. The cost of the model call is returned as
+`costUsd`; inside a run it is added to the run's usage.
+
+Where to start it:
+
+* **The Feedback panel's Retrospective button** runs it in the background (the panel stays usable) and then says what it did, for
+  example "1 efficiency entry filed, 0 project-fact proposals, 0 candidates dropped", and adds up what the open efficiency
+  entries' fixes would save.
+* **`factoria ai retrospective [project] [--session NAMES] [--since DATE] [--candidates-only] [--json]`**, the command
+  `ai.retrospective {sessions?, since?, candidatesOnly?}` for MCP and scripts. `--candidates-only` is the mechanical pass alone: it asks
+  no model, files nothing and costs nothing.
+* **By itself after a long run**, when `savers.retrospective` is on: a run that took `retrospectiveSteps` model calls (150) or cost
+  `retrospectiveCostUsd` (3 US dollars). It runs at most once per run (not for one you cancelled or one without a project), and never
+  inside another retrospective. When it files an entry or proposes a fact, the run shows an Info line "Retrospective: ...";
+  otherwise it says nothing.
+
+One retrospective runs at a time in a process: a second `ai.retrospective` call gets the error code `busy`.
 
 ## Extensions
 

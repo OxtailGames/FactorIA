@@ -10,6 +10,7 @@
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/hooks.h"
 #include "fa/ai/project_settings.h"
+#include "fa/ai/retrospective.h"
 #include "fa/ai/savers.h"
 #include "fa/ai/tool_catalog.h"
 #include "fa/core/date.h"
@@ -109,8 +110,9 @@ std::string make_stamp() {
 
 std::string clip_text(std::string s, std::size_t n) {
     if (s.size() > n) {
+        const std::size_t total = s.size();
         s.resize(n);
-        s += "\n...[truncated " + std::to_string(s.size() - n) + " chars]";
+        s += "\n...[truncated " + std::to_string(total - n) + " chars]";
     }
     return s;
 }
@@ -294,6 +296,7 @@ SessionResult AgentSession::run(const std::string& task, const std::vector<std::
     }
     if (r.error.empty()) r = run_role(opt_.role, task, 0);
     if (r.conversation.key.empty()) r.conversation = opt_.conversation;  // nothing ran: the conversation is as it was
+    maybe_retrospective(r);
     r.usage = totalUsage_;
     r.costUsd = totalCost_;
     AgentEvent e;
@@ -304,6 +307,24 @@ SessionResult AgentSession::run(const std::string& task, const std::vector<std::
     e.costUsd = totalCost_;
     emit(e, 0, opt_.role);
     return r;
+}
+
+void AgentSession::maybe_retrospective(const SessionResult& r) {
+    if (r.stopReason == "cancelled" || !opt_.saveTranscript || opt_.projectDir.empty()) return;
+    if (retrospective_running_here() || !retrospective_due(config_.savers, r.turns, totalCost_)) return;
+    RetrospectiveOptions ro;
+    ro.idPrefix = stamp_;  // this run's own transcripts (the orchestrator's and its delegates')
+    if (factoryInjected_) ro.providerFactory = factory_;
+    if (opt_.env) ro.runtime.env = opt_.env;
+    ro.cancel = cancel_;
+    ro.onUsage = [this](const Usage& u, double cost) { add_usage(u, cost); };
+    auto result = run_retrospective(config_, ro, opt_.projectDir);
+    AgentEvent info;
+    info.type = AgentEvent::Type::Info;
+    if (!result.ok()) info.text = "Retrospective skipped: " + result.error().message;
+    else if (!result->filed.empty() || !result->facts.empty()) info.text = "Retrospective: " + result->note;
+    else return;  // nothing to say: the run did not waste anything worth a report
+    emit(info, 0, opt_.role);
 }
 
 SessionResult AgentSession::run_role(const std::string& role, const std::string& task, int depth) {
@@ -1220,7 +1241,8 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
         Json trJson = Json::array();
         for (std::size_t i = 0; i < results.size(); ++i) {
             const ToolResult& r = results[i];
-            Json entry = Json::object({{"toolUseId", r.toolUseId}, {"isError", r.isError}, {"content", clip_text(r.content, 4000)}});
+            Json entry = Json::object({{"toolUseId", r.toolUseId}, {"isError", r.isError}, {"content", clip_text(r.content, 4000)},
+                                       {"bytes", r.content.size()}});  // the full size: `content` is clipped (ai.retrospective measures it)
             if (i < toolMs.size() && i < resp->message.toolCalls.size()) {
                 entry["tool"] = resp->message.toolCalls[i].name;
                 entry["ms"] = toolMs[i];  // how long the tool ran

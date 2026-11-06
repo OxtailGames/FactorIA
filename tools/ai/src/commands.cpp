@@ -14,6 +14,7 @@
 #include "fa/ai/mcp_client.h"
 #include "fa/ai/plugin_install.h"
 #include "fa/ai/project_settings.h"
+#include "fa/ai/retrospective.h"
 #include "fa/ai/review.h"
 #include "fa/ai/savers.h"
 #include "fa/ai/skills.h"
@@ -335,8 +336,10 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         info.category = "ai";
         info.summary = "Show the engine's token savers (loop guard, learned tool groups, project facts), what this project's runs learned and the proposals waiting for an answer.";
         info.description =
-            "The built-in agent loop (the API providers) has three savers, each with a switch in ai.json \"savers\" and in the editor's AI settings > "
-            "Extensions tab (docs/AI_PROVIDERS.md, Token savers). Returns {switches:{loopGuard, loopGuardJudge, learnedToolGroups, projectFacts}, "
+            "The engine has these savers, each with a switch in ai.json \"savers\" and in the editor's AI settings > "
+            "Extensions tab (docs/AI_PROVIDERS.md, Token savers): the loop guard, learned tool groups and project facts of the built-in agent loop (the "
+            "API providers) and the retrospective after a long run (ai.retrospective). Returns {switches:{loopGuard, loopGuardJudge, learnedToolGroups, "
+            "projectFacts, retrospective, retrospectiveSteps, retrospectiveCostUsd}, "
             "thresholds, projectFile:{path, exists} (.factoria/ai/savers.json), runs:{<role>:n}, groups:{<role>:{<group>:{runs, commands:{<command>:n}, "
             "status accepted|declined|\"\"}}} (the commands the runs loaded from the tool catalog), acceptedGroups:{<role>:[group]}, "
             "facts:{<id>:{runs, status, line}}, proposals:{toolGroups:[{role, group, runs, commands, definitionBytes}], facts:[{id, command, "
@@ -750,6 +753,59 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             auto r = session_timeline(project_dir(), str(args, "session"), args.contains("minGapSeconds") ? num(args, "minGapSeconds") : 30.0);
             if (!r) throw CommandError("not_found", r.error().message, r.error().hint);
             return *r;
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.retrospective";
+        info.category = "ai";
+        info.summary = "Look back at this project's recorded AI runs, find where they wasted steps, minutes or tokens and file at most three efficiency entries.";
+        info.description =
+            "Efficiency feedback without writing the report by hand (docs/ENGINE_FEEDBACK.md, \"Efficiency feedback\"; docs/AI_PROVIDERS.md, "
+            "\"Retrospective\"). Step 1 is mechanical, no model: it reads the transcripts of <project>/.factoria/ai/sessions and measures the usual waste "
+            "(the same command failing with the same code, the same doc or file read again and again, tool results over 40 KB, five or more screenshots in "
+            "a row, calls that waited a minute or more, long edit-run-check loops, commands an open ENGINE_FEEDBACK workaround already names). The same "
+            "transcripts always give the same candidates and numbers. Step 2 is one short call of the fast role that picks at most three candidates a fix in "
+            "the ENGINE would remove and writes each as an entry; every entry goes through the same gate as feedback.report with kind \"efficiency\" "
+            "(threshold per fix type, the cheapest fix, dedupe by fix), and what the gate refuses comes back in `dropped` with the reason. A lesson that is "
+            "true only of this game becomes a project-fact proposal instead (ai.savers shows it; ai.saver_fact accepts it). Nothing is shared or sent: "
+            "entries stay in ENGINE_FEEDBACK.json like any other. Evidence already counted by an open efficiency entry is skipped (`alreadyFiled`). "
+            "Returns {sessions:[{id, agent, steps, minutes, tokens, costUsd, estimated}], candidates:[{id, pattern, summary, count, spans, measured, "
+            "maxShare, potentialSaving, suggestedFix, appliesTo, projectOnly}], alreadyFiled, filed:[{candidate, id, merged, title, fixType, saving, measured}], "
+            "dropped:[{candidate, code, reason}], facts:[{candidate, id, line}], model, usage, costUsd (what the model call cost), note}. Without a model "
+            "(no key, fast role off and no orchestrator) the candidates come back and `note` says why. It runs by itself after a long run when ai.json "
+            "savers.retrospective is on (150 model calls or $3 by default). One runs at a time: a second call gets code busy. Spends tokens of the fast role. "
+            "Example: {\"since\":\"2026-11-01\"}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "sessions":{"type":"array","items":{"type":"string"},"maxItems":40,"description":"Transcripts to read, by file name in .factoria/ai/sessions (20261014-153012-orchestrator, with or without .jsonl; ai.session_timeline names them). Omit for the newest 40."},
+            "since":{"type":"string","description":"Only transcripts that began at or after this UTC date (2026-11-01) or date and time (2026-11-01T09:30). Omit for all."},
+            "candidatesOnly":{"type":"boolean","default":false,"description":"Only the mechanical pass: no model is asked and nothing is filed. Free and repeatable."}},
+            "additionalProperties":false})");
+        info.readOnly = false;  // files entries; spends tokens
+        registry.add(std::move(info), [load, opts, project_dir](const Json& args) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            const std::string dir = project_dir();
+            if (dir.empty()) throw CommandError("no_project", "A retrospective needs a project", "Open a project (or pass --project).");
+            RetrospectiveOptions ro;
+            if (const Json* list = child(args, "sessions"); list && list->is_array())
+                for (const Json& id : *list) {
+                    if (!id.is_string() || id.get<std::string>().empty())
+                        throw CommandError("invalid_arguments", "/sessions must hold transcript names (strings), got " + id.dump(),
+                                           "Pass names like \"20261014-153012-orchestrator\"; ai.session_timeline shows them.");
+                    ro.sessions.push_back(id.get<std::string>());
+                }
+            ro.since = str(args, "since");
+            ro.candidatesOnly = flag(args, "candidatesOnly", false);
+            ro.providerFactory = opts->providerFactory;
+            ro.runtime = opts->runtime;
+            ro.cancel = opts->cancel;
+            auto r = run_retrospective(*cfg, ro, dir);
+            if (!r) {
+                const bool busy = r.error().message.rfind("busy", 0) == 0;
+                throw CommandError(busy ? "busy" : "invalid_arguments", r.error().message, r.error().hint);
+            }
+            return r->to_json();
         });
     }
     {

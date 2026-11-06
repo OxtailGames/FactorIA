@@ -123,6 +123,12 @@ std::vector<GroupProposal> group_proposals(const AiConfig& cfg, const CommandReg
 std::vector<FactProposal> fact_proposals(std::string_view projectDir);
 
 // The state `ai.savers` shows: the switches, the counts, the accepted groups, the proposals.
+// Stores a project-fact proposal the retrospective made (ai.retrospective): one line for AGENTS.md "Project facts", shown by
+// ai.savers like the facts the runs learn and written only when the user accepts it. `id` is stable ("retro:<slug>"): the same lesson
+// found again updates its line and counts, a declined or accepted one keeps its answer. `command` may be "". Returns false when the
+// project has no folder or the store cannot be written.
+bool propose_fact(std::string_view projectDir, std::string_view id, std::string_view command, std::string_view line);
+
 Json savers_report(const AiConfig& cfg, const CommandRegistry& registry, std::string_view projectDir);
 
 enum class SaverAnswer { Accept, Decline, Forget };

@@ -1236,9 +1236,7 @@ std::string feedback_file_for_project(const std::string& projectDir) {
     return (stdfs::path(projectDir) / file).string();
 }
 
-namespace {
-
-std::string project_name_for(const std::string& projectDir) {
+std::string feedback_project_name(const std::string& projectDir) {
     if (auto text = tooling_detail::read_file(stdfs::path(projectDir) / kProjectFileName)) {
         auto pj = parse_json(*text, kProjectFileName);
         if (pj.ok() && pj.value().is_object() && pj.value().contains("name") && pj.value()["name"].is_string())
@@ -1247,6 +1245,10 @@ std::string project_name_for(const std::string& projectDir) {
     std::error_code ec;
     return stdfs::weakly_canonical(projectDir, ec).filename().string();
 }
+
+namespace {
+
+std::string project_name_for(const std::string& projectDir) { return feedback_project_name(projectDir); }
 
 Json enum_schema(const std::vector<std::string>& v, const char* desc) {
     return Json::object({{"type", "string"}, {"enum", v}, {"description", desc}});

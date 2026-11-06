@@ -63,7 +63,10 @@
         "loopGuard": { "type": "boolean" },
         "loopGuardJudge": { "type": "string", "description": "A role whose model writes the redirect; \"\" = the engine's fixed text." },
         "learnedToolGroups": { "type": "boolean" },
-        "projectFacts": { "type": "boolean" }
+        "projectFacts": { "type": "boolean" },
+        "retrospective": { "type": "boolean", "description": "true: after a long run, look back over it and file efficiency feedback (ai.retrospective)." },
+        "retrospectiveSteps": { "type": "integer", "minimum": 1, "description": "A run of at least this many model calls gets a retrospective (default 150)." },
+        "retrospectiveCostUsd": { "type": "number", "minimum": 0.01, "description": "... or one that cost at least this many dollars (default 3)." }
       },
       "additionalProperties": false
     },

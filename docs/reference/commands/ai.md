@@ -81,6 +81,20 @@ action "list" (default) shows providers and the role mapping from ~/.factoria/ai
 |---|---|---|---|
 | `action` | string ["list","doctor"] | no | list or doctor. Default "list". |
 
+## `ai.retrospective` (modifies state)
+
+Not released yet (on main after 0.16.1).
+
+Look back at this project's recorded AI runs, find where they wasted steps, minutes or tokens and file at most three efficiency entries.
+
+Efficiency feedback without writing the report by hand (docs/ENGINE_FEEDBACK.md, "Efficiency feedback"; docs/AI_PROVIDERS.md, "Retrospective"). Step 1 is mechanical, no model: it reads the transcripts of <project>/.factoria/ai/sessions and measures the usual waste (the same command failing with the same code, the same doc or file read again and again, tool results over 40 KB, five or more screenshots in a row, calls that waited a minute or more, long edit-run-check loops, commands an open ENGINE_FEEDBACK workaround already names). The same transcripts always give the same candidates and numbers. Step 2 is one short call of the fast role that picks at most three candidates a fix in the ENGINE would remove and writes each as an entry; every entry goes through the same gate as feedback.report with kind "efficiency" (threshold per fix type, the cheapest fix, dedupe by fix), and what the gate refuses comes back in `dropped` with the reason. A lesson that is true only of this game becomes a project-fact proposal instead (ai.savers shows it; ai.saver_fact accepts it). Nothing is shared or sent: entries stay in ENGINE_FEEDBACK.json like any other. Evidence already counted by an open efficiency entry is skipped (`alreadyFiled`). Returns {sessions:[{id, agent, steps, minutes, tokens, costUsd, estimated}], candidates:[{id, pattern, summary, count, spans, measured, maxShare, potentialSaving, suggestedFix, appliesTo, projectOnly}], alreadyFiled, filed:[{candidate, id, merged, title, fixType, saving, measured}], dropped:[{candidate, code, reason}], facts:[{candidate, id, line}], model, usage, costUsd (what the model call cost), note}. Without a model (no key, fast role off and no orchestrator) the candidates come back and `note` says why. It runs by itself after a long run when ai.json savers.retrospective is on (150 model calls or $3 by default). One runs at a time: a second call gets code busy. Spends tokens of the fast role. Example: {"since":"2026-11-01"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `sessions` | array | no | Transcripts to read, by file name in .factoria/ai/sessions (20261014-153012-orchestrator, with or without .jsonl; ai.session_timeline names them). Omit for the newest 40. |
+| `since` | string | no | Only transcripts that began at or after this UTC date (2026-11-01) or date and time (2026-11-01T09:30). Omit for all. |
+| `candidatesOnly` | boolean | no | Only the mechanical pass: no model is asked and nothing is filed. Free and repeatable. Default false. |
+
 ## `ai.review` (modifies state)
 
 Since 0.4.0.
@@ -177,7 +191,7 @@ Since 0.11.0.
 
 Show the engine's token savers (loop guard, learned tool groups, project facts), what this project's runs learned and the proposals waiting for an answer.
 
-The built-in agent loop (the API providers) has three savers, each with a switch in ai.json "savers" and in the editor's AI settings > Extensions tab (docs/AI_PROVIDERS.md, Token savers). Returns {switches:{loopGuard, loopGuardJudge, learnedToolGroups, projectFacts}, thresholds, projectFile:{path, exists} (.factoria/ai/savers.json), runs:{<role>:n}, groups:{<role>:{<group>:{runs, commands:{<command>:n}, status accepted|declined|""}}} (the commands the runs loaded from the tool catalog), acceptedGroups:{<role>:[group]}, facts:{<id>:{runs, status, line}}, proposals:{toolGroups:[{role, group, runs, commands, definitionBytes}], facts:[{id, command, code, runs, line}]}}. A proposal changes nothing until it is accepted with ai.saver_group or ai.saver_fact; nothing is ever denied. Read-only. Example: {}
+The engine has these savers, each with a switch in ai.json "savers" and in the editor's AI settings > Extensions tab (docs/AI_PROVIDERS.md, Token savers): the loop guard, learned tool groups and project facts of the built-in agent loop (the API providers) and the retrospective after a long run (ai.retrospective). Returns {switches:{loopGuard, loopGuardJudge, learnedToolGroups, projectFacts, retrospective, retrospectiveSteps, retrospectiveCostUsd}, thresholds, projectFile:{path, exists} (.factoria/ai/savers.json), runs:{<role>:n}, groups:{<role>:{<group>:{runs, commands:{<command>:n}, status accepted|declined|""}}} (the commands the runs loaded from the tool catalog), acceptedGroups:{<role>:[group]}, facts:{<id>:{runs, status, line}}, proposals:{toolGroups:[{role, group, runs, commands, definitionBytes}], facts:[{id, command, code, runs, line}]}}. A proposal changes nothing until it is accepted with ai.saver_group or ai.saver_fact; nothing is ever denied. Read-only. Example: {}
 
 ## `ai.session_timeline`
 

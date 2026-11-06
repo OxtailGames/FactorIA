@@ -4,6 +4,7 @@
 #include <functional>
 
 #include "editor_internal.h"
+#include "fa/ai/commands.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/feedback_check.h"
 
@@ -122,16 +123,55 @@ void Editor::draw_feedback_panel() {
                                                 : "Choose which open entries go to the engine developers, and read exactly what is sent");
     }
     ImGui::SameLine();
+    {
+        bool running;
+        {
+            std::lock_guard<std::mutex> lock(fbRetro_->mu);
+            running = fbRetro_->running;
+        }
+        ImGui::BeginDisabled(running || feedbackDoc_.is_null() || projectDir_.empty());
+        if (ImGui::Button(running ? "Looking back..." : "Retrospective")) feedback_start_retrospective();
+        at_track("feedback:retrospective", !running && !feedbackDoc_.is_null() && !projectDir_.empty());
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip("Look back at this project's recorded AI runs: where they wasted steps, minutes or tokens. One short call of the fast role "
+                              "files at most three efficiency entries here (nothing is sent anywhere). It costs a model call.");
+    }
+    ImGui::SameLine();
     ImGui::Checkbox("closed", &fbShowClosed_);
     at_track("feedback:closed");
     ImGui::SetItemTooltip("Also list the closed entries: fixed in the engine, won't fix, duplicate and rejected. They live in %s.",
                           fs::filename(archivePath).c_str());
     if (!fbMessage_.empty() && !fbAddOpen_) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", fbMessage_.c_str());
+        // On its own line and wrapped: a retrospective's answer is a sentence or two, longer than the room left beside the buttons.
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("%s", fbMessage_.c_str());
+        ImGui::PopStyleColor();
         at_track("feedback:message");
     }
     draw_feedback_add_window();
+    feedback_apply_retrospective();
+    {  // what the open efficiency entries say a fix would save, per game (measured from the transcripts, never guessed)
+        int n = 0;
+        double minutes = 0;
+        double tokens = 0;
+        if (feedbackDoc_.is_object() && feedbackDoc_.contains("entries") && feedbackDoc_["entries"].is_array())
+            for (const Json& e : feedbackDoc_["entries"]) {
+                if (e.value("kind", std::string()) != "efficiency" || e.value("status", std::string("open")) != "open") continue;
+                const Json* sv = e.contains("saving") && e["saving"].is_object() ? &e["saving"] : nullptr;
+                if (!sv) continue;
+                ++n;
+                minutes += sv->value("minutes", 0.0);
+                tokens += sv->value("tokens", 0.0);
+            }
+        if (n > 0) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("Efficiency: %d open entr%s, fixes would save about %.0f min and %.0fk tokens per game", n, n == 1 ? "y" : "ies", minutes,
+                               tokens / 1000.0);
+            ImGui::PopStyleColor();
+            ImGui::SetItemTooltip("Added up over the open efficiency entries: what each fix would save, measured from the AI sessions' transcripts.");
+            at_track("feedback:saving");
+        }
+    }
 
     if (feedbackDoc_.is_null()) {
         ImGui::TextWrapped("No feedback file yet.");
@@ -242,6 +282,66 @@ void Editor::draw_feedback_panel() {
     ImGui::EndChild();
     ImGui::EndChild();
     ImGui::End();
+}
+
+void Editor::feedback_start_retrospective() {
+    auto job = fbRetro_;
+    {
+        std::lock_guard<std::mutex> lock(job->mu);
+        if (job->running || projectDir_.empty()) return;
+        job->running = true;
+        job->finished = false;
+        job->cancel = false;
+        job->dir = projectDir_;
+    }
+    fbMessage_ = "Looking back at the AI runs of this project...";
+    if (fbRetroThread_.joinable()) fbRetroThread_.join();
+    auto reg = std::make_shared<CommandRegistry>();
+    ai::AiCommandOptions ao;
+    ao.loadConfig = [this]() -> Result<ai::AiConfig> { return ai_project_config(true); };
+    ao.projectDir = [dir = projectDir_] { return dir; };
+    ao.providerFactory = aiFactory_;
+    ao.cancel = &job->cancel;
+    ai::register_ai_commands(*reg, ao);
+    fbRetroThread_ = std::thread([job, reg] {
+        const CommandResult res = reg->call("ai.retrospective", Json::object());
+        std::lock_guard<std::mutex> lock(job->mu);
+        job->ok = res.ok;
+        job->result = res.ok ? res.result : Json();
+        job->message = res.ok ? std::string() : res.error.value("message", std::string("The retrospective failed.")) + " " + res.error.value("hint", std::string());
+        job->running = false;
+        job->finished = true;
+    });
+}
+
+void Editor::feedback_apply_retrospective() {
+    auto job = fbRetro_;
+    bool ok;
+    Json result;
+    std::string message, dir;
+    {
+        std::lock_guard<std::mutex> lock(job->mu);
+        if (!job->finished) return;
+        job->finished = false;
+        dir = job->dir;
+        ok = job->ok;
+        result = job->result;
+        message = job->message;
+    }
+    if (dir != projectDir_) return;  // another project is open now: this answer is about the one that was closed
+    if (!ok) {
+        fbMessage_ = "Retrospective failed: " + message;
+        return;
+    }
+    std::string text = result.value("note", std::string());
+    const double cost = result.value("costUsd", 0.0);
+    if (cost > 0) {
+        char buf[48];
+        std::snprintf(buf, sizeof buf, " (the model call cost $%.4f)", cost);
+        text += buf;
+    }
+    fbMessage_ = text;
+    if (!result.value("filed", Json::array()).empty()) feedback_reload_soon();
 }
 
 const Json* Editor::feedback_entry(const std::string& id) const {
