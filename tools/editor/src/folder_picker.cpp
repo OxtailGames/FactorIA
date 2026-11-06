@@ -217,17 +217,19 @@ std::string reveal_in_file_manager(const std::string& path) {
 }
 #endif
 
-// A web address in the default browser (the GitHub sign-in page). Only https:// addresses; returns "" or what went wrong.
+// A web address in the default browser (the GitHub sign-in page, the Play on Phone page). Only https:// addresses and this computer's own
+// http://127.0.0.1:<port>/ server; returns "" or what went wrong.
+static bool openable_url(const std::string& url) { return url.starts_with("https://") || url.starts_with("http://127.0.0.1:"); }
 #ifdef _WIN32
 std::string open_url(const std::string& url) {
-    if (!url.starts_with("https://")) return "only https:// addresses are opened, not " + url;
+    if (!openable_url(url)) return "only https:// addresses and this computer's own http://127.0.0.1 server are opened, not " + url;
     const std::wstring wide(url.begin(), url.end());  // an address is ASCII
     const auto r = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
     return r > 32 ? std::string() : "the browser could not open " + url + " (error " + std::to_string(r) + ")";
 }
 #else
 std::string open_url(const std::string& url) {
-    if (!url.starts_with("https://")) return "only https:// addresses are opened, not " + url;
+    if (!openable_url(url)) return "only https:// addresses and this computer's own http://127.0.0.1 server are opened, not " + url;
 #ifdef __APPLE__
     const char* opener = "open";
 #else

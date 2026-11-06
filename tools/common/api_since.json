@@ -1084,6 +1084,7 @@
     "project.info": "0.1.0",
     "project.new_ci_workflow": "0.2.0",
     "project.new_plugin": "0.1.6",
+    "project.serve_web": "unreleased",
     "project.templates": "0.1.0",
     "project.test": "0.1.0",
     "project.validate": "0.1.0",

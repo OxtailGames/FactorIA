@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <map>
+#include <optional>
 
 #define MINIZ_HEADER_FILE_ONLY
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
@@ -17,6 +18,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/pack.h"
+#include "fa/core/strings.h"
 #include "fa/core/json.h"
 #include "fa/script/bytecode.h"
 #include "fa/tooling/export.h"
@@ -463,4 +465,173 @@ TEST_CASE("export: the largest folders are listed, and a packed store/ or src/ f
     CHECK_FALSE(any_warning_has(*again, "The folder store/"));
     CHECK_FALSE(any_warning_has(*again, "The folder assets/src/"));
     for (const ExportSize& f : again->largestFolders) CHECK(f.name != "store");
+}
+
+// ---- singleFile: ONE html page with everything inlined ---------------------------------------------------------------
+
+namespace {
+
+// The text of <script ... id="<id>">...</script> in the page, or nullopt when there is no such block.
+std::optional<std::string> inline_block(const std::string& html, const std::string& id) {
+    const std::string open = "id=\"" + id + "\">";
+    const std::size_t at = html.find(open);
+    if (at == std::string::npos) return std::nullopt;
+    const std::size_t start = at + open.size(), end = html.find("</script>", start);
+    if (end == std::string::npos) return std::nullopt;
+    return html.substr(start, end - start);
+}
+
+std::string decoded(const std::string& base64) {
+    const auto bytes = base64_decode(base64);
+    return std::string(bytes.begin(), bytes.end());
+}
+
+ExportOptions single_options(const testing::TempDir& tmp, const std::string& proj) {
+    ExportOptions o = web_options(tmp, proj);
+    o.singleFile = true;
+    return o;
+}
+
+// A wasm whose only section is a memory: `flags` bit 1 (value 2) = shared.
+std::string wasm_with_memory(unsigned char flags) {
+    std::string bytes = std::string("\0asm\1\0\0\0", 8);
+    bytes += std::string("\x05\x04\x01", 3) + static_cast<char>(flags) + std::string("\x01\x01", 2);
+    return bytes;
+}
+
+}  // namespace
+
+TEST_CASE("export web singleFile: one page holds the player, the wasm and the game, and nothing else is needed") {
+    testing::TempDir tmp;
+    ExportOptions o = single_options(tmp, make_project(tmp));
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path root = r->outputDir;
+    const stdfs::path page = root / "web-test.html";
+    CHECK(r->format == "html");
+    CHECK(r->artifact == page.generic_string());
+    REQUIRE(stdfs::is_regular_file(page));
+    CHECK_FALSE(stdfs::exists(stdfs::path(r->outputDir).parent_path() / "web-test-web.zip"));  // no zip
+    // Only the page and the notices: no loose player files, no game.pak, no index.html.
+    for (const char* gone : {"index.html", "game.pak", "factoria_player.js", "factoria_player.wasm", "favicon.png"})
+        CHECK_MESSAGE(!stdfs::exists(root / gone), gone);
+    CHECK(has(r->files, "web-test.html"));
+    CHECK_FALSE(has(r->files, "game.pak"));
+    CHECK_FALSE(has(r->files, "factoria_player.wasm"));
+
+    const std::string html = testing::read_all(page);
+    CHECK(html.find("<title>Web Test</title>") != std::string::npos);
+    CHECK(html.find("{{") == std::string::npos);
+    // The blocks: base64 round trip back to the exact bytes of the player and of the pack.
+    const auto wasm = inline_block(html, "fa-wasm"), js = inline_block(html, "fa-js"), pak = inline_block(html, "fa-pak"), notices = inline_block(html, "fa-notices");
+    REQUIRE(wasm.has_value());
+    REQUIRE(js.has_value());
+    REQUIRE(pak.has_value());
+    REQUIRE(notices.has_value());
+    CHECK(decoded(*wasm) == fake_wasm(build_fingerprint()));
+    CHECK(decoded(*js) == "// fake emscripten glue\n");
+    CHECK(wasm->find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") == std::string::npos);  // nothing that could end a script block
+    CHECK(notices->find("</script") == std::string::npos);
+    const std::string packBytes = decoded(*pak);
+    REQUIRE(packBytes.size() > 16);
+    testing::write_all(tmp.path / "decoded.pak", packBytes);
+    auto pack = PackReader::open((tmp.path / "decoded.pak").string());
+    REQUIRE_MESSAGE(pack.ok(), (pack.ok() ? "" : pack.error().message));
+    CHECK((*pack)->contains("factoria.json"));
+    // The page's own code does not fetch the files next to it when they are inlined.
+    CHECK(html.find("INLINE") != std::string::npos);
+    // The size the page reports is the real one: base64 of the pack length.
+    CHECK(html.size() > packBytes.size() * 4 / 3);
+}
+
+TEST_CASE("export web singleFile: the size limit is checked from the file sizes before the page is built") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    SUBCASE("the player alone is over the limit: refused at the plan, nothing is written") {
+        ExportOptions o = single_options(tmp, proj);
+        o.singleFileMaxBytes = 100;
+        auto plan = plan_export(o);
+        REQUIRE_FALSE(plan.ok());
+        CHECK(plan.error().message.find("singleFile") != std::string::npos);
+        CHECK(plan.error().message.find("limit") != std::string::npos);
+        CHECK(plan.error().hint.find("singleFileMaxMb") != std::string::npos);
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK_FALSE(stdfs::exists(tmp.sub("out")));
+    }
+    SUBCASE("the game makes it too big: refused after the pack is written, before the page") {
+        std::string noise(3 * 1024 * 1024, 'x');
+        std::uint32_t state = 12345;
+        for (char& c : noise) {  // incompressible: the pack stays about as big as the file
+            state = state * 1664525u + 1013904223u;
+            c = static_cast<char>(state >> 24);
+        }
+        testing::write_all(stdfs::path(proj) / "assets" / "big.bin", noise);
+        ExportOptions o = single_options(tmp, proj);
+        o.singleFileMaxBytes = 1024ull * 1024;
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("limit is 1.0 MB") != std::string::npos);
+        CHECK(r.error().message.find("the game") != std::string::npos);
+        CHECK_FALSE(stdfs::exists(stdfs::path(tmp.sub("out")) / "web-test-web" / "web-test.html"));
+        // The same game fits with a bigger limit.
+        o.singleFileMaxBytes = 64ull * 1024 * 1024;
+        CHECK(export_project(o).ok());
+    }
+    SUBCASE("a limit in the 64-bit range does not overflow") {
+        ExportOptions o = single_options(tmp, proj);
+        o.singleFileMaxBytes = UINT64_MAX;
+        CHECK(export_project(o).ok());
+    }
+}
+
+TEST_CASE("export web singleFile: a player that needs threads cannot run from a file and the error says so") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    ExportOptions o = single_options(tmp, proj);
+    o.allowPlayerMismatch = true;  // the stand-in wasm has no build fingerprint
+    testing::write_all(stdfs::path(o.playerBinary) / "factoria_player.wasm", wasm_with_memory(3));  // shared memory with a maximum
+    auto r = export_project(o);
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("threads") != std::string::npos);
+    CHECK(r.error().message.find("cross-origin isolation") != std::string::npos);
+    CHECK(r.error().hint.find("without singleFile") != std::string::npos);
+    CHECK_FALSE(plan_export(o).ok());
+    // The same player is fine for the normal folder, and a plain (not shared) memory is fine for the single file.
+    ExportOptions folder = web_options(tmp, proj);
+    folder.allowPlayerMismatch = true;
+    CHECK(export_project(folder).ok());
+    testing::write_all(stdfs::path(o.playerBinary) / "factoria_player.wasm", wasm_with_memory(1));
+    auto ok = export_project(o);
+    CHECK_MESSAGE(ok.ok(), (ok.ok() ? "" : ok.error().to_string()));
+}
+
+TEST_CASE("export web singleFile: the command refuses contradictions before it builds anything") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    CommandRegistry reg;
+    register_export_commands(reg, proj);
+    const CommandInfo* info = reg.info("project.export");
+    REQUIRE(info != nullptr);
+    for (const char* arg : {"singleFile", "singleFileMaxMb"}) {
+        REQUIRE(info->inputSchema["properties"].contains(arg));
+        CHECK_FALSE(info->inputSchema["properties"][arg]["description"].get<std::string>().empty());
+    }
+    const std::string player = fake_player(tmp);
+    auto err_of = [&](const Json& args) {
+        auto r = reg.call("project.export", args);
+        REQUIRE_FALSE(r.ok);
+        return r.error.dump();
+    };
+    CHECK(err_of(Json::object({{"platform", "linux"}, {"singleFile", true}})).find("/singleFile") != std::string::npos);
+    CHECK(err_of(Json::object({{"singleFile", true}})).find("/platform") != std::string::npos);
+    CHECK(err_of(Json::object({{"platform", "web"}, {"singleFileMaxMb", 10}})).find("/singleFileMaxMb") != std::string::npos);
+    CHECK_FALSE(reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 0}})).ok);
+    CHECK_FALSE(reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 100000}})).ok);
+    CHECK_FALSE(stdfs::exists(stdfs::path(proj) / "build" / "export"));
+
+    auto dry = reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"player", player}, {"dryRun", true}}));
+    REQUIRE_MESSAGE(dry.ok, dry.error.dump());
+    CHECK(dry.result["format"].get<std::string>() == "html");
+    CHECK(dry.result["artifact"].get<std::string>().find("web-test.html") != std::string::npos);
 }

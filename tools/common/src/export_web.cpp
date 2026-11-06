@@ -5,7 +5,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <map>
+#include <set>
 
 #include "export_internal.h"
 #include "export_zip.h"
@@ -13,6 +15,7 @@
 #include "fa/core/pack.h"
 #include "fa/tooling/ai_disclosure.h"
 #include "fa/tooling/bundle.h"
+#include "fa/tooling/notices.h"
 #include "fa/tooling/setup.h"
 
 namespace fa::export_detail {
@@ -71,7 +74,131 @@ std::uint64_t file_size_of(const stdfs::path& p) {
     return ec ? 0 : static_cast<std::uint64_t>(n);
 }
 
+// ---- single file ---------------------------------------------------------------------------------------------------
+
+constexpr std::uint64_t kBase64Chunk = 3ull * 256 * 1024;  // bytes read and encoded at a time (a multiple of 3: no padding in the middle)
+
+std::string mb_text(std::uint64_t bytes) {
+    const std::uint64_t tenths = bytes / (1024 * 1024 / 10);  // tenths of a MiB, rounded down
+    return std::to_string(tenths / 10) + "." + std::to_string(tenths % 10) + " MB";
+}
+
+// A reader over the bytes of a wasm module that never reads past the end.
+struct WasmReader {
+    std::string_view d;
+    std::size_t at = 0;
+    bool bad = false;
+    std::uint64_t leb() {
+        std::uint64_t v = 0;
+        for (int shift = 0; shift < 64; shift += 7) {
+            if (at >= d.size()) { bad = true; return 0; }
+            const unsigned char b = static_cast<unsigned char>(d[at++]);
+            v |= static_cast<std::uint64_t>(b & 0x7F) << shift;
+            if ((b & 0x80) == 0) return v;
+        }
+        bad = true;
+        return 0;
+    }
+    unsigned char byte() {
+        if (at >= d.size()) { bad = true; return 0; }
+        return static_cast<unsigned char>(d[at++]);
+    }
+    void skip(std::uint64_t n) {
+        if (n > d.size() - at) { bad = true; at = d.size(); return; }
+        at += static_cast<std::size_t>(n);
+    }
+    // limits: flags, min, and max when flag bit 0 is set. Returns the flags (bit 1 = shared).
+    unsigned limits() {
+        const unsigned flags = static_cast<unsigned>(leb());
+        leb();
+        if (flags & 1) leb();
+        return flags;
+    }
+};
+
+// Reads a UTF-8/ASCII 'bytes of the file' chunk by chunk and writes it as base64 to `out`.
+bool write_base64_of(std::ofstream& out, const stdfs::path& file) {
+    std::ifstream in(os_path(file), std::ios::binary);
+    if (!in) return false;
+    std::string buf(static_cast<std::size_t>(kBase64Chunk), '\0');
+    while (in) {
+        in.read(buf.data(), static_cast<std::streamsize>(buf.size()));
+        const std::streamsize got = in.gcount();
+        if (got <= 0) break;
+        const std::string enc = base64_encode(buf.data(), static_cast<std::size_t>(got));
+        out.write(enc.data(), static_cast<std::streamsize>(enc.size()));
+    }
+    return static_cast<bool>(out) && (in.eof() || !in.bad());
+}
+
+// Text that goes inside <script type="text/plain">: "</" would end the element.
+std::string script_safe(const std::string& text) { return replace_all(text, "</", "<\\/"); }
+
 }  // namespace
+
+std::string web_single_file_name(const Project& p) {
+    const std::string slug = slugify(p.name, '-');
+    return (slug.empty() ? std::string("game") : slug) + ".html";
+}
+
+std::uint64_t base64_length(std::uint64_t bytes) {
+    if (bytes > UINT64_MAX / 2) return UINT64_MAX;
+    return (bytes / 3 + (bytes % 3 ? 1 : 0)) * 4;
+}
+
+bool wasm_uses_shared_memory(std::string_view wasm) {
+    if (wasm.size() < 8 || wasm.compare(0, 4, std::string_view("\0asm", 4)) != 0) return false;
+    WasmReader r{wasm, 8};
+    while (!r.bad && r.at < wasm.size()) {
+        const unsigned id = r.byte();
+        const std::uint64_t size = r.leb();
+        if (r.bad) return false;
+        if (id > 5) return false;  // the memory section is the last one that can declare a memory (imports and memories come first)
+        if (size > wasm.size() - r.at) return false;
+        const std::size_t end = r.at + static_cast<std::size_t>(size);
+        if (id == 2) {  // imports: module, field, kind, descriptor
+            const std::uint64_t count = r.leb();
+            for (std::uint64_t i = 0; i < count && !r.bad && r.at < end; ++i) {
+                r.skip(r.leb());  // module name
+                r.skip(r.leb());  // field name
+                switch (r.byte()) {
+                    case 0: r.leb(); break;                                   // function: type index
+                    case 1: r.byte(); r.limits(); break;                      // table: element type, limits
+                    case 2: if (r.limits() & 2) return !r.bad; break;         // memory
+                    case 3: r.byte(); r.byte(); break;                        // global: type, mutability
+                    case 4: r.byte(); r.leb(); break;                         // tag: attribute, type index
+                    default: return false;
+                }
+            }
+        } else if (id == 5) {  // memories
+            const std::uint64_t count = r.leb();
+            for (std::uint64_t i = 0; i < count && !r.bad && r.at < end; ++i)
+                if (r.limits() & 2) return !r.bad;
+        }
+        r.at = end;
+    }
+    return false;
+}
+
+Result<void> check_web_single_file(const ExportOptions& options, const WebPlayer& player, std::uint64_t packBytes) {
+    if (auto wasm = read_file(player.wasm); wasm && wasm_uses_shared_memory(*wasm))
+        return err("export: singleFile: this web player uses threads (its wasm has a shared memory), and a browser starts those only on a page served with the "
+                   "cross-origin isolation headers (Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy), which a file opened by a double click cannot have",
+                   "export the normal web folder instead (without singleFile) and serve it with those headers, or use the default web player of this FactorIA "
+                   "(it uses no threads): `factoria setup players --platforms web`");
+    const std::uint64_t jsBytes = file_size_of(player.js), wasmBytes = file_size_of(player.wasm);
+    const std::uint64_t playerPage = base64_length(jsBytes) + base64_length(wasmBytes);
+    const std::uint64_t page = playerPage > UINT64_MAX - base64_length(packBytes) ? UINT64_MAX : playerPage + base64_length(packBytes);
+    constexpr std::uint64_t kPageOverhead = 64 * 1024;  // the page's own text, the favicon and the notices
+    if (page != UINT64_MAX && page + kPageOverhead <= options.singleFileMaxBytes) return {};
+    std::string what = "the player is " + mb_text(jsBytes + wasmBytes) + " (" + mb_text(playerPage) + " as base64)";
+    if (packBytes > 0) what += " and the game " + mb_text(packBytes) + " (" + mb_text(base64_length(packBytes)) + " as base64)";
+    return err("export: singleFile: the page would be about " + mb_text(page) + " but the limit is " + mb_text(options.singleFileMaxBytes) + "; " + what +
+                   "; base64 makes every file a third bigger",
+               "make the game smaller (docs/ASSETS.md, \"Import settings\": compress textures and audio), raise the limit with singleFileMaxMb "
+               "(--single-file-max-mb; browsers get slow with pages over about 100 MB), or export the normal web folder (no singleFile) and host it, "
+               "or try it on a phone with project.serve_web");
+}
 
 Result<WebPlayer> find_web_player(const ExportOptions& o, const std::string& sourceRoot) {
     std::error_code ec;
@@ -118,16 +245,75 @@ Result<WebPlayer> find_web_player(const ExportOptions& o, const std::string& sou
                "version, or build it with Emscripten (docs/BUILDING.md, preset web-release) and pass its player/ folder with --player <folder>");
 }
 
-Result<void> export_web(const Project& p, const WebPlayer& player, const stdfs::path& outRoot, const std::vector<std::string>& files,
-                        ExportReport& report) {
+namespace {
+
+// Single file: the page with the player, wasm, favicon and pack inlined. `favicon` is the data: URL of the icon (or "data:,").
+Result<void> write_single_file(const ExportOptions& options, const Project& p, const WebPlayer& player, const stdfs::path& outRoot,
+                               const std::string& shell, const std::string& faviconDataUrl, ExportReport& report) {
+    const stdfs::path packFile = outRoot / kPackFileName;
+    const std::uint64_t packBytes = file_size_of(packFile);
+    // Before anything big is read or built: the sizes are on disk.
+    if (auto r = check_web_single_file(options, player, packBytes); !r.ok()) return r;
+
+    static const std::string kSlot = "{{inlineData}}";
+    const std::size_t slot = shell.find(kSlot);
+    if (slot == std::string::npos || shell.find(kSlot, slot + kSlot.size()) != std::string::npos)
+        return err("export: the page template " + std::string(kShellPath) + " has no single {{inlineData}} placeholder, which singleFile needs",
+                   "update factoria, or restore the placeholder in platforms/web/shell.html");
+    std::vector<std::string> unknown;
+    const std::map<std::string, std::string> values = {{"title", xml_escape(p.name)},
+                                                       {"favicon", faviconDataUrl},
+                                                       {"wasmBytes", std::to_string(file_size_of(player.wasm))},
+                                                       {"pakBytes", std::to_string(packBytes)}};
+    const std::string head = fill_page(shell.substr(0, slot), values, unknown);
+    const std::string tail = fill_page(shell.substr(slot + kSlot.size()), values, unknown);
+    if (!unknown.empty())
+        report.warnings.push_back("The page template has placeholders this factoria does not fill in ({{" + join(unknown, "}}, {{") +
+                                  "}}), so the page shows them as they are. Update factoria, or the template platforms/web/shell.html");
+
+    const stdfs::path page = outRoot / web_single_file_name(p);
+    std::ofstream out(os_path(page), std::ios::binary | std::ios::trunc);
+    if (!out) return err("export: cannot write " + generic(page));
+    out.write(head.data(), static_cast<std::streamsize>(head.size()));
+    const std::pair<const char*, const stdfs::path*> parts[] = {{"fa-wasm", &player.wasm}, {"fa-pak", &packFile}, {"fa-js", &player.js}};
+    for (const auto& [id, file] : parts) {
+        out << "<script type=\"application/octet-stream\" id=\"" << id << "\">";  // never run: the page decodes it
+        if (!write_base64_of(out, *file)) return err("export: cannot read " + generic(*file) + " to inline it, or cannot write " + generic(page));
+        out << "</script>\n";
+    }
+    // The licenses of the engine code in the player travel inside the file too (the folder's FACTORIA_NOTICES.txt may be left behind).
+    out << "<script type=\"text/plain\" id=\"fa-notices\">"
+        << script_safe(third_party_notices(NoticeScope::Game, std::set<std::string>(report.builtinFonts.begin(), report.builtinFonts.end()))) << "</script>\n";
+    out.write(tail.data(), static_cast<std::streamsize>(tail.size()));
+    out.flush();
+    if (!out) return err("export: cannot write " + generic(page) + " (is the disk full?)");
+    out.close();
+    std::error_code ec;
+    stdfs::remove(os_path(packFile), ec);  // inlined: the page does not use it
+    if (ec) report.warnings.push_back("Could not delete " + generic(packFile) + " after inlining it (" + ec.message() + "); the page does not need it");
+    report.format = "html";
+    report.artifact = generic(page);
+    report.mode = player.from;
+    report.nextSteps.push_back("Open " + generic(page) + " with a double click: it runs offline in a browser, with no server (" + mb_text(file_size_of(page)) +
+                               "). Send that one file to try the game on another computer; a phone opens it from a chat or a file manager only in some browsers, "
+                               "so to test on a phone use project.serve_web instead");
+    return {};
+}
+
+}  // namespace
+
+Result<void> export_web(const ExportOptions& options, const Project& p, const WebPlayer& player, const stdfs::path& outRoot,
+                        const std::vector<std::string>& files, ExportReport& report) {
     std::error_code ec;
     stdfs::create_directories(os_path(outRoot), ec);
     // The game first: its size goes into the page.
     if (auto r = pack_project(p, files, outRoot / kPackFileName, report); !r.ok()) return r;
-    for (const stdfs::path* f : {&player.js, &player.wasm}) {
-        stdfs::copy_file(os_path(*f), os_path(outRoot / f->filename()), stdfs::copy_options::overwrite_existing, ec);
-        if (ec) return err("export: cannot copy the web player " + generic(*f) + " to " + generic(outRoot) + ": " + ec.message());
-    }
+    const bool single = options.singleFile;
+    if (!single)
+        for (const stdfs::path* f : {&player.js, &player.wasm}) {
+            stdfs::copy_file(os_path(*f), os_path(outRoot / f->filename()), stdfs::copy_options::overwrite_existing, ec);
+            if (ec) return err("export: cannot copy the web player " + generic(*f) + " to " + generic(outRoot) + ": " + ec.message());
+        }
     const auto shell = bundled_read(kShellPath);
     if (!shell)
         return err(std::string("export: the page template ") + kShellPath + " is not in this factoria",
@@ -146,6 +332,8 @@ Result<void> export_web(const Project& p, const WebPlayer& player, const stdfs::
             const std::vector<std::uint8_t> png = encode_png(small);
             if (png.empty()) {
                 report.warnings.push_back("The game's icon could not be written as favicon.png, so the page has no icon in the browser tab");
+            } else if (single) {
+                favicon = "data:image/png;base64," + base64_encode(png.data(), png.size());
             } else {
                 std::string why;
                 if (!write_file(outRoot / "favicon.png", std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &why))
@@ -154,12 +342,15 @@ Result<void> export_web(const Project& p, const WebPlayer& player, const stdfs::
             }
         }
     }
+    if (single) return write_single_file(options, p, player, outRoot, *shell, favicon, report);
     std::vector<std::string> unknown;
+    // {{inlineData}} is the single-file page's data blocks: empty here, the page loads the files next to it.
     const std::string page = fill_page(*shell,
                                        {{"title", xml_escape(p.name)},
                                         {"favicon", favicon},
                                         {"wasmBytes", std::to_string(file_size_of(player.wasm))},
-                                        {"pakBytes", std::to_string(file_size_of(outRoot / kPackFileName))}},
+                                        {"pakBytes", std::to_string(file_size_of(outRoot / kPackFileName))},
+                                        {"inlineData", ""}},
                                        unknown);
     if (!unknown.empty())
         report.warnings.push_back("The page template has placeholders this factoria does not fill in ({{" + join(unknown, "}}, {{") +
@@ -167,7 +358,8 @@ Result<void> export_web(const Project& p, const WebPlayer& player, const stdfs::
     if (auto r = write_text(outRoot / "index.html", page); !r.ok()) return r;
     report.mode = player.from;
     report.nextSteps.push_back("Try it: a browser does not run it from a file (it fetches the .wasm and game.pak), so serve the folder: "
-                               "python -m http.server 8080 --directory \"" + generic(outRoot) + "\" and open http://localhost:8080/");
+                               "python -m http.server 8080 --directory \"" + generic(outRoot) + "\" and open http://localhost:8080/ "
+                               "(or project.serve_web, which also serves it to a phone; or export with singleFile for one page that opens from a double click)");
     return {};
 }
 

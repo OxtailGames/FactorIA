@@ -92,7 +92,7 @@ TEST_CASE("menu: the editor's tree has the menus, the autotest names and the pla
     const std::set<std::string> names(atNames.begin(), atNames.end());
     for (const char* n : {"menu:file", "menu:view", "menu:ai", "menu:export", "menu:setup", "menu:platform-settings",
                           "menu:revert-ai", "menu:hierarchy", "menu:inspector", "menu:project", "menu:audio", "menu:profiler",
-                          "menu:ai-settings", "menu:ai-roles"})
+                          "menu:ai-settings", "menu:ai-roles", "menu:play-phone"})
         CHECK_MESSAGE(names.count(n) == 1, n);
 
     const menu::Item* file = top(bar, "File");

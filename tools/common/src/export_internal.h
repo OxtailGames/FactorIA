@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -177,8 +178,26 @@ Result<WebPlayer> find_web_player(const ExportOptions& o, const std::string& sou
 
 // <outRoot>/{index.html, factoria_player.js, factoria_player.wasm, game.pak}. The page is platforms/web/shell.html with its
 // placeholders filled in (docs/EXPORTING.md, "Web").
-Result<void> export_web(const Project& p, const WebPlayer& player, const stdfs::path& outRoot, const std::vector<std::string>& files,
-                        ExportReport& report);
+//
+// With options.singleFile it is ONE file instead, <outRoot>/<web_single_file_name(p)>, with the player's JavaScript, the wasm, the
+// favicon and the pack inlined as base64 (streamed to disk in chunks, so the memory it needs does not grow with the game); the size
+// is checked first (check_web_single_file), and nothing else but the pack, which is deleted again, is written.
+Result<void> export_web(const ExportOptions& options, const Project& p, const WebPlayer& player, const stdfs::path& outRoot,
+                        const std::vector<std::string>& files, ExportReport& report);
+
+// "<game-slug>.html": the file of a single-file web export.
+std::string web_single_file_name(const Project& p);
+
+// Size of `bytes` bytes as base64 (with padding), saturating at UINT64_MAX.
+std::uint64_t base64_length(std::uint64_t bytes);
+
+// True when the wasm module declares (or imports) a SHARED memory: a threaded build, which a browser starts only on a page served
+// with cross-origin isolation headers (COOP and COEP), so never from a double click. False for anything that is not a wasm module.
+bool wasm_uses_shared_memory(std::string_view wasm);
+
+// The single-file checks that need no pack: the player must not need a server, and its own base64 (JS plus wasm) must fit in
+// options.singleFileMaxBytes. `packBytes` (0 when the pack is not written yet) is added to the sum. Errors teach what to do.
+Result<void> check_web_single_file(const ExportOptions& options, const WebPlayer& player, std::uint64_t packBytes);
 
 // After the notices are in outRoot: <zipFile> holds the export folder (index.html at its root) for itch.io and other hosts. Sets
 // report.format and report.artifact; limits of itch.io are warnings.
