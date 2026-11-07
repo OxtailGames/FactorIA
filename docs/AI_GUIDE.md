@@ -2021,6 +2021,11 @@ review.pick {"sheet":"latest","n":2}                                            
   Dropped files are deleted 7 days after the pick by `review.cleanup` (it runs after each new sheet; the chosen file is never touched).
 - An effect is drawn as the middle picture of `vfx.filmstrip`; a prefab on a plain stage, framed from its visuals (2D) or turned
   three quarters under a studio light (3D). An item that cannot be drawn is a red tile that cannot be picked; the others still show.
+- **In the editor** the person can answer on their own: each sheet you make is offered in a toast ("Open in Review"), and the Review
+  window (View > Review, EDITOR.md "Review window") shows it big, picks with the keys 1-9 and Enter and runs `review.pick` itself (or
+  `assets.pick` for a sheet of asset candidates). So make the sheet, say in one line what it is for, and ask for one number; then read
+  the answer with `review.info {"sheet":"latest"}` (its `picked`) before you pick, since the person may have picked in the window already:
+  a second pick of an answered sheet fails.
 
 ## 10. Tests
 

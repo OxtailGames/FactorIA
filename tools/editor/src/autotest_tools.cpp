@@ -32,6 +32,7 @@
 #include "fa/core/date.h"
 #include "fa/tooling/feedback_share.h"
 #include "fa/tooling/net.h"
+#include "fa/tooling/play_auto.h"
 #include "fa/tooling/qr.h"
 #include "sokol_app.h"
 #include "imgui_internal.h"
@@ -646,6 +647,7 @@ void Editor::at_build_tools_script() {
             particle_ = ParticleUi{};
             showParticle_ = false;
             reset_auto_play_state();   // section S3: the Play sessions window, its list and a run still going are not carried over
+            reset_review_state();   // section R4: the Review window, its sheet, its pictures and a sheet of seeds still being made are not carried over
             showLevelGen_ = false;   // section R3: the Level generator window, its sample, its preview and its history are not carried over
             levelGen_.clear(level_gen_caller());
             levelGenOpt_ = LevelGenOptions{};
@@ -9321,6 +9323,244 @@ void Editor::at_build_tools_script() {
             std::error_code ec;
             if (!as->sleeper.empty()) stdfs::remove(stdfs::path(as->sleeper), ec);
             stdfs::remove_all(stdfs::path(projectDir_ + "/.factoria/sessions"), ec);  // none of ours is left for the sections after this one
+            toasts_.clear();
+        });
+    }
+
+    section("R4");
+    // View > Review (docs/EDITOR.md, "Review window"): a sheet of four pictures made by a command (the way the AI makes one) is offered
+    // in a toast without taking the focus; its button opens the window on that sheet. The digit 3 selects number 3, the arrows move,
+    // Compare shows 1 and 2 side by side, Enter and the confirmation pick it through review.pick (the other three files move to the
+    // drop folder), History shows the pick, and the Level generator's "Sheet of seeds" makes a sheet of its seeds in a child factoria
+    // whose pick sets that seed. Waits are states; the window is the 1024x642 one of the macOS runner.
+    {
+        struct Rv {
+            std::string sheet, seedsSheet;
+            bool exe = false;
+        };
+        auto rv = std::make_shared<Rv>();
+        auto key = [this, &step](sapp_keycode code) {
+            step(2, [this, code] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, code); });
+            step(3, [this, code] { inject_key(SAPP_EVENTTYPE_KEY_UP, code); });
+        };
+        auto wait_for = [this, &step](std::function<bool()> done, int waits = 1) {
+            for (int i = 0; i < waits; ++i)  // each wait ends at its condition or after the autotest's cap (60 s)
+                step(1, [this, done] {
+                    atWaitCount_ = 0;
+                    atWaitUntil_ = done;
+                });
+        };
+        auto sheet_ready = [this, rv] {
+            return review_.sheet && review_.sheetId == rv->sheet && !review_.sheetLoading && review_.textures.count("sheet") &&
+                   (review_.textures.at("sheet").tex.view || !review_.textures.at("sheet").error.empty());
+        };
+        step(2, [this, rv, project_file] {
+            rv->exe = !factoria_executable().empty();
+            std::error_code ec;   // the sheets of an earlier run of this temp project are not part of this one
+            stdfs::remove_all(stdfs::path(project_file(".factoria/review")), ec);
+            for (int i = 1; i <= 4; ++i) {
+                Image img;
+                img.width = 48;
+                img.height = 32;
+                img.rgba.assign(48 * 32 * 4, 255);
+                for (std::size_t p = 0; p < img.rgba.size(); p += 4) img.rgba[p + std::size_t(i % 3)] = std::uint8_t(60 * i);
+                at_check(save_png(img, project_file("art/at_review_" + std::to_string(i) + ".png")).ok(), "a candidate picture is written");
+            }
+            Json items = Json::array();
+            for (int i = 1; i <= 4; ++i) items.push_back(Json::object({{"image", "art/at_review_" + std::to_string(i) + ".png"}, {"label", "hero " + std::to_string(i)}}));
+            // Through the queued command path, like a call of the AI or of an MCP client.
+            const std::optional<CommandResult> r = run_queued("review.sheet", Json::object({{"label", "Which hero?"}, {"items", items}, {"candidates", true}}));
+            at_check(r && r->ok, "review.sheet makes a sheet of the four pictures (" + (r && !r->ok ? r->error.dump() : std::string()) + ")");
+            if (r && r->ok && r->result.is_object() && r->result.contains("sheet") && r->result["sheet"].is_string()) rv->sheet = r->result["sheet"].get<std::string>();
+        });
+        step(3, [this, rv] {
+            at_check(!review_.show, "the sheet does not open a window by itself (the focus stays where it was)");
+            at_check(std::any_of(toasts_.begin(), toasts_.end(), [&](const Toast& t) { return t.actionId == "review:open-announced" && t.text.find(rv->sheet) != std::string::npos; }),
+                     "...a toast offers to open " + rv->sheet + " in the Review window");
+        });
+        click("review:open-announced");
+        wait_for(sheet_ready);
+        step(3, [this, rv] {
+            at_check(review_.show && review_.sheetId == rv->sheet, "the toast's button opens the Review window on the sheet");
+            at_check(review_.sheet && review_.sheet->items.size() == 4 && !review_.sheet->is_picked(), "...four numbers, waiting for an answer");
+            at_check(review_.textures.count("sheet") && review_.textures.at("sheet").tex.view, "...the sheet's picture is on the GPU (" +
+                     (review_.textures.count("sheet") ? review_.textures.at("sheet").error : std::string("no slot")) + ")");
+            at_check(at_shown("review:picture") && at_shown("review:item:1") && at_shown("review:item:4") && at_shown("review:pick"),
+                     "...the picture, its numbered thumbnails and the Pick button are on screen at this window size");
+            at_check(at_shown("review:row:" + rv->sheet), "...and the sheet is in the list");
+            at_check(review_.rows.size() == 1 && review_.rows[0].picked == 0, "...as the one sheet waiting for an answer");
+        });
+        // View > Review closes and opens it again on the same sheet.
+        click("menu:view");
+        step(3, [] {});
+        click("menu:review");
+        step(3, [this] { at_check(!review_.show, "View > Review closes the window"); });
+        click("menu:view");
+        step(3, [] {});
+        click("menu:review");
+        wait_for(sheet_ready);
+        step(3, [this, rv] {
+            at_check(review_.show && review_.sheetId == rv->sheet && review_.sheet, "...and opens it again on the same sheet");
+            review_.focus = true;   // the keys below go to the window in front
+            review_.selected = 0;
+        });
+        snap("editor_review.png");
+        step(3, [this] { review_.focus = true; });
+        key(SAPP_KEYCODE_3);
+        step(2, [this] { at_check(review_.selected == 3, "the key 3 selects number 3 (" + std::to_string(review_.selected) + ")"); });
+        key(SAPP_KEYCODE_RIGHT);
+        step(2, [this] { at_check(review_.selected == 4, "the right arrow moves to 4"); });
+        key(SAPP_KEYCODE_LEFT);
+        step(2, [this] { at_check(review_.selected == 3, "...the left arrow back to 3"); });
+        // ---- Compare 1 and 2
+        click("review:tab:Compare");
+        step(3, [this] { at_check(review_.tab == 1, "the Compare tab"); });
+        click("review:cmp-a:1");
+        click("review:cmp-b:2");
+        wait_for([this] {
+            auto loaded = [this](const char* k) {
+                const auto it = review_.textures.find(k);
+                return it != review_.textures.end() && (it->second.tex.view || !it->second.error.empty());
+            };
+            return loaded("src:1") && loaded("src:2");
+        });
+        step(3, [this] {
+            at_check(review_.compareA == 1 && review_.compareB == 2, "Compare shows 1 and 2");
+            at_check(review_.textures.count("src:1") && review_.textures.at("src:1").tex.w == 48, "...the candidates' own pictures, read off the UI thread");
+            at_check(at_shown("review:cmp-picture-a") && at_shown("review:cmp-picture-b") && at_shown("review:cmp-title-a") && at_shown("review:cmp-title-b"),
+                     "...side by side with their labels");
+        });
+        snap("editor_review_compare.png");
+        click("review:tab:Sheet");
+        step(3, [this] {
+            at_check(review_.tab == 0, "back to the sheet");
+            review_.focus = true;
+        });
+        // ---- Enter, then the confirmation
+        key(SAPP_KEYCODE_ENTER);
+        step(3, [this] {
+            at_check(review_.confirmOpen && at_shown("review:confirm"), "Enter asks before it picks number 3");
+            const ReviewPickPlan plan = review_.sheet ? review_pick_plan(*review_.sheet, review_.confirmN, true, "") : ReviewPickPlan{};
+            at_check(review_.confirmN == 3 && plan.moves.size() == 3 && at_shown("review:confirm-moves"), "...and lists the three files that move to the drop folder");
+            at_check(at_shown("review:keep-files") && !review_.keepFiles, "...with the option to keep them, off");
+        });
+        click("review:confirm");
+        wait_for([this, rv, project_file] {
+            Result<Json> m = parse_json(read_file(project_file(".factoria/review/" + rv->sheet + "/manifest.json")), "manifest");
+            return review_.pickBad || (m.ok() && json_at(m.value(), "/picked/n").is_number());
+        });
+        step(3, [this, rv, project_file] {
+            Result<Json> m = parse_json(read_file(project_file(".factoria/review/" + rv->sheet + "/manifest.json")), "manifest");
+            const Json n = m.ok() ? json_at(m.value(), "/picked/n") : Json();
+            at_check(!review_.pickBad, "the pick worked (" + review_.pickMessage + ")");
+            at_check(n.is_number_integer() && n.get<int>() == 3, "...the manifest records number 3");
+            std::error_code ec;
+            const bool movedAway = !stdfs::exists(stdfs::path(project_file("art/at_review_1.png")), ec) &&
+                                   !stdfs::exists(stdfs::path(project_file("art/at_review_2.png")), ec) &&
+                                   !stdfs::exists(stdfs::path(project_file("art/at_review_4.png")), ec);
+            at_check(movedAway && stdfs::exists(stdfs::path(project_file("art/at_review_3.png")), ec), "...the other three files left art/, the picked one stayed");
+            std::size_t dropped = 0;
+            for (const auto& e : stdfs::directory_iterator(stdfs::path(project_file(".factoria/review/dropped/" + rv->sheet)), ec)) dropped += e.is_regular_file(ec) ? 1 : 0;
+            at_check(dropped == 3, "...and are in the drop folder (" + std::to_string(dropped) + ")");
+            at_check(review_.pickLines.size() >= 3 && at_shown("review:pick-message"), "...the window says which files moved");
+            at_check(!review_.confirmOpen, "...and the confirmation closed");
+        });
+        // ---- History
+        click("review:tab:History");
+        wait_for([this, rv] {
+            return std::any_of(review_.history.begin(), review_.history.end(), [&](const ReviewHistoryRow& h) { return h.id == rv->sheet; });
+        });
+        step(3, [this, rv] {
+            const auto h = std::find_if(review_.history.begin(), review_.history.end(), [&](const ReviewHistoryRow& r) { return r.id == rv->sheet; });
+            at_check(h != review_.history.end() && h->n == 3 && !h->who.empty() && !h->at.empty(), "History shows the pick: number 3, who and when");
+            at_check(h != review_.history.end() && h->dropped.size() == 3 &&
+                         std::all_of(h->dropped.begin(), h->dropped.end(), [](const ReviewDroppedLine& d) { return d.status == "moved"; }),
+                     "...and the three dropped files, still in the drop folder");
+            at_check(at_shown("review:history:" + rv->sheet) && at_shown("review:history-open:" + rv->sheet), "...on screen, with Open");
+        });
+        // The sheet's id is known once the script runs: the click looks the button up then.
+        for (int phase = 0; phase < 3; ++phase)
+            step(phase == 2 ? 4 : 2, [this, rv, phase] {
+                const sapp_event_type type = phase == 0 ? SAPP_EVENTTYPE_MOUSE_MOVE : phase == 1 ? SAPP_EVENTTYPE_MOUSE_DOWN : SAPP_EVENTTYPE_MOUSE_UP;
+                inject_mouse(type, at_widget("review:history-open:" + rv->sheet));
+            });
+        wait_for([this] { return review_.sheet && review_.sheet->is_picked() && !review_.sheetLoading; });
+        step(3, [this, rv] {
+            at_check(review_.tab == 0 && review_.sheetId == rv->sheet && review_.sheet && review_.sheet->picked_n() == 3, "Open shows the answered sheet");
+            at_check(at_shown("review:pick") && !at_enabled("review:pick"), "...read-only: its Pick button is off");
+        });
+        // ---- the Level generator's sheet of seeds
+        step(2, [this, project_file] {
+            write_file(project_file("levels/at_review_sample.json"),
+                       R"({"rows":["............","..####..##..","..#..#..##..","..#..#......","..####..#...","..........#.","....#.......","............"],"legend":{"#":0}})");
+            showLevelGen_ = true;
+            levelGenOpt_ = LevelGenOptions{};
+            levelGenOpt_.sampleFile = "levels/at_review_sample.json";
+            levelGenOpt_.width = 16;
+            levelGenOpt_.height = 10;
+            levelGenOpt_.n = 2;
+            levelGenOpt_.seed = 5;
+            review_.seedsCount = 3;
+            focus_window("Level generator");
+        });
+        step(3, [this] { at_check(at_shown("levelgen:seeds-sheet") && at_enabled("levelgen:seeds-sheet"), "the Level generator has a Sheet of seeds button"); });
+        click("levelgen:seeds-sheet");
+        wait_for([this] { return !reviewSeedsJob_.running(); }, 4);   // a child factoria: four waits of at most 60 s on a loaded VM
+        step(3, [this, rv] {
+            if (!rv->exe) {
+                atLog_.push_back("NOTE no factoria next to the editor and no FA_FACTORIA_EXE: the sheet of seeds' error path was tested instead");
+                at_check(levelGenMessageBad_ && levelGenMessage_.find("not found") != std::string::npos, "with no factoria tool the button says what is missing");
+                return;
+            }
+            at_check(!levelGenMessageBad_, "the sheet of seeds was made (" + levelGenMessage_ + ")");
+            rv->seedsSheet = review_.sheetId;
+        });
+        wait_for([this, rv] { return !rv->exe || (review_.sheet && review_.sheetId != rv->sheet && !review_.sheetLoading); });
+        step(3, [this, rv] {
+            if (!rv->exe) return;
+            at_check(review_.show && review_.sheet && review_.sheet->kind == "levelSeeds" && review_.sheet->items.size() == 3,
+                     "...and opens in the Review window: three levels");
+            at_check(review_.tab == 0, "...on its Sheet tab");
+            rv->seedsSheet = review_.sheetId;
+            review_.focus = true;
+        });
+        step(3, [this] { review_.focus = true; });
+        key(SAPP_KEYCODE_2);
+        key(SAPP_KEYCODE_ENTER);
+        step(3, [this, rv] {
+            if (!rv->exe) return;
+            at_check(review_.selected == 2 && review_.confirmOpen, "2 and Enter ask to pick the second level");
+            at_check(!at_shown("review:confirm-moves"), "...a level is no file: nothing moves");
+        });
+        step(2, [this, rv] {
+            if (rv->exe && at_shown("review:confirm")) inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("review:confirm"));
+        });
+        step(2, [this, rv] {
+            if (rv->exe && at_shown("review:confirm")) inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget("review:confirm"));
+        });
+        step(4, [this, rv] {
+            if (rv->exe && at_shown("review:confirm")) inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget("review:confirm"));
+        });
+        wait_for([this, rv] {
+            return !rv->exe || levelGen_.state() == LevelGenSession::State::Ready || levelGen_.state() == LevelGenSession::State::Failed || review_.pickBad;
+        });
+        step(3, [this, rv] {
+            if (!rv->exe) return;
+            at_check(!review_.pickBad, "the level is picked (" + review_.pickMessage + ")");
+            at_check(levelGenOpt_.seed == 6 && levelGenOpt_.sampleFile == "levels/at_review_sample.json" && levelGenOpt_.width == 16,
+                     "...the Level generator takes its seed (6), sample and size");
+            at_check(showLevelGen_ && levelGen_.state() == LevelGenSession::State::Ready && levelGen_.preview().seed == 6,
+                     "...and shows that level (" + levelGen_.error() + ")");
+        });
+        // ---- leave the editor as the other sections expect it
+        step(2, [this, project_file] {
+            reset_review_state();
+            showLevelGen_ = false;
+            levelGen_.clear(level_gen_caller());
+            std::error_code ec;
+            stdfs::remove_all(stdfs::path(project_file(".factoria/review")), ec);
+            for (int i = 1; i <= 4; ++i) stdfs::remove(stdfs::path(project_file("art/at_review_" + std::to_string(i) + ".png")), ec);
+            stdfs::remove(stdfs::path(project_file("levels/at_review_sample.json")), ec);
             toasts_.clear();
         });
     }
