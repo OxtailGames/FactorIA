@@ -252,8 +252,10 @@ session in the format of the editor's play sessions ([EDITOR.md](EDITOR.md#play-
 unchanged and `play.sessions` lists it with its ending and score. Use it after a change to see that the game still starts, plays and
 ends, or to find where it gets stuck, with nobody at the keyboard.
 
-A run keeps the newest 30 `-auto` sessions (older ones are deleted at the start of the next run) and writes its folder only when it is
-complete: the pictures wait in a temp folder, so a run that is cancelled or killed leaves nothing behind.
+A run keeps the newest 30 `-auto` sessions (once its own session is written it deletes the older ones) and writes its session folder
+only when it is complete: the pictures wait in `.factoria/cache/play-auto-<process id>-<n>/` and move into the session at the end. A
+run that is cancelled leaves no session folder, and a run that is killed leaves only its `play-auto-*` folder in `.factoria/cache/`,
+which the next run deletes (when its process is gone, or the folder is more than an hour old).
 
 ```
 factoria call --project games/x play.auto '{"seconds":120,"seed":7}'

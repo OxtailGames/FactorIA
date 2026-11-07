@@ -45,7 +45,7 @@ std::string stand_in(const stdfs::path& dir, const std::string& posix, const std
     stdfs::permissions(file, stdfs::perms::owner_all, stdfs::perm_options::add);
     (void)windows;
 #endif
-    return fs::path_to_utf8(file);
+    return file.string();  // native, like the variable it goes into (getenv); UTF-8 is for the process boundary
 }
 
 struct ScopedExe {
@@ -62,7 +62,7 @@ TEST_CASE("factoria_executable: FA_FACTORIA_EXE names a file, and a wrong one is
         CHECK_FALSE(factoria_executable().empty());
     }
     {
-        ScopedExe exe(fs::path_to_utf8(tmp.path / "missing"));
+        ScopedExe exe((tmp.path / "missing").string());
         CHECK(factoria_executable().empty());
     }
 }

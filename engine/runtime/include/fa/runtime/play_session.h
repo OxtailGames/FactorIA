@@ -88,9 +88,10 @@ std::vector<std::string> play_session_names();
 // True for a name play.auto gave ("20260131-142500-auto", "...-auto-2"): the sessions a person recorded never end that way.
 bool is_auto_play_session_name(std::string_view name);
 // Deletes the oldest automatic sessions (folders and all) so that at most `keep` remain; the sessions a person recorded are never
-// touched. A folder that cannot be deleted (a file open on Windows) stays and is not counted as deleted. Returns how many it deleted.
-// play.auto calls it before a run, so a reviewer that plays again and again cannot fill the disk (kPlayAutoKeepSessions).
-int prune_auto_play_sessions(std::size_t keep);
+// touched. A folder that cannot be deleted (a file open on Windows) stays and is not counted as deleted. `spare` is a session that
+// is never deleted and counts among the kept ones (the one just written, whatever its name sorts as). Returns how many it deleted.
+// play.auto calls it once its session is written, so a reviewer that plays again and again cannot fill the disk (kPlayAutoKeepSessions).
+int prune_auto_play_sessions(std::size_t keep, std::string_view spare = {});
 // Typed reads of a session.json that a person may have edited: the member when `o` is an object and the member has that type, `def`
 // otherwise. (Json::value throws when the member is there with another type.) The editor reads sessions on its UI thread with these.
 std::string session_text(const Json& o, const char* key, const std::string& def = {});

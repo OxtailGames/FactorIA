@@ -673,10 +673,13 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
   stuck, broken...) and how many problems it marked, and **Open report** selects the session in the window.
   A run of an AI that works in the editor (the AI panel calls `play.auto`) is the same child process, started from the AI's own thread:
   the editor never waits for it either, and the AI panel's **Stop** kills it (a cancelled run writes no session); the Play sessions window
-  lists its session when it ends. While a run goes its pictures are in a folder of the system's temp dir and move into
-  `.factoria/sessions/<name>/` only when the run ends, so a cancelled or killed run leaves no half-written folder. A run keeps the
-  newest 30 sessions of `play.auto` (`-auto` in the name) and deletes older ones first, so playing again and again does not fill the disk;
-  the sessions you recorded with Play .. Stop are never deleted.
+  lists its session when it ends. While a run goes its pictures are in `.factoria/cache/play-auto-<process id>-<n>/` and move into
+  `.factoria/sessions/<name>/` only when the run ends, so a cancelled run leaves no half-written session folder (a run that is killed
+  leaves only its `play-auto-*` folder in the cache, which the next run deletes). A run keeps the newest 30 sessions of `play.auto`
+  (`-auto` in the name) and, once its own session is written, deletes the older ones, so playing again and again does not fill the
+  disk; the sessions you recorded with Play .. Stop are never deleted. A project folder with accents works; on Windows a folder with
+  characters outside the system's code page (the ANSI code page of the PC's language) cannot be handed to the child process yet, and
+  the run fails with an error instead of playing.
 - **Play sessions window**: lists the sessions of `.factoria/sessions/`, newest first. A session the AI's bot played is marked **AI** and
   shows how it ended; one you recorded is not. Click a row for its report (how it ended, score, phases, performance, marks and notes), with
   **Attach to the AI chat** and, for a run of the bot, **Copy replay command** (the command that plays the bot's input again). The list is read

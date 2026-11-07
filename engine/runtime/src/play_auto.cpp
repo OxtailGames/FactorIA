@@ -3,12 +3,24 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cerrno>
 #include <cmath>
 #include <ctime>
 #include <filesystem>
 #include <format>
+#include <atomic>
 #include <set>
 #include <unordered_map>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <process.h>
+#include <windows.h>
+#else
+#include <csignal>
+#include <unistd.h>
+#endif
 
 #include "engine_impl.h"
 #include "fa/core/fs.h"
@@ -30,6 +42,65 @@ constexpr double kScenePictureDelay = 0.5;     // game seconds after a scene loa
 constexpr std::size_t kMaxNotes = 20;
 
 double round3(double v) { return std::round(v * 1000.0) / 1000.0; }
+
+// ---- the scratch folder of the pictures
+// A run takes its pictures into <project>/.factoria/cache/play-auto-<process id>-<n>/ and moves them into the session's folder when
+// the session is complete. The folder is inside the project on purpose: the engine's paths are project-relative native strings (the
+// ANSI code page on Windows), so a temp folder of the system under C:\Users\José\ could not be handed to Engine::screenshot.
+constexpr const char* kScratchRoot = ".factoria/cache";
+constexpr const char* kScratchPrefix = "play-auto-";
+
+long long this_process_id() {
+#if defined(_WIN32)
+    return _getpid();
+#else
+    return static_cast<long long>(::getpid());
+#endif
+}
+
+// False only when the process is known to be gone (a run that was killed): a doubt keeps the folder, the age rule deals with it.
+bool process_may_exist(long long pid) {
+    if (pid <= 0 || pid > 0x7fffffffLL) return false;
+#if defined(_WIN32)
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, DWORD(pid));
+    if (!h) return GetLastError() != ERROR_INVALID_PARAMETER;
+    DWORD code = 0;
+    const bool alive = !GetExitCodeProcess(h, &code) || code == STILL_ACTIVE;
+    CloseHandle(h);
+    return alive;
+#else
+    return ::kill(static_cast<pid_t>(pid), 0) == 0 || errno != ESRCH;
+#endif
+}
+
+// Deletes the scratch folders a run that was killed left behind: those of a process that is gone, and any older than an hour (an
+// hour is far above the longest run). Never one of this process that is younger than that: another run of it may be using it.
+void remove_stale_scratch_dirs() {
+    namespace stdfs = std::filesystem;
+    std::error_code ec;
+    const stdfs::path root = fs::os_path(fs::resolve(kScratchRoot));
+    std::vector<stdfs::path> stale;
+    for (const auto& e : stdfs::directory_iterator(root, ec)) {
+        std::error_code e2;
+        if (!e.is_directory(e2)) continue;
+        const std::string name = e.path().filename().string();  // ASCII: we named it
+        if (name.rfind(kScratchPrefix, 0) != 0) continue;
+        const std::size_t dash = name.find('-', std::char_traits<char>::length(kScratchPrefix));
+        if (dash == std::string::npos) continue;
+        long long pid = 0;
+        bool digits = dash > std::char_traits<char>::length(kScratchPrefix);
+        for (std::size_t i = std::char_traits<char>::length(kScratchPrefix); i < dash && digits; ++i) {
+            digits = name[i] >= '0' && name[i] <= '9' && pid < 100000000000LL;
+            if (digits) pid = pid * 10 + (name[i] - '0');
+        }
+        if (!digits) continue;
+        const auto written = stdfs::last_write_time(e.path(), e2);
+        const bool old = !e2 && stdfs::file_time_type::clock::now() - written > std::chrono::hours(1);
+        const bool gone = pid != this_process_id() && !process_may_exist(pid);
+        if (old || gone) stale.push_back(e.path());
+    }
+    for (const stdfs::path& p : stale) fs::remove_tree(p, ec);
+}
 
 // The explorer's generator: mulberry32, the algorithm of rng.create in scripts. Local to the bot: the world's RNG is never touched,
 // so a replay (which has no bot) draws the same numbers the game did.
@@ -305,7 +376,7 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
         if (engine.input().has_action(a)) uiActions.push_back(a);
 
     // ---- the session folder and the pictures
-    prune_auto_play_sessions(std::size_t(kPlayAutoKeepSessions - 1));  // this run makes the kPlayAutoKeepSessions-th: the oldest beyond that go
+    remove_stale_scratch_dirs();
     std::string name = opt.sessionName.empty() ? play_session_name(std::time(nullptr)) + "-auto" : opt.sessionName;
     {
         const std::string base = name;
@@ -319,18 +390,30 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     const std::string relDir = std::string(kPlaySessionsDir) + "/" + name;
     const std::string absDir = fs::path_to_utf8(fs::resolve(relDir));  // UTF-8, never the Windows code page: it goes into JSON
     bool canShoot = opt.screenshots && engine.renderer() != nullptr;
-    // The pictures are taken into a scratch folder of the system and moved into the session's folder at the end, when the session is
-    // complete: a run that is killed (Cancel, the editor closing) leaves nothing under .factoria/sessions, only a folder of the OS's temp.
+    // The pictures are taken into a scratch folder of the project (.factoria/cache) and moved into the session's folder at the end,
+    // when the session is complete: a run that is cancelled leaves nothing under .factoria/sessions, and a run that is killed leaves
+    // only its scratch folder, which the next run deletes (remove_stale_scratch_dirs).
+    static std::atomic<unsigned> scratchCounter{0};
     struct Scratch {
-        std::filesystem::path dir;
+        std::string rel;  // project-relative, "" = none
         ~Scratch() {
-            if (dir.empty()) return;
+            if (rel.empty()) return;
             std::error_code ec;
-            fs::remove_tree(dir, ec);
+            fs::remove_tree(fs::resolve(rel), ec);
         }
     } scratch;
     std::vector<std::string> taken;  // the picture files in the scratch folder
-    if (canShoot) scratch.dir = fs::make_temp_dir("fa_play_auto");
+    if (canShoot) {
+        scratch.rel = std::format("{}/{}{}-{}", kScratchRoot, kScratchPrefix, this_process_id(), scratchCounter++);
+        std::error_code ec;
+        fs::remove_tree(fs::resolve(scratch.rel), ec);
+        std::filesystem::create_directories(fs::os_path(fs::resolve(scratch.rel)), ec);
+        if (ec) {
+            note("No screenshots: the folder " + scratch.rel + " for them could not be made (" + ec.message() + ").");
+            scratch.rel.clear();
+            canShoot = false;
+        }
+    }
     if (!opt.screenshots) {
         note("Screenshots were switched off.");
     } else if (!engine.renderer()) {
@@ -349,7 +432,7 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
             return {};
         }
         std::string err;
-        if (!engine.screenshot(fs::path_to_utf8(scratch.dir / file), &err)  /* absolute, UTF-8: no code-page round trip */) {
+        if (!engine.screenshot(scratch.rel + "/" + file, &err)) {  // project-relative, like every path the engine takes
             note("A screenshot failed, the rest were not tried: " + err);
             canShoot = false;
             return {};
@@ -657,7 +740,8 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
         std::filesystem::create_directories(fs::os_path(finalDir), ec);
         std::set<std::string> lost;
         for (const std::string& file : taken) {
-            const std::filesystem::path from = fs::os_path(scratch.dir / file), to = fs::os_path(finalDir / file);
+            const std::filesystem::path from = fs::os_path(fs::resolve(scratch.rel + "/" + file));
+            const std::filesystem::path to = fs::os_path(finalDir / file);
             std::error_code mv;
             std::filesystem::rename(from, to, mv);  // another drive: copy
             if (mv) {
@@ -716,6 +800,7 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
 
     if (auto w = write_play_session(relDir, s); !w.ok())
         return make_error("The session could not be written to " + absDir + ": " + w.error().message, w.error().hint);
+    prune_auto_play_sessions(std::size_t(kPlayAutoKeepSessions), name);  // the oldest automatic ones beyond the newest N go
 
     Json phases = Json::array();
     int n = 0;

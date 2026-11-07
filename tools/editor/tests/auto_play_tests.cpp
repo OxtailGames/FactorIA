@@ -34,6 +34,9 @@ void set_env(const char* name, const char* value) {
 #endif
 }
 
+// FA_FACTORIA_EXE is a native string, as getenv gives it (the ANSI code page on Windows); UTF-8 is only for the process boundary.
+void set_exe(const stdfs::path& file) { set_env("FA_FACTORIA_EXE", file.string().c_str()); }
+
 }  // namespace
 
 TEST_CASE("auto_play_args: the seconds are clamped to the window's range and the pictures follow the box") {
@@ -94,9 +97,9 @@ TEST_CASE("auto_play_executable: FA_FACTORIA_EXE wins and must name a file") {
     const stdfs::path dir = fs::make_temp_dir("fa_auto_play_exe");
     const stdfs::path file = dir / stdfs::path(u8"factoría-herramienta");  // an accent: UTF-8 all the way, never the ANSI code page
     { std::ofstream(file, std::ios::binary) << "x"; }
-    set_env("FA_FACTORIA_EXE", fs::path_to_utf8(file).c_str());
+    set_exe(file);
     CHECK(fs::path_from_utf8(auto_play_executable()) == file);
-    set_env("FA_FACTORIA_EXE", fs::path_to_utf8(dir / "missing").c_str());
+    set_exe(dir / "missing");
     CHECK(auto_play_executable().empty());  // a wrong override is not silently replaced by another program
     set_env("FA_FACTORIA_EXE", nullptr);
     std::error_code ec;
@@ -105,10 +108,10 @@ TEST_CASE("auto_play_executable: FA_FACTORIA_EXE wins and must name a file") {
 
 TEST_CASE("AutoPlayJob: no factoria is an outcome that says what is missing, not a crash") {
     const stdfs::path dir = fs::make_temp_dir("fa_auto_play_none");
-    set_env("FA_FACTORIA_EXE", fs::path_to_utf8(dir / "missing").c_str());
+    set_exe(dir / "missing");
     AutoPlayJob job;
     AutoPlayRequest req;
-    req.projectDir = fs::path_to_utf8(dir);
+    req.projectDir = dir;
     CHECK(job.start(req));
     auto out = job.take_result();
     REQUIRE(out.has_value());
@@ -166,8 +169,8 @@ TEST_CASE("AutoPlayJob: a child that answers, one that fails and one that is can
     AutoPlayJob job;
 
     // Answers: the arguments reach it and its stderr line is the progress line.
-    set_env("FA_FACTORIA_EXE", fs::path_to_utf8(stand_in(dir, std::string("echo \"playing\" >&2\n") + "echo \"$@\" > args.txt\n" + "echo '" + kAnswer + "'",
-                                                         std::string("@echo playing 1>&2\r\n") + "@echo %* > args.txt\r\n" + "@echo " + kAnswer)).c_str());
+    set_exe(stand_in(dir, std::string("echo \"playing\" >&2\n") + "echo \"$@\" > args.txt\n" + "echo '" + kAnswer + "'",
+                     std::string("@echo playing 1>&2\r\n") + "@echo %* > args.txt\r\n" + "@echo " + kAnswer));
     REQUIRE(job.start(req));
     REQUIRE(wait_done(job, 60));
     auto out = job.take_result();
@@ -186,9 +189,8 @@ TEST_CASE("AutoPlayJob: a child that answers, one that fails and one that is can
     CHECK(job.progress_line().find("playing") == 0);
 
     // Fails with a command error.
-    set_env("FA_FACTORIA_EXE",
-            fs::path_to_utf8(stand_in(dir, "echo '{\"ok\":false,\"error\":{\"message\":\"No scene.\",\"hint\":\"Add one.\"}}'\nexit 1",
-                                      "@echo {\"ok\":false,\"error\":{\"message\":\"No scene.\",\"hint\":\"Add one.\"}}\r\n@exit /b 1")).c_str());
+    set_exe(stand_in(dir, "echo '{\"ok\":false,\"error\":{\"message\":\"No scene.\",\"hint\":\"Add one.\"}}'\nexit 1",
+                     "@echo {\"ok\":false,\"error\":{\"message\":\"No scene.\",\"hint\":\"Add one.\"}}\r\n@exit /b 1"));
     REQUIRE(job.start(req));
     REQUIRE(wait_done(job, 60));
     out = job.take_result();
@@ -197,7 +199,7 @@ TEST_CASE("AutoPlayJob: a child that answers, one that fails and one that is can
     CHECK(out->error == "No scene.");
 
     // Cancel: the child sleeps for a minute; cancel() ends it within seconds and the outcome says cancelled.
-    set_env("FA_FACTORIA_EXE", fs::path_to_utf8(sleeper(dir)).c_str());
+    set_exe(sleeper(dir));
     REQUIRE(job.start(req));
     CHECK(job.running());
     CHECK_FALSE(job.start(req));  // one run at a time
@@ -225,8 +227,8 @@ TEST_CASE("AutoPlayJob: a project folder with accents reaches the child as UTF-8
     stdfs::create_directories(tool, ec);
     // The stand-in writes a file in its working directory: it exists in the project folder only if the child started there, which a
     // working directory handed over as ANSI bytes (invalid UTF-8) cannot do on Windows.
-    set_env("FA_FACTORIA_EXE", fs::path_to_utf8(stand_in(tool, std::string("echo here > cwd.txt\n") + "echo '" + kAnswer + "'",
-                                                          std::string("@echo here > cwd.txt\r\n") + "@echo " + kAnswer)).c_str());
+    set_exe(stand_in(tool, std::string("echo here > cwd.txt\n") + "echo '" + kAnswer + "'",
+                     std::string("@echo here > cwd.txt\r\n") + "@echo " + kAnswer));
     AutoPlayJob job;
     AutoPlayRequest req;
     req.projectDir = project;

@@ -1,5 +1,6 @@
 // play.auto's engine side (fa/runtime/play_auto.h): the bot hook and the explorer, the session it writes, determinism, replay,
 // and the stuck / broken detection. Every run here is a few game seconds and no GPU, far below any time cap.
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <set>
@@ -9,6 +10,12 @@
 #include "fa/runtime/engine.h"
 #include "fa/runtime/play_auto.h"
 #include "fa/runtime/play_session.h"
+
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 using namespace fa;
 namespace stdfs = std::filesystem;
@@ -536,8 +543,10 @@ TEST_CASE("play.auto: the replay command quotes a scene path with spaces") {
 }
 
 TEST_CASE("play.auto: pictures per phase and at the end, the cap of 40, and play.report {phase} shows one (needs a graphics device)") {
+    // A folder with accents: the pictures are taken inside the project, with project-relative paths (no code page in between).
     AutoProject p(true, "import { game } from \"factoria\";\n"
-                        "let n = 0;\ngame.autoplay((bot) => { if (n < 45) game.phase(\"stage \" + (++n)); return [\"move_right\"]; });\n");
+                        "let n = 0;\ngame.autoplay((bot) => { if (n < 45) game.phase(\"stage \" + (++n)); return [\"move_right\"]; });\n",
+                  stdfs::path(u8"proyecto-José ñandú"));
     PlayAutoOptions o;
     o.seconds = 3;
     o.stuckSeconds = 3;
@@ -559,6 +568,12 @@ TEST_CASE("play.auto: pictures per phase and at the end, the cap of 40, and play
         if (f.path().extension() == ".png") ++files;
     CHECK(files == kPlayAutoMaxPictures + 1);
     CHECK(stdfs::exists(folder / "end.png"));
+    {
+        int scratchDirs = 0;  // the pictures' scratch folder is gone once the run is complete
+        for (const auto& f : stdfs::directory_iterator(p.dir / ".factoria" / "cache", ec))
+            if (f.path().filename().string().rfind("play-auto-", 0) == 0) ++scratchDirs;
+        CHECK(scratchDirs == 0);
+    }
     CHECK(r["endScreenshot"].get<std::string>().size() > 0);
     REQUIRE(r["phases"].size() == 46);
     CHECK(r["phases"][1]["screenshot"].get<std::string>() == "phase-2.png");
@@ -611,4 +626,54 @@ TEST_CASE("play.auto: the names of automatic sessions, and the pruning keeps the
     CHECK(stdfs::exists(sessions / "20260101-090000-auto"));
     CHECK(prune_auto_play_sessions(0) == 2);
     CHECK(play_session_names().size() == 1);
+}
+
+TEST_CASE("play.auto: prune never deletes the spared session, even when its name sorts as an old one") {
+    AutoProject p(true);
+    const stdfs::path rootBefore = fs::project_root();
+    struct Restore {
+        stdfs::path before;
+        ~Restore() { fs::set_project_root(before); }
+    } restore{rootBefore};
+    fs::set_project_root(p.dir);
+    const stdfs::path sessions = p.dir / ".factoria" / "sessions";
+    for (const char* n : {"20260101-100000-auto", "20260101-100001-auto", "20260101-100002-auto", "aaa-auto"}) {
+        stdfs::create_directories(sessions / n);
+        REQUIRE(fs::write_text((sessions / n / "session.json").generic_string(), "{}").ok());
+    }
+    CHECK(is_auto_play_session_name("20260101-100003-auto"));
+    CHECK_FALSE(is_auto_play_session_name("aaa-auto"));  // not a name play.auto gives: a person's folder, untouched
+    CHECK(prune_auto_play_sessions(1, "20260101-100000-auto") == 1);  // the newest and the spared stay, the middle one goes
+    CHECK(stdfs::exists(sessions / "20260101-100000-auto"));
+    CHECK(stdfs::exists(sessions / "20260101-100002-auto"));
+    CHECK_FALSE(stdfs::exists(sessions / "20260101-100001-auto"));
+    CHECK(stdfs::exists(sessions / "aaa-auto"));
+}
+
+TEST_CASE("play.auto: the scratch folders of a run that was killed are deleted by the next run, and a live run's are not") {
+    const std::string own = std::to_string(
+#if defined(_WIN32)
+        _getpid()
+#else
+        getpid()
+#endif
+    );
+    AutoProject p(true, nullptr, stdfs::path(u8"proyecto-José ñandú"));
+    const stdfs::path cache = p.dir / ".factoria" / "cache";
+    const stdfs::path dead = cache / "play-auto-2000000000-0";  // no process has that id
+    const stdfs::path mine = cache / ("play-auto-" + own + "-9999");
+    const stdfs::path mineOld = cache / ("play-auto-" + own + "-9998");
+    const stdfs::path other = cache / "play-auto-notes";  // not ours: left alone
+    for (const stdfs::path& d : {dead, mine, mineOld, other}) {
+        stdfs::create_directories(d);
+        REQUIRE(fs::write_text((d / "end.png").generic_string(), "x").ok());
+    }
+    std::error_code ec;
+    stdfs::last_write_time(mineOld, stdfs::file_time_type::clock::now() - std::chrono::hours(3), ec);
+    REQUIRE_FALSE(ec);
+    (void)run(p);
+    CHECK_FALSE(stdfs::exists(dead));
+    CHECK_FALSE(stdfs::exists(mineOld));  // older than an hour
+    CHECK(stdfs::exists(mine));           // this process, young: another run of it may be using it
+    CHECK(stdfs::exists(other));
 }
