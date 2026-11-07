@@ -2,6 +2,8 @@
 // assets.pick keeps the one the person chose. The fake provider stands for a real one; the user folder is a scratch folder.
 #include <filesystem>
 #include <fstream>
+#include <string>
+#include <vector>
 
 #include "asset_test.h"
 #include "fa/ai/asset_cost.h"
@@ -111,8 +113,15 @@ TEST_CASE("assets.generate_image count: out of range is refused with the pointer
     // overwrite makes them again; a slot that exists needs overwrite too
     Json args = candidate_args("assets/a.png", 3);
     args["overwrite"] = true;
-    game.ok("assets.generate_image", args);
+    const Json over = game.ok("assets.generate_image", args);
     CHECK(game.file("assets/a.candidate-2.png") != png_bytes(4, 4, 1, 2, 3));
+    // that file was not a candidate of the slot (assets.json did not list it as one): the result says it was overwritten
+    REQUIRE(over.contains("warnings"));
+    CHECK(has(over["warnings"].dump(), "'assets/a.candidate-2.png' was overwritten"));
+    CHECK_FALSE(has(over["warnings"].dump(), "'assets/a.candidate-1.png' was overwritten"));
+    // a second overwrite replaces real candidates of the slot: no such warning
+    const Json again = game.ok("assets.generate_image", args);
+    CHECK_FALSE(has(again.value("warnings", Json::array()).dump(), "was overwritten"));
 
     game.put("assets/b.png", png_bytes(4, 4, 1, 2, 3));
     r = game.call("assets.generate_image", candidate_args("assets/b.png", 2));
@@ -358,6 +367,111 @@ TEST_CASE("assets.pick: an existing slot needs overwrite and is kept in the drop
     REQUIRE(review_cleanup(game.dir.str(), {}).ok);
     CHECK_FALSE(game.exists(".factoria/assets/candidates/sheet-0001/00_tile.png"));
     CHECK_FALSE(game.exists(".factoria/assets/candidates/sheet-0001/02_tile.candidate-2.png"));
+}
+
+TEST_CASE("assets.pick: only the newest candidates sheet of a slot can be answered (a regeneration with overwrite replaces the older one)") {
+    Game game(fake_config());
+    Json args = candidate_args("assets/ring.png", 2);
+    args["seed"] = 10;
+    const std::string first = game.ok("assets.generate_image", args)["sheet"].get<std::string>();
+    const std::string firstPicture = game.file("assets/ring.candidate-2.png");
+
+    // new pictures under the same file names, while the first sheet still shows the old thumbnails
+    args["overwrite"] = true;
+    args["seed"] = 50;
+    const Json second = game.ok("assets.generate_image", args);
+    const std::string secondSheet = second["sheet"].get<std::string>();
+    CHECK(secondSheet != first);
+    CHECK(game.file("assets/ring.candidate-2.png") != firstPicture);
+    CHECK(second["replacedSheet"] == first);
+    REQUIRE(second.contains("warnings"));
+    CHECK(has(second["warnings"].dump(), first + ", which was not answered yet"));
+
+    // a number given for the first sheet is refused: it would move a picture the person never saw
+    auto r = game.call("assets.pick", {{"slot", "assets/ring.png"}, {"n", 2}, {"sheet", first}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "superseded");
+    CHECK(has(r.error["message"].get<std::string>(), secondSheet));
+    CHECK(has(r.error["hint"].get<std::string>(), "Show " + secondSheet));
+    CHECK_FALSE(game.exists("assets/ring.png"));
+    CHECK(game.exists("assets/ring.candidate-1.png"));
+    CHECK(Json::parse(game.file(".factoria/review/" + first + "/manifest.json")).value("picked", Json(nullptr)).is_null());
+    // the sheet given by its number, as the editor's Review window may pass it
+    r = game.call("assets.pick", {{"slot", "assets/ring.png"}, {"n", 1}, {"sheet", std::to_string(std::stol(first.substr(6)))}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "superseded");
+
+    // the second sheet works, by default and by id
+    const std::string chosen = game.file("assets/ring.candidate-2.png");
+    const Json picked = game.ok("assets.pick", {{"slot", "assets/ring.png"}, {"n", 2}});
+    CHECK(picked["sheet"] == secondSheet);
+    CHECK(game.file("assets/ring.png") == chosen);
+
+    // the newest was answered: already_picked, never a fall back to the older unanswered sheet
+    r = game.call("assets.pick", {{"slot", "assets/ring.png"}, {"n", 1}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "already_picked");
+    CHECK(has(r.error["hint"].get<std::string>(), "seed"));  // the same prompt without a seed gives the same pictures
+    r = game.call("assets.pick", {{"slot", "assets/ring.png"}, {"n", 1}, {"sheet", first}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "superseded");
+}
+
+TEST_CASE("assets.pick: a candidate file that changed after its sheet was made is refused (superseded)") {
+    Game game(fake_config());
+    const std::string sheet = game.ok("assets.generate_image", candidate_args("assets/coin.png", 3))["sheet"].get<std::string>();
+    const Json meta = Json::parse(game.file(".factoria/review/" + sheet + "/manifest.json"))["meta"];
+    REQUIRE(meta["sha256"].size() == 3);
+    CHECK(meta["sha256"][0].get<std::string>().size() == 64);
+    // what a later overwrite that failed part way (it made no sheet of its own) or an edit leaves behind
+    game.put("assets/coin.candidate-2.png", png_bytes(4, 4, 200, 10, 10));
+    auto r = game.call("assets.pick", {{"slot", "assets/coin.png"}, {"n", 2}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "superseded");
+    CHECK(has(r.error["message"].get<std::string>(), "changed"));
+    CHECK_FALSE(game.exists("assets/coin.png"));
+    CHECK(game.exists("assets/coin.candidate-1.png"));
+    CHECK(game.exists("assets/coin.candidate-3.png"));
+    // an unchanged candidate of the same sheet can still be picked
+    game.ok("assets.pick", {{"slot", "assets/coin.png"}, {"n", 1}});
+    CHECK(game.exists("assets/coin.png"));
+}
+
+TEST_CASE("review.pick without the assets.pick step refuses a candidates sheet and names assets.pick") {
+    Game game(fake_config());
+    const std::string sheet = game.ok("assets.generate_image", candidate_args("assets/key.png", 2))["sheet"].get<std::string>();
+    const ReviewOutcome plain = review_pick(game.dir.str(), sheet, 1, ReviewPickOptions{});
+    REQUIRE_FALSE(plain.ok);
+    CHECK(plain.code == "invalid_argument");
+    CHECK(has(plain.hint, "assets.pick {\"slot\": \"assets/key.png\", \"n\": 1}"));
+    CHECK(game.exists("assets/key.candidate-1.png"));
+    CHECK(game.exists("assets/key.candidate-2.png"));
+    CHECK(Json::parse(game.file(".factoria/review/" + sheet + "/manifest.json")).value("picked", Json(nullptr)).is_null());
+}
+
+TEST_CASE("assets.generate_image count: a slot whose sheet meta would pass the limit only before the hashes and the cost is refused before paying") {
+    Game game(fake_config());
+    // The meta as assets.generate_image writes it, before the hashes and the cost are known: grow the slot until it is just under the limit.
+    const auto meta_size = [](const std::string& slot) {
+        std::vector<std::string> paths;
+        for (int n = 1; n <= 4; ++n) paths.push_back(slot.substr(0, slot.size() - 4) + ".candidate-" + std::to_string(n) + ".png");
+        return Json::object({{"kind", "assetCandidates"}, {"slot", slot}, {"command", "assets.generate_image"}, {"count", 4}, {"candidates", paths},
+                             {"overwrite", false}, {"estimatedCostUsd", nullptr}, {"sha256", Json::array()}})
+            .dump()
+            .size();
+    };
+    std::string dirs = "assets/";
+    for (int i = 0; i < 12; ++i) dirs += std::string(50, char('a' + i)) + "/";
+    std::string stem = "x";
+    while (meta_size(dirs + stem + "x.png") <= std::size_t(kReviewMetaMaxBytes) - 64) stem += "x";
+    const std::string slot = dirs + stem + ".png";
+    REQUIRE(meta_size(slot) <= std::size_t(kReviewMetaMaxBytes));  // the old check let it through
+    auto r = game.call("assets.generate_image", candidate_args(slot, 4));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "invalid_path");
+    CHECK(has(r.error["message"].get<std::string>(), "too long for a sheet"));
+    CHECK_FALSE(game.exists(".factoria/review/sheet-0001"));
+    CHECK_FALSE(game.exists(slot.substr(0, slot.size() - 4) + ".candidate-1.png"));  // nothing was made (or paid for)
 }
 
 TEST_CASE("assets.generate_image count and assets.pick in a project folder with accents") {

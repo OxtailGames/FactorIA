@@ -1468,6 +1468,7 @@ will, measure it, fix it, and repeat until the check has no `fail`.
    When the person must choose between candidates, put them on one numbered sheet (`review.sheet`) and ask for one number (section 9.32).
    For one asset the person chooses, make N in one call, show the one sheet it returns, ask for one number, then call `assets.pick`:
    `assets.generate_image {"prompt":"...","path":"assets/items/potion.png","count":3}` then `assets.pick {"slot":"assets/items/potion.png","n":<their number>}`.
+   Only the newest sheet of a slot counts: after a regeneration, show the new sheet (a number given for an old one is refused as `superseded`).
 3. **Check** it. `assets.check_art {"path":"assets/knight.png"}` gives numbers: palette fit, contrast over the real backgrounds,
    readability at the size the camera shows it, halos on alpha edges, pixel density and outline against the `style` rules of
    `assets.json`. Each rule has a verdict (`ok`, `warn`, `fail`) and a `hint` naming the command or setting that fixes it.
