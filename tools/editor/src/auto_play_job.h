@@ -10,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <filesystem>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -22,7 +23,7 @@ namespace fa::editor {
 
 // What the window asks of the bot. `seconds` is GAME time (the real time is a fraction of it: the bot plays fast).
 struct AutoPlayRequest {
-    std::string projectDir;
+    std::filesystem::path projectDir;  // the open project's folder (a path object: the child gets it as UTF-8)
     double seconds = 60;
     bool screenshots = true;  // a picture per phase, per problem and at the end (needs a graphics device in the child)
 };

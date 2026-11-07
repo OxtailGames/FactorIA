@@ -8,6 +8,7 @@
 #include "fa/core/process.h"
 #include "fa/core/screenshot_files.h"
 #include "fa/render/fonts.h"
+#include "fa/tooling/play_auto.h"
 #include "fa/tooling/self_update.h"
 #include "util.h"
 
@@ -143,22 +144,25 @@ Json image_member(const stdfs::path& file, bool temporary) {
     return j;
 }
 
-Json call_in_child(const std::string& projectDir, const char* command, const Json& args) {
-    stdfs::path exe = executable_path();
-    if (!exe.empty() && exe.stem() != "factoria") {  // the editor or a game: the command line tool sits next to it
-        stdfs::path sibling = exe.parent_path() / ("factoria" + exe.extension().string());
-        std::error_code ec;
-        exe = stdfs::exists(sibling, ec) ? sibling : stdfs::path();
-    }
+Json call_in_child(const std::string& projectDir, const char* command, const Json& args, const CancelFlag* cancel) {
+    const std::string exe = factoria_executable();
     if (exe.empty())
         fail("gpu_busy", std::string("This process already uses the graphics card (the editor, a window or a session with graphics), and ") + command + " needs a second device; the factoria executable could not be located to run it in a child process.",
              std::string("Run it from a terminal: factoria call ") + command + " '{...}'.");
+    // projectDir is the folder as the tooling carries it (a native string); the child process takes UTF-8, so it goes through a path:
+    // handing the native bytes over would mangle an accent in the folder's name on Windows.
+    const std::string dir = fs::path_to_utf8(stdfs::path(projectDir));
     ProcessOptions po;
-    po.argv = {exe.string(), "call", "--project", projectDir, "--no-graphics", "--json", command, args.dump()};
-    po.workingDir = projectDir;
+    po.argv = {exe, "call", "--project", dir, "--no-graphics", "--json", command, args.dump()};
+    po.workingDir = dir;
     po.timeoutSeconds = 900;
+    po.cancel = cancel;
     auto run = run_process(po);
-    if (!run.ok()) fail("failed", std::string("Cannot start ") + exe.string() + " to run " + command + " in a child process: " + run.error().message, run.error().hint);
+    if (!run.ok()) fail("failed", std::string("Cannot start ") + exe + " to run " + command + " in a child process: " + run.error().message, run.error().hint);
+    if (run->cancelled)
+        fail("cancelled", std::string(command) + " was stopped before it ended; the child process was killed and nothing was saved.", "Run it again when you want the result.");
+    if (run->timedOut)
+        fail("timeout", std::string(command) + " did not end within 900 seconds in its child process and was stopped.", std::string("Ask for less (fewer seconds), or run it from a terminal: factoria call ") + command + " '{...}'.");
     auto out = parse_json(run->stdoutText, std::string("<") + command + " in a child process>");
     if (!out.ok()) {
         const std::string tail = run->stderrText.size() > 600 ? run->stderrText.substr(run->stderrText.size() - 600) : run->stderrText;

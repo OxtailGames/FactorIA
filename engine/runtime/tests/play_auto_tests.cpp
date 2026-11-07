@@ -574,3 +574,41 @@ TEST_CASE("play.auto: pictures per phase and at the end, the cap of 40, and play
     REQUIRE(rep.result.contains("$image"));
     CHECK(stdfs::exists(fs::path_from_utf8(rep.result["$image"]["path"].get<std::string>()), ec));
 }
+
+TEST_CASE("play.auto: the names of automatic sessions, and the pruning keeps the newest and never touches a person's sessions") {
+    CHECK(is_auto_play_session_name("20260131-142500-auto"));
+    CHECK(is_auto_play_session_name("20260131-142500-auto-2"));
+    CHECK(is_auto_play_session_name("20260131-142500-auto-12"));
+    CHECK_FALSE(is_auto_play_session_name("20260131-142500"));
+    CHECK_FALSE(is_auto_play_session_name("20260131-142500-auto-"));
+    CHECK_FALSE(is_auto_play_session_name("20260131-142500-auto-x"));
+    CHECK_FALSE(is_auto_play_session_name("20260131-142500-automatic"));
+    CHECK_FALSE(is_auto_play_session_name(""));
+
+    AutoProject p(true);
+    const stdfs::path rootBefore = fs::project_root();
+    struct Restore {
+        stdfs::path before;
+        ~Restore() { fs::set_project_root(before); }
+    } restore{rootBefore};
+    fs::set_project_root(p.dir);
+    const stdfs::path sessions = p.dir / ".factoria" / "sessions";
+    const std::vector<std::string> names = {"20260101-100000-auto", "20260101-100001-auto", "20260101-100002", "20260101-100003-auto",
+                                            "20260101-100004-auto-2", "20260101-100005-auto"};
+    for (const std::string& n : names) {
+        stdfs::create_directories(sessions / n);
+        REQUIRE(fs::write_text((sessions / n / "session.json").generic_string(), "{}").ok());
+    }
+    stdfs::create_directories(sessions / "20260101-090000-auto");  // no session.json: not a session, so not pruned either
+    CHECK(prune_auto_play_sessions(10) == 0);
+    CHECK(play_session_names().size() == names.size());
+    CHECK(prune_auto_play_sessions(2) == 3);  // five automatic sessions, the two newest stay
+    const std::vector<std::string> left = play_session_names();
+    REQUIRE(left.size() == 3);
+    CHECK(left[0] == "20260101-100005-auto");
+    CHECK(left[1] == "20260101-100004-auto-2");
+    CHECK(left[2] == "20260101-100002");  // the person's session survives
+    CHECK(stdfs::exists(sessions / "20260101-090000-auto"));
+    CHECK(prune_auto_play_sessions(0) == 2);
+    CHECK(play_session_names().size() == 1);
+}

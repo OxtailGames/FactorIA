@@ -46,7 +46,7 @@ void Editor::start_auto_play() {
         return;
     }
     AutoPlayRequest req;
-    req.projectDir = projectDir_;
+    req.projectDir = std::filesystem::path(projectDir_);  // the editor keeps the folder as a native string: back to the path it names
     req.seconds = autoPlaySeconds_;
     req.screenshots = autoPlayPictures_;
     if (!autoPlay_.start(req)) return;
@@ -56,6 +56,7 @@ void Editor::start_auto_play() {
 }
 
 void Editor::poll_auto_play() {
+    if (playSessionsOutside_.exchange(false)) playSessionsDirty_ = true;
     std::optional<AutoPlayOutcome> done = autoPlay_.take_result();
     if (!done) return;
     notify(auto_play_summary(*done), done->ok ? (done->problems > 0 ? 1 : 0) : (done->cancelled ? 0 : 2));
@@ -91,9 +92,9 @@ void Editor::ai_attach_session(const std::string& name, const std::string& note)
     std::string& input = chat_.current().input;
     if (!input.empty() && input.back() != '\n') input += "\n";
     input += note + play_session_summary(r.value()) + " (Details: play.report; replay: " + dir + "/input.json)\n";
-    if (r.value().contains("marks"))
+    if (r.value().is_object() && r.value().contains("marks") && r.value()["marks"].is_array())
         for (const Json& m : r.value()["marks"]) {
-            const std::string shot = m.value("screenshot", std::string());
+            const std::string shot = session_text(m, "screenshot");
             if (!shot.empty()) ai_attach_path(fs::path_to_utf8(fs::resolve(dir + "/" + shot)));
         }
     playNotice_.clear();
@@ -136,8 +137,14 @@ void Editor::draw_play_sessions_window() {
     if (ImGui::Button("Let the AI play")) start_auto_play();
     at_track("playsessions:run", !running && play_ == PlayState::Edit);
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("play.auto: a bot plays the project from its start for this many seconds of game time, faster than real time, and\n"
+    // The widgets below can be disabled (a run is going, or Play is on): their tooltips still show, and the first says why.
+    const auto tip = [](const std::string& text) {
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", text.c_str());
+    };
+    tip("play.auto: a bot plays the project from its start for this many seconds of game time, faster than real time, and\n"
                           "finds what is stuck or broken. It plays the project as saved on disk, in a separate process: the editor stays free.");
+    if (play_ != PlayState::Edit && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("Stop Play first: the bot plays the project from the start, as saved on disk.");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(90);
     ImGui::BeginDisabled(running);
@@ -146,12 +153,12 @@ void Editor::draw_play_sessions_window() {
     if (ImGui::IsItemDeactivatedAfterEdit() || autoPlaySeconds_ < kAutoPlayMinSeconds || autoPlaySeconds_ > kAutoPlayMaxSeconds)
         autoPlaySeconds_ = std::clamp(autoPlaySeconds_, kAutoPlayMinSeconds, kAutoPlayMaxSeconds);
     at_track("playsessions:seconds", !running);
-    ImGui::SetItemTooltip("Seconds of GAME time the bot plays (%.0f to %.0f). A run ends sooner when the bot wins, loses or gets stuck.",
-                          kAutoPlayMinSeconds, kAutoPlayMaxSeconds);
+    tip(std::format("Seconds of GAME time the bot plays ({:.0f} to {:.0f}). A run ends sooner when the bot wins, loses or gets stuck.",
+                    kAutoPlayMinSeconds, kAutoPlayMaxSeconds));
     ImGui::SameLine();
     ImGui::Checkbox("Take pictures", &autoPlayPictures_);
     at_track("playsessions:pictures", !running);
-    ImGui::SetItemTooltip("A picture per stage, per problem and at the end. Off is faster and needs no graphics device.");
+    tip("A picture per stage, per problem and at the end. Off is faster and needs no graphics device.");
     ImGui::EndDisabled();
     if (running) {
         ImGui::SameLine();
@@ -238,10 +245,11 @@ void Editor::draw_play_session_report() {
     if (ImGui::Button("Attach to the AI chat")) ai_attach_session(row.name, row.isAuto ? "(This session was played by the AI's bot with play.auto.) " : "");
     at_track("playsessions:attach");
     ImGui::SetItemTooltip("Puts the summary and the pictures of the problems into the message you are writing to the AI");
-    if (j.contains("auto") && j["auto"].is_object() && j["auto"].value("replay", std::string()).size() > 0) {
+    const std::string replay = j.contains("auto") ? session_text(j["auto"], "replay") : std::string();
+    if (!replay.empty()) {
         ImGui::SameLine();
         if (ImGui::Button("Copy replay command")) {
-            ImGui::SetClipboardText(j["auto"].value("replay", std::string()).c_str());
+            ImGui::SetClipboardText(replay.c_str());
             notify("Replay command copied.");
         }
         ImGui::SetItemTooltip("The command that plays the bot's input again, headless: for a bug the bot found");
@@ -250,8 +258,8 @@ void Editor::draw_play_session_report() {
     if (row.isAuto) {
         ImGui::Text("Ended: %s", play_session_ended_words(row.ended).c_str());
         at_track("playsessions:ended");
-        const Json why = j.value("endedWhy", Json());
-        if (why.is_string() && !why.get<std::string>().empty()) ImGui::TextDisabled("%s", why.get<std::string>().c_str());
+        const std::string why = session_text(j, "endedWhy");
+        if (!why.empty()) ImGui::TextDisabled("%s", why.c_str());
         if (j.contains("score") && j["score"].is_number()) ImGui::Text("Score: %s", j["score"].dump().c_str());
         if (j.contains("notes") && j["notes"].is_array())
             for (const Json& n : j["notes"])
@@ -267,7 +275,7 @@ void Editor::draw_play_session_report() {
         for (const Json& p : j["phases"]) {
             ++n;
             if (n > 60) break;
-            ImGui::BulletText("%d. %s  at %.1f s", n, p.value("name", std::string()).c_str(), p.value("time", 0.0));
+            ImGui::BulletText("%d. %s  at %.1f s", n, session_text(p, "name").c_str(), session_number(p, "time"));
         }
     }
     // ---- problems (the bot's) or marks (yours), each with its picture
@@ -277,10 +285,10 @@ void Editor::draw_play_session_report() {
         int n = 0;
         for (const Json& m : j["marks"]) {
             if (++n > 40) break;
-            const std::string kind = m.value("kind", std::string());
-            ImGui::Text("#%d%s%s  at %.1f s", m.value("n", n), kind.empty() ? "" : "  ", kind.c_str(), m.value("time", 0.0));
-            ImGui::TextWrapped("%s", m.value("note", std::string()).c_str());
-            const std::string shot = m.value("screenshot", std::string());
+            const std::string kind = session_text(m, "kind");
+            ImGui::Text("#%d%s%s  at %.1f s", int(std::clamp(session_number(m, "n", n), -1e6, 1e6)), kind.empty() ? "" : "  ", kind.c_str(), session_number(m, "time"));
+            ImGui::TextWrapped("%s", session_text(m, "note").c_str());
+            const std::string shot = session_text(m, "screenshot");
             if (!shot.empty()) {
                 const TextureEntry* t = texture_for(folder + "/" + shot);
                 if (t && t->w > 0 && t->h > 0) {
@@ -290,7 +298,7 @@ void Editor::draw_play_session_report() {
             }
         }
     }
-    if (const std::string end = j.value("endScreenshot", std::string()); !end.empty()) {
+    if (const std::string end = session_text(j, "endScreenshot"); !end.empty()) {
         if (const TextureEntry* t = texture_for(folder + "/" + end); t && t->w > 0 && t->h > 0) {
             ImGui::Spacing();
             ImGui::SeparatorText("The last frame");

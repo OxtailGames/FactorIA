@@ -305,6 +305,7 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
         if (engine.input().has_action(a)) uiActions.push_back(a);
 
     // ---- the session folder and the pictures
+    prune_auto_play_sessions(std::size_t(kPlayAutoKeepSessions - 1));  // this run makes the kPlayAutoKeepSessions-th: the oldest beyond that go
     std::string name = opt.sessionName.empty() ? play_session_name(std::time(nullptr)) + "-auto" : opt.sessionName;
     {
         const std::string base = name;
@@ -318,6 +319,18 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     const std::string relDir = std::string(kPlaySessionsDir) + "/" + name;
     const std::string absDir = fs::path_to_utf8(fs::resolve(relDir));  // UTF-8, never the Windows code page: it goes into JSON
     bool canShoot = opt.screenshots && engine.renderer() != nullptr;
+    // The pictures are taken into a scratch folder of the system and moved into the session's folder at the end, when the session is
+    // complete: a run that is killed (Cancel, the editor closing) leaves nothing under .factoria/sessions, only a folder of the OS's temp.
+    struct Scratch {
+        std::filesystem::path dir;
+        ~Scratch() {
+            if (dir.empty()) return;
+            std::error_code ec;
+            fs::remove_tree(dir, ec);
+        }
+    } scratch;
+    std::vector<std::string> taken;  // the picture files in the scratch folder
+    if (canShoot) scratch.dir = fs::make_temp_dir("fa_play_auto");
     if (!opt.screenshots) {
         note("Screenshots were switched off.");
     } else if (!engine.renderer()) {
@@ -336,12 +349,13 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
             return {};
         }
         std::string err;
-        if (!engine.screenshot(relDir + "/" + file, &err)  /* project-relative: the file layer resolves it, no code-page round trip */) {
+        if (!engine.screenshot(fs::path_to_utf8(scratch.dir / file), &err)  /* absolute, UTF-8: no code-page round trip */) {
             note("A screenshot failed, the rest were not tried: " + err);
             canShoot = false;
             return {};
         }
         ++pictures;
+        taken.push_back(file);
         return file;
     };
 
@@ -637,6 +651,31 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     engine.render_now();
     take_due_pictures(true);
     s.endScreenshot = shoot("end.png");
+    if (!taken.empty()) {  // the session is complete: the pictures move to its folder (a picture that cannot is dropped from the session)
+        std::error_code ec;
+        const std::filesystem::path finalDir = fs::resolve(relDir);
+        std::filesystem::create_directories(fs::os_path(finalDir), ec);
+        std::set<std::string> lost;
+        for (const std::string& file : taken) {
+            const std::filesystem::path from = fs::os_path(scratch.dir / file), to = fs::os_path(finalDir / file);
+            std::error_code mv;
+            std::filesystem::rename(from, to, mv);  // another drive: copy
+            if (mv) {
+                mv.clear();
+                std::filesystem::copy_file(from, to, std::filesystem::copy_options::overwrite_existing, mv);
+            }
+            if (mv) lost.insert(file);
+        }
+        if (!lost.empty()) {
+            for (PlayPhase& p : s.phases)
+                if (lost.count(p.screenshot)) p.screenshot.clear();
+            for (PlayMark& m : s.marks)
+                if (lost.count(m.screenshot)) m.screenshot.clear();
+            if (lost.count(s.endScreenshot)) s.endScreenshot.clear();
+            pictures -= int(lost.size());
+            note(std::format("{} screenshot(s) could not be moved into the session's folder and were dropped.", lost.size()));
+        }
+    }
     if (droppedPhases > 0) note(std::format("{} more phase(s) were not listed: a session lists the first {}.", droppedPhases, kPlayAutoMaxPhases));
     if (hookFailures > 0) note(std::format("The hook threw in {} step(s) (nothing was pressed in them); see scriptErrors.", hookFailures));
     if (!replayProblems.empty()) note("The bot named an input the engine did not take: " + replayProblems.front());

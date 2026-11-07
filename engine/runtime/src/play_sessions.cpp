@@ -98,41 +98,66 @@ std::string play_session_name(std::time_t t) {
     return std::format("{:04}{:02}{:02}-{:02}{:02}{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
 }
 
+std::string session_text(const Json& o, const char* key, const std::string& def) {
+    if (!o.is_object()) return def;
+    const auto it = o.find(key);
+    return it != o.end() && it->is_string() ? it->get<std::string>() : def;
+}
+
+double session_number(const Json& o, const char* key, double def) {
+    if (!o.is_object()) return def;
+    const auto it = o.find(key);
+    return it != o.end() && it->is_number() ? it->get<double>() : def;
+}
+
 std::string play_session_summary(const Json& j) {
-    const Json perf = j.contains("perf") ? j["perf"] : Json::object();
-    const bool autoRun = j.value("source", std::string()) == "auto";
+    if (!j.is_object()) return "Play session (its session.json is not an object).";
+    const auto member = [&j](const char* key, bool (Json::*is)() const) -> const Json* {
+        const auto it = j.find(key);
+        return it != j.end() && ((*it).*is)() ? &*it : nullptr;
+    };
+    const Json* perfNode = member("perf", &Json::is_object);
+    const Json perf = perfNode ? *perfNode : Json::object();
+    const bool autoRun = session_text(j, "source") == "auto";
     std::string out = std::format("{} {} (scene {}, {:.0f}s, {} frames). ", autoRun ? "Automatic play session" : "Play session",
-                                  j.value("name", std::string("?")), j.value("scene", std::string("?")), j.value("durationSec", 0.0), j.value("frames", 0));
+                                  session_text(j, "name", "?"), session_text(j, "scene", "?"), session_number(j, "durationSec"),
+                                  std::int64_t(session_number(j, "frames")));
     if (autoRun) {
-        out += std::format("The bot ({}) ended it: {}{}. ", j.contains("auto") && j["auto"].is_object() ? j["auto"].value("bot", std::string("?")) : std::string("?"),
-                           j.value("ended", std::string("?")), j.contains("endedWhy") && j["endedWhy"].is_string() && !j["endedWhy"].get<std::string>().empty()
-                                                                  ? " (" + j["endedWhy"].get<std::string>() + ")" : std::string());
-        if (j.contains("score") && j["score"].is_number()) out += std::format("Score {}. ", j["score"].dump());
-        if (j.contains("phases") && j["phases"].is_array()) out += std::format("{} phase(s). ", j["phases"].size());
+        const Json* autoNode = member("auto", &Json::is_object);
+        const std::string why = session_text(j, "endedWhy");
+        out += std::format("The bot ({}) ended it: {}{}. ", autoNode ? session_text(*autoNode, "bot", "?") : std::string("?"), session_text(j, "ended", "?"),
+                           why.empty() ? std::string() : " (" + why + ")");
+        if (const Json* score = member("score", &Json::is_number)) out += std::format("Score {}. ", score->dump());
+        if (const Json* phases = member("phases", &Json::is_array)) out += std::format("{} phase(s). ", phases->size());
     }
-    out += std::format("Frame time avg {:.1f} ms, p95 {:.1f} ms, max {:.1f} ms; {} frames over 16.7 ms, {} over 33 ms.", perf.value("avgMs", 0.0),
-                       perf.value("p95Ms", 0.0), perf.value("maxMs", 0.0), perf.value("over16ms", 0), perf.value("over33ms", 0));
-    if (j.contains("spikes") && j["spikes"].is_array() && !j["spikes"].empty()) {
-        const Json& k = j["spikes"][0];
-        out += std::format(" Worst frame: #{} at {:.1f} ms ({} entities).", k.value("frame", 0), k.value("ms", 0.0), k.value("entities", 0));
+    out += std::format("Frame time avg {:.1f} ms, p95 {:.1f} ms, max {:.1f} ms; {} frames over 16.7 ms, {} over 33 ms.", session_number(perf, "avgMs"),
+                       session_number(perf, "p95Ms"), session_number(perf, "maxMs"), std::int64_t(session_number(perf, "over16ms")),
+                       std::int64_t(session_number(perf, "over33ms")));
+    if (const Json* spikes = member("spikes", &Json::is_array); spikes && !spikes->empty()) {
+        const Json& k = (*spikes)[0];
+        out += std::format(" Worst frame: #{} at {:.1f} ms ({} entities).", std::int64_t(session_number(k, "frame")), session_number(k, "ms"),
+                           std::int64_t(session_number(k, "entities")));
     }
-    const std::size_t nlogs = j.contains("logs") && j["logs"].is_array() ? j["logs"].size() : 0;
+    const Json* logs = member("logs", &Json::is_array);
+    const std::size_t nlogs = logs ? logs->size() : 0;
     out += std::format(" {} warnings/errors logged", nlogs);
     if (nlogs) {
         out += ":";
         for (std::size_t i = 0; i < std::min<std::size_t>(nlogs, 5); ++i) {
-            const Json& l = j["logs"][i];
-            out += std::format(" [{}] {}", l.value("level", std::string()), l.value("message", std::string()));
+            const Json& l = (*logs)[i];
+            out += std::format(" [{}] {}", session_text(l, "level"), session_text(l, "message"));
         }
     }
     out += ".";
-    if (j.contains("profile") && j["profile"].is_object() && j["profile"].contains("behaviours") && !j["profile"]["behaviours"].empty()) {
-        const Json& b = j["profile"]["behaviours"][0];
-        out += std::format(" Costliest behaviour: {} ({:.2f} ms per frame).", b.value("class", std::string("?")), b.value("avgMs", 0.0));
+    if (const Json* profile = member("profile", &Json::is_object)) {
+        const auto it = profile->find("behaviours");
+        if (it != profile->end() && it->is_array() && !it->empty())
+            out += std::format(" Costliest behaviour: {} ({:.2f} ms per frame).", session_text((*it)[0], "class", "?"), session_number((*it)[0], "avgMs"));
     }
-    if (j.contains("marks") && j["marks"].is_array() && !j["marks"].empty()) {
+    if (const Json* marks = member("marks", &Json::is_array); marks && !marks->empty()) {
         out += autoRun ? " The bot found problems:" : " The player marked problems:";
-        for (const Json& m : j["marks"]) out += std::format(" #{} (frame {}) \"{}\";", m.value("n", 0), m.value("frame", 0), m.value("note", std::string()));
+        for (const Json& m : *marks)
+            out += std::format(" #{} (frame {}) \"{}\";", std::int64_t(session_number(m, "n")), std::int64_t(session_number(m, "frame")), session_text(m, "note"));
     }
     return out;
 }
@@ -156,6 +181,26 @@ std::vector<std::string> play_session_names() {
         if (e.is_directory(ec) && std::filesystem::exists(e.path() / "session.json", ec)) names.push_back(fs::path_to_utf8(e.path().filename()));
     std::sort(names.rbegin(), names.rend());
     return names;
+}
+
+bool is_auto_play_session_name(std::string_view name) {
+    constexpr std::size_t kStamp = 15;  // yyyymmdd-hhmmss
+    if (name.size() < kStamp + 5 || name.substr(kStamp, 5) != "-auto") return false;
+    const std::string_view rest = name.substr(kStamp + 5);  // "" or "-<n>"
+    if (rest.empty()) return true;
+    return rest.size() >= 2 && rest[0] == '-' && rest.find_first_not_of("0123456789", 1) == std::string_view::npos;
+}
+
+int prune_auto_play_sessions(std::size_t keep) {
+    int deleted = 0;
+    std::size_t seen = 0;
+    for (const std::string& name : play_session_names()) {  // newest first
+        if (!is_auto_play_session_name(name) || ++seen <= keep) continue;
+        std::error_code ec;
+        fs::remove_tree(fs::resolve(std::string(kPlaySessionsDir) + "/" + name), ec);
+        if (!ec) ++deleted;
+    }
+    return deleted;
 }
 
 void register_play_session_commands(Engine&, Engine::Impl& I) {

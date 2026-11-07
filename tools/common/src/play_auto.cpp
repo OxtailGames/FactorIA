@@ -2,6 +2,7 @@
 #include "fa/tooling/play_auto.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 
@@ -10,6 +11,7 @@
 #include "fa/core/strings.h"
 #include "fa/platform/app.h"
 #include "fa/runtime/play_auto.h"
+#include "fa/tooling/self_update.h"
 #include "headless_run.h"
 #include "util.h"
 
@@ -107,6 +109,27 @@ Json run_play_auto(const Json& a, const std::string& projectDir) {
 }
 
 }  // namespace
+
+std::string factoria_executable() {
+    std::error_code ec;
+    if (const char* env = std::getenv("FA_FACTORIA_EXE"); env && *env) {  // a wrong override is not replaced by another program
+        const stdfs::path p = fs::path_from_utf8(env);
+        return stdfs::is_regular_file(p, ec) ? fs::path_to_utf8(p) : std::string();
+    }
+    stdfs::path exe = executable_path();
+    if (exe.empty()) return {};
+    if (exe.stem() != "factoria") {  // the editor or a game: the command line tool sits next to it
+        stdfs::path sibling = exe.parent_path() / "factoria";
+        sibling += exe.extension();  // ".exe" on Windows, nothing elsewhere; no round trip through std::string
+        if (!stdfs::is_regular_file(sibling, ec)) return {};
+        exe = sibling;
+    }
+    return fs::path_to_utf8(exe);
+}
+
+Json play_auto_in_child(const std::string& projectDir, const Json& args, const CancelFlag* cancel) {
+    return assets_detail::call_in_child(projectDir, "play.auto", args, cancel);
+}
 
 void register_play_auto_commands(CommandRegistry& registry, const std::string& projectDir) {
     CommandInfo c;

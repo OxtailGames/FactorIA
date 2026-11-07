@@ -8,7 +8,7 @@
 #include <format>
 
 #include "fa/core/fs.h"
-#include "fa/tooling/self_update.h"
+#include "fa/tooling/play_auto.h"
 
 namespace fa::editor {
 
@@ -20,22 +20,7 @@ Json auto_play_args(const AutoPlayRequest& request) {
     return Json::object({{"seconds", seconds}, {"screenshots", request.screenshots}});
 }
 
-std::string auto_play_executable() {
-    if (const char* env = std::getenv("FA_FACTORIA_EXE"); env && *env) {
-        std::error_code ec;
-        return stdfs::is_regular_file(fs::path_from_utf8(env), ec) ? std::string(env) : std::string();
-    }
-    stdfs::path exe = executable_path();
-    if (exe.empty()) return {};
-    if (exe.stem() != "factoria") {  // a game or a test: the command line tool sits next to it
-        stdfs::path sibling = exe.parent_path() / "factoria";
-        sibling += exe.extension();  // ".exe" on Windows, nothing elsewhere; no round trip through std::string
-        std::error_code ec;
-        if (!stdfs::is_regular_file(sibling, ec)) return {};
-        exe = sibling;
-    }
-    return fs::path_to_utf8(exe);  // UTF-8, not the ANSI code page: an accented install folder survives on Windows
-}
+std::string auto_play_executable() { return factoria_executable(); }
 
 AutoPlayOutcome auto_play_outcome(const ProcessResult& run, const std::string& stdoutText) {
     AutoPlayOutcome out;
@@ -110,8 +95,11 @@ bool AutoPlayJob::start(const AutoPlayRequest& request) {
         return true;
     }
     ProcessOptions po;
-    po.argv = {exe, "call", "--project", request.projectDir, "--no-graphics", "--json", "play.auto", auto_play_args(request).dump()};
-    po.workingDir = request.projectDir;
+    // UTF-8 for the child (process_win32 widens argv and the working directory as UTF-8): the path object carries the real name, so an
+    // accent in the folder survives on Windows; the editor's native string would arrive as bytes of the ANSI code page.
+    const std::string projectUtf8 = fs::path_to_utf8(request.projectDir);
+    po.argv = {exe, "call", "--project", projectUtf8, "--no-graphics", "--json", "play.auto", auto_play_args(request).dump()};
+    po.workingDir = projectUtf8;
     po.cancel = &cancel_;
     po.timeoutSeconds = 1200;  // a safety net: the bot's own wall-clock cap is 800 s
     po.onStderrLine = [this](std::string_view line) {

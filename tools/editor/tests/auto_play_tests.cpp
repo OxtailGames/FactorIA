@@ -1,5 +1,5 @@
 // Play > Let the AI Play: the arguments and the outcome of a play.auto child process (auto_play_job.h), the job on its worker thread
-// (a stand-in `factoria` script, POSIX only) and the Play sessions list (play_sessions_model.h). GPU-free.
+// (a stand-in `factoria` script or .cmd file) and the Play sessions list (play_sessions_model.h). GPU-free.
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -123,18 +123,30 @@ TEST_CASE("AutoPlayJob: no factoria is an outcome that says what is missing, not
     stdfs::remove_all(dir, ec);
 }
 
-#if !defined(_WIN32)
 namespace {
-// A stand-in `factoria`: a shell script. `body` is what it does.
-stdfs::path stand_in(const stdfs::path& dir, const std::string& body) {
+// A stand-in `factoria`: a shell script (POSIX) or a .cmd file (Windows, run through cmd.exe like any .cmd). `posix` and `windows` are
+// what it does. The Windows lines use only characters a .cmd argument may hold (run_process refuses % & | < > ^ in one).
+stdfs::path stand_in(const stdfs::path& dir, const std::string& posix, const std::string& windows) {
+#if defined(_WIN32)
+    const stdfs::path file = dir / "factoria.cmd";
+    {
+        std::ofstream f(file, std::ios::binary);
+        f << "@echo off\r\n" << windows << "\r\n";
+    }
+    (void)posix;
+#else
     const stdfs::path file = dir / "factoria";
     {
         std::ofstream f(file, std::ios::binary);
-        f << "#!/bin/sh\n" << body << "\n";
+        f << "#!/bin/sh\n" << posix << "\n";
     }  // closed before it runs
     stdfs::permissions(file, stdfs::perms::owner_all, stdfs::perm_options::add);
+    (void)windows;
+#endif
     return file;
 }
+// A stand-in that does not end for a minute: the bot of a long run.
+stdfs::path sleeper(const stdfs::path& dir) { return stand_in(dir, "sleep 60", "ping -n 60 127.0.0.1 >nul"); }
 bool wait_done(AutoPlayJob& job, double seconds) {
     const auto start = std::chrono::steady_clock::now();
     while (job.running()) {
@@ -143,19 +155,19 @@ bool wait_done(AutoPlayJob& job, double seconds) {
     }
     return true;
 }
+const char* kAnswer = R"({"session":"20260101-000000-auto","ended":"won","problems":[],"phases":[]})";
 }  // namespace
 
 TEST_CASE("AutoPlayJob: a child that answers, one that fails and one that is cancelled") {
     const stdfs::path dir = fs::make_temp_dir("fa_auto_play_job");
     AutoPlayRequest req;
-    req.projectDir = fs::path_to_utf8(dir);
+    req.projectDir = dir;
     req.seconds = 7;
     AutoPlayJob job;
 
     // Answers: the arguments reach it and its stderr line is the progress line.
-    set_env("FA_FACTORIA_EXE", fs::path_to_utf8(stand_in(dir, "echo \"playing\" >&2\n"
-                                                              "echo \"$@\" > args.txt\n"
-                                                              "echo '{\"session\":\"20260101-000000-auto\",\"ended\":\"won\",\"problems\":[],\"phases\":[]}'")).c_str());
+    set_env("FA_FACTORIA_EXE", fs::path_to_utf8(stand_in(dir, std::string("echo \"playing\" >&2\n") + "echo \"$@\" > args.txt\n" + "echo '" + kAnswer + "'",
+                                                         std::string("@echo playing 1>&2\r\n") + "@echo %* > args.txt\r\n" + "@echo " + kAnswer)).c_str());
     REQUIRE(job.start(req));
     REQUIRE(wait_done(job, 60));
     auto out = job.take_result();
@@ -168,11 +180,15 @@ TEST_CASE("AutoPlayJob: a child that answers, one that fails and one that is can
     std::getline(args, line);
     CHECK(line.find("--no-graphics") != std::string::npos);
     CHECK(line.find("play.auto") != std::string::npos);
-    CHECK(line.find("\"seconds\":7") != std::string::npos);
-    CHECK(job.progress_line() == "playing");
+#if !defined(_WIN32)
+    CHECK(line.find("\"seconds\":7") != std::string::npos);  // cmd.exe shows the quotes of an argument escaped
+#endif
+    CHECK(job.progress_line().find("playing") == 0);
 
     // Fails with a command error.
-    set_env("FA_FACTORIA_EXE", fs::path_to_utf8(stand_in(dir, "echo '{\"ok\":false,\"error\":{\"message\":\"No scene.\",\"hint\":\"Add one.\"}}'\nexit 1")).c_str());
+    set_env("FA_FACTORIA_EXE",
+            fs::path_to_utf8(stand_in(dir, "echo '{\"ok\":false,\"error\":{\"message\":\"No scene.\",\"hint\":\"Add one.\"}}'\nexit 1",
+                                      "@echo {\"ok\":false,\"error\":{\"message\":\"No scene.\",\"hint\":\"Add one.\"}}\r\n@exit /b 1")).c_str());
     REQUIRE(job.start(req));
     REQUIRE(wait_done(job, 60));
     out = job.take_result();
@@ -181,11 +197,11 @@ TEST_CASE("AutoPlayJob: a child that answers, one that fails and one that is can
     CHECK(out->error == "No scene.");
 
     // Cancel: the child sleeps for a minute; cancel() ends it within seconds and the outcome says cancelled.
-    set_env("FA_FACTORIA_EXE", fs::path_to_utf8(stand_in(dir, "sleep 60")).c_str());
+    set_env("FA_FACTORIA_EXE", fs::path_to_utf8(sleeper(dir)).c_str());
     REQUIRE(job.start(req));
     CHECK(job.running());
     CHECK_FALSE(job.start(req));  // one run at a time
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
     job.cancel();
     CHECK(job.cancelling());
     REQUIRE(wait_done(job, 30));
@@ -198,7 +214,31 @@ TEST_CASE("AutoPlayJob: a child that answers, one that fails and one that is can
     std::error_code ec;
     stdfs::remove_all(dir, ec);
 }
-#endif
+
+TEST_CASE("AutoPlayJob: a project folder with accents reaches the child as UTF-8 (it starts there)") {
+    const stdfs::path base = fs::make_temp_dir("fa_auto_play_accent");
+    const stdfs::path project = base / stdfs::path(u8"proyecto-José ñandú");
+    std::error_code ec;
+    stdfs::create_directories(project, ec);
+    REQUIRE(stdfs::is_directory(project));
+    const stdfs::path tool = base / "tool";
+    stdfs::create_directories(tool, ec);
+    // The stand-in writes a file in its working directory: it exists in the project folder only if the child started there, which a
+    // working directory handed over as ANSI bytes (invalid UTF-8) cannot do on Windows.
+    set_env("FA_FACTORIA_EXE", fs::path_to_utf8(stand_in(tool, std::string("echo here > cwd.txt\n") + "echo '" + kAnswer + "'",
+                                                          std::string("@echo here > cwd.txt\r\n") + "@echo " + kAnswer)).c_str());
+    AutoPlayJob job;
+    AutoPlayRequest req;
+    req.projectDir = project;
+    REQUIRE(job.start(req));
+    REQUIRE(wait_done(job, 60));
+    auto out = job.take_result();
+    REQUIRE(out.has_value());
+    CHECK_MESSAGE(out->ok, out->error);
+    CHECK(stdfs::exists(project / "cwd.txt"));
+    set_env("FA_FACTORIA_EXE", nullptr);
+    stdfs::remove_all(base, ec);
+}
 
 TEST_CASE("play sessions model: rows, labels and which session Attach picks") {
     const Json person = parse_json(R"({"scene":"scenes/a.scene.json","durationSec":12.4,"marks":[{"n":1},{"n":2}],"logs":[{}]})", "t").value();

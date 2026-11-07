@@ -15,14 +15,16 @@ PlaySessionRow play_session_row(const std::string& name, const Json& j) {
         r.error = "session.json is not an object";
         return r;
     }
-    r.isAuto = j.value("source", std::string()) == "auto";
-    r.scene = j.value("scene", std::string());
-    r.durationSec = j.value("durationSec", 0.0);
-    r.ended = j.value("ended", std::string());
-    const Json marks = j.value("marks", Json::array());
-    const Json logs = j.value("logs", Json::array());
-    r.marks = marks.is_array() ? int(std::min<std::size_t>(marks.size(), 100000)) : 0;
-    r.logs = logs.is_array() ? int(std::min<std::size_t>(logs.size(), 100000)) : 0;
+    const auto count = [&j](const char* key) {
+        const auto it = j.find(key);
+        return it != j.end() && it->is_array() ? int(std::min<std::size_t>(it->size(), 100000)) : 0;
+    };
+    r.isAuto = session_text(j, "source") == "auto";
+    r.scene = session_text(j, "scene");
+    r.durationSec = session_number(j, "durationSec");
+    r.ended = session_text(j, "ended");
+    r.marks = count("marks");
+    r.logs = count("logs");
     return r;
 }
 
