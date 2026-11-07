@@ -66,6 +66,9 @@
 #include "phone_model.h"
 #include "auto_play_job.h"
 #include "play_sessions_model.h"
+#include "child_command_job.h"
+#include "review_loader.h"
+#include "review_model.h"
 #include "feedback_share_ui.h"
 #include "gizmo_model.h"
 #include "image_ui.h"
@@ -142,6 +145,13 @@ struct TextureEntry {
     std::uint32_t image = 0, view = 0;
     int w = 0, h = 0;
     bool failed = false;
+};
+
+// A picture of the Review window (review_panel.cpp): its texture once the reader decoded it and the UI thread uploaded it.
+struct ReviewTextureSlot {
+    TextureEntry tex;
+    std::uint64_t usedFrame = 0;    // uiFrame_ when it was last drawn: unused for a while, it is freed
+    std::string error;              // why it cannot be shown ("" = fine, or not read yet)
 };
 
 // What the viewport selects, outlines and hit-tests for one entity. The geometry is the engine's own footprint of the
@@ -680,6 +690,31 @@ public:
     void start_auto_play();
     void poll_auto_play();            // every frame: takes a finished run's outcome
     void reset_auto_play_state();     // project switch: stops a running bot and forgets the list
+    // Review window (review_panel.cpp; View > Review, docs/EDITOR.md "Review window"): the sheets review.sheet made, one shown big with
+    // keyboard picking, Compare two and the History of past picks. The reader thread (review_loader.h) lists, reads and decodes; the
+    // UI thread uploads one picture a frame. A pick is review.pick (assets.pick for asset candidates) through the command registry.
+    void open_review(const std::string& sheet = std::string(), bool focus = true);
+    void draw_review_window();
+    void draw_review_sheet_tab();
+    void draw_review_compare_tab();
+    void draw_review_history_tab();
+    void draw_review_pick_popup();
+    void poll_review();                       // every frame: the reader's results, one upload, the seeds sheet job, a pick waiting
+    void reset_review_state();                // project switch, autotest section: stops the reader and the job, frees the textures
+    void review_release_textures();
+    void review_request_pick(int n);          // opens the confirmation (or says why the number cannot be picked)
+    void review_do_pick();                    // the confirmed pick: keeps what was confirmed, then starts it (or waits for the reader)
+    void review_start_pick();                 // starts review_.pickPlan in a child factoria (reviewPickJob_)
+    void review_finish_pick(const ChildCommandOutcome& done);   // its result in the window (poll_review)
+    // review_pick_plan, plus what the window itself forbids: a pick still running, an older sheet of asset candidates (superseded).
+    ReviewPickPlan review_plan_for(const ReviewSheetView& sheet, int n, bool drop, const std::string& note) const;
+    // A toast with Open in Review; `slot`: a sheet of asset candidates for that slot (assets.generate_image with a count).
+    void review_announce_sheet(const std::string& sheet, const std::string& label, const std::string& slot, const std::string& who);
+    void start_level_seeds_sheet();           // the Level generator's "Sheet of N seeds"
+    void review_show_sheet(const std::string& id);   // shows that sheet (its manifest and pictures are read on the reader thread)
+    // The texture of a picture of the shown sheet, asked of the reader the first time (tex.view is 0 until it is uploaded, `error` when
+    // it cannot be read). Marked as used this frame; one not drawn for a while is freed.
+    const ReviewTextureSlot& review_texture(const std::string& key, const std::filesystem::path& file, int maxSide, bool projectFile);
 
     // Platform settings window (platform_settings_panel.cpp; File > Platform Settings..., the Export window's Settings...
     // buttons): the game icon and what each platform's export needs, as a working copy that Save writes with
@@ -926,6 +961,57 @@ public:
     AutoPlayJob autoPlay_;
     std::optional<AutoPlayOutcome> autoPlayLast_;  // the last run's outcome (an error stays under the button)
     double autoPlaySeconds_ = kAutoPlayDefaultSeconds;
+    // Review window
+    struct ReviewDeadTexture {
+        std::uint32_t image = 0, view = 0;
+        std::uint64_t frame = 0;
+    };
+    struct ReviewUi {
+        bool show = false, wasShown = false, focus = false, listDirty = true, sheetDirty = false;
+        std::uint64_t gen = 1;                       // the listing's generation (a project switch bumps it): older results are dropped
+        std::uint64_t sheetGen = 1;                  // the shown sheet's generation (another sheet bumps it): its manifest and pictures
+        bool listLoading = false, listLoaded = false;
+        std::vector<ReviewListRow> rows;
+        std::vector<ReviewHistoryRow> history;
+        std::map<std::string, std::string> superseded;   // review_superseded(rows): an older candidates sheet -> the newest of its slot
+        std::string listError;
+        std::string sheetId;                         // the sheet shown ("" = the first in the list)
+        bool sheetLoading = false;
+        std::optional<ReviewSheetView> sheet;
+        std::string sheetError;
+        int selected = 0;
+        int tab = 0, tabSet = -1;                    // 0 Sheet, 1 Compare, 2 History; tabSet selects one next frame
+        float zoom = 0;                              // 0 = fit the window, else the scale of sheet.png
+        int compareA = 1, compareB = 2;
+        bool compareSource = true;                   // the candidates' own pictures (image items), else the thumbnails
+        std::map<std::string, ReviewTextureSlot> textures;
+        std::deque<ReviewLoaded> uploads;            // decoded pictures waiting for their frame (one upload a frame)
+        // the pick
+        bool confirmRequest = false, confirmOpen = false, keepFiles = false, pickPending = false;
+        std::optional<ReviewSheetView> pickSheet;    // the sheet a running pick answers (a copy: the shown one can change meanwhile)
+        ReviewPickPlan pickPlan;                     // ...its command and arguments
+        int pickN = 0;
+        std::uint64_t confirmFrame = 0;
+        int confirmN = 0;
+        std::string note;
+        ReviewPickPlan plan;
+        std::string pickMessage;                     // what the last pick did (or why it failed)
+        bool pickBad = false;
+        std::vector<std::string> pickLines;          // its moved files and warnings
+        // the Level generator's sheet of seeds
+        int seedsCount = kReviewSeedsDefault;
+    };
+    ReviewUi review_;
+    std::vector<ReviewDeadTexture> reviewGraveyard_;
+    ReviewLoader reviewLoader_;
+    ChildCommandJob reviewSeedsJob_;
+    ChildCommandJob reviewPickJob_;                // review.pick / assets.pick: they move files (with retries on Windows) and write manifests
+    // Review sheets an AI module command made on an agent thread (make_proxy_registry): offered in a toast by poll_review.
+    struct ReviewAnnounce {
+        std::string sheet, label, slot;
+    };
+    std::mutex reviewInboxMu_;
+    std::vector<ReviewAnnounce> reviewInbox_;
     bool autoPlayPictures_ = true;
     std::vector<PlaySessionRow> playSessionRows_;
     std::string playSessionsPick_;                 // the folder shown in the report pane

@@ -110,6 +110,8 @@ menu::MainMenu Editor::build_main_menu(bool native) {
                         "Where the time goes while the game plays: milliseconds per engine system and per script behaviour class, GPU time, memory"));
     view.push_back(with(toggle("Level generator", showLevelGen_), "menu:levelgen",
                         "Make a level from a sample you drew: pick a seed, regenerate, preview it and keep the one you like"));
+    view.push_back(with(toggle("Review", review_.show), "menu:review",
+                        "The review sheets: N candidates (images, levels, scenes...) as numbered thumbnails; pick one by its number and the others move to a drop folder"));
     view.push_back(with(toggle("Animation", showAnimation_), "menu:animation",
                         "The clips of the selected entity's Animator: dopesheet and curves, scrubbing, record mode, event markers and the onion skin"));
     view.push_back(with(toggle("Image", showImage_), "menu:image",

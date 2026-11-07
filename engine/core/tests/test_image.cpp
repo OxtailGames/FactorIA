@@ -175,6 +175,23 @@ TEST_CASE("encode_png_rgb: no alpha channel in the file, same pixels when decode
     CHECK(encode_png_rgb(Image{}).empty());
 }
 
+TEST_CASE("image_size: reads the size from the header of a PNG or a JPG without decoding it") {
+    const Image a = solid(7, 3, 10, 20, 30, 255);
+    const auto png = encode_png(a);
+    auto s = image_size(png.data(), png.size());
+    REQUIRE(s.ok());
+    CHECK(s->width == 7);
+    CHECK(s->height == 3);
+    const auto jpg = encode_jpeg(a, 80);
+    s = image_size(jpg.data(), jpg.size());
+    REQUIRE(s.ok());
+    CHECK(s->width == 7);
+    CHECK(s->height == 3);
+    const std::uint8_t junk[] = {1, 2, 3, 4};
+    CHECK_FALSE(image_size(junk, sizeof(junk)).ok());
+    CHECK_FALSE(image_size(nullptr, 0).ok());
+}
+
 TEST_CASE("mip_chain: halves down to 1x1, averaging 2x2 pixels and repeating the edge of an odd size") {
     const std::vector<Image> one = mip_chain(solid(1, 1, 9, 8, 7, 6));
     REQUIRE(one.size() == 1);
