@@ -351,7 +351,7 @@ void Editor::draw_level_gen_panel() {
     // progress bar while a level is generated.
     const ImGuiStyle& st = ImGui::GetStyle();
     const bool seedsRunning = reviewSeedsJob_.running();
-    const std::string seedsText = seedsRunning ? std::format("Making a sheet of {} seeds... {:.0f} s", review_.seedsCount, reviewSeedsJob_.elapsed_seconds())
+    const std::string seedsText = seedsRunning ? std::format("Making a sheet of {} seeds, it opens in the Review window... {:.0f} s", review_.seedsCount, reviewSeedsJob_.elapsed_seconds())
                                                : std::string();
     const float seedsCountW = ImGui::CalcTextSize("000").x + ImGui::GetFrameHeight() * 2.0f + st.ItemInnerSpacing.x * 2.0f;
     const float seedsGroupW = seedsRunning ? ImGui::CalcTextSize("Cancel").x + st.FramePadding.x * 2 + st.ItemSpacing.x + ImGui::CalcTextSize(seedsText.c_str()).x

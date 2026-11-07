@@ -297,11 +297,16 @@ spending never counts against another's. A day is the local calendar day. If the
 busy), the call is refused when a per-day limit is set (nothing is counted, and the error says so) and goes ahead with a
 warning in its result when there is none. A call that fails gives its estimate back, on the day it was counted (a call that
 runs past midnight does not leave a hole in the next day). A refund that cannot be written (the lock is busy) is reported in
-the warnings of that result or of the next asset call, and in the log: the total then keeps the money until you edit
-`asset-spend.json`. The file is read with a few quick retries (another program may be replacing it); one that has another shape
+the warnings of the next asset call that goes ahead (a call that is refused, or that answers `needsApproval`, does not use up the
+notice; the one after it carries it) and in the log (the editor's Console, the terminal's stderr): the total then keeps the money
+until you edit `asset-spend.json`. In the editor a refund warning of an Image panel call also lands in the Console; the panel's own
+status line shows the warnings only of a call that made its picture. The file is read with a few quick retries (another program may be replacing it); one that has another shape
 than this version writes (a hand edit) is reported with the JSON pointer of the problem and is never overwritten.
 
-**Who says yes.**
+**Who says yes.** The card exists only in the editor, and only for the runs the editor started itself: its AI Assistant chats, the
+CLI agents it launches (they reach FactorIA through the editor's own MCP endpoint) and the Image panel's **Make it**. A command run
+from a terminal (`factoria call`), a script, or an MCP client that started its own `factoria mcp` does not see a card even if an
+editor is open on the same project: it gets the `needsApproval` answer below, and the editor's day total counts its spending anyway.
 
 - **In the editor** a paid call that needs your yes puts a card under the chat's messages: what is going to be made, how many,
   with which provider, the estimate and when the prices were looked up. **Approve** makes this one, **Approve all for this run**
@@ -312,7 +317,8 @@ than this version writes (a hand edit) is reported with the JSON pointer of the 
   starts the count of unasked small calls again. The **Stop** button of the run ends the wait as `cancelled` (the assistant is
   told you stopped it, not that you said no) and the card goes. In the editor the assistant's `approved` argument is **ignored**:
   only your click on the card says yes, so an AI cannot answer for you. The Image panel's popup shows the estimate (worked out in
-  the background) and **Make it** is your approval; it asks the same limits and the same day total.
+  the background) and **Make it** is your approval; it asks the same limits and the same day total, and counts into a run of its own
+  (`perRun` applies to the Image panel's calls of the open project, not to the chats' runs or to the CLI's).
 - **From the CLI, MCP or a script** the command does not make the call: it returns `{"needsApproval": true, "plan": {...}}`
   (`command`, `what`, `count`, `provider`, `model`, `estimatedCostUsd`, `basis`, `prompt`, `priceChecked`). An AI must tell its
   user what will be made, how many, with which provider and the estimate, and **ask**. Only after the user says yes does it call

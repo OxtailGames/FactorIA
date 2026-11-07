@@ -62,10 +62,23 @@ std::map<std::string, std::string> review_superseded(const std::vector<ReviewLis
 // The newest sheet that supersedes `sheet` (from review_superseded's map), or "" (not candidates, answered, the newest, or not listed).
 std::string review_superseded_by(const std::map<std::string, std::string>& superseded, const ReviewSheetView& sheet);
 
+// A review sheet a command made, to be offered to the person (a toast with Open in Review). `project` is the project folder (a native
+// string) the sheet belongs to, set by the caller: an offer made on an agent thread is dropped when another project is open by then.
+struct ReviewAnnounce {
+    std::string sheet, label, slot, project;
+};
+// The sheet a command's `result` announces (its "sheet" member, which must be a review sheet id: "sheet-..."), with the `label` of its
+// arguments and the `slot` of its result; `sheet` is empty when the result announces nothing. One rule for the editor's queue
+// (Editor::run_queued) and for an AI module command on an agent thread (make_proxy_registry).
+ReviewAnnounce review_announce_from(const Json& result, const Json& args);
+
 // The note of a pick is at most this many bytes (review.pick and assets.pick refuse a longer one). review_cut_note cuts a longer note
 // on a character boundary, never inside a UTF-8 sequence (a cut "é" would make the arguments invalid JSON text).
 inline constexpr std::size_t kReviewNoteMaxBytes = 500;
 std::string review_cut_note(const std::string& note, std::size_t maxBytes = kReviewNoteMaxBytes);
+
+// The Sheet tab shows this many lines of what a pick moved and warned; the rest is in a tooltip.
+inline constexpr std::size_t kReviewPickLinesShown = 3;
 
 // Closing the editor or switching project waits this long for a running pick (a child factoria), then kills it.
 inline constexpr double kReviewPickShutdownSeconds = 15;
