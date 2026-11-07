@@ -4,8 +4,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
-#include <cstdio>
 #include <filesystem>
 #include <format>
 #include <set>
@@ -25,15 +25,22 @@ namespace {
 
 namespace stdfs = std::filesystem;
 
-// UTF-8 whatever the platform: generic_string() on Windows is the ANSI code page, which mangles accents.
+// Path conventions of the engine: `projectDir` and every string handed to fa::fs are NATIVE (the ANSI code page on Windows, whatever
+// the caller got from argv, current_path().string() or the editor); only the text of JSON (relative paths in arguments and manifests) is
+// UTF-8. utf8() is for messages and JSON values that show a path; native() is for fa::fs.
 std::string utf8(const stdfs::path& p) {
     const std::u8string u = p.generic_u8string();
     return std::string(reinterpret_cast<const char*>(u.data()), u.size());
 }
 
+std::string native(const stdfs::path& p) { return p.string(); }
+
 stdfs::path from_utf8(const std::string& s) { return stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(s.data()), s.size())); }
 
-stdfs::path project_path(const std::string& projectDir, const std::string& rel) { return from_utf8(projectDir) / from_utf8(rel); }
+stdfs::path project_path(const std::string& projectDir, const std::string& rel) { return stdfs::path(projectDir) / from_utf8(rel); }
+
+// The form of a path to hand to std::filesystem calls: past MAX_PATH on Windows it takes the \\?\ prefix (fs::os_path).
+stdfs::path os(const stdfs::path& p) { return fs::os_path(p); }
 
 ReviewOutcome failure(std::string code, std::string message, std::string hint = {}) {
     ReviewOutcome o;
@@ -68,14 +75,14 @@ std::vector<std::pair<long, std::string>> sheet_ids(const std::string& projectDi
     std::vector<std::pair<long, std::string>> out;
     std::error_code ec;
     const stdfs::path root = project_path(projectDir, kReviewDir);
-    for (stdfs::directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+    for (stdfs::directory_iterator it(os(root), ec), end; !ec && it != end; it.increment(ec)) {
         std::error_code e2;
         if (!it->is_directory(e2)) continue;
         const std::u8string u = it->path().filename().u8string();
         const std::string name(reinterpret_cast<const char*>(u.data()), u.size());
         const long number = sheet_number(name);
         if (number < 0) continue;
-        if (finishedOnly && !stdfs::is_regular_file(it->path() / "manifest.json", e2)) continue;
+        if (finishedOnly && !stdfs::is_regular_file(os(it->path() / "manifest.json"), e2)) continue;
         out.emplace_back(number, name);
     }
     std::sort(out.begin(), out.end());
@@ -88,6 +95,9 @@ struct ReviewLock {
     explicit ReviewLock(const std::string& projectDir) : lock(share_env(), project_path(projectDir, kReviewDir)) {}
     bool held() const { return lock.held(); }
     ReviewOutcome busy() const {
+        if (lock.unwritable())
+            return failure("failed", "The review sheets of this project cannot be changed: " + lock.error(),
+                           "Nothing was changed. Check that the project is not read-only and that you may write in " + std::string(kReviewDir) + ".");
         return failure("busy", "The review sheets of this project are being changed by another process: " + lock.error(),
                        "Nothing was changed. Try again in a few seconds.");
     }
@@ -124,7 +134,7 @@ ReviewOutcome resolve_sheet(const std::string& projectDir, const std::string& re
 
 ReviewOutcome read_manifest(const std::string& projectDir, const std::string& id) {
     const std::string rel = std::string(kReviewDir) + "/" + id + "/manifest.json";
-    auto text = fs::read_text(utf8(project_path(projectDir, rel)));
+    auto text = fs::read_text(native(project_path(projectDir, rel)));
     if (!text.ok()) return failure("not_found", "Cannot read " + rel + ": " + text.error().message, text.error().hint);
     auto parsed = parse_json(*text, rel);
     if (!parsed.ok()) return failure("failed", rel + " is not valid JSON: " + parsed.error().message, "Delete the sheet folder " + std::string(kReviewDir) + "/" + id + " or fix the file.");
@@ -134,7 +144,7 @@ ReviewOutcome read_manifest(const std::string& projectDir, const std::string& id
 }
 
 ReviewOutcome write_text_file(const stdfs::path& file, const std::string& text) {
-    auto r = fs::write_bytes(utf8(file), text.data(), text.size());
+    auto r = fs::write_bytes(native(file), text.data(), text.size());
     if (!r.ok()) return failure("failed", "Cannot write " + utf8(file) + ": " + r.error().message, r.error().hint.empty() ? "Check that the disk has room and the folder is writable." : r.error().hint);
     return success(Json());
 }
@@ -150,7 +160,7 @@ std::string who_name(const std::string& given) {
 
 // The project's main scene (project-relative), "" when unknown: a candidate must never be that file.
 std::string main_scene_of(const std::string& projectDir) {
-    auto project = load_json_file(utf8(project_path(projectDir, "factoria.json")));
+    auto project = load_json_file(native(project_path(projectDir, "factoria.json")));
     if (!project.ok() || !project->is_object()) return {};
     const auto it = project->find("mainScene");
     return it != project->end() && it->is_string() ? it->get<std::string>() : std::string();
@@ -174,6 +184,38 @@ bool looks_absolute(const std::string& rel) { return !rel.empty() && (rel[0] == 
 // Seconds since 1970 of the engine's clock (overridable in tests through ShareEnv).
 std::int64_t clock_now() { return share_env().clock(); }
 
+// The name a dropped file gets in the drop folder: "NN_<name of the source>", at most 255 bytes (the limit of a file name on every
+// file system the engine runs on). A longer name loses the end of its stem (at a UTF-8 character boundary); the extension stays.
+std::string drop_file_name(int number, const std::string& source) {
+    std::string name = std::format("{:02d}_{}", number, fs::filename(source));
+    constexpr std::size_t kMaxName = 255;
+    if (name.size() <= kMaxName) return name;
+    const std::size_t dot = name.rfind('.');
+    const std::string ext = dot != std::string::npos && dot > 3 && name.size() - dot <= 16 ? name.substr(dot) : std::string();
+    std::size_t keep = kMaxName - ext.size();
+    while (keep > 0 && (static_cast<unsigned char>(name[keep]) & 0xC0) == 0x80) --keep;  // do not cut a multi-byte character
+    return name.substr(0, keep) + ext;
+}
+
+// The key (review_path_key) of where `resolved` (the real path resolve_project_path found) lies in the project, "" when it cannot be
+// told. Two names can reach one file through a link to a folder inside the project; this one is the file's own.
+std::string canonical_key(const std::string& projectDir, const stdfs::path& resolved) {
+    std::error_code ec;
+    const stdfs::path root = stdfs::weakly_canonical(stdfs::absolute(stdfs::path(projectDir), ec), ec);
+    if (ec) return {};
+    const stdfs::path rel = resolved.lexically_relative(root);
+    if (rel.empty() || *rel.begin() == stdfs::path("..")) return {};
+    return review_path_key(utf8(rel));
+}
+
+// canonical_key of a project-relative path given as JSON text; "" when it cannot be resolved.
+std::string real_key_of(const std::string& projectDir, const std::string& rel) {
+    auto norm = fs::normalize_checked(rel);
+    if (!norm.ok() || norm->empty()) return {};
+    auto resolved = resolve_project_path(projectDir, *norm);
+    return resolved.ok() ? canonical_key(projectDir, *resolved) : std::string();
+}
+
 struct Move {
     int n = 0;
     std::string label, from, to;
@@ -187,7 +229,7 @@ std::vector<std::string> roll_back(std::vector<Move>& moves) {
     for (auto it = moves.rbegin(); it != moves.rend(); ++it) {
         if (!it->done) continue;
         std::error_code ec;
-        fs::replace_file(it->absTo, it->absFrom, ec);
+        fs::replace_file(os(it->absTo), os(it->absFrom), ec);
         if (ec) stuck.push_back(it->to + " (" + ec.message() + ")");
         else it->done = false;
     }
@@ -203,7 +245,7 @@ ReviewOutcome review_reserve(const std::string& projectDir) {
     const long next = all.empty() ? 1 : all.back().first + 1;
     const std::string id = sheet_name(next);
     std::error_code ec;
-    stdfs::create_directories(project_path(projectDir, std::string(kReviewDir) + "/" + id + "/thumbs"), ec);
+    stdfs::create_directories(os(project_path(projectDir, std::string(kReviewDir) + "/" + id + "/thumbs")), ec);
     if (ec) return failure("failed", "Cannot create " + std::string(kReviewDir) + "/" + id + ": " + ec.message(), "Check that the project folder is writable and the disk has room.");
     return success(Json::object({{"id", id}, {"dir", std::string(kReviewDir) + "/" + id}}));
 }
@@ -212,7 +254,7 @@ void review_abandon(const std::string& projectDir, const std::string& id) {
     if (sheet_number(id) < 0) return;
     const stdfs::path dir = project_path(projectDir, std::string(kReviewDir) + "/" + id);
     std::error_code ec;
-    if (stdfs::exists(dir / "manifest.json", ec)) return;
+    if (stdfs::exists(os(dir / "manifest.json"), ec)) return;
     fs::remove_tree(dir, ec);
 }
 
@@ -222,11 +264,11 @@ ReviewOutcome review_commit(const std::string& projectDir, const std::string& id
     const stdfs::path dir = project_path(projectDir, dirRel);
     for (const ReviewThumb& t : thumbs) {
         const std::vector<std::uint8_t> png = encode_png(t.picture);
-        auto r = fs::write_bytes(utf8(dir / std::format("thumbs/{:02d}.png", t.n)), png.data(), png.size());
+        auto r = fs::write_bytes(native(dir / std::format("thumbs/{:02d}.png", t.n)), png.data(), png.size());
         if (!r.ok()) return failure("failed", "Cannot write the thumbnail " + std::to_string(t.n) + " of " + id + ": " + r.error().message, "Check that the disk has room.");
     }
     const std::vector<std::uint8_t> png = encode_png(sheet);
-    auto picture = fs::write_bytes(utf8(dir / "sheet.png"), png.data(), png.size());
+    auto picture = fs::write_bytes(native(dir / "sheet.png"), png.data(), png.size());
     if (!picture.ok()) return failure("failed", "Cannot write the picture of " + id + ": " + picture.error().message, "Check that the disk has room.");
 
     const std::int64_t now = share_env().clock();
@@ -318,6 +360,7 @@ std::string review_candidate_problem(const std::string& projectDir, const std::s
     auto resolved = resolve_project_path(projectDir, *norm);
     if (!resolved.ok()) return resolved.error().message;
     const std::string key = review_path_key(*norm);
+    const std::string realKey = canonical_key(projectDir, *resolved);
     if (type == "scene") {
         if (!ends_with_text(key, ".scene.json")) return "'" + *norm + "' is not a scene (.scene.json)";
     } else if (type == "prefab") {
@@ -332,11 +375,21 @@ std::string review_candidate_problem(const std::string& projectDir, const std::s
     } else {
         return "a '" + type + "' item has no file to move";
     }
-    if (key == "factoria.json" || key == "assets.json") return "'" + *norm + "' is a file of the project itself";
-    if (key == ".factoria" || starts_with_text(key, ".factoria/")) return "'" + *norm + "' is inside .factoria/, where the tools keep their own files";
-    if (in_vcs_folder(key)) return "'" + *norm + "' is inside a version-control folder";
+    // Both the name that was given and the file it really is (a link to a folder inside the project must not dodge these rules).
     const std::string mainScene = main_scene_of(projectDir);
-    if (!mainScene.empty() && key == review_path_key(mainScene)) return "'" + *norm + "' is the main scene of the project";
+    std::string mainKey, mainRealKey;
+    if (!mainScene.empty()) {
+        mainKey = review_path_key(mainScene);
+        if (auto mainResolved = resolve_project_path(projectDir, mainScene); mainResolved.ok()) mainRealKey = canonical_key(projectDir, *mainResolved);
+    }
+    for (const std::string& k : {key, realKey}) {
+        if (k.empty()) continue;
+        if (k == "factoria.json" || k == "assets.json") return "'" + *norm + "' is a file of the project itself";
+        if (k == ".factoria" || starts_with_text(k, ".factoria/")) return "'" + *norm + "' is inside .factoria/, where the tools keep their own files";
+        if (in_vcs_folder(k)) return "'" + *norm + "' is inside a version-control folder";
+        if (!mainKey.empty() && k == mainKey) return "'" + *norm + "' is the main scene of the project";
+        if (!mainRealKey.empty() && k == mainRealKey) return "'" + *norm + "' is the main scene of the project";
+    }
     return {};
 }
 
@@ -394,9 +447,13 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
         std::set<std::string> inUse;
         for (const Json& item : items)
             if (const auto spec = item.find("spec"); spec != item.end() && spec->is_object())
-                if (const auto stage = spec->find("stage"); stage != spec->end() && stage->is_string()) inUse.insert(review_path_key(stage->get<std::string>()));
+                if (const auto stage = spec->find("stage"); stage != spec->end() && stage->is_string()) {
+                    inUse.insert(review_path_key(stage->get<std::string>()));
+                    if (const std::string real = real_key_of(projectDir, stage->get<std::string>()); !real.empty()) inUse.insert(real);
+                }
         std::set<std::string> taken;  // sources already planned (paths are case-insensitive on Windows and macOS)
         const std::string chosenSource = review_path_key(chosen.value("source", std::string()));
+        const std::string chosenReal = real_key_of(projectDir, chosen.value("source", std::string()));
         for (const Json& item : items) {
             const int number = item.value("n", 0);
             if (number == n || !item.value("candidate", false)) continue;
@@ -408,10 +465,11 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
                                "Nothing was moved. Pick with drop: false, or fix `source` of that item in the manifest.");
             const std::string norm = *fs::normalize_checked(source);
             const std::string key = review_path_key(norm);
-            if (inUse.count(key))
+            const std::string realKey = real_key_of(projectDir, norm);
+            if (inUse.count(key) || (!realKey.empty() && inUse.count(realKey)))
                 return failure("failed", std::format("Item {} of {} would move '{}', which another item of the sheet uses as the stage of an effect.", number, id, norm),
                                "Nothing was moved. Pick with drop: false, or make the sheet again with a stage scene that is not a candidate.");
-            if (key == chosenSource || !taken.insert(key).second) {
+            if (key == chosenSource || (!realKey.empty() && realKey == chosenReal) || !taken.insert(realKey.empty() ? key : realKey).second) {
                 warnings.push_back(std::format("Item {} shares its file '{}' with the picked item or another dropped one, so it was left where it is.", number, norm));
                 continue;
             }
@@ -419,7 +477,7 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
             m.n = number;
             m.label = item.value("label", std::string());
             m.from = norm;
-            m.to = std::format("{}/{}/{:02d}_{}", dropDir, id, number, fs::filename(norm));
+            m.to = std::format("{}/{}/{}", dropDir, id, drop_file_name(number, norm));
             if (auto where = resolve_project_path(projectDir, m.to); !where.ok())
                 return failure("failed", std::format("Item {} of {} cannot be moved to '{}': {}", number, id, m.to, where.error().message), "Nothing was moved. The drop folder must be a real folder inside the project.");
             m.absFrom = project_path(projectDir, m.from);  // the file (or link) itself: it was checked to stay inside the project
@@ -430,11 +488,11 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
         std::vector<Move> existing;
         for (Move& m : moves) {
             std::error_code ec;
-            if (!stdfs::is_regular_file(m.absFrom, ec)) {
+            if (!stdfs::is_regular_file(os(m.absFrom), ec)) {
                 warnings.push_back(std::format("Item {} ('{}') is no longer at '{}': there was nothing to move.", m.n, m.label, m.from));
                 continue;
             }
-            if (stdfs::exists(m.absTo, ec))
+            if (stdfs::exists(os(m.absTo), ec))
                 return failure("exists", std::format("'{}' already exists, so item {} cannot be moved there.", m.to, m.n),
                                "Nothing was moved. Rename or remove that file (it is a leftover of an earlier pick), then pick again.");
             existing.push_back(std::move(m));
@@ -443,13 +501,13 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
         for (Move& m : moves) {
             ShareLock::keep_alive();  // a long change keeps the lock's file fresh so another process never takes it over
             std::error_code ec;
-            stdfs::create_directories(m.absTo.parent_path(), ec);
+            stdfs::create_directories(os(m.absTo.parent_path()), ec);
             if (ec) {
                 const auto stuck = roll_back(moves);
                 return failure("failed", "Cannot create the drop folder for '" + m.from + "': " + ec.message(),
                                stuck.empty() ? "Nothing was changed." : "Could not put back: " + join(stuck, "; "));
             }
-            fs::replace_file(m.absFrom, m.absTo, ec);
+            fs::replace_file(os(m.absFrom), os(m.absTo), ec);
             if (ec) {
                 const auto stuck = roll_back(moves);
                 std::string hint = fs::is_sharing_violation(ec) ? "The file is open in another program (an editor, a viewer, an antivirus scan). Close it and pick again; nothing was changed." : "Nothing was changed.";
@@ -483,7 +541,7 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
 
     // assets.json is not edited by a pick: say which of the moved files it still lists.
     if (!moves.empty()) {
-        auto assets = load_json_file(utf8(project_path(projectDir, "assets.json")));
+        auto assets = load_json_file(native(project_path(projectDir, "assets.json")));
         if (assets.ok() && assets->is_object()) {
             const auto list = assets->find("assets");
             if (list != assets->end() && list->is_object())
@@ -508,7 +566,7 @@ namespace {
 std::int64_t newest_change_ns(const stdfs::path& dir) {
     std::int64_t newest = fs::host_modified_time(dir);
     std::error_code ec;
-    for (stdfs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) newest = std::max(newest, fs::host_modified_time(it->path()));
+    for (stdfs::recursive_directory_iterator it(os(dir), ec), end; !ec && it != end; it.increment(ec)) newest = std::max(newest, fs::host_modified_time(it->path()));
     return newest;
 }
 
@@ -531,7 +589,7 @@ ReviewOutcome review_cleanup(const std::string& projectDir, const ReviewCleanupO
         ++examined;
         const stdfs::path dir = project_path(projectDir, std::string(kReviewDir) + "/" + id);
         std::error_code ec;
-        if (!stdfs::is_regular_file(dir / "manifest.json", ec)) {
+        if (!stdfs::is_regular_file(os(dir / "manifest.json"), ec)) {
             // Nothing wrote a manifest: review_commit writes it last, so this is a sheet in the making or one whose process died.
             if (options.orphanMinutes <= 0) continue;
             const std::int64_t newest = newest_change_ns(dir);
@@ -562,8 +620,11 @@ ReviewOutcome review_cleanup(const std::string& projectDir, const ReviewCleanupO
         Json& picked = *pickedIt;
         const auto atIt = picked.find("atUnix");
         if (atIt == picked.end() || !atIt->is_number()) continue;
-        const std::int64_t at = atIt->is_number_integer() ? atIt->get<std::int64_t>() : std::int64_t(atIt->get<double>());
-        if (now < at + std::int64_t(options.droppedDays) * 86400) continue;
+        // The manifest is a file anyone can edit: clamp before any arithmetic (a double past int64 is undefined behaviour to convert).
+        const double atRaw = atIt->is_number_integer() ? double(atIt->get<std::int64_t>()) : atIt->get<double>();
+        const std::int64_t at = std::int64_t(std::clamp(std::isnan(atRaw) ? 0.0 : atRaw, 0.0, 4e12));
+        const std::int64_t waitSec = std::int64_t(std::clamp(options.droppedDays, 0, 100000)) * 86400;
+        if (now < at + waitSec) continue;
         const auto droppedIt = picked.find("dropped");
         if (droppedIt == picked.end() || !droppedIt->is_array()) continue;
         const std::string manifestDrop = manifest.value("dropDir", std::string(kReviewDropDir));
@@ -581,7 +642,7 @@ ReviewOutcome review_cleanup(const std::string& projectDir, const ReviewCleanupO
             const std::string from = entry.value("from", std::string());
             const std::string key = review_path_key(to);
             // Only the file review.pick itself put in the sheet's drop folder: <dropDir>/<id>/<NN>_<name of the source>.
-            const std::string expectedName = to_lower(std::format("{:02d}_{}", entry.value("n", 0), fs::filename(from)));
+            const std::string expectedName = drop_file_name(entry.value("n", 0), from);
             if (!starts_with_text(key, prefix) || key.find('/', prefix.size()) != std::string::npos || key.substr(prefix.size()) != review_path_key(expectedName) ||
                 !resolve_project_path(projectDir, to).ok()) {
                 skipped.push_back(Json::object({{"sheet", id}, {"reason", "'" + to + "' is not a file review.pick put in " + prefix + ", so it was left alone"}}));
@@ -589,7 +650,7 @@ ReviewOutcome review_cleanup(const std::string& projectDir, const ReviewCleanupO
             }
             const stdfs::path file = project_path(projectDir, to);
             std::error_code st;
-            const stdfs::file_status status = stdfs::symlink_status(file, st);
+            const stdfs::file_status status = stdfs::symlink_status(os(file), st);
             if (st || !stdfs::exists(status)) {
                 if (!options.dryRun) entry["status"] = "gone";  // moved back (or removed by hand): nothing to delete
                 touched = true;
@@ -601,7 +662,7 @@ ReviewOutcome review_cleanup(const std::string& projectDir, const ReviewCleanupO
             }
             if (!options.dryRun) {
                 std::error_code rm;
-                fs::remove_file(file, rm);
+                fs::remove_file(os(file), rm);
                 if (rm) {
                     skipped.push_back(Json::object({{"sheet", id}, {"reason", "cannot delete '" + to + "': " + rm.message() + (fs::is_sharing_violation(rm) ? " (open in another program; the next cleanup tries again)" : "")}}));
                     continue;
@@ -618,7 +679,7 @@ ReviewOutcome review_cleanup(const std::string& projectDir, const ReviewCleanupO
                 skipped.push_back(Json::object({{"sheet", id}, {"reason", written.message + " The files were deleted; the next cleanup marks them."}}));
             }
             std::error_code rm;
-            stdfs::remove(project_path(projectDir, *fs::normalize_checked(manifestDrop) + "/" + id), rm);  // only when empty
+            stdfs::remove(os(project_path(projectDir, *fs::normalize_checked(manifestDrop) + "/" + id)), rm);  // only when empty
         }
         if (!files.empty()) expired.push_back(Json::object({{"sheet", id}, {"files", files}}));
         ++changed;

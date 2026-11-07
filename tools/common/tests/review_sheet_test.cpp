@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <set>
@@ -124,7 +125,7 @@ TEST_CASE("review.sheet: a sheet of images has numbered cells, a stored manifest
     CHECK(r["$image"]["mimeType"] == "image/png");
     CHECK_FALSE(r["$image"].contains("temporary"));
     const std::string picturePath = r["$image"]["path"].get<std::string>();
-    const Image sheet = read_png(stdfs::path(std::u8string(picturePath.begin(), picturePath.end())));
+    const Image sheet = read_png(stdfs::path(picturePath));
     CHECK(sheet.width == r["picture"]["width"].get<int>());
     CHECK(sheet.height == r["picture"]["height"].get<int>());
     CHECK(sheet.width <= 2000);
@@ -575,7 +576,7 @@ TEST_CASE("review store: unicode folder names, an abandoned sheet leaves nothing
     const stdfs::path root = tmp.path / stdfs::path(std::u8string(u8"proyecto áé"));
     std::error_code ec;
     stdfs::create_directories(root, ec);
-    const std::string dir(reinterpret_cast<const char*>(root.generic_u8string().c_str()));
+    const std::string dir = root.string();  // a project folder is a NATIVE string (the ANSI code page on Windows)
     ReviewOutcome a = review_reserve(dir);
     REQUIRE_MESSAGE(a.ok, a.message);
     CHECK(a.value["id"] == "sheet-0001");
@@ -719,8 +720,54 @@ TEST_CASE("review.sheet: a candidate is the right kind of file, not a project fi
     // the same file twice where one is a candidate, in either order; twice without a candidate is fine
     fails(Json::array({Json{{"image", "assets/red.png"}}, Json{{"image", "assets/./red.png"}, {"candidate", true}}}), "/items/1/image", "already the file of item 1");
     fails(Json::array({Json{{"image", "assets/red.png"}, {"candidate", true}}, Json{{"image", "assets/red.png"}}}), "/items/1/image", "already the file of item 1");
+    // the scene a level looks its entity up in is read, not moved: no candidate may be that file, in either order
+    const Json lvl = Json::parse(R"({"level":{"sample":"example","size":[12,8]},"sampleScene":"scenes/variant.scene.json"})");
+    fails(Json::array({lvl, Json{{"scene", "./scenes/variant.scene.json"}, {"candidate", true}}}), "/items/1/scene", "already the file of item 1");
+    fails(Json::array({Json{{"scene", "scenes/variant.scene.json"}, {"candidate", true}}, lvl}), "/items/1/sampleScene", "candidate of item 1");
     const Json twice = p.ok("review.sheet", Json{{"items", Json::array({Json{{"image", "assets/red.png"}}, Json{{"image", "assets/red.png"}}})}});
     CHECK(twice["count"] == 2);
+}
+
+TEST_CASE("review: a link to a folder inside the project does not dodge the rules about the main scene and .factoria") {
+    ReviewProject p;
+    write_all(p.file(".factoria/keep.png"), "kept");
+    std::error_code ec;
+    stdfs::create_directory_symlink(p.file("scenes"), p.file("assets/scn"), ec);
+    if (!ec) stdfs::create_directory_symlink(p.file(".factoria"), p.file("assets/fa"), ec);
+    if (ec) {
+        MESSAGE("symlink case skipped: " << ec.message());
+        return;
+    }
+    const CommandResult viaLink = p.call("review.sheet", Json{{"items", Json::array({Json{{"scene", "assets/scn/main.scene.json"}, {"candidate", true}}})}});
+    CHECK_FALSE(viaLink.ok);
+    CHECK_MESSAGE(contains(message(viaLink), "main scene"), message(viaLink));
+    const CommandResult viaFa = p.call("review.sheet", Json{{"items", Json::array({Json{{"image", "assets/fa/keep.png"}, {"candidate", true}}})}});
+    CHECK_FALSE(viaFa.ok);
+    CHECK_MESSAGE(contains(message(viaFa), ".factoria"), message(viaFa));
+    // and a hand-edited manifest cannot make a pick move them
+    pick_is_refused(
+        p,
+        [](Json& m) {
+            m["items"][2]["source"] = "assets/scn/main.scene.json";
+            m["items"][2]["type"] = "scene";
+        },
+        "main scene");
+    pick_is_refused(p, [](Json& m) { m["items"][2]["source"] = "assets/fa/keep.png"; }, ".factoria");
+    CHECK(p.exists("scenes/main.scene.json"));
+    CHECK(p.exists(".factoria/keep.png"));
+}
+
+TEST_CASE("resolve_project_path takes the project folder as a native string and the relative path as UTF-8") {
+    TempDir tmp;
+    const stdfs::path root = tmp.path / stdfs::path(std::u8string(u8"proyecto áé"));
+    std::error_code ec;
+    stdfs::create_directories(root / "assets", ec);
+    write_png(root / "assets" / stdfs::path(std::u8string(u8"rojo ñ.png")), make_image(2, 2, {1, 2, 3, 255}));
+    const auto found = resolve_project_path(root.string(), u8c(u8"assets/rojo ñ.png"));
+    REQUIRE_MESSAGE(found.ok(), found.error().message);
+    CHECK(stdfs::exists(*found));
+    CHECK(stdfs::equivalent(*found, root / "assets" / stdfs::path(std::u8string(u8"rojo ñ.png"))));
+    CHECK_FALSE(resolve_project_path(root.string(), "../outside.png").ok());
 }
 
 // ---- levels sampled from a scene's Tilemap entity ----------------------------------------------------------------------------------
@@ -979,6 +1026,60 @@ TEST_CASE("review.cleanup: dropped candidates expire after a week, chosen files 
     CHECK(contains(message(p.call("review.cleanup", Json{{"orphanMinutes", 1e9}})), "/orphanMinutes"));
 }
 
+TEST_CASE("review.cleanup: a hand-edited atUnix that is huge, negative or not a number never overflows") {
+    ReviewProject p;
+    p.ok("review.sheet", Json{{"candidates", true}, {"items", images3()}});
+    p.ok("review.pick", Json{{"n", 1}});
+    ClockAhead later(30);
+    for (const double at : {1e300, -1e300, 9.3e18, 4e12, -1.0}) {
+        tamper(p, "sheet-0001", [at](Json& m) { m["picked"]["atUnix"] = at; });
+        const CommandResult r = p.call("review.cleanup", Json{{"dryRun", true}});
+        CHECK_MESSAGE(r.ok, r.error.dump());
+        if (r.ok) CHECK_MESSAGE(r.result["droppedExpired"].size() == (at < 1e12 ? 1u : 0u), at);
+    }
+    tamper(p, "sheet-0001", [](Json& m) { m["picked"]["atUnix"] = std::int64_t(9223372036854775807LL); });
+    CHECK(p.call("review.cleanup", Json{{"dryRun", true}}).ok);
+}
+
+TEST_CASE("review.pick: a long file name keeps the dropped name inside 255 bytes, and review.cleanup still finds the file") {
+    ReviewProject p;
+    const std::string longName = std::string(249, 'a') + ".png";  // 253 bytes: with "01_" it is 256
+    const stdfs::path longFile = p.file("assets/" + longName);
+    {
+        std::ofstream out(fs::os_path(longFile), std::ios::binary);
+        const std::string bytes = png_string(make_image(8, 8, {200, 30, 30, 255}));
+        out.write(bytes.data(), std::streamsize(bytes.size()));
+        REQUIRE(out.good());
+    }
+    const Json made = p.ok("review.sheet", Json{{"candidates", true}, {"items", Json::array({Json{{"image", "assets/" + longName}}, Json{{"image", "assets/green.png"}}})}});
+    const Json picked = p.ok("review.pick", Json{{"sheet", made["sheet"]}, {"n", 2}});
+    REQUIRE(picked["dropped"].size() == 1);
+    const std::string to = picked["dropped"][0]["to"].get<std::string>();
+    const std::string name = to.substr(to.rfind('/') + 1);
+    CHECK(name.size() == 255);
+    CHECK(name.compare(0, 3, "01_") == 0);
+    CHECK(name.compare(name.size() - 4, 4, ".png") == 0);
+    std::error_code ec;
+    CHECK(stdfs::exists(fs::os_path(p.file(to)), ec));
+    CHECK_FALSE(stdfs::exists(fs::os_path(longFile), ec));
+    ClockAhead later(8);
+    const Json cleaned = p.ok("review.cleanup", Json::object());
+    CHECK(cleaned["droppedExpired"].size() == 1);
+    CHECK(cleaned["skipped"].empty());
+    CHECK_FALSE(stdfs::exists(fs::os_path(p.file(to)), ec));
+}
+
+TEST_CASE("review store: a project folder that cannot hold the lock says so and changes nothing") {
+    ReviewProject p;
+    write_all(p.file(".factoria/review"), "a file where the folder should be");
+    const CommandResult sheet = p.call("review.sheet", Json{{"items", images3()}});
+    CHECK_FALSE(sheet.ok);
+    CHECK_MESSAGE(contains(message(sheet), "cannot be changed"), message(sheet));
+    CHECK_MESSAGE(contains(message(sheet), "Nothing was changed"), message(sheet));
+    CHECK(sheet.error.value("code", std::string()) != "busy");
+    for (const char* f : {"assets/red.png", "assets/green.png", "assets/blue.png"}) CHECK(p.exists(f));
+}
+
 TEST_CASE("review.sheet: a new sheet cleans up what is old (and a failing cleanup is a warning, not an error)") {
     ReviewProject p;
     p.ok("review.sheet", Json{{"candidates", true}, {"items", images3()}});
@@ -1029,18 +1130,31 @@ TEST_CASE("review.sheet: a JPEG, BMP or TGA header that announces a huge picture
     }
 }
 
+TEST_CASE("review.sheet: a file the decoder could read but whose size cannot be checked (GIF, PSD, HDR) is a red tile") {
+    ReviewProject p;
+    write_all(p.file("assets/anim.png"), std::string("GIF89a") + std::string(40, '\x01'));
+    write_all(p.file("assets/layers.jpg"), std::string("8BPS") + std::string(40, '\x01'));
+    write_all(p.file("assets/light.bmp"), std::string("#?RADIANCE\n") + std::string(40, 'x'));
+    for (const char* name : {"assets/anim.png", "assets/layers.jpg", "assets/light.bmp"}) {
+        const Json r = p.ok("review.sheet", Json{{"items", Json::array({Json{{"image", "assets/red.png"}}, Json{{"image", name}}})}});
+        CHECK_MESSAGE(r["items"][1]["ok"] == false, name);
+        CHECK_MESSAGE(has_warning(r, "not a PNG, JPEG, BMP or TGA"), name);
+    }
+}
+
 TEST_CASE("review.sheet: a sheet of the largest pictures holds the thumbnails, not the pictures") {
     ReviewProject p;
-    // 48 pictures of 1200 x 1200 (5.7 MB each as pixels, 276 MB together if all were kept) still make one sheet; each is shrunk right after it is read
+    // 24 pictures of 1200 x 1200 (5.7 MB each as pixels, 138 MB together if all were kept) still make one sheet; each is shrunk right after it is read
+    constexpr int kBig = 24;
     write_png(p.file("assets/big.png"), make_image(1200, 1200, {20, 100, 200, 255}));
     Json items = Json::array();
-    for (int i = 0; i < kReviewMaxItems; ++i) items.push_back(Json{{"image", "assets/big.png"}, {"label", "big " + std::to_string(i + 1)}});
+    for (int i = 0; i < kBig; ++i) items.push_back(Json{{"image", "assets/big.png"}, {"label", "big " + std::to_string(i + 1)}});
     const Json r = p.ok("review.sheet", Json{{"items", items}, {"thumbSize", 64}});
-    CHECK(r["count"] == kReviewMaxItems);
+    CHECK(r["count"] == kBig);
     CHECK(r["warnings"].empty());
     CHECK(r["picture"]["width"].get<int>() <= 2000);
     CHECK(r["picture"]["height"].get<int>() <= 2000);
-    const Image thumb = read_png(p.file(".factoria/review/sheet-0001/thumbs/48.png"));
+    const Image thumb = read_png(p.file(".factoria/review/sheet-0001/thumbs/24.png"));
     CHECK(thumb.width == 64);
     CHECK(near_color(thumb, 32, 32, 20, 100, 200));
 }
@@ -1051,7 +1165,7 @@ TEST_CASE("review commands work in a project whose folder has accents") {
     ScratchShareHome home;
     TempDir tmp;
     const stdfs::path root = tmp.path / stdfs::path(u8"proyecto áé ñ");
-    const std::string dir = u8s(root);
+    const std::string dir = root.string();  // native, like every project folder the engine is given
     REQUIRE(create_project(dir, "2d-empty").ok());
     CommandRegistry reg;
     register_tooling_commands(reg, dir);
@@ -1063,8 +1177,7 @@ TEST_CASE("review commands work in a project whose folder has accents") {
     REQUIRE_MESSAGE(made.ok, made.error.dump());
     CHECK(made.result["items"][0]["label"] == u8c(u8"rojo ñ"));
     const std::string pictureText = made.result["$image"]["path"].get<std::string>();
-    const stdfs::path picture(std::u8string(pictureText.begin(), pictureText.end()));
-    CHECK(stdfs::exists(picture));
+    CHECK(stdfs::exists(stdfs::path(pictureText)));  // `$image.path` is native, like the paths of every other command
     const CommandResult picked = reg.call("review.pick", Json{{"n", 2}});
     REQUIRE_MESSAGE(picked.ok, picked.error.dump());
     CHECK(picked.result["dropped"][0]["from"] == u8c(u8"assets/rojo ñ.png"));

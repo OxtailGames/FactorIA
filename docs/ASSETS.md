@@ -636,7 +636,7 @@ Each item has exactly one of these keys, plus `label` (default: the file name) a
 `review.pick {"sheet":"latest","n":2}` records the number the person chose (who picked, when, an optional `note`, and the item's
 `spec`, so a picked level's seed is kept). With `drop` (default true) it MOVES the files of the other items that were marked
 `candidate: true` to `.factoria/review/dropped/<sheet id>/<NN>_<file name>` (another folder below `.factoria/` with `dropDir` on the
-sheet); nothing is deleted, and the result and the manifest list each move (`from`, `to`), so moving a file back undoes it. The
+sheet); the pick itself deletes nothing (`review.cleanup` deletes the dropped files 7 days later; `droppedDays: 0` keeps them), and the result and the manifest list each move (`from`, `to`), so moving a file back undoes it. The
 picked item's file, files that are not marked, the main scene and files in `.git` are never moved, and `assets.json` is not edited
 (the result warns when it still lists a moved file). It is all or nothing: if a move fails the ones already made are put back and the
 manifest does not change; a leftover in the drop folder (`exists`) stops it before any move. The manifest is changed under a lock in

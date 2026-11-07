@@ -1996,7 +1996,7 @@ review.pick {"sheet":"latest","n":2}                                            
   Four to nine candidates is what a person judges well; the most is 48 and the sheet is at most
   8192 pixels a side.
 - **Never pick for the person.** `review.pick` records THEIR number. Over MCP and the CLI nothing asks them, so the number must come from the person in the conversation; if you do not have it, ask.
-- Candidates are MOVED, never deleted. Mark `candidate: true` on the items whose files you made only for this choice (variants of an
+- Candidates are MOVED by the pick, never deleted by it (`review.cleanup` deletes the dropped files 7 days later; `droppedDays: 0` keeps them). Mark `candidate: true` on the items whose files you made only for this choice (variants of an
   image, a scene, a prefab). `review.pick` then moves the files of the items that were not chosen to
   `.factoria/review/dropped/<sheet id>/` (`drop: false` touches no file, `dropDir` picks another folder under `.factoria/`), and
   its result lists every move (`from`, `to`): moving a file back undoes it. The main scene, a file in `.git` and a file that is not marked
