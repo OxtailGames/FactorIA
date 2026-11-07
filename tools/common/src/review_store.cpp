@@ -42,6 +42,42 @@ stdfs::path project_path(const std::string& projectDir, const std::string& rel) 
 // The form of a path to hand to std::filesystem calls: past MAX_PATH on Windows it takes the \\?\ prefix (fs::os_path).
 stdfs::path os(const stdfs::path& p) { return fs::os_path(p); }
 
+// A manifest is a file anyone can edit: any key may hold any type. These read what is there, or the default; they never throw
+// (nlohmann's value() throws type_error on a key of the wrong type).
+std::string str_of(const Json& j, const char* key, std::string def = {}) {
+    if (!j.is_object()) return def;
+    const auto it = j.find(key);
+    return it != j.end() && it->is_string() ? it->get<std::string>() : def;
+}
+
+bool bool_of(const Json& j, const char* key, bool def) {
+    if (!j.is_object()) return def;
+    const auto it = j.find(key);
+    return it != j.end() && it->is_boolean() ? it->get<bool>() : def;
+}
+
+// True and `out` set when `key` holds a whole number that fits an int.
+bool whole_of(const Json& j, const char* key, int& out) {
+    if (!j.is_object()) return false;
+    const auto it = j.find(key);
+    if (it == j.end() || !it->is_number_integer()) return false;
+    if (it->is_number_unsigned()) {
+        const std::uint64_t u = it->get<std::uint64_t>();
+        if (u > 2147483647u) return false;
+        out = int(u);
+        return true;
+    }
+    const std::int64_t v = it->get<std::int64_t>();
+    if (v < -2147483647 - 1 || v > 2147483647) return false;
+    out = int(v);
+    return true;
+}
+
+int int_of(const Json& j, const char* key, int def) {
+    int v = def;
+    return whole_of(j, key, v) ? v : def;
+}
+
 ReviewOutcome failure(std::string code, std::string message, std::string hint = {}) {
     ReviewOutcome o;
     o.ok = false;
@@ -138,7 +174,7 @@ ReviewOutcome read_manifest(const std::string& projectDir, const std::string& id
     if (!text.ok()) return failure("not_found", "Cannot read " + rel + ": " + text.error().message, text.error().hint);
     auto parsed = parse_json(*text, rel);
     if (!parsed.ok()) return failure("failed", rel + " is not valid JSON: " + parsed.error().message, "Delete the sheet folder " + std::string(kReviewDir) + "/" + id + " or fix the file.");
-    if (!parsed->is_object() || parsed->value("format", std::string()) != kReviewFormat)
+    if (!parsed->is_object() || str_of(*parsed, "format", std::string()) != kReviewFormat)
         return failure("failed", rel + " is not a " + kReviewFormat + " manifest.", "It was not written by review.sheet; leave it alone or delete the folder.");
     return success(std::move(*parsed));
 }
@@ -184,26 +220,12 @@ bool looks_absolute(const std::string& rel) { return !rel.empty() && (rel[0] == 
 // Seconds since 1970 of the engine's clock (overridable in tests through ShareEnv).
 std::int64_t clock_now() { return share_env().clock(); }
 
-// The name a dropped file gets in the drop folder: "NN_<name of the source>", at most 255 bytes (the limit of a file name on every
-// file system the engine runs on). A longer name loses the end of its stem (at a UTF-8 character boundary); the extension stays.
-std::string drop_file_name(int number, const std::string& source) {
-    std::string name = std::format("{:02d}_{}", number, fs::filename(source));
-    constexpr std::size_t kMaxName = 255;
-    if (name.size() <= kMaxName) return name;
-    const std::size_t dot = name.rfind('.');
-    const std::string ext = dot != std::string::npos && dot > 3 && name.size() - dot <= 16 ? name.substr(dot) : std::string();
-    std::size_t keep = kMaxName - ext.size();
-    while (keep > 0 && (static_cast<unsigned char>(name[keep]) & 0xC0) == 0x80) --keep;  // do not cut a multi-byte character
-    return name.substr(0, keep) + ext;
-}
-
 // The key (review_path_key) of where `resolved` (the real path resolve_project_path found) lies in the project, "" when it cannot be
 // told. Two names can reach one file through a link to a folder inside the project; this one is the file's own.
 std::string canonical_key(const std::string& projectDir, const stdfs::path& resolved) {
-    std::error_code ec;
-    const stdfs::path root = stdfs::weakly_canonical(stdfs::absolute(stdfs::path(projectDir), ec), ec);
-    if (ec) return {};
-    const stdfs::path rel = resolved.lexically_relative(root);
+    const auto root = resolve_project_path(projectDir, ".");  // the canonical project folder, in the same form as `resolved`
+    if (!root.ok()) return {};
+    const stdfs::path rel = resolved.lexically_relative(*root);
     if (rel.empty() || *rel.begin() == stdfs::path("..")) return {};
     return review_path_key(utf8(rel));
 }
@@ -237,6 +259,17 @@ std::vector<std::string> roll_back(std::vector<Move>& moves) {
 }
 
 }  // namespace
+
+std::string review_drop_file_name(int number, const std::string& source) {
+    std::string name = std::format("{:02d}_{}", number, fs::filename(source));
+    constexpr std::size_t kMaxName = 255;
+    if (name.size() <= kMaxName) return name;
+    const std::size_t dot = name.rfind('.');
+    const std::string ext = dot != std::string::npos && dot > 3 && name.size() - dot <= 16 ? name.substr(dot) : std::string();
+    std::size_t keep = kMaxName - ext.size();
+    while (keep > 0 && (static_cast<unsigned char>(name[keep]) & 0xC0) == 0x80) --keep;  // do not cut a multi-byte character
+    return name.substr(0, keep) + ext;
+}
 
 ReviewOutcome review_reserve(const std::string& projectDir) {
     ReviewLock lock(projectDir);
@@ -307,16 +340,16 @@ ReviewOutcome review_list(const std::string& projectDir, int limit) {
         std::string pickedLabel;
         const auto p = j.find("picked");
         if (p != j.end() && p->is_object()) {
-            picked = p->value("n", 0);
+            picked = int_of(*p, "n", 0);
             if (const auto pl = p->find("label"); pl != p->end() && pl->is_string()) pickedLabel = pl->get<std::string>();
         }
         Json picture = nullptr;
-        if (const auto pic = j.find("picture"); pic != j.end() && pic->is_object()) picture = pic->value("path", std::string());
+        if (const auto pic = j.find("picture"); pic != j.end() && pic->is_object()) picture = str_of(*pic, "path", std::string());
         const auto items = j.find("items");
         const auto meta = j.find("meta");
         sheets.push_back(Json::object({{"id", it->second},
-                                       {"label", j.value("label", std::string())},
-                                       {"createdAt", j.value("createdAt", std::string())},
+                                       {"label", str_of(j, "label", std::string())},
+                                       {"createdAt", str_of(j, "createdAt", std::string())},
                                        {"count", items != j.end() && items->is_array() ? int(items->size()) : 0},
                                        {"picked", picked},
                                        {"pickedLabel", pickedLabel},
@@ -419,7 +452,7 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
 
     if (const auto p = manifest.find("picked"); p != manifest.end() && p->is_object())
         return failure("already_picked",
-                       std::format("{} was already answered: number {} was picked ({}).", id, p->value("n", 0), p->value("at", std::string("earlier"))),
+                       std::format("{} was already answered: number {} was picked ({}).", id, int_of(*p, "n", 0), str_of(*p, "at", std::string("earlier"))),
                        "A choice is final. To choose again make a new sheet with review.sheet. Files that were dropped are listed in the manifest (picked.dropped: from, to); move one back by hand to bring it back.");
     const auto itemsIt = manifest.find("items");
     if (itemsIt == manifest.end() || !itemsIt->is_array() || itemsIt->empty()) return failure("failed", id + " has no items.", "Make a new sheet with review.sheet.");
@@ -428,8 +461,8 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
         return failure("invalid_argument", std::format("review.pick /n: {} is not on {}; its numbers go from 1 to {}.", n, id, items.size()),
                        "Use the number printed on the thumbnail the person chose. Ask them if you do not have it: never choose for them.");
     const Json& chosen = items[std::size_t(n - 1)];
-    if (!chosen.value("ok", true))
-        return failure("invalid_argument", std::format("review.pick /n: item {} of {} failed to render ({}), so it cannot be picked.", n, id, chosen.value("error", std::string("no reason recorded"))),
+    if (!bool_of(chosen, "ok", true))
+        return failure("invalid_argument", std::format("review.pick /n: item {} of {} failed to render ({}), so it cannot be picked.", n, id, str_of(chosen, "error", std::string("no reason recorded"))),
                        "Pick another number, or make a new sheet.");
 
     // ---- the moves ----
@@ -438,7 +471,7 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
     std::vector<std::string> warnings;
     std::vector<Move> moves;
     if (options.drop) {
-        const std::string manifestDrop = manifest.value("dropDir", std::string(kReviewDropDir));
+        const std::string manifestDrop = str_of(manifest, "dropDir", std::string(kReviewDropDir));
         if (const std::string why = review_drop_dir_problem(manifestDrop); !why.empty())
             return failure("failed", "The manifest of " + id + " names '" + manifestDrop + "' as its drop folder: " + why + ".",
                            "Nothing was moved. Edit dropDir in the manifest to a folder below .factoria/ (the default is " + std::string(kReviewDropDir) + "), or pick with drop: false.");
@@ -452,14 +485,18 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
                     if (const std::string real = real_key_of(projectDir, stage->get<std::string>()); !real.empty()) inUse.insert(real);
                 }
         std::set<std::string> taken;  // sources already planned (paths are case-insensitive on Windows and macOS)
-        const std::string chosenSource = review_path_key(chosen.value("source", std::string()));
-        const std::string chosenReal = real_key_of(projectDir, chosen.value("source", std::string()));
+        const std::string chosenSource = review_path_key(str_of(chosen, "source", std::string()));
+        const std::string chosenReal = real_key_of(projectDir, str_of(chosen, "source", std::string()));
         for (const Json& item : items) {
-            const int number = item.value("n", 0);
-            if (number == n || !item.value("candidate", false)) continue;
-            const std::string source = item.value("source", std::string());
+            if (!bool_of(item, "candidate", false)) continue;
+            int number = 0;
+            if (!whole_of(item, "n", number))
+                return failure("failed", std::format("An item of {} that is marked as a candidate has no whole number `n` in the manifest ({}).", id, str_of(item, "source", std::string("no source"))),
+                               "Nothing was moved. Fix `n` of that item in the manifest (the number printed on its thumbnail), or pick with drop: false.");
+            if (number == n) continue;
+            const std::string source = str_of(item, "source", std::string());
             if (source.empty()) continue;
-            const std::string type = item.value("type", std::string());
+            const std::string type = str_of(item, "type", std::string());
             if (const std::string why = review_candidate_problem(projectDir, type, source); !why.empty())
                 return failure("failed", std::format("Item {} of {} names '{}' as its candidate file, which review.pick may not move: {}.", number, id, source, why),
                                "Nothing was moved. Pick with drop: false, or fix `source` of that item in the manifest.");
@@ -475,9 +512,9 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
             }
             Move m;
             m.n = number;
-            m.label = item.value("label", std::string());
+            m.label = str_of(item, "label", std::string());
             m.from = norm;
-            m.to = std::format("{}/{}/{}", dropDir, id, drop_file_name(number, norm));
+            m.to = std::format("{}/{}/{}", dropDir, id, review_drop_file_name(number, norm));
             if (auto where = resolve_project_path(projectDir, m.to); !where.ok())
                 return failure("failed", std::format("Item {} of {} cannot be moved to '{}': {}", number, id, m.to, where.error().message), "Nothing was moved. The drop folder must be a real folder inside the project.");
             m.absFrom = project_path(projectDir, m.from);  // the file (or link) itself: it was checked to stay inside the project
@@ -523,7 +560,7 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
     Json dropped = Json::array();
     for (const Move& m : moves) dropped.push_back(Json::object({{"n", m.n}, {"label", m.label}, {"from", m.from}, {"to", m.to}, {"status", "moved"}}));
     Json picked = Json::object({{"n", n},
-                                {"label", chosen.value("label", std::string())},
+                                {"label", str_of(chosen, "label", std::string())},
                                 {"at", iso_utc_ms(now * 1000)},
                                 {"atUnix", now},
                                 {"who", who_name(options.who)},
@@ -551,8 +588,8 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
         }
     }
 
-    Json result = Json::object({{"sheet", id}, {"n", n}, {"label", chosen.value("label", std::string())}, {"type", chosen.value("type", std::string())},
-                                {"source", chosen.value("source", std::string())}, {"spec", chosen.contains("spec") ? chosen["spec"] : Json::object()},
+    Json result = Json::object({{"sheet", id}, {"n", n}, {"label", str_of(chosen, "label", std::string())}, {"type", str_of(chosen, "type", std::string())},
+                                {"source", str_of(chosen, "source", std::string())}, {"spec", chosen.contains("spec") ? chosen["spec"] : Json::object()},
                                 {"drop", options.drop}, {"dropped", dropped}, {"who", picked["who"]}, {"at", picked["at"]}});
     const auto meta = manifest.find("meta");
     result["meta"] = meta != manifest.end() && meta->is_object() ? *meta : Json::object();
@@ -621,13 +658,14 @@ ReviewOutcome review_cleanup(const std::string& projectDir, const ReviewCleanupO
         const auto atIt = picked.find("atUnix");
         if (atIt == picked.end() || !atIt->is_number()) continue;
         // The manifest is a file anyone can edit: clamp before any arithmetic (a double past int64 is undefined behaviour to convert).
-        const double atRaw = atIt->is_number_integer() ? double(atIt->get<std::int64_t>()) : atIt->get<double>();
+        // (an unsigned number above INT64_MAX is read as unsigned: as a signed one it would wrap negative and expire the entry)
+        const double atRaw = atIt->is_number_unsigned() ? double(atIt->get<std::uint64_t>()) : atIt->is_number_integer() ? double(atIt->get<std::int64_t>()) : atIt->get<double>();
         const std::int64_t at = std::int64_t(std::clamp(std::isnan(atRaw) ? 0.0 : atRaw, 0.0, 4e12));
         const std::int64_t waitSec = std::int64_t(std::clamp(options.droppedDays, 0, 100000)) * 86400;
         if (now < at + waitSec) continue;
         const auto droppedIt = picked.find("dropped");
         if (droppedIt == picked.end() || !droppedIt->is_array()) continue;
-        const std::string manifestDrop = manifest.value("dropDir", std::string(kReviewDropDir));
+        const std::string manifestDrop = str_of(manifest, "dropDir", std::string(kReviewDropDir));
         if (const std::string why = review_drop_dir_problem(manifestDrop); !why.empty()) {
             skipped.push_back(Json::object({{"sheet", id}, {"reason", "the drop folder '" + manifestDrop + "' is not one review.pick uses: " + why}}));
             continue;
@@ -636,13 +674,18 @@ ReviewOutcome review_cleanup(const std::string& projectDir, const ReviewCleanupO
         Json files = Json::array();
         bool touched = false;
         for (Json& entry : *droppedIt) {
-            if (!entry.is_object() || entry.value("status", std::string()) != "moved") continue;
+            if (!entry.is_object() || str_of(entry, "status", std::string()) != "moved") continue;
             ShareLock::keep_alive();
-            const std::string to = entry.value("to", std::string());
-            const std::string from = entry.value("from", std::string());
+            int entryNumber = 0;
+            if (!whole_of(entry, "n", entryNumber)) {
+                skipped.push_back(Json::object({{"sheet", id}, {"reason", "an entry of picked.dropped ('" + str_of(entry, "to", std::string()) + "') has no whole number `n`, so it cannot be matched with the file a pick wrote, and was left alone"}}));
+                continue;
+            }
+            const std::string to = str_of(entry, "to", std::string());
+            const std::string from = str_of(entry, "from", std::string());
             const std::string key = review_path_key(to);
             // Only the file review.pick itself put in the sheet's drop folder: <dropDir>/<id>/<NN>_<name of the source>.
-            const std::string expectedName = drop_file_name(entry.value("n", 0), from);
+            const std::string expectedName = review_drop_file_name(entryNumber, from);
             if (!starts_with_text(key, prefix) || key.find('/', prefix.size()) != std::string::npos || key.substr(prefix.size()) != review_path_key(expectedName) ||
                 !resolve_project_path(projectDir, to).ok()) {
                 skipped.push_back(Json::object({{"sheet", id}, {"reason", "'" + to + "' is not a file review.pick put in " + prefix + ", so it was left alone"}}));
@@ -651,9 +694,13 @@ ReviewOutcome review_cleanup(const std::string& projectDir, const ReviewCleanupO
             const stdfs::path file = project_path(projectDir, to);
             std::error_code st;
             const stdfs::file_status status = stdfs::symlink_status(os(file), st);
-            if (st || !stdfs::exists(status)) {
+            if (status.type() == stdfs::file_type::not_found) {
                 if (!options.dryRun) entry["status"] = "gone";  // moved back (or removed by hand): nothing to delete
                 touched = true;
+                continue;
+            }
+            if (st) {  // any other answer (no permission, a folder that cannot be read) is not "gone"
+                skipped.push_back(Json::object({{"sheet", id}, {"reason", "cannot look at '" + to + "': " + st.message() + "; it was left alone"}}));
                 continue;
             }
             if (!stdfs::is_regular_file(status)) {

@@ -11,6 +11,10 @@
 #include <memory>
 #include <set>
 
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
 #include "asset_test_helpers.h"
 #include "fa/tooling/review.h"
 #include "fa/tooling/scaffold.h"
@@ -1039,6 +1043,139 @@ TEST_CASE("review.cleanup: a hand-edited atUnix that is huge, negative or not a 
     }
     tamper(p, "sheet-0001", [](Json& m) { m["picked"]["atUnix"] = std::int64_t(9223372036854775807LL); });
     CHECK(p.call("review.cleanup", Json{{"dryRun", true}}).ok);
+    // an unsigned number above INT64_MAX is far in the future, not a negative (long gone) date: nothing expires
+    for (const std::uint64_t at : {std::uint64_t(9223372036854775808ULL), std::uint64_t(18446744073709551615ULL)}) {
+        tamper(p, "sheet-0001", [at](Json& m) { m["picked"]["atUnix"] = at; });
+        const CommandResult r = p.call("review.cleanup", Json{{"dryRun", true}});
+        CHECK_MESSAGE(r.ok, r.error.dump());
+        if (r.ok) CHECK_MESSAGE(r.result["droppedExpired"].empty(), at);
+    }
+}
+
+TEST_CASE("review: a manifest whose numbers are strings is refused or skipped with a reason, never a crash") {
+    ReviewProject p;
+    pick_is_refused(p, [](Json& m) { m["items"][2]["n"] = "3"; }, "whole number");
+    pick_is_refused(p, [](Json& m) { m["items"][2]["n"] = 3.5; }, "whole number");
+    {
+        // already answered, with a text where the number should be
+        p.ok("review.sheet", Json{{"candidates", true}, {"items", images3()}});
+        tamper(p, "sheet-0002", [](Json& m) { m["picked"] = Json::object({{"n", "two"}, {"at", 7}}); });
+        const CommandResult again = p.call("review.pick", Json{{"sheet", "sheet-0002"}, {"n", 1}});
+        CHECK_FALSE(again.ok);
+        CHECK(again.error.value("code", std::string()) == "already_picked");
+        CHECK(p.call("review.list", Json::object()).ok);
+        CHECK(p.call("review.info", Json{{"sheet", "sheet-0002"}}).ok);
+    }
+    // review.cleanup: an entry of picked.dropped without a whole number `n` is left alone and reported; the others still expire
+    p.ok("review.sheet", Json{{"candidates", true}, {"items", images3()}});  // sheet-0003
+    p.ok("review.pick", Json{{"sheet", "sheet-0003"}, {"n", 1}});
+    tamper(p, "sheet-0003", [](Json& m) { m["picked"]["dropped"][0]["n"] = "2"; });
+    ClockAhead later(8);
+    const Json r = p.ok("review.cleanup", Json::object());
+    REQUIRE(r["skipped"].size() == 1);
+    CHECK(contains(r["skipped"][0]["reason"].get<std::string>(), "whole number"));
+    REQUIRE(r["droppedExpired"].size() == 1);
+    CHECK(r["droppedExpired"][0]["files"].size() == 1);
+    CHECK(p.exists(".factoria/review/dropped/sheet-0003/02_green.png"));   // the entry with the bad number stays
+    CHECK_FALSE(p.exists(".factoria/review/dropped/sheet-0003/03_blue.png"));
+    CHECK(p.manifest("sheet-0003")["picked"]["dropped"][0]["status"] == "moved");
+}
+
+#ifndef _WIN32
+TEST_CASE("review.cleanup: a dropped file that cannot be looked at is skipped with the reason, not marked gone") {
+    if (::geteuid() == 0) {
+        MESSAGE("skipped: root can look at any folder");
+        return;
+    }
+    ReviewProject p;
+    p.ok("review.sheet", Json{{"candidates", true}, {"items", images3()}});
+    p.ok("review.pick", Json{{"n", 1}});
+    const stdfs::path dropped = p.file(".factoria/review/dropped/sheet-0001");
+    struct Restore {
+        stdfs::path dir;
+        ~Restore() {
+            std::error_code ec;
+            stdfs::permissions(dir, stdfs::perms::owner_all, ec);
+        }
+    } restore{dropped};
+    std::error_code ec;
+    stdfs::permissions(dropped, stdfs::perms::none, ec);
+    REQUIRE_FALSE(ec);
+    ClockAhead later(8);
+    const CommandResult r = p.call("review.cleanup", Json::object());
+    stdfs::permissions(dropped, stdfs::perms::owner_all, ec);
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["droppedExpired"].empty());
+    CHECK(r.result["skipped"].size() == 2);
+    const Json m = p.manifest("sheet-0001");
+    CHECK(m["picked"]["dropped"][0]["status"] == "moved");
+    CHECK(m["picked"]["dropped"][1]["status"] == "moved");
+    CHECK(p.exists(".factoria/review/dropped/sheet-0001/02_green.png"));
+}
+#endif
+
+namespace {
+
+// True when `text` is well-formed UTF-8 (no cut character).
+bool valid_utf8(const std::string& text) {
+    std::size_t i = 0;
+    while (i < text.size()) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        const std::size_t extra = c < 0x80 ? 0 : (c >> 5) == 0x6 ? 1 : (c >> 4) == 0xE ? 2 : (c >> 3) == 0x1E ? 3 : std::size_t(-1);
+        if (extra == std::size_t(-1) || i + extra >= text.size()) return false;
+        for (std::size_t k = 1; k <= extra; ++k)
+            if ((static_cast<unsigned char>(text[i + k]) & 0xC0) != 0x80) return false;
+        i += extra + 1;
+    }
+    return true;
+}
+
+}  // namespace
+
+TEST_CASE("review_drop_file_name: NN_ and the name, cut to 255 bytes at a character boundary with the extension kept") {
+    CHECK(review_drop_file_name(2, "assets/green.png") == "02_green.png");
+    CHECK(review_drop_file_name(12, "a/b/c.png") == "12_c.png");
+    const std::string accents = u8c(u8"ñé");
+    // short: untouched
+    CHECK(review_drop_file_name(1, "assets/" + accents + ".png") == "01_" + accents + ".png");
+    // 255 bytes exactly: untouched
+    const std::string exact = std::string(248, 'a') + ".png";  // + "01_" = 255
+    CHECK(review_drop_file_name(1, "assets/" + exact) == "01_" + exact);
+    // one byte over: the stem loses one character, the extension stays
+    const std::string over = std::string(249, 'a') + ".png";
+    const std::string cut = review_drop_file_name(1, "assets/" + over);
+    CHECK(cut.size() == 255);
+    CHECK(cut == "01_" + std::string(248, 'a') + ".png");
+    // a two-byte character that straddles the cut (bytes 250 and 251 of the name; the stem may keep 251 bytes): it goes whole
+    const std::string straddle = std::string(247, 'a') + u8c(u8"ñ") + std::string(10, 'x') + ".png";
+    const std::string s1 = review_drop_file_name(1, "assets/" + straddle);
+    CHECK(s1.size() <= 255);
+    CHECK(valid_utf8(s1));
+    CHECK(s1.compare(s1.size() - 4, 4, ".png") == 0);
+    CHECK(s1 == "01_" + std::string(247, 'a') + ".png");
+    // a two-byte character whose last byte is exactly byte 251 of the name: kept, and the result is exactly 255 bytes
+    const std::string fits = std::string(246, 'a') + u8c(u8"é") + std::string(10, 'x') + ".png";  // "01_" + 246 a = 249; é = 249, 250; stem cut at 251
+    const std::string s2 = review_drop_file_name(1, "assets/" + fits);
+    CHECK(valid_utf8(s2));
+    CHECK(s2.size() <= 255);
+    CHECK(s2.compare(s2.size() - 4, 4, ".png") == 0);
+    CHECK(s2.find(u8c(u8"é")) != std::string::npos);
+    // a two-byte character that starts exactly where the stem must end (bytes 251 and 252 of the name): it is dropped whole, 255 bytes remain
+    const std::string edge = std::string(248, 'a') + u8c(u8"é") + std::string(5, 'y') + ".png";
+    const std::string s3 = review_drop_file_name(1, "assets/" + edge);
+    CHECK(valid_utf8(s3));
+    CHECK(s3 == "01_" + std::string(248, 'a') + ".png");
+    CHECK(s3.size() == 255);
+    // three- and four-byte characters (the euro sign, an emoji) are never split either
+    for (const std::string& wide : {u8c(u8"\u20ac"), u8c(u8"\U0001F600")}) {
+        for (int pad = 244; pad <= 250; ++pad) {
+            const std::string name = std::string(std::size_t(pad), 'a') + wide + wide + ".png";
+            const std::string result = review_drop_file_name(7, "x/" + name);
+            CHECK_MESSAGE(valid_utf8(result), pad);
+            CHECK_MESSAGE(result.size() <= 255, pad);
+            CHECK_MESSAGE(result.compare(result.size() - 4, 4, ".png") == 0, pad);
+        }
+    }
 }
 
 TEST_CASE("review.pick: a long file name keeps the dropped name inside 255 bytes, and review.cleanup still finds the file") {
