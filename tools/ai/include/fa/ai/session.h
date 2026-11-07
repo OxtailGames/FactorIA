@@ -73,6 +73,9 @@ struct SessionResult {
     std::string cancelCause;           // stopReason "cancelled": why (cancel_cause_text() words it), "" when nobody said
     Usage usage;
     double costUsd = 0;
+    // The ESTIMATED dollars the run's tool calls spent on generated assets (images, sounds, voices, models): the sum of the
+    // estimatedCostUsd of their results, never an invoice. Not part of costUsd (that is the model's price) or of the cost budget.
+    double assetCostUsd = 0;
     int turns = 0;
     std::string transcriptPath;        // main session transcript ("" when disabled)
     Conversation conversation;         // pass it back in SessionOptions::conversation to continue the chat
@@ -214,6 +217,7 @@ private:
     std::map<std::string, std::string> toolToCommand_;
     Usage totalUsage_;
     double totalCost_ = 0;
+    double totalAssetCost_ = 0;
     int delegateCount_ = 0;
     std::string stamp_;
     std::string systemCache_;

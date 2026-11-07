@@ -418,6 +418,10 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry(AiRun& run) {
         aiProjectFileChanged_ = true;
     };
     ao.providerFactory = aiFactory_;
+    // Paid asset calls count into this chat's run and, above limits.askAboveUsd, wait for the user's card (ai_asset_approval.h):
+    // the wait is on this agent/MCP thread, the UI thread only draws the card.
+    ao.assetRunKey = r->chatId;
+    ao.assetApprover = [this](const ai::AssetApprovalRequest& req) { return aiApprovals_.ask(req); };
     ao.cancel = &r->cancel;
     ao.cancelCause = [r] { return r->cancel_cause(); };
     ao.mcpUrl = r->mcp.url();
@@ -669,6 +673,7 @@ void Editor::ai_start(const std::string& task) {
     if (!revertNote.empty()) prompt = revertNote + "\n" + prompt;
 
     run.startedAt = now_epoch();
+    ai::asset_run_begin(chat.id);  // the run's asset spending starts at 0 and "Approve all" is off again
     run.reset_live(now_ms());  // a fresh run: nothing is left of any earlier one's liveness
     aiTouch_.begin(chat.id);
     ai_run_checkpoint_begin(run, task);  // before the agent thread exists: it cannot touch a file first
@@ -733,6 +738,7 @@ void Editor::ai_launch(AiRun& run, const std::string& prompt, const std::vector<
 // endpoint stops, its last events are applied and its chat is saved.
 void Editor::ai_stop(const char* cause) {
     for (auto& r : aiRuns_) r->request_cancel(cause);
+    aiApprovals_.close();  // a call waiting for the user's yes ends as stopped
     queue_.close();
     for (auto& r : aiRuns_) {
         if (r->thread.joinable()) r->thread.join();
@@ -746,6 +752,8 @@ void Editor::ai_stop(const char* cause) {
         if (AiRun* r = ai_run_of(id)) ai_end_run(*r, chat_.find(id));  // a worker that never reported back
     }
     queue_.reopen();
+    aiApprovals_.reopen();
+    aiCardNotified_.clear();
     ai_flush_conflicts();
 }
 
@@ -1452,6 +1460,91 @@ std::string Editor::ai_roles_summary() {
 
 // ---------------------------------------------------------------------------------------------------------------------
 
+// ---- paid asset calls that wait for the user's yes (ai_asset_approval.h) ----------------------------------------------------------
+
+// The room of the strip: the title and up to three rows of buttons always fit (the buttons are drawn before the text, and the text
+// scrolls in a child of its own), so a narrow panel or a long prompt never hides Approve / Cancel. More than one card scrolls.
+float Editor::ai_asset_cards_height(const AiChat& chat, float availableY) {
+    if (!aiApprovals_.waiting_for(chat.id)) return 0;
+    const float pad = ImGui::GetStyle().WindowPadding.y * 2;
+    const float needed = ImGui::GetTextLineHeightWithSpacing() * 2 + ImGui::GetFrameHeightWithSpacing() * 3 + pad;   // title, buttons
+    const float want = needed + ImGui::GetTextLineHeightWithSpacing() * 5;                                          // and the text
+    return std::min(want, std::max(needed, availableY * 0.6f));
+}
+
+void Editor::ai_asset_notify_other_chats() {
+    const std::string front = chat_.current().id;
+    const std::vector<AssetCard> cards = aiApprovals_.cards();
+    // Forget the cards that are gone (answered, or their run or chat ended): the set never outgrows the cards waiting now.
+    for (auto it = aiCardNotified_.begin(); it != aiCardNotified_.end();) {
+        const bool alive = std::any_of(cards.begin(), cards.end(), [&](const AssetCard& c) { return c.id == *it; });
+        it = alive ? std::next(it) : aiCardNotified_.erase(it);
+    }
+    for (const AssetCard& card : cards) {
+        if (card.chatId == front || !aiCardNotified_.insert(card.id).second) continue;
+        const AiChat* c = chat_.find(card.chatId);
+        notify("The assistant in chat \"" + (c && !c->title.empty() ? short_line(c->title, 40) : std::string("New chat")) +
+                   "\" asks your approval to spend money on assets. Open that tab to answer.",
+               1);
+    }
+}
+
+void Editor::draw_ai_asset_cards(AiChat& chat, float height) {
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.26f, 0.21f, 0.08f, 1));
+    ImGui::BeginChild("##assetcards", ImVec2(0, height), ImGuiChildFlags_Borders);
+    ImGui::PushTextWrapPos(0.0f);
+    at_track("ai:approve");
+    for (const AssetCard& card : aiApprovals_.cards()) {
+        if (card.chatId != chat.id) continue;
+        ImGui::PushID(static_cast<int>(card.id));
+        const AssetCardText text = asset_card_text(card.plan);
+        ImGui::TextColored(ImVec4(1, 0.82f, 0.4f, 1), "%s", text.title.c_str());
+        // The buttons come first so that they are always on screen; they wrap onto the next line when the panel is narrow.
+        std::optional<ai::AssetDecision> decision;
+        const auto place = [&](const char* label, const char* track, const char* tip, ai::AssetDecision d, bool first) {
+            const float w = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2;
+            if (!first) {
+                // beside the button before when there is room (the right edge of the card), else on the next line
+                const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+                if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + w <= right) ImGui::SameLine();
+            }
+            if (ImGui::Button(label)) decision = d;
+            at_track(track);
+            ImGui::SetItemTooltip("%s", tip);
+        };
+        place("Approve", "ai:approve:yes", "Make it and pay for it: this one call.", ai::AssetDecision::Approve, true);
+        place("Approve all for this run", "ai:approve:all",
+              "Make this and every further paid call of this run without asking again.\nThe spending limits in AI Settings still hold.",
+              ai::AssetDecision::ApproveAll, false);
+        place("Cancel", "ai:approve:cancel", "Do not make it. The assistant is told you said no and continues without it.",
+              ai::AssetDecision::Cancel, false);
+        // What will be made: a scrolling child, so a long prompt in a narrow panel is read by scrolling, not by losing the buttons.
+        ImGui::BeginChild("##cardtext", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 4), ImGuiChildFlags_None);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(text.what.c_str());
+        ImGui::TextDisabled("Estimate: %s. Not an invoice.", text.estimate.c_str());
+        if (!text.prompt.empty()) ImGui::TextDisabled("Prompt: %s", short_line(text.prompt, 300).c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::EndChild();
+        if (decision) {
+            if (aiApprovals_.answer(card.id, *decision)) {
+                ChatItem it;
+                it.kind = ChatItem::Kind::Info;
+                it.text = *decision == ai::AssetDecision::Cancel ? "You declined: " + text.what
+                          : *decision == ai::AssetDecision::ApproveAll ? "You approved (all paid asset calls of this run): " + text.what + ", " + text.estimate
+                                                                       : "You approved: " + text.what + ", " + text.estimate;
+                chat.items.push_back(std::move(it));
+                chat.scrollDown = true;
+            }
+        }
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+}
+
 void Editor::draw_ai_panel() {
     if (!ImGui::Begin("AI Assistant")) { ImGui::End(); return; }
     ai_sync_chats();
@@ -1519,7 +1612,8 @@ void Editor::draw_ai_panel() {
             for (int i = 0; i < static_cast<int>(chat_.tabs.size()); ++i) {
                 const AiChat& t = chat_.tabs[static_cast<std::size_t>(i)];
                 const bool isRun = ai_chat_running(t.id);  // includes the wait for a worker that outlived the orchestrator's turn
-                const std::string label = std::string(isRun ? "* " : "") + (t.title.empty() ? "New chat" : t.title) + "###" + t.id;
+                const bool asking = aiApprovals_.waiting_for(t.id);
+                const std::string label = std::string(asking ? "? " : isRun ? "* " : "") + (t.title.empty() ? "New chat" : t.title) + "###" + t.id;
                 bool open = true;
                 const ImGuiTabItemFlags flags = (forcing && i == chat_.active) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
                 if (ImGui::BeginTabItem(label.c_str(), &open, flags)) {
@@ -1527,7 +1621,8 @@ void Editor::draw_ai_panel() {
                     if (!forcing && i != chat_.active) pickIndex = i;
                     ImGui::EndTabItem();
                 }
-                if (isRun) ImGui::SetItemTooltip("The assistant is working in this chat");
+                if (asking) ImGui::SetItemTooltip("The assistant is waiting for your approval to spend money on assets: open the tab to answer");
+                else if (isRun) ImGui::SetItemTooltip("The assistant is working in this chat");
                 if (!open) closeIndex = i;
             }
             addTab = ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip);
@@ -1629,11 +1724,13 @@ void Editor::draw_ai_panel() {
     // The run's status lines (below the transcript): the pulse, "worker still running", the stuck warning.
     const bool showDetached = isRunTab && run->detached.load();
     const int stuckSeconds = isRunTab && run->stuckAfterSeconds.load() >= 0 ? run->stuckAfterSeconds.load() : cfg.limits.stuckAfterSeconds;
-    const bool showStuck = isRunTab && stuckSeconds > 0 &&
+    const float cardsH = ai_asset_cards_height(chat, ImGui::GetContentRegionAvail().y);
+    // A run that waits for the user's yes is not stuck.
+    const bool showStuck = isRunTab && stuckSeconds > 0 && cardsH == 0 &&
                            static_cast<double>(now_ms() - run->lastActivityMs.load()) / 1000.0 >= stuckSeconds &&
                            now_seconds() >= run->snoozeUntil;
     const float statusH = !isRunTab ? 0.0f : ImGui::GetFrameHeightWithSpacing() * (1.0f + (showDetached ? 2.0f : 0.0f) + (showStuck ? 2.0f : 0.0f));
-    const float footer = stripH + noticeH + statusH + kGripH + ImGui::GetStyle().ItemSpacing.y + inputH +
+    const float footer = stripH + noticeH + statusH + cardsH + kGripH + ImGui::GetStyle().ItemSpacing.y + inputH +
                          ImGui::GetFrameHeightWithSpacing() * 1.4f;  // the buttons row
     ImGui::BeginChild("##chat", ImVec2(0, -footer), ImGuiChildFlags_Borders);
     ImGui::PushTextWrapPos(0.0f);
@@ -1768,8 +1865,10 @@ void Editor::draw_ai_panel() {
             ImGui::PopTextWrapPos();
             at_track("ai:detached");
         }
-        ImGui::TextDisabled("running %s  |  last activity %s ago%s%s", ai::format_duration(elapsed).c_str(), ai::format_duration(idle).c_str(),
-                            activity.empty() ? "" : "  |  ", short_line(activity, 60).c_str());
+        const double assetSpent = ai::asset_run_spent(chat.id);
+        ImGui::TextDisabled("running %s  |  last activity %s ago%s%s%s", ai::format_duration(elapsed).c_str(), ai::format_duration(idle).c_str(),
+                            activity.empty() ? "" : "  |  ", short_line(activity, 60).c_str(),
+                            assetSpent > 0 ? ("  |  assets ~" + ai::format_usd(assetSpent) + " (estimate)").c_str() : "");
         at_track("ai:status");
         if (showStuck) {
             ImGui::TextColored(ImVec4(1, 0.6f, 0.35f, 1), "No activity for %s: the agent may be stuck.", ai::format_duration(idle).c_str());
@@ -1785,6 +1884,8 @@ void Editor::draw_ai_panel() {
                                   "The warning stays quiet for another period afterwards.");
         }
     }
+
+    if (cardsH > 0) draw_ai_asset_cards(chat, cardsH);
 
     // The grip above the message box: drag it up for a taller box, double-click for the default height.
     ImGui::InvisibleButton("##ai_input_grip", ImVec2(-FLT_MIN, kGripH));

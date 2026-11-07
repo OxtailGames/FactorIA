@@ -180,7 +180,7 @@ model of the old provider means nothing on the new one). What the file may hold:
 | Key | What it does |
 |---|---|
 | `roles.<role>` | `enabled`, `provider`, `model`, `effort`, `maxTokens`, `maxContextTokens`, `toolGroups` (see [Roles](#roles)); a role absent from the file keeps your value |
-| `limits` | `maxTurns`, `maxCostUsd`, `maxTotalTokens`, `stuckAfterSeconds`, `maxConcurrentRuns`, key by key |
+| `limits` | `maxTurns`, `maxCostUsd`, `maxTotalTokens`, `stuckAfterSeconds`, `maxConcurrentRuns`, `askAboveUsd` and `maxAssetCostUsd.perRun` / `.perDay` ([AI_COSTS.md](AI_COSTS.md#asset-generation)), key by key |
 | `assets.<kind>` | `provider`, `model`, `voice` of one kind of asset (`image`, `sound`, `music`, `voice`, `model3d`); the file must name the provider when your `ai.json` has no route for that kind. It cannot remove a route |
 | `assetSources` | a category (`images`, `models`, `audio`, `fonts`, `other`) given here **replaces** that category of `ai.json`; `onlyListed` replaces yours |
 | `savers` | `loopGuard`, `loopGuardJudge`, `learnedToolGroups`, `projectFacts`, `retrospective` (with `retrospectiveSteps` and `retrospectiveCostUsd`), key by key (the learned tool groups and saved facts of a project go on working: they stay in `.factoria/ai/savers.json`) |
@@ -684,9 +684,27 @@ provider makes (default: where its terms are).
 game project; keys go only to the provider's `baseUrl`, in headers, and are not written to assets.json, results or logs. What
 is sent to an asset provider is the prompt (with the house style), the reference images and, for voice, the text.
 
-**Cost.** Asset providers bill for every call, and FactorIA does not know their prices (`limits.maxCostUsd` covers LLM runs
-only). Look at the first result before generating a batch, prefer `fake` while the flow is being built, and check the
-provider's pricing page.
+**Cost.** Asset providers bill for every call. The built-in ones (`openai`, `elevenlabs`, `meshy`) carry a price table,
+`assetPricing`, looked up on 2026-11-06 (unverified: OpenAI voice, the three ElevenLabs figures, Meshy 3D, and OpenAI images made with a model other than `gpt-image-1`, see
+[AI_COSTS.md](AI_COSTS.md#asset-generation)): every result has `estimatedCostUsd` (an estimate, never an invoice), the limits
+`limits.maxAssetCostUsd.perRun` and `.perDay` refuse a call that would pass them, and a call above `limits.askAboveUsd`
+(default $0.50), or small calls that add up above it since the user last said yes, wait for the user. `limits.maxCostUsd` covers LLM runs only. `fake` and local programs cost 0 and never ask.
+Look at the first result before generating a batch and prefer `fake` while the flow is being built.
+
+`assetPricing` is a provider key, in `ai.json` only. It replaces the built-in table; every key is optional:
+
+| Key | Meaning |
+|---|---|
+| `image` | USD per picture: one number for any size, or `{ "<size>": { "<quality>": usd } }` with the sizes the provider draws (`1024x1024`, `1536x1024`, `1024x1536`; `default` for any) and the qualities `low`, `medium`, `high`, `auto` (`default` for any) |
+| `voicePer1000Chars` | USD per 1000 characters of the text |
+| `soundPerSecond`, `musicPerSecond` | USD per second of audio (10 s and 60 s are assumed when the call leaves the length to the provider) |
+| `model3d` | USD per model |
+| `model` | the image model the `image` figures are for; a picture made with another model is priced with them but marked unverified |
+| `unverified` | the kinds whose figure was not confirmed (`image`, `voice`, `sound`, `music`, `model3d`) |
+| `checked`, `source`, `note` | the day the prices were looked up (`YYYY-MM-DD`), the page that publishes them and what they leave out; shown on the approval card and in results |
+
+An `asset-command` or a local server with no `assetPricing` is free. A remote provider with none has an unknown price: its call
+asks the user, and a per-run or per-day limit refuses it. `ai.providers` lists each provider's table, its date and page.
 
 `factoria ai doctor` lists the asset providers (`[makes image, voice]`, whether a key was found) and which provider each kind
 of asset is assigned to.
@@ -694,7 +712,7 @@ of asset is assigned to.
 ## The AI settings window
 
 **AI > AI Settings...** (the AI menu of the menu bar) is where the roles and the asset side of `ai.json` are set up. Its
-**Roles** tab (also **AI > Roles...**) has the role table and its own **Save**; the **Assets** tab has two sections and one
+**Roles** tab (also **AI > Roles...**) has the role table and its own **Save**; the **Assets** tab has three sections; the first two share one
 **Save** button:
 
 * **Asset generation.** One row per kind of asset (Image, Sound, Music, Voice, 3D model): the provider that makes it (only
@@ -707,6 +725,11 @@ of asset is assigned to.
   provider reads; **Remove stored key** takes a stored one out again.
 * **Asset sources.** The websites the AI looks at for assets, per category, and **Use only these sites**
   ([next section](#asset-sources)).
+* **Spending limits.** **Ask above**, **Most per run** and **Most per day** (US dollars; `limits.askAboveUsd` and
+  `limits.maxAssetCostUsd.perRun` / `.perDay`, [AI_COSTS.md](AI_COSTS.md#asset-generation)) with their own **Save limits**,
+  which rewrites only those three keys of your `ai.json` (in a project too: the limits you save here are your defaults, and the
+  line under them shows what holds in this project now; a project can set its own in `.factoria/ai/settings.json`). They are
+  estimates from each provider's price list, not an invoice.
 
 Save rewrites only `assets`, `assetSources` and the provider fields these need (`apiKey`; `type`, `command` and `argv` of an
 `asset-command` provider). Providers, roles, limits and every other key of the file stay as they are, and a file that is not valid
@@ -938,7 +961,7 @@ requests other than `ping`. Resources and prompts: only tools are used.
 
 * Listing a server in `roles` is the permission: FactorIA does not ask before each call (the CLI agents run non-interactively and
   the engine's own tools are not asked about either). A tool that generates content can spend credits on the service's side and
-  FactorIA cannot see what it costs (`limits.maxCostUsd` covers model tokens only). The prompt tells the AI to try one small call
+  FactorIA cannot see what it costs (`limits.maxCostUsd` and `limits.maxAssetCostUsd` cover model tokens and asset providers, not a tool server). The prompt tells the AI to try one small call
   first, to stop on an error instead of retrying, and to bring what a tool makes into the project with `assets_import`, giving the
   source and license so the credits stay right. Keep `roles` narrow and put the price in `note`.
 * Only your own `ai.json` is read for servers: a game project cannot add one (that would let a downloaded project run a program

@@ -1440,6 +1440,17 @@ speech: `assets.generate_voice {text, path, voice}`, models: `assets.generate_mo
   add; do not edit `ai.json` yourself, tell the user. `provider: "fake"` works offline and makes small placeholders: use it
   to build and test the flow, then ask the user which real provider to use. Generation costs money: one call, look, then
   decide; never loop over variations.
+- **What it costs, and asking.** Every generate result carries `estimatedCostUsd` (an ESTIMATE from the provider's price table,
+  not an invoice; 0 for `fake` and local programs) and the project's limits (`limits.maxAssetCostUsd.perRun` and `.perDay`)
+  refuse a call that would pass them, with an error that says which. A call estimated above `limits.askAboveUsd` (default
+  $0.50), or small calls that add up above it since the user last said yes, is not made (cutting a batch into small calls does
+  not avoid the question): in the editor the user answers a card and the call goes on; over MCP or the CLI the command returns
+  `{"needsApproval": true, "plan": {...}}`. **Then tell the user what will be made, how many, with which provider and the
+  estimate, and ask. Only when they say yes, call again with the same arguments and `approved: true`. Never set `approved: true`
+  yourself and never raise a limit or edit `ai.json` to avoid the question.** In the editor `approved` is ignored: the user
+  answers on a card. If they say no (`asset_declined`; `cancelled` means they stopped the run, do not start it again),
+  carry on without the asset (a placeholder from `assets.generate_texture`, `assets.rasterize_svg` or `fake`). The same holds for
+  `image.inpaint` and `image.generate_layer`. See `docs_read {"name":"ai-costs"}`.
 - **Provenance.** Every generate command records `origin`, `ai`, provider, model, prompt and license in `assets.json`. Files
   you did not generate get a record with `assets.set_provenance {path, origin: "original" | "imported", ai, license, source}`
   (`ai: true` for something made with AI elsewhere). `assets.provenance {}` lists the records and the files that have none.

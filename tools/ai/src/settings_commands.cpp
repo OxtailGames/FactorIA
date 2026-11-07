@@ -158,7 +158,8 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
         info.summary = "Change one AI setting of this project; a project change waits for the user to accept it in the editor. Your own defaults (scope user) only the user changes.";
         info.description =
             "Writes ONE value, named by its JSON pointer as ai.settings.get lists them (/roles/artist/enabled, /roles/worker/model, "
-            "/limits/maxCostUsd, /savers/loopGuard, /assets/image/provider, /assetSources/images, /mcpServers/<name> true or false, "
+            "/limits/maxCostUsd, /limits/maxAssetCostUsd/perRun and /limits/maxAssetCostUsd/perDay (the most that paid asset generation may spend, estimated "
+            "dollars, 0 = no limit), /limits/askAboveUsd (a generation estimated above this waits for the user's yes), /savers/loopGuard, /assets/image/provider, /assetSources/images, /mcpServers/<name> true or false, "
             "/extensions/plugins/<name> true or false). scope \"project\" writes <project>/.factoria/ai/settings.json (only what "
             "differs from your defaults is kept). scope \"user\" writes the user's own ~/.factoria/ai.json defaults and is only for the user "
             "(`factoria call`): an AI agent or MCP client that asks for it gets the error user_only, and the user changes "
@@ -168,6 +169,7 @@ void register_settings_commands(CommandRegistry& registry, std::function<std::st
             "extensions that your ai.json defines, and never holds a command, address, header, environment or key: such keys, "
             "and pointers that are not settings, are refused with where they belong and a \"did you mean\" (errors unknown_pointer, "
             "rejected_key, invalid_setting). "
+            "Do not raise the asset limits or askAboveUsd to get a generation past the guard: those are the user's decision, and a project file you write waits for the user's acceptance anyway. "
             "IMPORTANT: this command NEVER accepts a project file: setting a value never writes ai-trust.json. A project file written here is "
             "NOT applied until the user accepts it once in the editor (AI settings, with this project open); until then the project runs with "
             "the user's settings. Setting a value in an already accepted file makes the whole file wait for acceptance again. Removing a "
