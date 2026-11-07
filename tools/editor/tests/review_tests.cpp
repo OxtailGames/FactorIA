@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <vector>
 
 #include "child_command_job.h"
 #include "doctest.h"
@@ -228,7 +229,7 @@ TEST_CASE("review_pick_plan: a sheet of asset candidates is answered by assets.p
     CHECK(review_pick_plan(s, 2, true, "").error.find("slot") != std::string::npos);
 }
 
-TEST_CASE("review_superseded_by: only the newest sheet of candidates of a slot can be picked") {
+TEST_CASE("review_superseded: only the newest sheet of candidates of a slot can be picked") {
     const auto row = [](const char* id, const char* at, const char* kind, const char* slot, int picked) {
         Json meta = Json::object({{"kind", kind}});
         if (*slot) meta["slot"] = slot;
@@ -236,14 +237,16 @@ TEST_CASE("review_superseded_by: only the newest sheet of candidates of a slot c
     };
     const Json list = Json::object({{"sheets", Json::array({
                                                    row("sheet-0001", "2026-11-01T00:00:00Z", "assetCandidates", "art/hero.png", 0),
-                                                   row("sheet-0002", "2026-11-02T00:00:00Z", "assetCandidates", "art/hero.png", 0),
+                                                   row("sheet-0002", "2026-11-09T00:00:00Z", "assetCandidates", "art/hero.png", 0),
                                                    row("sheet-0003", "2026-11-03T00:00:00Z", "assetCandidates", "art/tree.png", 0),
                                                    row("sheet-0004", "2026-11-04T00:00:00Z", "levelSeeds", "", 0),
-                                                   row("sheet-0005", "2026-11-02T00:00:00Z", "assetCandidates", "art/hero.png", 0),
+                                                   row("sheet-0005", "2026-11-02T00:00:00Z", "assetCandidates", "Art/Hero.png", 0),
+                                                   row("sheet-0006", "2026-11-05T00:00:00Z", "assetCandidates", "art/rock.png", 0),
+                                                   row("sheet-0007", "2026-11-06T00:00:00Z", "assetCandidates", "art/rock.png", 2),
                                                })}});
     const std::vector<ReviewListRow> rows = review_rows(list);
-    REQUIRE(rows.size() == 5);
-    CHECK(rows[0].slot.empty());
+    REQUIRE(rows.size() == 7);
+    const auto superseded = review_superseded(rows);
     const auto view = [&](const char* id) {
         ReviewSheetView s;
         for (const ReviewListRow& r : rows)
@@ -252,18 +255,43 @@ TEST_CASE("review_superseded_by: only the newest sheet of candidates of a slot c
                 s.createdAt = r.createdAt;
                 s.kind = r.kind;
                 s.slot = r.slot;
+                if (r.picked) s.picked = Json::object({{"n", r.picked}});
             }
         return s;
     };
-    // sheet-0005 was made in the same second as sheet-0002: the id breaks the tie, so 0005 is the newest of art/hero.png.
-    CHECK(review_superseded_by(rows, view("sheet-0001")) == "sheet-0005");
-    CHECK(review_superseded_by(rows, view("sheet-0002")) == "sheet-0005");
-    CHECK(review_superseded_by(rows, view("sheet-0005")).empty());
-    CHECK(review_superseded_by(rows, view("sheet-0003")).empty());   // another slot
-    CHECK(review_superseded_by(rows, view("sheet-0004")).empty());   // not candidates
+    // The highest number is the newest (like review_newest), whatever the clock said; the slot is compared case aside.
+    CHECK(review_superseded_by(superseded, view("sheet-0001")) == "sheet-0005");
+    CHECK(review_superseded_by(superseded, view("sheet-0002")) == "sheet-0005");
+    CHECK(review_superseded_by(superseded, view("sheet-0005")).empty());
+    CHECK(review_superseded_by(superseded, view("sheet-0003")).empty());   // another slot
+    CHECK(review_superseded_by(superseded, view("sheet-0004")).empty());   // not candidates
+    // A newer sheet that was already answered still supersedes an older unanswered one (assets.pick refuses the older).
+    CHECK(review_superseded_by(superseded, view("sheet-0006")) == "sheet-0007");
+    CHECK(review_superseded_by(superseded, view("sheet-0007")).empty());   // answered: read-only anyway
     ReviewSheetView answered = view("sheet-0001");
     answered.picked = Json::object({{"n", 1}});
-    CHECK(review_superseded_by(rows, answered).empty());              // an answered sheet is read-only anyway
+    CHECK(review_superseded_by(superseded, answered).empty());
+    CHECK(superseded.size() == 3);
+}
+
+TEST_CASE("review_cut_note: a long note is cut on a character boundary, and the pick's arguments stay valid JSON text") {
+    std::string note;
+    for (int i = 0; i < 400; ++i) note += "\xc3\xa9";   // 400 x "é": 800 bytes
+    const std::string cut = review_cut_note(note);
+    CHECK(cut.size() == 500);                           // 250 whole characters
+    CHECK((static_cast<unsigned char>(cut.back()) & 0xC0) == 0x80);   // ends on the last byte of an "é"
+    CHECK(review_cut_note("short") == "short");
+    std::string odd = "a" + note;                        // the 500th byte falls inside a character: one byte less
+    CHECK(review_cut_note(odd).size() == 499);
+    ReviewSheetView s = review_sheet_view(manifest(3, 3));
+    const ReviewPickPlan plan = review_pick_plan(s, 1, false, odd);
+    REQUIRE(plan.error.empty());
+    REQUIRE(plan.args.contains("note"));
+    CHECK(plan.args["note"].get<std::string>().size() <= kReviewNoteMaxBytes);
+    CHECK_NOTHROW((void)plan.args.dump());               // a cut inside a sequence made dump() throw (type_error.316)
+    // ChildCommandJob serializes with error_handler_t::replace, so even invalid UTF-8 never throws.
+    const Json bad = Json::object({{"note", std::string("\xc3")}});
+    CHECK_NOTHROW((void)bad.dump(-1, ' ', false, Json::error_handler_t::replace));
 }
 
 TEST_CASE("review_history_row: who, when, the note and each dropped file's status") {
@@ -375,6 +403,27 @@ TEST_CASE("review_read_picture and ReviewLoader: a picture in a folder with acce
         f << "not a picture";
     }
     CHECK_FALSE(review_read_picture(dir / "junk.png", 200).ok());
+    {
+        // A BMP whose header says 20000 x 20000: refused from its header (fa::image_size), before 1.6 GB would be decoded.
+        std::vector<std::uint8_t> bmp(54 + 16, 0);
+        const auto put32 = [&bmp](std::size_t at, std::uint32_t v) {
+            for (int i = 0; i < 4; ++i) bmp[at + std::size_t(i)] = std::uint8_t(v >> (8 * i));
+        };
+        bmp[0] = 'B';
+        bmp[1] = 'M';
+        put32(2, std::uint32_t(bmp.size()));
+        put32(10, 54);
+        put32(14, 40);
+        put32(18, 20000);
+        put32(22, 20000);
+        bmp[26] = 1;
+        bmp[28] = 24;
+        std::ofstream f(dir / "huge.bmp", std::ios::binary);
+        f.write(reinterpret_cast<const char*>(bmp.data()), std::streamsize(bmp.size()));
+    }
+    const auto huge = review_read_picture(dir / "huge.bmp", 200);
+    REQUIRE_FALSE(huge.ok());
+    CHECK(huge.error().message.find("20000 x 20000") != std::string::npos);
 
     ReviewLoader loader;
     loader.request_picture("a", file, 128, true, 7);
@@ -438,6 +487,7 @@ TEST_CASE("child_command_outcome and ChildCommandJob: a result, a command error,
     CHECK_FALSE(out->ok);
     CHECK(out->error.find("not found") != std::string::npos);
     CHECK_FALSE(job.take_result().has_value());
+    CHECK(job.wait_for(0.0));   // nothing runs: done at once
     set_env("FA_FACTORIA_EXE", nullptr);
     std::error_code ec;
     stdfs::remove_all(dir, ec);

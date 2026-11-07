@@ -114,6 +114,23 @@ TEST_CASE("command: listing, describe, remove") {
     CHECK(!reg.has("math.add"));
 }
 
+TEST_CASE("command: handler() lets a caller wrap a command") {
+    auto reg = make_registry();
+    CHECK_FALSE(reg.handler("nope"));
+    CommandHandler inner = reg.handler("math.add");
+    REQUIRE(inner);
+    int seen = 0;
+    CommandInfo info = *reg.info("math.add");
+    reg.add(info, [inner, &seen](const Json& args) {
+        ++seen;
+        return inner(args);
+    });
+    const CommandResult r = reg.call("math.add", Json{{"a", 2}, {"b", 3}});
+    REQUIRE(r.ok);
+    CHECK(r.result == reg.call("math.add", Json{{"a", 2}, {"b", 3}}).result);
+    CHECK(seen == 2);
+}
+
 TEST_CASE("command progress: reports reach the sink of the calling thread's scope, and nowhere else") {
     CHECK_FALSE(command_progress_active());
     CHECK_FALSE(report_command_progress("nobody listens"));  // a no-op without a scope

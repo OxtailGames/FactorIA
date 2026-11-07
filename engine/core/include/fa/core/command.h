@@ -145,6 +145,8 @@ public:
     void remove(std::string_view name);
     bool has(std::string_view name) const;
     const CommandInfo* info(std::string_view name) const;
+    // The handler of `name` (empty when there is none): a caller re-adds the command with a handler that wraps it.
+    CommandHandler handler(std::string_view name) const;
     std::vector<const CommandInfo*> list(std::string_view category = {}) const;  // sorted by name
 
     // Validates `args` against inputSchema (fills defaults for missing optional

@@ -2,10 +2,12 @@
 // manifests (fa/tooling/review.h) into what the window draws, the keyboard moves of the selection, the size a picture is uploaded
 // at, what a pick will do before it is asked (the command, its arguments and the files it moves), the history of past picks and the
 // review.sheet arguments of the Level generator's "Sheet of N seeds". No ImGui, no Editor: tests/review_tests.cpp drives it. The window
-// never reimplements a pick: it calls review.pick (or assets.pick for a sheet of asset candidates) through the command registry.
+// never reimplements a pick: it runs review.pick (or assets.pick for a sheet of asset candidates) in a child factoria (child_command_job.h).
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -52,9 +54,21 @@ struct ReviewListRow {
 // review_list's value as rows: the sheets still waiting for an answer first, then the answered ones; newest first in each group.
 std::vector<ReviewListRow> review_rows(const Json& listValue);
 
-// Only the newest sheet of asset candidates of a slot can be picked (assets.pick answers an older one with code "superseded"). The id of
-// the newest such sheet in `rows` when `sheet` is an older, unanswered one; "" otherwise (not candidates, answered, or the newest).
-std::string review_superseded_by(const std::vector<ReviewListRow>& rows, const ReviewSheetView& sheet);
+// Only the newest sheet of asset candidates of a slot can be picked (assets.pick answers an older one with code "superseded"): like
+// review_newest, the newest is the highest sheet number among the candidates sheets of that slot (answered or not; slots compared like
+// review_path_key). The map holds each older, unanswered candidates sheet of `rows` -> the id of its slot's newest. The window builds it
+// once when the list arrives.
+std::map<std::string, std::string> review_superseded(const std::vector<ReviewListRow>& rows);
+// The newest sheet that supersedes `sheet` (from review_superseded's map), or "" (not candidates, answered, the newest, or not listed).
+std::string review_superseded_by(const std::map<std::string, std::string>& superseded, const ReviewSheetView& sheet);
+
+// The note of a pick is at most this many bytes (review.pick and assets.pick refuse a longer one). review_cut_note cuts a longer note
+// on a character boundary, never inside a UTF-8 sequence (a cut "é" would make the arguments invalid JSON text).
+inline constexpr std::size_t kReviewNoteMaxBytes = 500;
+std::string review_cut_note(const std::string& note, std::size_t maxBytes = kReviewNoteMaxBytes);
+
+// Closing the editor or switching project waits this long for a running pick (a child factoria), then kills it.
+inline constexpr double kReviewPickShutdownSeconds = 15;
 
 // The arrow keys move the selection over the grid of `count` items in `columns` columns; 0 (nothing selected) starts at 1.
 enum class ReviewMove { Left, Right, Up, Down };

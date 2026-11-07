@@ -47,6 +47,9 @@ public:
     const std::string& command() const { return command_; }
     std::optional<ChildCommandOutcome> take_result();   // once, when finished
     void wait();
+    // Waits at most `seconds` (real time) for the command to finish; true when it did (the thread is joined then). A shutdown that
+    // cannot wait long calls cancel() and wait() after a false.
+    bool wait_for(double seconds);
 
 private:
     std::thread thread_;

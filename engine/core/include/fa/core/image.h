@@ -36,6 +36,9 @@ inline constexpr const char* kTextureTwinExtension = ".ktx2";
 struct ImageSize {
     int width = 0, height = 0;
 };
+// Width and height of an encoded PNG, JPG, TGA, BMP... in memory, read from its header without decoding the pixels (a
+// caller checks a size budget before decode_image allocates width * height * 4 bytes).
+Result<ImageSize> image_size(const std::uint8_t* data, std::size_t size);
 // Width and height of the first level of a KTX2 file, from its header.
 Result<ImageSize> ktx2_size(const std::uint8_t* data, std::size_t size);
 // Pixel size of the texture a project path names, without decoding it: the file itself (PNG, JPG... or .ktx2), else the

@@ -71,7 +71,8 @@ bool ChildCommandJob::start(const std::filesystem::path& projectDir, const std::
     ProcessOptions po;
     // UTF-8 for the child (process_win32 widens argv and the working directory as UTF-8): the path object carries the real name.
     const std::string projectUtf8 = fs::path_to_utf8(projectDir);
-    po.argv = {exe, "call", "--project", projectUtf8, "--no-graphics", "--json", command, args.dump()};
+    // replace: text that is not valid UTF-8 (a note cut inside a character) becomes U+FFFD instead of throwing on the UI thread.
+    po.argv = {exe, "call", "--project", projectUtf8, "--no-graphics", "--json", command, args.dump(-1, ' ', false, Json::error_handler_t::replace)};
     po.workingDir = projectUtf8;
     po.cancel = &cancel_;
     po.timeoutSeconds = timeoutSeconds;
@@ -110,6 +111,16 @@ std::optional<ChildCommandOutcome> ChildCommandJob::take_result() {
 
 void ChildCommandJob::wait() {
     if (thread_.joinable()) thread_.join();
+}
+
+bool ChildCommandJob::wait_for(double seconds) {
+    const auto until = std::chrono::steady_clock::now() + std::chrono::duration<double>(seconds);
+    while (running_.load()) {
+        if (std::chrono::steady_clock::now() >= until) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    wait();
+    return true;
 }
 
 }  // namespace fa::editor
