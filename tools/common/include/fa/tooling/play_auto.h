@@ -12,8 +12,9 @@ namespace fa {
 
 void register_play_auto_commands(CommandRegistry& registry, const std::string& projectDir);
 
-// The factoria command line tool, as a UTF-8 path: $FA_FACTORIA_EXE when set (it must name a file, else ""), this program when it
-// is `factoria`, or the `factoria` next to it (the editor is `factoria editor`). "" when none is found.
+// The factoria command line tool, as a UTF-8 path (for the process boundary): $FA_FACTORIA_EXE when set (a native string, as
+// getenv gives it; it must name a file, else ""), this program when it is `factoria`, or the `factoria` next to it (the editor
+// is `factoria editor`). "" when none is found.
 std::string factoria_executable();
 
 // play.auto run as a `factoria call` child process, whatever this process holds: it launches the child and waits, and touches no

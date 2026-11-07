@@ -8940,6 +8940,17 @@ void Editor::at_build_tools_script() {
             atWaitCount_ = 0;
             atWaitUntil_ = [this] { return autoPlay_.running() || autoPlayLast_.has_value(); };
         });
+        // A script that was written a moment ago can still be open for writing in a forked child (Linux: "Text file busy"): the start
+        // fails once; try it once more.
+        step(3, [this] {
+            if (autoPlay_.running() || !autoPlayLast_ || autoPlayLast_->ok || autoPlayLast_->cancelled) return;
+            std::string why = autoPlayLast_->error + " " + autoPlayLast_->hint;
+            std::transform(why.begin(), why.end(), why.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+            if (why.find("busy") == std::string::npos) return;
+            atLog_.push_back("NOTE the sleeping stand-in was busy (ETXTBSY): started again");
+            autoPlayLast_.reset();
+            start_auto_play();
+        });
         step(3, [this, as] {
             as->sawRunning = autoPlay_.running();
             at_check(as->sawRunning, "the run with the sleeping stand-in is going");

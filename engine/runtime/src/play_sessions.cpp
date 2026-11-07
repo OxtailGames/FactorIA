@@ -191,11 +191,13 @@ bool is_auto_play_session_name(std::string_view name) {
     return rest.size() >= 2 && rest[0] == '-' && rest.find_first_not_of("0123456789", 1) == std::string_view::npos;
 }
 
-int prune_auto_play_sessions(std::size_t keep) {
+int prune_auto_play_sessions(std::size_t keep, std::string_view spare) {
     int deleted = 0;
     std::size_t seen = 0;
     for (const std::string& name : play_session_names()) {  // newest first
-        if (!is_auto_play_session_name(name) || ++seen <= keep) continue;
+        if (!is_auto_play_session_name(name)) continue;
+        ++seen;
+        if (seen <= keep || name == spare) continue;
         std::error_code ec;
         fs::remove_tree(fs::resolve(std::string(kPlaySessionsDir) + "/" + name), ec);
         if (!ec) ++deleted;

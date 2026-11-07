@@ -141,10 +141,14 @@ void Editor::draw_play_sessions_window() {
     const auto tip = [](const std::string& text) {
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", text.c_str());
     };
-    tip("play.auto: a bot plays the project from its start for this many seconds of game time, faster than real time, and\n"
-                          "finds what is stuck or broken. It plays the project as saved on disk, in a separate process: the editor stays free.");
-    if (play_ != PlayState::Edit && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
-        ImGui::SetTooltip("Stop Play first: the bot plays the project from the start, as saved on disk.");
+    {
+        std::string text = "play.auto: a bot plays the project from its start for this many seconds of game time, faster than real time, "
+                           "and\nfinds what is stuck or broken. It plays the project as saved on disk, in a separate process: the editor "
+                           "stays free.";
+        if (play_ != PlayState::Edit) text += "\n\nStop Play first: the bot plays the project from the start, as saved on disk.";
+        else if (running) text += "\n\nA run is going: wait for it or press Cancel.";
+        tip(text);  // one tooltip per frame
+    }
     ImGui::SameLine();
     ImGui::SetNextItemWidth(90);
     ImGui::BeginDisabled(running);

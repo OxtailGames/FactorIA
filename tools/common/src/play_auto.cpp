@@ -113,7 +113,7 @@ Json run_play_auto(const Json& a, const std::string& projectDir) {
 std::string factoria_executable() {
     std::error_code ec;
     if (const char* env = std::getenv("FA_FACTORIA_EXE"); env && *env) {  // a wrong override is not replaced by another program
-        const stdfs::path p = fs::path_from_utf8(env);
+        const stdfs::path p(env);  // getenv gives the native encoding (the ANSI code page on Windows), not UTF-8
         return stdfs::is_regular_file(p, ec) ? fs::path_to_utf8(p) : std::string();
     }
     stdfs::path exe = executable_path();
