@@ -45,11 +45,16 @@ ReviewSheetView review_sheet_view(const Json& manifest);
 // One row of the list on the left of the window (a review_list row).
 struct ReviewListRow {
     std::string id, label, createdAt, kind, pickedLabel;
+    std::string slot;                // meta.slot (a sheet of asset candidates)
     int count = 0;
     int picked = 0;                  // the number picked, 0 = still waiting for an answer
 };
 // review_list's value as rows: the sheets still waiting for an answer first, then the answered ones; newest first in each group.
 std::vector<ReviewListRow> review_rows(const Json& listValue);
+
+// Only the newest sheet of asset candidates of a slot can be picked (assets.pick answers an older one with code "superseded"). The id of
+// the newest such sheet in `rows` when `sheet` is an older, unanswered one; "" otherwise (not candidates, answered, or the newest).
+std::string review_superseded_by(const std::vector<ReviewListRow>& rows, const ReviewSheetView& sheet);
 
 // The arrow keys move the selection over the grid of `count` items in `columns` columns; 0 (nothing selected) starts at 1.
 enum class ReviewMove { Left, Right, Up, Down };

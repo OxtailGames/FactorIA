@@ -114,6 +114,7 @@ std::vector<ReviewListRow> review_rows(const Json& listValue) {
         r.picked = std::max(0, int_of(s, "picked"));
         r.pickedLabel = str_of(s, "pickedLabel");
         r.kind = str_of(member(s, "meta"), "kind");
+        r.slot = str_of(member(s, "meta"), "slot");
         rows.push_back(std::move(r));
     }
     // Waiting for an answer first; newest first in each group (the ISO time sorts as text; the id breaks a tie: sheet-0010 > sheet-0009).
@@ -123,6 +124,21 @@ std::vector<ReviewListRow> review_rows(const Json& listValue) {
         return a.id > b.id;
     });
     return rows;
+}
+
+std::string review_superseded_by(const std::vector<ReviewListRow>& rows, const ReviewSheetView& sheet) {
+    if (sheet.kind != "assetCandidates" || sheet.slot.empty() || sheet.is_picked()) return {};
+    // Newer: made later; the same second is broken by the id (sheet-0010 > sheet-0009), like review_rows' order.
+    const auto newer = [](const std::string& atA, const std::string& idA, const std::string& atB, const std::string& idB) {
+        return atA != atB ? atA > atB : idA > idB;
+    };
+    const ReviewListRow* newest = nullptr;
+    for (const ReviewListRow& r : rows) {
+        if (r.id == sheet.id || r.kind != "assetCandidates" || r.slot != sheet.slot) continue;
+        if (!newer(r.createdAt, r.id, sheet.createdAt, sheet.id)) continue;
+        if (!newest || newer(r.createdAt, r.id, newest->createdAt, newest->id)) newest = &r;
+    }
+    return newest ? newest->id : std::string();
 }
 
 int review_move_selection(int current, int count, int columns, ReviewMove move) {

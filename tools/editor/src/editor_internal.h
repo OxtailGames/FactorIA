@@ -703,7 +703,10 @@ public:
     void reset_review_state();                // project switch, autotest section: stops the reader and the job, frees the textures
     void review_release_textures();
     void review_request_pick(int n);          // opens the confirmation (or says why the number cannot be picked)
-    void review_do_pick();                    // the confirmed pick: the command, then the result in the window
+    void review_do_pick();                    // the confirmed pick: starts the command in a child factoria (reviewPickJob_)
+    void review_finish_pick(const ChildCommandOutcome& done);   // its result in the window (poll_review)
+    // review_pick_plan, plus what the window itself forbids: a pick still running, an older sheet of asset candidates (superseded).
+    ReviewPickPlan review_plan_for(const ReviewSheetView& sheet, int n, bool drop, const std::string& note) const;
     void review_announce_sheet(const std::string& sheet, const std::string& label, const std::string& who);  // a toast with Open in Review
     void start_level_seeds_sheet();           // the Level generator's "Sheet of N seeds"
     void review_show_sheet(const std::string& id);   // shows that sheet (its manifest and pictures are read on the reader thread)
@@ -982,6 +985,9 @@ public:
         std::deque<ReviewLoaded> uploads;            // decoded pictures waiting for their frame (one upload a frame)
         // the pick
         bool confirmRequest = false, confirmOpen = false, keepFiles = false, pickPending = false;
+        std::optional<ReviewSheetView> pickSheet;    // the sheet a running pick answers (a copy: the shown one can change meanwhile)
+        ReviewPickPlan pickPlan;                     // ...its command and arguments
+        int pickN = 0;
         std::uint64_t confirmFrame = 0;
         int confirmN = 0;
         std::string note;
@@ -996,6 +1002,7 @@ public:
     std::vector<ReviewDeadTexture> reviewGraveyard_;
     ReviewLoader reviewLoader_;
     ChildCommandJob reviewSeedsJob_;
+    ChildCommandJob reviewPickJob_;                // review.pick / assets.pick: they move files (with retries on Windows) and write manifests
     bool autoPlayPictures_ = true;
     std::vector<PlaySessionRow> playSessionRows_;
     std::string playSessionsPick_;                 // the folder shown in the report pane

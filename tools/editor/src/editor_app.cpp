@@ -242,6 +242,7 @@ Editor::~Editor() {
     if (launcherThread_.joinable()) launcherThread_.join();
     share_.join_all();  // sign-in, flush and AI review threads (they only touch share_)
     phone_.wait();       // the Play on Phone window's start or stop...
+    reviewPickJob_.wait();  // a Review pick still moving files finishes (killing it could leave a sheet half answered); it takes a second
     serve_web_shutdown();  // ...the helper thread of project.serve_web, and the server itself: no thread of it outlives the editor
     set_serve_web_blocking(true);  // the process-wide setting goes back to the default (a later Editor in the same process sets it again)
 }

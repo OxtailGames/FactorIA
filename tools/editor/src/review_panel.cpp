@@ -22,6 +22,7 @@ namespace {
 
 constexpr std::uint64_t kUnusedFrames = 120;     // a picture not drawn for this many frames is freed
 constexpr double kSeedsTimeoutSeconds = 1800;    // a safety net: N levels at the default work cap take seconds
+constexpr double kPickTimeoutSeconds = 300;      // a safety net: a pick moves a few files (about a second of retries each on Windows)
 
 // A tooltip for the widget just drawn that also shows while it is disabled (where the reason it is disabled belongs).
 void tooltip_even_when_disabled(const char* text) {
@@ -33,23 +34,6 @@ std::string json_text(const Json& j, const char* key) {
     if (!j.is_object()) return {};
     const auto it = j.find(key);
     return it != j.end() && it->is_string() ? it->get<std::string>() : std::string();
-}
-
-std::string error_text(const CommandResult& r) {
-    if (r.error.is_object()) {
-        const auto m = r.error.find("message");
-        std::string text = m != r.error.end() && m->is_string() ? m->get<std::string>() : std::string("the command failed");
-        const auto h = r.error.find("hint");
-        if (h != r.error.end() && h->is_string() && !h->get<std::string>().empty()) text += " " + h->get<std::string>();
-        return text;
-    }
-    return "the command failed";
-}
-
-std::string error_code(const CommandResult& r) {
-    if (!r.error.is_object()) return {};
-    const auto c = r.error.find("code");
-    return c != r.error.end() && c->is_string() ? c->get<std::string>() : std::string();
 }
 
 // A project-relative path from a manifest, or "" when it would leave its folder (a hand-edited manifest is not trusted).
@@ -107,6 +91,10 @@ void Editor::reset_review_state() {
     reviewSeedsJob_.cancel();   // the child is killed: a sheet it did not finish is never listed (review.sheet writes its manifest last)
     reviewSeedsJob_.wait();
     (void)reviewSeedsJob_.take_result();
+    // A pick is not killed: its files are moved and its manifest written together. It finishes (a second or so) and its result is
+    // dropped with the rest of this project's window state.
+    reviewPickJob_.wait();
+    (void)reviewPickJob_.take_result();
     reviewLoader_.stop();       // joins the reader; what it had read is dropped
     review_release_textures();
     for (const ReviewDeadTexture& d : reviewGraveyard_) ui::destroy_texture(d.image, d.view);
@@ -154,6 +142,8 @@ void Editor::poll_review() {
             if (!id.empty()) open_review(id);
         }
     }
+    // A pick that finished in its child process.
+    if (std::optional<ChildCommandOutcome> done = reviewPickJob_.take_result()) review_finish_pick(*done);
     // A command changed the sheet shown (the AI picked it, review.cleanup ran): read its manifest again.
     if (review_.sheetDirty && review_.show && !review_.sheetId.empty() && !review_.sheetLoading && !projectDir_.empty()) {
         review_.sheetDirty = false;
@@ -240,9 +230,20 @@ void Editor::poll_review() {
 }
 
 // ------------------------------------------------------------------------------------------------------------------ pick --
+ReviewPickPlan Editor::review_plan_for(const ReviewSheetView& sheet, int n, bool drop, const std::string& note) const {
+    ReviewPickPlan plan = review_pick_plan(sheet, n, drop, note);
+    if (!plan.error.empty()) return plan;
+    if (reviewPickJob_.running() || review_.pickPending)
+        plan.error = "A pick is running: wait for it to finish.";
+    else if (const std::string newest = review_superseded_by(review_.rows, sheet); !newest.empty())
+        plan.error = "Superseded by " + newest + ", a newer sheet of candidates for " + sheet.slot +
+                     ": only the newest one can be picked, so this one is read-only. Open " + newest + " to choose.";
+    return plan;
+}
+
 void Editor::review_request_pick(int n) {
     if (!review_.sheet) return;
-    const ReviewPickPlan plan = review_pick_plan(*review_.sheet, n, true, std::string());
+    const ReviewPickPlan plan = review_plan_for(*review_.sheet, n, true, std::string());
     if (!plan.error.empty()) {
         review_.pickMessage = plan.error;
         review_.pickBad = true;
@@ -256,23 +257,18 @@ void Editor::review_request_pick(int n) {
 }
 
 void Editor::review_do_pick() {
-    if (!engine_ || !review_.sheet) return;
-    const ReviewSheetView sheet = *review_.sheet;   // a copy: the manifest is read again below
-    const ReviewPickPlan plan = review_pick_plan(sheet, review_.confirmN, !review_.keepFiles, review_.note);
+    if (!engine_ || !review_.sheet || reviewPickJob_.running()) return;
+    const ReviewSheetView sheet = *review_.sheet;   // a copy: the window can show another sheet while the pick runs
+    review_.pickPending = false;                     // (review_plan_for refuses while a pick waits)
+    const ReviewPickPlan plan = review_plan_for(sheet, review_.confirmN, !review_.keepFiles, review_.note);
     review_.pickLines.clear();
     if (!plan.error.empty()) {
         review_.pickMessage = plan.error;
         review_.pickBad = true;
         return;
     }
-    // Windows cannot move a file another thread holds open: the reader lets go of a candidate's picture before the pick moves it.
-    reviewLoader_.drop_pictures();
-    if (reviewLoader_.reading_project_file()) {
-        review_.pickPending = true;
-        return;
-    }
     // A sheet of asset candidates is answered by assets.pick (it puts the picked file into the slot). Never review.pick instead: that
-    // would record the choice without filling the slot.
+    // command refuses such a sheet, and would not fill the slot.
     if (!engine_->commands().info(plan.command)) {
         review_.pickMessage = "This sheet holds asset candidates for the slot " + sheet.slot + ", and picking one needs the command " + plan.command +
                               ", which this FactorIA does not have. Nothing was picked. Update FactorIA, or ask the AI that made the sheet to finish the choice.";
@@ -280,18 +276,51 @@ void Editor::review_do_pick() {
         notify(review_.pickMessage, 2);
         return;
     }
-    const CommandResult r = engine_->commands().call(plan.command, plan.args);
-    after_command(plan.command, plan.args, r);
-    if (!r.ok) {
-        review_.pickMessage = error_code(r) == "busy"
-                                  ? "Another program is changing the review sheets right now, so nothing was picked. Try again in a moment."
-                                  : "The pick failed: " + error_text(r);
-        review_.pickBad = true;
-        notify(review_.pickMessage, 2);
-        review_.listDirty = true;
+    // Windows cannot move a file another thread holds open: the reader lets go of a candidate's picture before the pick moves it.
+    reviewLoader_.drop_pictures();
+    if (reviewLoader_.reading_project_file()) {
+        review_.pickPending = true;   // poll_review calls this again once the reader closed it
         return;
     }
-    const Json& res = r.result;
+    // In a child factoria, never on the UI thread: a pick reads manifests, moves files (retrying a busy one for about a second on
+    // Windows) and writes the manifest (assets.pick also assets.json). It is the command itself, exactly what the AI would call.
+    review_.pickSheet = sheet;
+    review_.pickPlan = plan;
+    review_.pickN = review_.confirmN;
+    reviewPickJob_.start(stdfs::path(projectDir_), plan.command, plan.args, kPickTimeoutSeconds);
+    review_.pickMessage = std::format("Picking #{} of {}...", review_.pickN, sheet.id);
+    review_.pickBad = false;
+}
+
+void Editor::review_finish_pick(const ChildCommandOutcome& done) {
+    if (!review_.pickSheet) return;   // the project changed while it ran
+    const ReviewSheetView sheet = std::move(*review_.pickSheet);
+    review_.pickSheet.reset();
+    const ReviewPickPlan plan = std::move(review_.pickPlan);
+    const int n = review_.pickN;
+    review_.pickLines.clear();
+    // The editor reacts as to any command (the Project panel reads the folder again, the window its sheets).
+    CommandResult r;
+    r.ok = done.ok;
+    if (done.ok) r.result = done.value;
+    else r.error = Json{{"code", done.code}, {"message", done.error}, {"hint", done.hint}};
+    after_command(plan.command, plan.args, r);
+    review_.listDirty = true;
+    review_.sheetDirty = true;
+    if (!done.ok) {
+        if (done.code == "busy")
+            review_.pickMessage = "Nothing was picked: a file of this sheet is open in another program, or another program is changing the "
+                                  "review sheets right now. Close it and try again." + (done.error.empty() ? std::string() : " (" + done.error + ")");
+        else if (done.code == "superseded")
+            review_.pickMessage = "Nothing was picked: a newer sheet of candidates for " + sheet.slot + " replaced this one. " + done.error +
+                                  (done.hint.empty() ? std::string() : " " + done.hint);
+        else
+            review_.pickMessage = "The pick failed: " + done.error + (done.hint.empty() ? std::string() : " " + done.hint);
+        review_.pickBad = true;
+        notify(review_.pickMessage, 2);
+        return;
+    }
+    const Json& res = done.value;
     int moved = 0;
     if (const auto d = res.find("dropped"); d != res.end() && d->is_array())
         for (const Json& f : *d) {
@@ -303,16 +332,12 @@ void Editor::review_do_pick() {
     if (const auto w = res.find("warnings"); w != res.end() && w->is_array())
         for (const Json& line : *w)
             if (line.is_string()) review_.pickLines.push_back(line.get<std::string>());
-    const ReviewItemView* item = sheet.item(review_.confirmN);
-    review_.pickMessage = std::format("Picked #{} \"{}\" of {}.", review_.confirmN, item ? item->label : std::string(), sheet.id);
+    const ReviewItemView* item = sheet.item(n);
+    review_.pickMessage = std::format("Picked #{} \"{}\" of {}.", n, item ? item->label : std::string(), sheet.id);
     if (plan.command == "assets.pick") review_.pickMessage += " It is now the asset of " + sheet.slot + ".";
     if (moved > 0) review_.pickMessage += std::format(" {} file(s) moved to {}/{}/ (moving one back undoes it).", moved, sheet.dropDir, sheet.id);
     review_.pickBad = false;
     notify(review_.pickMessage);
-    // The window shows the sheet as answered, and the History has it.
-    review_.listDirty = true;
-    review_.sheetLoading = true;
-    reviewLoader_.request_sheet(projectDir_, sheet.id, review_.sheetGen);
     // A sheet of level seeds: the Level generator shows the picked level (its sample, size, options and seed).
     if (sheet.kind == "levelSeeds") {
         LevelGenOptions o = levelGenOpt_;
@@ -325,7 +350,7 @@ void Editor::review_do_pick() {
             levelGenSampleStale_ = true;
             showLevelGen_ = true;
             levelGen_.start(levelGenOpt_, call);
-            levelGenMessage_ = std::format("Seed {} from {} (#{}).", static_cast<long long>(o.seed), sheet.id, review_.confirmN);
+            levelGenMessage_ = std::format("Seed {} from {} (#{}).", static_cast<long long>(o.seed), sheet.id, n);
             levelGenMessageBad_ = false;
             const auto scene = sheet.meta.find("sampleScene");
             if (o.sampleFile.empty() && scene != sheet.meta.end() && scene->is_string() && fs::normalize(scene->get<std::string>()) != fs::normalize(scenePath_)) {
@@ -410,14 +435,21 @@ void Editor::draw_review_window() {
             shownAnswered = true;
         }
         ImGui::PushID(row.id.c_str());
-        const std::string text = row.id + (row.label.empty() ? std::string() : "  " + row.label);
+        ReviewSheetView asSheet;   // what review_superseded_by needs of a row
+        asSheet.id = row.id;
+        asSheet.createdAt = row.createdAt;
+        asSheet.kind = row.kind;
+        asSheet.slot = row.slot;
+        const bool superseded = row.picked == 0 && !review_superseded_by(review_.rows, asSheet).empty();
+        const std::string text = row.id + (row.label.empty() ? std::string() : "  " + row.label) + (superseded ? "  (superseded)" : "") + "###row";
         if (ImGui::Selectable(text.c_str(), row.id == review_.sheetId)) {
             review_show_sheet(row.id);
             if (review_.tab == 2) review_.tabSet = 0;
         }
         at_track("review:row:" + row.id);
         const std::string facts = std::to_string(row.count) + " item(s)" + (row.kind == "assetCandidates" ? ", asset candidates" : row.kind == "levelSeeds" ? ", level seeds" : "") +
-                                  (row.picked ? ", picked #" + std::to_string(row.picked) : "") + (row.createdAt.empty() ? std::string() : "\n" + row.createdAt);
+                                  (row.picked ? ", picked #" + std::to_string(row.picked) : "") +
+                                  (superseded ? ", superseded by a newer sheet of the same slot (read-only)" : "") + (row.createdAt.empty() ? std::string() : "\n" + row.createdAt);
         ImGui::SetItemTooltip("%s", facts.c_str());
         ImGui::PopID();
     }
@@ -479,6 +511,11 @@ void Editor::draw_review_sheet_tab() {
     if (s.kind == "assetCandidates")
         ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1), "Asset candidates for %s: the pick becomes that asset (assets.pick).",
                            s.slot.empty() ? "(no slot)" : s.slot.c_str());
+    if (const std::string newest = review_superseded_by(review_.rows, s); !newest.empty()) {
+        ImGui::TextColored(kStatusWarn, "Superseded by %s: only the newest sheet of candidates for %s can be picked; this one is read-only.",
+                           newest.c_str(), s.slot.c_str());
+        at_track("review:superseded");
+    }
     if (s.is_picked()) {
         const ReviewItemView* p = s.item(s.picked_n());
         const std::string who = json_text(s.picked, "who");
@@ -558,7 +595,7 @@ void Editor::draw_review_sheet_tab() {
     if (sel) ImGui::Text("#%d %s   %s", sel->n, sel->label.c_str(), sel->info.c_str());
     else ImGui::TextDisabled("Click a thumbnail or press its number.");
     at_track("review:selection");
-    const ReviewPickPlan plan = review_pick_plan(s, review_.selected, true, std::string());
+    const ReviewPickPlan plan = review_plan_for(s, review_.selected, true, std::string());
     const bool canPick = sel && plan.error.empty();
     ImGui::BeginDisabled(!canPick);
     const std::string pickLabel = sel ? std::format("Pick #{}...", sel->n) : std::string("Pick...");
@@ -649,7 +686,7 @@ void Editor::draw_review_compare_tab() {
         }
         ImGui::TextWrapped("%s", it->info.c_str());
         if (!it->ok) ImGui::TextColored(kStatusFailed, "Could not be drawn: %s", it->error.c_str());
-        const ReviewPickPlan plan = review_pick_plan(s, n, true, std::string());
+        const ReviewPickPlan plan = review_plan_for(s, n, true, std::string());
         ImGui::BeginDisabled(!plan.error.empty());
         if (ImGui::Button(std::format("Pick #{}...##cmp{}", n, side).c_str())) {
             review_.selected = n;
@@ -712,7 +749,7 @@ void Editor::draw_review_pick_popup() {
         cancel = true;
     } else {
         const ReviewSheetView& s = *review_.sheet;
-        const ReviewPickPlan plan = review_pick_plan(s, review_.confirmN, !review_.keepFiles, review_.note);
+        const ReviewPickPlan plan = review_plan_for(s, review_.confirmN, !review_.keepFiles, review_.note);
         const ReviewItemView* it = s.item(review_.confirmN);
         ImGui::Text("Pick #%d \"%s\" of %s?", review_.confirmN, it ? it->label.c_str() : "", s.id.c_str());
         if (plan.command == "assets.pick") ImGui::TextWrapped("assets.pick makes it the asset of %s.", s.slot.c_str());
