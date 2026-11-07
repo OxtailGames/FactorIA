@@ -1,7 +1,7 @@
 // new, templates, validate, export, editor
-#include <cmath>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -174,7 +174,7 @@ Command make_export_command() {
                {"allow-missing-plugins", "", "Leave out a native plugin whose build for the target platform is missing, instead of stopping the export. A warning names each one and the result lists them (pluginsLeftOut). The game runs without the plugin; scripts that call it fail unless the plugin is \"optional\" in factoria.json and they check for it."},
                {"allow-player-mismatch", "", "Bundle the player (desktop, web, or the prebuilt Android and iOS libraries) even when it was built from another commit than this factoria (its build fingerprint differs or is missing). Without it the export stops with an error: an old player may lack what the game uses or fail to start. Rebuild both from one checkout instead when you can."},
                {"single-file", "", "web: write ONE page, <out>/<slug>-web/<slug>.html, with the player, the wasm, the icon and the game inlined (base64), that opens from a double click and runs offline with no server (no zip). Refused, with the fix, over --single-file-max-mb or when the web player needs a server (threads)."},
-               {"single-file-max-mb", "N", "With --single-file: the biggest page to write in megabytes, 1 to 256, fractions allowed (default 64), worked out from the file sizes before the page is built. Browsers get slow with pages over about 100 MB."},
+               {"single-file-max-mb", "N", "With --single-file: the biggest page to write in megabytes, 1 to 256, a fraction such as 1.5 is fine (default 64), worked out from the file sizes before the page is built. Browsers get slow with pages over about 100 MB."},
                {"engine-root", "DIR", "Android/iOS: compile the engine from this source checkout (\"source\" mode; default: $FACTORIA_ENGINE_DIR, else the prebuilt players, else the build-time source root)."},
                {"mobile-dir", "DIR", "Android/iOS: the prebuilt players (\"prebuilt\" mode; default: the mobile/ folder next to factoria)."},
                {"player", "PATH", "factoria_player binary to bundle (default: the one shipped next to factoria). web: the folder with factoria_player.js and factoria_player.wasm (default: web/ next to factoria, else the one `factoria setup players --platforms web` installed, else a web build of the source)."},

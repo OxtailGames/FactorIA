@@ -385,6 +385,12 @@ TEST_CASE("serve web: phone log lines are rate limited, and one notice says how 
     CHECK(taken <= 8);
     // Once the window is over, the next line is taken again and one warning reports the drops.
     std::this_thread::sleep_for(std::chrono::milliseconds(800));
+    // The notice does not wait for the page's next line: reading the status after the window closed reports the dropped lines.
+    (void)f.server.status();
+    bool noticeFromStatus = false;
+    for (const LogEntry& e : recent_logs(300, LogLevel::Trace, seq))
+        if (e.category == "phone" && e.level == LogLevel::Warn && e.message.find("log lines from the page were dropped") != std::string::npos) noticeFromStatus = true;
+    if (taken < 8) CHECK(noticeFromStatus);
     const std::string one = R"([{"l":"log","t":"after the burst"}])";
     CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(one.size()) + "\r\n\r\n" + one).status == 204);
     bool after = false, notice = false;
@@ -595,4 +601,109 @@ TEST_CASE("serve web: in the editor the command never waits, it answers starting
     auto stopping = reg.call("project.serve_web", Json::object({{"stop", true}}));
     REQUIRE_MESSAGE(stopping.ok, stopping.error.dump());
     CHECK(wait_for([] { return !web_server().running(); }));
+}
+
+TEST_CASE("serve web: in the editor a stop that comes while the server is starting is honoured, and a start during a stop says so") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    const std::string player = fake_player(tmp);
+    CommandRegistry reg;
+    register_serve_web_commands(reg, proj);
+    web_server().stop();
+    set_serve_web_blocking(false);
+    struct Restore {
+        ~Restore() {
+            serve_web_shutdown();
+            set_serve_web_blocking(true);
+        }
+    } restore;
+    const Json stopArgs = Json::object({{"stop", true}});
+    const Json startArgs = Json::object({{"player", player}});
+
+    // Order 1: stop while the start (and its first export) runs. It answers "stopping", and once the helper thread is idle nothing serves.
+    auto started = reg.call("project.serve_web", startArgs);
+    REQUIRE_MESSAGE(started.ok, started.error.dump());
+    CHECK(started.result["state"].get<std::string>() == "starting");
+    auto stop1 = reg.call("project.serve_web", stopArgs);
+    REQUIRE_MESSAGE(stop1.ok, stop1.error.dump());
+    CHECK(stop1.result["state"].get<std::string>() == "stopping");  // not "stopped": the start job is still running
+    auto during = reg.call("project.serve_web", startArgs);
+    REQUIRE_MESSAGE(during.ok, during.error.dump());
+    CHECK(during.result["state"].get<std::string>() != "ready");  // a start while the stop is pending does not undo it
+    std::string state;
+    REQUIRE(wait_for([&] {
+        auto r = reg.call("project.serve_web", stopArgs);
+        state = r.ok ? r.result["state"].get<std::string>() : "error";
+        return state != "stopping";
+    }));
+    CHECK(state == "stopped");
+    CHECK_FALSE(web_server().running());  // the server the start job brought up was stopped by it
+
+    // Order 2: a start called while a stop job runs says "stopping" and asks to call again; the next call then starts it.
+    auto up = reg.call("project.serve_web", startArgs);
+    REQUIRE_MESSAGE(up.ok, up.error.dump());
+    REQUIRE(wait_for([&] {
+        auto r = reg.call("project.serve_web", startArgs);
+        return !r.ok || r.result["state"].get<std::string>() == "ready";
+    }));
+    REQUIRE(web_server().running());
+    auto stop2 = reg.call("project.serve_web", stopArgs);
+    REQUIRE_MESSAGE(stop2.ok, stop2.error.dump());
+    CHECK(stop2.result["state"].get<std::string>() == "stopping");
+    auto restart = reg.call("project.serve_web", startArgs);  // the stop job may or may not be over by now: both answers are right
+    REQUIRE_MESSAGE(restart.ok, restart.error.dump());
+    const std::string answer = restart.result["state"].get<std::string>();
+    CHECK((answer == "stopping" || answer == "starting"));
+    if (answer == "stopping") CHECK(restart.result["note"].get<std::string>().find("again") != std::string::npos);
+    std::string last;
+    REQUIRE(wait_for([&] {
+        auto r = reg.call("project.serve_web", startArgs);
+        last = r.ok ? r.result["state"].get<std::string>() : "error";
+        return last == "ready";
+    }));
+    CHECK(web_server().running());
+}
+
+TEST_CASE("serve web: a project and a player under folders with accents are served (paths are native strings, like in production)") {
+    testing::TempDir tmp;
+    net::SocketRuntime sockets;
+    // Accents that exist in the Windows ANSI code page (1252) too: projectDir is a native string there, never UTF-8.
+    const stdfs::path root = tmp.path / stdfs::path(u8"café üñ");
+    const std::string proj = (root / stdfs::path(u8"juego á")).string();
+    ScaffoldOptions so;
+    so.name = "Accent Test";
+    so.id = "com.example.accenttest";
+    auto created = create_project(proj, "2d-platformer", so);
+    REQUIRE_MESSAGE(created.ok(), (created.ok() ? "" : created.error().to_string()));
+    const stdfs::path playerDir = root / stdfs::path(u8"reproductor é");
+    testing::write_all(playerDir / "factoria_player.js", "// fake emscripten glue\n");
+    testing::write_all(playerDir / "factoria_player.wasm", fake_wasm());
+    testing::write_all(stdfs::path(proj) / "assets" / stdfs::path(u8"ñandú.txt"), "accented file name");
+
+    WebServer server;
+    ServeWebOptions o;
+    o.projectDir = proj;
+    o.playerBinary = playerDir.string();
+    o.pollMs = 50;
+    auto r = server.start(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    ServeWebStatus st = server.wait_ready();
+    REQUIRE_MESSAGE(st.state == "ready", std::string(st.error + " " + st.hint));
+    const std::string base = "/" + token_of(st) + "/";
+    CHECK(get(st.port, base).status == 200);
+    CHECK(get(st.port, base + "game.pak").status == 200);
+    CHECK(get(st.port, base + "factoria_player.wasm").status == 200);
+    // The fingerprint reads the files of the project and of the player by their native names: a change under the accented folders
+    // exports again.
+    const std::uint64_t before = st.version;
+    testing::write_all(stdfs::path(proj) / "assets" / stdfs::path(u8"ñandú.txt"), "accented file name, changed and longer");
+    server.refresh();
+    REQUIRE(wait_for([&] { return server.status().version > before && server.status().state == "ready"; }));
+    testing::write_all(playerDir / "factoria_player.js", "// fake emscripten glue, changed\n");
+    const std::uint64_t mid = server.status().version;
+    server.refresh();
+    CHECK(wait_for([&] { return server.status().version > mid && server.status().state == "ready"; }));
+    // The status reports the same folder the caller gave (native), and the same project is recognised as the one being served.
+    CHECK(stdfs::path(server.status().projectDir) == stdfs::absolute(stdfs::path(proj)).lexically_normal());
+    server.stop();
 }

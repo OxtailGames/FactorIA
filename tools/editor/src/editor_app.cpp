@@ -243,6 +243,7 @@ Editor::~Editor() {
     share_.join_all();  // sign-in, flush and AI review threads (they only touch share_)
     phone_.wait();       // the Play on Phone window's start or stop...
     serve_web_shutdown();  // ...the helper thread of project.serve_web, and the server itself: no thread of it outlives the editor
+    set_serve_web_blocking(true);  // the process-wide setting goes back to the default (a later Editor in the same process sets it again)
 }
 
 int Editor::run() {
