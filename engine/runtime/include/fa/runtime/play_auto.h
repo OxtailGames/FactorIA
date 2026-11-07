@@ -25,6 +25,7 @@ namespace fa {
 inline constexpr double kPlayAutoMaxSeconds = 3600.0;  // game seconds one run may ask for
 inline constexpr int kPlayAutoMaxSpeed = 8;            // fixed steps one frame may run
 inline constexpr int kPlayAutoMaxPhases = 60;          // phases a session lists (more are counted in the notes)
+inline constexpr int kPlayAutoKeepSessions = 30;       // automatic sessions kept under .factoria/sessions: a run deletes the oldest ones beyond this
 inline constexpr int kPlayAutoMaxPictures = 40;        // screenshots one run takes (phases + problems), the end one apart
 
 struct PlayAutoOptions {

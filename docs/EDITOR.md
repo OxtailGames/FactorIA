@@ -671,6 +671,12 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
   the `factoria` program next to the editor, or the one `FA_FACTORIA_EXE` names; if it is not found the window says so and nothing runs.
   The menu item is disabled while the game plays or a run is going. When the run ends a toast says how it ended (won, lost, timeout,
   stuck, broken...) and how many problems it marked, and **Open report** selects the session in the window.
+  A run of an AI that works in the editor (the AI panel calls `play.auto`) is the same child process, started from the AI's own thread:
+  the editor never waits for it either, and the AI panel's **Stop** kills it (a cancelled run writes no session); the Play sessions window
+  lists its session when it ends. While a run goes its pictures are in a folder of the system's temp dir and move into
+  `.factoria/sessions/<name>/` only when the run ends, so a cancelled or killed run leaves no half-written folder. A run keeps the
+  newest 30 sessions of `play.auto` (`-auto` in the name) and deletes older ones first, so playing again and again does not fill the disk;
+  the sessions you recorded with Play .. Stop are never deleted.
 - **Play sessions window**: lists the sessions of `.factoria/sessions/`, newest first. A session the AI's bot played is marked **AI** and
   shows how it ended; one you recorded is not. Click a row for its report (how it ended, score, phases, performance, marks and notes), with
   **Attach to the AI chat** and, for a run of the bot, **Copy replay command** (the command that plays the bot's input again). The list is read

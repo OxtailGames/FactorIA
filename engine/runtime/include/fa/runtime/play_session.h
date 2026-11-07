@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <ctime>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "fa/core/json.h"
@@ -84,6 +85,16 @@ Result<void> write_play_session(const std::string& dir, const PlaySession& s);  
 std::string play_session_name(std::time_t t);                                   // "20260131-142500" (local time)
 // Folder names of the sessions under kPlaySessionsDir that have a session.json, newest first.
 std::vector<std::string> play_session_names();
+// True for a name play.auto gave ("20260131-142500-auto", "...-auto-2"): the sessions a person recorded never end that way.
+bool is_auto_play_session_name(std::string_view name);
+// Deletes the oldest automatic sessions (folders and all) so that at most `keep` remain; the sessions a person recorded are never
+// touched. A folder that cannot be deleted (a file open on Windows) stays and is not counted as deleted. Returns how many it deleted.
+// play.auto calls it before a run, so a reviewer that plays again and again cannot fill the disk (kPlayAutoKeepSessions).
+int prune_auto_play_sessions(std::size_t keep);
+// Typed reads of a session.json that a person may have edited: the member when `o` is an object and the member has that type, `def`
+// otherwise. (Json::value throws when the member is there with another type.) The editor reads sessions on its UI thread with these.
+std::string session_text(const Json& o, const char* key, const std::string& def = {});
+double session_number(const Json& o, const char* key, double def = 0);
 // One short paragraph about a session.json: perf, errors, marks with notes. Used by the AI panel.
 std::string play_session_summary(const Json& sessionJson);
 

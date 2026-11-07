@@ -35,7 +35,7 @@ def play_auto(project, args):
     """Runs `factoria call play.auto` in a child process; returns the result object or None."""
     try:
         r = subprocess.run([FACTORIA, "call", "--no-graphics", "--json", "--project", project, "play.auto", json.dumps(args)],
-                           capture_output=True, text=True, timeout=240)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=240)
     except subprocess.TimeoutExpired:
         check(False, "play.auto %s answers within 240 s" % json.dumps(args))
         return None
@@ -73,7 +73,7 @@ def main():
         # play.report reads the session of the last run unchanged.
         if r and r.get("session"):
             rep = subprocess.run([FACTORIA, "call", "--no-graphics", "--json", "--project", project, "play.report", json.dumps({"session": r["session"]})],
-                                 capture_output=True, text=True)
+                                 capture_output=True, text=True, encoding="utf-8", errors="replace")
             try:
                 doc = json.loads(rep.stdout)
             except ValueError:

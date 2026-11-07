@@ -8789,9 +8789,17 @@ void Editor::at_build_tools_script() {
             std::string person = "29990101-000001", bot = "29990101-000002-auto";
             std::string realSession;
             std::uint64_t frames0 = 0;
-            bool exe = false, sawRunning = false;
+            bool exe = false, sawRunning = false, hadEnv = false;
+            std::string prevEnv, sleeper;
         };
         auto as = std::make_shared<As>();
+        auto set_env = [](const char* name, const std::string& value) {
+#ifdef _WIN32
+            _putenv_s(name, value.c_str());
+#else
+            setenv(name, value.c_str(), 1);
+#endif
+        };
         auto sessions_dir = [project_file](const std::string& name) { return project_file(".factoria/sessions/" + name); };
         auto row_of = [this](const std::string& name) -> const PlaySessionRow* {
             for (const PlaySessionRow& r : playSessionRows_)
@@ -8800,6 +8808,8 @@ void Editor::at_build_tools_script() {
         };
         step(2, [this, as, sessions_dir] {
             as->exe = !auto_play_executable().empty();
+            std::error_code rm;  // the sessions of an earlier section (or run) of this temp project are not part of what is counted below
+            stdfs::remove_all(stdfs::path(projectDir_ + "/.factoria/sessions"), rm);
             stdfs::create_directories(stdfs::path(sessions_dir(as->person)));
             stdfs::create_directories(stdfs::path(sessions_dir(as->bot)));
             write_file(sessions_dir(as->person) + "/session.json",
@@ -8902,11 +8912,28 @@ void Editor::at_build_tools_script() {
             }
         });
         // ---- Cancel: the child is stopped and no session is written
-        step(3, [this, as, sessions_count] {
+        // The child of this run is a stand-in that only sleeps (FA_FACTORIA_EXE), so Cancel is exercised on every machine, with or
+        // without a factoria next to the editor, and the run cannot end before the click.
+        step(3, [this, as, sessions_count, set_env] {
             as->frames0 = sessions_count();  // sessions before the second run
-            autoPlaySeconds_ = 600;          // far more than the test waits for
+            autoPlaySeconds_ = 600;
             autoPlayLast_.reset();
             as->sawRunning = false;
+            if (const char* env = std::getenv("FA_FACTORIA_EXE")) {
+                as->hadEnv = true;
+                as->prevEnv = env;
+            }
+#ifdef _WIN32
+            as->sleeper = projectDir_ + "/.factoria/at-sleeper.cmd";
+            write_file(as->sleeper, "@echo off\r\nping -n 300 127.0.0.1 >nul\r\n");
+#else
+            as->sleeper = projectDir_ + "/.factoria/at-sleeper.sh";
+            write_file(as->sleeper, "#!/bin/sh\nexec sleep 300\n");
+            std::error_code pe;
+            stdfs::permissions(stdfs::path(as->sleeper), stdfs::perms::owner_all, pe);
+#endif
+            set_env("FA_FACTORIA_EXE", as->sleeper);
+            at_check(!auto_play_executable().empty(), "the sleeping stand-in is the factoria of this run");
         });
         click("playsessions:run");
         step(1, [this] {
@@ -8915,34 +8942,39 @@ void Editor::at_build_tools_script() {
         });
         step(3, [this, as] {
             as->sawRunning = autoPlay_.running();
-            if (as->sawRunning)
-                at_check(at_shown("playsessions:cancel") && at_shown("playsessions:running"), "while the bot plays the window shows its progress and Cancel");
+            at_check(as->sawRunning, "the run with the sleeping stand-in is going");
+            at_check(at_shown("playsessions:cancel") && at_shown("playsessions:running"), "while the bot plays the window shows its progress and Cancel");
         });
-        step(2, [this, as] {
-            if (as->sawRunning && autoPlay_.running() && at_shown("playsessions:cancel")) inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("playsessions:cancel"));
+        step(2, [this] {
+            if (autoPlay_.running() && at_shown("playsessions:cancel")) inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("playsessions:cancel"));
         });
-        step(2, [this, as] {
-            if (as->sawRunning && autoPlay_.running() && at_shown("playsessions:cancel")) inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget("playsessions:cancel"));
+        step(2, [this] {
+            if (autoPlay_.running() && at_shown("playsessions:cancel")) inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget("playsessions:cancel"));
         });
-        step(4, [this, as] {
-            if (as->sawRunning && autoPlay_.running() && at_shown("playsessions:cancel")) inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget("playsessions:cancel"));
+        step(4, [this] {
+            if (autoPlay_.running() && at_shown("playsessions:cancel")) inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget("playsessions:cancel"));
         });
         wait_run_ends();
         step(3, [this, as, sessions_count] {
-            if (!as->sawRunning || !autoPlayLast_ || !autoPlayLast_->cancelled) {
-                // The run was not seen going, or ended before the click reached Cancel: there is no stopped run to check.
-                atLog_.push_back("NOTE the 600 s run was not cancelled by the click (no factoria, or it ended first): the Cancel checks are skipped");
-                return;
-            }
-            at_check(!autoPlay_.running(), "Cancel stops the run");
+            at_check(autoPlayLast_.has_value() && autoPlayLast_->cancelled, "Cancel ends the run as cancelled");
+            at_check(!autoPlay_.running(), "...the child is stopped");
             at_check(sessions_count() == as->frames0, "...and a cancelled run writes no session");
             at_check(!at_shown("playsessions:error"), "...and shows no error");
         });
         // ---- leave the editor as the other sections expect it
-        step(2, [this, as] {
+        step(2, [this, as, set_env] {
             reset_auto_play_state();
+            if (as->hadEnv)
+                set_env("FA_FACTORIA_EXE", as->prevEnv);
+            else
+#ifdef _WIN32
+                _putenv_s("FA_FACTORIA_EXE", "");  // an empty value is "not set" for factoria_executable()
+#else
+                unsetenv("FA_FACTORIA_EXE");
+#endif
             std::error_code ec;
-            if (!as->realSession.empty()) stdfs::remove_all(stdfs::path(projectDir_ + "/.factoria/sessions/" + as->realSession), ec);
+            if (!as->sleeper.empty()) stdfs::remove(stdfs::path(as->sleeper), ec);
+            stdfs::remove_all(stdfs::path(projectDir_ + "/.factoria/sessions"), ec);  // none of ours is left for the sections after this one
             toasts_.clear();
         });
     }

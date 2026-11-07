@@ -32,6 +32,7 @@
 #include "fa/ai/commands.h"
 #include "fa/ai/project_settings.h"
 #include "fa/mcp/server.h"
+#include "fa/tooling/play_auto.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
 #include "ui_backend.h"
@@ -391,6 +392,19 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry(AiRun& run) {
     for (const CommandInfo* ci : engine_->commands().list()) {
         CommandInfo info = *ci;
         const std::string name = info.name;
+        if (name == "play.auto") {
+            // A run plays for minutes in a `factoria` child process and touches no engine state of the editor, so it runs right here on
+            // the agent thread: through the queue it would hold the UI thread for the whole run (the window frozen, Stop and closing
+            // unable to end it). The run's cancel flag kills the child when the person presses Stop.
+            reg->add(info, [this, r, dir = projectDir_](const Json& args) -> Json {
+                struct Listed {  // the Play sessions window reads the folder again, whether the run ended well or not
+                    std::atomic<bool>& flag;
+                    ~Listed() { flag = true; }
+                } listed{playSessionsOutside_};
+                return play_auto_in_child(dir, args, &r->cancel);
+            });
+            continue;
+        }
         reg->add(info, [this, r, name](const Json& args) -> Json {
             // The run's chat id tags the job: the main thread knows which chat each command belongs to (ai_note_command).
             CommandResult res = queue_.call(name, args, &r->cancel, r->chatId);

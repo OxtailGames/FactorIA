@@ -906,6 +906,7 @@ public:
 
     // Play sessions window
     bool showPlaySessions_ = false, playSessionsFocus_ = false, playSessionsDirty_ = true;
+    std::atomic<bool> playSessionsOutside_{false};  // an AI agent thread ran play.auto (make_proxy_registry): the list reads the folder again
     AutoPlayJob autoPlay_;
     std::optional<AutoPlayOutcome> autoPlayLast_;  // the last run's outcome (an error stays under the button)
     double autoPlaySeconds_ = kAutoPlayDefaultSeconds;
