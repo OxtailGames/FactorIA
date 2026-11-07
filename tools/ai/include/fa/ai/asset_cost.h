@@ -169,6 +169,10 @@ public:
     const Json& needs_approval() const { return needsApproval_; }
     // The call succeeded: the estimate stays counted as spent.
     void commit();
+    // Only `made` of the `count` results the guard was taken for were made (a batch of candidates that failed part way): that share of
+    // the estimate stays counted as spent and the rest is given back now. made >= count is commit(); made <= 0 gives everything back.
+    // Returns the estimated dollars that stay counted.
+    double commit_part(int made, int count);
     // For the result of the command: {estimatedCostUsd, costIsEstimate, cost: {...spent...}}.
     Json cost_json() const;
     const std::vector<std::string>& warnings() const { return warnings_; }
