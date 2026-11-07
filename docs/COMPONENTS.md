@@ -2465,7 +2465,7 @@ Packing again is stable: a frame whose size did not change keeps its rectangle (
 
 ### `assets.pick` (modifies state)
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 Keep the candidate the person chose: it becomes the slot, the others are dropped.
 
@@ -5494,7 +5494,7 @@ Returns {backend, why, adsBackend, adsWhy, httpBackend, httpWhy, networkHosts, a
 
 ### `play.auto` (modifies state)
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 Let the game play itself, headless and fast, and write the run as a play session: phases, score, how it ended, problems found, pictures.
 
@@ -5660,7 +5660,7 @@ Writes a plugin folder (default plugins/<name>, or `path`: project-relative, abs
 
 ### `project.serve_web` (modifies state)
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 Serve the game's web build on this computer, or on the Wi-Fi to try it on a phone; it reloads when the project changes.
 
@@ -5844,7 +5844,7 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 
 ### `review.cleanup` (modifies state)
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 Delete the candidate files a review pick moved away long ago, and the folders of sheets that were never finished.
 
@@ -5858,7 +5858,7 @@ review.sheet runs it by itself after each new sheet; call it to see what it woul
 
 ### `review.info`
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 The manifest of one review sheet (items, facts, the choice) and its picture.
 
@@ -5870,7 +5870,7 @@ Result: the manifest of the sheet (format factoria.review/1: id, label, createdA
 
 ### `review.list`
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 List the review sheets of the project, newest first, with what was picked.
 
@@ -5882,7 +5882,7 @@ Reads .factoria/review/. Result: {total, sheets: [{id, label, createdAt, count, 
 
 ### `review.pick` (modifies state)
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 Record which numbered thumbnail of a review sheet the person chose, and move the other candidates' files away (the pick itself deletes nothing; review.cleanup deletes the dropped files after 7 days, or never with droppedDays 0).
 
@@ -5897,7 +5897,7 @@ Call it with the number THE PERSON gave you for a sheet that review.sheet made; 
 
 ### `review.sheet` (modifies state)
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 Show N candidates as ONE picture with big numbers (images, scenes, prefabs, level seeds, vector art, effects) so a person can answer with one number.
 
@@ -10271,12 +10271,12 @@ declare module "factoria" {
     notices(): { name: string; url: string; license: string; usedFor: string }[];
     /**
      * Declares how the game plays itself, for `play.auto` (the AI testing the game with nobody at the keyboard): fn is called once per step with the bot state and returns what to press. Put the call at the top level of scripts/autoplay.js, the file `play.auto` imports; a shipped game never imports it, so fn is never called outside play.auto. Return the action names to HOLD during this step (an array; the ones you leave out are released), or an object { actions?, end?: "won" | "lost", score?, note? }: end finishes the run with that result, score is reported in the session, note is the first line of the session's notes. Only action names of factoria.json "input" (and the ui_* ones) are accepted, so the run can be replayed with `factoria run --input`; a name that is not an action throws with a did-you-mean. The function must not change the game (no teleporting, no spawning): read the world, answer with actions. Use bot.rng for choices, never Math.random. Example: game.autoplay((bot) => { const p = world.find("player"); return ["move_right", ...(p && p.isGrounded() && bot.rng.chance(0.05) ? ["jump"] : [])]; });
-     * @since unreleased
+     * @since 0.18.0
      */
     autoplay(fn: (bot: AutoplayState) => AutoplayAnswer): void;
     /**
      * Marks a stage of the run for the `play.auto` report ("boss", "shop", "level 2"): the session lists it in `phases` with its time and takes a screenshot. { ends: "won" } or { ends: "lost" } also ends the automatic run with that result, so a game without a bot hook can still tell the explorer it is over (game.phase("victory", { ends: "won" })). Does nothing in a normal run. Example: game.phase("boss");
-     * @since unreleased
+     * @since 0.18.0
      */
     phase(name: string, options?: { ends?: "won" | "lost" }): void;
     /**
@@ -10298,69 +10298,69 @@ declare module "factoria" {
 
   /**
    * What game.autoplay's function gets every step: where the run is, what the game declares and what the bot holds.
-   * @since unreleased
+   * @since 0.18.0
    */
   export interface AutoplayState {
     /**
      * Game seconds since the run began (fixed steps run / fixedHz; never the wall clock).
-     * @since unreleased
+     * @since 0.18.0
      */
     readonly time: number;
     /**
      * Fixed steps run since the run began (0 on the first call).
-     * @since unreleased
+     * @since 0.18.0
      */
     readonly step: number;
     /**
      * Game seconds this decision lasts: 1 / fixedHz, times play.auto's speed (at speed 4 the answer is held for 4 fixed steps, so dt is 4 / fixedHz).
-     * @since unreleased
+     * @since 0.18.0
      */
     readonly dt: number;
     /**
      * The path of the current scene.
-     * @since unreleased
+     * @since 0.18.0
      */
     readonly scene: string;
     /**
      * Game seconds since the current scene was loaded.
-     * @since unreleased
+     * @since 0.18.0
      */
     readonly sceneTime: number;
     /**
      * The latest phase: the scene path, or the name of the last game.phase(name) mark.
-     * @since unreleased
+     * @since 0.18.0
      */
     readonly phase: string;
     /**
      * The input actions the game declares in factoria.json ("input": { "actions": ... }).
-     * @since unreleased
+     * @since 0.18.0
      */
     readonly actions: readonly string[];
     /**
      * The interface actions every game has (ui_up, ui_down, ui_left, ui_right, ui_next, ui_previous, ui_submit, ui_cancel) that move the focus of menus.
-     * @since unreleased
+     * @since 0.18.0
      */
     readonly uiActions: readonly string[];
     /**
      * The actions the function asked to hold in the previous step.
-     * @since unreleased
+     * @since 0.18.0
      */
     readonly held: readonly string[];
     /**
      * The seed of the run (play.auto's seed).
-     * @since unreleased
+     * @since 0.18.0
      */
     readonly seed: number;
     /**
      * A generator seeded with the run's seed, the same for the whole run: draw every random choice from it so the same seed plays the same game.
-     * @since unreleased
+     * @since 0.18.0
      */
     readonly rng: Rng;
   }
 
   /**
    * What game.autoplay's function returns: the actions to hold during this step, or an object that can also end the run (end), report a score and add a note.
-   * @since unreleased
+   * @since 0.18.0
    */
   export type AutoplayAnswer = readonly string[] | { actions?: readonly string[]; end?: "won" | "lost"; score?: number; note?: string } | void;
 

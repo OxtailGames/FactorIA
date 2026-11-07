@@ -176,7 +176,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.import`](commands/assets.md#assetsimport-modifies-state): Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF, MP4...) into the project's assets/ folder and record where it came from. _Since 0.1.6._
 - [`assets.list`](commands/assets.md#assetslist): List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, vfx, other (by file name).
 - [`assets.pack_atlas`](commands/assets.md#assetspack_atlas-modifies-state): Pack a folder of images into one atlas PNG and write the frame table (rect and pivot per frame) that a Sprite's `region` reads. _Since 0.3.0._
-- [`assets.pick`](commands/assets.md#assetspick-modifies-state): Keep the candidate the person chose: it becomes the slot, the others are dropped. _Not released yet._
+- [`assets.pick`](commands/assets.md#assetspick-modifies-state): Keep the candidate the person chose: it becomes the slot, the others are dropped. _Since 0.18.0._
 - [`assets.preview_in_scene`](commands/assets.md#assetspreview_in_scene): See an asset inside a scene of the game: it is placed (a PNG as a Sprite, a .glb as a MeshRenderer) in a private run of the scene and captured at phone and desktop resolutions. _Since 0.16.0._
 - [`assets.preview_sheet`](commands/assets.md#assetspreview_sheet): Look at a sprite sheet the way the game plays it: a labelled grid of its frames (numbers, cell edges, pivot, optional onion skin) plus checks for empty, cut or jumping frames and a loop seam. _Since 0.6.0._
 - [`assets.provenance`](commands/assets.md#assetsprovenance): Show where assets came from: the provenance record of one file, or all of them. _Since 0.1.6._
@@ -434,7 +434,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [play](commands/play.md)
 
-- [`play.auto`](commands/play.md#playauto-modifies-state): Let the game play itself, headless and fast, and write the run as a play session: phases, score, how it ended, problems found, pictures. _Not released yet._
+- [`play.auto`](commands/play.md#playauto-modifies-state): Let the game play itself, headless and fast, and write the run as a play session: phases, score, how it ended, problems found, pictures. _Since 0.18.0._
 - [`play.report`](commands/play.md#playreport): What happened while the game was played (by the user or by play.auto): perf, spikes, warnings/errors, the problem marks and screenshots.
 - [`play.sessions`](commands/play.md#playsessions): List the recent play sessions (recorded by the editor on Play .. Stop, or by play.auto), newest first.
 
@@ -456,7 +456,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`project.info`](commands/project.md#projectinfo): Show the project settings, input actions, current scene, scenes and scripts.
 - [`project.new_ci_workflow`](commands/project.md#projectnew_ci_workflow-modifies-state): Write a GitHub Actions workflow that validates, tests and exports the game on every push. _Since 0.2.0._
 - [`project.new_plugin`](commands/project.md#projectnew_plugin-modifies-state): Create a native plugin (C/C++) for this game and declare it in factoria.json. _Since 0.1.6._
-- [`project.serve_web`](commands/project.md#projectserve_web-modifies-state): Serve the game's web build on this computer, or on the Wi-Fi to try it on a phone; it reloads when the project changes. _Not released yet._
+- [`project.serve_web`](commands/project.md#projectserve_web-modifies-state): Serve the game's web build on this computer, or on the Wi-Fi to try it on a phone; it reloads when the project changes. _Since 0.18.0._
 - [`project.templates`](commands/project.md#projecttemplates): List the project templates `project.create` can start from.
 - [`project.test`](commands/project.md#projecttest-modifies-state): Run the project's JavaScript tests (tests/*.test.js) headless and return the report.
 - [`project.validate`](commands/project.md#projectvalidate): Check the whole project for errors: project file, scenes, assets, input bindings, scripts, feedback file.
@@ -482,11 +482,11 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [review](commands/review.md)
 
-- [`review.cleanup`](commands/review.md#reviewcleanup-modifies-state): Delete the candidate files a review pick moved away long ago, and the folders of sheets that were never finished. _Not released yet._
-- [`review.info`](commands/review.md#reviewinfo): The manifest of one review sheet (items, facts, the choice) and its picture. _Not released yet._
-- [`review.list`](commands/review.md#reviewlist): List the review sheets of the project, newest first, with what was picked. _Not released yet._
-- [`review.pick`](commands/review.md#reviewpick-modifies-state): Record which numbered thumbnail of a review sheet the person chose, and move the other candidates' files away (the pick itself deletes nothing; review.cleanup deletes the dropped files after 7 days, or never with droppedDays 0). _Not released yet._
-- [`review.sheet`](commands/review.md#reviewsheet-modifies-state): Show N candidates as ONE picture with big numbers (images, scenes, prefabs, level seeds, vector art, effects) so a person can answer with one number. _Not released yet._
+- [`review.cleanup`](commands/review.md#reviewcleanup-modifies-state): Delete the candidate files a review pick moved away long ago, and the folders of sheets that were never finished. _Since 0.18.0._
+- [`review.info`](commands/review.md#reviewinfo): The manifest of one review sheet (items, facts, the choice) and its picture. _Since 0.18.0._
+- [`review.list`](commands/review.md#reviewlist): List the review sheets of the project, newest first, with what was picked. _Since 0.18.0._
+- [`review.pick`](commands/review.md#reviewpick-modifies-state): Record which numbered thumbnail of a review sheet the person chose, and move the other candidates' files away (the pick itself deletes nothing; review.cleanup deletes the dropped files after 7 days, or never with droppedDays 0). _Since 0.18.0._
+- [`review.sheet`](commands/review.md#reviewsheet-modifies-state): Show N candidates as ONE picture with big numbers (images, scenes, prefabs, level seeds, vector art, effects) so a person can answer with one number. _Since 0.18.0._
 
 ### [scene](commands/scene.md)
 

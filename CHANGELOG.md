@@ -2,9 +2,9 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.18.0
 
-M66.1-M66.2 put a price and a ceiling on paid asset generation. Every picture, sound, music, voice and 3D model an asset provider makes now carries an estimated cost, a call that would pass a spending limit is refused before anything is sent, and an expensive call waits for the user's yes. Prices are the engine's own table with the day they were looked up; two of them (OpenAI voice and Meshy 3D) are the engine's derivation and say so.
+FactorIA 0.18.0 (M66-M69) makes the AI cheaper to trust and quicker to check. M66 puts an estimated price on every paid picture, sound, voice, song and 3D model, refuses a call that would pass a per-run or per-day limit before anything is sent, asks the user before an expensive one, and makes 1 to 4 candidates for one asset that the user picks from (`assets.generate_image {count}`, `assets.pick`). M67 lets the game play itself: `play.auto` runs it headless and fast with a bot, reports where it got stuck, fell or crashed with screenshots, and the editor's Let the AI play shows the sessions. M68 puts the game on a phone: `project.serve_web` and File > Play on Phone... serve the web build on the local network behind a QR code with live reload and the phone's log, and the web export can be one HTML file. M69 shows many choices at once: `review.sheet` draws numbered candidates on one contact sheet, `review.pick` keeps the person's choice, and the editor's Review window lets them pick with the keyboard, compare two side by side and see the history.
 
 ### Changes
 

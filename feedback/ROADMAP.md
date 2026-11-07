@@ -1918,7 +1918,7 @@ cost card before spending, LAN play by QR, one-file HTML export) and a post abou
 and mockup variants that nobody could review. Their ideas only: nothing of theirs is bundled, and each milestone is
 FactorIA's own version over its commands. They start after the M61-M65 block ships.
 
-## M66. Paid asset generation shows its cost and asks first (M; 3 packages) — the user, 2026-11-06
+## M66. Paid asset generation shows its cost and asks first (M; 3 packages) — DONE (0.18.0)
 
 Today asset providers (image, voice, sound, 3D) bill per call and FactorIA does not know their prices
 (AI_PROVIDERS.md, "Cost"); `limits.maxCostUsd` covers LLM runs only, so a batch can spend without anyone seeing it.
@@ -1937,7 +1937,7 @@ Today asset providers (image, voice, sound, 3D) bill per call and FactorIA does 
   (cleaned after 7 days). The estimate is for all candidates. Docs (ASSETS.md, AI_COSTS.md), tests with the fake
   provider.
 
-## M67. The AI plays the game and reports, with nobody at the keyboard (L; 4 packages) — the user, 2026-11-06
+## M67. The AI plays the game and reports, with nobody at the keyboard (L; 4 packages) — DONE (0.18.0)
 
 `play.report` reads what happened while a person played; Lantern Keep and Clockwork Courier carry their own bot
 (`tests/helpers/autoplay.js`) for tests only. A game-making AI should be able to play its game end to end and read the
@@ -1959,7 +1959,7 @@ same report before it shows the game to the user.
   the user to play; the Play menu gets "Let the AI play" with the report in the Play sessions list; an example game
   (Lantern Keep) swaps its test bot for the hook. Autotest section.
 
-## M68. Try it on the phone: LAN play by QR and a one-file web build (M; 3 packages) — the user, 2026-11-06
+## M68. Try it on the phone: LAN play by QR and a one-file web build (M; 3 packages) — DONE (0.18.0)
 
 Today the web export has to be served by hand (`python -m http.server`, EXPORTING.md) and a phone needs a full Android or
 iOS build to try the game.
@@ -1975,7 +1975,7 @@ iOS build to try the game.
   inlined (base64), that runs offline from a double click; refused with a teaching error over a size limit (default
   64 MB) and when a feature needs a server (threads, which need cross-origin isolation). EXPORTING.md, MOBILE.md.
 
-## M69. Reviewing many variants at once: contact sheets (M; 2 packages) — the user, 2026-11-06
+## M69. Reviewing many variants at once: contact sheets (M; 2 packages) — DONE (0.18.0)
 
 When an AI makes many versions of something (candidates of a sprite, layouts of a menu, seeds of a level, effects,
 whole prototypes), looking at them one by one costs the user more than making them did.

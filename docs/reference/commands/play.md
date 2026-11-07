@@ -4,7 +4,7 @@
 
 ## `play.auto` (modifies state)
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 Let the game play itself, headless and fast, and write the run as a play session: phases, score, how it ended, problems found, pictures.
 

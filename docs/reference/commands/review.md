@@ -4,7 +4,7 @@
 
 ## `review.cleanup` (modifies state)
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 Delete the candidate files a review pick moved away long ago, and the folders of sheets that were never finished.
 
@@ -18,7 +18,7 @@ review.sheet runs it by itself after each new sheet; call it to see what it woul
 
 ## `review.info`
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 The manifest of one review sheet (items, facts, the choice) and its picture.
 
@@ -30,7 +30,7 @@ Result: the manifest of the sheet (format factoria.review/1: id, label, createdA
 
 ## `review.list`
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 List the review sheets of the project, newest first, with what was picked.
 
@@ -42,7 +42,7 @@ Reads .factoria/review/. Result: {total, sheets: [{id, label, createdAt, count, 
 
 ## `review.pick` (modifies state)
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 Record which numbered thumbnail of a review sheet the person chose, and move the other candidates' files away (the pick itself deletes nothing; review.cleanup deletes the dropped files after 7 days, or never with droppedDays 0).
 
@@ -57,7 +57,7 @@ Call it with the number THE PERSON gave you for a sheet that review.sheet made; 
 
 ## `review.sheet` (modifies state)
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 Show N candidates as ONE picture with big numbers (images, scenes, prefabs, level seeds, vector art, effects) so a person can answer with one number.
 
