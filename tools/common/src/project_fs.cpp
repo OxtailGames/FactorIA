@@ -53,9 +53,12 @@ void require_writable(const std::string& rel) {
     if (!ok.ok()) fail("invalid_argument", ok.error().message, ok.error().hint);
 }
 
+// A path from UTF-8 text: a std::string handed to std::filesystem::path goes through the ANSI code page on Windows and mangles accents.
+stdfs::path path_from_utf8(std::string_view s) { return stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(s.data()), s.size())); }
+
 stdfs::path root_of(const std::string& projectDir) {
     std::error_code ec;
-    stdfs::path r = stdfs::weakly_canonical(stdfs::absolute(projectDir), ec);
+    stdfs::path r = stdfs::weakly_canonical(stdfs::absolute(path_from_utf8(projectDir)), ec);
     return r;
 }
 
@@ -105,7 +108,7 @@ Result<stdfs::path> resolve_project_path(const std::string& projectDir, std::str
     stdfs::path root = root_of(projectDir);
     std::error_code ec;
     // weakly_canonical resolves symlinks of the existing prefix, so links pointing out are caught.
-    stdfs::path full = stdfs::weakly_canonical(root / rel, ec);
+    stdfs::path full = stdfs::weakly_canonical(root / path_from_utf8(rel), ec);
     if (ec) return make_error("Cannot resolve path '" + std::string(relPath) + "': " + ec.message());
     if (!is_under(root, full))
         return make_error("Path '" + std::string(relPath) + "' resolves outside the project (symlink?).",

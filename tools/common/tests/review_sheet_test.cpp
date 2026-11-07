@@ -3,6 +3,11 @@
 // device and skip (with a message) where the engine finds none. No golden hashes: structure, sizes and a few pixels with tolerance.
 #include <doctest.h>
 
+#include <chrono>
+#include <cstdint>
+#include <cstdlib>
+#include <functional>
+#include <memory>
 #include <set>
 
 #include "asset_test_helpers.h"
@@ -44,11 +49,41 @@ std::string message(const CommandResult& r) { return r.error.value("code", std::
 
 bool contains(const std::string& s, const std::string& needle) { return s.find(needle) != std::string::npos; }
 
+// A graphics device the engine cannot use: the command says so with no_gpu, or the engine of the stage did not start at all.
 bool no_gpu(const CommandResult& r) {
-    if (r.ok || r.error.value("code", std::string()) != "no_gpu") return false;
-    MESSAGE("skipped: no graphics device on this machine (" << r.error.value("message", std::string()) << ")");
+    if (r.ok) return false;
+    const std::string code = r.error.value("code", std::string());
+    const std::string text = r.error.value("message", std::string());
+    if (code != "no_gpu" && !(code == "failed" && contains(text, "Cannot start the engine that films"))) return false;
+    MESSAGE("skipped: no graphics device on this machine (" << text << ")");
     return true;
 }
+
+std::string u8c(const char8_t* text) { return std::string(reinterpret_cast<const char*>(text)); }
+
+std::string u8s(const stdfs::path& path) {
+    const std::u8string u = path.generic_u8string();
+    return std::string(u.begin(), u.end());
+}
+
+// Rewrites a manifest the way someone editing the file by hand would.
+void tamper(const ReviewProject& p, const std::string& sheet, const std::function<void(Json&)>& edit) {
+    Json m = p.manifest(sheet);
+    edit(m);
+    write_all(p.file(".factoria/review/" + sheet + "/manifest.json"), m.dump(2));
+}
+
+// The system clock plus an offset: a review.cleanup that is `days` days later without waiting.
+struct ClockAhead {
+    std::int64_t offsetSec = 0;
+    ShareEnv env;
+    std::unique_ptr<ScopedShareEnv> scoped;
+    explicit ClockAhead(std::int64_t days) : offsetSec(days * 86400), env(share_env()) {
+        const std::int64_t offset = offsetSec;
+        env.now = [offset] { return std::int64_t(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()) + offset; };
+        scoped = std::make_unique<ScopedShareEnv>(env);
+    }
+};
 
 Json level_item(const std::string& seeds) {
     return Json::parse(R"({"level":{"sample":["................","..####..........","..#..#....##....","..#..#....##....","..####..........","................","......#.........",
@@ -465,7 +500,7 @@ TEST_CASE("review.sheet: a candidate may not be the main scene, a repeated file 
     CHECK(contains(message(r), "/items/1"));
     r = p.call("review.sheet", Json{{"items", Json::array({Json{{"image", "assets/red.png"}, {"candidate", true}}, Json{{"image", "assets/./red.png"}, {"candidate", true}}})}});
     CHECK_FALSE(r.ok);
-    CHECK(contains(message(r), "already a candidate"));
+    CHECK(contains(message(r), "already the file of item 1"));
     CHECK(p.exists("assets/red.png"));
 }
 
@@ -565,4 +600,526 @@ TEST_CASE("review store: unicode folder names, an abandoned sheet leaves nothing
     REQUIRE(loaded.ok);
     CHECK(loaded.value["label"] == "café");
     CHECK(loaded.value["engineVersion"].is_string());
+}
+
+// ---- review.pick trusts nothing in the manifest -----------------------------------------------------------------------------------
+
+namespace {
+
+// A sheet of the three images, all candidates, whose item 3 (blue) is rewritten by `edit`; then item 1 is picked. The pick must be refused
+// with nothing moved and the manifest unchanged.
+void pick_is_refused(ReviewProject& p, const std::function<void(Json&)>& edit, const std::string& needle) {
+    const Json made = p.ok("review.sheet", Json{{"candidates", true}, {"items", images3()}});
+    const std::string id = made["sheet"].get<std::string>();
+    tamper(p, id, edit);
+    const std::string before = read_all(p.file(".factoria/review/" + id + "/manifest.json"));
+    const CommandResult r = p.call("review.pick", Json{{"sheet", id}, {"n", 1}});
+    CHECK_FALSE(r.ok);
+    CHECK_MESSAGE(contains(message(r), needle), message(r));
+    for (const char* f : {"assets/red.png", "assets/green.png", "assets/blue.png"}) CHECK(p.exists(f));  // nothing moved
+    CHECK_FALSE(p.exists(".factoria/review/dropped/" + id));
+    CHECK(read_all(p.file(".factoria/review/" + id + "/manifest.json")) == before);
+}
+
+}  // namespace
+
+TEST_CASE("review.pick: a hand-edited source never moves a file outside the project, a project file or a file of another kind") {
+    ReviewProject p;
+    TempDir other;  // a folder outside the project
+    const stdfs::path precious = other.path / "precious.png";
+    write_png(precious, make_image(4, 4, {9, 9, 9, 255}));
+    const std::string preciousBytes = read_all(precious);
+    write_all(p.file(".factoria/keep.png"), "kept");
+    write_all(p.file("scenes/variant.scene.json"), read_all(p.file("scenes/main.scene.json")));
+    auto source = [](const std::string& value, const std::string& type = "image") {
+        return [value, type](Json& m) {
+            m["items"][2]["source"] = value;
+            m["items"][2]["type"] = type;
+        };
+    };
+    pick_is_refused(p, source(u8s(precious)), "may not move");  // an absolute path
+    pick_is_refused(p, source("../precious.png"), "may not move");
+    pick_is_refused(p, source("assets/../../precious.png"), "may not move");
+    pick_is_refused(p, source("factoria.json"), "may not move");
+    pick_is_refused(p, source("assets.json"), "may not move");
+    pick_is_refused(p, source(".factoria/keep.png"), ".factoria");
+    pick_is_refused(p, source(".git/config"), "may not move");
+    pick_is_refused(p, source("scenes/main.scene.json", "scene"), "main scene");
+    pick_is_refused(p, source("./scenes/main.scene.json", "scene"), "main scene");
+    pick_is_refused(p, source("SCENES\\Main.scene.json", "scene"), "main scene");
+    pick_is_refused(p, source("scenes/variant.scene.json", "image"), "may not move");  // a scene is no picture
+    CHECK(read_all(precious) == preciousBytes);
+    CHECK(p.exists(".factoria/keep.png"));
+    CHECK(p.exists("scenes/main.scene.json"));
+
+    // a link inside the project that leads out of it
+    std::error_code ec;
+    stdfs::create_symlink(precious, p.file("assets/link.png"), ec);
+    if (ec) {
+        MESSAGE("symlink case skipped: " << ec.message());
+    } else {
+        pick_is_refused(p, source("assets/link.png"), "may not move");
+        CHECK(read_all(precious) == preciousBytes);
+    }
+
+    // the stage of an effect is never moved, whoever owns it
+    pick_is_refused(
+        p,
+        [](Json& m) {
+            m["items"][2]["source"] = "scenes/variant.scene.json";
+            m["items"][2]["type"] = "scene";
+            m["items"][0]["spec"]["stage"] = "./scenes/Variant.scene.json";
+        },
+        "stage");
+}
+
+TEST_CASE("review.pick: a hand-edited drop folder is refused before any file moves") {
+    ReviewProject p;
+    for (const char* bad : {".factoria/tmp", ".factoria/tmp/x", "assets", "../elsewhere", ".factoria/review", ".factoria/review/sheet-0001", ".factoria", "/abs/where"}) {
+        pick_is_refused(p, [bad](Json& m) { m["dropDir"] = bad; }, "drop folder");
+        CHECK_FALSE(p.exists("../elsewhere"));
+    }
+    // and the folder is asked for the same way by review.sheet, with a JSON pointer
+    for (const char* bad : {".factoria/tmp", "assets", "../elsewhere", ".factoria/review", ".factoria/review/sheet-0009/x"}) {
+        const CommandResult r = p.call("review.sheet", Json{{"items", images3()}, {"dropDir", bad}});
+        CHECK_FALSE(r.ok);
+        CHECK_MESSAGE(contains(message(r), "/dropDir"), message(r));
+    }
+    // a folder of the project's own below .factoria/ is fine
+    const Json r = p.ok("review.sheet", Json{{"candidates", true}, {"items", images3()}, {"dropDir", ".factoria/old-takes"}});
+    const Json picked = p.ok("review.pick", Json{{"sheet", r["sheet"]}, {"n", 2}});
+    CHECK(picked["dropped"][0]["to"].get<std::string>().rfind(".factoria/old-takes/", 0) == 0);
+    CHECK(p.exists(".factoria/old-takes/" + r["sheet"].get<std::string>() + "/01_red.png"));
+}
+
+TEST_CASE("review.sheet: a candidate is the right kind of file, not a project file, not a stage and not shown twice") {
+    ReviewProject p;
+    write_all(p.file("scenes/variant.scene.json"), read_all(p.file("scenes/main.scene.json")));
+    write_all(p.file("assets/vfx/a.vfx.json"), R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","emitter":{"burst":4}}]})");
+    write_all(p.file(".factoria/keep.png"), "kept");
+    auto fails = [&](const Json& items, const std::string& pointer, const std::string& needle) {
+        const CommandResult r = p.call("review.sheet", Json{{"items", items}});
+        CHECK_FALSE(r.ok);
+        CHECK_MESSAGE(contains(message(r), pointer), message(r));
+        CHECK_MESSAGE(contains(message(r), needle), message(r));
+        CHECK_FALSE(p.exists(".factoria/review/sheet-0001"));
+    };
+    // suffixes: factoria.json and assets.json are no prefab or effect
+    fails(Json::array({Json{{"prefab", "factoria.json"}, {"candidate", true}}}), "/items/0/prefab", ".prefab.json");
+    fails(Json::array({Json{{"vfx", "assets.json"}, {"candidate", true}}}), "/items/0/vfx", ".vfx.json");
+    fails(Json::array({Json{{"scene", "factoria.json"}}}), "/items/0/scene", ".scene.json");
+    fails(Json::array({Json{{"vector", "assets/vfx/a.vfx.json"}}}), "/items/0/vector", ".svg");
+    // files below .factoria/ and the main scene, written in other ways
+    fails(Json::array({Json{{"image", ".factoria/keep.png"}, {"candidate", true}}}), "/items/0/candidate", ".factoria");
+    fails(Json::array({Json{{"scene", "./scenes/main.scene.json"}, {"candidate", true}}}), "/items/0/candidate", "main scene");
+    fails(Json::array({Json{{"scene", "scenes\\main.scene.json"}, {"candidate", true}}}), "/items/0/candidate", "main scene");
+    // an effect's stage may not be a candidate (in either order)
+    fails(Json::array({Json{{"vfx", "assets/vfx/a.vfx.json"}, {"stage", "scenes/variant.scene.json"}}, Json{{"scene", "scenes/variant.scene.json"}, {"candidate", true}}}), "/items/0/stage", "stage");
+    fails(Json::array({Json{{"scene", "scenes/variant.scene.json"}, {"candidate", true}}, Json{{"vfx", "assets/vfx/a.vfx.json"}, {"stage", "./scenes/variant.scene.json"}}}), "/items/1/stage", "stage");
+    // the same file twice where one is a candidate, in either order; twice without a candidate is fine
+    fails(Json::array({Json{{"image", "assets/red.png"}}, Json{{"image", "assets/./red.png"}, {"candidate", true}}}), "/items/1/image", "already the file of item 1");
+    fails(Json::array({Json{{"image", "assets/red.png"}, {"candidate", true}}, Json{{"image", "assets/red.png"}}}), "/items/1/image", "already the file of item 1");
+    const Json twice = p.ok("review.sheet", Json{{"items", Json::array({Json{{"image", "assets/red.png"}}, Json{{"image", "assets/red.png"}}})}});
+    CHECK(twice["count"] == 2);
+}
+
+// ---- levels sampled from a scene's Tilemap entity ----------------------------------------------------------------------------------
+
+TEST_CASE("review.sheet: a level may sample the Tilemap entity of the main scene or of the scene the item names") {
+    ReviewProject p;
+    const std::string tiles = "0,0,0,0,0,0,0,0, 0,1,1,1,1,1,1,0, 0,1,0,0,1,0,1,0, 0,1,1,1,1,0,1,0, 0,1,0,1,1,1,1,0, 0,0,0,0,0,0,0,0";
+    auto scene = [&](const std::string& entityId) {
+        return std::string(R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},{"id":")") + entityId +
+               R"(","name":"Map","components":{"Tilemap":{"tileSize":[16,16],"width":8,"height":6,"tiles":[)" + tiles + "]}}}]}";
+    };
+    write_all(p.file("scenes/main.scene.json"), scene("example"));
+    write_all(p.file("scenes/town.scene.json"), scene("town"));
+    const std::string mainBytes = read_all(p.file("scenes/main.scene.json"));
+    const std::string townBytes = read_all(p.file("scenes/town.scene.json"));
+
+    // the documented example: the entity named `example`, looked up in the main scene
+    const Json r = p.ok("review.sheet", Json{{"items", Json::array({Json::parse(R"({"level":{"sample":"example","n":2,"size":[24,16]},"seeds":[1,2]})")})}});
+    CHECK(r["count"] == 2);
+    CHECK(r["warnings"].empty());
+    CHECK(r["items"][0]["ok"] == true);
+    CHECK(contains(r["items"][0]["info"].get<std::string>(), "24x16, seed 1"));
+    Json m = p.manifest("sheet-0001");
+    CHECK(m["items"][0]["spec"]["sampleScene"] == "scenes/main.scene.json");
+    CHECK(m["items"][1]["spec"]["level"]["sample"] == "example");
+
+    // the entity by its name, in another scene the item names
+    const Json t = p.ok("review.sheet", Json{{"items", Json::array({Json::parse(R"({"level":{"sample":"town","n":2,"size":[12,8]},"sampleScene":"scenes/town.scene.json","seeds":[3]})"),
+                                                                    Json::parse(R"({"level":{"sample":"Map","n":2,"size":[12,8]},"label":"main map"})")})}});
+    CHECK(t["count"] == 2);
+    CHECK(t["items"][0]["ok"] == true);
+    CHECK(t["items"][1]["ok"] == true);
+    m = p.manifest(t["sheet"].get<std::string>());
+    CHECK(m["items"][0]["spec"]["sampleScene"] == "scenes/town.scene.json");
+    CHECK(m["items"][1]["spec"]["sampleScene"] == "scenes/main.scene.json");
+    CHECK(m["items"][0]["numbers"]["width"] == 12);
+
+    // an entity the scene does not have: the error names the item, nothing is written
+    CommandResult missing = p.call("review.sheet", Json{{"items", Json::array({Json::parse(R"({"level":{"sample":"town","size":[12,8]}})")})}});
+    CHECK_FALSE(missing.ok);
+    CHECK(contains(message(missing), "/items/0/level"));
+    // `sampleScene` with ASCII rows, or of a file that is no scene, is refused with its pointer
+    CommandResult rows = p.call("review.sheet", Json{{"items", Json::array({Json::parse(R"({"level":{"sample":["#."],"size":[4,4]},"sampleScene":"scenes/town.scene.json"})")})}});
+    CHECK_FALSE(rows.ok);
+    CHECK(contains(message(rows), "/items/0/sampleScene"));
+    CommandResult notScene = p.call("review.sheet", Json{{"items", Json::array({Json::parse(R"({"level":{"sample":"town","size":[4,4]},"sampleScene":"factoria.json"})")})}});
+    CHECK_FALSE(notScene.ok);
+    CHECK(contains(message(notScene), "/items/0/sampleScene"));
+    CommandResult elsewhere = p.call("review.sheet", Json{{"items", Json::array({Json{{"image", "assets/red.png"}, {"sampleScene", "scenes/town.scene.json"}}})}});
+    CHECK_FALSE(elsewhere.ok);
+    CHECK(contains(message(elsewhere), "/items/0/sampleScene"));
+    CHECK_FALSE(p.exists(".factoria/review/sheet-0003"));
+
+    // the scenes were only read
+    CHECK(read_all(p.file("scenes/main.scene.json")) == mainBytes);
+    CHECK(read_all(p.file("scenes/town.scene.json")) == townBytes);
+
+    // picking a level hands back the scene the entity came from
+    const Json picked = p.ok("review.pick", Json{{"sheet", "sheet-0001"}, {"n", 2}});
+    CHECK(picked["spec"]["sampleScene"] == "scenes/main.scene.json");
+    CHECK(has_text(picked["nextSteps"], "sampleScene"));
+}
+
+TEST_CASE("review.sheet: an entity sample without a main scene needs sampleScene and says so") {
+    ReviewProject p;
+    {
+        Json project = parse_json(read_all(p.file("factoria.json")), "factoria.json").value();
+        project.erase("mainScene");
+        write_all(p.file("factoria.json"), project.dump(2));
+    }
+    const CommandResult r = p.call("review.sheet", Json{{"items", Json::array({Json::parse(R"({"level":{"sample":"example","size":[4,4]}})")})}});
+    CHECK_FALSE(r.ok);
+    CHECK(contains(message(r), "/items/0/level/sample"));
+    CHECK(contains(message(r), "sampleScene"));
+    CHECK_FALSE(p.exists(".factoria/review/sheet-0001"));
+}
+
+// ---- all or nothing, for real ------------------------------------------------------------------------------------------------------
+
+TEST_CASE("review.pick: a candidate held open by another program puts the earlier moves back and changes no manifest") {
+    ReviewProject p;
+    const bool rules = fs::windows_rules();
+    fs::set_windows_rules(true);  // an open file cannot be replaced, as on Windows
+    struct Restore {
+        bool was;
+        ~Restore() { fs::set_windows_rules(was); }
+    } restore{rules};
+    p.ok("review.sheet", Json{{"candidates", true}, {"items", images3()}});
+    const std::string manifestBefore = read_all(p.file(".factoria/review/sheet-0001/manifest.json"));
+    const std::string greenBytes = read_all(p.file("assets/green.png"));
+    {
+        fs::ReadStream viewer(p.file("assets/blue.png"), std::ios::binary);  // a viewer, an antivirus scan
+        REQUIRE(viewer.is_open());
+        const CommandResult r = p.call("review.pick", Json{{"n", 1}});
+        CHECK_FALSE(r.ok);
+        CHECK(r.error.value("code", std::string()) == "failed");
+        CHECK_MESSAGE(contains(message(r), "put back"), message(r));
+        CHECK(contains(message(r), "blue.png"));
+        CHECK(contains(message(r), "open in another program"));
+        // item 2 (green) was moved before item 3 failed: it is back, byte for byte
+        CHECK(p.exists("assets/green.png"));
+        CHECK(read_all(p.file("assets/green.png")) == greenBytes);
+        CHECK(p.exists("assets/blue.png"));
+        CHECK(p.exists("assets/red.png"));
+        CHECK_FALSE(p.exists(".factoria/review/dropped/sheet-0001/02_green.png"));
+        CHECK(read_all(p.file(".factoria/review/sheet-0001/manifest.json")) == manifestBefore);
+    }
+    // the viewer let go: the same pick works
+    const Json r = p.ok("review.pick", Json{{"n", 1}});
+    CHECK(r["dropped"].size() == 2);
+    CHECK(p.exists(".factoria/review/dropped/sheet-0001/03_blue.png"));
+}
+
+TEST_CASE("review store: a busy lock changes nothing and says so; the lock is free again afterwards") {
+    ReviewProject p;
+    p.ok("review.sheet", Json{{"candidates", true}, {"items", images3()}});
+    ShareEnv env = share_env();
+    env.lockWaitSec = 0.2;
+    env.lockStaleSec = 600.0;
+    ScopedShareEnv scoped(env);
+    const stdfs::path lockFile = p.file(".factoria/review") / kFeedbackShareLockFile;
+    write_all(lockFile, "alive");  // another process holds it
+    const std::string manifestBefore = read_all(p.file(".factoria/review/sheet-0001/manifest.json"));
+
+    CommandResult pick = p.call("review.pick", Json{{"n", 1}});
+    CHECK_FALSE(pick.ok);
+    CHECK(pick.error.value("code", std::string()) == "busy");
+    CHECK(contains(message(pick), "Nothing was changed"));
+    for (const char* f : {"assets/red.png", "assets/green.png", "assets/blue.png"}) CHECK(p.exists(f));
+    CHECK(read_all(p.file(".factoria/review/sheet-0001/manifest.json")) == manifestBefore);
+
+    CommandResult sheet = p.call("review.sheet", Json{{"items", images3()}});
+    CHECK_FALSE(sheet.ok);
+    CHECK(sheet.error.value("code", std::string()) == "busy");
+    CHECK_FALSE(p.exists(".factoria/review/sheet-0002"));
+
+    CommandResult cleanup = p.call("review.cleanup", Json::object());
+    CHECK_FALSE(cleanup.ok);
+    CHECK(cleanup.error.value("code", std::string()) == "busy");
+    // reading never needs the lock
+    CHECK(p.call("review.list", Json::object()).ok);
+    CHECK(p.call("review.info", Json::object()).ok);
+
+    std::error_code ec;
+    stdfs::remove(lockFile, ec);
+    CHECK(p.call("review.pick", Json{{"n", 1}}).ok);
+    CHECK_FALSE(stdfs::exists(lockFile));  // released
+}
+
+// ---- meta, an integer sheet argument ------------------------------------------------------------------------------------------------
+
+TEST_CASE("review: the meta object is stored by review.sheet and returned by review.pick, review.info and review.list") {
+    ReviewProject p;
+    const Json meta = Json::parse(R"({"slot":"hero","milestone":69,"nested":{"a":[1,2]}})");
+    const Json made = p.ok("review.sheet", Json{{"candidates", true}, {"items", images3()}, {"meta", meta}});
+    CHECK(made["meta"] == meta);
+    CHECK(p.manifest("sheet-0001")["meta"] == meta);
+    const Json plain = p.ok("review.sheet", Json{{"items", images3()}});
+    CHECK(plain["meta"] == Json::object());
+    CHECK(p.manifest("sheet-0002")["meta"] == Json::object());
+
+    const Json list = p.ok("review.list", Json::object());
+    CHECK(list["sheets"][1]["meta"] == meta);
+    CHECK(list["sheets"][0]["meta"] == Json::object());
+    CHECK(p.ok("review.info", Json{{"sheet", "sheet-0001"}})["meta"] == meta);
+    // the sheet argument may be the number itself
+    CHECK(p.ok("review.info", Json{{"sheet", 1}})["id"] == "sheet-0001");
+    const Json picked = p.ok("review.pick", Json{{"sheet", 1}, {"n", 2}});
+    CHECK(picked["sheet"] == "sheet-0001");
+    CHECK(picked["meta"] == meta);
+    CHECK(p.manifest("sheet-0001")["meta"] == meta);  // the pick keeps it
+    CHECK_FALSE(p.call("review.pick", Json{{"sheet", 1.5}, {"n", 2}}).ok);
+
+    // bad meta: a pointer, nothing written
+    const CommandResult text = p.call("review.sheet", Json{{"items", images3()}, {"meta", "hero"}});
+    CHECK_FALSE(text.ok);
+    CHECK(contains(message(text), "meta"));
+    const CommandResult big = p.call("review.sheet", Json{{"items", images3()}, {"meta", Json{{"blob", std::string(kReviewMetaMaxBytes + 10, 'x')}}}});
+    CHECK_FALSE(big.ok);
+    CHECK(contains(message(big), "/meta"));
+    CHECK_FALSE(p.exists(".factoria/review/sheet-0003"));
+}
+
+// ---- housekeeping ------------------------------------------------------------------------------------------------------------------
+
+TEST_CASE("review.cleanup: dropped candidates expire after a week, chosen files and unanswered sheets never, orphans after an hour") {
+    ReviewProject p;
+    p.ok("review.sheet", Json{{"candidates", true}, {"items", images3()}});            // sheet-0001: answered, drops green and blue
+    p.ok("review.pick", Json{{"n", 1}});
+    write_png(p.file("assets/yellow.png"), make_image(8, 8, {200, 200, 30, 255}));
+    write_png(p.file("assets/violet.png"), make_image(8, 8, {150, 30, 200, 255}));
+    p.ok("review.sheet", Json{{"items", Json::array({Json{{"image", "assets/yellow.png"}, {"candidate", true}}, Json{{"image", "assets/violet.png"}, {"candidate", true}}})}});  // sheet-0002: not answered
+    const ReviewOutcome orphan = review_reserve(p.dir);  // sheet-0003: a process died before the manifest
+    REQUIRE_MESSAGE(orphan.ok, orphan.message);
+    CHECK(orphan.value["id"] == "sheet-0003");
+    write_all(p.file(".factoria/review/sheet-0003/sheet.png.partial"), "half a picture");
+
+    // listed as an orphan, not as a sheet
+    const Json list = p.ok("review.list", Json::object());
+    CHECK(list["total"] == 2);
+    REQUIRE(list.contains("orphans"));
+    CHECK(list["orphans"][0] == "sheet-0003");
+
+    // today: nothing is old
+    Json r = p.ok("review.cleanup", Json::object());
+    CHECK(r["droppedExpired"].empty());
+    CHECK(r["orphansRemoved"].empty());
+    CHECK(r["dryRun"] == false);
+    CHECK(p.exists(".factoria/review/dropped/sheet-0001/02_green.png"));
+    CHECK(p.exists(".factoria/review/sheet-0003"));
+
+    // 6 days on: still inside the week; the orphan is old enough
+    {
+        ClockAhead sixDays(6);
+        r = p.ok("review.cleanup", Json{{"dryRun", true}});
+        CHECK(r["droppedExpired"].empty());
+        REQUIRE(r["orphansRemoved"].size() == 1);
+        CHECK(p.exists(".factoria/review/sheet-0003"));  // a dry run removes nothing
+        r = p.ok("review.cleanup", Json::object());
+        CHECK(r["orphansRemoved"][0] == "sheet-0003");
+        CHECK_FALSE(p.exists(".factoria/review/sheet-0003"));
+        CHECK(p.exists(".factoria/review/dropped/sheet-0001/02_green.png"));
+    }
+
+    // a hand-edited entry that points at the chosen file is never deleted
+    tamper(p, "sheet-0001", [](Json& m) { m["picked"]["dropped"][1]["to"] = "assets/red.png"; });
+
+    // 8 days on
+    {
+        ClockAhead eightDays(8);
+        r = p.ok("review.cleanup", Json{{"dryRun", true}});
+        REQUIRE(r["droppedExpired"].size() == 1);
+        CHECK(r["droppedExpired"][0]["files"].size() == 1);
+        CHECK(p.exists(".factoria/review/dropped/sheet-0001/02_green.png"));  // a dry run deletes nothing
+        r = p.ok("review.cleanup", Json::object());
+        REQUIRE(r["droppedExpired"].size() == 1);
+        CHECK(r["droppedExpired"][0]["files"][0] == ".factoria/review/dropped/sheet-0001/02_green.png");
+        REQUIRE(r["skipped"].size() == 1);
+        CHECK(r["skipped"][0]["sheet"] == "sheet-0001");
+        CHECK(contains(r["skipped"][0]["reason"].get<std::string>(), "left alone"));
+        CHECK_FALSE(p.exists(".factoria/review/dropped/sheet-0001/02_green.png"));
+        CHECK(p.exists("assets/red.png"));    // the chosen one
+        CHECK(p.exists("assets/yellow.png"));  // the sheet nobody answered
+        CHECK(p.exists("assets/violet.png"));
+        const Json m = p.manifest("sheet-0001");
+        CHECK(m["picked"]["dropped"][0]["status"] == "expired");
+        CHECK(m["picked"]["dropped"][1]["status"] == "moved");
+        CHECK(m["picked"]["n"] == 1);
+        // the same call again has nothing left to do for the expired one
+        r = p.ok("review.cleanup", Json::object());
+        CHECK(r["droppedExpired"].empty());
+        // droppedDays 0 keeps files for ever, whatever the age
+        CHECK(p.ok("review.cleanup", Json{{"droppedDays", 0}})["droppedExpired"].empty());
+    }
+    CHECK_FALSE(p.call("review.cleanup", Json{{"droppedDays", -1}}).ok);
+    CHECK(contains(message(p.call("review.cleanup", Json{{"orphanMinutes", 1e9}})), "/orphanMinutes"));
+}
+
+TEST_CASE("review.sheet: a new sheet cleans up what is old (and a failing cleanup is a warning, not an error)") {
+    ReviewProject p;
+    p.ok("review.sheet", Json{{"candidates", true}, {"items", images3()}});
+    p.ok("review.pick", Json{{"n", 1}});
+    CHECK(p.exists(".factoria/review/dropped/sheet-0001/03_blue.png"));
+    write_png(p.file("assets/green.png"), make_image(16, 24, {30, 200, 30, 255}));
+    write_png(p.file("assets/blue.png"), make_image(64, 64, {30, 30, 200, 255}));
+    ClockAhead later(10);
+    const Json r = p.ok("review.sheet", Json{{"items", images3()}});
+    CHECK_FALSE(p.exists(".factoria/review/dropped/sheet-0001/03_blue.png"));
+    CHECK(p.manifest("sheet-0001")["picked"]["dropped"][1]["status"] == "expired");
+    CHECK(r["warnings"].empty());
+}
+
+// ---- pictures that announce a huge size ---------------------------------------------------------------------------------------------
+
+TEST_CASE("review.sheet: a JPEG, BMP or TGA header that announces a huge picture is refused before any pixel is made") {
+    ReviewProject p;
+    auto le32 = [](std::string& s, std::size_t at, std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) s[at + std::size_t(i)] = char((v >> (8 * i)) & 0xFF);
+    };
+    std::string bmp(54, '\0');
+    bmp[0] = 'B';
+    bmp[1] = 'M';
+    le32(bmp, 10, 54);
+    le32(bmp, 14, 40);
+    le32(bmp, 18, 20000);
+    le32(bmp, 22, 20000);
+    bmp[26] = 1;
+    bmp[28] = 24;
+    write_all(p.file("assets/huge.bmp"), bmp);
+    std::string jpg = "\xFF\xD8\xFF\xC0";
+    jpg += std::string("\0\x11\x08\x4E\x20\x4E\x20\x03", 8);
+    jpg += std::string(10, '\0');
+    write_all(p.file("assets/huge.jpg"), jpg);
+    std::string tga(18, '\0');
+    tga[2] = 2;
+    tga[12] = char(0x20);
+    tga[13] = char(0x4E);
+    tga[14] = char(0x20);
+    tga[15] = char(0x4E);
+    tga[16] = 32;
+    write_all(p.file("assets/huge.tga"), tga);
+    for (const char* name : {"assets/huge.bmp", "assets/huge.jpg", "assets/huge.tga"}) {
+        const Json r = p.ok("review.sheet", Json{{"items", Json::array({Json{{"image", "assets/red.png"}}, Json{{"image", name}}})}});
+        CHECK_MESSAGE(r["items"][1]["ok"] == false, name);
+        CHECK_MESSAGE(has_warning(r, "20000x20000"), name);
+    }
+}
+
+TEST_CASE("review.sheet: a sheet of the largest pictures holds the thumbnails, not the pictures") {
+    ReviewProject p;
+    // 48 pictures of 1200 x 1200 (5.7 MB each as pixels, 276 MB together if all were kept) still make one sheet; each is shrunk right after it is read
+    write_png(p.file("assets/big.png"), make_image(1200, 1200, {20, 100, 200, 255}));
+    Json items = Json::array();
+    for (int i = 0; i < kReviewMaxItems; ++i) items.push_back(Json{{"image", "assets/big.png"}, {"label", "big " + std::to_string(i + 1)}});
+    const Json r = p.ok("review.sheet", Json{{"items", items}, {"thumbSize", 64}});
+    CHECK(r["count"] == kReviewMaxItems);
+    CHECK(r["warnings"].empty());
+    CHECK(r["picture"]["width"].get<int>() <= 2000);
+    CHECK(r["picture"]["height"].get<int>() <= 2000);
+    const Image thumb = read_png(p.file(".factoria/review/sheet-0001/thumbs/48.png"));
+    CHECK(thumb.width == 64);
+    CHECK(near_color(thumb, 32, 32, 20, 100, 200));
+}
+
+// ---- unicode project folders ---------------------------------------------------------------------------------------------------------
+
+TEST_CASE("review commands work in a project whose folder has accents") {
+    ScratchShareHome home;
+    TempDir tmp;
+    const stdfs::path root = tmp.path / stdfs::path(u8"proyecto áé ñ");
+    const std::string dir = u8s(root);
+    REQUIRE(create_project(dir, "2d-empty").ok());
+    CommandRegistry reg;
+    register_tooling_commands(reg, dir);
+    write_png(root / "assets" / stdfs::path(u8"rojo ñ.png"), make_image(16, 16, {200, 30, 30, 255}));
+    write_png(root / "assets" / stdfs::path(u8"verde.png"), make_image(16, 16, {30, 200, 30, 255}));
+    const CommandResult made = reg.call("review.sheet", Json{{"items", Json::array({Json{{"image", u8c(u8"assets/rojo ñ.png")}, {"candidate", true}},
+                                                                                  Json{{"image", "assets/verde.png"}, {"candidate", true}}})},
+                                                            {"label", "¿Cuál?"}});
+    REQUIRE_MESSAGE(made.ok, made.error.dump());
+    CHECK(made.result["items"][0]["label"] == u8c(u8"rojo ñ"));
+    const std::string pictureText = made.result["$image"]["path"].get<std::string>();
+    const stdfs::path picture(std::u8string(pictureText.begin(), pictureText.end()));
+    CHECK(stdfs::exists(picture));
+    const CommandResult picked = reg.call("review.pick", Json{{"n", 2}});
+    REQUIRE_MESSAGE(picked.ok, picked.error.dump());
+    CHECK(picked.result["dropped"][0]["from"] == u8c(u8"assets/rojo ñ.png"));
+    CHECK_FALSE(stdfs::exists(root / "assets" / stdfs::path(u8"rojo ñ.png")));
+    CHECK(stdfs::exists(root / ".factoria" / "review" / "dropped" / "sheet-0001" / stdfs::path(u8"01_rojo ñ.png")));
+    CHECK(stdfs::exists(root / "assets" / "verde.png"));
+    CHECK(reg.call("review.list", Json::object()).ok);
+    CHECK(reg.call("review.cleanup", Json{{"dryRun", true}}).ok);
+}
+
+// ---- every kind of GPU item on one sheet --------------------------------------------------------------------------------------------
+
+TEST_CASE("review.sheet: scene, 2D and 3D prefabs and effects (plain stage and a stage of the project) share one engine and leave nothing behind") {
+    ReviewProject p;
+    write_all(p.file("scenes/level.scene.json"), R"({"format":"factoria.scene/1","entities":[
+      {"id":"cam","components":{"Transform":{},"Camera":{"orthoSize":100,"clearColor":[0,0,0,1]}}},
+      {"id":"hero","components":{"Transform":{"position":[-50,0,0]},"Shape2D":{"shape":"rectangle","size":[20,20],"color":[0,0,1,1]}}}]})");
+    write_all(p.file("prefabs/box.prefab.json"), R"({"format":"factoria.prefab/1","entity":
+      {"id":"box","components":{"Transform":{},"Shape2D":{"shape":"rectangle","size":[20,10],"color":[0,1,0,1]}}}})");
+    write_all(p.file("prefabs/cube.prefab.json"), R"({"format":"factoria.prefab/1","entity":
+      {"id":"cube","components":{"Transform":{"scale":[1,1,1]},"MeshRenderer":{"mesh":"cube","color":[0.9,0.45,0.2,1]}}}})");
+    write_all(p.file("assets/vfx/burst.vfx.json"), R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","emitter":{"burst":40,"lifetime":1.0,"startSize":8,"speed":60}}]})");
+    const std::string stageBytes = read_all(p.file("scenes/level.scene.json"));
+    const CommandResult r = p.call("review.sheet", Json{{"items", Json::array({Json{{"scene", "scenes/level.scene.json"}, {"steps", 1}},
+                                                                                Json{{"prefab", "prefabs/box.prefab.json"}},
+                                                                                Json{{"prefab", "prefabs/cube.prefab.json"}},
+                                                                                Json{{"vfx", "assets/vfx/burst.vfx.json"}},
+                                                                                Json{{"vfx", "assets/vfx/burst.vfx.json"}, {"stage", "scenes/level.scene.json"}, {"label", "on the level"}},
+                                                                                Json{{"image", "assets/red.png"}}})}});
+    if (no_gpu(r)) {
+        CHECK_FALSE(p.exists(".factoria/review/sheet-0001"));
+        return;
+    }
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK_MESSAGE(r.result["warnings"].empty(), r.result["warnings"].dump());
+    for (std::size_t i = 0; i < 6; ++i) CHECK_MESSAGE(r.result["items"][i]["ok"] == true, r.result["items"][i].dump());
+    CHECK(r.result["items"][2]["type"] == "prefab");
+    CHECK(r.result["items"][3]["type"] == "vfx");
+    CHECK(r.result["items"][4]["label"] == "on the level");
+    const Json m = p.manifest("sheet-0001");
+    const Image sheet = read_png(p.file(".factoria/review/sheet-0001/sheet.png"));
+    // the 3D cube is drawn: its area is not one flat colour
+    const Json& area = m["items"][2]["picture"];
+    const Rgba corner = get(sheet, area["x"].get<int>() + 1, area["y"].get<int>() + 1);
+    int different = 0;
+    for (int y = area["y"].get<int>(); y < area["y"].get<int>() + area["h"].get<int>(); ++y)
+        for (int x = area["x"].get<int>(); x < area["x"].get<int>() + area["w"].get<int>(); ++x) {
+            const Rgba c = get(sheet, x, y);
+            if (std::abs(int(c.r) - corner.r) + std::abs(int(c.g) - corner.g) + std::abs(int(c.b) - corner.b) > 60) ++different;
+        }
+    CHECK(different > 200);
+    // the project's scene that was a stage is untouched, and the scratch folder has no stage left
+    CHECK(read_all(p.file("scenes/level.scene.json")) == stageBytes);
+    std::error_code ec;
+    int leftovers = 0;
+    for (stdfs::directory_iterator it(p.file(".factoria/tmp"), ec), end; !ec && it != end; it.increment(ec)) ++leftovers;
+    CHECK(leftovers == 0);
 }

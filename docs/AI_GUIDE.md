@@ -1985,23 +1985,29 @@ review.sheet {"label":"Which hero?","items":[
   {"image":"assets/hero_b.png","label":"B: tall","candidate":true},
   {"image":"assets/hero_c.png","label":"C: tiny","candidate":true}]}
 review.sheet {"items":[{"level":{"sample":"example","size":[40,24]},"seeds":[11,12,13,14]}]}   # four layouts, one thumbnail per seed
+                                                                                          # (entity "example" with a Tilemap, in the main scene)
 review.pick {"sheet":"latest","n":2}                                                       # only after the person said "2"
 ```
 
 - Items: `image`, `vector` (an .svg), `level` (the arguments of `tilemap.generate`, drawn on the CPU), and `scene`, `prefab`, `vfx`
   (drawn by the engine's renderer; they need a graphics device and fail with `no_gpu` before anything is written, so leave them out
-  on a machine without one). Four to nine candidates is what a person judges well; the most is 48 and the sheet is at most
+  on a machine without one). A level's `sample` is ASCII rows, a rows file, or the id or name of an entity with a Tilemap; for the
+  entity the scene is the main scene, or the one named by `sampleScene` on the item (`{"level":{"sample":"town",...},"sampleScene":"scenes/town.scene.json"}`).
+  Four to nine candidates is what a person judges well; the most is 48 and the sheet is at most
   8192 pixels a side.
 - **Never pick for the person.** `review.pick` records THEIR number. Over MCP and the CLI nothing asks them, so the number must come from the person in the conversation; if you do not have it, ask.
 - Candidates are MOVED, never deleted. Mark `candidate: true` on the items whose files you made only for this choice (variants of an
   image, a scene, a prefab). `review.pick` then moves the files of the items that were not chosen to
   `.factoria/review/dropped/<sheet id>/` (`drop: false` touches no file, `dropDir` picks another folder under `.factoria/`), and
   its result lists every move (`from`, `to`): moving a file back undoes it. The main scene, a file in `.git` and a file that is not marked
-  are never moved. A level is not a file: picking it records its seed in the manifest, and `tilemap.generate` with the same arguments and
+  are never moved (nor `factoria.json`, `assets.json`, anything under `.factoria/`, or the stage scene of an effect on the sheet).
+  A level is not a file: picking it records its seed in the manifest, and `tilemap.generate` with the same arguments and
   that seed makes the very level.
 - Every sheet is kept under `.factoria/review/sheet-NNNN/` (`sheet.png`, `thumbs/NN.png` and `manifest.json` with the items, their facts,
   when it was made and what was picked). `review.list` shows the sheets (newest first, which are still waiting for an answer),
   `review.info {"sheet":"sheet-0003"}` one manifest and its picture. A choice is final: to choose again, make a new sheet.
+  `meta` (a small object of yours, e.g. `{"slot":"hero"}`) is stored with the sheet and returned by `review.pick`, `review.info` and `review.list`.
+  Dropped files are deleted 7 days after the pick by `review.cleanup` (it runs after each new sheet; the chosen file is never touched).
 - An effect is drawn as the middle picture of `vfx.filmstrip`; a prefab on a plain stage, framed from its visuals (2D) or turned
   three quarters under a studio light (3D). An item that cannot be drawn is a red tile that cannot be picked; the others still show.
 
