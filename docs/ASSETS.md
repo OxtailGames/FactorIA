@@ -650,8 +650,8 @@ Each item has exactly one of these keys, plus `label` (default: the file name) a
 `candidate: true` to `.factoria/review/dropped/<sheet id>/<NN>_<file name>` (another folder below `.factoria/` with `dropDir` on the
 sheet); the pick itself deletes nothing (`review.cleanup` deletes the dropped files 7 days later; `droppedDays: 0` keeps them), and the result and the manifest list each move (`from`, `to`), so moving a file back undoes it. The
 picked item's file, files that are not marked, the main scene and files in `.git` are never moved, and `assets.json` is not edited
-(the result warns when it still lists a moved file). It is all or nothing: if a move fails the ones already made are put back and the
-manifest does not change; a leftover in the drop folder (`exists`) stops it before any move. The manifest is changed under a lock in
+(the result warns when it still lists a moved file). It is all or nothing: if a move fails (code `busy` when the file is open in another
+program, `failed` otherwise) the ones already made are put back and the manifest does not change; a leftover in the drop folder (`exists`) stops it before any move. The manifest is changed under a lock in
 `.factoria/review/`, so the editor, the CLI and an agent can use sheets at the same time. A sheet can be picked once. A crash (a power cut) between the moves and the manifest write leaves the moved files in the drop folder
 with the sheet still unanswered: pick again (a file that is already gone is reported, not an error), or move the files back by hand.
 `dropDir` is a folder below `.factoria/`, not `.factoria/tmp`, not `.factoria/review` itself and not another sheet's folder.
@@ -665,6 +665,50 @@ it was made) is listed by `review.list` as an `orphan` and removed by `review.cl
 
 **Over MCP and the CLI nothing asks the person: `review.pick` must get the number THEY gave you.** Never choose for them: ask in the conversation, show the sheet,
 wait for the number.
+
+### Candidates for one asset: assets.generate_image count and assets.pick
+
+`assets.generate_image {"prompt":"a red potion bottle","path":"assets/items/potion.png","width":64,"height":64,"count":3}` makes
+three candidates for the slot `assets/items/potion.png` instead of the file itself, and one review sheet that shows them:
+
+- The candidates are written next to the slot as `potion.candidate-1.png`, `potion.candidate-2.png`... (`count` is 1 to 4; 1 is the
+  plain call that writes the slot). Each has its own seed (`seed`, `seed+1`...; without `seed` the first comes from the prompt, so the
+  same prompt gives the same seeds) and its own provenance in `assets.json`, with `candidate: {slot, n, count}`.
+- Everything that can be refused is refused before the provider is called: a `count` out of 1..4 (with the pointer `/count`), a slot
+  that exists, candidate files that exist (left by an earlier call) unless `overwrite` is true, and a slot path so long that the sheet's
+  `meta` would pass its 4 KB limit. With `overwrite`, a file replaced that `assets.json` did not record as a candidate of this slot
+  is named in `warnings`. The same prompt without `seed` gives the same pictures again with providers that honour seeds: for different
+  ones change the prompt or pass another `seed`.
+- The cost estimate, the limits and the approval cover all the candidates at once, before the first picture (docs/AI_COSTS.md,
+  "Asset generation"): one question, one yes, for the batch. When the provider fails part way, the error lists the candidates that were
+  written (kept, with their provenance), the estimated cost of those, and gives the rest of the estimate back; no sheet is made then.
+- The sheet is an ordinary `review.sheet` (the section above): every item is `candidate: true`, its label is the seed, the sheet's label
+  is the prompt, its `dropDir` is `.factoria/assets/candidates`, and its `meta` is
+  `{"kind":"assetCandidates","slot":...,"command":"assets.generate_image","count":...,"candidates":[...],"overwrite":...,"estimatedCostUsd":...,"sha256":[...]}`
+  (`sha256`: of each candidate file as written). The result carries the sheet id, the candidates, the cost, the sheet picture as
+  `$image` and the next steps. Only the newest candidates sheet of a slot can be answered: when this sheet replaces one that was not
+  answered yet, the result names it in `replacedSheet` and `warnings` (show the new sheet, not the old one).
+
+Show the sheet, ask the person for ONE number, then `assets.pick {"slot":"assets/items/potion.png","n":2}`:
+
+- It answers the newest candidates sheet of that slot, with `review.pick` itself: the same lock, the same file checks, the same all
+  or nothing, the choice and `note` recorded in the manifest. `sheet` (an id or its number) must be that newest sheet: an older one
+  (its thumbnails may show pictures a regeneration with `overwrite` replaced) is refused with `superseded` and a hint naming the
+  current sheet, and so is a candidate whose file no longer matches its `sha256` on the sheet (an edit, or a regeneration that
+  failed part way). Plain `review.pick` refuses these sheets and names `assets.pick`.
+- Candidate 2 is moved to the slot. The slot's entry in `assets.json` gets that candidate's provenance (prompt, provider, model, seed)
+  plus `candidates: {sheet, picked, count, estimatedCostUsd, costIsEstimate}`, and the candidates' own entries are removed.
+- The other candidates move to `.factoria/assets/candidates/<sheet id>/NN_<name>`, where `review.cleanup` deletes them 7 days later,
+  like the files of any picked sheet. A slot file that exists needs `overwrite` (in the generate call or the pick) and is kept there as
+  `00_<name>` for the same 7 days.
+- When a file cannot be moved (open in a viewer: code `busy`) or `assets.json` cannot be written, every move is put back and nothing
+  changes. A slot whose newest sheet was answered is refused with `already_picked`, never answered from an older sheet (make new
+  candidates, with a changed prompt or another `seed`, to choose again); a slot with no candidates sheet is `not_found`, with the slots
+  that have one as suggestions.
+- Until the pick the candidates are files under `assets/`, so an export would ship them: pick (or delete them) before exporting.
+
+Never pick for the person. The editor's Review window answers these sheets with the same call, `assets.pick {"sheet":..., "n":..., "slot":...}`,
+for every sheet whose `meta.kind` is `"assetCandidates"`.
 
 ### Checking art: assets.check_art
 

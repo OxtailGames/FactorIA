@@ -867,7 +867,7 @@ TEST_CASE("review.pick: a candidate held open by another program puts the earlie
         REQUIRE(viewer.is_open());
         const CommandResult r = p.call("review.pick", Json{{"n", 1}});
         CHECK_FALSE(r.ok);
-        CHECK(r.error.value("code", std::string()) == "failed");
+        CHECK(r.error.value("code", std::string()) == "busy");
         CHECK_MESSAGE(contains(message(r), "put back"), message(r));
         CHECK(contains(message(r), "blue.png"));
         CHECK(contains(message(r), "open in another program"));

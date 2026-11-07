@@ -270,6 +270,12 @@ called FactorIA does three things, in this order, and the call is made only if a
    what one $1.00 call costs, and is asked about the same way (the question comes with the call that takes the total over the
    limit, and says what came before it). Below that it just goes on.
 
+`assets.generate_image` with `count` (2 to 4 candidates for one asset, [ASSETS.md](ASSETS.md), "Candidates for one asset") is ONE
+call for these three steps: the estimate is the price of all the candidates (`plan.count` and `estimatedCostUsd` of the batch), the
+limits are checked against that total and there is one question for the batch, all before the first picture is asked for. When the
+provider fails part way, what was made is counted, the estimate of the rest is given back, and the error names the candidate files
+that were written.
+
 ```json
 { "limits": { "askAboveUsd": 0.5, "maxAssetCostUsd": { "perRun": 5, "perDay": 20 } } }
 ```

@@ -894,6 +894,7 @@
     "assets.import": "0.1.6",
     "assets.list": "0.1.0",
     "assets.pack_atlas": "0.3.0",
+    "assets.pick": "unreleased",
     "assets.preview_in_scene": "0.16.0",
     "assets.preview_sheet": "0.6.0",
     "assets.provenance": "0.1.6",
