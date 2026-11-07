@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdint>
 #include <format>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -28,6 +29,7 @@
 #include "fa/scene/bounds.h"
 #include "fa/scene/components.h"
 #include "fa/scene/mesh_geometry.h"
+#include "fa/tooling/project_fs.h"
 #include "fa/tooling/review.h"
 #include "headless_run.h"
 #include "util.h"
@@ -41,11 +43,12 @@ constexpr int kMaxSide = 8192;                 // the sheet may be this wide or 
 constexpr std::int64_t kMaxPixels = 16'777'216;  // and have this many pixels (64 MB of RGBA)
 constexpr int kMaxLevelSide = 1024;            // a level thumbnail is generated up to this many cells a side
 constexpr long kLevelMaxWork = 20'000'000;     // tilemap.generate `maxWork` when the item does not set it: a thumbnail must be quick
-constexpr std::uint64_t kMaxImagePixels = 64'000'000;       // a picture is read up to this many pixels (256 MB decoded)
+constexpr std::uint64_t kMaxImagePixels = 64'000'000;       // a picture is read up to this many pixels (256 MB decoded), checked from its header first
 constexpr std::uintmax_t kMaxImageBytes = 64u * 1024u * 1024u;
 constexpr std::uintmax_t kMaxSvgBytes = 8u * 1024u * 1024u;
 constexpr int kColorCountCap = 1000;           // distinct colors are counted up to this many
-constexpr int kStageSide = 512;                // design size of the stage a prefab or effect is filmed on
+constexpr int kStageSide = 512;                // design size of the stage a prefab is filmed on
+constexpr int kVfxStageSide = 256;             // and the plain stage an effect is filmed on
 constexpr int kPad = 8;
 constexpr int kGap = 14;
 
@@ -67,6 +70,11 @@ bool whole_number(const Json& v, double lo, double hi, T& out) {
     return true;
 }
 
+bool ends_with_text(const std::string& text, const char* tail) {
+    const std::string t = tail;
+    return text.size() >= t.size() && text.compare(text.size() - t.size(), t.size(), t) == 0;
+}
+
 // "1 entity", "3 entities".
 std::string counted(std::size_t n, const char* one, const char* many) { return std::to_string(n) + " " + (n == 1 ? one : many); }
 
@@ -75,7 +83,7 @@ double round2(double v) { return std::round(v * 100.0) / 100.0; }
 // ---- the request ---------------------------------------------------------------------------------------------------------------
 
 const std::vector<std::string> kTypeKeys = {"image", "scene", "prefab", "level", "vector", "vfx"};
-const std::vector<std::string> kItemKeys = {"image", "scene", "prefab", "level", "vector", "vfx", "label", "candidate", "steps", "stage", "seeds"};
+const std::vector<std::string> kItemKeys = {"image", "scene", "prefab", "level", "vector", "vfx", "label", "candidate", "steps", "stage", "seeds", "sampleScene"};
 
 struct Item {
     int n = 0;               // 1-based number on the sheet (after a level's seeds are expanded)
@@ -85,6 +93,7 @@ struct Item {
     bool candidate = false;  // review.pick moves `source` away when another item is picked
     Json spec;               // the item as asked (a level: its arguments with the seed filled in)
     Json levelArgs;          // level: the arguments of tilemap.generate
+    std::string levelScene;  // level: the scene the engine starts from when `sample` names an entity ("" = a stage with only a camera)
     int steps = 2;           // scene: frames to run before the picture
     std::string stage;       // vfx: the scene to play the effect in ("" = a plain dark stage)
     std::string pointer;     // "/items/3" in the request
@@ -97,10 +106,11 @@ struct Request {
     long columns = 0;     // 0 = automatic
     long thumbSize = 0;   // 0 = automatic
     std::string dropDir;
+    Json meta = Json::object();  // the caller's own object, stored with the sheet and returned by pick / info / list
 };
 
 std::string main_scene(const std::string& projectDir) {
-    auto project = load_json_file(utf8(stdfs::path(projectDir) / "factoria.json"));
+    auto project = load_json_file(utf8(project_file(projectDir, "factoria.json")));
     if (!project.ok() || !project->is_object()) return {};
     const auto it = project->find("mainScene");
     return it != project->end() && it->is_string() ? it->get<std::string>() : std::string();
@@ -110,7 +120,7 @@ std::string main_scene(const std::string& projectDir) {
     std::vector<std::string> names;
     std::error_code ec;
     const std::string parent = fs::parent(rel);
-    const stdfs::path folder = parent.empty() ? stdfs::path(projectDir) : project_file(projectDir, parent);
+    const stdfs::path folder = project_file(projectDir, parent.empty() ? "." : parent);
     const std::string ext = to_lower(fs::extension(rel));
     for (stdfs::directory_iterator it(folder, ec), end; !ec && it != end && names.size() < 300; it.increment(ec)) {
         std::error_code e2;
@@ -124,18 +134,29 @@ std::string main_scene(const std::string& projectDir) {
     bad(pointer, "'" + rel + "' does not exist.", hint);
 }
 
+// The project path in `item[key]`, normalized: inside the project (no absolute path, no "..", no link that leads out), ending in one of
+// `suffixes` (compared in lower case) and an existing file. Every problem is an argument error with its JSON pointer.
 std::string path_member(const std::string& projectDir, const Json& item, const std::string& pointer, const std::string& key, const char* what,
-                        const char* example, const std::vector<std::string>& extensions) {
+                        const char* example, const std::vector<std::string>& suffixes) {
     const Json& v = item[key];
     const std::string at = pointer + "/" + key;
     if (!v.is_string() || v.get<std::string>().empty()) bad(at, std::string("expected the project path of ") + what + " as a string.", std::string("Example: \"") + example + "\".");
-    auto norm = fs::normalize_checked(v.get<std::string>());
-    if (!norm.ok() || norm->empty()) bad(at, "'" + v.get<std::string>() + "' is not a path inside the project.", std::string("Use a project-relative path such as \"") + example + "\".");
-    const std::string ext = to_lower(fs::extension(*norm));
-    if (std::find(extensions.begin(), extensions.end(), ext) == extensions.end())
-        bad(at, "'" + *norm + "' is not " + what + " (" + (ext.empty() ? "no extension" : ext) + ").", "Expected a file ending in " + join(extensions, ", ") + ", such as \"" + example + "\".");
+    const std::string given = v.get<std::string>();
+    auto norm = fs::normalize_checked(given);
+    if (given[0] == '/' || given[0] == '\\' || given[0] == '~' || (given.size() > 1 && given[1] == ':') || !norm.ok() || norm->empty())
+        bad(at, "'" + given + "' is not a path inside the project.", std::string("Use a project-relative path such as \"") + example + "\".");
+    const std::string lowered = to_lower(*norm);
+    const bool suffixOk = std::any_of(suffixes.begin(), suffixes.end(), [&](const std::string& t) {
+        return lowered.size() >= t.size() && lowered.compare(lowered.size() - t.size(), t.size(), t) == 0;
+    });
+    if (!suffixOk) {
+        const std::string ext = to_lower(fs::extension(*norm));
+        bad(at, "'" + *norm + "' is not " + what + " (" + (ext.empty() ? "no extension" : "it ends in " + ext) + ").", "Expected a file ending in " + join(suffixes, ", ") + ", such as \"" + example + "\".");
+    }
+    auto resolved = resolve_project_path(projectDir, *norm);
+    if (!resolved.ok()) bad(at, resolved.error().message, resolved.error().hint.empty() ? std::string("Use a project-relative path such as \"") + example + "\"." : resolved.error().hint);
     std::error_code ec;
-    if (!stdfs::is_regular_file(project_file(projectDir, *norm), ec)) missing_file(projectDir, at, *norm, what);
+    if (!stdfs::is_regular_file(*resolved, ec)) missing_file(projectDir, at, *norm, what);
     return *norm;
 }
 
@@ -174,7 +195,7 @@ void check_level_size(const Json& level, const std::string& pointer) {
 
 Request parse_request(const std::string& projectDir, const Json& a) {
     if (!a.is_object()) fail("invalid_argument", "review.sheet expects an object.", "Pass {\"items\":[{\"image\":\"assets/a.png\"},{\"image\":\"assets/b.png\"}]}.");
-    check_arg_keys(kCommand, a, "", {"items", "label", "columns", "thumbSize", "candidates", "dropDir"});
+    check_arg_keys(kCommand, a, "", {"items", "label", "columns", "thumbSize", "candidates", "dropDir", "meta"});
     Request req;
     if (!a.contains("items") || !a["items"].is_array() || a["items"].empty())
         bad("/items", "expected a list of 1 to " + std::to_string(kReviewMaxItems) + " items.", "Example: {\"items\":[{\"image\":\"assets/a.png\"},{\"scene\":\"scenes/level2.scene.json\"},{\"level\":{\"sample\":\"example\",\"size\":[40,24]},\"seeds\":[1,2,3]}]}.");
@@ -191,14 +212,28 @@ Request parse_request(const std::string& projectDir, const Json& a) {
     const bool allCandidates = tooling_detail::arg_bool(a, "candidates", false);
     req.dropDir = kReviewDropDir;
     if (a.contains("dropDir") && !a["dropDir"].is_null()) {
-        auto norm = a["dropDir"].is_string() ? fs::normalize_checked(a["dropDir"].get<std::string>()) : Result<std::string>(Error{"not a string", ""});
-        if (!norm.ok() || norm->size() <= 10 || norm->rfind(".factoria/", 0) != 0)
-            bad("/dropDir", "expected a project-relative folder below .factoria/.", "Candidates that are not picked are MOVED there, never deleted. Example: \".factoria/assets/candidates\". Leave it out for " + std::string(kReviewDropDir) + ".");
-        req.dropDir = *norm;
+        const std::string hint = "Candidates that are not picked are MOVED there, never deleted. Example: \".factoria/assets/candidates\". Leave it out for " + std::string(kReviewDropDir) + ".";
+        if (!a["dropDir"].is_string()) bad("/dropDir", "expected a project-relative folder below .factoria/.", hint);
+        const std::string given = a["dropDir"].get<std::string>();
+        if (const std::string why = review_drop_dir_problem(given); !why.empty()) bad("/dropDir", why + ".", hint);
+        req.dropDir = *fs::normalize_checked(given);
+        if (auto resolved = resolve_project_path(projectDir, req.dropDir); !resolved.ok()) bad("/dropDir", resolved.error().message, hint);
+    }
+    if (a.contains("meta") && !a["meta"].is_null()) {
+        if (!a["meta"].is_object()) bad("/meta", "expected an object.", "Your own facts about this sheet, kept with it and returned by review.pick, review.info and review.list. Example: {\"slot\": \"hero\"}.");
+        if (a["meta"].dump().size() > std::size_t(kReviewMetaMaxBytes)) bad("/meta", std::format("takes more than {} bytes written as JSON.", kReviewMetaMaxBytes), "Keep a key or two (the slot the choice is for); big data belongs in a file of the project.");
+        req.meta = a["meta"];
     }
 
-    const std::string mainScenePath = to_lower(main_scene(projectDir));
-    std::set<std::string> candidateFiles;
+    const std::string mainScenePath = main_scene(projectDir);
+    // Every file the items read, by comparison key: the item that read it and whether it is a candidate. A pick moves candidates, so a
+    // candidate's file may be read by no other item (and no effect may use it as its stage).
+    struct FileUse {
+        std::size_t first = 0;
+        bool candidate = false;
+    };
+    std::map<std::string, FileUse> files;
+    std::vector<std::pair<std::string, std::string>> stages;  // (key of the stage scene, pointer of the item that plays in it)
     const Json& list = a["items"];
     for (std::size_t i = 0; i < list.size(); ++i) {
         const Json& item = list[i];
@@ -215,6 +250,7 @@ Request parse_request(const std::string& projectDir, const Json& a) {
         if (item.contains("steps") && type != "scene") bad(pointer + "/steps", "`steps` belongs to a scene item.", "It is the number of frames the scene runs before the picture.");
         if (item.contains("stage") && type != "vfx") bad(pointer + "/stage", "`stage` belongs to a vfx item.", "It is the scene the effect plays in.");
         if (item.contains("seeds") && type != "level") bad(pointer + "/seeds", "`seeds` belongs to a level item.", "It makes one thumbnail per seed from the same arguments.");
+        if (item.contains("sampleScene") && type != "level") bad(pointer + "/sampleScene", "`sampleScene` belongs to a level item.", "It is the scene whose Tilemap entity `level.sample` names.");
 
         Item base;
         base.type = type;
@@ -236,6 +272,27 @@ Request parse_request(const std::string& projectDir, const Json& a) {
             if (level.contains("into")) bad(pointer + "/level/into", "a review never writes into a Tilemap.", "Leave `into` out: the thumbnail comes from the returned rows. Generate the picked level with tilemap.generate afterwards.");
             if (level.contains("seeds")) bad(pointer + "/level/seeds", "`seeds` goes next to `level`, not inside it.", "Example: {\"level\": {...}, \"seeds\": [1, 2, 3]}.");
             check_level_size(level, pointer + "/level");
+            // `sample` is an entity id or name, ASCII rows (array, object or text with line breaks) or the path of a rows file. Only the first
+            // needs a scene to look the entity up in: `sampleScene`, else the project's main scene.
+            std::string sceneRel;
+            const std::string sampleText = level.contains("sample") && level["sample"].is_string() ? level["sample"].get<std::string>() : std::string();
+            const bool rowsFile = ends_with_text(to_lower(sampleText), ".json");
+            const bool entitySample = !sampleText.empty() && sampleText.find('\n') == std::string::npos && !rowsFile;
+            if (item.contains("sampleScene") && !item["sampleScene"].is_null()) {
+                if (!entitySample)
+                    bad(pointer + "/sampleScene", "`sampleScene` is only used when level.sample is the id or name of an entity with a Tilemap.", "Leave it out, or give `level.sample` as an entity id; ASCII rows and rows files need no scene.");
+                sceneRel = path_member(projectDir, item, pointer, "sampleScene", "a scene", "scenes/town.scene.json", {".scene.json"});
+            } else if (entitySample) {
+                sceneRel = mainScenePath.empty() ? std::string() : fs::normalize(mainScenePath);
+                std::error_code ec;
+                if (sceneRel.empty() || !stdfs::is_regular_file(project_file(projectDir, sceneRel), ec))
+                    bad(pointer + "/level/sample", "'" + sampleText + "' names an entity, but there is no scene to look it up in: the project has no main scene.",
+                        "Give `sampleScene` next to `level` (the scene whose Tilemap entity it is), or use ASCII rows: {\"sample\": [\"#..#\", \"#..#\"], \"legend\": {\"#\": 0, \".\": 1}}.");
+            }
+            if (rowsFile && sampleText.find('\n') == std::string::npos) {
+                auto rows = resolve_project_path(projectDir, sampleText);
+                if (!rows.ok()) bad(pointer + "/level/sample", rows.error().message, "A rows file is a project path such as \"data/town_rows.json\".");
+            }
             std::vector<long long> seeds;
             if (item.contains("seeds")) {
                 if (level.contains("seed")) bad(pointer + "/seeds", "`seeds` and level.seed are both given.", "Use `seeds` for several levels, or `seed` inside `level` for one.");
@@ -254,12 +311,14 @@ Request parse_request(const std::string& projectDir, const Json& a) {
             }
             for (std::size_t k = 0; k < seeds.size(); ++k) {
                 Item it = base;
+                it.levelScene = sceneRel;
                 it.levelArgs = level;
                 it.levelArgs["seed"] = seeds[k];
                 if (!it.levelArgs.contains("maxWork")) it.levelArgs["maxWork"] = kLevelMaxWork;
                 Json spec = level;
                 spec["seed"] = seeds[k];
                 it.spec = Json::object({{"level", spec}});
+                if (!sceneRel.empty()) it.spec["sampleScene"] = sceneRel;
                 const std::string seedText = "seed " + std::to_string(seeds[k]);
                 it.label = base.label.empty() ? "level " + seedText : base.label + (item.contains("seeds") ? " " + seedText : "");
                 req.items.push_back(std::move(it));
@@ -269,10 +328,10 @@ Request parse_request(const std::string& projectDir, const Json& a) {
 
         static const std::vector<std::string> imageExt = {".png", ".jpg", ".jpeg", ".bmp", ".tga"};
         if (type == "image") base.source = path_member(projectDir, item, pointer, "image", "a picture", "assets/hero.png", imageExt);
-        else if (type == "scene") base.source = path_member(projectDir, item, pointer, "scene", "a scene", "scenes/level2.scene.json", {".json"});
-        else if (type == "prefab") base.source = path_member(projectDir, item, pointer, "prefab", "a prefab", "prefabs/enemy.prefab.json", {".json"});
+        else if (type == "scene") base.source = path_member(projectDir, item, pointer, "scene", "a scene", "scenes/level2.scene.json", {".scene.json"});
+        else if (type == "prefab") base.source = path_member(projectDir, item, pointer, "prefab", "a prefab", "prefabs/enemy.prefab.json", {".prefab.json"});
         else if (type == "vector") base.source = path_member(projectDir, item, pointer, "vector", "an SVG", "assets/art/logo.svg", {".svg"});
-        else base.source = path_member(projectDir, item, pointer, "vfx", "an effect", "assets/vfx/hit.vfx.json", {".json"});
+        else base.source = path_member(projectDir, item, pointer, "vfx", "an effect", "assets/vfx/hit.vfx.json", {".vfx.json"});
         base.spec = Json::object({{type, base.source}});
         if (type == "scene" && item.contains("steps")) {
             long steps = 0;
@@ -281,18 +340,30 @@ Request parse_request(const std::string& projectDir, const Json& a) {
             base.spec["steps"] = steps;
         }
         if (type == "vfx" && item.contains("stage") && !item["stage"].is_null()) {
-            base.stage = path_member(projectDir, item, pointer, "stage", "a scene", "scenes/arena.scene.json", {".json"});
+            base.stage = path_member(projectDir, item, pointer, "stage", "a scene", "scenes/arena.scene.json", {".scene.json"});
             base.spec["stage"] = base.stage;
+            stages.emplace_back(review_path_key(base.stage), pointer);
         }
         if (base.label.empty()) base.label = base_label(base.source);
+        const std::string fileKey = review_path_key(base.source);
         if (base.candidate) {
-            const std::string key = to_lower(base.source);
-            if (key.rfind(".git/", 0) == 0 || key == mainScenePath)
-                bad(pointer + "/candidate", "'" + base.source + "' is " + (key == mainScenePath ? "the main scene of the project" : "inside the version-control folder") + ": review.pick would move it away.", "Leave `candidate` off it. Only files you MADE as variants for this choice are candidates.");
-            if (!candidateFiles.insert(key).second)
-                bad(pointer + "/candidate", "'" + base.source + "' is already a candidate of another item.", "Each candidate file appears once on a sheet: a pick moves the files of the items that were not chosen.");
+            // The same checks review.pick makes again before it moves anything.
+            if (const std::string why = review_candidate_problem(projectDir, type, base.source); !why.empty())
+                bad(pointer + "/candidate", why + ": review.pick would move it away.", "Leave `candidate` off it. Only files you MADE as variants for this choice are candidates.");
         }
+        if (const auto used = files.find(fileKey); used != files.end() && (used->second.candidate || base.candidate))
+            bad(pointer + "/" + type, "'" + base.source + "' is already the file of item " + std::to_string(used->second.first + 1) + (used->second.candidate || base.candidate ? ", and a pick moves candidates away" : "") + ".",
+                "Each candidate file appears once on a sheet, and no other item may show it: a pick moves the files of the items that were not chosen. Copy the file for the second use, or drop `candidate`.");
+        else if (used == files.end())
+            files[fileKey] = {i, base.candidate};
+        else if (base.candidate) used->second.candidate = true;
         req.items.push_back(std::move(base));
+    }
+    // An effect's stage scene is read while the sheet is drawn, and again by whoever plays the effect: it must not be moved by the pick.
+    for (const auto& [stageKey, stagePointer] : stages) {
+        const auto used = files.find(stageKey);
+        if (used != files.end() && used->second.candidate)
+            bad(stagePointer + "/stage", "that scene is a candidate of item " + std::to_string(used->second.first + 1) + ": review.pick would move the stage away.", "Leave `candidate` off the stage scene, or use a stage that is not a candidate.");
     }
     if (req.items.size() > std::size_t(kReviewMaxItems))
         bad("/items", std::format("the items make {} thumbnails once the `seeds` are expanded; the most is {}.", req.items.size(), kReviewMaxItems), "Use fewer seeds or fewer items.");
@@ -444,20 +515,75 @@ Image placeholder(int w, int h, const std::string& text, Rgb8 textColor) {
 
 // ---- the renderers that need no GPU --------------------------------------------------------------------------------------------
 
+// The size a picture announces in its header, so a small file that holds a huge picture is refused BEFORE its pixels are made.
+// PNG, BMP and JPEG are recognised by their signature, TGA (it has none) by `tgaExtension`. False: not recognised.
+bool declared_size(const std::vector<std::uint8_t>& d, bool tgaExtension, std::uint64_t& width, std::uint64_t& height) {
+    auto le16 = [&](std::size_t at) { return std::uint64_t(d[at]) | (std::uint64_t(d[at + 1]) << 8); };
+    auto le32 = [&](std::size_t at) { return le16(at) | (le16(at + 2) << 16); };
+    auto be16 = [&](std::size_t at) { return (std::uint64_t(d[at]) << 8) | std::uint64_t(d[at + 1]); };
+    auto be32 = [&](std::size_t at) { return (be16(at) << 16) | be16(at + 2); };
+    if (d.size() >= 24 && d[0] == 0x89 && d[1] == 'P' && d[2] == 'N' && d[3] == 'G') {
+        width = be32(16);
+        height = be32(20);
+        return true;
+    }
+    if (d.size() >= 26 && d[0] == 'B' && d[1] == 'M') {
+        if (le32(14) == 12) {  // the old core header: 16-bit sizes
+            width = le16(18);
+            height = le16(20);
+        } else {  // 32-bit signed sizes; a negative height is a top-down picture
+            const std::int64_t w = std::int32_t(le32(18)), h = std::int32_t(le32(22));
+            width = std::uint64_t(w < 0 ? -w : w);
+            height = std::uint64_t(h < 0 ? -h : h);
+        }
+        return true;
+    }
+    if (d.size() >= 4 && d[0] == 0xFF && d[1] == 0xD8) {  // JPEG: walk the segments to the first start-of-frame
+        std::size_t at = 2;
+        while (at + 4 <= d.size()) {
+            if (d[at] != 0xFF) return false;
+            const std::uint8_t marker = d[at + 1];
+            if (marker == 0xFF) {  // fill byte
+                ++at;
+                continue;
+            }
+            if (marker == 0xD8 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {  // markers without a length
+                at += 2;
+                continue;
+            }
+            const std::size_t length = std::size_t(be16(at + 2));
+            if (marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC) {
+                if (at + 9 > d.size()) return false;
+                height = be16(at + 5);
+                width = be16(at + 7);
+                return true;
+            }
+            if (marker == 0xD9 || marker == 0xDA || length < 2) return false;  // the pixels start before any frame header: not a picture we can size
+            at += 2 + length;
+        }
+        return false;
+    }
+    if (tgaExtension && d.size() >= 18) {
+        width = le16(12);
+        height = le16(14);
+        return true;
+    }
+    return false;
+}
+
 Rendered render_image(const stdfs::path& file) {
     std::error_code ec;
     const std::uintmax_t bytes = stdfs::file_size(file, ec);
     if (!ec && bytes > kMaxImageBytes) return failed_tile(std::format("the file is {} MB; the most a review reads is {} MB", bytes / (1024 * 1024), kMaxImageBytes / (1024 * 1024)));
-    auto data = read_bytes(file);
-    if (!data.ok()) return failed_tile(data.error().message);
-    // The size a PNG announces in its header is checked before the pixels are made (64-bit): a small file can hold a huge picture.
-    static const std::uint8_t kPngSignature[4] = {0x89, 'P', 'N', 'G'};
-    if (data->size() >= 24 && std::equal(std::begin(kPngSignature), std::end(kPngSignature), data->begin())) {
-        auto be32 = [&](std::size_t at) { return (std::uint64_t((*data)[at]) << 24) | (std::uint64_t((*data)[at + 1]) << 16) | (std::uint64_t((*data)[at + 2]) << 8) | std::uint64_t((*data)[at + 3]); };
-        const std::uint64_t pixels = be32(16) * be32(20);
-        if (pixels > kMaxImagePixels) return failed_tile(std::format("the picture is {}x{}; the most a review reads is {} million pixels", be32(16), be32(20), kMaxImagePixels / 1'000'000));
-    }
-    auto loaded = decode_image(data->data(), data->size());
+    Result<Image> loaded(Error{"not read", ""});
+    {
+        auto data = read_bytes(file);
+        if (!data.ok()) return failed_tile(data.error().message);
+        std::uint64_t w = 0, h = 0;
+        if (declared_size(*data, to_lower(fs::extension(utf8(file))) == ".tga", w, h) && w * h > kMaxImagePixels)  // 64-bit: both are at most 2^32
+            return failed_tile(std::format("the picture is {}x{}; the most a review reads is {} million pixels", w, h, kMaxImagePixels / 1'000'000));
+        loaded = decode_image(data->data(), data->size());
+    }  // the file's bytes are freed before the pixels are counted
     if (!loaded.ok()) return failed_tile(loaded.error().message);
     Rendered r;
     const Image& img = *loaded;
@@ -475,9 +601,9 @@ Rendered render_image(const stdfs::path& file) {
     }
     const int percent = total == 0 ? 0 : int(std::lround(100.0 * double(clear) / double(total)));
     const std::string colorText = capped ? std::to_string(kColorCountCap) + "+" : std::to_string(colors.size());
-    r.picture = img;
     r.info = std::format("{}x{}, {}, {}% clear", img.width, img.height, capped ? colorText + " colors" : counted(colors.size(), "color", "colors"), percent);
     r.numbers = Json::object({{"width", img.width}, {"height", img.height}, {"colors", capped ? kColorCountCap : int(colors.size())}, {"colorsCapped", capped}, {"transparentPercent", percent}});
+    r.picture = std::move(*loaded);  // moved, not copied: the decoded picture can be 256 MB
     return r;
 }
 
@@ -583,46 +709,26 @@ struct TempFile {
     }
 };
 
-// One engine with graphics, shut down when it goes out of scope.
-struct GpuRun {
-    Engine engine;
-    bool up = false;
-    ~GpuRun() {
-        if (up) engine.shutdown();
+// The picture of `engine` now, straight alpha (the GPU leaves premultiplied pixels). "" when taken; else why not. No graphics at all is an
+// error of the whole command (no_gpu).
+std::string capture_picture(Engine& engine, Image& img) {
+    std::string err;
+    if (!engine.capture_scaled(img, 1.0, &err)) {
+        if (err.find("No renderer") != std::string::npos) no_gpu_error(kCommand, err, "Leave the scene, prefab and vfx items out: images, vector art and levels need no GPU.");
+        return err.empty() ? "the picture could not be captured" : err;
     }
-    // "" when started; else why not. No graphics device at all is an error of the whole command (no_gpu, nothing written).
-    std::string start(const std::string& projectDir, const std::string& sceneRel, int w, int h) {
-        EngineConfig cfg = tooling_detail::headless_engine_config(projectDir, sceneRel, true, RenderMode::OnDemand);
-        cfg.width = w;
-        cfg.height = h;
-        std::string err;
-        if (!engine.init(cfg, nullptr, &err)) {
-            if (err.find("No renderer") != std::string::npos || err.find("graphics") != std::string::npos)
-                no_gpu_error(kCommand, err, "Leave the scene, prefab and vfx items out: images, vector art and levels need no GPU.");
-            return err.empty() ? "the engine did not start" : err;
-        }
-        up = true;
-        return {};
+    for (std::size_t p = 0; p + 3 < img.rgba.size(); p += 4) {
+        const unsigned a = img.rgba[p + 3];
+        if (a == 0 || a == 255) continue;
+        for (int k = 0; k < 3; ++k) img.rgba[p + k] = std::uint8_t(std::min(255u, (img.rgba[p + k] * 255u + a / 2) / a));
     }
-    // The picture now, straight alpha (the GPU leaves premultiplied pixels).
-    std::string capture(Image& img) {
-        std::string err;
-        if (!engine.capture_scaled(img, 1.0, &err)) {
-            if (err.find("No renderer") != std::string::npos) no_gpu_error(kCommand, err, "Leave the scene, prefab and vfx items out.");
-            return err.empty() ? "the picture could not be captured" : err;
-        }
-        for (std::size_t p = 0; p + 3 < img.rgba.size(); p += 4) {
-            const unsigned a = img.rgba[p + 3];
-            if (a == 0 || a == 255) continue;
-            for (int k = 0; k < 3; ++k) img.rgba[p + k] = std::uint8_t(std::min(255u, (img.rgba[p + k] * 255u + a / 2) / a));
-        }
-        return {};
-    }
-    std::string first_script_error() {
-        const auto& errors = engine.scripts().errors();
-        return errors.empty() ? std::string() : errors.front().to_string();
-    }
-};
+    return {};
+}
+
+std::string first_script_error(Engine& engine) {
+    const auto& errors = engine.scripts().errors();
+    return errors.empty() ? std::string() : errors.front().to_string();
+}
 
 // A scene file with a camera (id review_camera) and an empty node (id review_pivot) under .factoria/tmp/, removed with `guard`.
 std::string write_stage(const std::string& projectDir, const std::string& sheetId, const char* tag, TempFile& guard) {
@@ -639,14 +745,72 @@ std::string write_stage(const std::string& projectDir, const std::string& sheetI
     return rel;
 }
 
-Rendered render_scene(const std::string& projectDir, const Item& item, std::vector<std::string>& sheetWarnings) {
-    GpuRun run;
-    if (std::string err = run.start(projectDir, item.source, 0, 0); !err.empty()) return failed_tile("the scene did not start: " + err);
-    if (item.steps > 0) run.engine.step(item.steps);
-    if (std::string e = run.first_script_error(); !e.empty()) sheetWarnings.push_back("A script of '" + item.source + "' failed (item " + std::to_string(item.n) + "): " + e);
+// The engine with graphics that films the scene, prefab and effect items of a sheet. One engine lives at a time (the graphics backend is
+// one per process) and is reused for every item of the same view size: a scene or an effect on its own stage films at the project's
+// own size (0 x 0), a prefab on a 512 px stage, an effect on the plain stage at 256 px. The engine starts on a stage scene this class
+// writes (a camera and an empty node), so a broken scene of the user cannot be mistaken for a missing graphics device: the first start
+// failing is an error of the whole command (no_gpu when the device is the reason), never a red tile. Items are drawn grouped by size.
+class GpuSession {
+public:
+    GpuSession(std::string projectDir, std::string sheetId) : projectDir_(std::move(projectDir)), sheetId_(std::move(sheetId)) {}
+    GpuSession(const GpuSession&) = delete;
+    GpuSession& operator=(const GpuSession&) = delete;
+    ~GpuSession() { close(); }
+
+    // The engine for a view of w x h design pixels (0 x 0: the project's own), started on the stage scene.
+    Engine& engine(int w, int h) {
+        if (engine_ && w_ == w && h_ == h) return *engine_;
+        close();
+        auto started = std::make_unique<Engine>();
+        EngineConfig cfg = tooling_detail::headless_engine_config(projectDir_, stage_rel(), true, RenderMode::OnDemand);
+        cfg.width = w;
+        cfg.height = h;
+        std::string err;
+        if (!started->init(cfg, nullptr, &err)) {
+            if (err.find("No renderer") != std::string::npos || err.find("graphics") != std::string::npos)
+                no_gpu_error(kCommand, err, "Leave the scene, prefab and vfx items out: images, vector art and levels need no GPU.");
+            fail("failed", "Cannot start the engine that films the scenes, prefabs and effects: " + (err.empty() ? std::string("it did not start") : err),
+                 "Nothing was written. Images, vector art and levels need no engine with graphics: leave the scene, prefab and vfx items out.");
+        }
+        engine_ = std::move(started);
+        w_ = w;
+        h_ = h;
+        return *engine_;
+    }
+    // The stage scene (project-relative), written on first use and removed with the session.
+    const std::string& stage_rel() {
+        if (stage_.empty()) stage_ = write_stage(projectDir_, sheetId_, "stage", guard_);
+        return stage_;
+    }
+    // The world of the stage afresh (the effects and prefabs of the last item gone) and no script error left over. "" or why not.
+    std::string load_stage(Engine& e) { return load(e, stage_rel()); }
+    // Loads a scene of the project: its script errors start from none. "" or why not.
+    std::string load(Engine& e, const std::string& sceneRel) {
+        e.scripts().clear_errors();
+        std::string err;
+        if (!e.load_scene(sceneRel, &err)) return err.empty() ? "the scene did not load" : err;
+        return {};
+    }
+
+private:
+    void close() {
+        if (engine_) engine_->shutdown();
+        engine_.reset();
+    }
+    std::string projectDir_, sheetId_, stage_;
+    TempFile guard_;
+    std::unique_ptr<Engine> engine_;
+    int w_ = -1, h_ = -1;
+};
+
+Rendered render_scene(GpuSession& session, const Item& item) {
+    Engine& engine = session.engine(0, 0);
     Rendered r;
-    if (std::string err = run.capture(r.picture); !err.empty()) return failed_tile(err);
-    const auto entities = run.engine.world().entity_count();
+    if (std::string err = session.load(engine, item.source); !err.empty()) return failed_tile("the scene did not start: " + err);
+    if (item.steps > 0) engine.step(item.steps);
+    if (std::string e = first_script_error(engine); !e.empty()) r.warnings.push_back("A script of '" + item.source + "' failed (item " + std::to_string(item.n) + "): " + e);
+    if (std::string err = capture_picture(engine, r.picture); !err.empty()) return failed_tile(err);
+    const auto entities = engine.world().entity_count();
     r.info = std::format("{}, {}x{}", counted(std::size_t(entities), "entity", "entities"), r.picture.width, r.picture.height);
     r.numbers = Json::object({{"entities", entities}, {"width", r.picture.width}, {"height", r.picture.height}, {"steps", item.steps}});
     return r;
@@ -667,12 +831,9 @@ void collect_subtree(World& w, Entity e, std::vector<Entity>& out) {
     for (Entity c : w.children(e)) collect_subtree(w, c, out);
 }
 
-Rendered render_prefab(const std::string& projectDir, const std::string& sheetId, const Item& item, std::vector<std::string>& sheetWarnings) {
-    TempFile stage;
-    const std::string stageRel = write_stage(projectDir, sheetId, "prefab", stage);
-    GpuRun run;
-    if (std::string err = run.start(projectDir, stageRel, kStageSide, kStageSide); !err.empty()) return failed_tile("the stage did not start: " + err);
-    Engine& engine = run.engine;
+Rendered render_prefab(GpuSession& session, const Item& item) {
+    Engine& engine = session.engine(kStageSide, kStageSide);
+    if (std::string err = session.load_stage(engine); !err.empty()) return failed_tile("the stage did not start: " + err);
     World& world = engine.world();
     CommandResult spawned = engine.commands().call("scene.spawn", Json::object({{"prefab", item.source}, {"parent", "review_pivot"}, {"position", Json::array({0, 0, 0})}}));
     if (!spawned.ok) return failed_tile(spawned.error.value("message", std::string("the prefab could not be spawned")));
@@ -681,11 +842,11 @@ Rendered render_prefab(const std::string& projectDir, const std::string& sheetId
     const Entity pivot = world.find_by_id("review_pivot");
     if (root == kNullEntity || cameraEntity == kNullEntity || pivot == kNullEntity) return failed_tile("the prefab did not spawn");
     engine.step(1);  // scripts start, children made by a script exist
-    if (std::string e = run.first_script_error(); !e.empty()) sheetWarnings.push_back("A script of the prefab '" + item.source + "' failed (item " + std::to_string(item.n) + "): " + e);
+    Rendered r;
+    if (std::string e = first_script_error(engine); !e.empty()) r.warnings.push_back("A script of the prefab '" + item.source + "' failed (item " + std::to_string(item.n) + "): " + e);
 
     std::vector<Entity> subtree;
     collect_subtree(world, root, subtree);
-    Rendered r;
     // 2D: the union of the visuals' rectangles. 3D: the boxes of the meshes.
     std::optional<Rect> rect;
     for (Entity e : subtree) {
@@ -750,21 +911,15 @@ Rendered render_prefab(const std::string& projectDir, const std::string& sheetId
         return r;
     }
     engine.step(1);
-    if (std::string err = run.capture(r.picture); !err.empty()) return failed_tile(err);
+    if (std::string err = capture_picture(engine, r.picture); !err.empty()) return failed_tile(err);
     return r;
 }
 
-Rendered render_vfx(const std::string& projectDir, const std::string& sheetId, const Item& item) {
-    TempFile stage, strip;
-    std::string stageRel = item.stage;
-    int side = 0;
-    if (stageRel.empty()) {
-        stageRel = write_stage(projectDir, sheetId, "vfx", stage);
-        side = 256;
-    }
-    GpuRun run;
-    if (std::string err = run.start(projectDir, stageRel, side, side); !err.empty()) return failed_tile("the stage did not start: " + err);
-    Engine& engine = run.engine;
+Rendered render_vfx(GpuSession& session, const std::string& projectDir, const std::string& sheetId, const Item& item) {
+    TempFile strip;
+    // An effect on its own stage films at the project's size (that scene's camera and backdrop); on the plain stage at 256 px.
+    Engine& engine = item.stage.empty() ? session.engine(kVfxStageSide, kVfxStageSide) : session.engine(0, 0);
+    if (std::string err = item.stage.empty() ? session.load_stage(engine) : session.load(engine, item.stage); !err.empty()) return failed_tile("the stage did not start: " + err);
     const std::string stripRel = std::string(fs::kScratchDir) + "/review-" + sheetId + "-vfx-" + std::to_string(item.n) + ".png";
     strip.file = project_file(projectDir, stripRel);
     CommandResult film = engine.commands().call("vfx.filmstrip", Json::object({{"effect", item.source}, {"frames", 3}, {"columns", 3}, {"size", 256}, {"zoom", 1}, {"path", stripRel}}));
@@ -879,31 +1034,66 @@ Json sheet_command(const std::string& projectDir, const Json& a) {
 
     std::vector<Rendered> rendered(req.items.size());
     std::vector<std::string> warnings;
+    // Each picture is fitted into its thumbnail right after it is drawn and the original dropped: a sheet of 48 big pictures must not hold
+    // 48 big pictures (the thumbnails are at most 512 px a side).
+    auto shrink = [&](Rendered& r) {
+        if (r.ok && !r.picture.rgba.empty()) {
+            Image small = fit_picture(r.picture, layout.thumb);
+            r.picture = std::move(small);
+        }
+    };
     // The pictures that need no GPU first (their argument errors come before any engine starts), then the levels, then the GPU.
     for (std::size_t i = 0; i < req.items.size(); ++i) {
         const Item& item = req.items[i];
         if (item.type == "image") rendered[i] = render_image(project_file(projectDir, item.source));
         else if (item.type == "vector") rendered[i] = render_vector(project_file(projectDir, item.source), layout.thumb);
+        else continue;
+        shrink(rendered[i]);
     }
-    if (std::any_of(req.items.begin(), req.items.end(), [](const Item& i) { return i.type == "level"; })) {
+    // Levels: one engine (graphics off) per scene the `sample` entities are looked up in; the others start on a stage with only a camera.
+    std::vector<std::string> levelScenes;
+    for (const Item& item : req.items)
+        if (item.type == "level" && std::find(levelScenes.begin(), levelScenes.end(), item.levelScene) == levelScenes.end()) levelScenes.push_back(item.levelScene);
+    if (!levelScenes.empty()) {
         TempFile stage;
         const std::string stageRel = write_stage(projectDir, id, "level", stage);
-        auto engine = std::make_unique<Engine>();
-        std::string err;
-        if (!engine->init(tooling_detail::headless_engine_config(projectDir, stageRel, false, RenderMode::OnDemand), nullptr, &err))
-            fail("failed", "Cannot start the engine that generates the levels: " + err);
-        struct Shutdown {
-            Engine& e;
-            ~Shutdown() { e.shutdown(); }
-        } shutdown{*engine};
-        for (std::size_t i = 0; i < req.items.size(); ++i)
-            if (req.items[i].type == "level") rendered[i] = render_level(*engine, req.items[i], layout.thumb);
+        for (const std::string& scene : levelScenes) {
+            Engine engine;
+            std::string err;
+            const std::string startScene = scene.empty() ? stageRel : scene;
+            if (!engine.init(tooling_detail::headless_engine_config(projectDir, startScene, false, RenderMode::OnDemand), nullptr, &err)) {
+                const auto first = std::find_if(req.items.begin(), req.items.end(), [&](const Item& i) { return i.type == "level" && i.levelScene == scene; });
+                if (!scene.empty()) bad(first->pointer + "/level/sample", "the scene '" + scene + "' did not load, so the entity cannot be looked up: " + err, "Fix the scene (project.validate), or give another `sampleScene`, or ASCII rows as the sample.");
+                fail("failed", "Cannot start the engine that generates the levels: " + err);
+            }
+            struct Shutdown {
+                Engine& e;
+                ~Shutdown() { e.shutdown(); }
+            } shutdown{engine};
+            for (std::size_t i = 0; i < req.items.size(); ++i) {
+                if (req.items[i].type != "level" || req.items[i].levelScene != scene) continue;
+                rendered[i] = render_level(engine, req.items[i], layout.thumb);
+                shrink(rendered[i]);
+            }
+        }
     }
-    for (std::size_t i = 0; i < req.items.size(); ++i) {
-        const Item& item = req.items[i];
-        if (item.type == "scene") rendered[i] = render_scene(projectDir, item, warnings);
-        else if (item.type == "prefab") rendered[i] = render_prefab(projectDir, id, item, warnings);
-        else if (item.type == "vfx") rendered[i] = render_vfx(projectDir, id, item);
+    {
+        // The GPU items, grouped by the size of their view so one engine serves all of a size (stable: items keep their order inside a group).
+        std::vector<std::size_t> order;
+        for (std::size_t i = 0; i < req.items.size(); ++i)
+            if (req.items[i].gpu()) order.push_back(i);
+        auto viewSide = [&](const Item& item) { return item.type == "prefab" ? kStageSide : (item.type == "vfx" && item.stage.empty() ? kVfxStageSide : 0); };
+        std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) { return viewSide(req.items[a]) < viewSide(req.items[b]); });
+        if (!order.empty()) {
+            GpuSession session(projectDir, id);
+            for (std::size_t i : order) {
+                const Item& item = req.items[i];
+                if (item.type == "scene") rendered[i] = render_scene(session, item);
+                else if (item.type == "prefab") rendered[i] = render_prefab(session, item);
+                else rendered[i] = render_vfx(session, projectDir, id, item);
+                shrink(rendered[i]);
+            }
+        }
     }
     for (std::size_t i = 0; i < rendered.size(); ++i) {
         for (const std::string& w : rendered[i].warnings) warnings.push_back(w);
@@ -937,12 +1127,28 @@ Json sheet_command(const std::string& projectDir, const Json& a) {
                                   {"thumbSize", layout.thumb},
                                   {"picture", Json::object({{"path", dirRel + "/sheet.png"}, {"width", composed.sheet.width}, {"height", composed.sheet.height}})},
                                   {"dropDir", req.dropDir},
+                                  {"meta", req.meta},
                                   {"items", items},
                                   {"picked", nullptr},
                                   {"warnings", warnings}});
     ReviewOutcome committed = review_commit(projectDir, id, manifest, composed.sheet, composed.thumbs);
     if (!committed.ok) throw_outcome(committed);
     guard.keep = true;
+
+    // Housekeeping after the sheet exists, so it can never stop a sheet from being made: old dropped files and abandoned sheet folders.
+    Json housekeeping = Json::object();
+    {
+        ReviewOutcome cleaned = review_cleanup(projectDir, ReviewCleanupOptions{});
+        if (!cleaned.ok) {
+            warnings.push_back("The housekeeping of old review files did not run (" + cleaned.message + "); it runs again with the next sheet or review.cleanup.");
+        } else {
+            std::size_t files = 0;
+            for (const Json& e : cleaned.value["droppedExpired"]) files += e["files"].size();
+            if (files > 0 || !cleaned.value["orphansRemoved"].empty())
+                housekeeping = Json::object({{"droppedFilesDeleted", files}, {"orphanSheetsRemoved", cleaned.value["orphansRemoved"]}});
+            for (const Json& sk : cleaned.value["skipped"]) warnings.push_back("Housekeeping of " + sk.value("sheet", std::string()) + ": " + sk.value("reason", std::string()));
+        }
+    }
 
     // ---- the result ----
     Json list = Json::array();
@@ -956,7 +1162,9 @@ Json sheet_command(const std::string& projectDir, const Json& a) {
                                 {"thumbSize", layout.thumb},
                                 {"count", int(req.items.size())},
                                 {"items", list},
+                                {"meta", req.meta},
                                 {"warnings", warnings}});
+    if (!housekeeping.empty()) result["housekeeping"] = housekeeping;
     result["$image"] = Json::object({{"path", utf8(project_file(projectDir, dirRel + "/sheet.png"))}, {"mimeType", "image/png"}});
     const bool anyCandidate = std::any_of(req.items.begin(), req.items.end(), [](const Item& i) { return i.candidate; });
     std::vector<std::string> steps;
@@ -978,7 +1186,7 @@ Json pick_command(const std::string& projectDir, const Json& a) {
     std::string sheet = "latest";
     if (a.contains("sheet") && !a["sheet"].is_null()) {
         if (!a["sheet"].is_string() && !a["sheet"].is_number_integer()) arg_error("review.pick", "/sheet", "expected a sheet id such as \"sheet-0003\", its number, or \"latest\".", "review.list shows the sheets.");
-        sheet = a["sheet"].is_string() ? a["sheet"].get<std::string>() : std::to_string(a["sheet"].get<long>());
+        sheet = a["sheet"].is_string() ? a["sheet"].get<std::string>() : std::to_string(a["sheet"].get<long long>());
     }
     ReviewPickOptions options;
     options.drop = tooling_detail::arg_bool(a, "drop", true);
@@ -992,7 +1200,7 @@ Json pick_command(const std::string& projectDir, const Json& a) {
     std::vector<std::string> steps;
     const std::string type = result.value("type", std::string());
     const std::string source = result.value("source", std::string());
-    if (type == "level") steps.push_back("Generate this level for real: tilemap.generate with the `spec.level` arguments of this result (same seed, same level), then scene.import_ascii on its rows.");
+    if (type == "level") steps.push_back("Generate this level for real: tilemap.generate with the `spec.level` arguments of this result (same seed, same level; an entity `sample` is looked up in the open scene, which is `spec.sampleScene` or the main scene when the spec has none), then scene.import_ascii on its rows.");
     else if (type == "image" || type == "vector") steps.push_back("Use '" + source + "'. If it should be a game asset, assets.import registers it; the other candidates are in the dropped folder if the person changes their mind.");
     else if (type == "scene") steps.push_back("Keep working on '" + source + "' (scene.load); the other scenes are in the dropped folder.");
     else if (type == "prefab") steps.push_back("Use the prefab '" + source + "' (scene.spawn {prefab}); the other prefabs are in the dropped folder.");
@@ -1019,7 +1227,7 @@ Json info_command(const std::string& projectDir, const Json& a) {
     std::string sheet = "latest";
     if (a.contains("sheet") && !a["sheet"].is_null()) {
         if (!a["sheet"].is_string() && !a["sheet"].is_number_integer()) arg_error("review.info", "/sheet", "expected a sheet id such as \"sheet-0003\", its number, or \"latest\".", "review.list shows the sheets.");
-        sheet = a["sheet"].is_string() ? a["sheet"].get<std::string>() : std::to_string(a["sheet"].get<long>());
+        sheet = a["sheet"].is_string() ? a["sheet"].get<std::string>() : std::to_string(a["sheet"].get<long long>());
     }
     ReviewOutcome o = review_load(projectDir, sheet);
     if (!o.ok) throw_outcome(o);
@@ -1028,6 +1236,23 @@ Json info_command(const std::string& projectDir, const Json& a) {
     result["dir"] = dir;
     result["$image"] = Json::object({{"path", utf8(project_file(projectDir, dir + "/sheet.png"))}, {"mimeType", "image/png"}});
     return result;
+}
+
+Json cleanup_command(const std::string& projectDir, const Json& a) {
+    if (!a.is_object()) fail("invalid_argument", "review.cleanup expects an object.", "Pass {} or {\"dryRun\": true}.");
+    check_arg_keys("review.cleanup", a, "", {"droppedDays", "orphanMinutes", "dryRun"});
+    ReviewCleanupOptions options;
+    long days = kReviewDroppedDays, minutes = kReviewOrphanMinutes;
+    if (a.contains("droppedDays") && !a["droppedDays"].is_null() && !whole_number(a["droppedDays"], 0, 3650, days))
+        arg_error("review.cleanup", "/droppedDays", "expected a whole number of days from 0 to 3650.", "Dropped candidates are deleted this many days after the pick; 0 keeps them for ever.");
+    if (a.contains("orphanMinutes") && !a["orphanMinutes"].is_null() && !whole_number(a["orphanMinutes"], 0, 525600, minutes))
+        arg_error("review.cleanup", "/orphanMinutes", "expected a whole number of minutes from 0 to 525600.", "A sheet folder without a manifest is removed once nothing in it changed for this long; 0 leaves them.");
+    options.droppedDays = int(days);
+    options.orphanMinutes = int(minutes);
+    options.dryRun = tooling_detail::arg_bool(a, "dryRun", false);
+    ReviewOutcome o = review_cleanup(projectDir, options);
+    if (!o.ok) throw_outcome(o);
+    return o.value;
 }
 
 Json prop(const char* type, const std::string& text) { return Json::object({{"type", type}, {"description", text}}); }
@@ -1048,12 +1273,16 @@ void register_review_commands(CommandRegistry& registry, const std::string& proj
             "Every thumbnail carries its number (1..N, in the item order), its label and one line of facts: an image its size, colors and how much is clear; a scene its entity count; a prefab its entities and size; a level its size, seed and tries; vector art its size, shapes and colors (counted from the file's text); an effect its peak particles and length. "
             "How each is drawn: images and vector art on the CPU as they are; a level on the CPU, one square per cell (letters on the squares when they are big enough); a scene is started and captured by the engine's renderer (`steps` frames in); a prefab is spawned on a plain stage and framed (2D from its visuals, 3D turned three quarters under a studio light); an effect is the MIDDLE picture of vfx.filmstrip (the label in its corner is its time), over a dark stage or your `stage` scene. "
             "Scenes, prefabs and effects need a graphics device like assets.preview_in_scene; without one the whole command fails with no_gpu before anything is written (images, vector art and levels need none). An item that cannot be drawn (a corrupt image, a level the solver could not make) is a red tile that review.pick refuses; if none can be drawn nothing is written; a wrong argument of a level fails the command with its JSON pointer. "
-            "A level is generated with the project's engine (graphics off), at most 1024 cells a side, with `maxWork` " + std::to_string(kLevelMaxWork) + " unless you set it, so the same arguments and seed give the same thumbnail on every machine. "
+            "A level is generated with the project's engine (graphics off), at most 1024 cells a side, with `maxWork` " + std::to_string(kLevelMaxWork) + " unless you set it, so the same arguments and seed give the same thumbnail on every machine; tilemap.generate's `maxSeconds` is NOT fixed here (its default of 1800 CPU seconds is only a safety net far above what a thumbnail takes), so the work cap decides, never the speed of the machine. "
+            "The level's `sample` takes the forms of tilemap.generate: ASCII rows as an array of strings (with `legend` next to it), an object {rows, legend?}, one string with line breaks, a project path of a .json rows file, or the id or name of an ENTITY WITH A TILEMAP. Only the entity form needs a scene to look the entity up in: it is the project's main scene (factoria.json mainScene), or the scene you name with `sampleScene` on the item; the thumbnails never change that scene. Without a main scene and without `sampleScene` an entity sample is an error with its JSON pointer. "
             "At most " + std::to_string(kReviewMaxItems) + " items (after `seeds` are expanded; 4 to 9 is what a person judges well) and a sheet of at most " + std::to_string(kMaxSide) + " px a side; the thumbnail size and the columns are chosen from the item count unless you give them. "
             "The sheet is stored under .factoria/review/<id>/ (sheet.png, manifest.json, thumbs/NN.png): the manifest records the items with their labels, facts and the exact arguments of each (a level's seed), when it was made, and later who picked what. The picture comes back as `$image` (a file in the project, not a temporary one). "
-            "Mark `candidate: true` on the items whose FILES you made only for this choice (variants of an image, scene or prefab): review.pick then MOVES the ones that were not chosen to .factoria/review/dropped/<id>/ (or `dropDir`), never deleting them. A file that is not marked is never touched. Levels are not files: picking one only records its seed. "
-            "Result: {sheet, dir, manifest, picture: {path, width, height}, columns, rows, thumbSize, count, items: [{n, type, label, info, ok, source, candidate}], warnings, nextSteps, $image}. "
-            "Example: review.sheet {\"label\":\"Which hero?\",\"items\":[{\"image\":\"assets/hero_a.png\",\"candidate\":true},{\"image\":\"assets/hero_b.png\",\"candidate\":true}]} or {\"items\":[{\"level\":{\"sample\":\"example\",\"size\":[40,24]},\"seeds\":[1,2,3,4]}]}.";
+            "Mark `candidate: true` on the items whose FILES you made only for this choice (variants of an image, scene, prefab, vector art or effect): review.pick then MOVES the ones that were not chosen to .factoria/review/dropped/<id>/ (or `dropDir`), never deleting them. A file that is not marked is never touched. Levels are not files: picking one only records its seed. "
+            "A candidate must be a file of the project of the kind its type needs (.scene.json, .prefab.json, .vfx.json, .svg, a picture), never factoria.json, assets.json, anything under .factoria/ or a version-control folder, the main scene, or a scene another item uses as its `stage`; no other item may show a candidate's file; paths are compared after normalizing (./, backslashes, upper case), and review.pick checks all of it again before it moves anything. "
+            "`meta` is your own small object (e.g. {\"slot\":\"hero\"}, at most " + std::to_string(kReviewMetaMaxBytes) + " bytes as JSON), stored with the sheet and returned untouched by review.pick, review.info and review.list. "
+            "After the sheet is made, files review.pick dropped more than " + std::to_string(kReviewDroppedDays) + " days ago and sheet folders abandoned (no manifest) for more than " + std::to_string(kReviewOrphanMinutes) + " minutes are cleaned up (review.cleanup says what; the sheets that were not answered and the chosen files are never touched). "
+            "Result: {sheet, dir, manifest, picture: {path, width, height}, columns, rows, thumbSize, count, items: [{n, type, label, info, ok, source, candidate}], meta, warnings, housekeeping?, nextSteps, $image}. "
+            "Example: review.sheet {\"label\":\"Which hero?\",\"items\":[{\"image\":\"assets/hero_a.png\",\"candidate\":true},{\"image\":\"assets/hero_b.png\",\"candidate\":true}]} or {\"items\":[{\"level\":{\"sample\":[\"#..#\",\"#..#\"],\"legend\":{\"#\":0,\".\":1},\"size\":[40,24]},\"seeds\":[1,2,3,4]}]}.";
         const Json itemSchema = Json::object(
             {{"type", "object"},
              {"additionalProperties", false},
@@ -1061,15 +1290,16 @@ void register_review_commands(CommandRegistry& registry, const std::string& proj
              {"properties",
               Json::object(
                   {{"image", prop("string", "Project path of a picture (PNG, JPG, BMP, TGA), drawn as it is.")},
-                   {"scene", prop("string", "Project path of a scene (.scene.json): started, run for `steps` frames and captured. Needs a GPU.")},
+                   {"scene", prop("string", "Project path of a scene (.scene.json): loaded, run for `steps` frames and captured. Needs a GPU.")},
                    {"prefab", prop("string", "Project path of a prefab (.prefab.json): spawned on a plain stage and framed. Needs a GPU.")},
-                   {"level", Json::object({{"type", "object"}, {"description", "The arguments of tilemap.generate (`sample`: the id of an entity with a Tilemap, or ASCII rows with a `legend`; `size`, `n`...) of a level to look at; no `into` (nothing is written) and no `seed` together with `seeds`. Sizes up to 1024 cells a side."}})},
+                   {"level", Json::object({{"type", "object"}, {"description", "The arguments of tilemap.generate (`sample`, `size`, `n`...) of a level to look at; no `into` (nothing is written) and no `seed` together with `seeds`. `sample` is ASCII rows (an array of strings with a `legend` next to it, an object {rows, legend?}, or one string with line breaks), the project path of a .json rows file, or the id or name of an entity with a Tilemap (looked up in `sampleScene`, else the main scene). Sizes up to 1024 cells a side. `maxSeconds` is not fixed here (a safety net of 1800 CPU seconds); `maxWork` is (" + std::to_string(kLevelMaxWork) + " unless set)."}})},
                    {"vector", prop("string", "Project path of an .svg, rasterized as it is.")},
                    {"vfx", prop("string", "Project path of an effect (.vfx.json): the middle picture of vfx.filmstrip. Needs a GPU.")},
                    {"label", prop("string", "Text printed next to the number (at most 80 characters). Default: the file name, or \"level seed N\".")},
                    {"candidate", prop("boolean", "true: this item's file was made only for this choice, so review.pick moves it away when another item is picked. Default false (the sheet's `candidates`). Not for levels.")},
                    {"steps", Json::object({{"type", "integer"}, {"minimum", 0}, {"maximum", 600}, {"description", "Scene items: frames the scene runs before the picture. Default 2."}})},
                    {"stage", prop("string", "Effect items: project path of the scene the effect plays in (it must read against that scene's camera and backdrop). Default: a plain dark stage.")},
+                   {"sampleScene", prop("string", "Level items whose `level.sample` is the id or name of an entity: the .scene.json that entity is in. Default: the project's main scene. Not used by the other sample forms.")},
                    {"seeds", Json::object({{"type", "array"}, {"minItems", 1}, {"maxItems", kReviewMaxItems}, {"items", Json::object({{"type", "integer"}, {"minimum", 0}, {"maximum", 4294967295.0}, {"description", "One seed."}})},
                                            {"description", "Level items: one thumbnail per seed, from the same `level` arguments, labelled \"seed N\". Not together with level.seed."}})}})}});
         info.inputSchema = Json::object(
@@ -1083,7 +1313,8 @@ void register_review_commands(CommandRegistry& registry, const std::string& proj
                    {"columns", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", 12}, {"description", "Thumbnails per row. Default: nearly square."}})},
                    {"thumbSize", Json::object({{"type", "integer"}, {"minimum", 64}, {"maximum", 512}, {"description", "Pixels of the square each thumbnail is fitted into. Default: chosen from the number of items so the sheet is about 1800 px wide."}})},
                    {"candidates", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Treat every file item (not levels) as a candidate unless it says `candidate: false`: the files of the items that are not picked are moved away."}})},
-                   {"dropDir", prop("string", "Project folder below .factoria/ that review.pick moves unpicked candidates into (a sub-folder per sheet). Default .factoria/review/dropped.")}})}});
+                   {"dropDir", prop("string", "Project folder below .factoria/ that review.pick moves unpicked candidates into (a sub-folder per sheet). Not .factoria/tmp, not .factoria/review itself or another sheet's folder. Default .factoria/review/dropped.")},
+                   {"meta", Json::object({{"type", "object"}, {"description", "Your own small object (e.g. {\"slot\":\"hero\"}, at most " + std::to_string(kReviewMetaMaxBytes) + " bytes as JSON), stored with the sheet and returned by review.pick, review.info and review.list. Default {}."}})}})}});
         registry.add(info, [projectDir](const Json& args) { return sheet_command(projectDir, args); });
     }
     // ---- review.pick ----
@@ -1098,20 +1329,47 @@ void register_review_commands(CommandRegistry& registry, const std::string& proj
             "The choice is written into the sheet's manifest (who, when, the note and the exact spec of the item: a level's seed and arguments) and is final: a sheet is picked once. "
             "With `drop` (default true) the files of every OTHER item marked `candidate` are MOVED to <dropDir>/<sheet id>/<NN>_<file name> (default .factoria/review/dropped/): nothing is deleted, the result and the manifest list each move (from, to) and moving the file back undoes it. "
             "What dropping means per item type: image, vector, scene, prefab and vfx items marked candidate: their file moves; items not marked candidate and level items (no file): only recorded. The picked item's file stays where it is. A candidate that shares its file with the picked item, or was already gone, is left alone and reported in `warnings`; assets.json is not edited (it warns when it still lists a moved file). "
+            "Every file is checked again before the first one moves (the manifest is a file anyone can edit): it must be inside the project and of the kind its type needs, never factoria.json, assets.json, anything under .factoria/, a version-control folder, the main scene or a scene another item plays an effect in; the drop folder must be one review.sheet would accept; otherwise nothing is moved and the error says why. "
             "All or nothing: if a move fails (a file open in another program) the moves already made are put back and the manifest is not changed. The manifest is changed under the project's review lock, so the editor, the CLI and an agent may use sheets at once. "
+            "A crash between the moves and the manifest write (a power cut) leaves the moved files in the drop folder with the sheet still unanswered: pick again (the files that are gone are reported, not an error), or move them back by hand from <dropDir>/<id>/. "
             "Errors: not_found (no such sheet), invalid_argument (a number not on the sheet, or the item failed to render), already_picked, exists (a leftover in the drop folder), busy (another process holds the lock). "
-            "Result: {sheet, n, label, type, source, spec, drop, dropped: [{n, label, from, to, status}], who, at, warnings, nextSteps}. Example: review.pick {\"sheet\":\"latest\",\"n\":3}.";
+            "Result: {sheet, n, label, type, source, spec, drop, dropped: [{n, label, from, to, status}], who, at, meta (the object review.sheet was given), warnings, nextSteps}. Example: review.pick {\"sheet\":\"latest\",\"n\":3}.";
         info.inputSchema = Json::object(
             {{"type", "object"},
              {"required", Json::array({"n"})},
              {"additionalProperties", false},
              {"properties",
               Json::object(
-                  {{"sheet", prop("string", "The sheet: its id (\"sheet-0003\"), its number (\"3\") or \"latest\" (default), the newest finished sheet.")},
+                  {{"sheet", Json::object({{"type", Json::array({"string", "integer"})}, {"description", "The sheet: its id (\"sheet-0003\"), its number (3 or \"3\") or \"latest\" (default), the newest finished sheet."}})},
                    {"n", Json::object({{"type", "integer"}, {"minimum", 1}, {"description", "The number printed on the thumbnail the person chose. It must come from them."}})},
                    {"drop", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Move the files of the other candidates to the sheet's drop folder. false: only record the choice and touch no file."}})},
                    {"note", prop("string", "Why it was chosen, in the person's words (at most 500 characters); kept in the manifest.")}})}});
         registry.add(info, [projectDir](const Json& args) { return pick_command(projectDir, args); });
+    }
+    // ---- review.cleanup ----
+    {
+        CommandInfo info;
+        info.name = "review.cleanup";
+        info.category = "review";
+        info.readOnly = false;
+        info.summary = "Delete the candidate files a review pick moved away long ago, and the folders of sheets that were never finished.";
+        info.description =
+            "review.sheet runs it by itself after each new sheet; call it to see what it would do (dryRun) or to use other ages. Two things only: "
+            "(1) the files review.pick MOVED to a sheet's drop folder are deleted `droppedDays` days after the pick (the clock against the pick's time in the manifest); the manifest entry becomes status \"expired\" "
+            "(\"gone\" when the file was already moved back or removed) and the empty folder goes. Nothing else is ever deleted there: only the files named `<NN>_<name>` that the pick put in <dropDir>/<sheet id>/. "
+            "(2) a sheet folder with no manifest.json (the process died between starting the sheet and writing it; review.list shows these as `orphans`) is removed once nothing in it changed for `orphanMinutes` minutes. "
+            "A sheet nobody has answered, the files of the picked item and every chosen file are never touched. At most " + std::to_string(kReviewCleanupMax) + " sheets are changed per call (`more` says there are others: call again). "
+            "A file that is open in another program is kept and tried again next time. Runs under the project's review lock; busy when another process holds it (nothing changed). "
+            "Result: {droppedExpired: [{sheet, files}], orphansRemoved: [ids], skipped: [{sheet, reason}], examined, more, dryRun, droppedDays, orphanMinutes}. Example: review.cleanup {\"dryRun\":true}.";
+        info.inputSchema = Json::object(
+            {{"type", "object"},
+             {"additionalProperties", false},
+             {"properties",
+              Json::object(
+                  {{"droppedDays", Json::object({{"type", "integer"}, {"minimum", 0}, {"maximum", 3650}, {"default", kReviewDroppedDays}, {"description", "Delete a dropped candidate this many days after the pick. 0: keep them for ever."}})},
+                   {"orphanMinutes", Json::object({{"type", "integer"}, {"minimum", 0}, {"maximum", 525600}, {"default", kReviewOrphanMinutes}, {"description", "Remove a sheet folder without a manifest once nothing in it changed for this many minutes. 0: leave them."}})},
+                   {"dryRun", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Report what would be removed and remove nothing."}})}})}});
+        registry.add(info, [projectDir](const Json& args) { return cleanup_command(projectDir, args); });
     }
     // ---- review.list ----
     {
@@ -1120,7 +1378,8 @@ void register_review_commands(CommandRegistry& registry, const std::string& proj
         info.category = "review";
         info.readOnly = true;
         info.summary = "List the review sheets of the project, newest first, with what was picked.";
-        info.description = "Reads .factoria/review/. Result: {total, sheets: [{id, label, createdAt, count, picked (the number, or null while unanswered), pickedLabel, picture, dir}], unreadable?}. "
+        info.description = "Reads .factoria/review/. Result: {total, sheets: [{id, label, createdAt, count, picked (the number, or null while unanswered), pickedLabel, picture, meta, dir}], unreadable?, orphans?}. "
+                           "`orphans` are sheet folders with no manifest: a sheet being made right now, or one whose process died (review.cleanup removes the old ones). "
                            "Use it to find a sheet that is still waiting for an answer (picked null) or to see what was chosen before. Example: review.list {\"limit\":5}.";
         info.inputSchema = Json::object({{"type", "object"},
                                          {"additionalProperties", false},
@@ -1134,11 +1393,11 @@ void register_review_commands(CommandRegistry& registry, const std::string& proj
         info.category = "review";
         info.readOnly = true;
         info.summary = "The manifest of one review sheet (items, facts, the choice) and its picture.";
-        info.description = "Result: the manifest of the sheet (format factoria.review/1: id, label, createdAt, columns, rows, thumbSize, picture, dropDir, items [{n, type, label, source, candidate, ok, info, numbers, thumb, cell, picture, spec}], picked, warnings) plus `dir` and the picture as `$image`. "
+        info.description = "Result: the manifest of the sheet (format factoria.review/1: id, label, createdAt, columns, rows, thumbSize, picture, dropDir, items [{n, type, label, source, candidate, ok, info, numbers, thumb, cell, picture, spec}], picked ({n, label, at, atUnix, who, note, drop, dropped [{n, label, from, to, status: moved | expired | gone}], spec}), meta, warnings) plus `dir` and the picture as `$image`. "
                            "`picked` is null until review.pick answers it. Example: review.info {\"sheet\":\"sheet-0002\"}.";
         info.inputSchema = Json::object({{"type", "object"},
                                          {"additionalProperties", false},
-                                         {"properties", Json::object({{"sheet", prop("string", "The sheet: its id (\"sheet-0003\"), its number (\"3\") or \"latest\" (default).")}})}});
+                                         {"properties", Json::object({{"sheet", Json::object({{"type", Json::array({"string", "integer"})}, {"description", "The sheet: its id (\"sheet-0003\"), its number (3 or \"3\") or \"latest\" (default)."}})}})}});
         registry.add(info, [projectDir](const Json& args) { return info_command(projectDir, args); });
     }
 }

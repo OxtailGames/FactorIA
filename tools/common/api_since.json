@@ -1096,6 +1096,7 @@
     "publish.steam": "0.2.0",
     "render.inspect": "0.4.0",
     "render.pick": "0.4.0",
+    "review.cleanup": "unreleased",
     "review.info": "unreleased",
     "review.list": "unreleased",
     "review.pick": "unreleased",

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <format>
@@ -15,6 +16,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/feedback_share.h"
+#include "fa/tooling/project_fs.h"
 #include "util.h"
 
 namespace fa {
@@ -154,10 +156,23 @@ std::string main_scene_of(const std::string& projectDir) {
     return it != project->end() && it->is_string() ? it->get<std::string>() : std::string();
 }
 
-bool in_vcs_folder(const std::string& rel) {
-    const std::string first = to_lower(rel.substr(0, rel.find('/')));
+bool in_vcs_folder(const std::string& key) {
+    const std::string first = key.substr(0, key.find('/'));
     return first == ".git" || first == ".hg" || first == ".svn";
 }
+
+bool ends_with_text(const std::string& text, const char* tail) {
+    const std::string t = tail;
+    return text.size() >= t.size() && text.compare(text.size() - t.size(), t.size(), t) == 0;
+}
+
+bool starts_with_text(const std::string& text, const std::string& head) { return text.compare(0, head.size(), head) == 0; }
+
+// A path that is certainly not project-relative: "/x", "\\x", "C:..." or "~/x".
+bool looks_absolute(const std::string& rel) { return !rel.empty() && (rel[0] == '/' || rel[0] == '\\' || rel[0] == '~' || (rel.size() > 1 && rel[1] == ':')); }
+
+// Seconds since 1970 of the engine's clock (overridable in tests through ShareEnv).
+std::int64_t clock_now() { return share_env().clock(); }
 
 struct Move {
     int n = 0;
@@ -256,6 +271,7 @@ ReviewOutcome review_list(const std::string& projectDir, int limit) {
         Json picture = nullptr;
         if (const auto pic = j.find("picture"); pic != j.end() && pic->is_object()) picture = pic->value("path", std::string());
         const auto items = j.find("items");
+        const auto meta = j.find("meta");
         sheets.push_back(Json::object({{"id", it->second},
                                        {"label", j.value("label", std::string())},
                                        {"createdAt", j.value("createdAt", std::string())},
@@ -263,11 +279,78 @@ ReviewOutcome review_list(const std::string& projectDir, int limit) {
                                        {"picked", picked},
                                        {"pickedLabel", pickedLabel},
                                        {"picture", picture},
+                                       {"meta", meta != j.end() && meta->is_object() ? *meta : Json::object()},
                                        {"dir", std::string(kReviewDir) + "/" + it->second}}));
     }
     Json out = Json::object({{"total", int(all.size())}, {"sheets", sheets}});
     if (!unreadable.empty()) out["unreadable"] = unreadable;
+    // Folders with no manifest: a sheet being made right now, or one whose process died (review_cleanup removes the old ones).
+    Json orphans = Json::array();
+    for (const auto& s : sheet_ids(projectDir, false))
+        if (std::none_of(all.begin(), all.end(), [&](const auto& f) { return f.first == s.first; })) orphans.push_back(s.second);
+    if (!orphans.empty()) out["orphans"] = orphans;
     return success(std::move(out));
+}
+
+std::string review_path_key(const std::string& rel) {
+    std::string text = rel;
+    std::replace(text.begin(), text.end(), '\\', '/');
+    const std::string norm = fs::normalize(text);
+    if (!norm.empty()) text = norm;
+    std::string out;
+    for (const std::string& part : split(text, '/')) {
+        std::string p = part;
+        const bool onlyDots = !p.empty() && p.find_first_not_of('.') == std::string::npos;
+        if (!onlyDots)
+            while (!p.empty() && (p.back() == '.' || p.back() == ' ')) p.pop_back();  // Windows ignores a trailing dot or space
+        if (p.empty()) continue;
+        if (!out.empty()) out += '/';
+        out += p;
+    }
+    return to_lower(out);
+}
+
+std::string review_candidate_problem(const std::string& projectDir, const std::string& type, const std::string& rel) {
+    if (rel.empty()) return "it names no file";
+    if (looks_absolute(rel)) return "'" + rel + "' is an absolute path, and only files inside the project can be moved";
+    auto norm = fs::normalize_checked(rel);
+    if (!norm.ok() || norm->empty()) return "'" + rel + "' is not a path inside the project";
+    auto resolved = resolve_project_path(projectDir, *norm);
+    if (!resolved.ok()) return resolved.error().message;
+    const std::string key = review_path_key(*norm);
+    if (type == "scene") {
+        if (!ends_with_text(key, ".scene.json")) return "'" + *norm + "' is not a scene (.scene.json)";
+    } else if (type == "prefab") {
+        if (!ends_with_text(key, ".prefab.json")) return "'" + *norm + "' is not a prefab (.prefab.json)";
+    } else if (type == "vfx") {
+        if (!ends_with_text(key, ".vfx.json")) return "'" + *norm + "' is not an effect (.vfx.json)";
+    } else if (type == "vector") {
+        if (!ends_with_text(key, ".svg")) return "'" + *norm + "' is not an SVG";
+    } else if (type == "image") {
+        if (!ends_with_text(key, ".png") && !ends_with_text(key, ".jpg") && !ends_with_text(key, ".jpeg") && !ends_with_text(key, ".bmp") && !ends_with_text(key, ".tga"))
+            return "'" + *norm + "' is not a picture (.png, .jpg, .jpeg, .bmp, .tga)";
+    } else {
+        return "a '" + type + "' item has no file to move";
+    }
+    if (key == "factoria.json" || key == "assets.json") return "'" + *norm + "' is a file of the project itself";
+    if (key == ".factoria" || starts_with_text(key, ".factoria/")) return "'" + *norm + "' is inside .factoria/, where the tools keep their own files";
+    if (in_vcs_folder(key)) return "'" + *norm + "' is inside a version-control folder";
+    const std::string mainScene = main_scene_of(projectDir);
+    if (!mainScene.empty() && key == review_path_key(mainScene)) return "'" + *norm + "' is the main scene of the project";
+    return {};
+}
+
+std::string review_drop_dir_problem(const std::string& dropDir) {
+    if (dropDir.empty() || looks_absolute(dropDir)) return "'" + dropDir + "' is not a folder inside the project";
+    auto norm = fs::normalize_checked(dropDir);
+    if (!norm.ok() || norm->empty()) return "'" + dropDir + "' is not a folder inside the project";
+    const std::string key = review_path_key(*norm);
+    if (!starts_with_text(key, ".factoria/") || key.size() <= 10) return "'" + *norm + "' is not a folder below .factoria/";
+    if (key == ".factoria/tmp" || starts_with_text(key, ".factoria/tmp/")) return "'" + *norm + "' is the scratch folder, which commands empty";
+    if (key == ".factoria/review") return "'" + *norm + "' is the folder of the sheets themselves";
+    if (starts_with_text(key, ".factoria/review/") && key != std::string(kReviewDropDir) && !starts_with_text(key, std::string(kReviewDropDir) + "/"))
+        return "'" + *norm + "' is inside a sheet's folder; use " + kReviewDropDir + " or a folder outside .factoria/review/";
+    return {};
 }
 
 ReviewOutcome review_pick(const std::string& projectDir, const std::string& sheet, long n, const ReviewPickOptions& options) {
@@ -297,38 +380,49 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
                        "Pick another number, or make a new sheet.");
 
     // ---- the moves ----
+    // The manifest is a file anyone can edit, so nothing in it is trusted: every file to move is checked again here, exactly as
+    // review.sheet checked it when the candidate was asked for, before the first one moves.
     std::vector<std::string> warnings;
     std::vector<Move> moves;
     if (options.drop) {
-        std::string dropDir = manifest.value("dropDir", std::string(kReviewDropDir));
-        auto dropNorm = fs::normalize_checked(dropDir);
-        if (!dropNorm.ok() || dropNorm->rfind(".factoria/", 0) != 0)
-            return failure("failed", "The manifest of " + id + " names '" + dropDir + "' as its drop folder, which is not inside .factoria/.", "Edit dropDir in the manifest to a folder below .factoria/, or pick with drop: false.");
-        dropDir = *dropNorm;
-        const std::string mainScene = main_scene_of(projectDir);
-        std::set<std::string> taken;  // lower-cased sources already planned (paths are case-insensitive on Windows and macOS)
-        const std::string chosenSource = to_lower(chosen.value("source", std::string()));
+        const std::string manifestDrop = manifest.value("dropDir", std::string(kReviewDropDir));
+        if (const std::string why = review_drop_dir_problem(manifestDrop); !why.empty())
+            return failure("failed", "The manifest of " + id + " names '" + manifestDrop + "' as its drop folder: " + why + ".",
+                           "Nothing was moved. Edit dropDir in the manifest to a folder below .factoria/ (the default is " + std::string(kReviewDropDir) + "), or pick with drop: false.");
+        const std::string dropDir = *fs::normalize_checked(manifestDrop);
+        // The files that stay: any file another item reads (the stage scene of an effect) is never moved, whoever it belongs to.
+        std::set<std::string> inUse;
+        for (const Json& item : items)
+            if (const auto spec = item.find("spec"); spec != item.end() && spec->is_object())
+                if (const auto stage = spec->find("stage"); stage != spec->end() && stage->is_string()) inUse.insert(review_path_key(stage->get<std::string>()));
+        std::set<std::string> taken;  // sources already planned (paths are case-insensitive on Windows and macOS)
+        const std::string chosenSource = review_path_key(chosen.value("source", std::string()));
         for (const Json& item : items) {
             const int number = item.value("n", 0);
             if (number == n || !item.value("candidate", false)) continue;
             const std::string source = item.value("source", std::string());
             if (source.empty()) continue;
-            auto norm = fs::normalize_checked(source);
-            if (!norm.ok() || norm->empty() || in_vcs_folder(*norm))
-                return failure("failed", std::format("Item {} of {} names '{}' as its candidate file, which is not a file review.pick may move.", number, id, source), "Nothing was moved. Pick with drop: false, or fix `source` of that item in the manifest.");
-            if (!mainScene.empty() && to_lower(*norm) == to_lower(mainScene))
-                return failure("failed", std::format("Item {} of {} would move the main scene '{}' away.", number, id, source), "Nothing was moved. The main scene is never a candidate: make the sheet again without `candidate` on it.");
-            const std::string key = to_lower(*norm);
+            const std::string type = item.value("type", std::string());
+            if (const std::string why = review_candidate_problem(projectDir, type, source); !why.empty())
+                return failure("failed", std::format("Item {} of {} names '{}' as its candidate file, which review.pick may not move: {}.", number, id, source, why),
+                               "Nothing was moved. Pick with drop: false, or fix `source` of that item in the manifest.");
+            const std::string norm = *fs::normalize_checked(source);
+            const std::string key = review_path_key(norm);
+            if (inUse.count(key))
+                return failure("failed", std::format("Item {} of {} would move '{}', which another item of the sheet uses as the stage of an effect.", number, id, norm),
+                               "Nothing was moved. Pick with drop: false, or make the sheet again with a stage scene that is not a candidate.");
             if (key == chosenSource || !taken.insert(key).second) {
-                warnings.push_back(std::format("Item {} shares its file '{}' with the picked item or another dropped one, so it was left where it is.", number, *norm));
+                warnings.push_back(std::format("Item {} shares its file '{}' with the picked item or another dropped one, so it was left where it is.", number, norm));
                 continue;
             }
             Move m;
             m.n = number;
             m.label = item.value("label", std::string());
-            m.from = *norm;
-            m.to = std::format("{}/{}/{:02d}_{}", dropDir, id, number, fs::filename(*norm));
-            m.absFrom = project_path(projectDir, m.from);
+            m.from = norm;
+            m.to = std::format("{}/{}/{:02d}_{}", dropDir, id, number, fs::filename(norm));
+            if (auto where = resolve_project_path(projectDir, m.to); !where.ok())
+                return failure("failed", std::format("Item {} of {} cannot be moved to '{}': {}", number, id, m.to, where.error().message), "Nothing was moved. The drop folder must be a real folder inside the project.");
+            m.absFrom = project_path(projectDir, m.from);  // the file (or link) itself: it was checked to stay inside the project
             m.absTo = project_path(projectDir, m.to);
             moves.push_back(std::move(m));
         }
@@ -347,6 +441,7 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
         }
         moves = std::move(existing);
         for (Move& m : moves) {
+            ShareLock::keep_alive();  // a long change keeps the lock's file fresh so another process never takes it over
             std::error_code ec;
             stdfs::create_directories(m.absTo.parent_path(), ec);
             if (ec) {
@@ -359,14 +454,14 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
                 const auto stuck = roll_back(moves);
                 std::string hint = fs::is_sharing_violation(ec) ? "The file is open in another program (an editor, a viewer, an antivirus scan). Close it and pick again; nothing was changed." : "Nothing was changed.";
                 if (!stuck.empty()) hint = "These could not be put back, move them by hand: " + join(stuck, "; ");
-                return failure("failed", "Cannot move '" + m.from + "' to '" + m.to + "': " + ec.message(), hint);
+                return failure("failed", "Cannot move '" + m.from + "' to '" + m.to + "': " + ec.message() + (stuck.empty() ? " The files already moved were put back." : ""), hint);
             }
             m.done = true;
         }
     }
 
     // ---- record the choice ----
-    std::int64_t now = share_env().clock();
+    std::int64_t now = clock_now();
     Json dropped = Json::array();
     for (const Move& m : moves) dropped.push_back(Json::object({{"n", m.n}, {"label", m.label}, {"from", m.from}, {"to", m.to}, {"status", "moved"}}));
     Json picked = Json::object({{"n", n},
@@ -401,8 +496,136 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
     Json result = Json::object({{"sheet", id}, {"n", n}, {"label", chosen.value("label", std::string())}, {"type", chosen.value("type", std::string())},
                                 {"source", chosen.value("source", std::string())}, {"spec", chosen.contains("spec") ? chosen["spec"] : Json::object()},
                                 {"drop", options.drop}, {"dropped", dropped}, {"who", picked["who"]}, {"at", picked["at"]}});
+    const auto meta = manifest.find("meta");
+    result["meta"] = meta != manifest.end() && meta->is_object() ? *meta : Json::object();
     result["warnings"] = warnings;
     return success(std::move(result));
+}
+
+namespace {
+
+// The newest change of anything in `dir` (itself included), nanoseconds since 1970; -1 when nothing can be read.
+std::int64_t newest_change_ns(const stdfs::path& dir) {
+    std::int64_t newest = fs::host_modified_time(dir);
+    std::error_code ec;
+    for (stdfs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) newest = std::max(newest, fs::host_modified_time(it->path()));
+    return newest;
+}
+
+}  // namespace
+
+ReviewOutcome review_cleanup(const std::string& projectDir, const ReviewCleanupOptions& options) {
+    ReviewLock lock(projectDir);
+    if (!lock.held()) return lock.busy();
+    const std::int64_t now = clock_now();
+    Json expired = Json::array(), orphans = Json::array(), skipped = Json::array();
+    int examined = 0, changed = 0;
+    bool more = false;
+    for (const auto& [number, id] : sheet_ids(projectDir, false)) {
+        (void)number;
+        if (changed >= kReviewCleanupMax) {
+            more = true;
+            break;
+        }
+        ShareLock::keep_alive();
+        ++examined;
+        const stdfs::path dir = project_path(projectDir, std::string(kReviewDir) + "/" + id);
+        std::error_code ec;
+        if (!stdfs::is_regular_file(dir / "manifest.json", ec)) {
+            // Nothing wrote a manifest: review_commit writes it last, so this is a sheet in the making or one whose process died.
+            if (options.orphanMinutes <= 0) continue;
+            const std::int64_t newest = newest_change_ns(dir);
+            if (newest < 0) continue;
+            const std::int64_t ageSec = now - newest / 1'000'000'000;
+            if (ageSec < std::int64_t(options.orphanMinutes) * 60) continue;
+            if (!options.dryRun) {
+                std::error_code rm;
+                fs::remove_tree(dir, rm);
+                if (rm) {
+                    skipped.push_back(Json::object({{"sheet", id}, {"reason", "cannot remove the folder of a sheet that was never finished: " + rm.message()}}));
+                    continue;
+                }
+            }
+            orphans.push_back(id);
+            ++changed;
+            continue;
+        }
+        if (options.droppedDays <= 0) continue;
+        ReviewOutcome loaded = read_manifest(projectDir, id);
+        if (!loaded.ok) {
+            skipped.push_back(Json::object({{"sheet", id}, {"reason", loaded.message}}));
+            continue;
+        }
+        Json manifest = std::move(loaded.value);
+        const auto pickedIt = manifest.find("picked");
+        if (pickedIt == manifest.end() || !pickedIt->is_object()) continue;  // not answered: nothing was moved, and it is never expired
+        Json& picked = *pickedIt;
+        const auto atIt = picked.find("atUnix");
+        if (atIt == picked.end() || !atIt->is_number()) continue;
+        const std::int64_t at = atIt->is_number_integer() ? atIt->get<std::int64_t>() : std::int64_t(atIt->get<double>());
+        if (now < at + std::int64_t(options.droppedDays) * 86400) continue;
+        const auto droppedIt = picked.find("dropped");
+        if (droppedIt == picked.end() || !droppedIt->is_array()) continue;
+        const std::string manifestDrop = manifest.value("dropDir", std::string(kReviewDropDir));
+        if (const std::string why = review_drop_dir_problem(manifestDrop); !why.empty()) {
+            skipped.push_back(Json::object({{"sheet", id}, {"reason", "the drop folder '" + manifestDrop + "' is not one review.pick uses: " + why}}));
+            continue;
+        }
+        const std::string prefix = review_path_key(*fs::normalize_checked(manifestDrop)) + "/" + to_lower(id) + "/";
+        Json files = Json::array();
+        bool touched = false;
+        for (Json& entry : *droppedIt) {
+            if (!entry.is_object() || entry.value("status", std::string()) != "moved") continue;
+            ShareLock::keep_alive();
+            const std::string to = entry.value("to", std::string());
+            const std::string from = entry.value("from", std::string());
+            const std::string key = review_path_key(to);
+            // Only the file review.pick itself put in the sheet's drop folder: <dropDir>/<id>/<NN>_<name of the source>.
+            const std::string expectedName = to_lower(std::format("{:02d}_{}", entry.value("n", 0), fs::filename(from)));
+            if (!starts_with_text(key, prefix) || key.find('/', prefix.size()) != std::string::npos || key.substr(prefix.size()) != review_path_key(expectedName) ||
+                !resolve_project_path(projectDir, to).ok()) {
+                skipped.push_back(Json::object({{"sheet", id}, {"reason", "'" + to + "' is not a file review.pick put in " + prefix + ", so it was left alone"}}));
+                continue;
+            }
+            const stdfs::path file = project_path(projectDir, to);
+            std::error_code st;
+            const stdfs::file_status status = stdfs::symlink_status(file, st);
+            if (st || !stdfs::exists(status)) {
+                if (!options.dryRun) entry["status"] = "gone";  // moved back (or removed by hand): nothing to delete
+                touched = true;
+                continue;
+            }
+            if (!stdfs::is_regular_file(status)) {
+                skipped.push_back(Json::object({{"sheet", id}, {"reason", "'" + to + "' is not a plain file, so it was left alone"}}));
+                continue;
+            }
+            if (!options.dryRun) {
+                std::error_code rm;
+                fs::remove_file(file, rm);
+                if (rm) {
+                    skipped.push_back(Json::object({{"sheet", id}, {"reason", "cannot delete '" + to + "': " + rm.message() + (fs::is_sharing_violation(rm) ? " (open in another program; the next cleanup tries again)" : "")}}));
+                    continue;
+                }
+                entry["status"] = "expired";
+            }
+            files.push_back(to);
+            touched = true;
+        }
+        if (!touched) continue;
+        if (!options.dryRun) {
+            auto written = write_text_file(dir / "manifest.json", manifest.dump(2) + "\n");
+            if (!written.ok) {
+                skipped.push_back(Json::object({{"sheet", id}, {"reason", written.message + " The files were deleted; the next cleanup marks them."}}));
+            }
+            std::error_code rm;
+            stdfs::remove(project_path(projectDir, *fs::normalize_checked(manifestDrop) + "/" + id), rm);  // only when empty
+        }
+        if (!files.empty()) expired.push_back(Json::object({{"sheet", id}, {"files", files}}));
+        ++changed;
+    }
+    Json out = Json::object({{"droppedExpired", expired}, {"orphansRemoved", orphans}, {"skipped", skipped}, {"examined", examined}, {"more", more}, {"dryRun", options.dryRun},
+                             {"droppedDays", options.droppedDays}, {"orphanMinutes", options.orphanMinutes}});
+    return success(std::move(out));
 }
 
 }  // namespace fa

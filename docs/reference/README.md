@@ -479,6 +479,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [review](commands/review.md)
 
+- [`review.cleanup`](commands/review.md#reviewcleanup-modifies-state): Delete the candidate files a review pick moved away long ago, and the folders of sheets that were never finished. _Not released yet._
 - [`review.info`](commands/review.md#reviewinfo): The manifest of one review sheet (items, facts, the choice) and its picture. _Not released yet._
 - [`review.list`](commands/review.md#reviewlist): List the review sheets of the project, newest first, with what was picked. _Not released yet._
 - [`review.pick`](commands/review.md#reviewpick-modifies-state): Record which numbered thumbnail of a review sheet the person chose, and move the other candidates' files away (never deleting them). _Not released yet._
