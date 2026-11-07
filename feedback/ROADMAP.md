@@ -2086,7 +2086,8 @@ SHADERS.md "Not available yet" becomes empty.
 - M74.1 (M) Soft 2D shadows (penumbra by light size), shadow casters on sprites and shapes (`ShadowCaster2D` from the
   sprite's alpha or a polygon), self-shadowing off/on, more than 32 shadowed lights with an atlas.
 - M74.2 (M) Emission and masks: emissive maps on sprites (feeding HDR bloom), light masks per layer, light cookies, a
-  normal map generated from height or from the sprite itself, rim light.
+  normal map generated from height or from the sprite itself, rim light. The normal map is also an image layer the AI
+  and the user can edit (paint, smooth, flip a channel) with the M52 tools, previewed under a moving light.
 - M74.3 (L) 2D global illumination: radiance-cascades-style GI (light bounces off coloured walls, emissive sprites
   light the scene), quality levels, off by default.
 - M74.4 (M) 2D water and refraction: reflective water planes, refraction and distortion zones through M72 materials,
@@ -2160,8 +2161,28 @@ interface (external/ is not edited). They are the base of M78, M79, DirectStorag
 - M80.1 (M) Low-resolution rendering: render at a console-like resolution (320x240, 256x224...) with integer or
   aspect-correct scaling and a sharp-bilinear option, for 2D and 3D.
 - M80.2 (M) Palettes and dithering: palette quantization (built-in palettes and `.pal`/`.gpl`/image import), ordered and
-  error-diffusion dithering, colour limits per sprite, 1-bit and 4-colour handheld presets.
+  error-diffusion dithering, colour limits per sprite, 1-bit and 4-colour handheld presets. Also blue-noise dithering
+  (our own generated blue-noise texture, void-and-cluster, no shipped file), at runtime and as a `blueNoise` method of
+  the image tools' `dither` (today bayer2/4/8, floydSteinberg, atkinson).
 - M80.3 (M) Screens: CRT (scanlines, shadow mask, curvature, bloom, phosphor persistence), NTSC/PAL composite artefacts,
   LCD grid, VHS.
 - M80.4 (M) Retro 3D: vertex snapping, affine texture mapping, no filtering, low colour depth, draw distance fog, per
   material or for the whole game; a retro template for 2D and one for 3D that use these presets.
+
+## M81. Cleaner art from rough sources (M; 4 packages) — the user, 2026-11-07
+
+From the user's X bookmarks (pixel-art grid detectors, video-to-sprite tools, parametric model kits). Ideas only: each
+is FactorIA's own command, nothing of those projects is bundled, depended on or wrapped as a provider. Checked against
+the roadmap and docs first: none of these is done or planned.
+- M81.1 (M) Automatic pixel grid: `image.to_pixel_art {pixelSize: "auto"}` finds the art-pixel size and offset of an
+  upscaled or AI-made "fake pixel art" image (edge spacing and colour runs per axis), reports the grid it found with
+  its confidence, and snaps to it; `image.detect_pixel_grid` returns the grid alone. Today `pixelSize` is given by hand.
+- M81.2 (M) Video to sprite sheet: `image.sheet_from_video {path, fps?, from?, to?, crop?, background?}` takes the
+  frames of an imported video (the same decoders as video import), drops near-duplicates, keys out a plain background
+  and bakes a sheet with its animation clip, so a filmed or generated clip becomes a game animation.
+- M81.3 (S) Remove a fringe or a background: `image.clean_edges` removes the halo `assets.check_art` reports (dark or
+  light fringe around the alpha edge, matte decontamination) and `image.remove_background` keys out a flat or
+  near-flat background colour; both as M52 layer operations, and as a fix `assets.check_art` offers.
+- M81.4 (M) Parametric kits and variants: a model document declares shared top-level knobs (size, roof pitch, wear,
+  palette...) that drive its nodes' params, and `model.variants {path, count, vary?, seed}` makes a set of seeded
+  variants; with M69 contact sheets to review them and a pick that saves the chosen ones as assets.
