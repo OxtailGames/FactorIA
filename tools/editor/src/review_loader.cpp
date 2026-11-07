@@ -41,6 +41,15 @@ Result<Image> review_read_picture(const stdfs::path& file, int maxSide) {
             data.resize(got + std::size_t(in.gcount()));  // the file got shorter while it was read: decode what is there
         }
     }
+    // A JPG, BMP or TGA: its header says its size too, checked before decode_image allocates width * height * 4 bytes (a 32 MB JPG can
+    // hold a picture of hundreds of megapixels).
+    if (!review_png_size(data.data(), data.size())) {
+        if (const auto size = image_size(data.data(), data.size());
+            size.ok() && std::int64_t(size->width) * std::int64_t(size->height) > kReviewDecodeMaxPixels)
+            return Error{fs::path_to_utf8(file) + " is " + std::to_string(size->width) + " x " + std::to_string(size->height) +
+                             " pixels, more than the Review window shows.",
+                         "The Compare view shows the thumbnail instead; open a picture this big in the Image panel."};
+    }
     Result<Image> img = decode_image(data.data(), data.size());
     data.clear();
     data.shrink_to_fit();
@@ -99,6 +108,19 @@ void ReviewLoader::request_picture(const std::string& key, const stdfs::path& fi
 void ReviewLoader::drop_pictures() {
     std::lock_guard<std::mutex> lock(mu_);
     jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [](const Job& j) { return j.kind == ReviewLoaded::Kind::Picture; }), jobs_.end());
+}
+
+std::vector<std::string> ReviewLoader::drop_project_files() {
+    std::lock_guard<std::mutex> lock(mu_);
+    std::vector<std::string> keys;
+    jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(),
+                               [&keys](const Job& j) {
+                                   if (j.kind != ReviewLoaded::Kind::Picture || !j.projectFile) return false;
+                                   keys.push_back(j.key);
+                                   return true;
+                               }),
+                jobs_.end());
+    return keys;
 }
 
 std::vector<ReviewLoaded> ReviewLoader::take() {

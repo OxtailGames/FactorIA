@@ -37,7 +37,8 @@ struct ReviewLoaded {
 };
 
 // The largest picture the reader decodes (pixels): the biggest sheet review.sheet makes (8192 x 8192). A bigger PNG is refused from
-// its header before anything is allocated; a file that is not a PNG is refused above kReviewMaxOtherBytes.
+// its header before anything is allocated; a file that is not a PNG is refused above kReviewMaxOtherBytes, then by the size in its own
+// header (fa::image_size) before it is decoded.
 inline constexpr std::int64_t kReviewDecodeMaxPixels = std::int64_t(8192) * 8192;
 inline constexpr std::uintmax_t kReviewMaxPngBytes = 256u * 1024u * 1024u;
 inline constexpr std::uintmax_t kReviewMaxOtherBytes = 32u * 1024u * 1024u;
@@ -56,6 +57,9 @@ public:
     // open, reading_project_file() is true (Windows cannot move a file another thread holds open).
     void request_picture(const std::string& key, const std::filesystem::path& file, int maxSide, bool projectFile, std::uint64_t gen);
     void drop_pictures();                       // forgets the pictures still waiting (the window moved to another sheet)
+    // Forgets only the candidates' own files still waiting (a pick is about to move them) and returns their keys: the window forgets
+    // those slots too, so they do not say "Loading..." forever, and asks for them again once the pick is over.
+    std::vector<std::string> drop_project_files();
     std::vector<ReviewLoaded> take();           // what finished since the last call
     bool busy() const;                          // something is queued or being read
     bool reading_project_file() const { return readingProjectFile_.load(); }

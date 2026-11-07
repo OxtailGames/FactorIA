@@ -242,7 +242,12 @@ Editor::~Editor() {
     if (launcherThread_.joinable()) launcherThread_.join();
     share_.join_all();  // sign-in, flush and AI review threads (they only touch share_)
     phone_.wait();       // the Play on Phone window's start or stop...
-    reviewPickJob_.wait();  // a Review pick still moving files finishes (killing it could leave a sheet half answered); it takes a second
+    // A Review pick still moving files is given time to finish (killing it could leave a sheet half answered; it takes about a second);
+    // one that hangs is killed after kReviewPickShutdownSeconds, so closing never waits minutes.
+    if (!reviewPickJob_.wait_for(kReviewPickShutdownSeconds)) {
+        reviewPickJob_.cancel();
+        reviewPickJob_.wait();
+    }
     serve_web_shutdown();  // ...the helper thread of project.serve_web, and the server itself: no thread of it outlives the editor
     set_serve_web_blocking(true);  // the process-wide setting goes back to the default (a later Editor in the same process sets it again)
 }
@@ -929,13 +934,17 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
     if (mutating && r.ok && play_ == PlayState::Edit) dirty_ = true;
     after_command(name, args, r);
     if (!queue_.current_tag().empty()) ai_note_command(queue_.current_tag(), name, args, r);  // which chat's run changed what
-    // A sheet the AI (or an MCP client) made for the person: offered in the Review window, without taking the focus.
-    if (r.ok && name == "review.sheet" && r.result.is_object()) {
+    // A sheet the AI (or an MCP client) made for the person: offered in the Review window, without taking the focus. Any command that
+    // changes the project and answers with a review sheet id (review.sheet; assets.generate_image with a count: a sheet of candidates
+    // for a slot); never a pick, which answers a sheet instead of making one.
+    if (r.ok && r.result.is_object() && info && !info->readOnly && name != "review.pick" && name != "assets.pick") {
         const auto text = [](const Json& o, const char* key) {
             const auto it = o.is_object() ? o.find(key) : o.end();
             return it != o.end() && it->is_string() ? it->get<std::string>() : std::string();
         };
-        review_announce_sheet(text(r.result, "sheet"), text(args, "label"), queue_.current_tag().empty() ? "A tool" : "The AI");
+        const std::string sheet = text(r.result, "sheet");
+        if (sheet.starts_with("sheet-"))
+            review_announce_sheet(sheet, text(args, "label"), text(r.result, "slot"), queue_.current_tag().empty() ? "A tool" : "The AI");
     }
     if (elapsed() > 100.0) FA_WARN("editor", "command {} took {:.0f} ms on the UI thread", name, elapsed());
     return r;

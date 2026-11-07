@@ -9332,11 +9332,15 @@ void Editor::at_build_tools_script() {
     // in a toast without taking the focus; its button opens the window on that sheet. The digit 3 selects number 3, the arrows move,
     // Compare shows 1 and 2 side by side, Enter and the confirmation pick it through review.pick (the other three files move to the
     // drop folder), History shows the pick, and the Level generator's "Sheet of seeds" makes a sheet of its seeds in a child factoria
-    // whose pick sets that seed. Waits are states; the window is the 1024x642 one of the macOS runner.
+    // whose pick sets that seed. Last, an AI's assets.generate_image with a count (the fake provider: offline and free) makes a sheet of
+    // candidates for a slot, offered in a toast that names it; picking 2 runs assets.pick in a child factoria, which puts that candidate in
+    // the slot and records it in assets.json. Waits are states; the window is the 1024x642 one of the macOS runner.
     {
         struct Rv {
             std::string sheet, seedsSheet;
             bool exe = false;
+            std::string candSheet, cand2, manifestBefore;   // the sheet of asset candidates, the second candidate's bytes, assets.json
+            bool hadManifest = false;
         };
         auto rv = std::make_shared<Rv>();
         auto key = [this, &step](sapp_keycode code) {
@@ -9356,8 +9360,10 @@ void Editor::at_build_tools_script() {
         };
         step(2, [this, rv, project_file] {
             rv->exe = !factoria_executable().empty();
-            std::error_code ec;   // the sheets of an earlier run of this temp project are not part of this one
+            std::error_code ec;   // the sheets (and candidates) of an earlier run of this temp project are not part of this one
             stdfs::remove_all(stdfs::path(project_file(".factoria/review")), ec);
+            stdfs::remove_all(stdfs::path(project_file(".factoria/assets/candidates")), ec);
+            stdfs::remove_all(stdfs::path(project_file("assets/at_review")), ec);
             for (int i = 1; i <= 4; ++i) {
                 Image img;
                 img.width = 48;
@@ -9563,8 +9569,81 @@ void Editor::at_build_tools_script() {
             at_check(showLevelGen_ && levelGen_.state() == LevelGenSession::State::Ready && levelGen_.preview().seed == 6,
                      "...and shows that level (" + levelGen_.error() + ")");
         });
+        // ---- a sheet of asset candidates: assets.generate_image with count 2 and the offline fake provider, called through a run's proxy
+        // registry as an AI calls it (an AI module command: it runs on the caller's thread, not through the queue), is offered in a toast
+        // that names the slot; the window picks number 2 with assets.pick in a child factoria, which makes it the slot's file.
+        step(2, [this, rv, project_file] {
+            std::error_code ec;
+            rv->hadManifest = stdfs::exists(stdfs::path(project_file("assets.json")), ec);
+            rv->manifestBefore = rv->hadManifest ? read_file(project_file("assets.json")) : std::string();
+            toasts_.clear();
+            AiRun run("autotest-r4");
+            auto proxy = make_proxy_registry(run);
+            const CommandResult r = proxy->call("assets.generate_image", Json::object({{"prompt", "a round gem"},
+                                                                                       {"path", "assets/at_review/gem.png"},
+                                                                                       {"width", 16},
+                                                                                       {"height", 16},
+                                                                                       {"count", 2},
+                                                                                       {"provider", "fake"}}));
+            at_check(r.ok, "assets.generate_image with count 2 makes two candidates and a sheet (" + (r.ok ? std::string() : r.error.dump()) + ")");
+            if (r.ok && r.result.is_object())
+                if (const auto it = r.result.find("sheet"); it != r.result.end() && it->is_string()) rv->candSheet = it->get<std::string>();
+            rv->cand2 = read_file(project_file("assets/at_review/gem.candidate-2.png"));
+            at_check(!rv->candSheet.empty() && !rv->cand2.empty(), "...the second candidate's file is next to the slot");
+        });
+        step(3, [this, rv] {
+            at_check(std::any_of(toasts_.begin(), toasts_.end(),
+                                 [&](const Toast& t) {
+                                     return t.actionId == "review:open-announced" && t.text.find(rv->candSheet) != std::string::npos &&
+                                            t.text.find("assets/at_review/gem.png") != std::string::npos;
+                                 }),
+                     "...a toast offers the sheet of candidates and names the slot");
+        });
+        click("review:open-announced");
+        wait_for([this, rv] { return review_.sheet && review_.sheetId == rv->candSheet && !review_.sheetLoading; });
+        step(3, [this, rv] {
+            at_check(review_.sheet && review_.sheetId == rv->candSheet && review_.sheet->kind == "assetCandidates" &&
+                         review_.sheet->slot == "assets/at_review/gem.png" && review_.sheet->items.size() == 2,
+                     "the toast opens the sheet of candidates: two numbers for the slot");
+            at_check(review_superseded_by(review_.superseded, *review_.sheet).empty() || !review_.listLoaded, "...the newest sheet of its slot");
+            review_.focus = true;
+            review_.tabSet = 0;
+        });
+        step(3, [this] { review_.focus = true; });
+        key(SAPP_KEYCODE_2);
+        key(SAPP_KEYCODE_ENTER);
+        step(3, [this] {
+            at_check(review_.selected == 2 && review_.confirmOpen && at_shown("review:confirm"), "2 and Enter ask to pick the second candidate");
+            const ReviewPickPlan plan = review_.sheet ? review_pick_plan(*review_.sheet, 2, true, "") : ReviewPickPlan{};
+            at_check(plan.command == "assets.pick", "...with assets.pick, never review.pick");
+        });
+        step(2, [this] {
+            if (at_shown("review:confirm")) inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("review:confirm"));
+        });
+        step(2, [this] {
+            if (at_shown("review:confirm")) inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget("review:confirm"));
+        });
+        step(4, [this] {
+            if (at_shown("review:confirm")) inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget("review:confirm"));
+        });
+        wait_for([this] { return !reviewPickJob_.running() && !review_.pickSheet && !review_.pickPending; }, 2);
+        step(3, [this, rv, project_file] {
+            if (!rv->exe) {
+                at_check(review_.pickBad && review_.pickMessage.find("not found") != std::string::npos, "with no factoria tool the candidate pick says what is missing");
+                return;
+            }
+            at_check(!review_.pickBad && review_.pickMessage.find("assets/at_review/gem.png") != std::string::npos,
+                     "the candidate is picked and the window names the slot (" + review_.pickMessage + ")");
+            at_check(read_file(project_file("assets/at_review/gem.png")) == rv->cand2, "...the slot's file is the second candidate's picture");
+            std::error_code ec;
+            at_check(!stdfs::exists(stdfs::path(project_file("assets/at_review/gem.candidate-2.png")), ec), "...which moved into the slot");
+            const Json m = Json::parse(read_file(project_file("assets.json")), nullptr, false);
+            const auto assets = m.is_object() ? m.find("assets") : m.end();
+            at_check(m.is_object() && assets != m.end() && assets->is_object() && assets->contains("assets/at_review/gem.png"),
+                     "...and assets.json records the slot");
+        });
         // ---- leave the editor as the other sections expect it
-        step(2, [this, project_file] {
+        step(2, [this, rv, project_file] {
             reset_review_state();
             showLevelGen_ = false;
             levelGen_.clear(level_gen_caller());
@@ -9572,6 +9651,10 @@ void Editor::at_build_tools_script() {
             stdfs::remove_all(stdfs::path(project_file(".factoria/review")), ec);
             for (int i = 1; i <= 4; ++i) stdfs::remove(stdfs::path(project_file("art/at_review_" + std::to_string(i) + ".png")), ec);
             stdfs::remove(stdfs::path(project_file("levels/at_review_sample.json")), ec);
+            stdfs::remove_all(stdfs::path(project_file("assets/at_review")), ec);
+            stdfs::remove_all(stdfs::path(project_file(".factoria/assets/candidates")), ec);
+            if (rv->hadManifest) write_file(project_file("assets.json"), rv->manifestBefore);
+            else stdfs::remove(stdfs::path(project_file("assets.json")), ec);
             toasts_.clear();
         });
     }

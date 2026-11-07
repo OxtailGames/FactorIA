@@ -449,6 +449,32 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry(AiRun& run) {
         r->delegate_ended(info, ok, report, error, now_ms());
     };
     ai::register_ai_commands(*reg, ao);
+    // The AI module's own commands run right here on the agent thread, not through the queue (where run_queued offers each review sheet
+    // a command makes). One that changes the project and answers with a review sheet id (assets.generate_image with a count: a sheet of
+    // candidates for a slot) has its sheet offered the same way: the toast is posted to the UI thread (poll_review shows it).
+    std::vector<std::string> own;
+    for (const CommandInfo* ci : reg->list())
+        if (!ci->readOnly && !engine_->commands().has(ci->name) && ci->name != "assets.pick" && ci->name != "review.pick") own.push_back(ci->name);
+    for (const std::string& name : own) {
+        CommandInfo info = *reg->info(name);
+        CommandHandler inner = reg->handler(name);
+        if (!inner) continue;
+        reg->add(std::move(info), [this, inner](const Json& args) -> Json {
+            Json out = inner(args);
+            if (out.is_object()) {
+                const auto text = [](const Json& o, const char* key) {
+                    const auto it = o.is_object() ? o.find(key) : o.end();
+                    return it != o.end() && it->is_string() ? it->get<std::string>() : std::string();
+                };
+                const std::string sheet = text(out, "sheet");
+                if (sheet.starts_with("sheet-")) {
+                    std::lock_guard<std::mutex> lock(reviewInboxMu_);
+                    reviewInbox_.push_back({sheet, text(args, "label"), text(out, "slot")});
+                }
+            }
+            return out;
+        });
+    }
     return reg;
 }
 

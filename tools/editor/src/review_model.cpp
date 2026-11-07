@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <set>
 
 #include "fa/core/fs.h"
@@ -126,19 +127,49 @@ std::vector<ReviewListRow> review_rows(const Json& listValue) {
     return rows;
 }
 
-std::string review_superseded_by(const std::vector<ReviewListRow>& rows, const ReviewSheetView& sheet) {
-    if (sheet.kind != "assetCandidates" || sheet.slot.empty() || sheet.is_picked()) return {};
-    // Newer: made later; the same second is broken by the id (sheet-0010 > sheet-0009), like review_rows' order.
-    const auto newer = [](const std::string& atA, const std::string& idA, const std::string& atB, const std::string& idB) {
-        return atA != atB ? atA > atB : idA > idB;
-    };
-    const ReviewListRow* newest = nullptr;
-    for (const ReviewListRow& r : rows) {
-        if (r.id == sheet.id || r.kind != "assetCandidates" || r.slot != sheet.slot) continue;
-        if (!newer(r.createdAt, r.id, sheet.createdAt, sheet.id)) continue;
-        if (!newest || newer(r.createdAt, r.id, newest->createdAt, newest->id)) newest = &r;
+namespace {
+// The number of "sheet-0007" (7), or -1 for another name: review_newest orders sheets by it, not by their time.
+long review_sheet_number(const std::string& id) {
+    if (id.size() < 7 || id.size() > 15 || id.compare(0, 6, "sheet-") != 0) return -1;
+    long value = 0;
+    for (std::size_t i = 6; i < id.size(); ++i) {
+        if (id[i] < '0' || id[i] > '9') return -1;
+        value = value * 10 + (id[i] - '0');
     }
-    return newest ? newest->id : std::string();
+    return value;
+}
+}  // namespace
+
+std::map<std::string, std::string> review_superseded(const std::vector<ReviewListRow>& rows) {
+    // The newest sheet of candidates of each slot (the highest number, answered or not), slots compared like review_path_key.
+    std::map<std::string, std::pair<long, std::string>> newest;
+    for (const ReviewListRow& r : rows) {
+        if (r.kind != "assetCandidates" || r.slot.empty()) continue;
+        const long number = review_sheet_number(r.id);
+        if (number < 0) continue;
+        auto& best = newest[review_path_key(r.slot)];
+        if (best.second.empty() || number > best.first) best = {number, r.id};
+    }
+    std::map<std::string, std::string> out;
+    for (const ReviewListRow& r : rows) {
+        if (r.picked != 0 || r.kind != "assetCandidates" || r.slot.empty()) continue;
+        auto it = newest.find(review_path_key(r.slot));
+        if (it != newest.end() && it->second.second != r.id) out[r.id] = it->second.second;
+    }
+    return out;
+}
+
+std::string review_superseded_by(const std::map<std::string, std::string>& superseded, const ReviewSheetView& sheet) {
+    if (sheet.kind != "assetCandidates" || sheet.slot.empty() || sheet.is_picked()) return {};
+    auto it = superseded.find(sheet.id);
+    return it == superseded.end() ? std::string() : it->second;
+}
+
+std::string review_cut_note(const std::string& note, std::size_t maxBytes) {
+    if (note.size() <= maxBytes) return note;
+    std::size_t cut = maxBytes;
+    while (cut > 0 && (static_cast<unsigned char>(note[cut]) & 0xC0) == 0x80) --cut;  // never inside a UTF-8 sequence
+    return note.substr(0, cut);
 }
 
 int review_move_selection(int current, int count, int columns, ReviewMove move) {
@@ -214,7 +245,7 @@ ReviewPickPlan review_pick_plan(const ReviewSheetView& s, int n, bool drop, cons
     plan.args = Json::object({{"sheet", s.id}, {"n", n}});
     if (candidates) plan.args["slot"] = s.slot;
     else plan.args["drop"] = drop;
-    if (!note.empty()) plan.args["note"] = note.size() > 500 ? note.substr(0, 500) : note;
+    if (!note.empty()) plan.args["note"] = review_cut_note(note, kReviewNoteMaxBytes);
     if (!drop && !candidates) return plan;
     // The files the pick moves: the same rule as review_pick (other candidates with a file; each file once; never the picked one's).
     std::set<std::string> taken;

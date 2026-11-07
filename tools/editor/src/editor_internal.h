@@ -703,11 +703,13 @@ public:
     void reset_review_state();                // project switch, autotest section: stops the reader and the job, frees the textures
     void review_release_textures();
     void review_request_pick(int n);          // opens the confirmation (or says why the number cannot be picked)
-    void review_do_pick();                    // the confirmed pick: starts the command in a child factoria (reviewPickJob_)
+    void review_do_pick();                    // the confirmed pick: keeps what was confirmed, then starts it (or waits for the reader)
+    void review_start_pick();                 // starts review_.pickPlan in a child factoria (reviewPickJob_)
     void review_finish_pick(const ChildCommandOutcome& done);   // its result in the window (poll_review)
     // review_pick_plan, plus what the window itself forbids: a pick still running, an older sheet of asset candidates (superseded).
     ReviewPickPlan review_plan_for(const ReviewSheetView& sheet, int n, bool drop, const std::string& note) const;
-    void review_announce_sheet(const std::string& sheet, const std::string& label, const std::string& who);  // a toast with Open in Review
+    // A toast with Open in Review; `slot`: a sheet of asset candidates for that slot (assets.generate_image with a count).
+    void review_announce_sheet(const std::string& sheet, const std::string& label, const std::string& slot, const std::string& who);
     void start_level_seeds_sheet();           // the Level generator's "Sheet of N seeds"
     void review_show_sheet(const std::string& id);   // shows that sheet (its manifest and pictures are read on the reader thread)
     // The texture of a picture of the shown sheet, asked of the reader the first time (tex.view is 0 until it is uploaded, `error` when
@@ -971,6 +973,7 @@ public:
         bool listLoading = false, listLoaded = false;
         std::vector<ReviewListRow> rows;
         std::vector<ReviewHistoryRow> history;
+        std::map<std::string, std::string> superseded;   // review_superseded(rows): an older candidates sheet -> the newest of its slot
         std::string listError;
         std::string sheetId;                         // the sheet shown ("" = the first in the list)
         bool sheetLoading = false;
@@ -1003,6 +1006,12 @@ public:
     ReviewLoader reviewLoader_;
     ChildCommandJob reviewSeedsJob_;
     ChildCommandJob reviewPickJob_;                // review.pick / assets.pick: they move files (with retries on Windows) and write manifests
+    // Review sheets an AI module command made on an agent thread (make_proxy_registry): offered in a toast by poll_review.
+    struct ReviewAnnounce {
+        std::string sheet, label, slot;
+    };
+    std::mutex reviewInboxMu_;
+    std::vector<ReviewAnnounce> reviewInbox_;
     bool autoPlayPictures_ = true;
     std::vector<PlaySessionRow> playSessionRows_;
     std::string playSessionsPick_;                 // the folder shown in the report pane

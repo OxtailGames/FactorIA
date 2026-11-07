@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <format>
+#include <string>
 
 #include "editor_internal.h"
 
@@ -345,13 +347,24 @@ void Editor::draw_level_gen_panel() {
         ImGui::SetItemTooltip("Generate a level with these options. Same options, same level.");
     }
     // A sheet of N seeds: the levels of this seed and the next ones side by side in the Review window; picking one comes back here.
-    // On the Generate row (the window keeps its height at 1024x642); under the progress bar while a level is generated.
-    if (!running) ImGui::SameLine(0, ImGui::GetStyle().ItemSpacing.x * 3.0f);
-    if (reviewSeedsJob_.running()) {
+    // On the Generate row when the whole group fits (the window keeps its height at 1024x642), else on a line of its own; under the
+    // progress bar while a level is generated.
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const bool seedsRunning = reviewSeedsJob_.running();
+    const std::string seedsText = seedsRunning ? std::format("Making a sheet of {} seeds... {:.0f} s", review_.seedsCount, reviewSeedsJob_.elapsed_seconds())
+                                               : std::string();
+    const float seedsCountW = ImGui::CalcTextSize("000").x + ImGui::GetFrameHeight() * 2.0f + st.ItemInnerSpacing.x * 2.0f;
+    const float seedsGroupW = seedsRunning ? ImGui::CalcTextSize("Cancel").x + st.FramePadding.x * 2 + st.ItemSpacing.x + ImGui::CalcTextSize(seedsText.c_str()).x
+                                           : ImGui::CalcTextSize("Sheet of seeds").x + st.FramePadding.x * 2 + st.ItemSpacing.x + seedsCountW +
+                                                 st.ItemInnerSpacing.x + ImGui::CalcTextSize("seeds").x;
+    if (!running && ImGui::GetItemRectMax().x + st.ItemSpacing.x * 3.0f + seedsGroupW <=
+                        ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x)
+        ImGui::SameLine(0, st.ItemSpacing.x * 3.0f);
+    if (seedsRunning) {
         if (ImGui::Button("Cancel##seeds")) reviewSeedsJob_.cancel();
         at_track("levelgen:seeds-cancel");
         ImGui::SameLine();
-        ImGui::Text("Making a sheet of %d seeds... %.0f s", review_.seedsCount, reviewSeedsJob_.elapsed_seconds());
+        ImGui::TextUnformatted(seedsText.c_str());
         at_track("levelgen:seeds-running");
     } else {
         const bool haveSample = !o.sampleFile.empty() || !o.sampleEntity.empty();
@@ -363,7 +376,7 @@ void Editor::draw_level_gen_panel() {
                                                 "Review window: pick the one you like and this window shows that seed."
                                               : "Choose a sample first (a Tilemap or a level file).");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::CalcTextSize("000").x + ImGui::GetFrameHeight() * 2.0f + ImGui::GetStyle().ItemInnerSpacing.x * 2.0f);
+        ImGui::SetNextItemWidth(seedsCountW);
         if (ImGui::InputInt("seeds##seedscount", &review_.seedsCount))
             review_.seedsCount = std::clamp(review_.seedsCount, kReviewSeedsMin, kReviewSeedsMax);
         at_track("levelgen:seeds-count");
