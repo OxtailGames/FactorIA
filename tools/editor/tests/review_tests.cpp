@@ -228,6 +228,44 @@ TEST_CASE("review_pick_plan: a sheet of asset candidates is answered by assets.p
     CHECK(review_pick_plan(s, 2, true, "").error.find("slot") != std::string::npos);
 }
 
+TEST_CASE("review_superseded_by: only the newest sheet of candidates of a slot can be picked") {
+    const auto row = [](const char* id, const char* at, const char* kind, const char* slot, int picked) {
+        Json meta = Json::object({{"kind", kind}});
+        if (*slot) meta["slot"] = slot;
+        return Json::object({{"id", id}, {"createdAt", at}, {"count", 3}, {"picked", picked}, {"meta", meta}});
+    };
+    const Json list = Json::object({{"sheets", Json::array({
+                                                   row("sheet-0001", "2026-11-01T00:00:00Z", "assetCandidates", "art/hero.png", 0),
+                                                   row("sheet-0002", "2026-11-02T00:00:00Z", "assetCandidates", "art/hero.png", 0),
+                                                   row("sheet-0003", "2026-11-03T00:00:00Z", "assetCandidates", "art/tree.png", 0),
+                                                   row("sheet-0004", "2026-11-04T00:00:00Z", "levelSeeds", "", 0),
+                                                   row("sheet-0005", "2026-11-02T00:00:00Z", "assetCandidates", "art/hero.png", 0),
+                                               })}});
+    const std::vector<ReviewListRow> rows = review_rows(list);
+    REQUIRE(rows.size() == 5);
+    CHECK(rows[0].slot.empty());
+    const auto view = [&](const char* id) {
+        ReviewSheetView s;
+        for (const ReviewListRow& r : rows)
+            if (r.id == id) {
+                s.id = r.id;
+                s.createdAt = r.createdAt;
+                s.kind = r.kind;
+                s.slot = r.slot;
+            }
+        return s;
+    };
+    // sheet-0005 was made in the same second as sheet-0002: the id breaks the tie, so 0005 is the newest of art/hero.png.
+    CHECK(review_superseded_by(rows, view("sheet-0001")) == "sheet-0005");
+    CHECK(review_superseded_by(rows, view("sheet-0002")) == "sheet-0005");
+    CHECK(review_superseded_by(rows, view("sheet-0005")).empty());
+    CHECK(review_superseded_by(rows, view("sheet-0003")).empty());   // another slot
+    CHECK(review_superseded_by(rows, view("sheet-0004")).empty());   // not candidates
+    ReviewSheetView answered = view("sheet-0001");
+    answered.picked = Json::object({{"n", 1}});
+    CHECK(review_superseded_by(rows, answered).empty());              // an answered sheet is read-only anyway
+}
+
 TEST_CASE("review_history_row: who, when, the note and each dropped file's status") {
     CHECK_FALSE(review_history_row(manifest(3, 3)).has_value());
     Json m = manifest(3, 3);
@@ -372,10 +410,11 @@ TEST_CASE("child_command_outcome and ChildCommandJob: a result, a command error,
     ChildCommandOutcome o = child_command_outcome(run, R"({"sheet":"sheet-0002","count":6})", "review.sheet");
     CHECK(o.ok);
     CHECK(o.value["sheet"] == "sheet-0002");
-    o = child_command_outcome(run, R"({"ok":false,"error":{"message":"No sample.","hint":"Draw one."}})", "review.sheet");
+    o = child_command_outcome(run, R"({"ok":false,"error":{"code":"busy","message":"No sample.","hint":"Draw one."}})", "review.sheet");
     CHECK_FALSE(o.ok);
     CHECK(o.error == "No sample.");
     CHECK(o.hint == "Draw one.");
+    CHECK(o.code == "busy");   // the window tells a file open elsewhere ("busy") and an older sheet ("superseded") apart
     o = child_command_outcome(run, R"({"ok":false,"error":{"message":5}})", "review.sheet");   // a wrong type is not an exception
     CHECK_FALSE(o.ok);
     CHECK(o.error == "review.sheet failed.");

@@ -9445,11 +9445,17 @@ void Editor::at_build_tools_script() {
             at_check(at_shown("review:keep-files") && !review_.keepFiles, "...with the option to keep them, off");
         });
         click("review:confirm");
-        wait_for([this, rv, project_file] {
-            Result<Json> m = parse_json(read_file(project_file(".factoria/review/" + rv->sheet + "/manifest.json")), "manifest");
-            return review_.pickBad || (m.ok() && json_at(m.value(), "/picked/n").is_number());
+        // The pick runs in a child factoria (never on the UI thread): the window keeps drawing and says so meanwhile.
+        step(1, [this] {
+            at_check(reviewPickJob_.running() || review_.pickSheet || review_.pickPending || !review_.pickMessage.empty(), "the pick starts off the UI thread");
         });
+        wait_for([this] { return !reviewPickJob_.running() && !review_.pickSheet && !review_.pickPending; }, 2);
         step(3, [this, rv, project_file] {
+            if (!rv->exe) {
+                atLog_.push_back("NOTE no factoria next to the editor and no FA_FACTORIA_EXE: the pick's error path was tested instead");
+                at_check(review_.pickBad && review_.pickMessage.find("not found") != std::string::npos, "with no factoria tool the pick says what is missing");
+                return;
+            }
             Result<Json> m = parse_json(read_file(project_file(".factoria/review/" + rv->sheet + "/manifest.json")), "manifest");
             const Json n = m.ok() ? json_at(m.value(), "/picked/n") : Json();
             at_check(!review_.pickBad, "the pick worked (" + review_.pickMessage + ")");
@@ -9468,9 +9474,10 @@ void Editor::at_build_tools_script() {
         // ---- History
         click("review:tab:History");
         wait_for([this, rv] {
-            return std::any_of(review_.history.begin(), review_.history.end(), [&](const ReviewHistoryRow& h) { return h.id == rv->sheet; });
+            return !rv->exe || std::any_of(review_.history.begin(), review_.history.end(), [&](const ReviewHistoryRow& h) { return h.id == rv->sheet; });
         });
         step(3, [this, rv] {
+            if (!rv->exe) return;
             const auto h = std::find_if(review_.history.begin(), review_.history.end(), [&](const ReviewHistoryRow& r) { return r.id == rv->sheet; });
             at_check(h != review_.history.end() && h->n == 3 && !h->who.empty() && !h->at.empty(), "History shows the pick: number 3, who and when");
             at_check(h != review_.history.end() && h->dropped.size() == 3 &&
@@ -9481,11 +9488,13 @@ void Editor::at_build_tools_script() {
         // The sheet's id is known once the script runs: the click looks the button up then.
         for (int phase = 0; phase < 3; ++phase)
             step(phase == 2 ? 4 : 2, [this, rv, phase] {
+                if (!rv->exe) return;
                 const sapp_event_type type = phase == 0 ? SAPP_EVENTTYPE_MOUSE_MOVE : phase == 1 ? SAPP_EVENTTYPE_MOUSE_DOWN : SAPP_EVENTTYPE_MOUSE_UP;
                 inject_mouse(type, at_widget("review:history-open:" + rv->sheet));
             });
-        wait_for([this] { return review_.sheet && review_.sheet->is_picked() && !review_.sheetLoading; });
+        wait_for([this, rv] { return !rv->exe || (review_.sheet && review_.sheet->is_picked() && !review_.sheetLoading); });
         step(3, [this, rv] {
+            if (!rv->exe) return;
             at_check(review_.tab == 0 && review_.sheetId == rv->sheet && review_.sheet && review_.sheet->picked_n() == 3, "Open shows the answered sheet");
             at_check(at_shown("review:pick") && !at_enabled("review:pick"), "...read-only: its Pick button is off");
         });
@@ -9542,8 +9551,10 @@ void Editor::at_build_tools_script() {
             if (rv->exe && at_shown("review:confirm")) inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget("review:confirm"));
         });
         wait_for([this, rv] {
-            return !rv->exe || levelGen_.state() == LevelGenSession::State::Ready || levelGen_.state() == LevelGenSession::State::Failed || review_.pickBad;
-        });
+            if (!rv->exe) return true;
+            if (reviewPickJob_.running() || review_.pickSheet || review_.pickPending) return false;   // the pick runs in a child factoria
+            return levelGen_.state() == LevelGenSession::State::Ready || levelGen_.state() == LevelGenSession::State::Failed || review_.pickBad;
+        }, 2);
         step(3, [this, rv] {
             if (!rv->exe) return;
             at_check(!review_.pickBad, "the level is picked (" + review_.pickMessage + ")");

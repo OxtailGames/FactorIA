@@ -701,8 +701,10 @@ the focus away from what you are doing.
   or **Pick #n...** asks first: the confirmation lists every file the pick MOVES to the drop folder (`.factoria/review/dropped/<sheet>/`:
   the other items marked as candidates; nothing is deleted then, `review.cleanup` deletes them days later and moving one back undoes
   it), takes an optional note, and **Keep the other files where they are** records the choice only (`review.pick` with `drop: false`).
-  **Pick** (or Enter again) runs the command itself, through the same registry the Console and the AI use, and the window shows what
-  happened: the files moved and any warning. A pick is final: an answered sheet is read-only, with its number outlined in green.
+  **Pick** (or Enter again) runs the command itself in a child `factoria` (`factoria call --project ...`, the same command the
+  Console and the AI call), so the window keeps drawing while the files move, and then shows what happened: the files moved and any
+  warning. When a file of the sheet is open in another program (or another program is changing the sheets), nothing is picked and the
+  window says to close it and try again. A pick is final: an answered sheet is read-only, with its number outlined in green.
 - **Compare** puts two numbers side by side, large, with their labels and facts; **The candidates' own pictures** shows the image files
   themselves (sharper than the thumbnails; other items show their thumbnail), and each side has its own Pick button.
 - **History** lists the answered sheets, newest pick first: who picked which number and when, the note, and every dropped file with
@@ -710,8 +712,9 @@ the focus away from what you are doing.
   **Open** shows that sheet read-only.
 
 A sheet of **asset candidates** (`meta.kind` `"assetCandidates"`, made by an asset generation) shows the asset slot it is for, and its
-pick calls `assets.pick` with that slot, which puts the picked file in place. When this FactorIA has no `assets.pick`, the window says
-so and picks nothing: it never records the choice with `review.pick` instead. A sheet of **level seeds** (the Level generator's Sheet
+pick calls `assets.pick` with that slot, which puts the picked file in place. Only the newest sheet of candidates of a slot can be
+picked: an older one waiting for an answer is marked *superseded* in the list and is read-only, naming the newer sheet. When this
+FactorIA has no `assets.pick`, the window says so and picks nothing: it never records the choice with `review.pick` instead. A sheet of **level seeds** (the Level generator's Sheet
 of seeds) brings the picked seed back to the Level generator.
 
 Pictures are read and decoded off the UI thread (one upload to the GPU per frame), shrunk on upload (a sheet to 4096 pixels a side,
@@ -720,7 +723,7 @@ larger than 8192 x 8192 pixels is refused from its header, and another picture f
 
 **Autotest.** Section R4 of `fa_editor_autotest` makes a sheet of four pictures through the queued command path (the toast appears and
 the window does not open by itself), opens it from the toast and from View > Review, selects with 3 and the arrows, compares 1 and 2,
-picks with Enter and the confirmation (the manifest records number 3, the other three files are in the drop folder), checks History
+picks with Enter and the confirmation in a child `factoria` (the manifest records number 3, the other three files are in the drop folder), checks History
 and opens the answered sheet read-only, then makes a Sheet of seeds from the Level generator in a child `factoria` and picks one,
 which sets that seed. `fa_test_editor` covers the model, the reader and the child job (`tools/editor/tests/review_tests.cpp`).
 

@@ -22,6 +22,7 @@ struct ChildCommandOutcome {
     bool cancelled = false;
     Json value;                   // the command's result when ok
     std::string error, hint;      // when not ok (and not cancelled)
+    std::string code;             // the command's error code ("busy", "superseded", ...), "" when it printed none
     double seconds = 0;           // real time the child took
 };
 // Reads what `factoria call --json <command>` printed (a command error is {"ok":false,"error":{...}}).

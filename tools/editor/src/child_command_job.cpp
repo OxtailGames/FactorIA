@@ -41,6 +41,7 @@ ChildCommandOutcome child_command_outcome(const ProcessResult& run, const std::s
         out.error = text(err, "message");
         if (out.error.empty()) out.error = command + " failed.";
         out.hint = text(err, "hint");
+        out.code = text(err, "code");
         return out;
     }
     out.ok = true;
