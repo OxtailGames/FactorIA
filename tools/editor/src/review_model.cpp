@@ -165,6 +165,16 @@ std::string review_superseded_by(const std::map<std::string, std::string>& super
     return it == superseded.end() ? std::string() : it->second;
 }
 
+ReviewAnnounce review_announce_from(const Json& result, const Json& args) {
+    ReviewAnnounce a;
+    std::string sheet = str_of(result, "sheet");
+    if (!sheet.starts_with("sheet-")) return a;
+    a.sheet = std::move(sheet);
+    a.label = str_of(args, "label");
+    a.slot = str_of(result, "slot");
+    return a;
+}
+
 std::string review_cut_note(const std::string& note, std::size_t maxBytes) {
     if (note.size() <= maxBytes) return note;
     std::size_t cut = maxBytes;

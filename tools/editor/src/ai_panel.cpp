@@ -459,18 +459,12 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry(AiRun& run) {
         CommandInfo info = *reg->info(name);
         CommandHandler inner = reg->handler(name);
         if (!inner) continue;
-        reg->add(std::move(info), [this, inner](const Json& args) -> Json {
+        reg->add(std::move(info), [this, inner, project = projectDir_](const Json& args) -> Json {
             Json out = inner(args);
-            if (out.is_object()) {
-                const auto text = [](const Json& o, const char* key) {
-                    const auto it = o.is_object() ? o.find(key) : o.end();
-                    return it != o.end() && it->is_string() ? it->get<std::string>() : std::string();
-                };
-                const std::string sheet = text(out, "sheet");
-                if (sheet.starts_with("sheet-")) {
-                    std::lock_guard<std::mutex> lock(reviewInboxMu_);
-                    reviewInbox_.push_back({sheet, text(args, "label"), text(out, "slot")});
-                }
+            if (ReviewAnnounce a = review_announce_from(out, args); !a.sheet.empty()) {
+                a.project = project;   // poll_review drops it if another project is open by then
+                std::lock_guard<std::mutex> lock(reviewInboxMu_);
+                reviewInbox_.push_back(std::move(a));
             }
             return out;
         });
@@ -779,6 +773,7 @@ void Editor::ai_launch(AiRun& run, const std::string& prompt, const std::vector<
 void Editor::ai_stop(const char* cause) {
     for (auto& r : aiRuns_) r->request_cancel(cause);
     aiApprovals_.close();  // a call waiting for the user's yes ends as stopped
+    ai::asset_run_begin(kImagePanelRun);   // the Image panel's spending in this run of the project starts at 0 too
     queue_.close();
     for (auto& r : aiRuns_) {
         if (r->thread.joinable()) r->thread.join();
@@ -1538,7 +1533,13 @@ void Editor::draw_ai_asset_cards(AiChat& chat, float height) {
         if (card.chatId != chat.id) continue;
         ImGui::PushID(static_cast<int>(card.id));
         const AssetCardText text = asset_card_text(card.plan);
+        // The title has the two lines ai_asset_cards_height reserves: a long provider or model name scrolls in them instead of pushing
+        // the buttons down (the child is a budget, not a clip of the text: the wheel reads the rest).
+        ImGui::BeginChild("##cardtitle", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2), ImGuiChildFlags_None);
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextColored(ImVec4(1, 0.82f, 0.4f, 1), "%s", text.title.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::EndChild();
         // The buttons come first so that they are always on screen; they wrap onto the next line when the panel is narrow.
         std::optional<ai::AssetDecision> decision;
         const auto place = [&](const char* label, const char* track, const char* tip, ai::AssetDecision d, bool first) {

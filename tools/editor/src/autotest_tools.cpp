@@ -6746,6 +6746,52 @@ void Editor::at_build_tools_script() {
         step(2, [this] { undo(); });
         step(3, [this] {
             at_check(image_.model->layer_rows().size() == std::size_t(image_.layersBefore), "Undo took the provider layer away again");
+        });
+        // ---- the price of the popup's "Make it" has three states, each worked out on a thread: pending, ready, failed
+        step(2, [this] {
+            image_.providerInpaint = true;
+            image_provider_estimate(*image_.model);   // (the popup polls it; the section polls it itself)
+            at_check(image_.estimate && image_.providerEstimate.empty() && image_.providerEstimateError.empty(),
+                     "the estimate starts pending: a thread is working it out and the popup has no sentence yet");
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] {
+                image_provider_estimate_poll(*image_.model);
+                return !image_.estimate;
+            };
+        });
+        step(2, [this] {
+            at_check(!image_.providerEstimate.empty() && image_.providerEstimateError.empty(), "...ready: a sentence about the price (" + image_.providerEstimate + ")");
+            at_check(image_.providerEstimate.find("Free") == 0, "...and the fake provider's is free");
+            image_edited(image_.model->deselect());
+            image_provider_estimate(*image_.model);   // inpainting needs a selection: the same request would fail
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] {
+                image_provider_estimate_poll(*image_.model);
+                return !image_.estimate;
+            };
+        });
+        step(2, [this] {
+            at_check(image_.providerEstimate.empty() && !image_.providerEstimateError.empty(), "...failed: no sentence, the reason instead (" + image_.providerEstimateError + ")");
+            // "Make it" plans on the job's thread too: a request that cannot be planned comes back as the job's failure, nothing is added
+            image_.providerPrompt = "a round window";
+            image_provider_start(*image_.model);
+            at_check(image_.job != nullptr, "Make it only starts the job's thread (the planning is not done on the UI thread)");
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] {
+                image_provider_poll(*image_.model);
+                return !image_.job;
+            };
+        });
+        step(2, [this] {
+            at_check(image_.providerError.find("failed") != std::string::npos && image_.model->layer_rows().size() == std::size_t(image_.layersBefore),
+                     "...and a request that cannot be planned is reported as a failure of the job, with no layer added: " + image_.providerError);
+            image_.providerError.clear();
             std::lock_guard<std::mutex> lock(aiMu_);
             if (atSavedConfig_) aiConfig_ = std::move(*atSavedConfig_);
             atSavedConfig_.reset();
@@ -9600,12 +9646,16 @@ void Editor::at_build_tools_script() {
                      "...a toast offers the sheet of candidates and names the slot");
         });
         click("review:open-announced");
-        wait_for([this, rv] { return review_.sheet && review_.sheetId == rv->candSheet && !review_.sheetLoading; });
+        // (the list too: "newest sheet of its slot" is read from the listing, which must include the sheet the toast announced)
+        wait_for([this, rv] {
+            return review_.sheet && review_.sheetId == rv->candSheet && !review_.sheetLoading && review_.listLoaded && !review_.listLoading &&
+                   !review_.listDirty && std::any_of(review_.rows.begin(), review_.rows.end(), [&](const ReviewListRow& r) { return r.id == rv->candSheet; });
+        });
         step(3, [this, rv] {
             at_check(review_.sheet && review_.sheetId == rv->candSheet && review_.sheet->kind == "assetCandidates" &&
                          review_.sheet->slot == "assets/at_review/gem.png" && review_.sheet->items.size() == 2,
                      "the toast opens the sheet of candidates: two numbers for the slot");
-            at_check(review_superseded_by(review_.superseded, *review_.sheet).empty() || !review_.listLoaded, "...the newest sheet of its slot");
+            at_check(review_.sheet && review_superseded_by(review_.superseded, *review_.sheet).empty(), "...the newest sheet of its slot");
             review_.focus = true;
             review_.tabSet = 0;
         });

@@ -705,6 +705,9 @@ public:
     void review_request_pick(int n);          // opens the confirmation (or says why the number cannot be picked)
     void review_do_pick();                    // the confirmed pick: keeps what was confirmed, then starts it (or waits for the reader)
     void review_start_pick();                 // starts review_.pickPlan in a child factoria (reviewPickJob_)
+    // A running pick gets kReviewPickShutdownSeconds to finish; one that hangs has its child killed, which is logged (FA_WARN, with the
+    // command, sheet and arguments) and, when the editor stays alive (`editorStays`: a project switch), told in a toast.
+    void review_end_pick_for_shutdown(bool editorStays);
     void review_finish_pick(const ChildCommandOutcome& done);   // its result in the window (poll_review)
     // review_pick_plan, plus what the window itself forbids: a pick still running, an older sheet of asset candidates (superseded).
     ReviewPickPlan review_plan_for(const ReviewSheetView& sheet, int n, bool drop, const std::string& note) const;
@@ -1007,9 +1010,6 @@ public:
     ChildCommandJob reviewSeedsJob_;
     ChildCommandJob reviewPickJob_;                // review.pick / assets.pick: they move files (with retries on Windows) and write manifests
     // Review sheets an AI module command made on an agent thread (make_proxy_registry): offered in a toast by poll_review.
-    struct ReviewAnnounce {
-        std::string sheet, label, slot;
-    };
     std::mutex reviewInboxMu_;
     std::vector<ReviewAnnounce> reviewInbox_;
     bool autoPlayPictures_ = true;

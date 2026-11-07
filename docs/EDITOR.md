@@ -341,7 +341,10 @@ The height is kept with the layout.
   not appear while a card waits, and the run's **Stop** ends the wait (the assistant is told the run was stopped, not that you said
   no). Small calls that were not asked about count together: the card of the call that takes them over the limit says how much came
   before it, and **Approve** starts that count again. The buttons are at the top of the card so that they stay visible in a
-  narrow panel; the text under them scrolls. The assistant's own `approved` argument is ignored here. What you answered is written into the chat. While a run
+  narrow panel; the text under them scrolls. The assistant's own `approved` argument is ignored here. The card is only for runs this editor started (its chats, the
+  CLI agents it launches, the Image panel's popup); a terminal command or an MCP client with its own `factoria mcp` gets a
+  `needsApproval` answer instead. A refund of a failed call that could not be written is a warning in the Console and in the
+  result of the next paid call that goes ahead (AI_COSTS.md, "The day total"). What you answered is written into the chat. While a run
   has spent something, its status line ends with `assets ~$X (estimate)`. The `fake` provider and your own programs never ask.
   A Claude Code, Codex or other MCP client that waits for the card can hit its own tool-call timeout (often 60 to 120 seconds); if the
   call comes back abandoned the card stays, and approving it late still makes the picture, but the agent is not told: answer
@@ -854,7 +857,8 @@ one. An edit writes the document (and the layer's PNG) as it happens; the baked 
   selection `image.select` writes, so a command sees it too.
 - **Provider pictures.** Under the layer list, **Inpaint selection...** and **Generate layer...** ask for a prompt and make what
   `image.inpaint` and `image.generate_layer` make ([IMAGES.md](IMAGES.md), "Pictures from a provider"): the plan (provider, selection,
-  size) is made first, so a mistake shows in the window before anything is paid for; the provider call runs on its own thread (the
+  size) is made first, on the same thread as the call and before anything is paid for, so a mistake is shown under the panel as a
+  failure with nothing charged; the plan, the cost check and the provider call run on that thread (the
   panel stays usable, a line shows the seconds and a **Cancel** button) and the picture is added as one undo step, selected, as a new
   `provider` layer masked by the selection. The popup shows the estimate for the provider's call (looked up when it opens), and **Make it** is your approval of that cost: the
   spending limits still hold, and a refusal is shown in the panel. The two are off, with a tooltip saying why, when no image provider is configured, the
