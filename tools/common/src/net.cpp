@@ -10,6 +10,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
+#include <bcrypt.h>
 #else
 #include <arpa/inet.h>
 #include <ifaddrs.h>
@@ -18,10 +19,17 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
+#if defined(__linux__) && !defined(__ANDROID__)
+#include <sys/random.h>
 #endif
+#endif
+
+#include <cerrno>
+#include <cstdio>
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 
@@ -102,6 +110,9 @@ void shutdown_socket(Socket s) {
 bool send_all(Socket s, std::string_view data) {
     while (!data.empty()) {
         const auto n = ::send(native(s), data.data(), static_cast<IoLen>(std::min<std::size_t>(data.size(), 1 << 20)), kSendFlags);
+#ifndef _WIN32
+        if (n < 0 && errno == EINTR) continue;  // a signal arrived: not an error
+#endif
         if (n <= 0) return false;
         data.remove_prefix(static_cast<std::size_t>(n));
     }
@@ -109,7 +120,64 @@ bool send_all(Socket s, std::string_view data) {
 }
 
 std::ptrdiff_t recv_some(Socket s, char* buffer, std::size_t size) {
-    return static_cast<std::ptrdiff_t>(::recv(native(s), buffer, static_cast<IoLen>(size), 0));
+    while (true) {
+        const auto n = static_cast<std::ptrdiff_t>(::recv(native(s), buffer, static_cast<IoLen>(size), 0));
+#ifndef _WIN32
+        if (n < 0 && errno == EINTR) continue;
+#endif
+        return n;
+    }
+}
+
+void linger_close(Socket s, int maxMs, std::size_t maxBytes) {
+    if (s == kNoSocket) return;
+#ifdef _WIN32
+    ::shutdown(native(s), SD_SEND);
+#else
+    ::shutdown(native(s), SHUT_WR);
+#endif
+    set_io_timeouts(s, 100, 100);  // a client that went quiet ends the wait
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::max(maxMs, 0));
+    char buf[4096];
+    std::size_t total = 0;
+    while (total < maxBytes && std::chrono::steady_clock::now() < deadline) {
+        const std::ptrdiff_t n = recv_some(s, buf, sizeof buf);
+        if (n <= 0) break;  // the client closed (0) or has nothing more to say (timeout, error)
+        total += static_cast<std::size_t>(n);
+    }
+}
+
+bool secure_random(void* buffer, std::size_t size) {
+    if (size == 0) return true;
+#if defined(_WIN32)
+    return BCryptGenRandom(nullptr, static_cast<PUCHAR>(buffer), static_cast<ULONG>(size), BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0;
+#elif defined(__APPLE__)
+    arc4random_buf(buffer, size);
+    return true;
+#else
+#if defined(__linux__) && !defined(__ANDROID__)
+    std::size_t got = 0;
+    while (got < size) {
+        const ssize_t n = ::getrandom(static_cast<char*>(buffer) + got, size - got, 0);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        got += static_cast<std::size_t>(n);
+    }
+    if (got == size) return true;
+#endif
+    std::FILE* f = std::fopen("/dev/urandom", "rb");
+    if (!f) return false;
+    const bool ok = std::fread(buffer, 1, size, f) == size;
+    std::fclose(f);
+    return ok;
+#endif
+}
+
+bool constant_time_equal(std::string_view a, std::string_view b) {
+    if (a.size() != b.size()) return false;  // the length of a token is not a secret
+    unsigned char diff = 0;
+    for (std::size_t i = 0; i < a.size(); ++i) diff |= static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i]);
+    return diff == 0;
 }
 
 void set_io_timeouts(Socket s, int recvMs, int sendMs) {
@@ -151,6 +219,13 @@ Result<Listener> listen_tcp(bool allInterfaces, int backlog) {
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(allInterfaces ? INADDR_ANY : INADDR_LOOPBACK);
     addr.sin_port = 0;  // any free port
+#ifdef _WIN32
+    {
+        // Without it another program can bind the same port on a more specific address and receive our connections.
+        const BOOL exclusive = TRUE;
+        ::setsockopt(native(s), SOL_SOCKET, SO_EXCLUSIVEADDRUSE, reinterpret_cast<const char*>(&exclusive), sizeof exclusive);
+    }
+#endif
     if (::bind(native(s), reinterpret_cast<sockaddr*>(&addr), sizeof addr) != 0) return fail(s, "bind()");
     socklen_t length = sizeof addr;
     if (::getsockname(native(s), reinterpret_cast<sockaddr*>(&addr), &length) != 0) return fail(s, "getsockname()");
@@ -162,7 +237,14 @@ Result<Listener> listen_tcp(bool allInterfaces, int backlog) {
 }
 
 Socket accept_connection(Socket listener) {
-    const Socket c = static_cast<Socket>(::accept(native(listener), nullptr, nullptr));
+    Socket c;
+    while (true) {
+        c = static_cast<Socket>(::accept(native(listener), nullptr, nullptr));
+#ifndef _WIN32
+        if (c == kNoSocket && errno == EINTR) continue;
+#endif
+        break;
+    }
     if (c != kNoSocket) disable_sigpipe(c);
     return c;
 }

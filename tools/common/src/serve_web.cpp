@@ -5,13 +5,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
 #include <deque>
 #include <filesystem>
 #include <mutex>
-#include <random>
+#include <optional>
 #include <set>
 #include <thread>
 
@@ -36,24 +37,23 @@ constexpr std::size_t kMaxWaiting = 32;             // accepted connections wait
 constexpr int kRecvTimeoutMs = 5000;                // a connection that sends nothing for this long is closed
 constexpr int kSendTimeoutMs = 30000;               // a phone that takes this long for one chunk is gone
 constexpr int kHeadDeadlineMs = 10000;              // the whole request head must arrive within this (safety net against a trickle)
-constexpr std::uint64_t kMaxPhoneLines = 5000;      // log lines taken from pages in one run of the server
 constexpr std::size_t kMaxLogLine = 1000;           // bytes of one log line
 constexpr std::size_t kMaxLinesPerPost = 20;
 constexpr int kReaderWaitMs = 120000;               // safety net: waiting for the downloads of the folder the next export replaces
 
 using Clock = std::chrono::steady_clock;
 
+// 128 bits from the operating system's generator; "" when it has none (the server then does not start: a guessable token is no token).
 std::string random_token() {
-    std::random_device rd;
-    std::uint32_t mix = static_cast<std::uint32_t>(Clock::now().time_since_epoch().count());
+    unsigned char bytes[16];
+    if (!net::secure_random(bytes, sizeof bytes)) return {};
     static const char* const hex = "0123456789abcdef";
     std::string t;
-    for (int i = 0; i < 4; ++i) {
-        std::uint32_t v = rd() ^ mix;
-        mix = mix * 1664525u + 1013904223u;
-        for (int j = 0; j < 8; ++j, v >>= 4) t += hex[v & 15];
+    for (unsigned char b : bytes) {
+        t += hex[b >> 4];
+        t += hex[b & 15];
     }
-    return t;  // 128 bits
+    return t;
 }
 
 stdfs::path path_from_utf8(std::string_view s) {
@@ -170,7 +170,46 @@ std::string mime_type(std::string_view fileName) {
     return "application/octet-stream";  // game.pak and anything unknown
 }
 
-std::optional<std::string> safe_relative_path(std::string_view urlPath) {
+bool is_valid_utf8(std::string_view s) {
+    std::size_t i = 0;
+    while (i < s.size()) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        std::size_t extra;
+        std::uint32_t cp;
+        if (c < 0x80) { ++i; continue; }
+        if (c >= 0xC2 && c <= 0xDF) { extra = 1; cp = c & 0x1F; }
+        else if (c >= 0xE0 && c <= 0xEF) { extra = 2; cp = c & 0x0F; }
+        else if (c >= 0xF0 && c <= 0xF4) { extra = 3; cp = c & 0x07; }
+        else return false;  // a continuation byte alone, an overlong lead (C0, C1) or a lead beyond U+10FFFF
+        if (i + extra >= s.size()) return false;  // cut short
+        for (std::size_t k = 1; k <= extra; ++k) {
+            const unsigned char cc = static_cast<unsigned char>(s[i + k]);
+            if ((cc & 0xC0) != 0x80) return false;
+            cp = (cp << 6) | (cc & 0x3F);
+        }
+        if ((extra == 2 && cp < 0x800) || (extra == 3 && cp < 0x10000)) return false;  // overlong
+        if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;              // beyond Unicode, a surrogate
+        i += extra + 1;
+    }
+    return true;
+}
+
+// CON, PRN, AUX, NUL, COM1-9, LPT1-9 (and the superscript digits; also CONIN$ and CONOUT$), with or without an extension, in any case: Windows opens a device
+// instead of a file of that name, so they are refused on every platform (a game cannot ship such a file name there anyway).
+bool is_reserved_device_name(std::string_view segment) {
+    const std::size_t dot = segment.find('.');
+    std::string base = lower(segment.substr(0, dot));
+    while (!base.empty() && base.back() == ' ') base.pop_back();  // "con .txt" is the device too
+    if (base == "con" || base == "prn" || base == "aux" || base == "nul" || base == "conin$" || base == "conout$") return true;
+    if (base.rfind("com", 0) != 0 && base.rfind("lpt", 0) != 0) return false;
+    if (base.size() == 4) return base[3] >= '1' && base[3] <= '9';  // COM0 and LPT0 are ordinary names
+    // COM and LPT followed by the superscript digits 1, 2, 3 (U+00B9, U+00B2, U+00B3) are devices too.
+    return base.size() == 5 && static_cast<unsigned char>(base[3]) == 0xC2 &&
+           (static_cast<unsigned char>(base[4]) == 0xB9 || static_cast<unsigned char>(base[4]) == 0xB2 || static_cast<unsigned char>(base[4]) == 0xB3);
+}
+
+std::optional<std::string> safe_relative_path(std::string_view urlPath, bool* badEncoding) {
+    if (badEncoding) *badEncoding = false;
     std::string decoded;
     for (std::size_t i = 0; i < urlPath.size(); ++i) {
         const char c = urlPath[i];
@@ -186,6 +225,10 @@ std::optional<std::string> safe_relative_path(std::string_view urlPath) {
         }
     }
     if (decoded.empty()) return std::nullopt;
+    if (!is_valid_utf8(decoded)) {  // before any path is built from it: std::filesystem throws on invalid UTF-8 (MSVC)
+        if (badEncoding) *badEncoding = true;
+        return std::nullopt;
+    }
     // What is left after ONE decoding must be a plain relative path.
     for (char c : decoded) {
         const unsigned char u = static_cast<unsigned char>(c);
@@ -201,6 +244,7 @@ std::optional<std::string> safe_relative_path(std::string_view urlPath) {
         if (seg.empty() || seg[0] == '.') return std::nullopt;  // "", ".", "..", hidden files (.factoria-export)
         if (seg.back() == ' ') return std::nullopt;             // Windows drops trailing spaces and dots: "a. " names "a"
         if (seg.back() == '.') return std::nullopt;
+        if (is_reserved_device_name(seg)) return std::nullopt;
         if (!out.empty()) out += '/';
         out += seg;
         if (slash == decoded.size()) break;
@@ -261,7 +305,9 @@ struct WebServer::Impl {
     std::string state = "exporting", error, hint;
     std::vector<std::string> warnings;
     std::uint64_t version = 0, requests = 0, phoneLines = 0;
-    bool phoneCapLogged = false;
+    // Phone log lines are rate limited: at most opts.phoneLinesPerWindow per opts.phoneWindowMs, the rest dropped and counted.
+    Clock::time_point phoneWindowStart{};
+    std::uint64_t phoneWindowCount = 0, phoneWindowDropped = 0;
 
     struct Slot {
         stdfs::path root;  // the export folder served from this slot (<project>/build/serve-web/<a|b>/<slug>-web)
@@ -316,7 +362,16 @@ struct WebServer::Impl {
                 queue.pop_front();
                 live.insert(s);
             }
-            handle(s);
+            sentAny() = false;
+            lingerAfter() = false;
+            try {
+                handle(s);
+            } catch (...) {
+                // Nothing may escape a worker thread (std::terminate would end the editor): bad_alloc, a filesystem_error, a Json type error...
+                if (!sentAny()) respond_text(s, 500, "Internal error");
+                lingerAfter() = true;
+            }
+            if (lingerAfter()) net::linger_close(s);  // after an error answer: no RST over the answer (see net::linger_close)
             {
                 std::lock_guard<std::mutex> lock(m);
                 live.erase(s);  // before the close: stop() only shuts down sockets that are still in the set
@@ -326,6 +381,20 @@ struct WebServer::Impl {
     }
 
     // ---- responses ----
+
+    // Per worker thread: did this connection get any bytes, and does it end with a lingering close (an error answer).
+    static bool& sentAny() {
+        thread_local bool v = false;
+        return v;
+    }
+    static bool& lingerAfter() {
+        thread_local bool v = false;
+        return v;
+    }
+    static bool send_out(net::Socket s, std::string_view data) {
+        sentAny() = true;
+        return net::send_all(s, data);
+    }
 
     static std::string status_text(int code) {
         switch (code) {
@@ -337,6 +406,7 @@ struct WebServer::Impl {
             case 405: return "Method Not Allowed";
             case 413: return "Payload Too Large";
             case 431: return "Request Header Fields Too Large";
+            case 500: return "Internal Server Error";
             case 503: return "Service Unavailable";
             default: return "Error";
         }
@@ -354,7 +424,8 @@ struct WebServer::Impl {
     static void respond(net::Socket s, int code, const std::string& contentType, const std::string& body, bool headOnly, const std::string& extra = {}) {
         std::string out = head(code, contentType, body.size(), extra);
         if (!headOnly) out += body;
-        net::send_all(s, out);
+        if (code >= 400) lingerAfter() = true;
+        send_out(s, out);
     }
 
     static void respond_text(net::Socket s, int code, const std::string& text, bool headOnly = false, const std::string& extra = {}) {
@@ -440,7 +511,9 @@ struct WebServer::Impl {
         }
         // The token is the only door in: everything else is the same 404, so nothing tells a guess from a miss.
         const std::string prefix = "/" + token;
-        if (req.path != prefix && !starts_with(req.path, prefix + "/")) {
+        const bool tokenOk = req.path.size() >= prefix.size() && (req.path.size() == prefix.size() || req.path[prefix.size()] == '/') &&
+                             net::constant_time_equal(std::string_view(req.path).substr(1, token.size()), token);
+        if (!tokenOk) {
             respond_text(s, 404, "Not found", headOnly);
             return;
         }
@@ -463,9 +536,11 @@ struct WebServer::Impl {
         }
         std::string file = "index.html";
         if (!rest.empty()) {
-            auto safe = serve_web_detail::safe_relative_path(rest);
+            bool badEncoding = false;
+            auto safe = serve_web_detail::safe_relative_path(rest, &badEncoding);
             if (!safe) {
-                respond_text(s, 404, "Not found", headOnly);
+                if (badEncoding) respond_text(s, 400, "Bad request: the path is not valid UTF-8", headOnly);
+                else respond_text(s, 404, "Not found", headOnly);
                 return;
             }
             file = *safe;
@@ -475,8 +550,11 @@ struct WebServer::Impl {
 
     void handle_control(net::Socket s, const Request& req, const std::string& what, bool headOnly) {
         if (what == "version" && req.method != "POST") {
-            std::lock_guard<std::mutex> lock(m);
-            Json j = Json::object({{"version", version}, {"state", state}, {"error", error}});
+            Json j;
+            {
+                std::lock_guard<std::mutex> lock(m);  // copy under the lock, send after it: a slow phone must not hold up the export thread
+                j = Json::object({{"version", version}, {"state", state}, {"error", error}});
+            }
             respond(s, 200, "application/json", j.dump(-1, ' ', false, Json::error_handler_t::replace), headOnly);
             return;
         }
@@ -491,6 +569,28 @@ struct WebServer::Impl {
         respond_text(s, 404, "Not found", headOnly);
     }
 
+    // One phone log line is allowed or not: at most opts.phoneLinesPerWindow in each opts.phoneWindowMs, the rest are dropped, and
+    // the end of a window that dropped some says how many (so a page that logs in a loop cannot fill the log or the console).
+    bool phone_line_allowed() {
+        std::lock_guard<std::mutex> lock(m);
+        const auto now = Clock::now();
+        if (phoneWindowStart == Clock::time_point{} || now - phoneWindowStart >= std::chrono::milliseconds(opts.phoneWindowMs)) {
+            if (phoneWindowDropped > 0)
+                FA_WARN("phone", "{} log lines from the page were dropped (more than {} in {} s); the page may be logging in a loop",
+                        phoneWindowDropped, opts.phoneLinesPerWindow, opts.phoneWindowMs / 1000.0);
+            phoneWindowStart = now;
+            phoneWindowCount = 0;
+            phoneWindowDropped = 0;
+        }
+        if (phoneWindowCount >= static_cast<std::uint64_t>(opts.phoneLinesPerWindow)) {
+            ++phoneWindowDropped;
+            return false;
+        }
+        ++phoneWindowCount;
+        ++phoneLines;
+        return true;
+    }
+
     void accept_phone_log(net::Socket s, const std::string& body) {
         auto parsed = parse_json(body, "<phone log>");
         if (!parsed.ok() || !parsed->is_array()) {
@@ -501,26 +601,19 @@ struct WebServer::Impl {
         for (const Json& e : *parsed) {
             if (taken >= kMaxLinesPerPost) break;
             if (!e.is_object()) continue;
-            const std::string level = e.value("l", std::string("log")), text = e.value("t", std::string());
+            // Whatever the page sends: a field of another type is skipped, never read as a string (that throws).
+            std::string level = "log", text;
+            if (auto it = e.find("l"); it != e.end() && it->is_string()) level = it->get<std::string>();
+            if (auto it = e.find("t"); it != e.end() && it->is_string()) text = it->get<std::string>();
             if (text.empty()) continue;
-            {
-                std::lock_guard<std::mutex> lock(m);
-                if (phoneLines >= kMaxPhoneLines) {
-                    if (!phoneCapLogged) {
-                        phoneCapLogged = true;
-                        FA_WARN("phone", "{} log lines received from pages; the rest of this run is dropped (stop and start project.serve_web to see more)", kMaxPhoneLines);
-                    }
-                    break;
-                }
-                ++phoneLines;
-            }
+            if (!phone_line_allowed()) continue;  // dropped and counted
             ++taken;
             std::string clean;
-            for (char c : truncate_utf8(text, kMaxLogLine)) clean += (static_cast<unsigned char>(c) < 0x20 && c != '\t' && c != '\n') ? ' ' : c;
+            for (char c : truncate_utf8(text, kMaxLogLine)) clean += (static_cast<unsigned char>(c) < 0x20 && c != '\t') ? ' ' : c;
             const LogLevel lv = level == "error" ? LogLevel::Error : level == "warn" ? LogLevel::Warn : LogLevel::Info;
             log(lv, "phone", clean);
         }
-        net::send_all(s, head(204, "", 0));
+        send_out(s, head(204, "", 0));
     }
 
     // The slot to read files from, with its reader count raised; -1 when no export has finished yet.
@@ -598,7 +691,7 @@ struct WebServer::Impl {
             respond(s, 200, type, html, headOnly);
             return;
         }
-        if (!net::send_all(s, head(200, type, size))) return;
+        if (!send_out(s, head(200, type, size))) return;
         if (headOnly) return;
         std::string buf(64 * 1024, '\0');
         std::uint64_t sent = 0;
@@ -606,7 +699,7 @@ struct WebServer::Impl {
             in.read(buf.data(), static_cast<std::streamsize>(std::min<std::uint64_t>(buf.size(), size - sent)));
             const std::streamsize got = in.gcount();
             if (got <= 0) break;
-            if (!net::send_all(s, std::string_view(buf.data(), static_cast<std::size_t>(got)))) return;
+            if (!send_out(s, std::string_view(buf.data(), static_cast<std::size_t>(got)))) return;
             sent += static_cast<std::uint64_t>(got);
         }
         // A file shorter than announced: the connection closes, so the client sees a truncated download, not a wrong file.
@@ -776,6 +869,11 @@ Result<void> WebServer::start(const ServeWebOptions& options) {
     if (!listener.ok()) return listener.error();
     impl->listener = *listener;
     impl->token = random_token();
+    if (impl->token.empty()) {
+        net::close_socket(impl->listener.socket);
+        return make_error("project.serve_web: the operating system gave no random numbers for the address token",
+                          "restart the program; if it keeps happening, the system's random number generator is broken");
+    }
     if (options.lan) {
         impl->lanIps = net::lan_addresses();
         if (impl->lanIps.empty())
@@ -880,6 +978,90 @@ WebServer& web_server() {
     return server;
 }
 
+// ---- the command without waiting (the editor) ------------------------------------------------------------------------
+
+namespace {
+
+std::atomic<bool> g_blocking{true};
+
+// The helper thread of the non-waiting command: one job at a time (a start, or a stop).
+struct AsyncJob {
+    std::mutex mu;
+    std::thread thread;
+    std::atomic<bool> busy{false};
+    std::optional<std::pair<std::string, std::string>> error;  // why the last start failed: message, hint (reported once)
+};
+
+AsyncJob& async_job() {
+    static AsyncJob job;
+    return job;
+}
+
+bool serves_this(const ServeWebStatus& now, const ServeWebOptions& o, const std::string& projectDir) {
+    std::error_code ec;
+    return now.running && now.lan == o.lan &&
+           stdfs::weakly_canonical(stdfs::absolute(path_from_utf8(projectDir), ec), ec) == stdfs::weakly_canonical(path_from_utf8(now.projectDir), ec);
+}
+
+Json serve_without_waiting(const ServeWebOptions& o, const std::string& projectDir) {
+    AsyncJob& job = async_job();
+    WebServer& server = web_server();
+    std::lock_guard<std::mutex> lock(job.mu);
+    if (job.busy.load()) {
+        return Json::object({{"running", server.running()}, {"state", "starting"},
+                             {"note", "A start or stop is in progress on a helper thread: call project.serve_web again in a moment."}});
+    }
+    if (job.thread.joinable()) job.thread.join();  // finished (busy is false)
+    if (job.error) {
+        const auto err = *job.error;
+        job.error.reset();
+        throw CommandError("failed", err.first, err.second);
+    }
+    const ServeWebStatus now = server.status();
+    if (serves_this(now, o, projectDir)) {
+        if (now.state == "failed" && now.version == 0) {  // like the waiting form: nothing worth serving, no listener left behind
+            job.busy = true;
+            job.thread = std::thread([&job] {
+                web_server().stop();
+                job.busy = false;
+            });
+            throw CommandError("failed", now.error, now.hint);
+        }
+        Json j = now.to_json();
+        if (now.state == "exporting") j["note"] = "The web build is being exported: call project.serve_web again until state is \"ready\".";
+        return j;
+    }
+    job.busy = true;
+    job.thread = std::thread([&job, o] {
+        auto r = web_server().start(o);
+        if (!r.ok()) {
+            std::lock_guard<std::mutex> lk(job.mu);  // taken by the next call only after it joins this thread: no deadlock (see below)
+            job.error = std::make_pair(r.error().message, r.error().hint);
+        }
+        job.busy = false;
+    });
+    return Json::object({{"running", false}, {"state", "starting"},
+                         {"note", "The server starts and exports the web build on a helper thread (the first export takes seconds): call project.serve_web "
+                                  "again with the same arguments until state is \"ready\"; a start that fails is reported by that call."}});
+}
+
+}  // namespace
+
+void set_serve_web_blocking(bool blocking) { g_blocking = blocking; }
+
+void serve_web_shutdown() {
+    AsyncJob& job = async_job();
+    std::thread t;
+    {
+        std::lock_guard<std::mutex> lock(job.mu);
+        t = std::move(job.thread);
+    }
+    if (t.joinable()) t.join();
+    job.busy = false;
+    web_server().stop();
+}
+
+
 // ---- the command -----------------------------------------------------------------------------------------------------
 
 void register_serve_web_commands(CommandRegistry& registry, const std::string& projectDir) {
@@ -899,6 +1081,8 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
         "same Wi-Fi; the editor's File > Play on Phone... window shows it as a QR code. The server stops with the process or with {\"stop\":true}; it "
         "lives in the process that runs it: the editor, `factoria mcp` and `factoria session` keep it, a one-shot `factoria call` ends it when the call returns. "
         "Calling it again with the same project and `lan` returns the current status; with another `lan` it restarts the server (new port and token). "
+        "In the editor the call never waits: it answers {running:false, state:\"starting\"} while the server starts and exports on a helper thread; call it again "
+        "(same arguments) until state is \"ready\" (a start that failed is reported as an error by that call). Elsewhere (CLI, MCP, session) it waits for the first export. "
         "Limits: 8 connections answered at a time (32 waiting), requests bounded to 8 KB. Details: docs_read {\"name\":\"exporting\"}, section Web, and MOBILE.md.";
     info.inputSchema = Json::parse(R"({
       "type":"object",
@@ -922,6 +1106,22 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
                                    std::string("call project.serve_web {\"stop\":true} alone, or remove \"stop\" to start the server"));
             WebServer& server = web_server();
             const bool was = server.running();
+            if (!g_blocking.load()) {
+                // Stopping waits for a running export (seconds): off the caller's thread.
+                AsyncJob& job = async_job();
+                std::lock_guard<std::mutex> lock(job.mu);
+                if (!job.busy.load()) {
+                    if (job.thread.joinable()) job.thread.join();
+                    job.error.reset();
+                    job.busy = true;
+                    job.thread = std::thread([&job] {
+                        web_server().stop();
+                        job.busy = false;
+                    });
+                }
+                return Json::object({{"running", was}, {"stopping", was}, {"state", was ? "stopping" : "stopped"},
+                                     {"note", "The server is stopping on a helper thread; project.serve_web again to see that it is gone."}});
+            }
             server.stop();
             return Json::object({{"running", false}, {"stopped", was}});
         }
@@ -934,10 +1134,9 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
             o.playerBinary = (p.is_absolute() ? p : stdfs::path(projectDir) / p).lexically_normal().generic_string();
         }
         WebServer& server = web_server();
+        if (!g_blocking.load()) return serve_without_waiting(o, projectDir);
         const ServeWebStatus now = server.status();
-        std::error_code ec;
-        const bool same = now.running && now.lan == o.lan && stdfs::weakly_canonical(stdfs::absolute(stdfs::path(projectDir), ec), ec) ==
-                                                              stdfs::weakly_canonical(stdfs::path(now.projectDir), ec);
+        const bool same = serves_this(now, o, projectDir);
         if (!same) {
             if (auto r = server.start(o); !r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
         }

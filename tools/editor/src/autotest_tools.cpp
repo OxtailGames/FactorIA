@@ -8782,7 +8782,10 @@ void Editor::at_build_tools_script() {
     section("T2");
     // File > Play on Phone... (docs/EDITOR.md, "Play on Phone"): Start without a web player says how to get one; with a stand-in player the
     // server answers on its token, the window shows the LAN address as a QR code (or says there is none), a log line POSTed like the
-    // phone's page does lands in the log with category "phone", a changed file exports again, Stop closes the port. Every wait is a state.
+    // phone's page does lands in the log with category "phone", a changed file exports again, Stop closes the port. Every wait is a state
+    // (atWaitUntil_ holds the script for up to 60 s of wall clock, an export takes about a second: a loaded 4-vCPU VM has a wide margin).
+    // The window starts the server for the Wi-Fi (0.0.0.0) because the QR code of the LAN address is part of what this section checks;
+    // the requests below all go to 127.0.0.1, and the server of the unit tests (serve_web_test) binds loopback only except in its lan case.
     {
         struct Ps {
             int port = 0;

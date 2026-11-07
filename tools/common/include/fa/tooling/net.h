@@ -41,8 +41,18 @@ void shutdown_socket(Socket s);
 // Writes all of `data`; false when the peer is gone or the send timeout (set_io_timeouts) ran out. A closed peer never
 // raises SIGPIPE.
 bool send_all(Socket s, std::string_view data);
+// Ends a connection after an error answer without a reset: stops sending (the client sees the end of the answer), then reads and
+// discards what the client is still sending, for at most `maxMs` and `maxBytes`. Closing a socket with unread input makes the
+// system send an RST that can wipe the answer from the client's receive queue (Windows and macOS do it), so the client would
+// see "connection reset" instead of the status. The caller closes the socket afterwards.
+void linger_close(Socket s, int maxMs = 500, std::size_t maxBytes = 256 * 1024);
 // Reads up to `size` bytes: the count, 0 when the peer closed, a negative number on an error or when the receive timeout ran out.
 std::ptrdiff_t recv_some(Socket s, char* buffer, std::size_t size);
+// Fills `buffer` with random bytes from the operating system's generator (BCryptGenRandom, arc4random_buf, getrandom or
+// /dev/urandom), the kind a secret may come from. False when it is not available: never use a weaker source then.
+bool secure_random(void* buffer, std::size_t size);
+// Compares two strings without stopping at the first difference (the time does not tell how much of a secret matched).
+bool constant_time_equal(std::string_view a, std::string_view b);
 // Gives up a recv()/send() that waits longer than this (milliseconds; 0 = never).
 void set_io_timeouts(Socket s, int recvMs, int sendMs);
 // macOS: a write to a closed peer must not raise SIGPIPE (other systems pass MSG_NOSIGNAL to send()).
@@ -53,6 +63,8 @@ struct Listener {
     std::uint16_t port = 0;  // the port the system chose
 };
 // Listens on a free port of 127.0.0.1, or of every interface (0.0.0.0, so the LAN can connect) when `allInterfaces`.
+// On Windows the port is taken exclusively (SO_EXCLUSIVEADDRUSE): another program of this user cannot bind the same port
+// on a more specific address and receive the connections meant for this one.
 // The caller owns the socket (close_socket). The error says which call failed.
 Result<Listener> listen_tcp(bool allInterfaces, int backlog = 16);
 // accept(); kNoSocket when the listener was shut down or the call failed.

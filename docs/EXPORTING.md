@@ -1116,8 +1116,8 @@ report's `artifact` is that file (`format` is `html`); there is no zip. Base64 m
 about 1.4 times the size of the folder, and the browser decodes it before the first frame. It is meant for a small game, a
 jam entry, a demo to send to someone.
 
-- **Size limit.** The export refuses a page over `singleFileMaxMb` (`--single-file-max-mb`; default 64, from 1 to 512 MB of
-  1048576 bytes). The size is worked out from the sizes of the player files and the pack before the page is built (64-bit
+- **Size limit.** The export refuses a page over `singleFileMaxMb` (`--single-file-max-mb`; default 64, from 1 to 256 MB of
+  1048576 bytes; a fraction such as 0.5 is rounded to the nearest byte; 256 MB is about the biggest text a browser's JavaScript can hold). The size is worked out from the sizes of the player files and the pack before the page is built (64-bit
   math), so a game that is too big fails at once, with the size, the limit and how to fix it: make the game smaller
   ([ASSETS.md](ASSETS.md), "Import settings"), raise the limit (browsers get slow with pages over about 100 MB) or export the
   normal web folder and host it.
@@ -1159,12 +1159,20 @@ It returns `{running, state, url, lanUrl, urls, port, version, warnings}`.
 - **Safe by construction.** `.wasm` is sent as `application/wasm`, the other types by extension. The path is cut at the
   token, decoded once, and refused (404) when what is left has a `.` or `..` segment or a file name starting with a dot, a
   backslash, a control character, a drive colon or an empty segment (so `//etc/passwd`, `%2e%2e`, `%5c` and `%2f..` are all
-  refused), and only a regular file inside the build folder is sent. A request head is at most 8 KB (431), a log body 16 KB (413), 8 connections
+  refused; a name that is not valid UTF-8 is a 400, and a Windows device name such as `CON`, `NUL`, `COM1` or `LPT1`, with or without an
+  extension, is refused on every system), and only a regular file inside the build folder is sent. A request head is at most 8 KB (431), a log body 16 KB (413), 8 connections
   are answered at a time and 32 wait (more are closed), and a connection that sends nothing for 5 seconds is closed. Requests
-  are answered on the server's own threads: the editor's UI thread never waits for them.
+  are answered on the server's own threads: the editor's UI thread never waits for them. An error answer is followed by a short
+  lingering close (the server finishes sending, then reads what is left of the request for up to half a second), so the client
+  reads the status instead of a reset connection. The token comes from the operating system's random generator and is compared
+  in constant time. In the editor `project.serve_web` never waits either: it answers `state: "starting"` while a helper thread
+  starts the server and makes the first export, and the caller repeats the call (same arguments) until `state` is `ready`; a
+  start that failed is reported as the error of that call. The CLI, `factoria mcp` and `factoria session` wait for the first
+  export.
 - **The phone's console.** The served page posts what the game logs (`console.log/warn/error`, uncaught errors) to
   `<token>/__fa/log`; the lines are written to the engine log with category `phone`, so they show in the editor's Console and
-  in `game.logs`. At most 5000 lines per run of the server, 1000 bytes each.
+  in `game.logs`. At most 600 lines per minute, 1000 bytes each, a line break in a message becomes a space; when a minute ends
+  with lines dropped, one warning says how many.
 - **Plain http.** The page is not served over https, so a phone's browser may call it "not secure", and features that need a
   secure context are not available there (the game falls back where it can: audio uses the `ScriptProcessorNode` when the
   `AudioWorklet` is missing). Whether a feature works on the phone is for the phone's browser to say; the log line in the

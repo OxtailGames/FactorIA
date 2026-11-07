@@ -25,6 +25,7 @@
 #include "sokol_glue.h"
 #include "ui_backend.h"
 #include "fa/tooling/feedback_fixed.h"
+#include "fa/tooling/serve_web.h"
 #include "fa/tooling/setup.h"
 #include "fa/tooling/shaders.h"
 
@@ -221,7 +222,9 @@ void MainThreadQueue::reopen() {
 }
 
 // ------------------------------------------------------------------------------------------
-Editor::Editor(EditorOptions options) : options_(std::move(options)) {}
+Editor::Editor(EditorOptions options) : options_(std::move(options)) {
+    set_serve_web_blocking(false);  // project.serve_web runs on the UI thread here: it starts the server on a helper thread and answers "starting"
+}
 
 Editor::~Editor() {
     ai_stop("editor_closing");
@@ -238,6 +241,8 @@ Editor::~Editor() {
     if (updateThread_.joinable()) updateThread_.join();
     if (launcherThread_.joinable()) launcherThread_.join();
     share_.join_all();  // sign-in, flush and AI review threads (they only touch share_)
+    phone_.wait();       // the Play on Phone window's start or stop...
+    serve_web_shutdown();  // ...the helper thread of project.serve_web, and the server itself: no thread of it outlives the editor
 }
 
 int Editor::run() {
