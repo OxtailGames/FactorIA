@@ -17,6 +17,7 @@
 #include "fa/core/strings.h"
 #include "fa/tooling/ai_disclosure.h"
 #include "fa/tooling/palette.h"
+#include "fa/tooling/review.h"
 #include "fa/tooling/style_guide.h"
 #include "util.h"
 
@@ -106,14 +107,16 @@ std::string required_text(const Json& args, const char* key) {
 }
 
 // The project-relative, normalized path of the file to write; it must be under assets/.
-std::string asset_path(const Json& args) {
-    const std::string raw = str(args, "path");
+// `key` names the argument ("path", or "slot" for assets.pick, whose errors start with the JSON pointer).
+std::string asset_path(const Json& args, const char* key = "path") {
+    const std::string raw = str(args, key);
+    const std::string where = std::string(key) == "path" ? std::string() : std::format("/{}: ", key);
     auto n = fs::normalize_checked(raw);
-    if (!n) fail("invalid_path", n.error());
+    if (!n) throw CommandError("invalid_path", where + n.error().message, n.error().hint);
     const std::string& p = n.value();
     if (fs::is_absolute(raw) || p.rfind("assets/", 0) != 0 || p.back() == '/') {
         const std::string name = fs::filename(p).empty() ? "file.png" : fs::filename(p);
-        throw CommandError("invalid_path", std::format("'{}' is not a file under assets/", raw),
+        throw CommandError("invalid_path", std::format("{}'{}' is not a file under assets/", where, raw),
                            std::format("Assets live under assets/ in the project, for example 'assets/{}'.", name));
     }
     return p;
@@ -132,6 +135,21 @@ void require_free(const std::string& path, bool overwrite) {
         throw CommandError("exists", std::format("'{}' already exists", path),
                            "Pass overwrite:true to replace it (the old file is not kept), or choose another path.");
     }
+}
+
+// ---- Candidates ---------------------------------------------------------------------------------------------------
+
+constexpr int kMaxCandidates = 4;                                          // assets.generate_image `count`
+constexpr const char* kCandidatesKind = "assetCandidates";                 // meta.kind of a candidates sheet
+constexpr const char* kCandidatesDropDir = ".factoria/assets/candidates";  // where assets.pick moves the candidates not chosen
+
+// The files of `count` candidates for `slot`: next to it, "<stem>.candidate-<n>.png" (n from 1).
+std::vector<std::string> candidate_paths(const std::string& slot, int count) {
+    std::vector<std::string> out;
+    const std::string dir = fs::parent(slot);
+    for (int n = 1; n <= count; ++n)
+        out.push_back((dir.empty() ? std::string() : dir + "/") + fs::stem(slot) + ".candidate-" + std::to_string(n) + fs::extension(slot));
+    return out;
 }
 
 // ---- Style ------------------------------------------------------------------------------------------------------------
@@ -229,8 +247,9 @@ AssetTarget resolve_target(const Ctx& ctx, const AiConfig& cfg, const Json& args
 
 // Before the provider is called: the estimate, the limits and the user's yes (docs/AI_COSTS.md, "Asset generation"). When go() is false
 // the command returns needs_approval() and calls nothing. The guard counts the money as spent until it is destroyed uncommitted.
+// `count` calls like `request` are asked for at once (the candidates of assets.generate_image): one estimate, one question, one yes.
 AssetCostGuard cost_gate(const Ctx& ctx, const AiConfig& cfg, const Json& args, const char* command, const std::string& what,
-                         const std::string& prompt, const AssetTarget& target, const AssetRequest& request) {
+                         const std::string& prompt, const AssetTarget& target, const AssetRequest& request, int count = 1) {
     AssetCall call;
     call.command = command;
     call.what = what;
@@ -239,7 +258,7 @@ AssetCostGuard cost_gate(const Ctx& ctx, const AiConfig& cfg, const Json& args, 
     call.provider = target.provider->name;
     call.model = target.model;
     call.kind = request.kind;
-    call.estimate = estimate_asset_cost(*target.provider, request, 1);
+    call.estimate = estimate_asset_cost(*target.provider, request, count);
     call.cancel = ctx.cancel;
     return AssetCostGuard::begin(cfg.limits, call, flag(args, "approved"));
 }
@@ -260,17 +279,24 @@ struct ImageJob {
     const char* command = "assets.generate_image";
 };
 
-Json generate_image_file(const Ctx& ctx, const Json& args, const ImageJob& job) {
-    require_extension(job.path, ".png", "generated images are written as PNG");
-    require_free(job.path, flag(args, "overwrite"));
-    const AiConfig cfg = load_ai_config(ctx);
-    const AssetTarget target = resolve_target(ctx, cfg, args, MediaKind::Image);
-    const Style style = flag(args, "style", true) ? load_style() : Style{};
-
+// What every picture of a call shares: the provider, the house style, the request (the seed of each candidate is set apart).
+struct ImagePlan {
+    AiConfig cfg;
+    AssetTarget target;
+    Style style;
     AssetRequest request;
+    std::vector<std::string> referencePaths;
+};
+
+ImagePlan plan_image(const Ctx& ctx, const Json& args, const ImageJob& job) {
+    ImagePlan plan;
+    plan.cfg = load_ai_config(ctx);
+    plan.target = resolve_target(ctx, plan.cfg, args, MediaKind::Image);
+    plan.style = flag(args, "style", true) ? load_style() : Style{};
+    AssetRequest& request = plan.request;
     request.kind = MediaKind::Image;
-    request.prompt = style.prompt.empty() ? job.prompt : job.prompt + "\n\nStyle: " + style.prompt;
-    request.model = target.model;
+    request.prompt = plan.style.prompt.empty() ? job.prompt : job.prompt + "\n\nStyle: " + plan.style.prompt;
+    request.model = plan.target.model;
     request.width = job.width;
     request.height = job.height;
     request.columns = job.columns;
@@ -278,11 +304,57 @@ Json generate_image_file(const Ctx& ctx, const Json& args, const ImageJob& job) 
     request.transparent = job.transparent;
     request.seed = seed_arg(args);
     std::vector<std::string> referencePaths = string_list(args, "references");
-    referencePaths.insert(referencePaths.end(), style.references.begin(), style.references.end());
-    referencePaths = unique_paths(referencePaths);
-    request.references = load_references(referencePaths);
+    referencePaths.insert(referencePaths.end(), plan.style.references.begin(), plan.style.references.end());
+    plan.referencePaths = unique_paths(referencePaths);
+    request.references = load_references(plan.referencePaths);
+    return plan;
+}
 
-    AssetCostGuard guard = cost_gate(ctx, cfg, args, job.command,
+// A picture the provider made, fitted to the job and written at `path` (assets.json is not touched here).
+struct WrittenImage {
+    Image image;
+    std::size_t bytes = 0;
+    std::string notes;  // what was done to the provider's picture (resized, reduced to the palette)
+};
+
+WrittenImage write_image(const ImageJob& job, const ImagePlan& plan, const AssetResult& made, const std::string& path) {
+    auto decoded = decode_image(reinterpret_cast<const std::uint8_t*>(made.bytes.data()), made.bytes.size());
+    if (!decoded) {
+        throw CommandError("bad_output",
+                           std::format("The provider '{}' returned data that is not an image: {}", plan.target.provider->name, decoded.error().message),
+                           "Check the provider and model with ai.providers (action doctor).");
+    }
+    WrittenImage out;
+    out.image = std::move(*decoded);
+    if (out.image.width != job.width || out.image.height != job.height) {
+        out.notes = std::format("Resized from {}x{}.", out.image.width, out.image.height);
+        out.image = resize_image(out.image, job.width, job.height);
+    }
+    if (plan.style.palette) {
+        out.image = quantize_to_palette(out.image, *plan.style.palette);
+        out.notes += std::format("{}Reduced to the {} colours of the style palette.", out.notes.empty() ? "" : " ", plan.style.palette->size());
+    }
+    const std::vector<std::uint8_t> png = encode_png(out.image);
+    if (auto w = fs::write_bytes(path, png.data(), png.size()); !w) fail("write_failed", w.error());
+    out.bytes = png.size();
+    return out;
+}
+
+void warn_unsent_references(std::vector<std::string>& warnings, const ImagePlan& plan, const AssetResult& made) {
+    if (!plan.request.references.empty() && !made.usedReferences) {
+        warnings.push_back(std::format("The provider '{}' cannot take reference images, so the {} reference(s) were not sent (the style prompt was).",
+                                       plan.target.provider->name, plan.request.references.size()));
+    }
+}
+
+Json generate_image_file(const Ctx& ctx, const Json& args, const ImageJob& job) {
+    require_extension(job.path, ".png", "generated images are written as PNG");
+    require_free(job.path, flag(args, "overwrite"));
+    const ImagePlan plan = plan_image(ctx, args, job);
+    const AssetTarget& target = plan.target;
+    const AssetRequest& request = plan.request;
+
+    AssetCostGuard guard = cost_gate(ctx, plan.cfg, args, job.command,
                                      job.columns > 0 ? std::format("a {}x{} sprite sheet ({} columns by {} rows) at {}", job.width, job.height, job.columns, job.rows, job.path)
                                                      : std::format("a {}x{} image at {}", job.width, job.height, job.path),
                                      job.prompt, target, request);
@@ -291,44 +363,173 @@ Json generate_image_file(const Ctx& ctx, const Json& args, const ImageJob& job) 
     if (!made) fail("generation_failed", made.error());
     guard.commit();
 
-    auto decoded = decode_image(reinterpret_cast<const std::uint8_t*>(made->bytes.data()), made->bytes.size());
-    if (!decoded) {
-        throw CommandError("bad_output",
-                           std::format("The provider '{}' returned data that is not an image: {}", target.provider->name, decoded.error().message),
-                           "Check the provider and model with ai.providers (action doctor).");
-    }
-    Image image = std::move(*decoded);
-    std::string notes;
-    if (image.width != job.width || image.height != job.height) {
-        notes = std::format("Resized from {}x{}.", image.width, image.height);
-        image = resize_image(image, job.width, job.height);
-    }
-    if (style.palette) {
-        image = quantize_to_palette(image, *style.palette);
-        notes += std::format("{}Reduced to the {} colours of the style palette.", notes.empty() ? "" : " ", style.palette->size());
-    }
-    const std::vector<std::uint8_t> png = encode_png(image);
-    if (auto w = fs::write_bytes(job.path, png.data(), png.size()); !w) fail("write_failed", w.error());
-
+    const WrittenImage written = write_image(job, plan, *made, job.path);
     std::vector<std::string> warnings;
-    if (!request.references.empty() && !made->usedReferences) {
-        warnings.push_back(std::format("The provider '{}' cannot take reference images, so the {} reference(s) were not sent (the style prompt was).",
-                                       target.provider->name, request.references.size()));
-    }
+    warn_unsent_references(warnings, plan, *made);
     warn_ignored_seed(warnings, request, *made, *target.provider);
 
     const Json provenance = generated_provenance(args, *target.provider, *made, MediaKind::Image, request.prompt,
-                                                 made->usedReferences ? referencePaths : std::vector<std::string>(), notes);
+                                                 made->usedReferences ? plan.referencePaths : std::vector<std::string>(), written.notes);
     record(job.path, provenance, job.sheet);
 
     Json out = Json::object({{"path", job.path},
-                             {"width", image.width},
-                             {"height", image.height},
-                             {"bytes", png.size()},
+                             {"width", written.image.width},
+                             {"height", written.image.height},
+                             {"bytes", written.bytes},
                              {"provenance", provenance}});
     add_cost(out, guard, warnings);
     if (!warnings.empty()) out["warnings"] = warnings;
     out["$image"] = Json::object({{"path", fs::resolve(job.path).string()}, {"mimeType", "image/png"}});
+    return out;
+}
+
+// ---- Candidates (count > 1) -------------------------------------------------------------------------------------------
+
+// A seed for the first candidate when the call gives none: the same prompt gives the same candidates (FNV-1a of the prompt, 31 bits).
+i64 prompt_seed(const std::string& prompt) {
+    std::uint32_t h = 2166136261u;
+    for (const unsigned char c : prompt) {
+        h ^= c;
+        h *= 16777619u;
+    }
+    return static_cast<i64>(h & 0x7fffffffu);
+}
+
+// `text` on one line, at most `maxBytes` bytes, cut at a UTF-8 character boundary ("..." when cut).
+std::string one_line(const std::string& text, std::size_t maxBytes) {
+    std::string flat;
+    for (const char c : text) flat.push_back(c == '\n' || c == '\r' || c == '\t' ? ' ' : c);
+    if (flat.size() <= maxBytes) return flat;
+    std::size_t cut = maxBytes > 3 ? maxBytes - 3 : 0;
+    while (cut > 0 && (static_cast<unsigned char>(flat[cut]) & 0xC0) == 0x80) --cut;
+    return flat.substr(0, cut) + "...";
+}
+
+// assets.generate_image with count 2..4: N pictures for ONE slot, written next to it, shown on one review sheet; assets.pick keeps one.
+Json generate_image_candidates(const Ctx& ctx, const Json& args, const ImageJob& job, int count) {
+    require_extension(job.path, ".png", "generated images are written as PNG");
+    const bool overwrite = flag(args, "overwrite");
+    require_free(job.path, overwrite);
+    const std::vector<std::string> paths = candidate_paths(job.path, count);
+    // Everything that can be refused is refused before anything is paid for.
+    std::vector<std::string> taken;
+    for (const std::string& p : paths)
+        if (fs::exists(p)) taken.push_back(p);
+    if (!taken.empty() && !overwrite) {
+        throw CommandError("exists",
+                           std::format("assets.generate_image /count: the candidate file(s) {} already exist", join(taken, ", ")),
+                           "They are likely the candidates of an earlier call for this slot: answer that sheet with assets.pick {\"slot\": \"" + job.path +
+                               "\", \"n\": <the person's number>} first, or pass overwrite:true to make new ones in their place (the old ones are not kept).");
+    }
+    const std::string projectDir = ctx.projectDir();
+    for (const std::string& p : paths) {
+        if (const std::string why = review_candidate_problem(projectDir, "image", p); !why.empty())
+            throw CommandError("invalid_path", std::format("assets.generate_image /path: the candidates of '{}' cannot be made: {}", job.path, why),
+                               "Use a slot under assets/, for example 'assets/items/potion.png'.");
+    }
+    Json meta = Json::object({{"kind", kCandidatesKind},
+                              {"slot", job.path},
+                              {"command", "assets.generate_image"},
+                              {"count", count},
+                              {"candidates", paths},
+                              {"overwrite", overwrite},
+                              {"estimatedCostUsd", nullptr}});
+    if (meta.dump().size() > std::size_t(kReviewMetaMaxBytes)) {
+        throw CommandError("invalid_path", std::format("assets.generate_image /path: '{}' is too long for a sheet of {} candidates", job.path, count),
+                           "Use a shorter path for the slot (folders and file name), or count 1.");
+    }
+
+    const ImagePlan plan = plan_image(ctx, args, job);
+    const AssetTarget& target = plan.target;
+    const std::optional<i64> askedSeed = plan.request.seed;
+    const i64 baseSeed = askedSeed ? *askedSeed : prompt_seed(job.prompt);
+    AssetCostGuard guard = cost_gate(ctx, plan.cfg, args, job.command,
+                                     std::format("{} candidate {}x{} images for {} (one is kept with assets.pick)", count, job.width, job.height, job.path),
+                                     job.prompt, target, plan.request, count);
+    if (!guard.go()) return guard.needs_approval();
+    meta["estimatedCostUsd"] = guard.cost_json().value("estimatedCostUsd", Json(nullptr));
+
+    std::vector<std::string> warnings;
+    Json made = Json::array();
+    std::vector<std::string> written;
+    // A failure part way: what was made stays (it is paid for, and its provenance is recorded), and the error says so.
+    const auto fail_part_way = [&](int paid, int failedN, const std::string& message, const std::string& hint) {
+        const double kept = guard.commit_part(paid, count);
+        std::string text = std::format("assets.generate_image: candidate {} of {} for '{}' failed: {}.", failedN, count, job.path, message);
+        text += written.empty() ? " No candidate was written." : std::format(" Written and kept (with their provenance in assets.json): {}.", join(written, ", "));
+        text += std::format(" Estimated cost of what was made: {} (the rest of the estimate was given back).", format_usd(kept));
+        throw CommandError("generation_failed", text,
+                           (hint.empty() ? "" : hint + " ") +
+                               (written.empty() ? std::string("Nothing is left behind; try again when the provider works.")
+                                                : "No review sheet was made. Delete the written candidates, or show them with review.sheet (candidate:true, dropDir \"" +
+                                                      std::string(kCandidatesDropDir) + "\") and keep one; calling again with overwrite:true makes all " +
+                                                      std::to_string(count) + " again (and pays for them again)."),
+                           Json::object({{"written", written}, {"failedCandidate", failedN}, {"count", count}, {"estimatedCostUsd", kept}, {"costIsEstimate", true}}));
+    };
+    for (int i = 0; i < count; ++i) {
+        AssetRequest request = plan.request;
+        request.seed = static_cast<i64>(static_cast<std::uint64_t>(baseSeed) + static_cast<std::uint64_t>(i));
+        auto result = generate_asset(*target.provider, request, ctx.runtime, ctx.cancel);
+        if (!result) fail_part_way(i, i + 1, result.error().message, result.error().hint);
+        WrittenImage picture;
+        try {
+            picture = write_image(job, plan, *result, paths[std::size_t(i)]);
+        } catch (const CommandError& e) {
+            fail_part_way(i + 1, i + 1, e.what(), e.hint);
+        }
+        written.push_back(paths[std::size_t(i)]);
+        if (i == 0) {
+            warn_unsent_references(warnings, plan, *result);
+            if (askedSeed) warn_ignored_seed(warnings, request, *result, *target.provider);
+        }
+        Json provenance = generated_provenance(args, *target.provider, *result, MediaKind::Image, request.prompt,
+                                               result->usedReferences ? plan.referencePaths : std::vector<std::string>(), picture.notes);
+        provenance["candidate"] = Json::object({{"slot", job.path}, {"n", i + 1}, {"count", count}});
+        try {
+            record(paths[std::size_t(i)], provenance);
+        } catch (const CommandError& e) {
+            fail_part_way(i + 1, i + 1, e.what(), e.hint);
+        }
+        Json c = Json::object({{"n", i + 1}, {"path", paths[std::size_t(i)]}, {"width", picture.image.width}, {"height", picture.image.height}, {"bytes", picture.bytes}});
+        if (result->seed) c["seed"] = *result->seed;
+        made.push_back(std::move(c));
+    }
+    guard.commit();
+
+    // One sheet with every candidate, through review.sheet itself (the same checks, the same manifest, the same pick).
+    Json items = Json::array();
+    for (const Json& c : made) {
+        const std::string label = c.contains("seed") ? "seed " + std::to_string(c["seed"].get<i64>()) : "candidate " + std::to_string(c["n"].get<int>());
+        items.push_back(Json::object({{"image", c["path"]}, {"label", label}, {"candidate", true}}));
+    }
+    const Json sheetArgs = Json::object({{"label", one_line(job.prompt, 120)}, {"items", items}, {"dropDir", kCandidatesDropDir}, {"meta", meta}});
+    ReviewOutcome sheet = review_sheet(projectDir, sheetArgs);
+    if (!sheet.ok) {
+        throw CommandError(sheet.code.empty() ? "failed" : sheet.code,
+                           std::format("assets.generate_image: the {} candidates were made ({}), but their review sheet could not be: {}", count, join(written, ", "), sheet.message),
+                           (sheet.hint.empty() ? "" : sheet.hint + " ") + "The candidates are kept with their provenance. Call review.sheet with `reviewSheet` of this error's data, then assets.pick.",
+                           Json::object({{"written", written}, {"reviewSheet", sheetArgs}}));
+    }
+    const std::string sheetId = sheet.value.value("sheet", std::string());
+    if (const auto w = sheet.value.find("warnings"); w != sheet.value.end() && w->is_array())
+        for (const Json& text : *w)
+            if (text.is_string()) warnings.push_back(text.get<std::string>());
+
+    Json out = Json::object({{"slot", job.path},
+                             {"count", count},
+                             {"candidates", made},
+                             {"sheet", sheetId},
+                             {"sheetPicture", sheet.value.value("picture", Json::object())}});
+    if (sheet.value.contains("housekeeping")) out["housekeeping"] = sheet.value["housekeeping"];
+    add_cost(out, guard, warnings);
+    if (!warnings.empty()) out["warnings"] = warnings;
+    out["nextSteps"] = Json::array(
+        {"Show the sheet (the picture of this result) to the person and ask for ONE number from 1 to " + std::to_string(count) + ". Do not choose for them.",
+         "Then call assets.pick {\"slot\": \"" + job.path + "\", \"n\": <their number>}: that candidate becomes " + job.path +
+             " with its provenance, and the others move to " + kCandidatesDropDir + "/" + sheetId + "/ (deleted " + std::to_string(kReviewDroppedDays) +
+             " days later by review.cleanup).",
+         "Until then the candidates are files under assets/ next to the slot (an export would ship them): pick before exporting."});
+    if (sheet.value.contains("$image")) out["$image"] = sheet.value["$image"];
     return out;
 }
 
@@ -339,6 +540,13 @@ Json generate_image(const Ctx& ctx, const Json& args) {
     job.width = static_cast<int>(num(args, "width", 512));
     job.height = static_cast<int>(num(args, "height", 512));
     job.transparent = flag(args, "transparent");
+    const double countArg = num(args, "count", 1);
+    if (!(countArg >= 1 && countArg <= kMaxCandidates) || countArg != std::floor(countArg)) {
+        throw CommandError("invalid_argument", std::format("assets.generate_image /count: {} is not a whole number from 1 to {}", countArg, kMaxCandidates),
+                           std::format("count is how many candidates to make for the slot (default 1, at most {}); the person picks one from one sheet.", kMaxCandidates));
+    }
+    const int count = static_cast<int>(countArg);
+    if (count > 1) return generate_image_candidates(ctx, args, job, count);
     return generate_image_file(ctx, args, job);
 }
 
@@ -576,6 +784,291 @@ Json schema(const std::string& properties, const std::string& required) {
     return Json::parse(R"({"type":"object","properties":{)" + properties + R"(},"required":)" + required + R"(,"additionalProperties":false})");
 }
 
+// ---- assets.pick ------------------------------------------------------------------------------------------------------
+
+ReviewOutcome refuse(const std::string& code, std::string message, std::string hint) {
+    ReviewOutcome o;
+    o.ok = false;
+    o.code = code;
+    o.message = std::move(message);
+    o.hint = std::move(hint);
+    return o;
+}
+
+// The item number `n` of a manifest item (a file anyone can edit: anything but a whole number is 0).
+int item_number(const Json& item) {
+    const Json* n = child(item, "n");
+    return n && n->is_number_integer() ? static_cast<int>(std::clamp<i64>(n->get<i64>(), 0, kReviewMaxItems)) : 0;
+}
+
+bool candidates_sheet_for(const Json& meta, const std::string& slot) {
+    return meta.is_object() && str(meta, "kind") == kCandidatesKind && review_path_key(str(meta, "slot")) == review_path_key(slot);
+}
+
+// The sheet assets.pick answers: the one given, or the newest unanswered candidates sheet of the slot.
+std::string find_candidates_sheet(const std::string& projectDir, const std::string& slot, const std::string& given) {
+    if (!given.empty()) {
+        ReviewOutcome loaded = review_load(projectDir, given);
+        if (!loaded.ok) throw CommandError(loaded.code, "assets.pick /sheet: " + loaded.message, loaded.hint);
+        const Json meta = loaded.value.value("meta", Json::object());
+        if (!candidates_sheet_for(meta, slot)) {
+            const std::string kind = str(meta, "kind");
+            throw CommandError("invalid_argument",
+                               kind != kCandidatesKind
+                                   ? std::format("assets.pick /sheet: '{}' is not a sheet of asset candidates (it was not made by assets.generate_image with count)", given)
+                                   : std::format("assets.pick /sheet: '{}' holds the candidates of '{}', not of '{}'", given, str(meta, "slot"), slot),
+                               kind != kCandidatesKind ? "Answer other sheets with review.pick, or leave out `sheet` to answer the newest candidates sheet of the slot."
+                                                       : "Pass the slot that sheet was made for, or leave out `sheet` to answer the newest candidates sheet of '" + slot + "'.");
+        }
+        return str(loaded.value, "id", given);
+    }
+    ReviewOutcome listed = review_list(projectDir, kReviewListMax);
+    if (!listed.ok) throw CommandError(listed.code, "assets.pick: " + listed.message, listed.hint);
+    std::vector<std::string> slots;
+    std::string answered;
+    const Json sheets = listed.value.value("sheets", Json::array());
+    for (const Json& sheet : sheets) {  // newest first
+        const Json meta = sheet.value("meta", Json::object());
+        if (!meta.is_object() || str(meta, "kind") != kCandidatesKind) continue;
+        if (!candidates_sheet_for(meta, slot)) {
+            if (const std::string other = str(meta, "slot"); !other.empty() && std::find(slots.begin(), slots.end(), other) == slots.end()) slots.push_back(other);
+            continue;
+        }
+        const auto picked = sheet.find("picked");
+        if (picked == sheet.end() || picked->is_null()) return str(sheet, "id");
+        if (answered.empty()) answered = str(sheet, "id");
+    }
+    if (!answered.empty()) {
+        throw CommandError("already_picked", std::format("assets.pick /slot: the candidates of '{}' were already picked ({}), and no newer sheet waits for an answer", slot, answered),
+                           "A choice is final. To choose again make new candidates with assets.generate_image {\"path\": \"" + slot +
+                               "\", \"count\": 3, \"overwrite\": true}, show the sheet and ask again.");
+    }
+    throw CommandError("not_found",
+                       std::format("assets.pick /slot: there is no sheet of candidates for '{}'.{}", slot,
+                                   slots.empty() ? std::string(" No candidates sheet waits for an answer.") : " " + did_you_mean(slot, slots)),
+                       "Make candidates first with assets.generate_image {\"path\": \"" + slot + "\", \"count\": 3}; review.list shows every sheet.");
+}
+
+// What the pick changed, so an undo can put it back.
+struct PickState {
+    std::string slot, candidate, backupRel;
+    std::filesystem::path absSlot, absCandidate, absBackup;
+    bool movedOld = false, movedChosen = false, manifestChanged = false;
+    std::vector<std::pair<std::string, Json>> oldEntries;  // assets.json entries before the change (null: there was none)
+};
+
+// Puts back what the pick did, the last step first; returns what could not be put back ("" = all).
+std::string undo_pick(PickState& st) {
+    std::vector<std::string> stuck;
+    if (st.manifestChanged) {
+        auto r = assets::update_manifest([&](Json& doc) {
+            if (!doc.contains("assets") || !doc["assets"].is_object()) doc["assets"] = Json::object();
+            Json& list = doc["assets"];
+            for (const auto& [key, entry] : st.oldEntries) {
+                if (entry.is_null()) list.erase(key);
+                else list[key] = entry;
+            }
+        });
+        if (!r) stuck.push_back("the assets.json entries of " + st.slot + " and its candidates (" + r.error().message + ")");
+        else st.manifestChanged = false;
+    }
+    std::error_code ec;
+    if (st.movedChosen) {
+        fs::replace_file(st.absSlot, st.absCandidate, ec);
+        if (ec) stuck.push_back(st.slot + " -> " + st.candidate + " (" + ec.message() + ")");
+        else st.movedChosen = false;
+    }
+    if (st.movedOld) {
+        ec.clear();
+        fs::replace_file(st.absBackup, st.absSlot, ec);
+        if (ec) stuck.push_back(st.backupRel + " -> " + st.slot + " (" + ec.message() + ")");
+        else st.movedOld = false;
+    }
+    return join(stuck, "; ");
+}
+
+ReviewOutcome move_failure(const std::string& what, const std::string& from, const std::string& to, const std::error_code& ec) {
+    const bool busy = fs::is_sharing_violation(ec);
+    return refuse(busy ? "busy" : "failed", std::format("assets.pick: cannot move {} '{}' to '{}': {}.", what, from, to, ec.message()),
+                  busy ? "The file is open in another program (an image viewer, the editor, an antivirus scan). Close it and call assets.pick again."
+                       : "Check that the project folder is writable, then call assets.pick again.");
+}
+
+// After the other candidates moved: the old slot file to the drop folder, the chosen one onto the slot, its provenance to the slot.
+ReviewOutcome apply_pick(PickState& st, const Json& sheetMeta, const std::string& sheetId, const Json& chosen, const std::string& dropFolder) {
+    Json dropped = Json::array();
+    std::error_code ec;
+    if (fs::exists(st.slot)) {
+        if (dropFolder.empty())
+            return refuse("failed", std::format("assets.pick: {} names no usable drop folder, so the old '{}' cannot be kept", sheetId, st.slot),
+                          std::string("Edit dropDir in the sheet's manifest back to \"") + kCandidatesDropDir + "\", or remove the old file first.");
+        st.backupRel = dropFolder + "/" + review_drop_file_name(0, st.slot);
+        st.absBackup = fs::os_path(fs::resolve(st.backupRel));
+        if (std::filesystem::exists(st.absBackup, ec))
+            return refuse("exists", std::format("assets.pick: '{}' already exists, so the old '{}' cannot be kept there", st.backupRel, st.slot),
+                          "Move that file away, then call assets.pick again.");
+        std::filesystem::create_directories(st.absBackup.parent_path(), ec);
+        if (ec) return refuse("failed", std::format("assets.pick: cannot create '{}': {}", dropFolder, ec.message()), "Check that the project folder is writable.");
+        fs::replace_file(st.absSlot, st.absBackup, ec);
+        if (ec) return move_failure("the old", st.slot, st.backupRel, ec);
+        st.movedOld = true;
+        dropped.push_back(Json::object({{"n", 0}, {"label", "the old " + fs::filename(st.slot)}, {"from", st.slot}, {"to", st.backupRel}}));
+    }
+    ec.clear();
+    std::filesystem::create_directories(st.absSlot.parent_path(), ec);
+    ec.clear();
+    fs::replace_file(st.absCandidate, st.absSlot, ec);
+    if (ec) {
+        ReviewOutcome failed = move_failure("the chosen candidate", st.candidate, st.slot, ec);
+        if (const std::string stuck = undo_pick(st); !stuck.empty()) failed.message += " Could not put back, move by hand: " + stuck + ".";
+        return failed;
+    }
+    st.movedChosen = true;
+
+    // assets.json: the slot gets the chosen candidate's provenance, and the candidates' own entries go.
+    const Json& meta = sheetMeta;
+    std::vector<std::string> keys{st.slot};
+    if (const Json* list = child(meta, "candidates"); list && list->is_array())
+        for (const Json& c : *list)
+            if (c.is_string())
+                if (const std::string k = fs::normalize(c.get<std::string>()); !k.empty() && k.rfind("assets/", 0) == 0 && std::find(keys.begin(), keys.end(), k) == keys.end())
+                    keys.push_back(k);
+    if (std::find(keys.begin(), keys.end(), st.candidate) == keys.end()) keys.push_back(st.candidate);
+    Json provenance;
+    std::vector<std::string> warnings;
+    auto written = assets::update_manifest([&](Json& doc) {
+        if (!doc.contains("assets") || !doc["assets"].is_object()) doc["assets"] = Json::object();
+        Json& list = doc["assets"];
+        st.oldEntries.clear();
+        for (const std::string& k : keys) st.oldEntries.emplace_back(k, list.contains(k) ? list[k] : Json(nullptr));
+        const auto cand = list.find(st.candidate);
+        if (cand != list.end() && cand->is_object() && cand->contains("provenance") && (*cand)["provenance"].is_object()) {
+            provenance = (*cand)["provenance"];
+        } else {
+            provenance = Json::object({{"origin", "generated"}, {"ai", true}, {"kind", "image"}, {"date", assets::today()}});
+            warnings.push_back("assets.json had no provenance for '" + st.candidate + "', so '" + st.slot +
+                               "' got a minimal record (origin generated, ai true): complete it with assets.set_provenance.");
+        }
+        provenance.erase("candidate");
+        Json batch = Json::object({{"sheet", sheetId}, {"picked", item_number(chosen)}, {"count", meta.value("count", Json(nullptr))}});
+        if (const auto cost = meta.find("estimatedCostUsd"); cost != meta.end() && cost->is_number()) {
+            batch["estimatedCostUsd"] = *cost;
+            batch["costIsEstimate"] = true;
+        }
+        provenance["candidates"] = batch;
+        Json entry = list.contains(st.slot) && list[st.slot].is_object() ? list[st.slot] : Json::object();
+        entry.erase("analysis");  // what the tools measured or sliced from the old file
+        entry.erase("sheet");
+        entry["provenance"] = provenance;
+        for (const std::string& k : keys) list.erase(k);
+        list[st.slot] = entry;
+    });
+    if (!written) {
+        ReviewOutcome failed = refuse("manifest_failed", std::format("assets.pick: assets.json could not be updated for '{}': {}.", st.slot, written.error().message),
+                                      (written.error().hint.empty() ? "" : written.error().hint + " ") + "Fix assets.json (project.validate shows the problem), then call assets.pick again.");
+        if (const std::string stuck = undo_pick(st); !stuck.empty()) failed.message += " Could not put back, move by hand: " + stuck + ".";
+        else failed.message += " Nothing was changed.";
+        return failed;
+    }
+    st.manifestChanged = true;
+    ReviewOutcome ok;
+    ok.value = Json::object({{"dropped", dropped}, {"provenance", provenance}, {"replaced", st.movedOld}, {"warnings", warnings}});
+    if (st.movedOld) ok.value["oldFile"] = st.backupRel;
+    return ok;
+}
+
+Json pick_command(const Ctx& ctx, const Json& args) {
+    const std::string slot = asset_path(args, "slot");
+    const std::string projectDir = ctx.projectDir();
+    const double nArg = num(args, "n", 0);
+    const long n = nArg >= 1 && nArg <= kMaxCandidates ? static_cast<long>(nArg) : 0;  // the schema keeps it to 1..4
+    const bool overwriteArg = flag(args, "overwrite");
+    const std::string sheetId = find_candidates_sheet(projectDir, slot, str(args, "sheet"));
+
+    auto st = std::make_shared<PickState>();
+    st->slot = slot;
+    st->absSlot = fs::os_path(fs::resolve(slot));
+    auto sheetMeta = std::make_shared<Json>(Json::object());
+
+    ReviewPickOptions options;
+    options.note = str(args, "note");
+    // Under the review lock, with the manifest as it is now: the same sheet, the same slot, a chosen candidate that is really there.
+    options.step.check = [st, sheetMeta, overwriteArg, projectDir, sheetId](const Json& manifest, const Json& chosen) -> ReviewOutcome {
+        const Json meta = manifest.value("meta", Json::object());
+        if (!candidates_sheet_for(meta, st->slot))
+            return refuse("invalid_argument", std::format("assets.pick /sheet: {} is not a sheet of candidates for '{}' (its meta changed)", sheetId, st->slot),
+                          "Leave out `sheet` to answer the newest candidates sheet of the slot.");
+        *sheetMeta = meta;
+        // The slot as the sheet spells it (the call may differ in case, which is the same file on Windows and macOS only).
+        const std::string metaSlot = fs::normalize(str(meta, "slot"));
+        if (metaSlot.rfind("assets/", 0) != 0 || fs::extension(metaSlot) != ".png")
+            return refuse("invalid_argument", std::format("assets.pick /sheet: the slot '{}' in the meta of {} is not a .png under assets/", str(meta, "slot"), sheetId),
+                          "The manifest was edited by hand: make new candidates with assets.generate_image {count}.");
+        st->slot = metaSlot;
+        st->absSlot = fs::os_path(fs::resolve(st->slot));
+        const std::string source = str(chosen, "source");
+        bool listed = false;
+        if (const Json* list = child(meta, "candidates"); list && list->is_array())
+            for (const Json& c : *list)
+                if (c.is_string() && review_path_key(c.get<std::string>()) == review_path_key(source)) listed = true;
+        if (str(chosen, "type") != "image" || !listed)
+            return refuse("invalid_argument", std::format("assets.pick /n: item {} of {} is not one of the candidates made for '{}'", item_number(chosen), sheetId, st->slot),
+                          "Use the number of a candidate on the sheet; the sheet's meta.candidates lists their files.");
+        if (const std::string why = review_candidate_problem(projectDir, "image", source); !why.empty())
+            return refuse("invalid_argument", std::format("assets.pick /n: candidate '{}' cannot become '{}': {}", source, st->slot, why), "Make new candidates with assets.generate_image {count}.");
+        auto norm = fs::normalize_checked(source);
+        if (!norm || !fs::exists(*norm))
+            return refuse("not_found", std::format("assets.pick /n: candidate {} ('{}') is no longer there", item_number(chosen), source),
+                          "It was moved or deleted after the sheet was made. Pick another number, or make new candidates with assets.generate_image {count}.");
+        st->candidate = *norm;
+        st->absCandidate = fs::os_path(fs::resolve(st->candidate));
+        if (fs::exists(st->slot) && !overwriteArg && !flag(meta, "overwrite"))
+            return refuse("exists", std::format("assets.pick /slot: '{}' already exists", st->slot),
+                          "Pass overwrite:true to replace it (the old file is kept for " + std::to_string(kReviewDroppedDays) +
+                              " days in the sheet's drop folder), or ask the person first.");
+        return {};
+    };
+    options.step.apply = [st, sheetMeta, sheetId](const Json&, const Json& chosen, const std::string& dropFolder) -> ReviewOutcome {
+        try {
+            return apply_pick(*st, *sheetMeta, sheetId, chosen, dropFolder);
+        } catch (const std::exception& e) {  // whatever happened, the files go back where they were
+            ReviewOutcome failed = refuse("failed", std::string("assets.pick: ") + e.what() + ".", "Call assets.pick again once the cause is fixed.");
+            if (const std::string stuck = undo_pick(*st); !stuck.empty()) failed.message += " Could not put back, move by hand: " + stuck + ".";
+            return failed;
+        }
+    };
+    options.step.undo = [st]() { return undo_pick(*st); };
+
+    ReviewOutcome picked = review_pick(projectDir, sheetId, n, options);
+    if (!picked.ok) {
+        std::string hint = picked.hint;
+        if (picked.code == "already_picked")
+            hint += " For '" + slot + "', make new candidates with assets.generate_image {\"path\": \"" + slot + "\", \"count\": 3, \"overwrite\": true}.";
+        throw CommandError(picked.code.empty() ? "failed" : picked.code, picked.message, hint);
+    }
+    const Json& v = picked.value;
+    const Json step = v.value("step", Json::object());
+    Json warnings = v.value("warnings", Json::array());
+    for (const Json& w : step.value("warnings", Json::array())) warnings.push_back(w);
+    const std::string chosenSlot = st->slot;  // the sheet's own spelling of the slot
+    Json out = Json::object({{"slot", chosenSlot},
+                             {"sheet", v.value("sheet", sheetId)},
+                             {"n", v.value("n", Json(n))},
+                             {"label", v.value("label", std::string())},
+                             {"candidate", v.value("source", std::string())},
+                             {"provenance", step.value("provenance", Json::object())},
+                             {"replaced", step.value("replaced", false)},
+                             {"dropped", v.value("dropped", Json::array())},
+                             {"who", v.value("who", Json(nullptr))},
+                             {"at", v.value("at", Json(nullptr))},
+                             {"warnings", warnings}});
+    if (step.contains("oldFile")) out["oldFile"] = step["oldFile"];
+    out["nextSteps"] = Json::array({std::format("'{}' is now the chosen picture; the others are in {}/{}/ and review.cleanup deletes them {} days from now.", chosenSlot,
+                                                kCandidatesDropDir, out["sheet"].get<std::string>(), kReviewDroppedDays)});
+    out["$image"] = Json::object({{"path", fs::path_to_utf8(fs::resolve(chosenSlot))}, {"mimeType", "image/png"}});
+    return out;
+}
+
 }  // namespace
 
 void register_asset_commands(CommandRegistry& registry, std::function<Result<AiConfig>()> load, std::function<std::string()> projectDir,
@@ -591,15 +1084,38 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
         "style of assets.json is applied unless style is false: its `prompt` is appended to yours, its `references` are sent "
         "along with `references`, and its `palette` reduces the result to those colours. Returns the path, size, provenance and "
         "the image itself. Generation costs money with paid providers: check the first result before generating more. "
-        "Example: {\"prompt\":\"a red potion bottle, side view\",\"path\":\"assets/items/potion.png\",\"width\":64,\"height\":64,\"transparent\":true}",
+        "With `count` 2 to 4 it makes that many candidates for the slot `path` instead (files next to it named <name>.candidate-<n>.png, "
+        "each with its own seed and provenance; the cost estimate and the approval cover all of them at once) and ONE review sheet "
+        "that shows them numbered: show that sheet to the person, ask for one number and call assets.pick {slot, n}. Never pick for "
+        "them. Example: {\"prompt\":\"a red potion bottle, side view\",\"path\":\"assets/items/potion.png\",\"width\":64,\"height\":64,\"transparent\":true}",
         schema(pathProperty +
                    R"J("prompt":{"type":"string","description":"What to draw. Describe the subject and the view; the house style is added for you."},
     "width":{"type":"integer","minimum":8,"maximum":4096,"default":512,"description":"Width of the PNG in pixels. The provider's picture is resized to it."},
     "height":{"type":"integer","minimum":8,"maximum":4096,"default":512,"description":"Height of the PNG in pixels."},
-    "transparent":{"type":"boolean","default":false,"description":"Ask for a transparent background (sprites, items, icons)."},)J" +
+    "transparent":{"type":"boolean","default":false,"description":"Ask for a transparent background (sprites, items, icons)."},
+    "count":{"type":"integer","minimum":1,"maximum":4,"default":1,"description":"How many candidates to make for the slot `path` (1 to 4). 1 writes `path` itself. 2 to 4 write <name>.candidate-1.png... next to it (seeds seed, seed+1...; without `seed` they come from the prompt) and one review sheet; the person picks one with assets.pick, which moves it to `path`. With overwrite false, existing candidate files are refused."},)J" +
                    kImageProperties + "," + kCommonProperties,
                R"(["prompt","path"])"),
         false, generate_image);
+    add_command(
+        registry, ctx, "assets.pick", "Keep the candidate the person chose: it becomes the slot, the others are dropped.",
+        "Answers the review sheet that assets.generate_image {count} made for `slot` (the newest one not answered yet, or `sheet`) "
+        "with the number the PERSON chose: never pick for them; show the sheet and ask. Candidate `n` is moved to `slot` and the "
+        "slot's entry in assets.json gets its provenance (prompt, provider, model, seed, plus `candidates`: the sheet, the number "
+        "picked, how many there were and the estimated cost of the batch); the candidates' own entries are removed. The other "
+        "candidates move to .factoria/assets/candidates/<sheet id>/, where review.cleanup deletes them after 7 days. An existing "
+        "slot file needs overwrite (here or in the generate call) and is kept in the same folder. All or nothing: when a file "
+        "cannot be moved (open in another program: code busy) nothing changes. A sheet that was already answered is refused "
+        "(already_picked). The editor's Review window calls it with {sheet, n, slot}. "
+        "Example: {\"slot\":\"assets/items/potion.png\",\"n\":2}",
+        Json::parse(R"({"type":"object","properties":{
+            "slot":{"type":"string","description":"The path the candidates were made for: the `path` given to assets.generate_image, project-relative under assets/."},
+            "n":{"type":"integer","minimum":1,"maximum":4,"description":"The number printed on the thumbnail the person chose (1 is the first candidate)."},
+            "sheet":{"type":"string","description":"The candidates sheet to answer (\"sheet-0007\", or its number). Default: the newest candidates sheet of `slot` that has no answer yet."},
+            "note":{"type":"string","maxLength":500,"description":"Why this one, in the person's words; kept in the sheet's manifest with the choice."},
+            "overwrite":{"type":"boolean","default":false,"description":"Replace a file that already exists at `slot` (the old file is kept in the sheet's drop folder for 7 days). Not needed when the generate call had overwrite:true."}},
+            "required":["slot","n"],"additionalProperties":false})"),
+        false, pick_command);
     add_command(
         registry, ctx, "assets.generate_sprite_sheet",
         "Generate a sprite sheet (a grid of animation frames) and record its layout for SpriteAnimator.",

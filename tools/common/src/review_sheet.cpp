@@ -1416,3 +1416,24 @@ void register_review_commands(CommandRegistry& registry, const std::string& proj
 }
 
 }  // namespace fa::assets_detail
+
+namespace fa {
+
+ReviewOutcome review_sheet(const std::string& projectDir, const Json& args) {
+    ReviewOutcome o;
+    try {
+        o.value = assets_detail::sheet_command(projectDir, args);
+    } catch (const CommandError& e) {
+        o.ok = false;
+        o.code = e.code.empty() ? "failed" : e.code;
+        o.message = e.what();
+        o.hint = e.hint;
+    } catch (const std::exception& e) {
+        o.ok = false;
+        o.code = "failed";
+        o.message = std::string("review.sheet failed: ") + e.what();
+    }
+    return o;
+}
+
+}  // namespace fa
