@@ -25,6 +25,7 @@
 #include "sokol_glue.h"
 #include "ui_backend.h"
 #include "fa/tooling/feedback_fixed.h"
+#include "fa/tooling/serve_web.h"
 #include "fa/tooling/setup.h"
 #include "fa/tooling/shaders.h"
 
@@ -221,7 +222,9 @@ void MainThreadQueue::reopen() {
 }
 
 // ------------------------------------------------------------------------------------------
-Editor::Editor(EditorOptions options) : options_(std::move(options)) {}
+Editor::Editor(EditorOptions options) : options_(std::move(options)) {
+    set_serve_web_blocking(false);  // project.serve_web runs on the UI thread here: it starts the server on a helper thread and answers "starting"
+}
 
 Editor::~Editor() {
     ai_stop("editor_closing");
@@ -238,6 +241,8 @@ Editor::~Editor() {
     if (updateThread_.joinable()) updateThread_.join();
     if (launcherThread_.joinable()) launcherThread_.join();
     share_.join_all();  // sign-in, flush and AI review threads (they only touch share_)
+    phone_.wait();       // the Play on Phone window's start or stop...
+    serve_web_shutdown();  // ...the helper thread of project.serve_web, and the server itself: no thread of it outlives the editor
 }
 
 int Editor::run() {
@@ -559,6 +564,7 @@ bool Editor::boot(const std::string& dirIn) {
     std::string dir = dirIn;
     ai_stop("project_closed");
     reset_export_state();  // an export of the previous project finishes first
+    reset_phone_state();   // and the phone server of the previous project stops
     reset_platform_settings_state();  // so does a keystore being created; the unsaved settings of the old project are dropped
     // Tear down: UI first (it owns GPU resources), then the engine (owns sg_setup).
     if (uiUp_) {
@@ -1438,6 +1444,7 @@ void Editor::build_ui() {
     ImGuiIO& io = ImGui::GetIO();
     ImGuiViewport* vp = ImGui::GetMainViewport();
     poll_export();
+    poll_phone();
     poll_platform_settings();
     poll_setup();
     draw_main_menu();
@@ -1548,6 +1555,7 @@ void Editor::build_ui() {
     draw_project_dialog();
     draw_validation_window();
     draw_export_window();
+    draw_phone_window();
     draw_platform_settings_window();
     draw_ai_settings_window();
     draw_setup_window();

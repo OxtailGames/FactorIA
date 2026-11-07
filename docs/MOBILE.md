@@ -778,7 +778,42 @@ A game also runs in a browser page: the player is compiled to WebAssembly with E
 
 Nothing else is needed on the server: any static host works (itch.io, GitHub Pages, a plain folder behind `http`). The
 player uses **no threads**, so the page needs no `SharedArrayBuffer` and no COOP/COEP headers. A page opened from
-`file://` cannot download its files: serve the folder.
+`file://` cannot download its files: serve the folder, or export one self-contained page (`--single-file`, below).
+
+### Play on a phone
+
+The quickest way to see the game on a phone is the editor's File > Play on Phone... (the same as the command
+`project.serve_web {"lan": true}`; docs/EXPORTING.md, "Serving the web build"):
+
+1. Press **Start**. The editor exports the web build (the first time takes a few seconds; the web player must be installed:
+   `factoria setup players --platforms web`) and serves it on this computer's local network, on a random port, under a random
+   token in the address.
+2. Point the phone's camera at the **QR code** (drawn by the engine) and open the link, or type the address shown under it
+   (**Copy address** copies it). With several network addresses the window has a menu to pick which one the code shows.
+3. Change a script or an asset in the editor: the build is exported again and the phone's page reloads by itself. What the
+   game logs on the phone (`console.log/warn/error` and uncaught errors) comes back to the editor's Console with category
+   `phone`.
+
+When the phone cannot open the address:
+
+- **Same Wi-Fi.** The phone must be on the same Wi-Fi as this computer (or on this computer's hotspot). Mobile data cannot
+  reach it. Open the address with **Open on this computer** first: if that works and the phone does not, it is the network.
+- **Firewall.** The first time, Windows asks whether the program may talk on the network (tick *Private networks* and
+  *Allow*) and macOS asks whether the application may accept incoming network connections (*Allow*). If you said no, allow it
+  in Windows Security > Firewall & network protection > Allow an app through firewall, or System Settings > Network > Firewall.
+- **Guest networks.** A guest Wi-Fi, a hotel or an office network often isolates devices from each other, so the phone cannot
+  see the computer. Use a home network or a hotspot.
+- **VPN.** A VPN on either device can hide the local network.
+
+The page is plain `http`: the phone's browser may say "not secure", and a feature that needs a secure context is not
+available in it (the log shows what the browser refused). The address stops working when you press **Stop**, close the
+editor or switch project.
+
+### One file: `--single-file`
+
+`factoria export --platform web --single-file` writes ONE `.html` with the player, the wasm and the game inside, which runs
+offline from a double click (`file://`). It is for small games and demos (default limit 64 MB; docs/EXPORTING.md, "One HTML
+file"). A browser on a phone opens a local `.html` only in some cases, so use Play on a phone to test there.
 
 - **Window**: the canvas follows the size of the browser window and `devicePixelRatio`; the design size of `factoria.json` is the
   design size as everywhere, and `display.scaleMode` decides how it fits (letterbox bars where the window has another shape).

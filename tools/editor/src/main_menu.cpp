@@ -62,6 +62,8 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     file.push_back(menu::action("Open Screenshots Folder", [this] { open_screenshots_folder(); }, have));
     file.push_back(with(menu::action("Export Game...", [this] { open_export_window(); }, have), "",
                         "Package the game for Windows, macOS, Linux, Android or iOS"));
+    file.push_back(with(menu::action("Play on Phone...", [this] { open_phone_window(); }, have), "menu:play-phone",
+                        "Play the web build on a phone on the same Wi-Fi: its address as a QR code, rebuilt and reloaded when the project changes"));
     file.push_back(with(menu::action("Platform Settings...", [this] { open_platform_settings(); }, have), "menu:platform-settings",
                         "The game icon and what each platform's export needs: Android version and signing key, macOS category, iOS team..."));
     file.push_back(with(menu::action("Feedback Settings...", [this] { open_share_settings(); }), "menu:feedback-settings",

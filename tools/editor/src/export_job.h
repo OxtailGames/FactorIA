@@ -38,6 +38,7 @@ std::string export_format_label(const std::string& format);
 struct ExportSettings {
     std::string outDir;   // parent folder of the export; relative = to the project; "" = <project>/build/export
     bool release = false; // changes the build commands in nextSteps and the iOS script
+    bool webSingleFile = false;  // web: one .html file with everything inlined (ExportOptions::singleFile) instead of a folder and a zip
     std::map<std::string, std::string> players;  // desktop platform -> factoria_player built for it (another OS)
 };
 // The options a platform's button exports with.

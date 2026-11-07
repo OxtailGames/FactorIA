@@ -6,6 +6,10 @@
     {{wasmBytes}}  size of factoria_player.wasm in bytes (progress when the server sends no Content-Length)
     {{pakBytes}}   size of game.pak in bytes (same)
     {{favicon}}    favicon.png (made from the game's icon), or data:, when the game has none
+  A single-file export (project.export {singleFile:true}) puts the three files inside the page instead: the inlineData placeholder
+  (once, just before the page's script) becomes <script type="application/octet-stream" id="fa-wasm|fa-pak|fa-js"> blocks of
+  base64 (the browser never runs them; the page decodes them) and a text/plain block fa-notices with the engine's licenses, and
+  favicon becomes a data: URL. The script below finds the blocks and uses them instead of downloading.
   Next to it: factoria_player.js (Emscripten, MODULARIZE=1, EXPORT_NAME=createFactoriaPlayer), factoria_player.wasm and
   game.pak. The page downloads the wasm and the pack with progress, writes the pack to /game.pak in the module's file
   system and starts the player, which loads /game.pak.
@@ -62,7 +66,7 @@
   <div id="error" hidden></div>
   <button id="retry" hidden onclick="location.reload()">Try again</button>
 </div>
-<script>
+{{inlineData}}<script>
 (function () {
   'use strict';
   var WASM_BYTES = parseInt('{{wasmBytes}}', 10) || 0;  // 0 when the placeholder was not filled in: the server's Content-Length is used
@@ -94,6 +98,23 @@
       var c = document.createElement('canvas');
       return !!(c.getContext('webgl2'));
     } catch (e) { return false; }
+  }
+
+  // A single-file export carries the game inside the page (see the comment at the top): base64 blocks instead of files.
+  var INLINE = !!document.getElementById('fa-pak');
+  function takeBase64(id) {
+    var el = document.getElementById(id);
+    var text = el.textContent;
+    el.textContent = '';  // the page holds the bytes once, not the text as well
+    var STEP = 1 << 20;   // characters per atob call (a multiple of 4)
+    var len = text.length;
+    var pad = text.charAt(len - 1) === '=' ? (text.charAt(len - 2) === '=' ? 2 : 1) : 0;
+    var out = new Uint8Array(len / 4 * 3 - pad), at = 0;
+    for (var i = 0; i < len; i += STEP) {
+      var bin = atob(text.substring(i, Math.min(len, i + STEP)));
+      for (var j = 0; j < bin.length; j++) out[at++] = bin.charCodeAt(j);
+    }
+    return out;
   }
 
   // Downloads `url` with progress. `expected` is the size the exporter wrote into the page (0: unknown); the server's
@@ -150,15 +171,45 @@
       var mb = function (n) { return (n / 1048576).toFixed(1); };
       statusEl.textContent = total > 0 ? 'Loading... ' + mb(done) + ' / ' + mb(total) + ' MB' : 'Loading...';
     }
-    var wasmP = download('factoria_player.wasm', WASM_BYTES, function (d, t) { wasmDone = d; wasmTotal = t; progress(); });
-    var pakP = download('game.pak', PAK_BYTES, function (d, t) { pakDone = d; pakTotal = t; progress(); });
-    var scriptP = new Promise(function (resolve, reject) {
-      var s = document.createElement('script');
-      s.src = 'factoria_player.js';
-      s.onload = resolve;
-      s.onerror = function () { reject(new Error('Could not load factoria_player.js.')); };
-      document.head.appendChild(s);
-    });
+    var wasmP, pakP, scriptP;
+    if (INLINE) {
+      statusEl.textContent = 'Unpacking...';
+      // Let the browser paint the loading screen between the (synchronous) decoding of the base64 blocks. An exception thrown inside a
+      // setTimeout callback would not reach any promise (the page would stay on "Unpacking..." for ever), so each step catches it and
+      // rejects: the catch below shows it as the error text.
+      var decodeLater = function (id) {
+        return new Promise(function (resolve, reject) {
+          setTimeout(function () {
+            try { resolve(takeBase64(id)); } catch (e) { reject(e); }
+          }, 30);
+        });
+      };
+      wasmP = decodeLater('fa-wasm');
+      pakP = wasmP.then(function () { return decodeLater('fa-pak'); });
+      scriptP = pakP.then(function () {
+        return new Promise(function (resolve, reject) {
+          setTimeout(function () {
+            try {
+              var s = document.createElement('script');
+              s.src = URL.createObjectURL(new Blob([takeBase64('fa-js')], { type: 'text/javascript' }));
+              s.onload = resolve;
+              s.onerror = function () { reject(new Error('Could not start the player script inside this page.')); };
+              document.head.appendChild(s);
+            } catch (e) { reject(e); }
+          }, 30);
+        });
+      });
+    } else {
+      wasmP = download('factoria_player.wasm', WASM_BYTES, function (d, t) { wasmDone = d; wasmTotal = t; progress(); });
+      pakP = download('game.pak', PAK_BYTES, function (d, t) { pakDone = d; pakTotal = t; progress(); });
+      scriptP = new Promise(function (resolve, reject) {
+        var s = document.createElement('script');
+        s.src = 'factoria_player.js';
+        s.onload = resolve;
+        s.onerror = function () { reject(new Error('Could not load factoria_player.js.')); };
+        document.head.appendChild(s);
+      });
+    }
     Promise.all([wasmP, pakP, scriptP]).then(function (r) {
       var wasm = r[0], pak = r[1];
       statusEl.textContent = 'Starting...';
@@ -191,9 +242,11 @@
       });
     }).catch(function (e) {
       var m = e && e.message ? e.message : String(e);
-      showError('Could not download or start the game.\n' + m + '\n' +
-                'Check your connection and reload the page. If you opened index.html straight from a folder, serve the ' +
-                'folder over http instead (a file:// page cannot load the game files).');
+      showError('Could not ' + (INLINE ? 'unpack' : 'download') + ' or start the game.\n' + m + '\n' +
+                (INLINE ? 'This page carries the whole game, so it needs no connection: reload it, and try another browser or close other tabs if the ' +
+                          'device is short of memory.'
+                        : 'Check your connection and reload the page. If you opened index.html straight from a folder, serve the ' +
+                          'folder over http instead (a file:// page cannot load the game files).'));
     });
   }
 

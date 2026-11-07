@@ -512,7 +512,26 @@ how to finish them.
 - **Release** makes a release build; hover it to see what changes for each platform (for Android, an APK or AAB signed
   with the keystore of the Android tab).
 
+- **Web row**: **One HTML file** exports the web build as ONE page that opens from a double click (`singleFile`; refused over
+  64 MB or with a threaded web player, with the reason in the report), and **Play on phone...** opens the window below.
+
 Details: [EXPORTING.md, From the editor](EXPORTING.md#from-the-editor).
+
+## Play on Phone
+
+File > Play on Phone... (also the **Play on phone...** button of the Export window's Web row) opens the **Play on phone**
+window, the editor's front for `project.serve_web` ([EXPORTING.md](EXPORTING.md#serving-the-web-build-projectserve_web)).
+**Start** exports the web build (on a helper thread: the editor keeps working) and serves it on the local network under a
+random port and token; the window shows the state in one line (exporting, ready, the export failed and why), the address
+as a **QR code** drawn by the engine (point the phone's camera at it; a menu picks the address when this computer has
+several; none when it has no private network address, since a code of `127.0.0.1` would open the phone's own localhost),
+**Copy address**, **Open on this computer**, **Stop** and the checklist for a phone that cannot open it (same Wi-Fi, the
+firewall prompt on Windows and macOS, guest networks that isolate devices, a VPN; [MOBILE.md](MOBILE.md#play-on-a-phone)).
+A changed script or asset exports again and the phone's page reloads; what the page logs comes to the Console with the
+category `phone`. The scene on disk is what the phone gets: the window warns about unsaved changes and has **Save scene**.
+Without the web player the window says how to install it (**Open Set Up This Computer...**). The server stops with **Stop**,
+when you switch project and when the editor quits. The window fits a 1024x642 display; the autotest section T2 covers it with
+a stand-in player.
 
 ## Setting up this computer
 
@@ -1189,7 +1208,7 @@ The AI's commands run on the editor's main thread, but never for long at a time:
 ### Run only some sections
 
 The autotest is a list of sections, each a letter (`tools/editor/src/autotest_sections.h`): S (the start: select, edit, undo,
-play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Show-in-file-manager toast button), A (Audio panel), A2 (Profiler panel) and A3 (the card of a paid asset call waiting for the user's yes, in the 1024x642 window: Approve, Approve all for this run, Cancel and Stop; it uses a scratch user folder, never your own ~/.factoria), B (commands that
+play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Show-in-file-manager toast button), T2 (Play on Phone: no player, the stand-in player's server, the QR code, a phone log line, a re-export, Stop), A (Audio panel), A2 (Profiler panel) and A3 (the card of a paid asset call waiting for the user's yes, in the 1024x642 window: Approve, Approve all for this run, Cancel and Stop; it uses a scratch user folder, never your own ~/.factoria), B (commands that
 rebuild the open scene file), C (pick bounds and the selection outline), D (bloom), E (Ctrl+V into the AI input), F (AI text:
 wrapping, right-click menu), G (delete a project), H (Export window), I (Platform settings), J (Set Up This Computer), K
 (custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI

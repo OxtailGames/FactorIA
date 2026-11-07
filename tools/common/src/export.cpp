@@ -4,6 +4,7 @@
 // fa/tooling/export.h and docs/EXPORTING.md.
 #include "fa/tooling/export.h"
 
+#include <cmath>
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -614,7 +615,8 @@ struct Plan {
                                      // empty or an earlier export: check_replaceable)
     stdfs::path player;              // desktop
     WebPlayer web;                   // web
-    stdfs::path webZip;              // web: <outParent>/<slug>-web.zip, next to the export folder
+    stdfs::path webZip;              // web: <outParent>/<slug>-web.zip, next to the export folder (empty with singleFile)
+    stdfs::path webPage;             // web, singleFile: <outRoot>/<slug>.html
     MobileSetup mobile;              // android/ios
     Image icon;                      // linux/windows/macos/ios, only when the plan is made for an export: the platform's icon
     AndroidPlan android;             // android
@@ -630,6 +632,9 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
     plan.platform = normalize_export_platform(options.platform);
     if (plan.platform.empty())
         return err("export: unknown platform '" + options.platform + "'", "use one of: linux, windows, macos, android, ios, web");
+    if (options.singleFile && plan.platform != "web")
+        return err("export: /singleFile applies to the web platform only (this export is for " + plan.platform + ")",
+                   "pass platform \"web\" with singleFile, or leave singleFile out");
     auto project = load_and_validate(options, plan.platform, plan.warnings);
     if (!project.ok()) return project.error();
     plan.project = std::move(project.value());
@@ -670,7 +675,12 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         if (!web.ok()) return web.error();
         plan.web = std::move(web.value());
         if (auto r = check_player_build(options, plan.web.wasm, plan.platform, plan.warnings); !r.ok()) return r.error();
-        plan.webZip = plan.outParent / (slug + "-web.zip");
+        if (options.singleFile) {  // refused before anything is built; the pack is not written yet, so only the player counts here
+            if (auto r = check_web_single_file(options, plan.web, 0); !r.ok()) return r.error();
+            plan.webPage = plan.outRoot / web_single_file_name(p);
+        } else {
+            plan.webZip = plan.outParent / (slug + "-web.zip");
+        }
     } else {
         auto player = find_player(options, plan.platform);
         if (!player.ok()) return player.error();
@@ -840,8 +850,8 @@ Result<ExportPlan> plan_export(const ExportOptions& options) {
     else if (plan.platform == "web") {
         out.mode = plan.web.from;
         out.player = generic(plan.web.js);
-        out.format = "zip";
-        out.artifact = generic(plan.webZip);
+        out.format = options.singleFile ? "html" : "zip";
+        out.artifact = generic(options.singleFile ? plan.webPage : plan.webZip);
     } else out.player = generic(plan.player);
     if (plan.appimage.enabled) {
         out.format = "appimage";
@@ -920,13 +930,13 @@ Result<ExportReport> export_project(const ExportOptions& options) {
         r = platform == "android" ? export_android(p, plan.mobile, plan.android, outRoot, files, report)
                                   : export_ios(options, p, plan.mobile, outRoot, files, plan.icon, report);
     } else if (platform == "web") {
-        r = export_web(p, plan.web, outRoot, files, report);
+        r = export_web(options, p, plan.web, outRoot, files, report);
     } else {
         r = export_desktop(options, p, platform, plan.player, outRoot, files, plan.icon, report);
     }
     if (r.ok()) r = write_notices(p, platform, outRoot, report);  // before the build: the APK carries the notices
     if (r.ok()) r = write_ai_disclosure(p, projectFiles, outRoot, report);
-    if (r.ok() && platform == "web") r = zip_web(outRoot, plan.webZip, report);  // after the notices: they ship in the zip
+    if (r.ok() && platform == "web" && !options.singleFile) r = zip_web(outRoot, plan.webZip, report);  // after the notices: they ship in the zip
     if (r.ok() && plan.appimage.enabled) {  // the folder is complete by now: a failed appimagetool leaves it, like a failed Gradle build leaves its project
         r = build_appimage(options, p, plan.appimage, outRoot, report);
         keepOutput = !r.ok();
@@ -986,7 +996,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "index.html at its root: upload it to itch.io as an HTML5 game (`artifact`, format \"zip\"; `mode` says where the player came from: explicit, package, "
         "installed or build). windows with `format` \"msix\" (or export.windows.format) also writes <out>/<slug>-windows.msix next to the folder, the package of the "
         "Microsoft Store, from any computer (reported as `artifact`, format \"msix\"; identity in export.windows.msix; sign it with `sign.windows`, upload it with "
-        "`publish.microsoft`). A browser needs the folder served over http, not opened as a file (nextSteps has the command). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes "
+        "`publish.microsoft`). A browser needs the folder served over http, not opened as a file (nextSteps has the command; `project.serve_web` serves it for you, also to a phone), unless you pass singleFile: true, which writes <slug>-web/<slug>.html as ONE page with everything inlined that opens from a double click (`artifact`, format \"html\"; no zip; size limit singleFileMaxMb, default 64). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes "
         "FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). The built-in fonts that are files "
         "(builtin:serif, builtin:hand, builtin:blackletter, builtin:display) are copied to builtin-fonts/ only when a scene, prefab, script, data file or factoria.json "
         "names them in full, with their licenses in the notices (`builtinFonts` in the result). "
@@ -1006,6 +1016,8 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "release":{"type":"boolean","description":"Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script.","default":false},
         "allowDebugKey":{"type":"boolean","description":"Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android).","default":false},
         "player":{"type":"string","description":"The player to bundle, an absolute path or one relative to the project folder; the CLI flag is --player. Desktop (linux, windows, macos): the factoria_player binary, e.g. one built for another OS. Web: the folder with factoria_player.js and factoria_player.wasm, or factoria_player.js. Default: the player next to this factoria for its own platform, or the one `factoria setup players` downloaded for another."},
+        "singleFile":{"type":"boolean","description":"Web only: write ONE html file, <slug>-web/<slug>.html, with the player's JavaScript, the wasm, the icon and the game inlined (base64), that runs offline from a double click (file://) in a browser with no server. No zip, no loose files besides FACTORIA_NOTICES.txt. Refused with an error that says how to fix it when the page would be over singleFileMaxMb, or when the web player needs a server (a threaded build with shared memory needs cross-origin isolation headers, which a file cannot have). The CLI flag is --single-file.","default":false},
+        "singleFileMaxMb":{"type":"number","minimum":1,"maximum":256,"description":"With singleFile: the biggest page to write, in megabytes (1 MB = 1048576 bytes; a fraction such as 0.5 is accepted, rounded to the nearest byte), 1 to 256; the size is worked out from the files BEFORE the page is built, so a game over it fails fast. Default 64. Browsers get slow with pages over about 100 MB, a page of 256 MB is about the biggest string a browser's JavaScript can hold, and base64 makes every file a third bigger. The CLI flag is --single-file-max-mb."},
         "allowMissingPlugins":{"type":"boolean","description":"Leave out a native plugin whose build for the target platform is missing (plugins/<name>/<platform>/, see docs_read EXTENDING.md) instead of stopping the export. Works for optional and non-optional plugins: a warning names each one and the result lists them in pluginsLeftOut[]. The exported game runs without the plugin (scripts that call it fail unless it is \"optional\" in factoria.json and they check for it). A plugin is built only for the computer you build it on (platform.add_backend and CMake): get the other platforms' builds from CI or another machine. The CLI flag is --allow-missing-plugins.","default":false},
         "allowPlayerMismatch":{"type":"boolean","description":"Bundle the player (the desktop factoria_player, the web factoria_player.wasm, the prebuilt Android and iOS libraries) even when it was built from another commit than this factoria (its build fingerprint differs or is missing). By default that export stops with an error, because an old player may lack what the game uses (components, script API) or fail to start; the CLI flag is --allow-player-mismatch. Rebuild both from one checkout instead when you can.","default":false},
         "dryRun":{"type":"boolean","description":"Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing.","default":false}
@@ -1029,6 +1041,21 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         if (!o.format.empty() && std::find(all_export_formats().begin(), all_export_formats().end(), o.format) == all_export_formats().end())
             throw CommandError("invalid_argument", "Unknown format '" + o.format + "'.", did_you_mean(o.format, all_export_formats()));
         o.release = tooling_detail::arg_bool(args, "release", false);
+        o.singleFile = tooling_detail::arg_bool(args, "singleFile", false);
+        if (o.singleFile && !o.platform.empty() && normalize_export_platform(o.platform) != "web")
+            throw CommandError("invalid_argument", "/singleFile applies to platform \"web\" only, but /platform is \"" + o.platform + "\".",
+                               "pass platform \"web\" together with singleFile, or leave singleFile out");
+        if (o.singleFile && o.platform.empty())
+            throw CommandError("invalid_argument", "/singleFile needs /platform \"web\": the default platform is this computer's.",
+                               "pass {\"platform\":\"web\",\"singleFile\":true}");
+        if (auto it = args.find("singleFileMaxMb"); it != args.end()) {
+            if (!o.singleFile)
+                throw CommandError("invalid_argument", "/singleFileMaxMb only has a meaning with /singleFile: true.", "add \"singleFile\":true, or remove singleFileMaxMb");
+            if (!it->is_number() || !(it->get<double>() >= 1.0 && it->get<double>() <= 256.0))
+                throw CommandError("invalid_argument", "/singleFileMaxMb must be a number of megabytes from 1 to 256.",
+                                   "the default is 64; a page over about 100 MB is slow to open in a browser (and over 256 MB it cannot be held as text), so serve a normal web export instead");
+            o.singleFileMaxBytes = static_cast<std::uint64_t>(std::llround(it->get<double>() * 1048576.0));
+        }
         o.allowDebugKey = tooling_detail::arg_bool(args, "allowDebugKey", false);
         o.allowPlayerMismatch = tooling_detail::arg_bool(args, "allowPlayerMismatch", false);
         o.allowMissingPlugins = tooling_detail::arg_bool(args, "allowMissingPlugins", false);

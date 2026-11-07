@@ -52,6 +52,7 @@
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
 #include "fa/tooling/export.h"  // executable_dir: where the update goes
+#include "fa/tooling/qr.h"
 #include "fa/tooling/self_update.h"
 #include "fa/tooling/tooling.h"
 #include "ai_asset_approval.h"
@@ -62,6 +63,7 @@
 #include "anim_ui.h"
 #include "editor_tools.h"
 #include "export_job.h"
+#include "phone_model.h"
 #include "feedback_share_ui.h"
 #include "gizmo_model.h"
 #include "image_ui.h"
@@ -659,6 +661,13 @@ public:
     void refresh_export_status();   // plan_export for every platform
     void reset_export_state();      // project switch: waits for a running export, forgets settings and report
 
+    // Play on Phone window (phone_panel.cpp; File > Play on Phone...): the web server of project.serve_web for the Wi-Fi, its address as
+    // a QR code, what to check when the phone cannot open it. The server itself is web_server() (fa/tooling/serve_web.h).
+    void open_phone_window();
+    void draw_phone_window();
+    void poll_phone();           // every frame: takes a finished start's error
+    void reset_phone_state();    // project switch: asks for the server of the project that closes to stop (on the helper thread)
+
     // Platform settings window (platform_settings_panel.cpp; File > Platform Settings..., the Export window's Settings...
     // buttons): the game icon and what each platform's export needs, as a working copy that Save writes with
     // fa::save_export_settings (platform_settings.h has the logic).
@@ -907,6 +916,17 @@ public:
     std::optional<ExportOutcome> exportLast_;  // the last export's report (or error), shown under the buttons
     ProjectExportSettings exportSaved_;        // what factoria.json says now (the Android row's format), read with the rows
     std::string exportSavedError_;             // why it could not be read ("" = fine)
+
+    // Play on Phone window
+    bool showPhone_ = false, phoneFocus_ = false;
+    PhoneSession phone_;
+    bool phoneStopPending_ = false;        // a project switch asked for the server to stop; poll_phone() starts the stop job
+    std::string phoneError_, phoneHint_;   // why the last Start did not start the server
+    std::string phoneQrUrl_;               // the address phoneQr_ was made for
+    std::optional<QrCode> phoneQr_;
+    int phoneUrlIndex_ = 0;                // which LAN address the code shows
+    std::string phonePlayer_;              // ServeWebOptions::playerBinary ("" = the installed web player); the autotest sets a stand-in
+    bool phoneAllowMismatch_ = false;      // ServeWebOptions::allowPlayerMismatch; the autotest's stand-in has no build fingerprint
 
     // Platform settings window
     bool showPlatformSettings_ = false, platformFocus_ = false, platformCloseAsk_ = false, platformDiskChanged_ = false;
