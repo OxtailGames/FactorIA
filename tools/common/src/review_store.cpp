@@ -2,13 +2,14 @@
 // moves of dropped candidates. Every write of shared state happens under the repo's cross-process lock.
 #include "fa/tooling/review.h"
 
-#include <exception>
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <set>
 #include <system_error>
 
@@ -368,6 +369,17 @@ ReviewOutcome review_list(const std::string& projectDir, int limit) {
     return success(std::move(out));
 }
 
+std::string review_newest(const std::string& projectDir, const std::function<bool(const Json& meta)>& match) {
+    const auto all = sheet_ids(projectDir, true);
+    for (auto it = all.rbegin(); it != all.rend(); ++it) {
+        ReviewOutcome m = read_manifest(projectDir, it->second);
+        if (!m.ok) continue;
+        const auto meta = m.value.find("meta");
+        if (match(meta != m.value.end() && meta->is_object() ? *meta : Json::object())) return it->second;
+    }
+    return {};
+}
+
 std::string review_path_key(const std::string& rel) {
     std::string text = rel;
     std::replace(text.begin(), text.end(), '\\', '/');
@@ -455,6 +467,14 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
         return failure("already_picked",
                        std::format("{} was already answered: number {} was picked ({}).", id, int_of(*p, "n", 0), str_of(*p, "at", std::string("earlier"))),
                        "A choice is final. To choose again make a new sheet with review.sheet. Files that were dropped are listed in the manifest (picked.dropped: from, to); move one back by hand to bring it back.");
+    if (!options.step.check && !options.step.apply) {
+        if (const auto meta = manifest.find("meta"); meta != manifest.end() && meta->is_object() && str_of(*meta, "kind", std::string()) == kReviewAssetCandidatesKind) {
+            const std::string slot = str_of(*meta, "slot", std::string());
+            return failure("invalid_argument",
+                           std::format("review.pick: {} holds the candidates assets.generate_image made for '{}', and only assets.pick answers it (it also moves the chosen picture to '{}' with its provenance).", id, slot, slot),
+                           std::format("Call assets.pick {{\"slot\": \"{}\", \"n\": {}}} with the number the person gave you. Nothing was changed.", slot, n));
+        }
+    }
     const auto itemsIt = manifest.find("items");
     if (itemsIt == manifest.end() || !itemsIt->is_array() || itemsIt->empty()) return failure("failed", id + " has no items.", "Make a new sheet with review.sheet.");
     const Json& items = *itemsIt;
@@ -561,9 +581,10 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
             fs::replace_file(os(m.absFrom), os(m.absTo), ec);
             if (ec) {
                 const auto stuck = roll_back(moves);
-                std::string hint = fs::is_sharing_violation(ec) ? "The file is open in another program (an editor, a viewer, an antivirus scan). Close it and pick again; nothing was changed." : "Nothing was changed.";
+                const bool busy = fs::is_sharing_violation(ec);
+                std::string hint = busy ? "The file is open in another program (an editor, a viewer, an antivirus scan). Close it and pick again; nothing was changed." : "Nothing was changed.";
                 if (!stuck.empty()) hint = "These could not be put back, move them by hand: " + join(stuck, "; ");
-                return failure("failed", "Cannot move '" + m.from + "' to '" + m.to + "': " + ec.message() + (stuck.empty() ? " The files already moved were put back." : ""), hint);
+                return failure(busy ? "busy" : "failed", "Cannot move '" + m.from + "' to '" + m.to + "': " + ec.message() + (stuck.empty() ? " The files already moved were put back." : ""), hint);
             }
             m.done = true;
         }

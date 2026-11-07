@@ -47,6 +47,9 @@ inline constexpr int kReviewDroppedDays = 7;    // review_cleanup deletes the fi
 inline constexpr int kReviewOrphanMinutes = 60; // and the folders of a sheet whose manifest was never written, this long after their last change
 inline constexpr int kReviewCleanupMax = 200;   // sheets one review_cleanup changes (the oldest first; the next call goes on)
 inline constexpr int kReviewMetaMaxBytes = 4096; // the most a sheet's `meta` object may take written as JSON
+// meta.kind of the sheets assets.generate_image makes with `count`: assets.pick answers them (it also moves the chosen file to its slot),
+// so review_pick without a step refuses them and names assets.pick.
+inline constexpr const char* kReviewAssetCandidatesKind = "assetCandidates";
 
 // The answer of the functions below: `value` when ok, else a CommandError-style code ("not_found", "invalid_argument", "exists",
 // "already_picked", "busy", "failed"), message and hint.
@@ -78,6 +81,9 @@ ReviewOutcome review_load(const std::string& projectDir, const std::string& shee
 // picture, meta, dir}], unreadable?, orphans?}. `limit` is clamped to 1..kReviewListMax. Sheets whose manifest cannot be read are listed
 // in `unreadable`; folders with no manifest (a sheet in the making, or one whose process died) in `orphans`.
 ReviewOutcome review_list(const std::string& projectDir, int limit);
+// The id of the newest finished sheet whose `meta` (the object, {} when the manifest has none) `match` accepts, or "" when none does.
+// Every sheet is looked at, newest first, until one matches; sheets whose manifest cannot be read are skipped. Lock-free, like review_list.
+std::string review_newest(const std::string& projectDir, const std::function<bool(const Json& meta)>& match);
 
 // A change of the caller's own that a pick makes part of its all-or-nothing change (assets.pick: the chosen candidate becomes the
 // slot it was made for). Every function runs under the review lock, on the thread of review_pick; each may be empty.
@@ -107,7 +113,9 @@ struct ReviewPickOptions {
 // list every move (from, to), so a move is undone by moving the file back. All or nothing: a move that fails puts back the ones already made and changes no manifest.
 // options.step (when set) is part of the same all or nothing: its check runs before the first move, its apply after the last one
 // (a failure puts the moves back) and its undo when the manifest cannot be written.
-// Refused: a sheet that was already picked, an item that failed to render, a number out of range. value: the choice (see
+// Refused: a sheet that was already picked, an item that failed to render, a number out of range, a sheet whose meta.kind is
+// kReviewAssetCandidatesKind when options.step is empty (assets.pick answers those). A file open in another program (a sharing
+// violation) is code "busy", any other move failure "failed". value: the choice (see
 // review.pick in docs/AI_GUIDE.md).
 ReviewOutcome review_pick(const std::string& projectDir, const std::string& sheet, long n, const ReviewPickOptions& options);
 

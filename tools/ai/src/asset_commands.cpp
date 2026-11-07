@@ -3,16 +3,19 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <filesystem>
 #include <format>
 #include <memory>
 #include <optional>
 #include <set>
+#include <utility>
 
 #include "fa/ai/asset_cost.h"
 #include "fa/ai/assets.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
+#include "fa/core/hash.h"
 #include "fa/core/image.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/ai_disclosure.h"
@@ -140,7 +143,7 @@ void require_free(const std::string& path, bool overwrite) {
 // ---- Candidates ---------------------------------------------------------------------------------------------------
 
 constexpr int kMaxCandidates = 4;                                          // assets.generate_image `count`
-constexpr const char* kCandidatesKind = "assetCandidates";                 // meta.kind of a candidates sheet
+constexpr const char* kCandidatesKind = kReviewAssetCandidatesKind;        // meta.kind of a candidates sheet
 constexpr const char* kCandidatesDropDir = ".factoria/assets/candidates";  // where assets.pick moves the candidates not chosen
 
 // The files of `count` candidates for `slot`: next to it, "<stem>.candidate-<n>.png" (n from 1).
@@ -314,7 +317,8 @@ ImagePlan plan_image(const Ctx& ctx, const Json& args, const ImageJob& job) {
 struct WrittenImage {
     Image image;
     std::size_t bytes = 0;
-    std::string notes;  // what was done to the provider's picture (resized, reduced to the palette)
+    std::string notes;   // what was done to the provider's picture (resized, reduced to the palette)
+    std::string sha256;  // of the PNG file written
 };
 
 WrittenImage write_image(const ImageJob& job, const ImagePlan& plan, const AssetResult& made, const std::string& path) {
@@ -337,6 +341,7 @@ WrittenImage write_image(const ImageJob& job, const ImagePlan& plan, const Asset
     const std::vector<std::uint8_t> png = encode_png(out.image);
     if (auto w = fs::write_bytes(path, png.data(), png.size()); !w) fail("write_failed", w.error());
     out.bytes = png.size();
+    out.sha256 = sha256_hex(png.data(), png.size());
     return out;
 }
 
@@ -385,6 +390,17 @@ Json generate_image_file(const Ctx& ctx, const Json& args, const ImageJob& job) 
 
 // ---- Candidates (count > 1) -------------------------------------------------------------------------------------------
 
+// Whether `meta` is the meta of a candidates sheet made for `slot` (compared like the file system of Windows and macOS: case aside).
+bool candidates_sheet_for(const Json& meta, const std::string& slot) {
+    return meta.is_object() && str(meta, "kind") == kCandidatesKind && review_path_key(str(meta, "slot")) == review_path_key(slot);
+}
+
+// The candidates sheet of `slot` that is current: the newest one. A newer sheet for the same slot replaced the older ones, whose thumbnails
+// show pictures the candidate files may no longer hold (a regeneration with overwrite writes the same file names). "" when there is none.
+std::string current_candidates_sheet(const std::string& projectDir, const std::string& slot) {
+    return review_newest(projectDir, [&](const Json& meta) { return candidates_sheet_for(meta, slot); });
+}
+
 // A seed for the first candidate when the call gives none: the same prompt gives the same candidates (FNV-1a of the prompt, 31 bits).
 i64 prompt_seed(const std::string& prompt) {
     std::uint32_t h = 2166136261u;
@@ -412,6 +428,22 @@ Json generate_image_candidates(const Ctx& ctx, const Json& args, const ImageJob&
     require_free(job.path, overwrite);
     const std::vector<std::string> paths = candidate_paths(job.path, count);
     // Everything that can be refused is refused before anything is paid for.
+    Json meta = Json::object({{"kind", kCandidatesKind},
+                              {"slot", job.path},
+                              {"command", "assets.generate_image"},
+                              {"count", count},
+                              {"candidates", paths},
+                              {"overwrite", overwrite},
+                              {"estimatedCostUsd", nullptr},
+                              {"sha256", Json::array()}});
+    // Measured as it will be written: the estimated cost (filled in after the approval) gets 32 bytes (a double takes at most 24 as
+    // JSON), and each file's SHA-256 (filled in once written) its 64 hex digits.
+    Json measured = meta;
+    measured["sha256"] = std::vector<std::string>(std::size_t(count), std::string(64, '0'));
+    if (measured.dump().size() + 32 > std::size_t(kReviewMetaMaxBytes)) {
+        throw CommandError("invalid_path", std::format("assets.generate_image /path: '{}' is too long for a sheet of {} candidates", job.path, count),
+                           "Use a shorter path for the slot (folders and file name), or count 1.");
+    }
     std::vector<std::string> taken;
     for (const std::string& p : paths)
         if (fs::exists(p)) taken.push_back(p);
@@ -419,7 +451,24 @@ Json generate_image_candidates(const Ctx& ctx, const Json& args, const ImageJob&
         throw CommandError("exists",
                            std::format("assets.generate_image /count: the candidate file(s) {} already exist", join(taken, ", ")),
                            "They are likely the candidates of an earlier call for this slot: answer that sheet with assets.pick {\"slot\": \"" + job.path +
-                               "\", \"n\": <the person's number>} first, or pass overwrite:true to make new ones in their place (the old ones are not kept).");
+                               "\", \"n\": <the person's number>} first, or pass overwrite:true to make new ones in their place (the old ones are not kept, and "
+                               "their sheet can no longer be answered). Change the prompt or pass another `seed` for different pictures: the same prompt without a "
+                               "seed gives the same ones with providers that honour seeds.");
+    }
+    std::vector<std::string> warnings;
+    // overwrite:true over a file that only looks like a candidate of this slot (assets.json records it as something else): say what was lost.
+    if (!taken.empty()) {
+        const Json manifestNow = assets::manifest();
+        const Json* listed = child(manifestNow, "assets");
+        for (const std::string& p : taken) {
+            const Json* entry = listed && listed->is_object() ? child(*listed, p.c_str()) : nullptr;
+            const Json* provenance = entry ? child(*entry, "provenance") : nullptr;
+            const Json* candidate = provenance ? child(*provenance, "candidate") : nullptr;
+            if (candidate && candidate->is_object() && review_path_key(str(*candidate, "slot")) == review_path_key(job.path)) continue;
+            warnings.push_back(std::format("'{}' was overwritten, and assets.json did not record it as a candidate of '{}' ({}): if it was a file of its own, "
+                                           "it is gone (version control may still have it).",
+                                           p, job.path, entry ? "it was listed with other provenance" : "it was not listed at all"));
+        }
     }
     const std::string projectDir = ctx.projectDir();
     for (const std::string& p : paths) {
@@ -427,18 +476,6 @@ Json generate_image_candidates(const Ctx& ctx, const Json& args, const ImageJob&
             throw CommandError("invalid_path", std::format("assets.generate_image /path: the candidates of '{}' cannot be made: {}", job.path, why),
                                "Use a slot under assets/, for example 'assets/items/potion.png'.");
     }
-    Json meta = Json::object({{"kind", kCandidatesKind},
-                              {"slot", job.path},
-                              {"command", "assets.generate_image"},
-                              {"count", count},
-                              {"candidates", paths},
-                              {"overwrite", overwrite},
-                              {"estimatedCostUsd", nullptr}});
-    if (meta.dump().size() > std::size_t(kReviewMetaMaxBytes)) {
-        throw CommandError("invalid_path", std::format("assets.generate_image /path: '{}' is too long for a sheet of {} candidates", job.path, count),
-                           "Use a shorter path for the slot (folders and file name), or count 1.");
-    }
-
     const ImagePlan plan = plan_image(ctx, args, job);
     const AssetTarget& target = plan.target;
     const std::optional<i64> askedSeed = plan.request.seed;
@@ -449,7 +486,6 @@ Json generate_image_candidates(const Ctx& ctx, const Json& args, const ImageJob&
     if (!guard.go()) return guard.needs_approval();
     meta["estimatedCostUsd"] = guard.cost_json().value("estimatedCostUsd", Json(nullptr));
 
-    std::vector<std::string> warnings;
     Json made = Json::array();
     std::vector<std::string> written;
     // A failure part way: what was made stays (it is paid for, and its provenance is recorded), and the error says so.
@@ -469,26 +505,43 @@ Json generate_image_candidates(const Ctx& ctx, const Json& args, const ImageJob&
     for (int i = 0; i < count; ++i) {
         AssetRequest request = plan.request;
         request.seed = static_cast<i64>(static_cast<std::uint64_t>(baseSeed) + static_cast<std::uint64_t>(i));
-        auto result = generate_asset(*target.provider, request, ctx.runtime, ctx.cancel);
-        if (!result) fail_part_way(i, i + 1, result.error().message, result.error().hint);
+        std::optional<AssetResult> result;
+        std::string whyNot, whyNotHint;
+        try {
+            auto asked = generate_asset(*target.provider, request, ctx.runtime, ctx.cancel);
+            if (asked) result = std::move(*asked);
+            else {
+                whyNot = asked.error().message;
+                whyNotHint = asked.error().hint;
+            }
+        } catch (const CommandError& e) {
+            whyNot = e.what();
+            whyNotHint = e.hint;
+        } catch (const std::exception& e) {
+            whyNot = e.what();
+        }
+        if (!result) fail_part_way(i, i + 1, whyNot, whyNotHint);
+        // From here the picture is paid for: whatever fails, it is committed, not given back.
         WrittenImage picture;
+        Json provenance;
+        bool fileWritten = false;
         try {
             picture = write_image(job, plan, *result, paths[std::size_t(i)]);
-        } catch (const CommandError& e) {
-            fail_part_way(i + 1, i + 1, e.what(), e.hint);
-        }
-        written.push_back(paths[std::size_t(i)]);
-        if (i == 0) {
-            warn_unsent_references(warnings, plan, *result);
-            if (askedSeed) warn_ignored_seed(warnings, request, *result, *target.provider);
-        }
-        Json provenance = generated_provenance(args, *target.provider, *result, MediaKind::Image, request.prompt,
-                                               result->usedReferences ? plan.referencePaths : std::vector<std::string>(), picture.notes);
-        provenance["candidate"] = Json::object({{"slot", job.path}, {"n", i + 1}, {"count", count}});
-        try {
+            fileWritten = true;
+            written.push_back(paths[std::size_t(i)]);
+            if (i == 0) {
+                warn_unsent_references(warnings, plan, *result);
+                if (askedSeed) warn_ignored_seed(warnings, request, *result, *target.provider);
+            }
+            provenance = generated_provenance(args, *target.provider, *result, MediaKind::Image, request.prompt,
+                                              result->usedReferences ? plan.referencePaths : std::vector<std::string>(), picture.notes);
+            provenance["candidate"] = Json::object({{"slot", job.path}, {"n", i + 1}, {"count", count}});
+            meta["sha256"].push_back(picture.sha256);
             record(paths[std::size_t(i)], provenance);
         } catch (const CommandError& e) {
-            fail_part_way(i + 1, i + 1, e.what(), e.hint);
+            fail_part_way(i + 1, i + 1, e.what(), e.hint + (fileWritten ? " The file was written but its provenance was not recorded." : ""));
+        } catch (const std::exception& e) {
+            fail_part_way(i + 1, i + 1, e.what(), fileWritten ? "The file was written but its provenance was not recorded." : "");
         }
         Json c = Json::object({{"n", i + 1}, {"path", paths[std::size_t(i)]}, {"width", picture.image.width}, {"height", picture.image.height}, {"bytes", picture.bytes}});
         if (result->seed) c["seed"] = *result->seed;
@@ -503,6 +556,7 @@ Json generate_image_candidates(const Ctx& ctx, const Json& args, const ImageJob&
         items.push_back(Json::object({{"image", c["path"]}, {"label", label}, {"candidate", true}}));
     }
     const Json sheetArgs = Json::object({{"label", one_line(job.prompt, 120)}, {"items", items}, {"dropDir", kCandidatesDropDir}, {"meta", meta}});
+    const std::string replaced = current_candidates_sheet(projectDir, job.path);  // the sheet this one replaces (assets.pick answers the newest only)
     ReviewOutcome sheet = review_sheet(projectDir, sheetArgs);
     if (!sheet.ok) {
         throw CommandError(sheet.code.empty() ? "failed" : sheet.code,
@@ -521,6 +575,16 @@ Json generate_image_candidates(const Ctx& ctx, const Json& args, const ImageJob&
                              {"sheet", sheetId},
                              {"sheetPicture", sheet.value.value("picture", Json::object())}});
     if (sheet.value.contains("housekeeping")) out["housekeeping"] = sheet.value["housekeeping"];
+    if (!replaced.empty() && replaced != sheetId) {
+        const ReviewOutcome old = review_load(projectDir, replaced);
+        const Json* picked = old.ok ? child(old.value, "picked") : nullptr;
+        if (old.ok && !(picked && picked->is_object())) {
+            out["replacedSheet"] = replaced;
+            warnings.push_back(std::format("{} replaces {}, which was not answered yet: assets.pick answers only the newest candidates sheet of '{}' and "
+                                           "refuses a number given for {} (code superseded). Show {} to the person instead.",
+                                           sheetId, replaced, job.path, replaced, sheetId));
+        }
+    }
     add_cost(out, guard, warnings);
     if (!warnings.empty()) out["warnings"] = warnings;
     out["nextSteps"] = Json::array(
@@ -801,12 +865,25 @@ int item_number(const Json& item) {
     return n && n->is_number_integer() ? static_cast<int>(std::clamp<i64>(n->get<i64>(), 0, kReviewMaxItems)) : 0;
 }
 
-bool candidates_sheet_for(const Json& meta, const std::string& slot) {
-    return meta.is_object() && str(meta, "kind") == kCandidatesKind && review_path_key(str(meta, "slot")) == review_path_key(slot);
+// The refusal of a sheet that is not the current one of its slot.
+ReviewOutcome superseded(const std::string& sheetId, const std::string& slot, const std::string& current) {
+    return refuse("superseded",
+                  std::format("assets.pick /sheet: {} is no longer the candidates sheet of '{}': {} replaced it (made later for the same slot; "
+                              "the candidate files now hold its pictures, not the ones on {})", sheetId, slot, current, sheetId),
+                  std::format("Show {} to the person, ask for their number again, then call assets.pick {{\"slot\": \"{}\", \"n\": <their number>}} "
+                              "(or with \"sheet\": \"{}\"). Only the newest candidates sheet of a slot can be answered.", current, slot, current));
 }
 
-// The sheet assets.pick answers: the one given, or the newest unanswered candidates sheet of the slot.
+std::string already_picked_hint(const std::string& slot) {
+    return "A choice is final. To choose again make new candidates with assets.generate_image {\"path\": \"" + slot +
+           "\", \"count\": 3, \"overwrite\": true} and a changed prompt or another `seed` (the same prompt without a seed gives the same pictures "
+           "with providers that honour seeds), show the sheet and ask again.";
+}
+
+// The sheet assets.pick answers: the newest candidates sheet of the slot, which `given` (when set) must be.
 std::string find_candidates_sheet(const std::string& projectDir, const std::string& slot, const std::string& given) {
+    const std::string current = current_candidates_sheet(projectDir, slot);
+    std::string id = current;
     if (!given.empty()) {
         ReviewOutcome loaded = review_load(projectDir, given);
         if (!loaded.ok) throw CommandError(loaded.code, "assets.pick /sheet: " + loaded.message, loaded.hint);
@@ -820,32 +897,35 @@ std::string find_candidates_sheet(const std::string& projectDir, const std::stri
                                kind != kCandidatesKind ? "Answer other sheets with review.pick, or leave out `sheet` to answer the newest candidates sheet of the slot."
                                                        : "Pass the slot that sheet was made for, or leave out `sheet` to answer the newest candidates sheet of '" + slot + "'.");
         }
-        return str(loaded.value, "id", given);
-    }
-    ReviewOutcome listed = review_list(projectDir, kReviewListMax);
-    if (!listed.ok) throw CommandError(listed.code, "assets.pick: " + listed.message, listed.hint);
-    std::vector<std::string> slots;
-    std::string answered;
-    const Json sheets = listed.value.value("sheets", Json::array());
-    for (const Json& sheet : sheets) {  // newest first
-        const Json meta = sheet.value("meta", Json::object());
-        if (!meta.is_object() || str(meta, "kind") != kCandidatesKind) continue;
-        if (!candidates_sheet_for(meta, slot)) {
-            if (const std::string other = str(meta, "slot"); !other.empty() && std::find(slots.begin(), slots.end(), other) == slots.end()) slots.push_back(other);
-            continue;
+        id = str(loaded.value, "id", given);
+        if (!current.empty() && id != current) {
+            const ReviewOutcome refused = superseded(id, slot, current);
+            throw CommandError(refused.code, refused.message, refused.hint);
         }
-        const auto picked = sheet.find("picked");
-        if (picked == sheet.end() || picked->is_null()) return str(sheet, "id");
-        if (answered.empty()) answered = str(sheet, "id");
     }
-    if (!answered.empty()) {
-        throw CommandError("already_picked", std::format("assets.pick /slot: the candidates of '{}' were already picked ({}), and no newer sheet waits for an answer", slot, answered),
-                           "A choice is final. To choose again make new candidates with assets.generate_image {\"path\": \"" + slot +
-                               "\", \"count\": 3, \"overwrite\": true}, show the sheet and ask again.");
+    if (!id.empty()) {
+        ReviewOutcome loaded = review_load(projectDir, id);
+        if (loaded.ok) {
+            if (const auto picked = loaded.value.find("picked"); picked != loaded.value.end() && picked->is_object())
+                throw CommandError("already_picked",
+                                   std::format("assets.pick /slot: the candidates of '{}' on {} were already picked (number {}); older sheets of the slot were replaced by it",
+                                               slot, id, item_number(*picked)),
+                                   already_picked_hint(slot));
+        }
+        return id;
+    }
+    // No candidates sheet for the slot: the slots that have one are the suggestions.
+    std::vector<std::string> slots;
+    if (ReviewOutcome listed = review_list(projectDir, kReviewListMax); listed.ok) {
+        for (const Json& sheet : listed.value.value("sheets", Json::array())) {
+            const Json meta = sheet.value("meta", Json::object());
+            if (!meta.is_object() || str(meta, "kind") != kCandidatesKind) continue;
+            if (const std::string other = str(meta, "slot"); !other.empty() && std::find(slots.begin(), slots.end(), other) == slots.end()) slots.push_back(other);
+        }
     }
     throw CommandError("not_found",
                        std::format("assets.pick /slot: there is no sheet of candidates for '{}'.{}", slot,
-                                   slots.empty() ? std::string(" No candidates sheet waits for an answer.") : " " + did_you_mean(slot, slots)),
+                                   slots.empty() ? std::string(" No candidates sheet exists in this project.") : " " + did_you_mean(slot, slots)),
                        "Make candidates first with assets.generate_image {\"path\": \"" + slot + "\", \"count\": 3}; review.list shows every sheet.");
 }
 
@@ -998,6 +1078,9 @@ Json pick_command(const Ctx& ctx, const Json& args) {
         if (!candidates_sheet_for(meta, st->slot))
             return refuse("invalid_argument", std::format("assets.pick /sheet: {} is not a sheet of candidates for '{}' (its meta changed)", sheetId, st->slot),
                           "Leave out `sheet` to answer the newest candidates sheet of the slot.");
+        // Under the lock, so a regeneration that finished after the lookup is seen too.
+        if (const std::string current = current_candidates_sheet(projectDir, st->slot); !current.empty() && current != sheetId)
+            return superseded(sheetId, str(meta, "slot"), current);
         *sheetMeta = meta;
         // The slot as the sheet spells it (the call may differ in case, which is the same file on Windows and macOS only).
         const std::string metaSlot = fs::normalize(str(meta, "slot"));
@@ -1008,9 +1091,13 @@ Json pick_command(const Ctx& ctx, const Json& args) {
         st->absSlot = fs::os_path(fs::resolve(st->slot));
         const std::string source = str(chosen, "source");
         bool listed = false;
+        std::size_t index = 0;  // its place in meta.candidates (and meta.sha256)
         if (const Json* list = child(meta, "candidates"); list && list->is_array())
-            for (const Json& c : *list)
-                if (c.is_string() && review_path_key(c.get<std::string>()) == review_path_key(source)) listed = true;
+            for (std::size_t i = 0; i < list->size() && !listed; ++i)
+                if ((*list)[i].is_string() && review_path_key((*list)[i].get<std::string>()) == review_path_key(source)) {
+                    listed = true;
+                    index = i;
+                }
         if (str(chosen, "type") != "image" || !listed)
             return refuse("invalid_argument", std::format("assets.pick /n: item {} of {} is not one of the candidates made for '{}'", item_number(chosen), sheetId, st->slot),
                           "Use the number of a candidate on the sheet; the sheet's meta.candidates lists their files.");
@@ -1022,6 +1109,17 @@ Json pick_command(const Ctx& ctx, const Json& args) {
                           "It was moved or deleted after the sheet was made. Pick another number, or make new candidates with assets.generate_image {count}.");
         st->candidate = *norm;
         st->absCandidate = fs::os_path(fs::resolve(st->candidate));
+        // The file must still be the picture on the sheet: a later generation with overwrite (one that failed part way and made no
+        // sheet of its own) or an edit writes other pixels under the same name.
+        if (const Json* sums = child(meta, "sha256"); sums && sums->is_array() && index < sums->size() && (*sums)[index].is_string()) {
+            auto now = sha256_file_hex(st->absCandidate);
+            if (!now || *now != (*sums)[index].get<std::string>())
+                return refuse("superseded",
+                              std::format("assets.pick /n: candidate {} ('{}') is not the picture on {}: the file {} after the sheet was made", item_number(chosen),
+                                          st->candidate, sheetId, now ? "changed" : "cannot be read (" + now.error().message + ")"),
+                              "A later assets.generate_image with overwrite (or an edit) wrote it again. Make new candidates with assets.generate_image "
+                              "{\"path\": \"" + st->slot + "\", \"count\": 3, \"overwrite\": true}, show the new sheet and ask again.");
+        }
         if (fs::exists(st->slot) && !overwriteArg && !flag(meta, "overwrite"))
             return refuse("exists", std::format("assets.pick /slot: '{}' already exists", st->slot),
                           "Pass overwrite:true to replace it (the old file is kept for " + std::to_string(kReviewDroppedDays) +
@@ -1042,8 +1140,7 @@ Json pick_command(const Ctx& ctx, const Json& args) {
     ReviewOutcome picked = review_pick(projectDir, sheetId, n, options);
     if (!picked.ok) {
         std::string hint = picked.hint;
-        if (picked.code == "already_picked")
-            hint += " For '" + slot + "', make new candidates with assets.generate_image {\"path\": \"" + slot + "\", \"count\": 3, \"overwrite\": true}.";
+        if (picked.code == "already_picked") hint = already_picked_hint(slot);
         throw CommandError(picked.code.empty() ? "failed" : picked.code, picked.message, hint);
     }
     const Json& v = picked.value;
@@ -1093,25 +1190,27 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
     "width":{"type":"integer","minimum":8,"maximum":4096,"default":512,"description":"Width of the PNG in pixels. The provider's picture is resized to it."},
     "height":{"type":"integer","minimum":8,"maximum":4096,"default":512,"description":"Height of the PNG in pixels."},
     "transparent":{"type":"boolean","default":false,"description":"Ask for a transparent background (sprites, items, icons)."},
-    "count":{"type":"integer","minimum":1,"maximum":4,"default":1,"description":"How many candidates to make for the slot `path` (1 to 4). 1 writes `path` itself. 2 to 4 write <name>.candidate-1.png... next to it (seeds seed, seed+1...; without `seed` they come from the prompt) and one review sheet; the person picks one with assets.pick, which moves it to `path`. With overwrite false, existing candidate files are refused."},)J" +
+    "count":{"type":"integer","minimum":1,"maximum":4,"default":1,"description":"How many candidates to make for the slot `path` (1 to 4). 1 writes `path` itself. 2 to 4 write <name>.candidate-1.png... next to it (seeds seed, seed+1...; without `seed` they come from the prompt) and one review sheet; the person picks one with assets.pick, which moves it to `path`. With overwrite false, existing candidate files are refused; with overwrite true they are replaced, and the slot's earlier sheet can no longer be answered (assets.pick answers the newest)."},)J" +
                    kImageProperties + "," + kCommonProperties,
                R"(["prompt","path"])"),
         false, generate_image);
     add_command(
         registry, ctx, "assets.pick", "Keep the candidate the person chose: it becomes the slot, the others are dropped.",
-        "Answers the review sheet that assets.generate_image {count} made for `slot` (the newest one not answered yet, or `sheet`) "
+        "Answers the review sheet that assets.generate_image {count} made for `slot` (its newest one: a newer sheet for the same slot "
+        "replaces the older ones, which are refused as superseded) "
         "with the number the PERSON chose: never pick for them; show the sheet and ask. Candidate `n` is moved to `slot` and the "
         "slot's entry in assets.json gets its provenance (prompt, provider, model, seed, plus `candidates`: the sheet, the number "
         "picked, how many there were and the estimated cost of the batch); the candidates' own entries are removed. The other "
         "candidates move to .factoria/assets/candidates/<sheet id>/, where review.cleanup deletes them after 7 days. An existing "
         "slot file needs overwrite (here or in the generate call) and is kept in the same folder. All or nothing: when a file "
-        "cannot be moved (open in another program: code busy) nothing changes. A sheet that was already answered is refused "
-        "(already_picked). The editor's Review window calls it with {sheet, n, slot}. "
+        "cannot be moved (open in another program: code busy) nothing changes. Refused: a slot whose newest sheet was already answered "
+        "(already_picked), and a candidate file that is no longer the picture on the sheet (superseded). The editor's Review window calls "
+        "it with {sheet, n, slot}. "
         "Example: {\"slot\":\"assets/items/potion.png\",\"n\":2}",
         Json::parse(R"({"type":"object","properties":{
             "slot":{"type":"string","description":"The path the candidates were made for: the `path` given to assets.generate_image, project-relative under assets/."},
             "n":{"type":"integer","minimum":1,"maximum":4,"description":"The number printed on the thumbnail the person chose (1 is the first candidate)."},
-            "sheet":{"type":"string","description":"The candidates sheet to answer (\"sheet-0007\", or its number). Default: the newest candidates sheet of `slot` that has no answer yet."},
+            "sheet":{"type":"string","description":"The candidates sheet to answer (\"sheet-0007\", or its number). It must be the newest candidates sheet of `slot` (an older one is refused as superseded). Default: that newest sheet."},
             "note":{"type":"string","maxLength":500,"description":"Why this one, in the person's words; kept in the sheet's manifest with the choice."},
             "overwrite":{"type":"boolean","default":false,"description":"Replace a file that already exists at `slot` (the old file is kept in the sheet's drop folder for 7 days). Not needed when the generate call had overwrite:true."}},
             "required":["slot","n"],"additionalProperties":false})"),
