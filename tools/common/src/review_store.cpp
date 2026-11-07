@@ -2,6 +2,7 @@
 // moves of dropped candidates. Every write of shared state happens under the repo's cross-process lock.
 #include "fa/tooling/review.h"
 
+#include <exception>
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -464,6 +465,19 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
     if (!bool_of(chosen, "ok", true))
         return failure("invalid_argument", std::format("review.pick /n: item {} of {} failed to render ({}), so it cannot be picked.", n, id, str_of(chosen, "error", std::string("no reason recorded"))),
                        "Pick another number, or make a new sheet.");
+    if (options.step.check) {
+        ReviewOutcome checked;
+        try {
+            checked = options.step.check(manifest, chosen);
+        } catch (const std::exception& e) {
+            checked = failure("failed", std::string("review.pick: the caller's check failed: ") + e.what(), "Nothing was changed.");
+        }
+        if (!checked.ok) return checked;
+    }
+    // The folder the caller's step may move its own files into: this sheet's drop folder, when the manifest names a usable one.
+    std::string stepDropFolder;
+    if (const std::string manifestDrop = str_of(manifest, "dropDir", std::string(kReviewDropDir)); review_drop_dir_problem(manifestDrop).empty())
+        stepDropFolder = *fs::normalize_checked(manifestDrop) + "/" + id;
 
     // ---- the moves ----
     // The manifest is a file anyone can edit, so nothing in it is trusted: every file to move is checked again here, exactly as
@@ -555,10 +569,37 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
         }
     }
 
+    // ---- the caller's own change ----
+    Json stepValue = Json::object();
+    if (options.step.apply) {
+        ReviewOutcome applied;
+        try {
+            applied = options.step.apply(manifest, chosen, stepDropFolder);
+        } catch (const std::exception& e) {  // the moves are put back whatever the step did
+            applied = failure("failed", std::string("review.pick: the caller's change failed: ") + e.what() + ".", "Call again once the cause is fixed.");
+        }
+        if (!applied.ok) {
+            const auto stuck = roll_back(moves);
+            if (!moves.empty())
+                applied.message += stuck.empty() ? " The files of the other candidates were put back; nothing was changed." : " These files could not be put back, move them by hand: " + join(stuck, "; ");
+            return applied;
+        }
+        if (applied.value.is_object()) stepValue = std::move(applied.value);
+    }
+
     // ---- record the choice ----
     std::int64_t now = clock_now();
     Json dropped = Json::array();
     for (const Move& m : moves) dropped.push_back(Json::object({{"n", m.n}, {"label", m.label}, {"from", m.from}, {"to", m.to}, {"status", "moved"}}));
+    if (const auto more = stepValue.find("dropped"); more != stepValue.end()) {
+        if (more->is_array())
+            for (const Json& e : *more) {
+                int number = 0;
+                if (!whole_of(e, "n", number)) continue;
+                dropped.push_back(Json::object({{"n", number}, {"label", str_of(e, "label", std::string())}, {"from", str_of(e, "from", std::string())}, {"to", str_of(e, "to", std::string())}, {"status", "moved"}}));
+            }
+        stepValue.erase(more);
+    }
     Json picked = Json::object({{"n", n},
                                 {"label", str_of(chosen, "label", std::string())},
                                 {"at", iso_utc_ms(now * 1000)},
@@ -571,8 +612,17 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
     manifest["picked"] = picked;
     auto written = write_text_file(project_path(projectDir, std::string(kReviewDir) + "/" + id + "/manifest.json"), manifest.dump(2) + "\n");
     if (!written.ok) {
+        std::string stuckStep;
+        if (options.step.undo) {
+            try {
+                stuckStep = options.step.undo();
+            } catch (const std::exception& e) {
+                stuckStep = std::string("the caller's own change (") + e.what() + ")";
+            }
+        }
         const auto stuck = roll_back(moves);
-        written.message += stuck.empty() ? " The files that were moved were put back; nothing was changed." : " These files could not be put back, move them by hand: " + join(stuck, "; ");
+        if (stuck.empty() && stuckStep.empty()) written.message += " The files that were moved were put back; nothing was changed.";
+        else written.message += " These could not be put back, move them by hand: " + join(stuck, "; ") + (stuck.empty() || stuckStep.empty() ? "" : "; ") + stuckStep;
         return written;
     }
 
@@ -593,6 +643,7 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
                                 {"drop", options.drop}, {"dropped", dropped}, {"who", picked["who"]}, {"at", picked["at"]}});
     const auto meta = manifest.find("meta");
     result["meta"] = meta != manifest.end() && meta->is_object() ? *meta : Json::object();
+    if (options.step.apply) result["step"] = stepValue;
     result["warnings"] = warnings;
     return success(std::move(result));
 }

@@ -2196,7 +2196,7 @@ Since 0.1.6.
 
 Generate a PNG image with the image asset provider and record where it came from.
 
-Calls the provider that ai.json assigns to "image" (assets.image; there is no default, so add one, or pass `provider` such as "fake" for an offline placeholder), writes a PNG of exactly width x height at `path` and records provenance (origin generated, ai true, provider, model, the full prompt, references, date, license note) in assets.json. The house style of assets.json is applied unless style is false: its `prompt` is appended to yours, its `references` are sent along with `references`, and its `palette` reduces the result to those colours. Returns the path, size, provenance and the image itself. Generation costs money with paid providers: check the first result before generating more. Example: {"prompt":"a red potion bottle, side view","path":"assets/items/potion.png","width":64,"height":64,"transparent":true} COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
+Calls the provider that ai.json assigns to "image" (assets.image; there is no default, so add one, or pass `provider` such as "fake" for an offline placeholder), writes a PNG of exactly width x height at `path` and records provenance (origin generated, ai true, provider, model, the full prompt, references, date, license note) in assets.json. The house style of assets.json is applied unless style is false: its `prompt` is appended to yours, its `references` are sent along with `references`, and its `palette` reduces the result to those colours. Returns the path, size, provenance and the image itself. Generation costs money with paid providers: check the first result before generating more. With `count` 2 to 4 it makes that many candidates for the slot `path` instead (files next to it named <name>.candidate-<n>.png, each with its own seed and provenance; the cost estimate and the approval cover all of them at once) and ONE review sheet that shows them numbered: show that sheet to the person, ask for one number and call assets.pick {slot, n}. Never pick for them. Example: {"prompt":"a red potion bottle, side view","path":"assets/items/potion.png","width":64,"height":64,"transparent":true} COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2205,6 +2205,7 @@ Calls the provider that ai.json assigns to "image" (assets.image; there is no de
 | `width` | integer | no | Width of the PNG in pixels. The provider's picture is resized to it. Default 512. |
 | `height` | integer | no | Height of the PNG in pixels. Default 512. |
 | `transparent` | boolean | no | Ask for a transparent background (sprites, items, icons). Default false. |
+| `count` | integer | no | How many candidates to make for the slot `path` (1 to 4). 1 writes `path` itself. 2 to 4 write <name>.candidate-1.png... next to it (seeds seed, seed+1...; without `seed` they come from the prompt) and one review sheet; the person picks one with assets.pick, which moves it to `path`. With overwrite false, existing candidate files are refused. Default 1. |
 | `references` | array | no | Project-relative images the result should follow (a character to keep consistent, a style). Sent to providers that accept reference images, in addition to style.references of assets.json. |
 | `style` | boolean | no | Apply the house style of assets.json (style.prompt, style.references, style.palette). false skips all of it for this call. Default true. |
 | `provider` | string | no | Asset provider to use instead of the one ai.json assigns to this kind of asset (a name from ai.providers, for example "fake" to try the flow offline). |
@@ -2461,6 +2462,22 @@ Packing again is stable: a frame whose size did not change keeps its rectangle (
 | `table` | string | no | Project-relative .json for the frame table. Default: out with the .json extension. |
 | `maxSize` | integer | no | Largest side of the page in pixels. Default 2048 (what every phone samples); 4096 is fine on desktop. Frames that do not fit are an error. |
 | `padding` | integer | no | Pixels of the frame's own edge repeated around each frame. Default 2. |
+
+### `assets.pick` (modifies state)
+
+Not released yet (on main after 0.17.0).
+
+Keep the candidate the person chose: it becomes the slot, the others are dropped.
+
+Answers the review sheet that assets.generate_image {count} made for `slot` (the newest one not answered yet, or `sheet`) with the number the PERSON chose: never pick for them; show the sheet and ask. Candidate `n` is moved to `slot` and the slot's entry in assets.json gets its provenance (prompt, provider, model, seed, plus `candidates`: the sheet, the number picked, how many there were and the estimated cost of the batch); the candidates' own entries are removed. The other candidates move to .factoria/assets/candidates/<sheet id>/, where review.cleanup deletes them after 7 days. An existing slot file needs overwrite (here or in the generate call) and is kept in the same folder. All or nothing: when a file cannot be moved (open in another program: code busy) nothing changes. A sheet that was already answered is refused (already_picked). The editor's Review window calls it with {sheet, n, slot}. Example: {"slot":"assets/items/potion.png","n":2}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `slot` | string | yes | The path the candidates were made for: the `path` given to assets.generate_image, project-relative under assets/. |
+| `n` | integer | yes | The number printed on the thumbnail the person chose (1 is the first candidate). |
+| `sheet` | string | no | The candidates sheet to answer ("sheet-0007", or its number). Default: the newest candidates sheet of `slot` that has no answer yet. |
+| `note` | string | no | Why this one, in the person's words; kept in the sheet's manifest with the choice. |
+| `overwrite` | boolean | no | Replace a file that already exists at `slot` (the old file is kept in the sheet's drop folder for 7 days). Not needed when the generate call had overwrite:true. Default false. |
 
 ### `assets.preview_in_scene`
 

@@ -666,6 +666,41 @@ it was made) is listed by `review.list` as an `orphan` and removed by `review.cl
 **Over MCP and the CLI nothing asks the person: `review.pick` must get the number THEY gave you.** Never choose for them: ask in the conversation, show the sheet,
 wait for the number.
 
+### Candidates for one asset: assets.generate_image count and assets.pick
+
+`assets.generate_image {"prompt":"a red potion bottle","path":"assets/items/potion.png","width":64,"height":64,"count":3}` makes
+three candidates for the slot `assets/items/potion.png` instead of the file itself, and one review sheet that shows them:
+
+- The candidates are written next to the slot as `potion.candidate-1.png`, `potion.candidate-2.png`... (`count` is 1 to 4; 1 is the
+  plain call that writes the slot). Each has its own seed (`seed`, `seed+1`...; without `seed` the first comes from the prompt, so the
+  same prompt gives the same seeds) and its own provenance in `assets.json`, with `candidate: {slot, n, count}`.
+- Everything that can be refused is refused before the provider is called: a `count` out of 1..4 (with the pointer `/count`), a slot
+  that exists, or candidate files that exist (left by an earlier call), unless `overwrite` is true.
+- The cost estimate, the limits and the approval cover all the candidates at once, before the first picture (docs/AI_COSTS.md,
+  "Asset generation"): one question, one yes, for the batch. When the provider fails part way, the error lists the candidates that were
+  written (kept, with their provenance), the estimated cost of those, and gives the rest of the estimate back; no sheet is made then.
+- The sheet is an ordinary `review.sheet` (the section above): every item is `candidate: true`, its label is the seed, the sheet's label
+  is the prompt, its `dropDir` is `.factoria/assets/candidates`, and its `meta` is
+  `{"kind":"assetCandidates","slot":...,"command":"assets.generate_image","count":...,"candidates":[...],"overwrite":...,"estimatedCostUsd":...}`.
+  The result carries the sheet id, the candidates, the cost, the sheet picture as `$image` and the next steps.
+
+Show the sheet, ask the person for ONE number, then `assets.pick {"slot":"assets/items/potion.png","n":2}`:
+
+- It answers the newest unanswered candidates sheet of that slot (or `sheet`, which must be a candidates sheet of the same slot), with
+  `review.pick` itself: the same lock, the same file checks, the same all or nothing, the choice and `note` recorded in the manifest.
+- Candidate 2 is moved to the slot. The slot's entry in `assets.json` gets that candidate's provenance (prompt, provider, model, seed)
+  plus `candidates: {sheet, picked, count, estimatedCostUsd, costIsEstimate}`, and the candidates' own entries are removed.
+- The other candidates move to `.factoria/assets/candidates/<sheet id>/NN_<name>`, where `review.cleanup` deletes them 7 days later,
+  like the files of any picked sheet. A slot file that exists needs `overwrite` (in the generate call or the pick) and is kept there as
+  `00_<name>` for the same 7 days.
+- When a file cannot be moved (open in a viewer: code `busy`) or `assets.json` cannot be written, every move is put back and nothing
+  changes. A sheet that was answered is refused with `already_picked` (make new candidates to choose again); a slot with no candidates
+  sheet is `not_found`, with the slots that have one as suggestions.
+- Until the pick the candidates are files under `assets/`, so an export would ship them: pick (or delete them) before exporting.
+
+Never pick for the person. The editor's Review window answers these sheets with the same call, `assets.pick {"sheet":..., "n":..., "slot":...}`,
+for every sheet whose `meta.kind` is `"assetCandidates"`.
+
 ### Checking art: assets.check_art
 
 `assets.check_art {"path":"assets/hero.png"}` (or `{"paths":[...]}`, up to 12 pictures, checked one by one and as a set) looks
