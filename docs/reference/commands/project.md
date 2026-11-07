@@ -233,7 +233,7 @@ Writes a plugin folder (default plugins/<name>, or `path`: project-relative, abs
 
 ## `project.serve_web` (modifies state)
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 Serve the game's web build on this computer, or on the Wi-Fi to try it on a phone; it reloads when the project changes.
 

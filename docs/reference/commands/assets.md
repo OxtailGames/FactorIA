@@ -472,7 +472,7 @@ Packing again is stable: a frame whose size did not change keeps its rectangle (
 
 ## `assets.pick` (modifies state)
 
-Not released yet (on main after 0.17.0).
+Since 0.18.0.
 
 Keep the candidate the person chose: it becomes the slot, the others are dropped.
 
