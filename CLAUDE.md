@@ -89,7 +89,27 @@ ctest --test-dir build/dev --output-on-failure
 
 Split work across models the same way the engine's own AI roles do
 (docs/AI_PROVIDERS.md). This holds for every Claude Code session on this
-repository, not only the one where it was agreed:
+repository, not only the one where it was agreed.
+
+**Pick the model and effort for each task.** Before you give any task to an
+agent, decide which available model (`opus`, `sonnet` or `haiku`; never
+`fable`) and which effort (`low`, `medium`, `high` or `xhigh`; never `max`)
+does that task best for the least quota. Pass both on the Agent call (`model`
+and `effort`), and say in one line which you picked and why. Weigh the rounds,
+not only the price per token: one `opus` round on a hard or risky package can
+cost less than three `sonnet` rounds, and a mechanical task wastes quota on a big
+model. The roles below are the defaults to reason from, not a fixed table. The
+`fast` agent type defaults to `max`, so always pass a lower effort for it.
+
+- Hard, risky or design-heavy work (L packages; platform files, threads, render,
+  the editor autotest, Windows path or file code): `opus` or `sonnet` at `high`
+  or `xhigh`.
+- Normal S and M features and fixes: `sonnet` at `medium` or `high`.
+- Reviews: `sonnet` at `high`; `opus` for subtle concurrency or Windows path code.
+- Searches, bookkeeping, doc and typing regeneration, renames: `haiku` at `low` or
+  `medium`.
+
+The default roles:
 
 - **Orchestrator — `opus`.** The main session: plans, triages feedback, splits
   work into packages, reviews and integrates the results, runs the full test
@@ -115,8 +135,8 @@ repository, not only the one where it was agreed:
   view of the change. It only reports; the orchestrator decides and has the
   worker (or a new one) fix what holds up. A preflight round costs hours, a
   review minutes.
-- **Fast — `haiku`.** Small mechanical tasks (`subagent_type: "fast"`: haiku,
-  max effort): code searches, regenerating docs/typings,
+- **Fast — `haiku`.** Small mechanical tasks (`subagent_type: "fast"`: haiku;
+  pass `effort` yourself, its default is max): code searches, regenerating docs/typings,
   ENGINE_FEEDBACK/ROADMAP bookkeeping, renames.
 
 ## Finishing a task (every session on this project)
