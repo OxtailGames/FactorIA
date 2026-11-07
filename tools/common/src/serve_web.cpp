@@ -754,10 +754,10 @@ struct WebServer::Impl {
         };
         for (const std::string& rel : export_detail::list_game_files(projectPath, feedbackFile)) {
             mix_text(rel);
-            mix_file(projectPath / path_from_utf8(rel));
+            mix_file(projectPath / stdfs::path(rel));  // list_game_files returns native strings (generic_string())
         }
         if (!opts.playerBinary.empty()) {
-            stdfs::path dir = path_from_utf8(opts.playerBinary);
+            stdfs::path dir(opts.playerBinary);  // a native string (ExportOptions::playerBinary)
             std::error_code ec;
             if (stdfs::is_regular_file(fs::os_path(dir), ec)) dir = dir.parent_path();
             mix_file(dir / "factoria_player.js");
@@ -800,7 +800,7 @@ struct WebServer::Impl {
         std::unique_lock<std::mutex> lock(m);
         if (stopping) return;
         if (r.ok()) {
-            slots[target].root = path_from_utf8(r->outputDir);
+            slots[target].root = stdfs::path(r->outputDir);  // native, like every path string the export returns
             slots[target].valid = true;
             active = target;
             ++version;
@@ -874,7 +874,7 @@ Result<void> WebServer::start(const ServeWebOptions& options) {
     if (!impl->sockets.ok())
         return make_error("project.serve_web: the network could not be started (Winsock)", "check that no security software blocks this program from using the network");
     std::error_code ec;
-    impl->projectPath = stdfs::absolute(path_from_utf8(options.projectDir), ec);
+    impl->projectPath = stdfs::absolute(stdfs::path(options.projectDir), ec);  // projectDir is a native string (ANSI code page on Windows), not UTF-8
     if (options.projectDir.empty() || !stdfs::is_regular_file(fs::os_path(impl->projectPath / "factoria.json"), ec))
         return make_error("project.serve_web: '" + options.projectDir + "' is not a FactorIA project (factoria.json not found)",
                           "open a project (or pass --project <folder with factoria.json>); a scratch session has nothing to serve");
@@ -1033,7 +1033,7 @@ AsyncJob& async_job() {
 bool serves_this(const ServeWebStatus& now, const ServeWebOptions& o, const std::string& projectDir) {
     std::error_code ec;
     return now.running && now.lan == o.lan &&
-           stdfs::weakly_canonical(stdfs::absolute(path_from_utf8(projectDir), ec), ec) == stdfs::weakly_canonical(path_from_utf8(now.projectDir), ec);
+           stdfs::weakly_canonical(stdfs::absolute(stdfs::path(projectDir), ec), ec) == stdfs::weakly_canonical(stdfs::path(now.projectDir), ec);  // both native
 }
 
 // Runs a stop on the helper thread. `job.mu` is held by the caller; no job is running.
