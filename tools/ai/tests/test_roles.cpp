@@ -31,6 +31,8 @@ CommandRegistry roles_registry() {
     add("game.step", false);
     add("game.click", false);
     add("scene.load", false);
+    add("play.auto", false);  // plays the game headless with a bot; writes only .factoria/sessions/
+    add("play.report", true);
     return r;
 }
 
@@ -578,4 +580,35 @@ TEST_CASE("roles off: ai.run refuses a role that is off; a review whose role is 
     REQUIRE(s.run("review").ok);
     CHECK(provider->requests[0].model == cfg.role("orchestrator").model);
     CHECK(provider->requests[0].system.find("READ-ONLY") != std::string::npos);
+}
+
+TEST_CASE("read-only: the game reviewer may run play.auto and its prompt makes it a support of playing by hand; the art critic's does not") {
+    CommandRegistry reg = roles_registry();
+    // Allowed for the read-only roles (it writes only a session under .factoria/sessions/), for Claude Code too.
+    CHECK(contains(tool_names(tools_from_registry(reg, false, true)), "play_auto"));
+    CHECK_FALSE(contains(cli_disallowed_tools(reg, kRoleReviewer, false), "mcp__factoria__play_auto"));
+    // The editing tools stay refused.
+    CHECK(contains(cli_disallowed_tools(reg, kRoleReviewer, false), "mcp__factoria__scene_spawn"));
+
+    TempDir dir;
+    std::ofstream(dir.path / "factoria.json") << R"({"name":"g"})";
+    auto has = [](const std::string& text, const char* needle) { return text.find(needle) != std::string::npos; };
+    const std::string game = build_system_prompt(PromptContext{dir.str(), kRoleReviewer, false});
+    CHECK(has(game, "play_auto"));
+    CHECK(has(game, "BY HAND first"));
+    CHECK(has(game, "SUPPORT for your hands"));
+    CHECK(has(game, "which parts you judged by hand"));
+    CHECK(has(game, "says nothing about whether a person finds the game clear"));
+    // The order: by hand, then the bot, then the phases not reached.
+    const auto hand = game.find("BY HAND first");
+    const auto bot = game.find("Then run play_auto");
+    const auto phases = game.find("Jump to the phases you did not reach");
+    CHECK(hand < bot);
+    CHECK(bot < phases);
+    const std::string art = build_system_prompt(PromptContext{dir.str(), kRoleArtCritic, false});
+    CHECK_FALSE(has(art, "play_auto"));
+    CHECK_FALSE(has(art, "play_sessions"));
+    // The task text a review starts with mentions the order for the reviewer only.
+    CHECK(review_task(kRoleReviewer, "").find("play_auto") != std::string::npos);
+    CHECK(review_task(kRoleArtCritic, "").find("play_auto") == std::string::npos);
 }

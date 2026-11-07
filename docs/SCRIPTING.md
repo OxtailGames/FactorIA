@@ -1137,6 +1137,51 @@ job.promise.then(() => scene.load("scenes/level2.scene.json"));
   hidden or closing copies it to IndexedDB right after the `suspend` and `quit` handlers have run (see below), so a
   `storage.set` made inside one is kept.
 
+### The bot (`game.autoplay`)
+
+`play.auto` ([DEBUGGING.md](DEBUGGING.md#let-the-game-play-itself)) plays the game with nobody at the keyboard, headless and fast,
+and reports what it found. The game says how it is played in `scripts/autoplay.js`, a file only `play.auto` imports (a shipped game
+does not contain it: `factoria export` leaves it out, so nothing of it runs in a game people play):
+
+```js
+// scripts/autoplay.js
+import { game, world } from "factoria";
+
+game.autoplay((bot) => {
+  const player = world.find("player");
+  if (!player) return { end: "lost", note: "The player is gone." };
+  const area = world.find("map").bounds();
+  if (player.position.x > area.x + area.w - 96) return { end: "won", score: 12 };
+  const jump = player.isGrounded() && bot.rng.chance(0.03);
+  return jump ? ["move_right", "jump"] : ["move_right"];
+});
+```
+
+`game.autoplay(fn)` calls `fn(bot)` once per step (at `speed` N, once per N steps) and `fn` answers what to press:
+
+- **An array of action names** to HOLD during this step. An action you leave out is released, so `["move_right"]` runs right until
+  an answer without it. Only the actions of `factoria.json` `"input"` and the menu actions (`ui_up`, `ui_down`, `ui_left`, `ui_right`,
+  `ui_next`, `ui_previous`, `ui_submit`, `ui_cancel`) are accepted, because the bot's input is recorded as a replay
+  (`factoria run --headless --input` plays it again). Another name throws with a "did you mean".
+- **An object** `{ actions?, end?, score?, note? }`: `end: "won"` or `"lost"` finishes the run with that result (the session says
+  `ended: "won"`), `score` is the number the session reports, `note` is a line of the session's notes.
+- Nothing (`undefined`) presses nothing.
+
+`bot` is read only: `time` and `step` (game time and fixed steps since the run began), `dt` (the game seconds this decision lasts), `scene`,
+`sceneTime`, `phase`, `actions` (the declared actions), `uiActions`, `held` (what the previous step held), `seed` and `rng`.
+Take every random choice from `bot.rng` (a generator seeded with the run's `seed`), never `Math.random`: the same `seed` then plays the same game.
+`fn` may keep state in the module (the last position, a counter). It reads the world and answers with actions; it must not change the game
+(no teleporting, no spawning), or the replay would not reproduce the run. `fn` must answer at once, not return a promise. A hook that throws
+presses nothing in that step and the error goes to the session's `scriptErrors`; a hook that fails every step is reported as an exception loop.
+
+`game.phase(name, { ends? })` marks a stage of the run for the report ("boss", "shop", "level 2"): the session lists it with its game time and a
+screenshot. `{ ends: "won" }` or `{ ends: "lost" }` also ends the run, so a game without a hook can tell the explorer it is over
+(`game.phase("victory", { ends: "won" })`). Outside `play.auto` both calls do nothing. Every scene a run loads is a phase by itself.
+
+A game without `scripts/autoplay.js` is played by a generic explorer: it holds one or two of the declared actions for 0.5 to 1.5 game seconds, then
+changes, and taps `ui_submit`, `ui_down` or `ui_next` when the scene has buttons, all drawn from the run's `seed`. That finds crashes,
+stuck screens and slow frames, but not a level that needs a plan: write the hook for that. The templates ship one that finishes their sample level.
+
 ### Window close: `game.on("quit", fn)`
 
 On a desktop window, the close button, Cmd+Q (macOS) and Alt+F4 (Windows) raise `quit` before the window closes. The

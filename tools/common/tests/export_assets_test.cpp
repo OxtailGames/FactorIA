@@ -1,6 +1,7 @@
 // Export: the asset steps (tools/common/src/export_assets.cpp) and the assets.json that ships.
 #include <doctest.h>
 
+#include <cctype>
 #include <filesystem>
 
 #include "fa/core/asset_manifest.h"
@@ -97,4 +98,27 @@ TEST_CASE("export: a project without assets.json ships none") {
     auto r = f.export_linux();
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     CHECK_FALSE(stdfs::exists(f.tmp.sub("out/proj-linux/game/assets.json")));
+}
+
+TEST_CASE("export: scripts/autoplay.js, the bot of play.auto, never ships, whatever its capitalization") {
+    for (const char* spelling : {"autoplay.js", "AutoPlay.JS"}) {
+        INFO("spelling " << spelling);
+        ExportFixture f;
+        const stdfs::path scripts = stdfs::path(f.proj) / "scripts";
+        stdfs::remove(scripts / "autoplay.js");  // the template's own
+        testing::write_all(scripts / spelling, "game.autoplay(() => []);\n");
+        REQUIRE(stdfs::exists(scripts / spelling));
+        auto r = f.export_linux();
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        bool shippedBot = false;
+        std::error_code ec;
+        for (stdfs::recursive_directory_iterator it(f.tmp.sub("out"), ec), end; !ec && it != end; it.increment(ec)) {
+            std::string name = it->path().filename().generic_string();
+            for (char& c : name) c = char(std::tolower((unsigned char)c));
+            shippedBot = shippedBot || name == "autoplay.js";
+        }
+        CHECK_FALSE(shippedBot);
+        CHECK(stdfs::exists(f.tmp.sub("out/proj-linux/game/factoria.json")));  // the export itself worked
+        CHECK(stdfs::exists(scripts / spelling));                              // the project keeps it
+    }
 }

@@ -433,8 +433,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [play](commands/play.md)
 
-- [`play.report`](commands/play.md#playreport): What happened while the user played: perf, spikes, warnings/errors, their problem marks and screenshots.
-- [`play.sessions`](commands/play.md#playsessions): List the recent play sessions recorded by the editor (Play .. Stop), newest first.
+- [`play.auto`](commands/play.md#playauto-modifies-state): Let the game play itself, headless and fast, and write the run as a play session: phases, score, how it ended, problems found, pictures. _Not released yet._
+- [`play.report`](commands/play.md#playreport): What happened while the game was played (by the user or by play.auto): perf, spikes, warnings/errors, the problem marks and screenshots.
+- [`play.sessions`](commands/play.md#playsessions): List the recent play sessions (recorded by the editor on Play .. Stop, or by play.auto), newest first.
 
 ### [project](commands/project.md)
 

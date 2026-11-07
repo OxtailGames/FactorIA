@@ -5475,22 +5475,41 @@ Returns {backend, why, adsBackend, adsWhy, httpBackend, httpWhy, networkHosts, a
 
 ## play
 
+### `play.auto` (modifies state)
+
+Not released yet (on main after 0.17.0).
+
+Let the game play itself, headless and fast, and write the run as a play session: phases, score, how it ended, problems found, pictures.
+
+Run this after you build a feature and BEFORE you ask the user to play: it plays the game with nobody at the keyboard and tells you whether it can be finished, where it gets stuck and what breaks. A second headless engine in this process (fake platform, in-memory saves, fixed 1/fixedHz steps, the same `seed` plays the same game) plays up to `seconds` GAME seconds. The bot is the game's own: scripts/autoplay.js calls game.autoplay(fn) and fn(bot) answers, every step, the input actions to hold (docs/SCRIPTING.md, "The bot"; the project templates ship one that finishes their sample level). Without that file a generic explorer holds the declared input actions in seeded patterns (and taps the menu actions when the scene has buttons), so any game still gets smoke-played; bot "explorer" forces it. The run ends with `ended`: "won" or "lost" (the hook returned { end } or the game called game.phase(name, { ends })), "timeout" (the seconds passed), "quit" (the game quit), "stuck" (nothing moved and nothing changed for stuckSeconds, or a menu has nobody to press it), "broken" (a script raised errors every second for 3 seconds, something pulled by gravity fell out of the world, a position became NaN, or scripts/autoplay.js could not be loaded) or "aborted" (a real-time safety net of 800 seconds, far above any normal run). Each problem becomes a mark with its `kind`, the `step`, a screenshot and a one-line note. The session is written to .factoria/sessions/<name>/ with "source": "auto" next to the editor's: session.json (perf, spikes, warnings, errors, marks, `phases` = the scenes and the game.phase("boss") marks with their game time and a screenshot, `score`, `ended`, `endedWhy`, `notes`, `scriptErrors`, `auto`), input.json (the bot's input in the replay format) and the pictures. Returns {session, dir, ended, endedWhy, score, gameSeconds, steps, frames, bot ("hook" or "explorer"), seed, speed, phases, problems, scriptErrors, warningsAndErrorsLogged, notes, avgFrameMs, maxFrameMs, screenshots, endScreenshot, replay, next} and the picture of the end ($image). Read the details with play.report {session}; replay the problem with the `replay` command (factoria run --headless --input ... --seed ...). Without a GPU the numbers, phases and marks are complete and `notes` says there are no pictures (a Linux machine without a display needs Mesa's EGL, llvmpipe). From the editor or any process that already uses the graphics card the command runs `factoria call play.auto` in a child process. The result never depends on how fast the machine is. Example: {"seconds":120,"seed":7} or {"scene":"scenes/level2.scene.json","bot":"explorer","speed":4}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `scene` | string | no | Project-relative scene to start in (default: the project's mainScene). |
+| `seconds` | number | no | How many GAME seconds to play at most (simulation time: steps / fixedHz, never the clock). The run ends "timeout" when they pass. Default 60. |
+| `seed` | integer | no | Seed of the world's random numbers, of the explorer and of bot.rng in the hook: the same seed plays the same game. Default 1. |
+| `speed` | integer | no | Fixed steps run per frame. The bot answers once per frame, so 4 plays about four times as much game time per second of real time, with a coarser bot. Replays keep the same timing. Default 1. |
+| `stuckSeconds` | number | no | Game seconds without the player (or whatever can move) moving and without a scene, phase, score or menu-focus change before the run is called stuck. Must not be more than seconds. Default 10, or half of seconds when the run is shorter than 20. |
+| `bot` | string ["auto","hook","explorer"] | no | auto: scripts/autoplay.js when the project has one, else the generic explorer. hook: the file is required (error without it). explorer: ignore the file and press the declared actions in seeded patterns. Default "auto". |
+| `screenshots` | boolean | no | Take a screenshot per phase, per problem and at the end (needs a GPU; without one the session says so in its notes). false: numbers only, a little faster. Default true. |
+
 ### `play.report`
 
-What happened while the user played: perf, spikes, warnings/errors, their problem marks and screenshots.
+What happened while the game was played (by the user or by play.auto): perf, spikes, warnings/errors, the problem marks and screenshots.
 
-Call it when the user says they played the game and saw problems (slow, ugly UI, bugs). Returns the session.json content (perf: avg/p95/max frame ms and frames over 16.7/33 ms; profile: where the time went, per engine system, per script behaviour class (ms and calls per frame, slowest first), GPU ms or null + reason, memory; spikes: slowest frames with entity count and render stats; logs: warnings and errors; marks: frame, time, note and screenshot path, 1-based `n`), `replay` (the input file, absolute path) and `replayHow`. The result carries ONE picture ($image): the screenshot of mark `mark` (default 1); call again with mark 2, 3... to see the others. `session` defaults to the latest (see play.sessions). Example: play.report {"mark":2}
+Call it when the user says they played the game and saw problems (slow, ugly UI, bugs), and after play.auto. Returns the session.json content (perf: avg/p95/max frame ms and frames over 16.7/33 ms; profile: where the time went, per engine system, per script behaviour class (ms and calls per frame, slowest first), GPU ms or null + reason, memory; spikes: slowest frames with entity count and render stats; logs: warnings and errors; marks: frame, time, note and screenshot path, 1-based `n`; for a play.auto session (`source` "auto") also `kind` and `step` of each problem the bot found, `phases` (scenes and game.phase marks with their time and screenshot), `score`, `ended` (won, lost, timeout, stuck, broken, quit, aborted) with `endedWhy`, `endScreenshot`, `notes` and `auto` (seed, speed, bot, stuckSeconds)), `replay` (the input file, absolute path) and `replayHow`. The result carries ONE picture ($image): the screenshot of mark `mark` (default 1) or, with `phase`, of that phase; a play.auto session without marks shows the picture taken when the run ended. Call again with mark 2, 3... or phase 1, 2... to see the others. `session` defaults to the latest (see play.sessions). Example: play.report {"mark":2}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `session` | string | no | Session folder name from play.sessions. Default: the latest. |
-| `mark` | integer | no | Which mark's screenshot to attach as the picture. Default 1. |
+| `mark` | integer | no | Which mark's screenshot to attach as the picture. Default 1 (when the session has marks). |
+| `phase` | integer | no | Attach the screenshot of this phase (1-based, play.auto sessions) instead of a mark's. Cannot be combined with mark. |
 
 ### `play.sessions`
 
-List the recent play sessions recorded by the editor (Play .. Stop), newest first.
+List the recent play sessions (recorded by the editor on Play .. Stop, or by play.auto), newest first.
 
-Each session is a folder .factoria/sessions/<yyyymmdd-hhmmss>/ written when the user pressed Stop in the editor. Rows have a short summary: scene, duration, frame time p95/max, number of warnings/errors and the user's marks (notes). Call play.report {session} for the details and screenshots. Example: play.sessions {"max":5}
+Each session is a folder .factoria/sessions/<yyyymmdd-hhmmss>/ written when the user pressed Stop in the editor, or <yyyymmdd-hhmmss>-auto/ by play.auto (`source` "auto"; those rows also carry `ended` and `score`). Rows have a short summary: source, scene, duration, frame time p95/max, number of warnings/errors and the marks (the user's notes, or the problems the bot found). Call play.report {session} for the details and screenshots. Example: play.sessions {"max":5}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -10234,6 +10253,16 @@ declare module "factoria" {
      */
     notices(): { name: string; url: string; license: string; usedFor: string }[];
     /**
+     * Declares how the game plays itself, for `play.auto` (the AI testing the game with nobody at the keyboard): fn is called once per step with the bot state and returns what to press. Put the call at the top level of scripts/autoplay.js, the file `play.auto` imports; a shipped game never imports it, so fn is never called outside play.auto. Return the action names to HOLD during this step (an array; the ones you leave out are released), or an object { actions?, end?: "won" | "lost", score?, note? }: end finishes the run with that result, score is reported in the session, note is the first line of the session's notes. Only action names of factoria.json "input" (and the ui_* ones) are accepted, so the run can be replayed with `factoria run --input`; a name that is not an action throws with a did-you-mean. The function must not change the game (no teleporting, no spawning): read the world, answer with actions. Use bot.rng for choices, never Math.random. Example: game.autoplay((bot) => { const p = world.find("player"); return ["move_right", ...(p && p.isGrounded() && bot.rng.chance(0.05) ? ["jump"] : [])]; });
+     * @since unreleased
+     */
+    autoplay(fn: (bot: AutoplayState) => AutoplayAnswer): void;
+    /**
+     * Marks a stage of the run for the `play.auto` report ("boss", "shop", "level 2"): the session lists it in `phases` with its time and takes a screenshot. { ends: "won" } or { ends: "lost" } also ends the automatic run with that result, so a game without a bot hook can still tell the explorer it is over (game.phase("victory", { ends: "won" })). Does nothing in a normal run. Example: game.phase("boss");
+     * @since unreleased
+     */
+    phase(name: string, options?: { ends?: "won" | "lost" }): void;
+    /**
      * The platform this runtime was built for. Menus use it for platform rules, e.g. phone and tablet apps have no Quit button (the system closes them).
      * @since 0.1.6
      */
@@ -10249,6 +10278,74 @@ declare module "factoria" {
      */
     readonly accessibility: Readonly<{ textScale: number; reduceMotion: boolean; highContrast: boolean; screenReader: boolean }>;
   }
+
+  /**
+   * What game.autoplay's function gets every step: where the run is, what the game declares and what the bot holds.
+   * @since unreleased
+   */
+  export interface AutoplayState {
+    /**
+     * Game seconds since the run began (fixed steps run / fixedHz; never the wall clock).
+     * @since unreleased
+     */
+    readonly time: number;
+    /**
+     * Fixed steps run since the run began (0 on the first call).
+     * @since unreleased
+     */
+    readonly step: number;
+    /**
+     * Game seconds this decision lasts: 1 / fixedHz, times play.auto's speed (at speed 4 the answer is held for 4 fixed steps, so dt is 4 / fixedHz).
+     * @since unreleased
+     */
+    readonly dt: number;
+    /**
+     * The path of the current scene.
+     * @since unreleased
+     */
+    readonly scene: string;
+    /**
+     * Game seconds since the current scene was loaded.
+     * @since unreleased
+     */
+    readonly sceneTime: number;
+    /**
+     * The latest phase: the scene path, or the name of the last game.phase(name) mark.
+     * @since unreleased
+     */
+    readonly phase: string;
+    /**
+     * The input actions the game declares in factoria.json ("input": { "actions": ... }).
+     * @since unreleased
+     */
+    readonly actions: readonly string[];
+    /**
+     * The interface actions every game has (ui_up, ui_down, ui_left, ui_right, ui_next, ui_previous, ui_submit, ui_cancel) that move the focus of menus.
+     * @since unreleased
+     */
+    readonly uiActions: readonly string[];
+    /**
+     * The actions the function asked to hold in the previous step.
+     * @since unreleased
+     */
+    readonly held: readonly string[];
+    /**
+     * The seed of the run (play.auto's seed).
+     * @since unreleased
+     */
+    readonly seed: number;
+    /**
+     * A generator seeded with the run's seed, the same for the whole run: draw every random choice from it so the same seed plays the same game.
+     * @since unreleased
+     */
+    readonly rng: Rng;
+  }
+
+  /**
+   * What game.autoplay's function returns: the actions to hold during this step, or an object that can also end the run (end), report a score and add a note.
+   * @since unreleased
+   */
+  export type AutoplayAnswer = readonly string[] | { actions?: readonly string[]; end?: "won" | "lost"; score?: number; note?: string } | void;
 
   /**
    * How the window is shown: windowed (a frame and a size of its own), borderless (no frame, covers the monitor) or fullscreen (covers the monitor; on macOS its own Space). See window.setMode() for what each one means on each OS.

@@ -1,7 +1,7 @@
 import { test, expect, game } from "factoria:test";
 import { ui, scene, storage, audio, i18n, time, session } from "factoria";
 import * as progress from "../scripts/progress.js";
-import { listen, teleportOnto } from "./helpers/autoplay.js";
+import { listen, teleportOnto } from "./helpers/level.js";
 import en from "../locales/en.json";
 import es from "../locales/es.json";
 

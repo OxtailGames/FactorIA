@@ -133,6 +133,14 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     view.push_back(toggle("Selection overlay", showOverlay_));
     view.push_back(menu::action("Reset layout", [this] { resetLayout_ = true; }));
 
+    // ---- Play
+    std::vector<Item> playMenu;
+    playMenu.push_back(with(menu::action("Let the AI Play", [this] { start_auto_play(); }, editing && !autoPlay_.running()), "menu:play-auto",
+                            "A bot plays the project from its start, faster than real time, and finds what is stuck or broken (play.auto). It runs in a\n"
+                            "separate process, so the editor stays free; the report opens in Play Sessions when it ends. Plays the project as saved on disk."));
+    playMenu.push_back(with(menu::action("Play Sessions...", [this] { open_play_sessions(); }, have), "menu:play-sessions",
+                            "The sessions you recorded with Play .. Stop and the ones the AI's bot played, with their reports"));
+
     // ---- AI
     std::vector<Item> ai;
     ai.push_back(with(menu::action("AI Settings...", [this] { open_ai_settings(); }), "menu:ai-settings",
@@ -157,6 +165,7 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     m.items.push_back(with(menu::submenu("File", std::move(file)), "menu:file"));
     m.items.push_back(menu::submenu("Edit", std::move(edit)));
     m.items.push_back(with(menu::submenu("View", std::move(view)), "menu:view"));
+    m.items.push_back(with(menu::submenu("Play", std::move(playMenu)), "menu:play"));
     m.items.push_back(with(menu::submenu("AI", std::move(ai)), "menu:ai"));
     if (native) {
         // A system menu bar cannot hold a click item: Export is a menu of its own, with the shortcut.

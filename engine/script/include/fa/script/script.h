@@ -453,6 +453,35 @@ public:
     // A new test: focus, no suspend (the audio and time.scale are put back by the test reset), the date back to the start date.
     void reset_app_state();
 
+    // ---- The bot hook (`game.autoplay(fn)` and `game.phase(name)`, docs/SCRIPTING.md "The bot"). Only the play.auto driver
+    // (fa/runtime/play_auto.h) calls these; a shipped game never does, so a hook stays a stored function nobody calls.
+    // The marks `game.phase(name, {ends})` made since the last call, oldest first, once autoplay_begin switched them on.
+    struct AutoplayPhase {
+        std::string name;
+        std::string ends;  // "", "won" or "lost": the game says the run is over
+    };
+    // What the hook answered for one step.
+    struct AutoplayAnswer {
+        bool called = false;               // the hook ran (false: there is none)
+        bool failed = false;               // it threw, or returned something that is not an action list (the error is in errors())
+        std::vector<std::string> actions;  // the actions to hold during this step
+        std::string end;                   // "", "won" or "lost"
+        bool hasScore = false;
+        double score = 0;
+        std::string note;                  // a line for the session's notes (the first one only)
+    };
+    // Starts a bot run: `game.phase` marks are recorded from now on. With `useHook` and a file scripts/autoplay.js the file is
+    // imported (it calls game.autoplay(fn)); *hookFound tells whether a hook is registered. Returns the problem of an import
+    // that failed ("" = fine). autoplay_end() switches the marks off again.
+    std::string autoplay_begin(bool useHook, bool* hookFound);
+    void autoplay_end();
+    // Calls the hook with `state` ({time, step, scene, phase, actions, held, seed, dt}); the hook also gets `rng` and a frozen copy.
+    AutoplayAnswer autoplay_step(const Json& state);
+    std::vector<AutoplayPhase> autoplay_take_phases();
+    // How many script exceptions were raised since init, counting the repeats of one error that the log shows once
+    // (errors() and the log list each distinct error one time). A bot reads it to tell an exception loop from one slip.
+    std::uint64_t error_events() const;
+
     struct Impl;
 
 private:

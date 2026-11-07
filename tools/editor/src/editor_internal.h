@@ -64,6 +64,8 @@
 #include "editor_tools.h"
 #include "export_job.h"
 #include "phone_model.h"
+#include "auto_play_job.h"
+#include "play_sessions_model.h"
 #include "feedback_share_ui.h"
 #include "gizmo_model.h"
 #include "image_ui.h"
@@ -214,6 +216,7 @@ public:
     void mark_problem();                                       // F9: pause, screenshot, ask for a note
     void mark_finish(bool save);
     void draw_mark_popup();
+    void ai_attach_session(const std::string& name, const std::string& note);  // summary + mark pictures of one session
     void ai_attach_last_session();                             // summary into the message + mark pictures
 
     // ---------------------------------------------------------------- selection & edits
@@ -667,6 +670,16 @@ public:
     void draw_phone_window();
     void poll_phone();           // every frame: takes a finished start's error
     void reset_phone_state();    // project switch: asks for the server of the project that closes to stop (on the helper thread)
+    // Play sessions window and Play > Let the AI Play (play_sessions_panel.cpp, auto_play_job.h, play_sessions_model.h): the sessions
+    // under .factoria/sessions/ (yours and the AI bot's, marked), one session's report, and the button that runs play.auto in a
+    // child process on a worker thread. Progress and Cancel in the window; the finished run opens its report.
+    void open_play_sessions(const std::string& select = std::string());
+    void draw_play_sessions_window();
+    void draw_play_session_report();
+    void refresh_play_sessions();
+    void start_auto_play();
+    void poll_auto_play();            // every frame: takes a finished run's outcome
+    void reset_auto_play_state();     // project switch: stops a running bot and forgets the list
 
     // Platform settings window (platform_settings_panel.cpp; File > Platform Settings..., the Export window's Settings...
     // buttons): the game icon and what each platform's export needs, as a working copy that Save writes with
@@ -906,6 +919,20 @@ public:
     void draw_disk_update_notice();
     std::string pendingScene_;  // open-scene request waiting for the unsaved-changes dialog
     std::string windowTitle_;   // what set_window_title last set ("FactorIA <version> — <project>")
+
+    // Play sessions window
+    bool showPlaySessions_ = false, playSessionsFocus_ = false, playSessionsDirty_ = true;
+    std::atomic<bool> playSessionsOutside_{false};  // an AI agent thread ran play.auto (make_proxy_registry): the list reads the folder again
+    AutoPlayJob autoPlay_;
+    std::optional<AutoPlayOutcome> autoPlayLast_;  // the last run's outcome (an error stays under the button)
+    double autoPlaySeconds_ = kAutoPlayDefaultSeconds;
+    bool autoPlayPictures_ = true;
+    std::vector<PlaySessionRow> playSessionRows_;
+    std::string playSessionsPick_;                 // the folder shown in the report pane
+    std::uint64_t playSessionsGen_ = 0;            // bumped at every listing: the report is re-read after it
+    Json playSessionDoc_;
+    std::string playSessionDocName_, playSessionDocError_;
+    std::uint64_t playSessionDocGen_ = 0;
 
     // Export window
     bool showExport_ = false, exportFocus_ = false, exportScroll_ = false;

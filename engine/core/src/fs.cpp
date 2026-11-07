@@ -273,11 +273,20 @@ std::string normalize(std::string_view path) {
     return r ? r.value() : std::string();
 }
 
+std::filesystem::path path_from_utf8(std::string_view text) {
+    return stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size()));
+}
+
 stdfs::path resolve(std::string_view path) {
     auto n = normalize_checked(path);
     if (!n) return {};
     if (is_absolute(n.value())) return stdfs::path(n.value());
     return project_root() / n.value();
+}
+
+std::string path_to_utf8(const stdfs::path& p) {
+    const std::u8string u = p.generic_u8string();
+    return std::string(reinterpret_cast<const char*>(u.data()), u.size());
 }
 
 #ifdef _WIN32

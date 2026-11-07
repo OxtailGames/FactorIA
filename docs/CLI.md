@@ -197,6 +197,14 @@ client's `launch` request. stdout carries only protocol; logs go to stderr and t
 use it. Guide, launch attributes and limits: [DEBUGGING.md](DEBUGGING.md). For AIs the same facility is the command
 `script.trace`.
 
+### `factoria call play.auto [JSON args]`
+The game plays itself, headless and fast, with its bot (`scripts/autoplay.js`, `game.autoplay`) or a generic explorer, and the run is written
+as a play session under `.factoria/sessions/`. `factoria call --project DIR play.auto '{"seconds":60,"seed":1}'` prints the summary (how it ended, score,
+phases, problems, the command that replays the input) and `play.report` reads the session. The arguments (`scene`, `seconds`, `seed`, `speed`, `stuckSeconds`, `bot`,
+`screenshots`) and what a run finds: [DEBUGGING.md](DEBUGGING.md#let-the-game-play-itself). It draws its pictures with a graphics device of its
+own (the run is a second engine), so the global `--no-graphics` does not switch them off: it only keeps the session that hosts the command off the GPU.
+Pass `"screenshots": false` for a run without pictures; a machine without a display (no GPU the engine can use) gives a session without pictures and a note.
+
 ### `factoria call <command> ['<json args>'] [options]` / `factoria call --batch '<json array>'`
 Runs registered commands on a headless engine and prints the JSON result. Arguments: inline JSON, `@file.json`, or
 `-` (stdin). Failures print `error: code: message`, the hint and, when the command returned structured `data`

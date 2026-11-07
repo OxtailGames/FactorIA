@@ -105,6 +105,12 @@ struct ScriptSystem::Impl {
 
     // ---- errors
     std::vector<ScriptError> errors;
+    std::uint64_t errorEvents = 0;  // every record_error call, before the duplicates are dropped (ScriptSystem::error_events)
+    // ---- the bot (script_autoplay.cpp): game.phase marks are kept only while a play.auto run is on
+    bool autoplayOn = false;
+    bool autoplayHook = false;  // scripts/autoplay.js (or another module) registered a function and the run asked for it
+    std::vector<ScriptSystem::AutoplayPhase> autoplayPhases;
+    static constexpr std::size_t kMaxAutoplayPhases = 200;  // marks kept between two calls of autoplay_take_phases
     std::set<std::string> loggedKeys;
     struct Rejection { JSValue promise, reason; };  // rejected with no handler yet (owned); reported when the job queue drains
     std::vector<Rejection> pendingRejections;

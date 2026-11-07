@@ -44,7 +44,7 @@
 // puts it, for exports older than the marker). Any other folder is an error, so an unrelated one is never deleted.
 // Never shipped (every platform, release or not): files that are not game data, so no game reads them. Top level of the
 // project: .factoria/ and every other dot-file/dot-folder (.git, .gitignore, .mcp.json), build/ (earlier exports), tests/,
-// tools/, types/, node_modules/, ENGINE_FEEDBACK.json (the file named by feedbackFile), AGENTS.md, CLAUDE.md, jsconfig.json,
+// tools/, types/, node_modules/, scripts/autoplay.js (the bot of play.auto), ENGINE_FEEDBACK.json (the file named by feedbackFile), AGENTS.md, CLAUDE.md, jsconfig.json,
 // README.md (any capitalization: the project's own documentation), steam_appid.txt, the folder of a native plugin that lives in
 // the project (its build ships instead), and the output folder itself. A README.md or CREDITS.md deeper in the project, a
 // LICENSE, a data file of any kind: shipped, because a game may load them. Everything else the project holds is shipped.
