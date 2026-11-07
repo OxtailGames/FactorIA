@@ -829,7 +829,12 @@ TEST_CASE("day total: a user folder with accents in its name works") {
     ScopedShareEnv scoped(Home::make(home, 2.0));
     Game game(config_from(paid_config(R"({"askAboveUsd":5,"maxAssetCostUsd":{"perDay":5}})")));
     game.ok("assets.generate_image", image_args("assets/a.png"));
-    CHECK(fsys::exists(fsys::path(base.str()) / fsys::path(u8"carpeta áé ñ") / ".factoria" / "asset-spend.json"));
+#ifdef _WIN32
+    const char* configName = "factoria";  // APPDATA/factoria (user_config_dir)
+#else
+    const char* configName = ".factoria";
+#endif
+    CHECK(fsys::exists(fsys::path(base.str()) / fsys::path(u8"carpeta áé ñ") / configName / "asset-spend.json"));
     CHECK(*asset_spent_today(game.dir.str()) == doctest::Approx(0.30));
 }
 
