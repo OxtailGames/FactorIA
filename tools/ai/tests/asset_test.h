@@ -95,13 +95,12 @@ inline ShareEnv scratch_home_env(const std::string& home) {
 // A test that already gave the user folder its own (a `Home` with a fixed clock or a short lock wait) keeps it: the Game does not replace it.
 struct Game {
     TempDir home;                 // first: the user folder outlives everything that uses it
-    std::optional<ScopedShareEnv> scopedHome = share_env().config_dir() != ShareEnv().config_dir()
-                                                   ? std::nullopt
-                                                   : std::optional<ScopedShareEnv>(std::in_place, scratch_home_env(home.str()));
+    std::optional<ScopedShareEnv> scopedHome;  // set first thing in the constructor (MSVC does not build it from a ?: of a non-copyable type)
     TempDir dir;
     CommandRegistry registry;
 
     explicit Game(const AiConfig& config, ProviderRuntime runtime = {}) {
+        if (share_env().config_dir() == ShareEnv().config_dir()) scopedHome.emplace(scratch_home_env(home.str()));
         asset_run_begin("");  // calls without a named run (CLI, MCP) add up per process: every test starts from nothing spent
         AiCommandOptions opt;
         opt.loadConfig = [config] { return Result<AiConfig>(config); };
