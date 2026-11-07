@@ -31,6 +31,7 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
 #include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 
 #include <fcntl.h>
 #include <poll.h>
@@ -161,8 +162,15 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
         // execvpe is a GNU extension; emulate: search PATH of the *child* env is
         // unnecessary, so use the parent's PATH via execvp after setting environ.
         environ = envp.data();
-        if (hasSlash) execv(argv[0], argv.data());
-        else execvp(argv[0], argv.data());
+        // A program that was written a moment ago can still be open for writing in another thread's fork (ETXTBSY, "Text file
+        // busy"): try three times, 10 ms apart. Only nanosleep between the attempts: it is async-signal-safe.
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            if (hasSlash) execv(argv[0], argv.data());
+            else execvp(argv[0], argv.data());
+            if (errno != ETXTBSY || attempt == 2) break;
+            const struct timespec pause = {0, 10 * 1000 * 1000};
+            nanosleep(&pause, nullptr);
+        }
         int e = errno;
         ssize_t w = write(execPipe[1], &e, sizeof e); (void)w;
         _exit(127);
