@@ -122,7 +122,7 @@ std::string main_scene(const std::string& projectDir) {
     const std::string parent = fs::parent(rel);
     const stdfs::path folder = project_file(projectDir, parent.empty() ? "." : parent);
     const std::string ext = to_lower(fs::extension(rel));
-    for (stdfs::directory_iterator it(folder, ec), end; !ec && it != end && names.size() < 300; it.increment(ec)) {
+    for (stdfs::directory_iterator it(fs::os_path(folder), ec), end; !ec && it != end && names.size() < 300; it.increment(ec)) {
         std::error_code e2;
         if (!it->is_regular_file(e2)) continue;
         const std::u8string u = it->path().filename().u8string();
@@ -156,7 +156,7 @@ std::string path_member(const std::string& projectDir, const Json& item, const s
     auto resolved = resolve_project_path(projectDir, *norm);
     if (!resolved.ok()) bad(at, resolved.error().message, resolved.error().hint.empty() ? std::string("Use a project-relative path such as \"") + example + "\"." : resolved.error().hint);
     std::error_code ec;
-    if (!stdfs::is_regular_file(*resolved, ec)) missing_file(projectDir, at, *norm, what);
+    if (!stdfs::is_regular_file(fs::os_path(*resolved), ec)) missing_file(projectDir, at, *norm, what);
     return *norm;
 }
 
@@ -285,7 +285,7 @@ Request parse_request(const std::string& projectDir, const Json& a) {
             } else if (entitySample) {
                 sceneRel = mainScenePath.empty() ? std::string() : fs::normalize(mainScenePath);
                 std::error_code ec;
-                if (sceneRel.empty() || !stdfs::is_regular_file(project_file(projectDir, sceneRel), ec))
+                if (sceneRel.empty() || !stdfs::is_regular_file(fs::os_path(project_file(projectDir, sceneRel)), ec))
                     bad(pointer + "/level/sample", "'" + sampleText + "' names an entity, but there is no scene to look it up in: the project has no main scene.",
                         "Give `sampleScene` next to `level` (the scene whose Tilemap entity it is), or use ASCII rows: {\"sample\": [\"#..#\", \"#..#\"], \"legend\": {\"#\": 0, \".\": 1}}.");
             }
@@ -583,11 +583,11 @@ bool declared_size(const std::vector<std::uint8_t>& d, bool tgaExtension, std::u
 
 Rendered render_image(const stdfs::path& file) {
     std::error_code ec;
-    const std::uintmax_t bytes = stdfs::file_size(file, ec);
+    const std::uintmax_t bytes = stdfs::file_size(fs::os_path(file), ec);
     if (!ec && bytes > kMaxImageBytes) return failed_tile(std::format("the file is {} MB; the most a review reads is {} MB", bytes / (1024 * 1024), kMaxImageBytes / (1024 * 1024)));
     Result<Image> loaded(Error{"not read", ""});
     {
-        auto data = read_bytes(file);
+        auto data = read_bytes(fs::os_path(file));
         if (!data.ok()) return failed_tile(data.error().message);
         std::uint64_t w = 0, h = 0;
         // The decoder reads more formats than a project uses (GIF, PSD, HDR...), whose size cannot be checked here: only these four are drawn.
@@ -622,9 +622,9 @@ Rendered render_image(const stdfs::path& file) {
 
 Rendered render_vector(const stdfs::path& file, int area) {
     std::error_code ec;
-    const std::uintmax_t bytes = stdfs::file_size(file, ec);
+    const std::uintmax_t bytes = stdfs::file_size(fs::os_path(file), ec);
     if (!ec && bytes > kMaxSvgBytes) return failed_tile(std::format("the file is {} MB; the most a review reads is {} MB", bytes / (1024 * 1024), kMaxSvgBytes / (1024 * 1024)));
-    auto data = read_bytes(file);
+    auto data = read_bytes(fs::os_path(file));
     if (!data.ok()) return failed_tile(data.error().message);
     const std::string text(data->begin(), data->end());
     Rendered r;
@@ -718,7 +718,7 @@ struct TempFile {
     stdfs::path file;
     ~TempFile() {
         std::error_code ec;
-        if (!file.empty()) fs::remove_file(file, ec);
+        if (!file.empty()) fs::remove_file(fs::os_path(file), ec);
     }
 };
 
@@ -941,7 +941,7 @@ Rendered render_vfx(GpuSession& session, const std::string& projectDir, const st
             no_gpu_error(kCommand, film.error.value("message", std::string()), "Leave the scene, prefab and vfx items out.");
         return failed_tile(film.error.value("message", std::string("vfx.filmstrip failed")));
     }
-    auto loaded = load_image(strip.file);
+    auto loaded = load_image(fs::os_path(strip.file));
     if (!loaded.ok()) return failed_tile("the film strip could not be read: " + loaded.error().message);
     const Json& fr = film.result;
     const int columns = fr.value("columns", 3), tw = fr.value("tileWidth", 0), th = fr.value("tileHeight", 0);

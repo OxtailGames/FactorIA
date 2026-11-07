@@ -100,6 +100,10 @@ std::string review_candidate_problem(const std::string& projectDir, const std::s
 // Why `dropDir` (project-relative) cannot hold dropped candidates, or "": it must be a folder below .factoria/, not .factoria/tmp
 // (the scratch folder commands delete from), not .factoria/review itself and not inside another sheet's folder.
 std::string review_drop_dir_problem(const std::string& dropDir);
+// The name review.pick gives a dropped file: "NN_<file name of source>" (NN the item number, two digits), at most 255 bytes, the limit of
+// a file name on every file system the engine runs on. A longer name loses the end of its stem, cut at a UTF-8 character boundary; the
+// extension (when it is at most 16 bytes) stays. review_cleanup recomputes it to know which file a pick wrote.
+std::string review_drop_file_name(int number, const std::string& source);
 // The comparison key of a project path: normalized, lower case, no trailing dots or spaces. Two paths with the same key are the same file
 // on Windows and macOS.
 std::string review_path_key(const std::string& rel);

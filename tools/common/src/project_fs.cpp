@@ -57,10 +57,23 @@ void require_writable(const std::string& rel) {
 // page on Windows and mangles accents. The project folder itself (projectDir) is a NATIVE string, like every path the engine passes around.
 stdfs::path path_from_utf8(std::string_view s) { return stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(s.data()), s.size())); }
 
+// The path as a person writes it: without the \\?\ (or \\?\UNC\) prefix that fs::os_path gives a long Windows path and that
+// weakly_canonical and directory iterators may hand back. Paths this file returns and compares are always in this form; every
+// std::filesystem call on them goes through os() (a project below a deep folder, or a long file name, works on Windows).
+stdfs::path plain(const stdfs::path& p) {
+#ifdef _WIN32
+    const std::wstring& n = p.native();
+    if (n.rfind(LR"(\\?\UNC\)", 0) == 0) return stdfs::path(L"\\\\" + n.substr(8));
+    if (n.rfind(LR"(\\?\)", 0) == 0 && n.size() > 6 && n[5] == L':') return stdfs::path(n.substr(4));
+#endif
+    return p;
+}
+
+stdfs::path os(const stdfs::path& p) { return fs::os_path(p); }
+
 stdfs::path root_of(const std::string& projectDir) {
     std::error_code ec;
-    stdfs::path r = stdfs::weakly_canonical(stdfs::absolute(stdfs::path(projectDir)), ec);
-    return r;
+    return plain(stdfs::weakly_canonical(os(stdfs::absolute(stdfs::path(projectDir), ec)), ec));
 }
 
 stdfs::path resolve_or_throw(const std::string& projectDir, const std::string& rel) {
@@ -71,7 +84,8 @@ stdfs::path resolve_or_throw(const std::string& projectDir, const std::string& r
 
 std::string rel_of(const stdfs::path& root, const stdfs::path& p) {
     std::error_code ec;
-    std::string s = stdfs::relative(p, root, ec).generic_string();
+    // Both are canonical already (a result of resolve_project_path, or an entry below one): a lexical difference, no file system calls.
+    std::string s = plain(p).lexically_relative(root).generic_string();
     return s.empty() ? "." : s;
 }
 
@@ -109,7 +123,7 @@ Result<stdfs::path> resolve_project_path(const std::string& projectDir, std::str
     stdfs::path root = root_of(projectDir);
     std::error_code ec;
     // weakly_canonical resolves symlinks of the existing prefix, so links pointing out are caught.
-    stdfs::path full = stdfs::weakly_canonical(root / path_from_utf8(rel), ec);
+    stdfs::path full = plain(stdfs::weakly_canonical(os(root / path_from_utf8(rel)), ec));
     if (ec) return make_error("Cannot resolve path '" + std::string(relPath) + "': " + ec.message());
     if (!is_under(root, full))
         return make_error("Path '" + std::string(relPath) + "' resolves outside the project (symlink?).",
@@ -134,7 +148,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             stdfs::path root = root_of(projectDir);
             stdfs::path dir = resolve_or_throw(projectDir, arg_string(args, "path", false, "."));
             std::error_code ec;
-            if (!stdfs::is_directory(dir, ec))
+            if (!stdfs::is_directory(os(dir), ec))
                 fail("not_found", "'" + rel_of(root, dir) + "' is not a directory.", "Use fs.list on the parent folder to see what exists.");
             bool recursive = arg_bool(args, "recursive", false);
             std::string glob = arg_string(args, "glob", false);
@@ -151,11 +165,11 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                 return true;
             };
             if (recursive) {
-                for (stdfs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+                for (stdfs::recursive_directory_iterator it(os(dir), ec), end; !ec && it != end; it.increment(ec)) {
                     if (!consider(*it)) it.disable_recursion_pending();
                 }
             } else {
-                for (stdfs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) consider(*it);
+                for (stdfs::directory_iterator it(os(dir), ec), end; !ec && it != end; it.increment(ec)) consider(*it);
             }
             std::sort(items.begin(), items.end(), [](auto& a, auto& b) { return a.first < b.first; });
             Json arr = Json::array();
@@ -185,9 +199,9 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             std::string rel = arg_string(args, "path", true);
             stdfs::path p = resolve_or_throw(projectDir, rel);
             std::error_code ec;
-            if (!stdfs::exists(p, ec)) fail("not_found", "File '" + rel + "' does not exist.", "Use fs.list to see available files.");
-            if (stdfs::is_directory(p, ec)) fail("invalid_argument", "'" + rel + "' is a directory.", "Use fs.list to list it.");
-            if (stdfs::file_size(p, ec) > kMaxReadBytes)
+            if (!stdfs::exists(os(p), ec)) fail("not_found", "File '" + rel + "' does not exist.", "Use fs.list to see available files.");
+            if (stdfs::is_directory(os(p), ec)) fail("invalid_argument", "'" + rel + "' is a directory.", "Use fs.list to list it.");
+            if (stdfs::file_size(os(p), ec) > kMaxReadBytes)
                 fail("too_large", "File is larger than 1 MiB.", "Read a slice with startLine/endLine or use fs.search.");
             auto text = tooling_detail::read_file(p);
             if (!text) fail("failed", "Cannot read '" + rel + "'.");
@@ -251,8 +265,8 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             require_writable(r);
             if (content.size() > kMaxWriteBytes) fail("too_large", "Content larger than 8 MiB.");
             std::error_code ec;
-            bool existed = stdfs::exists(p, ec);
-            if (stdfs::is_directory(p, ec)) fail("invalid_argument", "'" + rel + "' is a directory.");
+            bool existed = stdfs::exists(os(p), ec);
+            if (stdfs::is_directory(os(p), ec)) fail("invalid_argument", "'" + rel + "' is a directory.");
             if (existed && !arg_bool(args, "overwrite", true))
                 fail("exists", "'" + rel + "' already exists.", "Pass overwrite=true or choose another path.");
             std::string err;
@@ -367,10 +381,10 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             bool truncated = false;
             std::error_code ec;
             std::vector<std::string> paths;
-            if (stdfs::is_regular_file(dir, ec)) {
+            if (stdfs::is_regular_file(os(dir), ec)) {
                 paths.push_back(rel_of(root, dir));
             } else {
-                for (stdfs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+                for (stdfs::recursive_directory_iterator it(os(dir), ec), end; !ec && it != end; it.increment(ec)) {
                     std::string rel = rel_of(root, it->path());
                     if (in_hidden_dir(rel)) { it.disable_recursion_pending(); continue; }
                     if (!it->is_regular_file(ec)) continue;
@@ -381,7 +395,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             std::sort(paths.begin(), paths.end());
             for (const auto& rel : paths) {
                 stdfs::path p = root / rel;
-                if (stdfs::file_size(p, ec) > kMaxSearchFileBytes) continue;
+                if (stdfs::file_size(os(p), ec) > kMaxSearchFileBytes) continue;
                 auto text = tooling_detail::read_file(p);
                 if (!text || is_binary(*text)) continue;
                 ++filesScanned;
@@ -425,15 +439,15 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                 fail("invalid_argument", "Deleting '" + rel + "' is not allowed.", "The project root, factoria.json and ENGINE_FEEDBACK.json are protected.");
             require_writable(r);
             std::error_code ec;
-            if (!stdfs::exists(stdfs::symlink_status(p, ec))) fail("not_found", "'" + rel + "' does not exist.");
-            if (stdfs::is_directory(p, ec) && !stdfs::is_symlink(p, ec)) {
+            if (!stdfs::exists(stdfs::symlink_status(os(p), ec))) fail("not_found", "'" + rel + "' does not exist.");
+            if (stdfs::is_directory(os(p), ec) && !stdfs::is_symlink(os(p), ec)) {
                 if (!arg_bool(args, "recursive", false))
                     fail("invalid_argument", "'" + rel + "' is a folder.", "Pass recursive=true to delete it with its contents.");
                 auto n = fs::remove_tree(p, ec);
                 if (ec) fail("failed", "Delete failed: " + ec.message());
                 return Json::object({{"path", r}, {"deleted", n}});
             }
-            fs::remove_file(p, ec);
+            fs::remove_file(os(p), ec);
             if (ec) fail("failed", "Delete failed: " + ec.message());
             return Json::object({{"path", r}, {"deleted", 1}});
         });
