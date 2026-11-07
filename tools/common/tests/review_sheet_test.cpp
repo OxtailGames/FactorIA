@@ -15,6 +15,7 @@
 #include <unistd.h>
 #endif
 
+#include "fa/core/fs.h"
 #include "asset_test_helpers.h"
 #include "fa/tooling/review.h"
 #include "fa/tooling/scaffold.h"
@@ -1314,7 +1315,7 @@ TEST_CASE("review commands work in a project whose folder has accents") {
     REQUIRE_MESSAGE(made.ok, made.error.dump());
     CHECK(made.result["items"][0]["label"] == u8c(u8"rojo ñ"));
     const std::string pictureText = made.result["$image"]["path"].get<std::string>();
-    CHECK(stdfs::exists(stdfs::path(pictureText)));  // `$image.path` is native, like the paths of every other command
+    CHECK(stdfs::exists(fa::fs::path_from_utf8(pictureText)));  // `$image.path` is UTF-8, like every string in a JSON result
     const CommandResult picked = reg.call("review.pick", Json{{"n", 2}});
     REQUIRE_MESSAGE(picked.ok, picked.error.dump());
     CHECK(picked.result["dropped"][0]["from"] == u8c(u8"assets/rojo ñ.png"));
