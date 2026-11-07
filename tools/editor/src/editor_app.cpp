@@ -590,6 +590,7 @@ bool Editor::boot(const std::string& dirIn) {
         anim3d_.model.reset();
         modeler_release_textures();
         modeler_.model.reset();  // (its evaluation worker is joined here)
+        reset_review_state();    // the Review window's reader and its sheet of seeds stop; its pictures are freed
         sound_.player.reset();   // before the engine: it owns a voice of the mixer
         music_.preview.reset();  // ...and so does the Music panel's preview
         music_.model.reset();    // (its render worker is joined here)
@@ -927,6 +928,14 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
     if (mutating && r.ok && play_ == PlayState::Edit) dirty_ = true;
     after_command(name, args, r);
     if (!queue_.current_tag().empty()) ai_note_command(queue_.current_tag(), name, args, r);  // which chat's run changed what
+    // A sheet the AI (or an MCP client) made for the person: offered in the Review window, without taking the focus.
+    if (r.ok && name == "review.sheet" && r.result.is_object()) {
+        const auto text = [](const Json& o, const char* key) {
+            const auto it = o.is_object() ? o.find(key) : o.end();
+            return it != o.end() && it->is_string() ? it->get<std::string>() : std::string();
+        };
+        review_announce_sheet(text(r.result, "sheet"), text(args, "label"), queue_.current_tag().empty() ? "A tool" : "The AI");
+    }
     if (elapsed() > 100.0) FA_WARN("editor", "command {} took {:.0f} ms on the UI thread", name, elapsed());
     return r;
 }
@@ -1036,6 +1045,11 @@ bool Editor::command_edits_scene(const std::string& name, const Json& args) cons
 
 void Editor::after_command(const std::string& name, const Json& args, const CommandResult& r) {
     if (!r.ok || !engine_) return;
+    // The Review window reads the sheets again (a sheet made, picked or cleaned up by the AI, the Console or the window itself).
+    if (name.rfind("review.", 0) == 0 || name == "assets.pick") {
+        review_.listDirty = true;
+        review_.sheetDirty = true;
+    }
     // The Level generator window reads its sample's Tilemap again (it never does it on a timer).
     if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly) levelGenSampleStale_ = true;
     // A clip file changed (the Console, the AI or the panel): the pose on screen is out of date.
@@ -1043,7 +1057,7 @@ void Editor::after_command(const std::string& name, const Json& args, const Comm
     // Commands that write or delete project files: the Project panel reads the folder again (it never walks the disk per frame).
     // vfx.play and vfx.stop change the running game only (they write no file), and a game plays many of them: no rescan for those.
     if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly && name != "vfx.play" && name != "vfx.stop")
-        for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "image.", "vector.", "sfx.", "vfx.", "audio.", "scene.save", "scene.format", "scene.import_ascii",
+        for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "image.", "vector.", "sfx.", "vfx.", "audio.", "review.pick", "scene.save", "scene.format", "scene.import_ascii",
                                    "scene.ascii_edit"})
             if (name.rfind(prefix, 0) == 0) { project_files_changed(); break; }
     // A file-mode import (scene.import_ascii with `path`, or scene.ascii_edit rebuilding its level) returns `path` and, unless
@@ -1448,6 +1462,7 @@ void Editor::build_ui() {
     poll_export();
     poll_phone();
     poll_auto_play();
+    poll_review();
     poll_platform_settings();
     poll_setup();
     draw_main_menu();
@@ -1560,6 +1575,7 @@ void Editor::build_ui() {
     draw_export_window();
     draw_phone_window();
     draw_play_sessions_window();
+    draw_review_window();
     draw_platform_settings_window();
     draw_ai_settings_window();
     draw_setup_window();

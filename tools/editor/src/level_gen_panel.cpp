@@ -344,6 +344,31 @@ void Editor::draw_level_gen_panel() {
         at_track("levelgen:generate");
         ImGui::SetItemTooltip("Generate a level with these options. Same options, same level.");
     }
+    // A sheet of N seeds: the levels of this seed and the next ones side by side in the Review window; picking one comes back here.
+    // On the Generate row (the window keeps its height at 1024x642); under the progress bar while a level is generated.
+    if (!running) ImGui::SameLine(0, ImGui::GetStyle().ItemSpacing.x * 3.0f);
+    if (reviewSeedsJob_.running()) {
+        if (ImGui::Button("Cancel##seeds")) reviewSeedsJob_.cancel();
+        at_track("levelgen:seeds-cancel");
+        ImGui::SameLine();
+        ImGui::Text("Making a sheet of %d seeds... %.0f s", review_.seedsCount, reviewSeedsJob_.elapsed_seconds());
+        at_track("levelgen:seeds-running");
+    } else {
+        const bool haveSample = !o.sampleFile.empty() || !o.sampleEntity.empty();
+        ImGui::BeginDisabled(!haveSample);
+        if (ImGui::Button("Sheet of seeds")) start_level_seeds_sheet();
+        ImGui::EndDisabled();
+        at_track("levelgen:seeds-sheet", haveSample);
+        tooltip_even_when_disabled(haveSample ? "Make the levels of this seed and the next ones (same options) as one numbered sheet and open it in the "
+                                                "Review window: pick the one you like and this window shows that seed."
+                                              : "Choose a sample first (a Tilemap or a level file).");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::CalcTextSize("000").x + ImGui::GetFrameHeight() * 2.0f + ImGui::GetStyle().ItemInnerSpacing.x * 2.0f);
+        if (ImGui::InputInt("seeds##seedscount", &review_.seedsCount))
+            review_.seedsCount = std::clamp(review_.seedsCount, kReviewSeedsMin, kReviewSeedsMax);
+        at_track("levelgen:seeds-count");
+        ImGui::SetItemTooltip("How many levels the sheet shows (%d to %d)", kReviewSeedsMin, kReviewSeedsMax);
+    }
     if (regenerate) levelGen_.start(o, call);
     // About 4 ms of this frame per generation step: the window and the viewport keep drawing.
     if (levelGen_.running()) {

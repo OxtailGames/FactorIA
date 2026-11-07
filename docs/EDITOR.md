@@ -668,6 +668,12 @@ you keep a level.
    already exists (a scene, `factoria.json`, `assets.json`, the sample itself...) a **Replace <file>?** window offers Replace or
    Cancel, and only Replace overwrites it; the Project panel lists a newly written file at once.
 
+**Sheet of seeds** (on the Generate row, with how many: 2 to 16, 6 by default) makes the levels of the shown seed and the next ones
+with the same options as one numbered review sheet and opens it in the Review window (below): pick the one you like and this window
+takes that seed, sample, size and options and generates it. The sheet is made by `review.sheet` in a child `factoria` process, so the
+editor keeps drawing (Cancel stops it and no sheet is made); a sample entity needs the scene saved first (the child reads the project
+as it is on disk), and the sheet draws levels up to 1024 cells a side.
+
 A generation runs in pieces of about 4 ms of each frame, so the window and the viewport keep drawing; **Cancel** stops it, closing
 the window stops it (so does collapsing it or hiding its tab, and picking another sample), and loading another scene ends it quietly with a grey note instead of an error (a job belongs to the scene that started it; the last good level stays). A mistake (a
 size out of range, extra options that are not JSON, a sample that cannot be found, a level the sample cannot make) is shown in red
@@ -680,6 +686,43 @@ the seed with Next and Previous seed (the first level comes back row by row), Ke
 and solid tiles, one undo step), Save level file (the file parses; saving again over it opens the Replace window, Cancel leaves the file,
 Replace overwrites it) and Ctrl+Z. It is in the first shard. `fa_test_editor` covers the
 model (`tools/editor/src/level_gen_model.*`) against a headless engine.
+
+## Review window
+
+View > Review shows the review sheets of the project (`.factoria/review/`): N candidates (pictures, scenes, prefabs, levels, vector
+art, effects) drawn as ONE picture with numbered thumbnails by `review.sheet` (AI_GUIDE.md section 9.32), answered with one number.
+The AI makes them when you have to choose; the editor offers each new one in a toast with an **Open in Review** button and never takes
+the focus away from what you are doing.
+
+- **The list** (left) has the sheets still waiting for an answer first, then the answered ones, newest first in each group (the 200 most
+  recent). **Refresh** reads the folder again; the list also follows every `review.*` command the editor runs.
+- **Sheet** shows one sheet big: fitted to the window, or zoomed with **-**, **+** and **100%** and scrolled. Click a thumbnail (or press
+  its number, **1** to **9**; the **arrows** move over the grid) to select it; hover it for its label and facts. **Enter**, a double click
+  or **Pick #n...** asks first: the confirmation lists every file the pick MOVES to the drop folder (`.factoria/review/dropped/<sheet>/`:
+  the other items marked as candidates; nothing is deleted then, `review.cleanup` deletes them days later and moving one back undoes
+  it), takes an optional note, and **Keep the other files where they are** records the choice only (`review.pick` with `drop: false`).
+  **Pick** (or Enter again) runs the command itself, through the same registry the Console and the AI use, and the window shows what
+  happened: the files moved and any warning. A pick is final: an answered sheet is read-only, with its number outlined in green.
+- **Compare** puts two numbers side by side, large, with their labels and facts; **The candidates' own pictures** shows the image files
+  themselves (sharper than the thumbnails; other items show their thumbnail), and each side has its own Pick button.
+- **History** lists the answered sheets, newest pick first: who picked which number and when, the note, and every dropped file with
+  its status (`moved`: still in the drop folder; `expired`: deleted by `review.cleanup`; `gone`: moved back or deleted by hand).
+  **Open** shows that sheet read-only.
+
+A sheet of **asset candidates** (`meta.kind` `"assetCandidates"`, made by an asset generation) shows the asset slot it is for, and its
+pick calls `assets.pick` with that slot, which puts the picked file in place. When this FactorIA has no `assets.pick`, the window says
+so and picks nothing: it never records the choice with `review.pick` instead. A sheet of **level seeds** (the Level generator's Sheet
+of seeds) brings the picked seed back to the Level generator.
+
+Pictures are read and decoded off the UI thread (one upload to the GPU per frame), shrunk on upload (a sheet to 4096 pixels a side,
+a candidate's own picture to 2048, a thumbnail to 512) and freed about two seconds after the window stops drawing them; a PNG
+larger than 8192 x 8192 pixels is refused from its header, and another picture file over 32 MB is not read.
+
+**Autotest.** Section R4 of `fa_editor_autotest` makes a sheet of four pictures through the queued command path (the toast appears and
+the window does not open by itself), opens it from the toast and from View > Review, selects with 3 and the arrows, compares 1 and 2,
+picks with Enter and the confirmation (the manifest records number 3, the other three files are in the drop folder), checks History
+and opens the answered sheet read-only, then makes a Sheet of seeds from the Level generator in a child `factoria` and picks one,
+which sets that seed. `fa_test_editor` covers the model, the reader and the child job (`tools/editor/tests/review_tests.cpp`).
 
 ## Play sessions
 
