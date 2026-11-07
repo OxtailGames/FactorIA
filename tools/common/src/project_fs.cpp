@@ -53,12 +53,13 @@ void require_writable(const std::string& rel) {
     if (!ok.ok()) fail("invalid_argument", ok.error().message, ok.error().hint);
 }
 
-// A path from UTF-8 text: a std::string handed to std::filesystem::path goes through the ANSI code page on Windows and mangles accents.
+// A relative path from JSON (command arguments are UTF-8): a std::string handed to std::filesystem::path goes through the ANSI code
+// page on Windows and mangles accents. The project folder itself (projectDir) is a NATIVE string, like every path the engine passes around.
 stdfs::path path_from_utf8(std::string_view s) { return stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(s.data()), s.size())); }
 
 stdfs::path root_of(const std::string& projectDir) {
     std::error_code ec;
-    stdfs::path r = stdfs::weakly_canonical(stdfs::absolute(path_from_utf8(projectDir)), ec);
+    stdfs::path r = stdfs::weakly_canonical(stdfs::absolute(stdfs::path(projectDir)), ec);
     return r;
 }
 

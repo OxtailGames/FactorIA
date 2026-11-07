@@ -6,7 +6,7 @@
 //   .factoria/review/sheet-0001/manifest.json    what is on the sheet (format "factoria.review/1", described below)
 //   .factoria/review/sheet-0001/sheet.png        the picture
 //   .factoria/review/sheet-0001/thumbs/01.png    each thumbnail on its own (what a window shows without cutting the sheet)
-//   .factoria/review/dropped/sheet-0001/         where review.pick MOVES the candidates it drops (never deletes)
+//   .factoria/review/dropped/sheet-0001/         where review.pick MOVES the candidates it drops (a pick never deletes; review_cleanup deletes them after kReviewDroppedDays)
 //
 // manifest.json: { format, id, label, createdAt ("2026-11-06T12:00:00.000Z", from the engine's clock), createdUnix (seconds),
 //   engineVersion, columns, rows, thumbSize, picture: {path, width, height}, dropDir, items: [{n (1-based, the number printed
@@ -84,8 +84,8 @@ struct ReviewPickOptions {
     std::string who;    // "user", "agent" or "mcp"; empty: taken from command_caller()
 };
 // Records that item `n` of the sheet was chosen, and (drop) moves the source files of the OTHER items marked `candidate` to
-// `<dropDir>/<sheet id>/<NN>_<file name>`. Nothing is ever deleted: the result and the manifest list every move (from, to), so a
-// move is undone by moving the file back. All or nothing: a move that fails puts back the ones already made and changes no manifest.
+// `<dropDir>/<sheet id>/<NN>_<file name>` (the name cut to 255 bytes). The pick deletes nothing (review_cleanup deletes the dropped files after droppedDays); the result and the manifest
+// list every move (from, to), so a move is undone by moving the file back. All or nothing: a move that fails puts back the ones already made and changes no manifest.
 // Refused: a sheet that was already picked, an item that failed to render, a number out of range. value: the choice (see
 // review.pick in docs/AI_GUIDE.md).
 ReviewOutcome review_pick(const std::string& projectDir, const std::string& sheet, long n, const ReviewPickOptions& options);
@@ -94,7 +94,7 @@ ReviewOutcome review_pick(const std::string& projectDir, const std::string& shee
 // prefab, vfx), or "" when it may: outside the project (absolute, "..", a link that leads out), not the kind of file the type
 // needs (.scene.json, .prefab.json, .vfx.json, .svg, a picture), factoria.json, assets.json, anything under .factoria/ or a
 // version-control folder, or the project's main scene. The paths are compared after normalizing (./, backslashes, case, a trailing dot
-// or space on Windows). review.sheet asks it up front and review_pick asks it again for every file it is about to move, so a
+// or space on Windows) and again by the file they really are (a link to a folder inside the project cannot dodge a rule). review.sheet asks it up front and review_pick asks it again for every file it is about to move, so a
 // hand-edited manifest cannot make a pick move a file it could not have been asked for.
 std::string review_candidate_problem(const std::string& projectDir, const std::string& type, const std::string& rel);
 // Why `dropDir` (project-relative) cannot hold dropped candidates, or "": it must be a folder below .factoria/, not .factoria/tmp

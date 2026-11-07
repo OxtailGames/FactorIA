@@ -110,7 +110,7 @@ struct Request {
 };
 
 std::string main_scene(const std::string& projectDir) {
-    auto project = load_json_file(utf8(project_file(projectDir, "factoria.json")));
+    auto project = load_json_file(project_file(projectDir, "factoria.json").string());
     if (!project.ok() || !project->is_object()) return {};
     const auto it = project->find("mainScene");
     return it != project->end() && it->is_string() ? it->get<std::string>() : std::string();
@@ -212,7 +212,7 @@ Request parse_request(const std::string& projectDir, const Json& a) {
     const bool allCandidates = tooling_detail::arg_bool(a, "candidates", false);
     req.dropDir = kReviewDropDir;
     if (a.contains("dropDir") && !a["dropDir"].is_null()) {
-        const std::string hint = "Candidates that are not picked are MOVED there, never deleted. Example: \".factoria/assets/candidates\". Leave it out for " + std::string(kReviewDropDir) + ".";
+        const std::string hint = "Candidates that are not picked are MOVED there (the pick deletes nothing; review.cleanup deletes dropped files after " + std::to_string(kReviewDroppedDays) + " days). Example: \".factoria/assets/candidates\". Leave it out for " + std::string(kReviewDropDir) + ".";
         if (!a["dropDir"].is_string()) bad("/dropDir", "expected a project-relative folder below .factoria/.", hint);
         const std::string given = a["dropDir"].get<std::string>();
         if (const std::string why = review_drop_dir_problem(given); !why.empty()) bad("/dropDir", why + ".", hint);
@@ -288,6 +288,16 @@ Request parse_request(const std::string& projectDir, const Json& a) {
                 if (sceneRel.empty() || !stdfs::is_regular_file(project_file(projectDir, sceneRel), ec))
                     bad(pointer + "/level/sample", "'" + sampleText + "' names an entity, but there is no scene to look it up in: the project has no main scene.",
                         "Give `sampleScene` next to `level` (the scene whose Tilemap entity it is), or use ASCII rows: {\"sample\": [\"#..#\", \"#..#\"], \"legend\": {\"#\": 0, \".\": 1}}.");
+            }
+            if (!sceneRel.empty()) {
+                // The scene is read while the sheet is drawn and again by whoever generates the level: no candidate may be that file.
+                const std::string sceneKey = review_path_key(sceneRel);
+                if (const auto used = files.find(sceneKey); used != files.end() && used->second.candidate)
+                    bad(pointer + (item.contains("sampleScene") ? "/sampleScene" : "/level/sample"),
+                        "'" + sceneRel + "' is a candidate of item " + std::to_string(used->second.first + 1) + ", and a pick moves candidates away, so this level could no longer look its entity up.",
+                        "Leave `candidate` off that scene, or give this level another `sampleScene`.");
+                else if (used == files.end())
+                    files[sceneKey] = {i, false};
             }
             if (rowsFile && sampleText.find('\n') == std::string::npos) {
                 auto rows = resolve_project_path(projectDir, sampleText);
@@ -580,7 +590,10 @@ Rendered render_image(const stdfs::path& file) {
         auto data = read_bytes(file);
         if (!data.ok()) return failed_tile(data.error().message);
         std::uint64_t w = 0, h = 0;
-        if (declared_size(*data, to_lower(fs::extension(utf8(file))) == ".tga", w, h) && w * h > kMaxImagePixels)  // 64-bit: both are at most 2^32
+        // The decoder reads more formats than a project uses (GIF, PSD, HDR...), whose size cannot be checked here: only these four are drawn.
+        if (!declared_size(*data, to_lower(fs::extension(utf8(file))) == ".tga", w, h))
+            return failed_tile("the file is not a PNG, JPEG, BMP or TGA picture (or its header is damaged), so it was not decoded");
+        if (w * h > kMaxImagePixels)  // 64-bit: both are at most 2^32
             return failed_tile(std::format("the picture is {}x{}; the most a review reads is {} million pixels", w, h, kMaxImagePixels / 1'000'000));
         loaded = decode_image(data->data(), data->size());
     }  // the file's bytes are freed before the pixels are counted
@@ -740,7 +753,7 @@ std::string write_stage(const std::string& projectDir, const std::string& sheetI
     const Json scene = Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array({camera, pivot})}});
     guard.file = project_file(projectDir, rel);
     const std::string text = scene.dump(2);
-    auto written = fs::write_bytes(utf8(guard.file), text.data(), text.size());
+    auto written = fs::write_bytes(guard.file.string(), text.data(), text.size());
     if (!written.ok()) fail("failed", "Cannot write the stage scene for the thumbnails: " + written.error().message, "Check that .factoria/tmp/ is writable.");
     return rel;
 }
@@ -1165,11 +1178,11 @@ Json sheet_command(const std::string& projectDir, const Json& a) {
                                 {"meta", req.meta},
                                 {"warnings", warnings}});
     if (!housekeeping.empty()) result["housekeeping"] = housekeeping;
-    result["$image"] = Json::object({{"path", utf8(project_file(projectDir, dirRel + "/sheet.png"))}, {"mimeType", "image/png"}});
+    result["$image"] = Json::object({{"path", project_file(projectDir, dirRel + "/sheet.png").string()}, {"mimeType", "image/png"}});
     const bool anyCandidate = std::any_of(req.items.begin(), req.items.end(), [](const Item& i) { return i.candidate; });
     std::vector<std::string> steps;
     steps.push_back("Show the picture to the person and ask for ONE number from 1 to " + std::to_string(req.items.size()) + ". Do not choose for them.");
-    steps.push_back("Then call review.pick {\"sheet\": \"" + id + "\", \"n\": <their number>} to record it" + (anyCandidate ? " (the files of the other candidates are moved to " + req.dropDir + "/" + id + "/, never deleted)." : "."));
+    steps.push_back("Then call review.pick {\"sheet\": \"" + id + "\", \"n\": <their number>} to record it" + (anyCandidate ? " (the files of the other candidates are moved to " + req.dropDir + "/" + id + "/; the pick deletes nothing, review.cleanup deletes them after " + std::to_string(kReviewDroppedDays) + " days)." : "."));
     steps.push_back("review.list shows the sheets of this project, review.info the details of one.");
     result["nextSteps"] = steps;
     return result;
@@ -1234,7 +1247,7 @@ Json info_command(const std::string& projectDir, const Json& a) {
     Json result = o.value;
     const std::string dir = std::string(kReviewDir) + "/" + result.value("id", std::string());
     result["dir"] = dir;
-    result["$image"] = Json::object({{"path", utf8(project_file(projectDir, dir + "/sheet.png"))}, {"mimeType", "image/png"}});
+    result["$image"] = Json::object({{"path", project_file(projectDir, dir + "/sheet.png").string()}, {"mimeType", "image/png"}});
     return result;
 }
 
@@ -1277,7 +1290,7 @@ void register_review_commands(CommandRegistry& registry, const std::string& proj
             "The level's `sample` takes the forms of tilemap.generate: ASCII rows as an array of strings (with `legend` next to it), an object {rows, legend?}, one string with line breaks, a project path of a .json rows file, or the id or name of an ENTITY WITH A TILEMAP. Only the entity form needs a scene to look the entity up in: it is the project's main scene (factoria.json mainScene), or the scene you name with `sampleScene` on the item; the thumbnails never change that scene. Without a main scene and without `sampleScene` an entity sample is an error with its JSON pointer. "
             "At most " + std::to_string(kReviewMaxItems) + " items (after `seeds` are expanded; 4 to 9 is what a person judges well) and a sheet of at most " + std::to_string(kMaxSide) + " px a side; the thumbnail size and the columns are chosen from the item count unless you give them. "
             "The sheet is stored under .factoria/review/<id>/ (sheet.png, manifest.json, thumbs/NN.png): the manifest records the items with their labels, facts and the exact arguments of each (a level's seed), when it was made, and later who picked what. The picture comes back as `$image` (a file in the project, not a temporary one). "
-            "Mark `candidate: true` on the items whose FILES you made only for this choice (variants of an image, scene, prefab, vector art or effect): review.pick then MOVES the ones that were not chosen to .factoria/review/dropped/<id>/ (or `dropDir`), never deleting them. A file that is not marked is never touched. Levels are not files: picking one only records its seed. "
+            "Mark `candidate: true` on the items whose FILES you made only for this choice (variants of an image, scene, prefab, vector art or effect): review.pick then MOVES the ones that were not chosen to .factoria/review/dropped/<id>/ (or `dropDir`); the pick never deletes them (review.cleanup does, " + std::to_string(kReviewDroppedDays) + " days later; `droppedDays` 0 keeps them). A file that is not marked is never touched. Levels are not files: picking one only records its seed. "
             "A candidate must be a file of the project of the kind its type needs (.scene.json, .prefab.json, .vfx.json, .svg, a picture), never factoria.json, assets.json, anything under .factoria/ or a version-control folder, the main scene, or a scene another item uses as its `stage`; no other item may show a candidate's file; paths are compared after normalizing (./, backslashes, upper case), and review.pick checks all of it again before it moves anything. "
             "`meta` is your own small object (e.g. {\"slot\":\"hero\"}, at most " + std::to_string(kReviewMetaMaxBytes) + " bytes as JSON), stored with the sheet and returned untouched by review.pick, review.info and review.list. "
             "After the sheet is made, files review.pick dropped more than " + std::to_string(kReviewDroppedDays) + " days ago and sheet folders abandoned (no manifest) for more than " + std::to_string(kReviewOrphanMinutes) + " minutes are cleaned up (review.cleanup says what; the sheets that were not answered and the chosen files are never touched). "
@@ -1323,11 +1336,11 @@ void register_review_commands(CommandRegistry& registry, const std::string& proj
         info.name = "review.pick";
         info.category = "review";
         info.readOnly = false;
-        info.summary = "Record which numbered thumbnail of a review sheet the person chose, and move the other candidates' files away (never deleting them).";
+        info.summary = "Record which numbered thumbnail of a review sheet the person chose, and move the other candidates' files away (the pick itself deletes nothing; review.cleanup deletes the dropped files after " + std::to_string(kReviewDroppedDays) + " days, or never with droppedDays 0).";
         info.description =
             "Call it with the number THE PERSON gave you for a sheet that review.sheet made; never pick for them (over MCP and the CLI nothing asks them, so the number must be theirs: show the sheet, ask, wait). "
             "The choice is written into the sheet's manifest (who, when, the note and the exact spec of the item: a level's seed and arguments) and is final: a sheet is picked once. "
-            "With `drop` (default true) the files of every OTHER item marked `candidate` are MOVED to <dropDir>/<sheet id>/<NN>_<file name> (default .factoria/review/dropped/): nothing is deleted, the result and the manifest list each move (from, to) and moving the file back undoes it. "
+            "With `drop` (default true) the files of every OTHER item marked `candidate` are MOVED to <dropDir>/<sheet id>/<NN>_<file name> (default .factoria/review/dropped/): the pick deletes nothing (review.cleanup deletes the dropped files after " + std::to_string(kReviewDroppedDays) + " days; droppedDays 0 keeps them), the result and the manifest list each move (from, to) and moving the file back undoes it. "
             "What dropping means per item type: image, vector, scene, prefab and vfx items marked candidate: their file moves; items not marked candidate and level items (no file): only recorded. The picked item's file stays where it is. A candidate that shares its file with the picked item, or was already gone, is left alone and reported in `warnings`; assets.json is not edited (it warns when it still lists a moved file). "
             "Every file is checked again before the first one moves (the manifest is a file anyone can edit): it must be inside the project and of the kind its type needs, never factoria.json, assets.json, anything under .factoria/, a version-control folder, the main scene or a scene another item plays an effect in; the drop folder must be one review.sheet would accept; otherwise nothing is moved and the error says why. "
             "All or nothing: if a move fails (a file open in another program) the moves already made are put back and the manifest is not changed. The manifest is changed under the project's review lock, so the editor, the CLI and an agent may use sheets at once. "
