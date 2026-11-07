@@ -2186,3 +2186,23 @@ the roadmap and docs first: none of these is done or planned.
 - M81.4 (M) Parametric kits and variants: a model document declares shared top-level knobs (size, roof pitch, wear,
   palette...) that drive its nodes' params, and `model.variants {path, count, vary?, seed}` makes a set of seeded
   variants; with M69 contact sheets to review them and a pick that saves the chosen ones as assets.
+
+## M82. Secondary motion and more generated animation (L; 3 packages) — the user, 2026-11-08
+
+From the user's X bookmarks (TailorRig and HairDeck for clothing and hair bones, UniMate and Prompt2Rig for motion from
+a description, DirtyMoCap and a mocap clean-up app). Those are trained models; ours are procedural and live in the
+engine, nothing of theirs is bundled, depended on or wrapped. Checked against the roadmap and docs first: rigs today
+have only the body (plus `tail`/`chain` templates for whole models), `anim3d.generate` makes 7 kinds, and nothing
+cleans an imported clip.
+- M82.1 (L) Secondary chains and spring bones: `rig.add_chain {rig, part, from, segments}` adds bone chains for hair,
+  capes, skirts, sleeves and ears to a fitted rig, with skin weights kept on their part (they do not leak into the legs
+  or the body); a `SpringBones` component (3D, and the same for `Bone2D` chains) moves them at runtime with stiffness,
+  damping, gravity and collider spheres, deterministic on the fixed step; the Animation panel shows them, and
+  `anim3d.preview` can draw them settling.
+- M82.2 (M) More generated actions: `anim3d.generate` kinds `jump`, `attack`, `wave`, `crouch`, `death`, `climb`,
+  `sit`, `fall`, `turn` and `push`, from the rig's proportions with IK for contacts and the same `params` and
+  `generated` record as today; for the humanoid, quadruped and bird templates where each makes sense (a teaching error
+  otherwise).
+- M82.3 (M) Clean an imported clip: `anim3d.clean {path, rig, out?}` filters jitter, finds the foot contacts and locks
+  them (no foot skating), keeps the root over the feet, reduces keys within an error budget and reports what it changed
+  with a before/after filmstrip; `anim.check` gains a `foot_skate` finding that suggests it.
