@@ -2,8 +2,8 @@
 
 Making a game with an AI costs tokens, and tokens cost money or plan quota. This guide says what a whole game cost in a
 real run (measured, not guessed), what makes a run cheap or dear, how to put a ceiling on it and where to see what was
-spent. Prices are the ones FactorIA carries (**as of 2026-10-20**, the table in [AI_PROVIDERS.md](AI_PROVIDERS.md#costs));
-they change, so your provider's invoice is what counts.
+spent. Model prices are the ones FactorIA carries (**as of 2026-10-20**, the table in [AI_PROVIDERS.md](AI_PROVIDERS.md#costs)) and
+asset prices are in section 4 ("Asset generation", looked up 2026-11-06); they change, so your provider's invoice is what counts.
 
 ## 1. What costs money
 
@@ -31,9 +31,11 @@ You pay for tokens in one of two ways:
   useful to compare runs, not a bill. Plan limits are shared by every chat and every program that uses the plan.
 
 **Asset generation.** Pictures, sounds, music, voices and 3D models made by an asset provider are billed per call by that
-provider. FactorIA does not know those prices and `limits.maxCostUsd` does not cover them
-([AI_PROVIDERS.md](AI_PROVIDERS.md#asset-providers)). The `fake` provider costs nothing: build the whole flow with it, look at
-the first real result, and only then generate a batch.
+provider, not in tokens. FactorIA carries a price table for the built-in asset providers (`assetPricing`, with the day it
+was looked up and where it is published), puts an **estimate** in every result, refuses a call that would pass the limits
+`limits.maxAssetCostUsd` and asks you before an expensive one: see "Asset generation" in section 4. `limits.maxCostUsd` covers
+model tokens only. The `fake` provider costs nothing: build the whole flow with it, look at the first real result, and only
+then generate a batch.
 
 ## 2. What a game cost
 
@@ -248,7 +250,115 @@ These limits belong to FactorIA's built-in agent (API providers). **Claude Code 
 does not enforce `maxTurns`, `maxCostUsd` or `maxTotalTokens` on them. With a subscription the ceiling is the plan: the
 5-hour and weekly windows. The editor shows how full they are, and you can always press Stop.
 
-Asset providers are not covered by any limit. Cap those at the provider (a spending limit on its account).
+Asset providers have their own limits and their own question (below); `maxCostUsd` does not count them.
+
+### Asset generation
+
+An asset call (`assets.generate_image`, `_sprite_sheet`, `_sound`, `_music`, `_voice`, `_model`, `image.inpaint`,
+`image.generate_layer`, the Image panel's Inpaint selection and Generate layer) can cost real money. Before the provider is
+called FactorIA does three things, in this order, and the call is made only if all three allow it:
+
+1. **It estimates the price** from the provider's `assetPricing` table (below). The result of every call carries
+   `estimatedCostUsd` and `costIsEstimate: true`, and a `cost` object with the basis (`4 x 1024x1024 auto at $0.167`), what the
+   run and the project have spent so far, and when the prices were looked up. It is an **estimate**: the provider's own bill
+   decides, a plan's credits can change it, and a call that fails after the provider answered is still billed. The `fake`
+   provider and your own programs (`asset-command`, a local server) cost 0 and never ask.
+2. **It checks the limits** (`limits.maxAssetCostUsd`, below). A call that would pass one is refused with an error that says
+   which limit, what is spent, what this call would add and how to raise it. Nothing was sent.
+3. **It asks you** when the estimate is above `limits.askAboveUsd` (default $0.50), when the price is unknown, or when this call
+   **together with the calls since your last yes that were not asked about** is above it: a batch of ten $0.10 pictures costs
+   what one $1.00 call costs, and is asked about the same way (the question comes with the call that takes the total over the
+   limit, and says what came before it). Below that it just goes on.
+
+```json
+{ "limits": { "askAboveUsd": 0.5, "maxAssetCostUsd": { "perRun": 5, "perDay": 20 } } }
+```
+
+| Limit | Meaning | Default |
+|---|---|---|
+| `limits.maxAssetCostUsd.perRun` | estimated dollars of asset calls in one agent run (a chat's run in the editor; the whole process for the CLI and MCP; 0 = no limit) | 0 |
+| `limits.maxAssetCostUsd.perDay` | estimated dollars of asset calls of this project today, counted across every editor, terminal and agent (0 = no limit) | 0 |
+| `limits.askAboveUsd` | a call estimated above this, or whose total with the unasked calls since your last yes is, waits for your yes; 0 asks before every paid call | 0.50 |
+
+They go in `ai.json` or in a project's `.factoria/ai/settings.json` ([AI_PROVIDERS.md](AI_PROVIDERS.md#per-project)), and
+in the editor in **AI > AI Settings... > Assets > Spending limits**. With a per-run or per-day limit set and a price the table does not
+know, the call is refused (FactorIA cannot count what it cannot price): set the price in `assetPricing` or call a provider
+that has one.
+
+**The day total.** The per-day total is a file in your user folder (`asset-spend.json` next to `ai.json`), changed under the same
+cross-process lock as your other FactorIA files, so a second editor or a terminal counts into the same total and one project's
+spending never counts against another's. A day is the local calendar day. If the lock cannot be taken (another program keeps it
+busy), the call is refused when a per-day limit is set (nothing is counted, and the error says so) and goes ahead with a
+warning in its result when there is none. A call that fails gives its estimate back, on the day it was counted (a call that
+runs past midnight does not leave a hole in the next day). A refund that cannot be written (the lock is busy) is reported in
+the warnings of that result or of the next asset call, and in the log: the total then keeps the money until you edit
+`asset-spend.json`. The file is read with a few quick retries (another program may be replacing it); one that has another shape
+than this version writes (a hand edit) is reported with the JSON pointer of the problem and is never overwritten.
+
+**Who says yes.**
+
+- **In the editor** a paid call that needs your yes puts a card under the chat's messages: what is going to be made, how many,
+  with which provider, the estimate and when the prices were looked up. **Approve** makes this one, **Approve all for this run**
+  stops the questions for the rest of this chat's run (the limits still hold), **Cancel** declines it: the assistant is told
+  you said no and carries on without it. The assistant waits meanwhile; the editor does not. The chat's tab shows `?`, a
+  card in another chat's tab raises a toast, and the "may be stuck" warning stays quiet while a card waits. The buttons are the
+  first thing on the card, so a long prompt or a narrow panel never hides them (the text below them scrolls). **Approve** also
+  starts the count of unasked small calls again. The **Stop** button of the run ends the wait as `cancelled` (the assistant is
+  told you stopped it, not that you said no) and the card goes. In the editor the assistant's `approved` argument is **ignored**:
+  only your click on the card says yes, so an AI cannot answer for you. The Image panel's popup shows the estimate (worked out in
+  the background) and **Make it** is your approval; it asks the same limits and the same day total.
+- **From the CLI, MCP or a script** the command does not make the call: it returns `{"needsApproval": true, "plan": {...}}`
+  (`command`, `what`, `count`, `provider`, `model`, `estimatedCostUsd`, `basis`, `prompt`, `priceChecked`). An AI must tell its
+  user what will be made, how many, with which provider and the estimate, and **ask**. Only after the user says yes does it call
+  again with the same arguments and `approved: true`. An AI never sets `approved: true` on its own and never raises a limit; the
+  user changes limits in the settings. `approved` counts only here, where nobody else can be asked (no editor card): the editor
+  ignores it. Calls that name no run (the CLI, an MCP client outside the editor) add up **per process**: a CLI command is one
+  run, and an MCP server that stays up counts everything it did since it started (the unasked total, and `perRun`) until a yes
+  with `approved: true` starts the unasked count again. A CLI agent (Claude Code, Codex) or another MCP client that waits for
+  you in the editor can hit its own tool-call timeout (often 60 to 120 seconds): the card stays, and if you approve it later the
+  picture is still made and written, but the agent has already been told the call was abandoned. Answer the card soon, or ask
+  again after answering.
+
+`dryRun: true` on `image.inpaint` and `image.generate_layer` returns the estimate and sends nothing.
+
+#### Prices
+
+The built-in providers ship these figures (US dollars, an estimate, **looked up on 2026-11-06**). The pricing pages change:
+the date and the page are in every result (`cost.priceChecked`, `cost.priceSource`) and in `ai.providers`, and a figure that is
+the engine's own derivation says so (`priceUnverified`).
+
+| Provider | Kind | Price | Where it comes from |
+|---|---|---|---|
+| `openai` | image (`gpt-image-1`) | 1024x1024: $0.011 low, $0.042 medium, $0.167 high; 1024x1536 and 1536x1024: $0.016, $0.063, $0.25. Quality `auto` is priced as `high`: the provider chooses, and the estimate must not be low | the model page, https://developers.openai.com/api/docs/models/gpt-image-1 |
+| `openai` | voice (`gpt-4o-mini-tts`) | $0.015 per 1000 characters | **Unverified**: the model is billed per token; $0.015 is OpenAI's rule of thumb for a minute of speech, about 1000 characters |
+| `elevenlabs` | voice | $0.08 per 1000 characters (Multilingual v2; Flash and Turbo cost less) | https://elevenlabs.io/pricing/api. **Unverified**: read off a summary of the page, not confirmed by hand |
+| `elevenlabs` | sound effects | $0.12 per minute of audio | the same page; **unverified** |
+| `elevenlabs` | music | $0.15 per minute of audio | the same page; **unverified** |
+| `meshy` | 3D model | $0.40 per model | **Unverified**: a text-to-3D preview is 20 API credits on meshy-6 and the latest model, and Meshy does not publish a price per credit; $0.02 is the Pro plan's, https://docs.meshy.ai/en/api/pricing |
+
+The `openai` image figures belong to `gpt-image-1` (`assetPricing.model`). A picture made with any other model (`model` in the
+call, or the model ai.json routes to) is priced with the same figures and marked `priceUnverified`, with a note naming both models:
+the engine did not read that model's price list. What the table does not cover: OpenAI's newer image models are billed per token and its page has no per-picture table for them,
+so route images to one of them with your own price (below); the figures above are for the model FactorIA defaults to, and we
+could not confirm that OpenAI still serves it (a report says it is retired from 2026-10-23, after this table was written: if
+the provider answers that the model does not exist, route to a current one). Sizes the providers draw are fixed (1024x1024,
+1536x1024, 1024x1536), whatever size the file ends up. A sound or music call that leaves the length to the provider is priced at
+10 s and 60 s. Your own plan, free credits and discounts are not known to FactorIA.
+
+**Your own prices.** `assetPricing` on an asset provider in your `ai.json` replaces the built-in one (a provider you define
+needs one to be priced; without it its price is unknown: the call asks the user, and a per-run or per-day limit refuses it):
+
+```json
+{ "providers": { "openai": { "assetPricing": {
+    "image": { "1024x1024": { "low": 0.02, "high": 0.19 } },
+    "voicePer1000Chars": 0.015, "soundPerSecond": 0.002, "musicPerSecond": 0.0025, "model3d": 0.5,
+    "checked": "2026-11-06", "source": "https://example.com/my-price-list" } } } }
+```
+
+`image` is a price for any size (`"image": 0.04`) or a table by size and quality; the sizes are the ones the provider draws.
+`checked` and `source` are shown on the card and in the results. `model` names the image model the figures were read for; a picture
+made with another model is marked unverified. `unverified` lists the kinds (`image`, `voice`, `sound`, `music`, `model3d`)
+whose figure you did not confirm.
 
 ## 5. How to see what you spent
 

@@ -25,7 +25,7 @@ TEST_CASE("OpenAI images: POST /images/generations with the key, the answer is w
     const Json r = game.ok("assets.generate_image", {{"prompt", "a mossy stone wall"}, {"path", "assets/wall.png"}, {"width", 16}, {"height", 16}, {"transparent", true}});
 
     REQUIRE(wire.requests.size() == 1);
-    const HttpRequest& req = wire.requests[0];
+    const fa::ai::HttpRequest& req = wire.requests[0];
     CHECK(req.method == "POST");
     CHECK(req.url == "https://api.openai.com/v1/images/generations");
     CHECK(Wire::header(req, "Authorization") == "Bearer sk-test-0123456789abcdef");
@@ -60,7 +60,7 @@ TEST_CASE("OpenAI images: references go to /images/edits as multipart image[] pa
                                       {"references", Json::array({"assets/hero.png"})}});
 
     REQUIRE(wire.requests.size() == 1);
-    const HttpRequest& req = wire.requests[0];
+    const fa::ai::HttpRequest& req = wire.requests[0];
     CHECK(req.url == "https://api.openai.com/v1/images/edits");
     const std::string contentType = Wire::header(req, "Content-Type");
     REQUIRE(contentType.rfind("multipart/form-data; boundary=", 0) == 0);
@@ -83,7 +83,7 @@ TEST_CASE("OpenAI: no key, a rejected key and a gif reference stop the call with
         wire.replies = {Wire::reply(200, fixture("openai_image.json"))};
         Game game(config_from(R"({"assets":{"image":{"provider":"openai"}}})"), wire.runtime());
         auto r = game.call("assets.generate_image", {{"prompt", "x"}, {"path", "assets/a.png"}});
-        REQUIRE_FALSE(r.ok);
+        REQUIRE_MESSAGE(!r.ok, r.result.dump());
         CHECK(r.error["code"] == "generation_failed");
         CHECK(r.error["message"] == "No API key for provider 'openai'");
         CHECK(r.error["hint"].get<std::string>().find("OPENAI_API_KEY") != std::string::npos);
@@ -471,6 +471,10 @@ TEST_CASE("asset providers are not chat providers: models, chat and the doctor r
     CHECK_FALSE(find("meshy").available);  // no MESHY_API_KEY
     CHECK(find("elevenlabs").makes == std::vector<std::string>{"sound", "music", "voice"});
     CHECK(find("meshy").makes == std::vector<std::string>{"model3d"});
+    // ai.providers shows each asset provider's price table (with the day it was looked up); fake has none.
+    CHECK(find("meshy").to_json()["assetPricing"].contains("model3d"));
+    CHECK(find("elevenlabs").to_json()["assetPricing"].contains("checked"));
+    CHECK_FALSE(find("fake").to_json().contains("assetPricing"));
 
     const std::string report = format_doctor_report(cfg, status);
     CHECK(report.find("[makes sound, music, voice]") != std::string::npos);

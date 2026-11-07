@@ -6,6 +6,7 @@
 #include <mutex>
 
 #include "common.h"
+#include "fa/ai/asset_cost.h"
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
 #include "fa/ai/extension_plan.h"
@@ -302,6 +303,7 @@ Command make_ai_command() {
                 if (!e.toolResult.is_null()) j["result"] = clip(e.toolResult.dump(), 2000);
                 if (e.isError) j["isError"] = true;
                 if (e.type == T::Usage || e.type == T::Done) j["costUsd"] = e.costUsd;
+                if (e.type == T::Done && e.assetCostUsd > 0) j["assetCostUsd"] = e.assetCostUsd;
                 ctx.out << j.dump() << "\n";
                 ctx.out.flush();
                 return;
@@ -348,6 +350,7 @@ Command make_ai_command() {
         ctx.out << "\n--- " << (res.ok ? "done" : "stopped") << ": " << res.stopReason << ", " << res.turns << " turns, " << res.usage.total()
                 << " tokens";
         if (res.costUsd > 0) ctx.out << ", ~$" << res.costUsd;
+        if (res.assetCostUsd > 0) ctx.out << ", assets ~" << ai::format_usd(res.assetCostUsd) << " (estimate)";
         ctx.out << "\n";
         if (!res.transcriptPath.empty()) ctx.out << "transcript: " << res.transcriptPath << "\n";
         if (!res.ok) return report_failure(ctx, res.error.empty() ? "The agent stopped: " + res.stopReason : res.error, res.hint);

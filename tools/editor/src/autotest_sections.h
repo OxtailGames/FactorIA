@@ -23,6 +23,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"T", "Toolbar Screenshot button"},
     {"A", "Audio panel"},
     {"A2", "Profiler panel"},
+    {"A3", "Paid asset calls wait for the user's yes: the card under the chat (what, how many, provider, estimate), Approve, Approve all for this run, Cancel, Stop while it waits"},
     {"B", "Commands that rebuild the open scene file"},
     {"C", "Pick bounds and the selection outline"},
     {"D", "Bloom in the viewport"},
