@@ -129,14 +129,14 @@ std::ptrdiff_t recv_some(Socket s, char* buffer, std::size_t size) {
     }
 }
 
-void linger_close(Socket s, int maxMs, std::size_t maxBytes) {
+void linger_close(Socket s, int maxMs, std::size_t maxBytes, int idleMs) {
     if (s == kNoSocket) return;
 #ifdef _WIN32
     ::shutdown(native(s), SD_SEND);
 #else
     ::shutdown(native(s), SHUT_WR);
 #endif
-    set_io_timeouts(s, 100, 100);  // a client that went quiet ends the wait
+    set_io_timeouts(s, idleMs, idleMs);  // a client that went quiet ends the wait
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::max(maxMs, 0));
     char buf[4096];
     std::size_t total = 0;

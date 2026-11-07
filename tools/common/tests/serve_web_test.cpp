@@ -385,6 +385,12 @@ TEST_CASE("serve web: phone log lines are rate limited, and one notice says how 
     CHECK(taken <= 8);
     // Once the window is over, the next line is taken again and one warning reports the drops.
     std::this_thread::sleep_for(std::chrono::milliseconds(800));
+    // The notice does not wait for the page's next line: reading the status after the window closed reports the dropped lines.
+    (void)f.server.status();
+    bool noticeFromStatus = false;
+    for (const LogEntry& e : recent_logs(300, LogLevel::Trace, seq))
+        if (e.category == "phone" && e.level == LogLevel::Warn && e.message.find("log lines from the page were dropped") != std::string::npos) noticeFromStatus = true;
+    if (taken < 8) CHECK(noticeFromStatus);
     const std::string one = R"([{"l":"log","t":"after the burst"}])";
     CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(one.size()) + "\r\n\r\n" + one).status == 204);
     bool after = false, notice = false;
@@ -595,4 +601,65 @@ TEST_CASE("serve web: in the editor the command never waits, it answers starting
     auto stopping = reg.call("project.serve_web", Json::object({{"stop", true}}));
     REQUIRE_MESSAGE(stopping.ok, stopping.error.dump());
     CHECK(wait_for([] { return !web_server().running(); }));
+}
+
+TEST_CASE("serve web: in the editor a stop that comes while the server is starting is honoured, and a start during a stop says so") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    const std::string player = fake_player(tmp);
+    CommandRegistry reg;
+    register_serve_web_commands(reg, proj);
+    web_server().stop();
+    set_serve_web_blocking(false);
+    struct Restore {
+        ~Restore() {
+            serve_web_shutdown();
+            set_serve_web_blocking(true);
+        }
+    } restore;
+    const Json stopArgs = Json::object({{"stop", true}});
+    const Json startArgs = Json::object({{"player", player}});
+
+    // Order 1: stop while the start (and its first export) runs. It answers "stopping", and once the helper thread is idle nothing serves.
+    auto started = reg.call("project.serve_web", startArgs);
+    REQUIRE_MESSAGE(started.ok, started.error.dump());
+    CHECK(started.result["state"].get<std::string>() == "starting");
+    auto stop1 = reg.call("project.serve_web", stopArgs);
+    REQUIRE_MESSAGE(stop1.ok, stop1.error.dump());
+    CHECK(stop1.result["state"].get<std::string>() == "stopping");  // not "stopped": the start job is still running
+    auto during = reg.call("project.serve_web", startArgs);
+    REQUIRE_MESSAGE(during.ok, during.error.dump());
+    CHECK(during.result["state"].get<std::string>() != "ready");  // a start while the stop is pending does not undo it
+    std::string state;
+    REQUIRE(wait_for([&] {
+        auto r = reg.call("project.serve_web", stopArgs);
+        state = r.ok ? r.result["state"].get<std::string>() : "error";
+        return state != "stopping";
+    }));
+    CHECK(state == "stopped");
+    CHECK_FALSE(web_server().running());  // the server the start job brought up was stopped by it
+
+    // Order 2: a start called while a stop job runs says "stopping" and asks to call again; the next call then starts it.
+    auto up = reg.call("project.serve_web", startArgs);
+    REQUIRE_MESSAGE(up.ok, up.error.dump());
+    REQUIRE(wait_for([&] {
+        auto r = reg.call("project.serve_web", startArgs);
+        return !r.ok || r.result["state"].get<std::string>() == "ready";
+    }));
+    REQUIRE(web_server().running());
+    auto stop2 = reg.call("project.serve_web", stopArgs);
+    REQUIRE_MESSAGE(stop2.ok, stop2.error.dump());
+    CHECK(stop2.result["state"].get<std::string>() == "stopping");
+    auto restart = reg.call("project.serve_web", startArgs);  // the stop job may or may not be over by now: both answers are right
+    REQUIRE_MESSAGE(restart.ok, restart.error.dump());
+    const std::string answer = restart.result["state"].get<std::string>();
+    CHECK((answer == "stopping" || answer == "starting"));
+    if (answer == "stopping") CHECK(restart.result["note"].get<std::string>().find("again") != std::string::npos);
+    std::string last;
+    REQUIRE(wait_for([&] {
+        auto r = reg.call("project.serve_web", startArgs);
+        last = r.ok ? r.result["state"].get<std::string>() : "error";
+        return last == "ready";
+    }));
+    CHECK(web_server().running());
 }

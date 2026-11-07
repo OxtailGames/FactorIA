@@ -1117,7 +1117,7 @@ about 1.4 times the size of the folder, and the browser decodes it before the fi
 jam entry, a demo to send to someone.
 
 - **Size limit.** The export refuses a page over `singleFileMaxMb` (`--single-file-max-mb`; default 64, from 1 to 256 MB of
-  1048576 bytes; a fraction such as 0.5 is rounded to the nearest byte; 256 MB is about the biggest text a browser's JavaScript can hold). The size is worked out from the sizes of the player files and the pack before the page is built (64-bit
+  1048576 bytes; a fraction such as 1.5 is rounded to the nearest byte, below 1 is refused; 256 MB is about the biggest text a browser's JavaScript can hold). The size is worked out from the sizes of the player files and the pack before the page is built (64-bit
   math), so a game that is too big fails at once, with the size, the limit and how to fix it: make the game smaller
   ([ASSETS.md](ASSETS.md), "Import settings"), raise the limit (browsers get slow with pages over about 100 MB) or export the
   normal web folder and host it.
@@ -1162,8 +1162,8 @@ It returns `{running, state, url, lanUrl, urls, port, version, warnings}`.
   refused; a name that is not valid UTF-8 is a 400, and a Windows device name such as `CON`, `NUL`, `COM1` or `LPT1`, with or without an
   extension, is refused on every system), and only a regular file inside the build folder is sent. A request head is at most 8 KB (431), a log body 16 KB (413), 8 connections
   are answered at a time and 32 wait (more are closed), and a connection that sends nothing for 5 seconds is closed. Requests
-  are answered on the server's own threads: the editor's UI thread never waits for them. An error answer is followed by a short
-  lingering close (the server finishes sending, then reads what is left of the request for up to half a second), so the client
+  are answered on the server's own threads: the editor's UI thread never waits for them. A 400, 413 or 431 answer is followed by a
+  short lingering close (the server finishes sending, then reads what is left of the request for up to half a second), so the client
   reads the status instead of a reset connection. The token comes from the operating system's random generator and is compared
   in constant time. In the editor `project.serve_web` never waits either: it answers `state: "starting"` while a helper thread
   starts the server and makes the first export, and the caller repeats the call (same arguments) until `state` is `ready`; a
