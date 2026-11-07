@@ -1,4 +1,5 @@
 // new, templates, validate, export, editor
+#include <cmath>
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -173,7 +174,7 @@ Command make_export_command() {
                {"allow-missing-plugins", "", "Leave out a native plugin whose build for the target platform is missing, instead of stopping the export. A warning names each one and the result lists them (pluginsLeftOut). The game runs without the plugin; scripts that call it fail unless the plugin is \"optional\" in factoria.json and they check for it."},
                {"allow-player-mismatch", "", "Bundle the player (desktop, web, or the prebuilt Android and iOS libraries) even when it was built from another commit than this factoria (its build fingerprint differs or is missing). Without it the export stops with an error: an old player may lack what the game uses or fail to start. Rebuild both from one checkout instead when you can."},
                {"single-file", "", "web: write ONE page, <out>/<slug>-web/<slug>.html, with the player, the wasm, the icon and the game inlined (base64), that opens from a double click and runs offline with no server (no zip). Refused, with the fix, over --single-file-max-mb or when the web player needs a server (threads)."},
-               {"single-file-max-mb", "N", "With --single-file: the biggest page to write in megabytes, 1 to 512 (default 64), worked out from the file sizes before the page is built. Browsers get slow with pages over about 100 MB."},
+               {"single-file-max-mb", "N", "With --single-file: the biggest page to write in megabytes, 1 to 256, fractions allowed (default 64), worked out from the file sizes before the page is built. Browsers get slow with pages over about 100 MB."},
                {"engine-root", "DIR", "Android/iOS: compile the engine from this source checkout (\"source\" mode; default: $FACTORIA_ENGINE_DIR, else the prebuilt players, else the build-time source root)."},
                {"mobile-dir", "DIR", "Android/iOS: the prebuilt players (\"prebuilt\" mode; default: the mobile/ folder next to factoria)."},
                {"player", "PATH", "factoria_player binary to bundle (default: the one shipped next to factoria). web: the folder with factoria_player.js and factoria_player.wasm (default: web/ next to factoria, else the one `factoria setup players --platforms web` installed, else a web build of the source)."},
@@ -216,10 +217,10 @@ Command make_export_command() {
             const std::string text = ctx.args.str("single-file-max-mb");
             char* end = nullptr;
             const double mb = std::strtod(text.c_str(), &end);
-            if (text.empty() || end == text.c_str() || *end != 0 || !(mb >= 1.0 && mb <= 512.0))
-                throw UsageError("--single-file-max-mb must be a number of megabytes from 1 to 512, not '" + text + "'.",
-                                 "the default is 64; a page over about 100 MB is slow to open in a browser, so export the normal web folder instead");
-            eo.singleFileMaxBytes = static_cast<std::uint64_t>(mb) * 1024ull * 1024ull;
+            if (text.empty() || end == text.c_str() || *end != 0 || !(mb >= 1.0 && mb <= 256.0))
+                throw UsageError("--single-file-max-mb must be a number of megabytes from 1 to 256, not '" + text + "'.",
+                                 "the default is 64; a page over about 100 MB is slow to open in a browser (and over 256 MB it cannot be held as text), so export the normal web folder instead");
+            eo.singleFileMaxBytes = static_cast<std::uint64_t>(std::llround(mb * 1048576.0));
         }
         // A long step (the Gradle build of an Android export) shows its output as it goes; --json keeps the output clean
         // (the same lines are in <export folder>/build.log).

@@ -628,6 +628,12 @@ TEST_CASE("export web singleFile: the command refuses contradictions before it b
     CHECK(err_of(Json::object({{"platform", "web"}, {"singleFileMaxMb", 10}})).find("/singleFileMaxMb") != std::string::npos);
     CHECK_FALSE(reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 0}})).ok);
     CHECK_FALSE(reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 100000}})).ok);
+    CHECK_FALSE(reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 256.5}})).ok);  // over the 256 a browser holds
+    CHECK_FALSE(reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 0.9}})).ok);
+    {  // a fraction of a megabyte is a number like any other
+        auto frac = reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 1.5}, {"player", fake_player(tmp)}, {"dryRun", true}}));
+        CHECK_MESSAGE(frac.ok, frac.error.dump());
+    }
     CHECK_FALSE(stdfs::exists(stdfs::path(proj) / "build" / "export"));
 
     auto dry = reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"player", player}, {"dryRun", true}}));

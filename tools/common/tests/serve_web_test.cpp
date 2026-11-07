@@ -3,8 +3,10 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -109,10 +111,14 @@ struct Fixture {
     ServeWebStatus st;
     std::string token, base;
     int port = 0;
+    int phoneLinesPerWindow = 600, phoneWindowMs = 60000;
+    // lan = true binds every interface (0.0.0.0): only the test that checks the LAN addresses asks for it; the others stay on 127.0.0.1.
     void start(bool lan = false) {
         ServeWebOptions o;
         o.projectDir = proj;
         o.lan = lan;
+        o.phoneLinesPerWindow = phoneLinesPerWindow;
+        o.phoneWindowMs = phoneWindowMs;
         o.playerBinary = fake_player(tmp);
         o.pollMs = 50;
         auto r = server.start(o);
@@ -145,8 +151,44 @@ TEST_CASE("serve web: only plain relative paths are files") {
     CHECK(safe_relative_path("a/b.js") == std::optional<std::string>("a/b.js"));
     CHECK(safe_relative_path("a%20b.js") == std::optional<std::string>("a b.js"));
     for (const char* bad : {"", "..", "../x", "a/../x", "a/..", "%2e%2e/x", "%2E%2E%2Fx", "..%2fx", "a%2f..%2fx", ".hidden", "a/.hidden", "a//b", "/etc/passwd",
-                            "a\\b", "..\\x", "%5c", "C:/x", "a%3Ab", "a%00b", "a%0Ab", "%", "%4", "%zz", "a%252e", "x%25", "con.", "name ", "a/", "a*b", "a?b", "%2fetc"})
+                            "a\\b", "..\\x", "%5c", "C:/x", "a%3Ab", "a%00b", "a%0Ab", "%", "%4", "%zz", "a%252e", "x%25", "con.", "name ", "a/", "a*b", "a?b", "%2fetc",
+                            // Windows device names, with or without an extension, any case, in any segment: refused on every system
+                            "con", "CON", "Con.txt", "prn", "aux.png", "NUL", "nul.tar.gz", "com1", "COM9.js", "lpt1", "LPT9.x", "a/CON", "a/com3.js/b", "CONIN$",
+                            "con .txt", "nul  ", "com%c2%b9", "LPT%C2%B3.txt"})
         CHECK_MESSAGE(!safe_relative_path(bad).has_value(), bad);
+    for (const char* ok : {"console.js", "com10.js", "com0", "lpt", "aux1", "connect.png", "nulled", "a/prnt.txt", "com.js"})
+        CHECK_MESSAGE(safe_relative_path(ok).has_value(), ok);
+    // A name that is not valid UTF-8 is reported as a bad encoding (a 400), never turned into a path (MSVC throws on it).
+    for (const char* bad : {"%ff", "%c0%af", "%e2%82", "a%80b", "%f8%88%80%80%80", "%ed%a0%80", "%f4%90%80%80"}) {
+        bool badEncoding = false;
+        CHECK_MESSAGE(!safe_relative_path(bad, &badEncoding).has_value(), bad);
+        CHECK_MESSAGE(badEncoding, bad);
+    }
+    bool badEncoding = true;
+    CHECK(safe_relative_path("%e2%82%ac.txt", &badEncoding) == std::optional<std::string>("\xe2\x82\xac.txt"));  // the euro sign
+    CHECK_FALSE(badEncoding);
+    badEncoding = true;
+    CHECK_FALSE(safe_relative_path("../x", &badEncoding).has_value());
+    CHECK_FALSE(badEncoding);  // a bad path, but a well-encoded one: 404, not 400
+    CHECK(serve_web_detail::is_valid_utf8("plain \xc3\xa9 \xe2\x82\xac \xf0\x9f\x98\x80"));
+    CHECK_FALSE(serve_web_detail::is_valid_utf8("\xc3"));
+    CHECK_FALSE(serve_web_detail::is_valid_utf8("\xc0\x80"));  // overlong
+    CHECK(serve_web_detail::is_reserved_device_name("Com7.TXT"));
+    CHECK_FALSE(serve_web_detail::is_reserved_device_name("com10"));
+}
+
+TEST_CASE("serve web: the secure random token source and the constant-time comparison") {
+    unsigned char a[32] = {}, b[32] = {};
+    REQUIRE(net::secure_random(a, sizeof(a)));
+    REQUIRE(net::secure_random(b, sizeof(b)));
+    CHECK(std::memcmp(a, b, sizeof(a)) != 0);  // two draws of 256 bits are never equal
+    CHECK(std::any_of(a, a + sizeof(a), [](unsigned char c) { return c != 0; }));
+    CHECK(net::constant_time_equal("abc", "abc"));
+    CHECK(net::constant_time_equal("", ""));
+    CHECK_FALSE(net::constant_time_equal("abc", "abd"));
+    CHECK_FALSE(net::constant_time_equal("abc", "abcd"));
+    CHECK_FALSE(net::constant_time_equal("abcd", "abc"));
+    CHECK_FALSE(net::constant_time_equal("", "a"));
 }
 
 TEST_CASE("serve web: the net layer listens on localhost only unless asked and reports a port") {
@@ -246,7 +288,10 @@ TEST_CASE("serve web: the request is bounded") {
     Fixture f;
     f.start();
     // A head over 8 KB.
-    CHECK(raw(f.port, "GET " + f.base + " HTTP/1.1\r\nX-Pad: " + std::string(20000, 'a') + "\r\n\r\n").status == 431);
+    // The server answers and then reads what is left of the request (a lingering close), so the client always gets the status and
+    // never a reset connection that wipes it (that made this check flaky on Windows and macOS). Repeated: a race shows up in some of them.
+    for (int i = 0; i < 10; ++i)
+        CHECK(raw(f.port, "GET " + f.base + " HTTP/1.1\r\nX-Pad: " + std::string(20000 + 5000 * i, 'a') + "\r\n\r\n").status == 431);
     // A log body announced over 16 KB is refused before it is read.
     CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: 100000\r\n\r\n").status == 413);
     CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: abc\r\n\r\n").status == 400);
@@ -254,6 +299,12 @@ TEST_CASE("serve web: the request is bounded") {
     CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: 5\r\n\r\nnojson").status == 400);
     CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}").status == 400);
     CHECK(raw(f.port, "POST " + f.base + "index.html HTTP/1.1\r\nContent-Length: 0\r\n\r\n").status == 405);
+    // A path that is not UTF-8 (MSVC's std::filesystem::path throws on it): a 400, the server keeps answering.
+    CHECK(get(f.port, f.base + "%ff").status == 400);
+    CHECK(get(f.port, f.base + "a%c0%afb").status == 400);
+    CHECK(get(f.port, f.base).status == 200);
+    // Windows device names are not files, whatever the system the server runs on.
+    for (const char* name : {"CON", "nul.txt", "com1", "LPT1.png", "aux", "a/prn"}) CHECK_MESSAGE(get(f.port, f.base + name).status == 404, name);
     // Idle connections hold a worker each, but fewer than the pool: a request is still answered.
     std::vector<net::Socket> idle;
     for (int i = 0; i < 4; ++i) idle.push_back(net::connect_loopback(static_cast<std::uint16_t>(f.port)));
@@ -286,6 +337,64 @@ TEST_CASE("serve web: what the page logs comes back as log lines of category pho
     CHECK(js.header("Content-Type") == "text/javascript; charset=utf-8");
     CHECK(js.body.find("__fa/log") != std::string::npos);
     CHECK(js.body.find("__fa/version") != std::string::npos);
+}
+
+TEST_CASE("serve web: a page that sends fields of the wrong type cannot crash or confuse the server") {
+    Fixture f;
+    f.start();
+    const std::uint64_t before = f.server.status().phoneLogLines;
+    auto post = [&](const std::string& body) {
+        return raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body);
+    };
+    // Every one of these threw a type_error out of a worker thread (std::terminate) before the fields were checked.
+    for (const char* body : {R"([{"l":1}])", R"([{"l":1,"t":2}])", R"([{"l":"log","t":5}])", R"([{"l":null,"t":null}])", R"([{"l":{"a":1},"t":["x"]}])",
+                             R"([1,"x",null,[],[{"t":"nested"}]])", R"([{"t":true}])", R"([{"l":"warn","t":{"a":1}}])"}) {
+        Reply r = post(body);
+        CHECK_MESSAGE((r.status == 204 || r.status == 400), body);  // answered, not a dropped connection
+        CHECK_MESSAGE(r.connected, body);
+    }
+    CHECK(post(R"({"l":"log","t":"not an array"})").status == 400);
+    CHECK(f.server.status().phoneLogLines == before);  // none of them had a text
+    CHECK(get(f.port, f.base).status == 200);          // and the server is still there
+    // A good line after the bad ones is still taken, and a line break in it cannot forge a second log line.
+    const auto seq = recent_logs(1, LogLevel::Trace).empty() ? 0 : recent_logs(1, LogLevel::Trace).back().seq;
+    CHECK(post(R"([{"l":5,"t":"first\nFAKE second line"}])").status == 204);
+    CHECK(f.server.status().phoneLogLines == before + 1);
+    bool joined = false;
+    for (const LogEntry& e : recent_logs(200, LogLevel::Trace, seq))
+        if (e.category == "phone" && e.message == "first FAKE second line") joined = true;
+    CHECK(joined);
+}
+
+TEST_CASE("serve web: phone log lines are rate limited, and one notice says how many were dropped") {
+    Fixture f;
+    f.phoneLinesPerWindow = 3;
+    f.phoneWindowMs = 600;
+    f.start();
+    const auto last = recent_logs(1, LogLevel::Trace);
+    const std::uint64_t seq = last.empty() ? 0 : last.back().seq;
+    const std::uint64_t before = f.server.status().phoneLogLines;
+    std::string body = "[";
+    for (int i = 0; i < 8; ++i) body += std::string(i ? "," : "") + R"({"l":"log","t":"burst )" + std::to_string(i) + "\"}";
+    body += "]";
+    // 8 lines in a window of 3: 3 are taken, 5 dropped. (A slow machine may cross the 600 ms window between the lines: the count is
+    // then a little higher, never lower than 3, and never more than all 8.)
+    CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body).status == 204);
+    const std::uint64_t taken = f.server.status().phoneLogLines - before;
+    CHECK(taken >= 3);
+    CHECK(taken <= 8);
+    // Once the window is over, the next line is taken again and one warning reports the drops.
+    std::this_thread::sleep_for(std::chrono::milliseconds(800));
+    const std::string one = R"([{"l":"log","t":"after the burst"}])";
+    CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(one.size()) + "\r\n\r\n" + one).status == 204);
+    bool after = false, notice = false;
+    for (const LogEntry& e : recent_logs(300, LogLevel::Trace, seq)) {
+        if (e.category != "phone") continue;
+        if (e.message == "after the burst") after = true;
+        if (e.level == LogLevel::Warn && e.message.find("log lines from the page were dropped") != std::string::npos) notice = true;
+    }
+    CHECK(after);
+    if (taken < 8) CHECK(notice);
 }
 
 TEST_CASE("serve web: a changed file exports again and the version moves, which is what reloads the page") {
@@ -422,4 +531,68 @@ TEST_CASE("serve web: the command starts, reuses, restarts and stops the process
     auto noPlayer = reg.call("project.serve_web", Json::object({{"player", tmp.sub("nowhere")}}));
     REQUIRE_FALSE(noPlayer.ok);
     CHECK_FALSE(web_server().running());
+}
+
+TEST_CASE("serve web: in the editor the command never waits, it answers starting and the caller repeats it") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    const std::string player = fake_player(tmp);
+    CommandRegistry reg;
+    register_serve_web_commands(reg, proj);
+    web_server().stop();
+    set_serve_web_blocking(false);
+    struct Restore {
+        ~Restore() {
+            serve_web_shutdown();
+            set_serve_web_blocking(true);
+        }
+    } restore;
+
+    auto first = reg.call("project.serve_web", Json::object({{"player", player}}));
+    REQUIRE_MESSAGE(first.ok, first.error.dump());
+    CHECK(first.result["state"].get<std::string>() == "starting");  // it only started the helper thread
+    CHECK_FALSE(first.result["note"].get<std::string>().empty());
+    Json last = first.result;
+    REQUIRE(wait_for([&] {
+        auto r = reg.call("project.serve_web", Json::object({{"player", player}}));
+        if (!r.ok) return true;  // a failure ends the wait; the check below reports it
+        last = r.result;
+        return last["state"].get<std::string>() == "ready";
+    }));
+    CHECK(last["state"].get<std::string>() == "ready");
+    CHECK(last["running"].get<bool>());
+    const std::string url = last["url"].get<std::string>();
+    auto again = reg.call("project.serve_web", Json::object({{"player", player}}));
+    REQUIRE_MESSAGE(again.ok, again.error.dump());
+    CHECK(again.result["url"].get<std::string>() == url);  // the same server, no restart
+
+    // A start that fails is reported by the call that follows it, once, and leaves no server behind.
+    web_server().stop();
+    const std::string nowhere = tmp.sub("nowhere");
+    auto bad = reg.call("project.serve_web", Json::object({{"player", nowhere}}));
+    REQUIRE_MESSAGE(bad.ok, bad.error.dump());
+    CHECK(bad.result["state"].get<std::string>() == "starting");
+    bool failed = false;
+    std::string why;
+    REQUIRE(wait_for([&] {
+        auto r = reg.call("project.serve_web", Json::object({{"player", nowhere}}));
+        if (r.ok) return false;
+        failed = true;
+        why = r.error.dump();
+        return true;
+    }));
+    CHECK(failed);
+    CHECK_FALSE(why.empty());
+    CHECK_FALSE(web_server().running());
+
+    // Stop does not wait for a running export either.
+    auto restarted = reg.call("project.serve_web", Json::object({{"player", player}}));
+    REQUIRE_MESSAGE(restarted.ok, restarted.error.dump());
+    REQUIRE(wait_for([&] {
+        auto r = reg.call("project.serve_web", Json::object({{"player", player}}));
+        return !r.ok || r.result["state"].get<std::string>() == "ready";
+    }));
+    auto stopping = reg.call("project.serve_web", Json::object({{"stop", true}}));
+    REQUIRE_MESSAGE(stopping.ok, stopping.error.dump());
+    CHECK(wait_for([] { return !web_server().running(); }));
 }

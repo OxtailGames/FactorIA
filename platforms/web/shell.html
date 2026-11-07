@@ -174,16 +174,29 @@
     var wasmP, pakP, scriptP;
     if (INLINE) {
       statusEl.textContent = 'Unpacking...';
-      // Let the browser paint the loading screen before the (synchronous) decoding of the base64 blocks.
-      wasmP = new Promise(function (resolve) { setTimeout(function () { resolve(takeBase64('fa-wasm')); }, 30); });
-      pakP = wasmP.then(function () { return takeBase64('fa-pak'); });
+      // Let the browser paint the loading screen between the (synchronous) decoding of the base64 blocks. An exception thrown inside a
+      // setTimeout callback would not reach any promise (the page would stay on "Unpacking..." for ever), so each step catches it and
+      // rejects: the catch below shows it as the error text.
+      var decodeLater = function (id) {
+        return new Promise(function (resolve, reject) {
+          setTimeout(function () {
+            try { resolve(takeBase64(id)); } catch (e) { reject(e); }
+          }, 30);
+        });
+      };
+      wasmP = decodeLater('fa-wasm');
+      pakP = wasmP.then(function () { return decodeLater('fa-pak'); });
       scriptP = pakP.then(function () {
         return new Promise(function (resolve, reject) {
-          var s = document.createElement('script');
-          s.src = URL.createObjectURL(new Blob([takeBase64('fa-js')], { type: 'text/javascript' }));
-          s.onload = resolve;
-          s.onerror = function () { reject(new Error('Could not start the player script inside this page.')); };
-          document.head.appendChild(s);
+          setTimeout(function () {
+            try {
+              var s = document.createElement('script');
+              s.src = URL.createObjectURL(new Blob([takeBase64('fa-js')], { type: 'text/javascript' }));
+              s.onload = resolve;
+              s.onerror = function () { reject(new Error('Could not start the player script inside this page.')); };
+              document.head.appendChild(s);
+            } catch (e) { reject(e); }
+          }, 30);
         });
       });
     } else {
