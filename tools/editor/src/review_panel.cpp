@@ -683,7 +683,7 @@ void Editor::draw_review_compare_tab() {
         int& pickSide = side == 0 ? review_.compareA : review_.compareB;
         ImGui::TextUnformatted(side == 0 ? "Left: " : "Right:");
         for (int n = 1; n <= count; ++n) {
-            char label[24];
+            char label[48];  // three ints of up to 11 characters each: GCC -Wformat-truncation counts the worst case
             std::snprintf(label, sizeof(label), "%d##cmp%d_%d", n, side, n);
             fit_same_line(label);
             const bool on = pickSide == n;
