@@ -643,10 +643,13 @@ TEST_CASE("play.auto: prune never deletes the spared session, even when its name
     }
     CHECK(is_auto_play_session_name("20260101-100003-auto"));
     CHECK_FALSE(is_auto_play_session_name("aaa-auto"));  // not a name play.auto gives: a person's folder, untouched
-    CHECK(prune_auto_play_sessions(1, "20260101-100000-auto") == 1);  // the newest and the spared stay, the middle one goes
+    CHECK(prune_auto_play_sessions(2, "20260101-100000-auto") == 1);  // the spared one and the newest stay: keep 2 in all
     CHECK(stdfs::exists(sessions / "20260101-100000-auto"));
     CHECK(stdfs::exists(sessions / "20260101-100002-auto"));
     CHECK_FALSE(stdfs::exists(sessions / "20260101-100001-auto"));
+    CHECK(prune_auto_play_sessions(1, "20260101-100000-auto") == 1);  // keep 1: only the spared one
+    CHECK(stdfs::exists(sessions / "20260101-100000-auto"));
+    CHECK_FALSE(stdfs::exists(sessions / "20260101-100002-auto"));
     CHECK(stdfs::exists(sessions / "aaa-auto"));
 }
 
@@ -670,10 +673,11 @@ TEST_CASE("play.auto: the scratch folders of a run that was killed are deleted b
     }
     std::error_code ec;
     stdfs::last_write_time(mineOld, stdfs::file_time_type::clock::now() - std::chrono::hours(3), ec);
-    REQUIRE_FALSE(ec);
+    const bool aged = !ec;  // the time of a folder cannot be set everywhere (MinGW under Wine): then that part is skipped
+    if (!aged) MESSAGE("last_write_time on a folder failed (" << ec.message() << "): the age rule is not checked");
     (void)run(p);
     CHECK_FALSE(stdfs::exists(dead));
-    CHECK_FALSE(stdfs::exists(mineOld));  // older than an hour
+    if (aged) CHECK_FALSE(stdfs::exists(mineOld));  // older than an hour
     CHECK(stdfs::exists(mine));           // this process, young: another run of it may be using it
     CHECK(stdfs::exists(other));
 }

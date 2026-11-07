@@ -12,16 +12,6 @@
 #include <set>
 #include <unordered_map>
 
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <process.h>
-#include <windows.h>
-#else
-#include <csignal>
-#include <unistd.h>
-#endif
-
 #include "engine_impl.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
@@ -29,6 +19,20 @@
 #include "fa/core/strings.h"
 #include "fa/runtime/play_session.h"
 #include "fa/ui/ui.h"
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <process.h>
+#include <windows.h>
+#else
+#include <csignal>
+#include <unistd.h>
+#endif
 
 namespace fa {
 
@@ -83,7 +87,7 @@ void remove_stale_scratch_dirs() {
     for (const auto& e : stdfs::directory_iterator(root, ec)) {
         std::error_code e2;
         if (!e.is_directory(e2)) continue;
-        const std::string name = e.path().filename().string();  // ASCII: we named it
+        const std::string name = fs::path_to_utf8(e.path().filename());  // never .string(): it throws for a name the code page lacks
         if (name.rfind(kScratchPrefix, 0) != 0) continue;
         const std::size_t dash = name.find('-', std::char_traits<char>::length(kScratchPrefix));
         if (dash == std::string::npos) continue;

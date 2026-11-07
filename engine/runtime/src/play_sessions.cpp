@@ -193,11 +193,12 @@ bool is_auto_play_session_name(std::string_view name) {
 
 int prune_auto_play_sessions(std::size_t keep, std::string_view spare) {
     int deleted = 0;
-    std::size_t seen = 0;
-    for (const std::string& name : play_session_names()) {  // newest first
-        if (!is_auto_play_session_name(name)) continue;
-        ++seen;
-        if (seen <= keep || name == spare) continue;
+    const std::vector<std::string> names = play_session_names();  // newest first
+    // The spared session is one of the `keep` that stay, wherever its name sorts: it is counted first.
+    std::size_t seen = !spare.empty() && std::find(names.begin(), names.end(), spare) != names.end() ? 1 : 0;
+    for (const std::string& name : names) {
+        if (!is_auto_play_session_name(name) || name == spare) continue;
+        if (++seen <= keep) continue;
         std::error_code ec;
         fs::remove_tree(fs::resolve(std::string(kPlaySessionsDir) + "/" + name), ec);
         if (!ec) ++deleted;
