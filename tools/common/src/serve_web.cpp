@@ -8,6 +8,7 @@
 #include <cctype>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <cstdlib>
 #include <deque>
 #include <filesystem>
@@ -424,7 +425,9 @@ struct WebServer::Impl {
     static void respond(net::Socket s, int code, const std::string& contentType, const std::string& body, bool headOnly, const std::string& extra = {}) {
         std::string out = head(code, contentType, body.size(), extra);
         if (!headOnly) out += body;
-        if (code >= 400) lingerAfter() = true;
+        // Only where the request may not have been read to its end (a bad request, an oversized head or body): the system would answer the
+        // unread input of a plain close with an RST that can wipe the answer. A 404 or 405 for a GET/HEAD read in full needs no wait.
+        if (code == 400 || code == 413 || code == 431) lingerAfter() = true;
         send_out(s, out);
     }
 
@@ -550,6 +553,7 @@ struct WebServer::Impl {
 
     void handle_control(net::Socket s, const Request& req, const std::string& what, bool headOnly) {
         if (what == "version" && req.method != "POST") {
+            flush_phone_notice();
             Json j;
             {
                 std::lock_guard<std::mutex> lock(m);  // copy under the lock, send after it: a slow phone must not hold up the export thread
@@ -569,26 +573,51 @@ struct WebServer::Impl {
         respond_text(s, 404, "Not found", headOnly);
     }
 
+    // The window of phone log lines is over: start a new one on the next line, and return how many lines it dropped (to report outside the
+    // lock). `m` is held.
+    std::uint64_t close_phone_window_locked(Clock::time_point now) {
+        if (phoneWindowStart == Clock::time_point{} || now - phoneWindowStart < std::chrono::milliseconds(opts.phoneWindowMs)) return 0;
+        const std::uint64_t dropped = phoneWindowDropped;
+        phoneWindowStart = Clock::time_point{};
+        phoneWindowCount = 0;
+        phoneWindowDropped = 0;
+        return dropped;
+    }
+    void report_dropped_lines(std::uint64_t dropped) const {
+        if (dropped > 0)  // never under `m`: the log has its own locks and sinks
+            FA_WARN("phone", "{} log lines from the page were dropped (more than {} in {} s); the page may be logging in a loop", dropped,
+                    opts.phoneLinesPerWindow, opts.phoneWindowMs / 1000.0);
+    }
+    // Called by status() and the version endpoint: a window that dropped lines reports them once it is over, also when the page sends no more.
+    void flush_phone_notice() {
+        std::uint64_t dropped;
+        {
+            std::lock_guard<std::mutex> lock(m);
+            dropped = close_phone_window_locked(Clock::now());
+        }
+        report_dropped_lines(dropped);
+    }
+
     // One phone log line is allowed or not: at most opts.phoneLinesPerWindow in each opts.phoneWindowMs, the rest are dropped, and
     // the end of a window that dropped some says how many (so a page that logs in a loop cannot fill the log or the console).
     bool phone_line_allowed() {
-        std::lock_guard<std::mutex> lock(m);
-        const auto now = Clock::now();
-        if (phoneWindowStart == Clock::time_point{} || now - phoneWindowStart >= std::chrono::milliseconds(opts.phoneWindowMs)) {
-            if (phoneWindowDropped > 0)
-                FA_WARN("phone", "{} log lines from the page were dropped (more than {} in {} s); the page may be logging in a loop",
-                        phoneWindowDropped, opts.phoneLinesPerWindow, opts.phoneWindowMs / 1000.0);
-            phoneWindowStart = now;
-            phoneWindowCount = 0;
-            phoneWindowDropped = 0;
+        std::uint64_t dropped;
+        bool allowed = true;
+        {
+            std::lock_guard<std::mutex> lock(m);
+            const auto now = Clock::now();
+            dropped = close_phone_window_locked(now);
+            if (phoneWindowStart == Clock::time_point{}) phoneWindowStart = now;
+            if (phoneWindowCount >= static_cast<std::uint64_t>(opts.phoneLinesPerWindow)) {
+                ++phoneWindowDropped;
+                allowed = false;
+            } else {
+                ++phoneWindowCount;
+                ++phoneLines;
+            }
         }
-        if (phoneWindowCount >= static_cast<std::uint64_t>(opts.phoneLinesPerWindow)) {
-            ++phoneWindowDropped;
-            return false;
-        }
-        ++phoneWindowCount;
-        ++phoneLines;
-        return true;
+        report_dropped_lines(dropped);
+        return allowed;
     }
 
     void accept_phone_log(net::Socket s, const std::string& body) {
@@ -932,6 +961,7 @@ ServeWebStatus WebServer::status() const {
     const std::shared_ptr<Impl> impl = current();
     if (!impl) return st;
     Impl* self = impl.get();
+    self->flush_phone_notice();
     std::lock_guard<std::mutex> lock(self->m);
     st.running = true;
     st.state = self->state;
@@ -984,11 +1014,14 @@ namespace {
 
 std::atomic<bool> g_blocking{true};
 
-// The helper thread of the non-waiting command: one job at a time (a start, or a stop).
+// The helper thread of the non-waiting command: one job at a time (a start, or a stop). Everything but `thread` is guarded by `mu`.
 struct AsyncJob {
+    enum class Kind { Start, Stop };
     std::mutex mu;
     std::thread thread;
-    std::atomic<bool> busy{false};
+    bool busy = false;
+    Kind kind = Kind::Start;
+    bool stopRequested = false;  // {stop:true} came while a start ran: the start job stops the server it just started, when it ends
     std::optional<std::pair<std::string, std::string>> error;  // why the last start failed: message, hint (reported once)
 };
 
@@ -1003,13 +1036,51 @@ bool serves_this(const ServeWebStatus& now, const ServeWebOptions& o, const std:
            stdfs::weakly_canonical(stdfs::absolute(path_from_utf8(projectDir), ec), ec) == stdfs::weakly_canonical(path_from_utf8(now.projectDir), ec);
 }
 
+// Runs a stop on the helper thread. `job.mu` is held by the caller; no job is running.
+void spawn_stop_job(AsyncJob& job) {
+    if (job.thread.joinable()) job.thread.join();  // finished (busy was false)
+    job.error.reset();
+    job.stopRequested = false;
+    job.busy = true;
+    job.kind = AsyncJob::Kind::Stop;
+    job.thread = std::thread([&job] {
+        web_server().stop();
+        std::lock_guard<std::mutex> lock(job.mu);
+        job.busy = false;
+    });
+}
+
+// {stop:true} without waiting. Stopping waits for a running export (seconds), so it is not done on the caller's thread; while a start is
+// still running the stop is recorded and the start job honours it when it ends (the server must not come up after "stopped").
+Json stop_without_waiting() {
+    AsyncJob& job = async_job();
+    const bool was = web_server().running();
+    std::lock_guard<std::mutex> lock(job.mu);
+    bool stopping = was;
+    if (job.busy) {
+        if (job.kind == AsyncJob::Kind::Start) job.stopRequested = true;
+        stopping = true;
+    } else if (was) {
+        spawn_stop_job(job);
+    } else {
+        if (job.thread.joinable()) job.thread.join();
+        job.error.reset();  // a failed start nobody asked about is not reported to a call that stops
+    }
+    return Json::object({{"running", was}, {"stopping", stopping}, {"state", stopping ? "stopping" : "stopped"},
+                         {"note", stopping ? "The server is stopping on a helper thread; project.serve_web again to see that it is gone."
+                                           : "The server was not running."}});
+}
+
 Json serve_without_waiting(const ServeWebOptions& o, const std::string& projectDir) {
     AsyncJob& job = async_job();
     WebServer& server = web_server();
     std::lock_guard<std::mutex> lock(job.mu);
-    if (job.busy.load()) {
+    if (job.busy) {
+        if (job.kind == AsyncJob::Kind::Stop || job.stopRequested)
+            return Json::object({{"running", server.running()}, {"state", "stopping"},
+                                 {"note", "The server is stopping on a helper thread: call project.serve_web again in a moment to start it."}});
         return Json::object({{"running", server.running()}, {"state", "starting"},
-                             {"note", "A start or stop is in progress on a helper thread: call project.serve_web again in a moment."}});
+                             {"note", "A start is in progress on a helper thread: call project.serve_web again in a moment."}});
     }
     if (job.thread.joinable()) job.thread.join();  // finished (busy is false)
     if (job.error) {
@@ -1020,11 +1091,7 @@ Json serve_without_waiting(const ServeWebOptions& o, const std::string& projectD
     const ServeWebStatus now = server.status();
     if (serves_this(now, o, projectDir)) {
         if (now.state == "failed" && now.version == 0) {  // like the waiting form: nothing worth serving, no listener left behind
-            job.busy = true;
-            job.thread = std::thread([&job] {
-                web_server().stop();
-                job.busy = false;
-            });
+            spawn_stop_job(job);
             throw CommandError("failed", now.error, now.hint);
         }
         Json j = now.to_json();
@@ -1032,13 +1099,26 @@ Json serve_without_waiting(const ServeWebOptions& o, const std::string& projectD
         return j;
     }
     job.busy = true;
+    job.kind = AsyncJob::Kind::Start;
+    job.stopRequested = false;
     job.thread = std::thread([&job, o] {
         auto r = web_server().start(o);
-        if (!r.ok()) {
-            std::lock_guard<std::mutex> lk(job.mu);  // taken by the next call only after it joins this thread: no deadlock (see below)
-            job.error = std::make_pair(r.error().message, r.error().hint);
+        {
+            std::lock_guard<std::mutex> lk(job.mu);
+            if (!r.ok()) job.error = std::make_pair(r.error().message, r.error().hint);
         }
-        job.busy = false;
+        while (true) {
+            {
+                std::lock_guard<std::mutex> lk(job.mu);
+                if (!job.stopRequested) {
+                    job.busy = false;  // under the lock that records a stop request: none is lost between the check and this line
+                    return;
+                }
+                job.stopRequested = false;
+                job.error.reset();  // asked to stop: a failed start is not worth reporting
+            }
+            web_server().stop();
+        }
     });
     return Json::object({{"running", false}, {"state", "starting"},
                          {"note", "The server starts and exports the web build on a helper thread (the first export takes seconds): call project.serve_web "
@@ -1054,13 +1134,18 @@ void serve_web_shutdown() {
     std::thread t;
     {
         std::lock_guard<std::mutex> lock(job.mu);
+        job.stopRequested = false;
         t = std::move(job.thread);
     }
     if (t.joinable()) t.join();
-    job.busy = false;
+    {
+        std::lock_guard<std::mutex> lock(job.mu);
+        job.busy = false;
+        job.stopRequested = false;
+        job.error.reset();
+    }
     web_server().stop();
 }
-
 
 // ---- the command -----------------------------------------------------------------------------------------------------
 
@@ -1106,22 +1191,7 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
                                    std::string("call project.serve_web {\"stop\":true} alone, or remove \"stop\" to start the server"));
             WebServer& server = web_server();
             const bool was = server.running();
-            if (!g_blocking.load()) {
-                // Stopping waits for a running export (seconds): off the caller's thread.
-                AsyncJob& job = async_job();
-                std::lock_guard<std::mutex> lock(job.mu);
-                if (!job.busy.load()) {
-                    if (job.thread.joinable()) job.thread.join();
-                    job.error.reset();
-                    job.busy = true;
-                    job.thread = std::thread([&job] {
-                        web_server().stop();
-                        job.busy = false;
-                    });
-                }
-                return Json::object({{"running", was}, {"stopping", was}, {"state", was ? "stopping" : "stopped"},
-                                     {"note", "The server is stopping on a helper thread; project.serve_web again to see that it is gone."}});
-            }
+            if (!g_blocking.load()) return stop_without_waiting();
             server.stop();
             return Json::object({{"running", false}, {"stopped", was}});
         }
