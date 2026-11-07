@@ -321,8 +321,9 @@ void Editor::draw_toasts() {
                          ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | (it->actionLabel.empty() ? ImGuiWindowFlags_NoInputs : 0) | ImGuiWindowFlags_NoDocking);
         // In front of every window without taking the focus: the toast windows are reused by index, so one made before a window that
         // took the focus later (the Level generator after a pick) would stay behind it, and a click on its button would land on that
-        // window instead.
-        ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+        // window instead. Not while a modal popup is open: the modal is in front of everything then, and a toast raised above it would
+        // cover the dialog the person is answering.
+        if (!ImGui::GetTopMostPopupModal()) ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
         ImGui::PushTextWrapPos(460);
         ImGui::TextUnformatted(it->text.c_str());
         ImGui::PopTextWrapPos();

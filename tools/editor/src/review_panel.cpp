@@ -88,6 +88,21 @@ void Editor::review_release_textures() {
     review_.textures.clear();
 }
 
+void Editor::review_end_pick_for_shutdown(bool editorStays) {
+    if (reviewPickJob_.wait_for(kReviewPickShutdownSeconds)) return;
+    const std::string sheet = review_.pickSheet ? review_.pickSheet->id : std::string("(unknown)");
+    const std::string command = review_.pickPlan.command.empty() ? reviewPickJob_.command() : review_.pickPlan.command;
+    std::string args = review_.pickPlan.args.dump();
+    if (args.size() > 400) args = args.substr(0, 400) + "...";
+    reviewPickJob_.cancel();
+    reviewPickJob_.wait();
+    FA_WARN("editor", "The pick {} {} did not finish within {:.0f} s and its process was killed; it may be half applied (files moved, the sheet not answered): "
+                      "review.info {} tells where it stands. Arguments: {}",
+            command, sheet, kReviewPickShutdownSeconds, sheet, args);
+    if (editorStays)
+        notify("The pick of " + sheet + " did not finish and was stopped; it may be half applied. Run review.info " + sheet + " to see where it stands.", 2);
+}
+
 void Editor::reset_review_state() {
     reviewSeedsJob_.cancel();   // the child is killed: a sheet it did not finish is never listed (review.sheet writes its manifest last)
     reviewSeedsJob_.wait();
@@ -96,10 +111,7 @@ void Editor::reset_review_state() {
     // answered). One that hangs (a file held open elsewhere for good) has its child killed after kReviewPickShutdownSeconds, so closing or
     // switching projects never waits minutes; review.info then still shows the sheet unanswered. Its result is dropped with the rest of
     // this project's window state.
-    if (!reviewPickJob_.wait_for(kReviewPickShutdownSeconds)) {
-        reviewPickJob_.cancel();
-        reviewPickJob_.wait();
-    }
+    review_end_pick_for_shutdown(true);
     (void)reviewPickJob_.take_result();
     {
         std::lock_guard<std::mutex> lock(reviewInboxMu_);   // sheets an AI of the old project made are not offered in the new one
@@ -159,7 +171,8 @@ void Editor::poll_review() {
         std::lock_guard<std::mutex> lock(reviewInboxMu_);
         announced.swap(reviewInbox_);
     }
-    for (const ReviewAnnounce& a : announced) review_announce_sheet(a.sheet, a.label, a.slot, "The AI");
+    for (const ReviewAnnounce& a : announced)
+        if (a.project == projectDir_) review_announce_sheet(a.sheet, a.label, a.slot, "The AI");   // (another project's sheet is not offered here)
     // A pick that finished in its child process.
     if (std::optional<ChildCommandOutcome> done = reviewPickJob_.take_result()) review_finish_pick(*done);
     // A command changed the sheet shown (the AI picked it, review.cleanup ran): read its manifest again.
@@ -301,7 +314,7 @@ void Editor::review_do_pick() {
     }
     if (reviewLoader_.reading_project_file()) {
         review_.pickPending = true;   // poll_review starts it once the reader closed the file
-        review_.pickMessage = std::format("Picking #{} of {}...", review_.pickN, sheet.id);
+        review_.pickMessage = std::format("Picking #{} of {}... (waiting for the window to let go of the files)", review_.pickN, sheet.id);
         review_.pickBad = false;
         return;
     }
@@ -416,7 +429,7 @@ void Editor::start_level_seeds_sheet() {
     }
     // In a child process: N levels take seconds, and review.sheet sets the process-wide project root while it works.
     reviewSeedsJob_.start(stdfs::path(projectDir_), "review.sheet", *args, kSeedsTimeoutSeconds);
-    levelGenMessage_ = std::format("Making a sheet of {} seeds from seed {}...", review_.seedsCount, static_cast<long long>(levelGenOpt_.seed));
+    levelGenMessage_ = std::format("Making a sheet of {} seeds from seed {}... it opens in the Review window when it is done.", review_.seedsCount, static_cast<long long>(levelGenOpt_.seed));
     levelGenMessageBad_ = false;
 }
 
@@ -578,7 +591,8 @@ void Editor::draw_review_sheet_tab() {
     else ImGui::TextDisabled("fit");
 
     // The picture, with a button over each thumbnail.
-    const float footer = ImGui::GetFrameHeightWithSpacing() * 2.0f + ImGui::GetTextLineHeightWithSpacing() * (review_.pickMessage.empty() ? 1.0f : 2.0f + float(std::min<std::size_t>(review_.pickLines.size(), 3)));
+    const float footer = ImGui::GetFrameHeightWithSpacing() * 2.0f + ImGui::GetTextLineHeightWithSpacing() * (review_.pickMessage.empty() ? 1.0f : 2.0f + float(std::min<std::size_t>(review_.pickLines.size(), kReviewPickLinesShown)) +
+                                                                       (review_.pickLines.size() > kReviewPickLinesShown ? 1.0f : 0.0f));
     const float childH = std::max(80.0f, ImGui::GetContentRegionAvail().y - footer);
     ImGui::BeginChild("##reviewsheet", ImVec2(0, childH), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoNavInputs);
     const stdfs::path sheetDir = stdfs::path(projectDir_) / fs::path_from_utf8(std::string(kReviewDir) + "/" + s.id);
@@ -642,8 +656,18 @@ void Editor::draw_review_sheet_tab() {
         ImGui::TextWrapped("%s", review_.pickMessage.c_str());
         ImGui::PopStyleColor();
         at_track("review:pick-message");
-        for (std::size_t i = 0; i < review_.pickLines.size() && i < 3; ++i) ImGui::TextDisabled("%s", review_.pickLines[i].c_str());
-        if (review_.pickLines.size() > 3) ImGui::SetItemTooltip("%zu more line(s): see the History tab.", review_.pickLines.size() - 3);
+        for (std::size_t i = 0; i < review_.pickLines.size() && i < kReviewPickLinesShown; ++i) ImGui::TextDisabled("%s", review_.pickLines[i].c_str());
+        if (review_.pickLines.size() > kReviewPickLinesShown) {
+            // The warnings of a pick are not kept in the sheet's manifest, so the History tab cannot show them: the line that says how
+            // many are hidden carries them in its tooltip (the moved files are in History too, once the list is read again).
+            ImGui::TextDisabled("... and %zu more line(s) (hover)", review_.pickLines.size() - kReviewPickLinesShown);
+            std::string rest;
+            for (std::size_t i = kReviewPickLinesShown; i < review_.pickLines.size() && i < kReviewPickLinesShown + 20; ++i)
+                rest += (rest.empty() ? "" : "\n") + review_.pickLines[i];
+            if (review_.pickLines.size() > kReviewPickLinesShown + 20) rest += "\n...";
+            ImGui::SetItemTooltip("%s", rest.c_str());
+            at_track("review:pick-more");
+        }
     }
 }
 

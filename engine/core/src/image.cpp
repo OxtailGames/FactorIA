@@ -108,7 +108,9 @@ Result<ImageSize> ktx2_size(const std::uint8_t* data, std::size_t size) {
 
 Result<ImageSize> image_size(const std::uint8_t* data, std::size_t size) {
     int w = 0, h = 0, comp = 0;
-    if (!data || size == 0 || size > std::size_t(std::numeric_limits<int>::max()) || !stbi_info_from_memory(data, int(size), &w, &h, &comp) || w <= 0 || h <= 0)
+    const bool readable = data && size != 0 && size <= std::size_t(std::numeric_limits<int>::max()) &&
+                          stbi_info_from_memory(data, int(size), &w, &h, &comp) && w > 0 && h > 0;
+    if (!readable)
         return make_error("cannot read the image size", "Supported formats: PNG, JPG, TGA, BMP. Re-export the file from your image editor.");
     return ImageSize{w, h};
 }

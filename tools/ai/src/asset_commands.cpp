@@ -30,6 +30,16 @@ namespace {
 
 using namespace util;
 
+// The "$image" path of a project file named by a JSON (UTF-8) argument: absolute, forward slashes, UTF-8 (it goes into a result). The name is
+// UTF-8, so the host path is built from it with path_from_utf8; fs::resolve(std::string) would read it through the ANSI code page on Windows
+// and mangle an accented asset name.
+std::string image_result_path(const std::string& relUtf8) {
+    const std::string norm = fs::normalize(relUtf8);
+    if (norm.empty()) return relUtf8;
+    const std::filesystem::path p = fs::path_from_utf8(norm);
+    return fs::path_to_utf8(fs::is_absolute(norm) ? p : fs::project_root() / p);
+}
+
 struct Ctx {
     std::function<Result<AiConfig>()> load;
     std::function<std::string()> projectDir;
@@ -384,7 +394,7 @@ Json generate_image_file(const Ctx& ctx, const Json& args, const ImageJob& job) 
                              {"provenance", provenance}});
     add_cost(out, guard, warnings);
     if (!warnings.empty()) out["warnings"] = warnings;
-    out["$image"] = Json::object({{"path", fs::resolve(job.path).string()}, {"mimeType", "image/png"}});
+    out["$image"] = Json::object({{"path", image_result_path(job.path)}, {"mimeType", "image/png"}});
     return out;
 }
 
@@ -1162,7 +1172,7 @@ Json pick_command(const Ctx& ctx, const Json& args) {
     if (step.contains("oldFile")) out["oldFile"] = step["oldFile"];
     out["nextSteps"] = Json::array({std::format("'{}' is now the chosen picture; the others are in {}/{}/ and review.cleanup deletes them {} days from now.", chosenSlot,
                                                 kCandidatesDropDir, out["sheet"].get<std::string>(), kReviewDroppedDays)});
-    out["$image"] = Json::object({{"path", fs::path_to_utf8(fs::resolve(chosenSlot))}, {"mimeType", "image/png"}});
+    out["$image"] = Json::object({{"path", image_result_path(chosenSlot)}, {"mimeType", "image/png"}});
     return out;
 }
 

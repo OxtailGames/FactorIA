@@ -78,7 +78,7 @@ using AssetApprover = std::function<AssetDecision(const AssetApprovalRequest&)>;
 
 // Within the life of the object the asset calls of this thread count into the run `key` (the editor: the chat id of the AI run
 // that made the call). Without one they count into the run "" (the process): every caller without a run of its own (the CLI, an
-// external MCP client, the Image panel, a script) shares one total and one "asked since the last yes" total, which only
+// external MCP client, a script) shares one total and one "asked since the last yes" total, which only
 // asset_run_begin("") starts again. `approver` (optional) is who these calls ask when they need the user's yes:
 // set_asset_approver()'s one is used when it is empty. `spendEnv` (optional, must outlive the scope) is the user folder whose
 // asset-spend.json this thread's calls use instead of the process's (an autotest must not write the real one; the process-wide
