@@ -778,8 +778,15 @@ TEST_CASE("day total: a user folder with accents in its name works") {
     TempDir base;
     const fsys::path folder = fsys::path(base.str()) / fsys::path(u8"carpeta áé ñ");
     fsys::create_directories(folder);
-    const std::u8string utf8 = folder.u8string();   // (never .string(): on Windows that goes through the ANSI code page)
-    const std::string home(reinterpret_cast<const char*>(utf8.data()), utf8.size());
+    // HOME and config_dir() are native narrow strings (the ANSI code page on Windows, like getenv gives them), so the
+    // test builds HOME the same way. A Windows code page without these letters cannot hold the folder at all.
+    std::string home;
+    try {
+        home = folder.string();
+    } catch (const std::exception&) {
+        MESSAGE("skipped: this system's code page cannot spell the folder name");
+        return;
+    }
     ScopedShareEnv scoped(Home::make(home, 2.0));
     Game game(config_from(paid_config(R"({"askAboveUsd":5,"maxAssetCostUsd":{"perDay":5}})")));
     game.ok("assets.generate_image", image_args("assets/a.png"));
