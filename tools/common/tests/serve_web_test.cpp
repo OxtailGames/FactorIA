@@ -663,3 +663,47 @@ TEST_CASE("serve web: in the editor a stop that comes while the server is starti
     }));
     CHECK(web_server().running());
 }
+
+TEST_CASE("serve web: a project and a player under folders with accents are served (paths are native strings, like in production)") {
+    testing::TempDir tmp;
+    net::SocketRuntime sockets;
+    // Accents that exist in the Windows ANSI code page (1252) too: projectDir is a native string there, never UTF-8.
+    const stdfs::path root = tmp.path / stdfs::path(u8"café üñ");
+    const std::string proj = (root / stdfs::path(u8"juego á")).string();
+    ScaffoldOptions so;
+    so.name = "Accent Test";
+    so.id = "com.example.accenttest";
+    auto created = create_project(proj, "2d-platformer", so);
+    REQUIRE_MESSAGE(created.ok(), (created.ok() ? "" : created.error().to_string()));
+    const stdfs::path playerDir = root / stdfs::path(u8"reproductor é");
+    testing::write_all(playerDir / "factoria_player.js", "// fake emscripten glue\n");
+    testing::write_all(playerDir / "factoria_player.wasm", fake_wasm());
+    testing::write_all(stdfs::path(proj) / "assets" / stdfs::path(u8"ñandú.txt"), "accented file name");
+
+    WebServer server;
+    ServeWebOptions o;
+    o.projectDir = proj;
+    o.playerBinary = playerDir.string();
+    o.pollMs = 50;
+    auto r = server.start(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    ServeWebStatus st = server.wait_ready();
+    REQUIRE_MESSAGE(st.state == "ready", std::string(st.error + " " + st.hint));
+    const std::string base = "/" + token_of(st) + "/";
+    CHECK(get(st.port, base).status == 200);
+    CHECK(get(st.port, base + "game.pak").status == 200);
+    CHECK(get(st.port, base + "factoria_player.wasm").status == 200);
+    // The fingerprint reads the files of the project and of the player by their native names: a change under the accented folders
+    // exports again.
+    const std::uint64_t before = st.version;
+    testing::write_all(stdfs::path(proj) / "assets" / stdfs::path(u8"ñandú.txt"), "accented file name, changed and longer");
+    server.refresh();
+    REQUIRE(wait_for([&] { return server.status().version > before && server.status().state == "ready"; }));
+    testing::write_all(playerDir / "factoria_player.js", "// fake emscripten glue, changed\n");
+    const std::uint64_t mid = server.status().version;
+    server.refresh();
+    CHECK(wait_for([&] { return server.status().version > mid && server.status().state == "ready"; }));
+    // The status reports the same folder the caller gave (native), and the same project is recognised as the one being served.
+    CHECK(stdfs::path(server.status().projectDir) == stdfs::absolute(stdfs::path(proj)).lexically_normal());
+    server.stop();
+}
