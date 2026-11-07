@@ -591,6 +591,29 @@ void AssetCostGuard::release() {
 
 void AssetCostGuard::commit() { committed_ = true; }
 
+double AssetCostGuard::commit_part(int made, int count) {
+    if (committed_) return amount_;
+    if (count <= 0 || made >= count) {
+        commit();
+        return amount_;
+    }
+    if (made <= 0) {
+        release();
+        return 0.0;
+    }
+    // Give back the share of the results that were not made; what release() refunds is exactly that share.
+    const double share = double(count - made) / double(count);
+    const double kept = round6(amount_ * (1.0 - share));
+    const double keptUnapproved = unapprovedAdded_ * (1.0 - share);
+    amount_ = round6(amount_ - kept);
+    unapprovedAdded_ -= keptUnapproved;
+    release();
+    committed_ = true;
+    amount_ = kept;
+    unapprovedAdded_ = keptUnapproved;
+    return kept;
+}
+
 Json AssetCostGuard::cost_json() const {
     Json out = cost_;
     if (!out.is_object()) return Json::object();
