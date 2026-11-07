@@ -1178,7 +1178,7 @@ Json sheet_command(const std::string& projectDir, const Json& a) {
                                 {"meta", req.meta},
                                 {"warnings", warnings}});
     if (!housekeeping.empty()) result["housekeeping"] = housekeeping;
-    result["$image"] = Json::object({{"path", project_file(projectDir, dirRel + "/sheet.png").string()}, {"mimeType", "image/png"}});
+    result["$image"] = Json::object({{"path", fs::path_to_utf8(project_file(projectDir, dirRel + "/sheet.png"))}, {"mimeType", "image/png"}});
     const bool anyCandidate = std::any_of(req.items.begin(), req.items.end(), [](const Item& i) { return i.candidate; });
     std::vector<std::string> steps;
     steps.push_back("Show the picture to the person and ask for ONE number from 1 to " + std::to_string(req.items.size()) + ". Do not choose for them.");
@@ -1247,7 +1247,7 @@ Json info_command(const std::string& projectDir, const Json& a) {
     Json result = o.value;
     const std::string dir = std::string(kReviewDir) + "/" + result.value("id", std::string());
     result["dir"] = dir;
-    result["$image"] = Json::object({{"path", project_file(projectDir, dir + "/sheet.png").string()}, {"mimeType", "image/png"}});
+    result["$image"] = Json::object({{"path", fs::path_to_utf8(project_file(projectDir, dir + "/sheet.png"))}, {"mimeType", "image/png"}});
     return result;
 }
 

@@ -633,9 +633,18 @@ AssetCostGuard AssetCostGuard::begin(const Limits& limits, const AssetCall& call
     g.spendEnv_ = tSpendEnv;
     const AssetEstimate& e = call.estimate;
     g.cost_ = estimate_to_json(e);
-    for (std::string& notice : take_notices()) g.warnings_.push_back(std::move(notice));
+    // The notices of earlier failed refunds ride on this call's warnings, but only a call that goes ahead delivers them: one that throws
+    // (a limit, a declined card) or answers needsApproval (the result has no warnings) puts them back for the next call.
+    struct NoticesBack {
+        std::vector<std::string> notices;
+        ~NoticesBack() {
+            for (const std::string& n : notices) add_notice(n);
+        }
+    } back{take_notices()};
+    g.warnings_ = back.notices;
     if (e.free) {
         g.go_ = true;
+        back.notices.clear();
         return g;
     }
     const bool unknown = !e.usd;
@@ -786,6 +795,7 @@ AssetCostGuard AssetCostGuard::begin(const Limits& limits, const AssetCall& call
         }
     }
     g.go_ = true;
+    back.notices.clear();
     return g;
 }
 

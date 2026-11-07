@@ -756,6 +756,45 @@ TEST_CASE("day total: a refund after midnight goes back to the day the money was
     CHECK(*asset_spent_today(homeDir.str()) == doctest::Approx(0.0));
 }
 
+TEST_CASE("day total: the notice of a refund that failed waits for a call that goes ahead, a call that throws leaves it for the next") {
+    Home home(0.2);
+    const AiConfig cfg = config_from(paid_config(R"({"askAboveUsd":5,"maxAssetCostUsd":{"perRun":0.5,"perDay":5}})"));
+    AssetCall call;
+    call.command = "assets.generate_image";
+    call.projectDir = home.dir.str();
+    call.provider = "paid";
+    AssetRequest request;
+    request.kind = MediaKind::Image;
+    request.width = request.height = 8;
+    call.estimate = estimate_asset_cost(*cfg.provider("paid"), request, 1);
+    AssetCall tooMuch = call;
+    tooMuch.estimate = estimate_asset_cost(*cfg.provider("paid"), request, 4);   // 1.20 > perRun 0.50
+    AssetCall freeCall = call;
+    freeCall.estimate = AssetEstimate{};
+    freeCall.estimate.free = true;
+    AssetRunScope run("notice-run");
+    asset_run_begin("notice-run");
+    {   // earlier notices of other tests (a process-wide list) are delivered first
+        AssetCostGuard drain = AssetCostGuard::begin(cfg.limits, freeCall, false);
+        REQUIRE(drain.go());
+    }
+    {
+        AssetCostGuard guard = AssetCostGuard::begin(cfg.limits, call, false);
+        REQUIRE(guard.go());
+        home.hold_lock();   // the refund of the day total cannot take the lock: a notice is left behind
+    }
+    home.release_lock();
+    CHECK_THROWS_AS(AssetCostGuard::begin(cfg.limits, tooMuch, false), CommandError);
+    AssetCostGuard next = AssetCostGuard::begin(cfg.limits, call, false);
+    REQUIRE(next.go());
+    bool told = false;
+    for (const std::string& w : next.warnings()) told = told || has(w, "too high");
+    CHECK_MESSAGE(told, "the call that went ahead carries the notice the refused call did not consume");
+    next.commit();
+    AssetCostGuard again = AssetCostGuard::begin(cfg.limits, freeCall, false);
+    CHECK(again.warnings().empty());   // (delivered once)
+}
+
 TEST_CASE("day total: a file with another shape is reported as unreadable, with where, and nothing is changed") {
     Home home;
     const std::vector<std::string> bad = {R"([1,2])", R"({"days":[]})", R"({"days":{"2027-01-15":5}})",
