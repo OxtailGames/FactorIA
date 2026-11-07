@@ -96,6 +96,11 @@ const CommandInfo* CommandRegistry::info(std::string_view name) const {
     return it == commands_.end() ? nullptr : &it->second.info;
 }
 
+CommandHandler CommandRegistry::handler(std::string_view name) const {
+    auto it = commands_.find(name);
+    return it == commands_.end() ? CommandHandler() : it->second.handler;
+}
+
 std::vector<const CommandInfo*> CommandRegistry::list(std::string_view category) const {
     std::vector<const CommandInfo*> out;
     for (const auto& [name, entry] : commands_)  // std::map: already sorted by name

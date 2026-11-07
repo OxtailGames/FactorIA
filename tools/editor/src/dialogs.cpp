@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include "editor_internal.h"
+#include "imgui_internal.h"
 #include "fa/core/fs.h"
 #include "sokol_app.h"
 
@@ -318,6 +319,10 @@ void Editor::draw_toasts() {
         ImGui::Begin(name.c_str(), nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
                          ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | (it->actionLabel.empty() ? ImGuiWindowFlags_NoInputs : 0) | ImGuiWindowFlags_NoDocking);
+        // In front of every window without taking the focus: the toast windows are reused by index, so one made before a window that
+        // took the focus later (the Level generator after a pick) would stay behind it, and a click on its button would land on that
+        // window instead.
+        ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
         ImGui::PushTextWrapPos(460);
         ImGui::TextUnformatted(it->text.c_str());
         ImGui::PopTextWrapPos();
