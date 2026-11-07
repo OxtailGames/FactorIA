@@ -149,7 +149,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `game_state` | `game.state` | Dump the running game: entities, physics, script errors, render stats. Filters: `entities` (ids), `components` (names), `includeDefaults`, `maxEntities` (default 200). |
 | `game_logs` | `game.logs` | Recent log lines: `{"minLevel":"warn","max":50}`. Pass `after` (a `seq` from an earlier call) to get only new lines. Each line has `wallTime`, the computer's local time when it was logged (ISO 8601 with offset). |
 | `game_pause`, `game_resume` | `game.pause`, `game.resume` | Pause or resume the simulation. |
-| `play_sessions`, `play_report` | `play.sessions`, `play.report` | What the user saw while playing in the editor (Play .. Stop): `play_report {}` returns the latest session with frame-time stats (avg, p95, max), the slowest frames, a `profile` (where the time went: ms per engine system and per script behaviour class, GPU, memory; `perf_profile` gives the same for a headless run), warnings/errors, the problems the user marked with F9 (frame, note, screenshot; the first one comes back as a picture, `{"mark":2}` for the next) and the path of `input.json`, an input replay for `factoria run --headless --input`. **When the user says they played and found problems (slow, ugly UI, bugs), call `play_report` first**, then replay or inspect the marked frames. `play_sessions` lists older ones. |
+| `play_sessions`, `play_report` | `play.sessions`, `play.report` | What the user saw while playing in the editor (Play .. Stop): `play_report {}` returns the latest session with frame-time stats (avg, p95, max), the slowest frames, a `profile` (where the time went: ms per engine system and per script behaviour class, GPU, memory; `perf_profile` gives the same for a headless run), warnings/errors, the problems the user marked with F9 (frame, note, screenshot; the first one comes back as a picture, `{"mark":2}` for the next) and the path of `input.json`, an input replay for `factoria run --headless --input`. **When the user says they played and found problems (slow, ugly UI, bugs), call `play_report` first**, then replay or inspect the marked frames. `play_sessions` lists older ones. **To play without the user**, call `play_auto` (`play.auto`): the game's bot (`scripts/autoplay.js`, `game.autoplay`, see [SCRIPTING.md](SCRIPTING.md#the-bot-gameautoplay)) or a seeded explorer plays headless for `seconds` of game time and writes a session `play_report` reads (`source: "auto"`: phases, score, `ended`, a screenshot per phase, and a mark with a screenshot and the step for each stuck screen, fall out of the world or script error loop; `input.json` replays it). Run it after every change that could break the way through the game. |
 | `audio_log` | `audio.log` | Sounds played so far (scripts, `AudioSource`, music), oldest first: `{"path":"jump.wav"}` keeps one clip (a file name matches any folder). Each play has `frame`, `path`, `volume`, `bus`, `source` (entity id) and `ok` (false = the clip failed to load). Pass `after` (a `seq`) for only new plays. |
 | `audio_bus`, `audio_snapshot` | `audio.bus`, `audio.snapshot` | The mixer. `audio_bus {"bus":"music","lowpass":800,"fade":0.5}` sets only the keys you pass (`volume`, `lowpass` in Hz with 0 or null = off, `reverb` 0..1, `duck` `{by, amount, attack, release}` or null) and returns the bus state; with just `bus` it reads it. `audio_snapshot {"name":"underwater"}` applies a snapshot of factoria.json `audio.snapshots`; without `name` it lists them. Section 9.7. |
 | `script_eval` | `script.eval` | Evaluate JavaScript in the running game: `{"code":"world.findByTag(\"coin\").length"}`. |
@@ -2174,13 +2174,38 @@ the game must show itself to them. Keep these in place as the game grows:
 - **`REVIEW.md` at the project root**, the note they read first. It is never exported. Sections: *How to play* (controls,
   the goal, what a session looks like), *Status* (what is finished and what is a placeholder, so nobody judges a
   placeholder as final), *Reach everything fast* (every scene, level and state and how to get there in one step),
-  *Bot-playable flows* (input replays or tests that play the first minutes, a whole level, the ending) and *Known issues*
+  *Bot-playable flows* (`scripts/autoplay.js`, the hook that `play.auto` runs, and input replays or tests that play the first minutes, a whole level, the ending) and *Known issues*
   (what not to report again).
 - **Every scene and state reachable in one call**: a boss, the shop, game over or the last level must not need an hour of
   play. Name the way in REVIEW.md: scene paths for `scene_load`, a project tool in `tools/*.js`, a debug key or cheat
   action, start-scene props, saved states under `review/`.
 - **Stable screenshots**: a fixed seed, and no random camera shake or fade at the moment a picture is taken.
 - **No debug overlay in normal play**: cheats and debug entry points live behind a key, an action or a tool that REVIEW.md names.
+- **A `scripts/autoplay.js` that plays the game** (section 11.5): the game reviewers run `play.auto` after they have played
+  by hand, and its phases tell them which parts they did not reach. It supports their hands and never replaces them (the
+  bot finishing the level says nothing about whether a person finds it clear or fair).
+
+### 11.5 Play the game yourself: `play.auto`
+
+After a feature or a fix, and BEFORE you ask the user to play, run `play_auto` (`factoria call play.auto`): a bot plays the
+game headless and fast for `seconds` of game time and writes a play session. Without a hook it explores the declared input
+actions with a seeded generator; with `scripts/autoplay.js` (`game.autoplay`, [SCRIPTING.md](SCRIPTING.md#the-bot-gameautoplay))
+it plays the way you describe, marks the stages (`game.phase`) and says when the level is done. Read the answer in this order:
+
+1. `ended`: `won`, `lost`, `timeout` (it played the whole time without a problem), `stuck` (nothing moved or changed) or
+   `broken` (a fall, a NaN position, a script error every frame, or a hook that could not load: mark kind `hook` means
+   `scripts/autoplay.js` failed to import, nothing was played).
+2. `problems`: one mark each (kind `stuck`, `menu`, `fall`, `not finite`, `exception loop`, `hook`) with the step, the game time, a note and a
+   screenshot. `play_report {"session": "...", "mark": 2}` shows the next one. A `menu` mark is a screen the bot could not
+   leave: give it a button the actions can reach, or teach the hook to press it.
+3. `phases`, the score and the perf: which stages it reached and how long each took. A phase missing from the list is one
+   it never reached, which is worth a look by hand.
+4. The warnings and errors the game logged during the run.
+
+The session's `input.json` replays a problem: `factoria run --headless --input <input.json> --seed <seed>`. Keep
+`scripts/autoplay.js` in step with the game: when the way through changes, the bot must still finish the level. A green run
+means the game can be finished by a script, not that a person finds it clear or fun: that is still the user's call. In the
+editor the user can start the same run from **Play > Let the AI play**; it appears in the Play sessions list marked "auto".
 
 ## 12. Common mistakes
 

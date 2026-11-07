@@ -83,14 +83,14 @@ TEST_CASE("menu: the editor's tree has the menus, the autotest names and the pla
     const menu::MainMenu bar = ed.build_main_menu(false);
     std::vector<std::string> labels;
     for (const menu::Item& i : bar.items) labels.push_back(i.label);
-    CHECK(labels == std::vector<std::string>{"File", "Edit", "View", "AI", "Help", "Export Game"});
+    CHECK(labels == std::vector<std::string>{"File", "Edit", "View", "Play", "AI", "Help", "Export Game"});
     CHECK(bar.items.back().kind == menu::Item::Kind::Action);  // a click item on the bar itself
     CHECK(bar.trailing.rfind("FactorIA ", 0) == 0);
     CHECK(bar.trailingAtName == "menu:version");
 
     const std::vector<std::string> atNames = menu::at_names(bar.items);
     const std::set<std::string> names(atNames.begin(), atNames.end());
-    for (const char* n : {"menu:file", "menu:view", "menu:ai", "menu:export", "menu:setup", "menu:platform-settings",
+    for (const char* n : {"menu:file", "menu:view", "menu:play", "menu:play-auto", "menu:play-sessions", "menu:ai", "menu:export", "menu:setup", "menu:platform-settings",
                           "menu:revert-ai", "menu:hierarchy", "menu:inspector", "menu:project", "menu:audio", "menu:profiler",
                           "menu:ai-settings", "menu:ai-roles", "menu:play-phone"})
         CHECK_MESSAGE(names.count(n) == 1, n);
@@ -98,6 +98,10 @@ TEST_CASE("menu: the editor's tree has the menus, the autotest names and the pla
     const menu::Item* file = top(bar, "File");
     REQUIRE(file);
     CHECK(child(*file, "Quit"));
+    const menu::Item* play = top(bar, "Play");
+    REQUIRE(play);
+    CHECK(child(*play, "Let the AI Play"));
+    CHECK(child(*play, "Play Sessions..."));
     const menu::Item* save = child(*file, "Save Scene");
     REQUIRE(save);
     CHECK(save->shortcut == "Ctrl+S");
@@ -113,7 +117,7 @@ TEST_CASE("menu: the editor's tree has the menus, the autotest names and the pla
     const menu::MainMenu nativeBar = ed.build_main_menu(true);
     labels.clear();
     for (const menu::Item& i : nativeBar.items) labels.push_back(i.label);
-    CHECK(labels == std::vector<std::string>{"File", "Edit", "View", "AI", "Export", "Help"});
+    CHECK(labels == std::vector<std::string>{"File", "Edit", "View", "Play", "AI", "Export", "Help"});
     for (const menu::Item& i : nativeBar.items) CHECK(i.is_menu());
     CHECK_FALSE(child(*top(nativeBar, "File"), "Quit"));  // Quit is in the app menu
     CHECK(nativeBar.trailing.empty());                    // the version is in About and the window title

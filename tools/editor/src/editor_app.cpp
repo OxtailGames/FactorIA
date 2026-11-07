@@ -566,6 +566,7 @@ bool Editor::boot(const std::string& dirIn) {
     ai_stop("project_closed");
     reset_export_state();  // an export of the previous project finishes first
     reset_phone_state();   // and the phone server of the previous project stops
+    reset_auto_play_state();  // a bot still playing the previous project is stopped
     reset_platform_settings_state();  // so does a keystore being created; the unsaved settings of the old project are dropped
     // Tear down: UI first (it owns GPU resources), then the engine (owns sg_setup).
     if (uiUp_) {
@@ -1446,6 +1447,7 @@ void Editor::build_ui() {
     ImGuiViewport* vp = ImGui::GetMainViewport();
     poll_export();
     poll_phone();
+    poll_auto_play();
     poll_platform_settings();
     poll_setup();
     draw_main_menu();
@@ -1557,6 +1559,7 @@ void Editor::build_ui() {
     draw_validation_window();
     draw_export_window();
     draw_phone_window();
+    draw_play_sessions_window();
     draw_platform_settings_window();
     draw_ai_settings_window();
     draw_setup_window();

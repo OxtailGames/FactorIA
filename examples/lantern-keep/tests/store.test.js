@@ -2,7 +2,7 @@ import { test, expect, game } from "factoria:test";
 import { world, storage, platform } from "factoria";
 import * as progress from "../scripts/progress.js";
 import { LEVELS } from "../scripts/levels.js";
-import { playLevel } from "./helpers/autoplay.js";
+import { playLevel } from "./helpers/level.js";
 
 // Stats, achievements and best times, fed by the game events (README "Contract 3") and answered by the fake store.
 // The events are sent by hand here (the same payloads level.js and player.js send); one test plays a real level.

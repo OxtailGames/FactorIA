@@ -33,7 +33,7 @@ FactorIA** shows it with the build fingerprint.
 
 ## The menu bar
 
-On **Windows and Linux** the menus (File, Edit, View, AI, Help) are a bar at the top of the editor window, with a
+On **Windows and Linux** the menus (File, Edit, View, Play, AI, Help) are a bar at the top of the editor window, with a
 clickable **Export Game** item after Help and the engine version at the right end.
 
 On **macOS** they are in the Mac's own menu bar at the top of the screen, like any Mac app, and the window has no bar of
@@ -42,7 +42,7 @@ its own:
 - **FactorIA** (the app menu): **About FactorIA** (the engine version and the build fingerprint), **Settings...**
   (Cmd+, opens AI Settings), Services, **Hide FactorIA** (Cmd+H), Hide Others, Show All and **Quit FactorIA** (Cmd+Q;
   the unsaved-changes dialog still asks). Quit is not in File on a Mac.
-- **File, Edit, View, AI** and **Help** have the same items as on the other systems. **Export** is a menu of its own
+- **File, Edit, View, Play, AI** and **Help** have the same items as on the other systems. **Export** is a menu of its own
   (a system menu bar cannot hold a clickable item) with **Export Game...** (Cmd+E). **Window** (Minimize Cmd+M, Zoom) comes
   before Help. The version text of the in-window bar is not there: About and the window title show it.
 - Shortcuts are the Mac's: Cmd+S saves the scene, Cmd+Z undoes, Cmd+Shift+Z redoes (Ctrl+S, Ctrl+Z and Ctrl+Y on the
@@ -697,8 +697,35 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
 - **Tell the AI**: after Stop, if the session has marks or errors, the AI Assistant panel shows a line with an **Attach** button. The
   **Attach last play session** button next to **Attach image...** does the same at any time: it adds a short summary (performance, errors, your
   notes) to the message and the mark screenshots as pictures.
+- **Let the AI play**: **Play > Let the AI Play** (or the button of the same name in the **Play sessions** window, **Play > Play Sessions...**)
+  runs `play.auto` ([DEBUGGING.md](DEBUGGING.md#let-the-game-play-itself)) on the project as saved on disk: a bot plays it from the start,
+  faster than real time, and finds what is stuck or broken. The window has the game seconds the bot may play (5 to 600, 60 by default)
+  and a box for the pictures. The bot runs in a `factoria` process of its own (the editor keeps the GPU), so the editor never waits: the
+  window shows the time elapsed and the last line the bot printed, and **Cancel** stops it (a cancelled run writes no session). It needs
+  the `factoria` program next to the editor, or the one `FA_FACTORIA_EXE` names; if it is not found the window says so and nothing runs.
+  The menu item is disabled while the game plays or a run is going. When the run ends a toast says how it ended (won, lost, timeout,
+  stuck, broken...) and how many problems it marked, and **Open report** selects the session in the window.
+  A run of an AI that works in the editor (the AI panel calls `play.auto`) is the same child process, started from the AI's own thread:
+  the editor never waits for it either, and the AI panel's **Stop** kills it (a cancelled run writes no session); the Play sessions window
+  lists its session when it ends. While a run goes its pictures are in `.factoria/cache/play-auto-<process id>-<n>/` and move into
+  `.factoria/sessions/<name>/` only when the run ends, so a cancelled run leaves no half-written session folder (a run that is killed
+  leaves only its `play-auto-*` folder in the cache, which the next run deletes). A run keeps the newest 30 sessions of `play.auto`
+  (`-auto` in the name) and, once its own session is written, deletes the older ones, so playing again and again does not fill the
+  disk; the sessions you recorded with Play .. Stop are never deleted. A project folder with accents works; on Windows a folder with
+  characters outside the system's code page (the ANSI code page of the PC's language) cannot be handed to the child process yet, and
+  the run fails with an error instead of playing.
+- **Play sessions window**: lists the sessions of `.factoria/sessions/`, newest first. A session the AI's bot played is marked **AI** and
+  shows how it ended; one you recorded is not. Click a row for its report (how it ended, score, phases, performance, marks and notes), with
+  **Attach to the AI chat** and, for a run of the bot, **Copy replay command** (the command that plays the bot's input again). The list is read
+  again when the window opens, when a session is written (Stop, or the end of a run) and with **Refresh**.
+- **Attach last play session** (AI panel) picks the last session YOU played. A session of the AI's bot is attached only when you have
+  none of your own, and then the editor says so (a toast, and a note in the message: "This is a session the AI's bot played with
+  play.auto, not one the user played."), so the AI does not take its own bot's run for what you saw. The Play sessions window has an
+  **Attach** button for the selected session, auto or not.
 - **For AIs and tools**: `play.sessions` lists the recent sessions, `play.report` returns one (the latest by default) with the replay path and a `profile` section: where the time went over the session (per engine system, per script behaviour class, GPU, memory; PERFORMANCE.md).
   The report says how to replay it: `factoria run --headless --frames <n> --input .factoria/sessions/<name>/input.json`.
+- **Sessions played by the bot**: `play.auto` ([DEBUGGING.md](DEBUGGING.md#let-the-game-play-itself)) writes the same folder with `"source": "auto"`
+  (phases, score, how it ended, the problems it found as marks). `play.report` and `play.sessions` read both kinds.
 
 ## Project panel
 

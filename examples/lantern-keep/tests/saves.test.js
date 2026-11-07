@@ -2,7 +2,7 @@ import { test, expect, game } from "factoria:test";
 import { ui, scene, storage, i18n, time, session, platform } from "factoria";
 import * as progress from "../scripts/progress.js";
 import * as saves from "../scripts/saves.js";
-import { teleportOnto } from "./helpers/autoplay.js";
+import { teleportOnto } from "./helpers/level.js";
 import v1 from "./fixtures/save_v1.json";
 
 // Save slots, the level select and cloud saves. The menus are driven with the gamepad, like tests/menus.test.js.

@@ -69,6 +69,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"O3", "Animation panel, 3D clips: a generated walk opened on a rigged model, a bone picked in the list and in the view, the rotation gizmo dragged (one key, one undo step), an IK handle dragged, a key moved and deleted in the dopesheet, Mirror pose, the filmstrip sheet, Undo/Redo through the editor's stack"},
     {"R3", "Level generator window: a drawn level as the sample, Generate, Next / Previous seed (the same seed gives the same level), Keep builds it in the scene as one undo step, Save writes a level file"},
     {"T2", "Play on phone window: Start without a web player says how to get one, with a stand-in player the server answers on its token, the LAN address is drawn as a QR code, a log line POSTed like the phone's page lands in the log (category phone), a new file exports again, Stop closes the port; the checklist for a phone that cannot connect"},
+    {"S3", "Play > Let the AI Play: the Play sessions list marks the AI's sessions, Attach last play session picks the one you played, a real play.auto run on a worker thread ends with its session listed and opened, Cancel writes none"},
 };
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).

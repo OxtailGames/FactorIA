@@ -68,6 +68,7 @@ void Editor::session_end() {
     if (!s.marks.empty() || !s.logs.empty()) {
         playNotice_ = "Last play: " + std::to_string(s.marks.size()) + " mark(s), " + std::to_string(s.logs.size()) + " warning(s)/error(s).";
     }
+    playSessionsDirty_ = true;  // the Play sessions window lists it
     FA_INFO("editor", "play session saved: {}/{}", kPlaySessionsDir, s.name);
 }
 
@@ -129,30 +130,6 @@ void Editor::draw_mark_popup() {
         }
     }
     ImGui::EndPopup();
-}
-
-void Editor::ai_attach_last_session() {
-    const std::vector<std::string> names = play_session_names();
-    if (names.empty()) {
-        notify("No play session yet: press Play, then Stop.", 1);
-        return;
-    }
-    ai_sync_chats();
-    const std::string dir = std::string(kPlaySessionsDir) + "/" + names.front();
-    auto r = load_json_file(dir + "/session.json");
-    if (!r.ok()) {
-        notify(r.error().to_string(), 2);
-        return;
-    }
-    std::string& input = chat_.current().input;
-    if (!input.empty() && input.back() != '\n') input += "\n";
-    input += play_session_summary(r.value()) + " (Details: play.report; replay: " + dir + "/input.json)\n";
-    if (r.value().contains("marks"))
-        for (const Json& m : r.value()["marks"]) {
-            const std::string shot = m.value("screenshot", std::string());
-            if (!shot.empty()) ai_attach_path(fs::resolve(dir + "/" + shot).string());
-        }
-    playNotice_.clear();
 }
 
 }  // namespace fa::editor
