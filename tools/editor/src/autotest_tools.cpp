@@ -9281,7 +9281,9 @@ void Editor::at_build_tools_script() {
             autoPlayLast_.reset();
         });
         click("playsessions:run");
-        step(1, [this, as] { as->sawRunning = autoPlay_.running() || autoPlayLast_.has_value(); });
+        // A quick run (a tiny project gets stuck at once) can end between two frames: then it is neither running nor collected yet
+        // (poll_auto_play takes the result on a later frame), so a finished result that waits counts as started too.
+        step(1, [this, as] { as->sawRunning = autoPlay_.running() || autoPlay_.has_result() || autoPlayLast_.has_value(); });
         wait_run_ends();
         step(4, [this, as, row_of] {
             at_check(as->sawRunning, "Let the AI play starts the run at once (the button does not wait for the bot)");

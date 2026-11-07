@@ -75,6 +75,10 @@ public:
     std::string progress_line() const;               // the child's latest log line ("" = none yet)
     const AutoPlayRequest& request() const { return request_; }  // of the running or last run
     std::optional<AutoPlayOutcome> take_result();    // the finished run's outcome, once; nullopt while it runs
+    bool has_result() const {                        // a run ended and take_result() has not collected it yet
+        std::lock_guard lock(mu_);
+        return result_.has_value();
+    }
     void wait();                                     // blocks until the run is done (the child is killed first by cancel())
 
 private:
