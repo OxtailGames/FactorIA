@@ -5,10 +5,12 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <new>
 #include <system_error>
 #include <unordered_map>
 #include <unordered_set>
 
+#include "compress_internal.h"
 #include "fa/core/strings.h"
 #include "fs_internal.h"
 #include "pack_file.h"
@@ -474,7 +476,10 @@ Result<std::shared_ptr<const PackReader>> PackReader::open(const stdfs::path& fi
                 b.stored = word & ~kRawBit;
                 b.offset = offset;
                 const std::uint64_t decoded = std::min<std::uint64_t>(pack->blockSize_, e.size - std::uint64_t(k) * pack->blockSize_);
-                const bool fits = b.raw ? b.stored == decoded : (b.stored > 0 && b.stored < decoded);
+                // A compressed block must be smaller than what it decodes to, and able to hold it: checked here, so no
+                // read allocates or decodes a size the block could never give (a hostile index with a right checksum).
+                const bool fits = b.raw ? b.stored == decoded
+                                        : (b.stored > 0 && b.stored < decoded && decoded <= codec::max_decoded_size(e.codec, b.stored));
                 if (!fits || (e.codec == Codec::Store && !b.raw))
                     return make_error("The game pack " + name + " is damaged (block " + std::to_string(k + 1) + " of '" + e.path +
                                           "' has an impossible size)",
@@ -607,7 +612,13 @@ Result<std::vector<std::uint8_t>> PackReader::read_range(std::string_view path, 
     if (size > std::uint64_t(SIZE_MAX / 2))
         return make_error("'" + e.path + "' is too big to read at once on this device (" + std::to_string(size) + " bytes)",
                           "Read it in parts (fs streams, or a smaller range).");
-    std::vector<std::uint8_t> data(static_cast<std::size_t>(size));
+    std::vector<std::uint8_t> data;
+    try {
+        data.resize(static_cast<std::size_t>(size));
+    } catch (const std::bad_alloc&) {
+        return make_error("Out of memory reading '" + e.path + "' from the game pack (" + std::to_string(size) + " bytes)",
+                          "Close other programs, or read it in parts (fs streams, or a smaller range).");
+    }
     if (auto r = decode_range(e, offset, data); !r.ok()) return r.error();
     std::uint64_t stored = size;
     if (e.blockCount > 0 && size > 0) {

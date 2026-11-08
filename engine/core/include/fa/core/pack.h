@@ -23,7 +23,8 @@
 // Blocks. A file of `size` bytes has ceil(size / B) blocks (an empty file has none); block k decodes to bytes
 // [k*B, min((k+1)*B, size)) of the file, and the blocks of one file are contiguous in the pack. Each block is compressed
 // on its own with the file's codec, so a reader that wants part of a big file (a range of an audio stream, one mip of
-// a texture) decodes only the blocks that hold it: no read allocates more than what it returns plus one block. A block
+// a texture) decodes only the blocks that hold it: a read's buffers are what it returns plus at most one block (and
+// the zstd decoder's own working state per block, ~14 KiB plus up to 128 KiB of literals, fa/core/compress.h). A block
 // keeps its compressed form only when that saves at least 1/32 of its bytes; else it is stored as it is (bit 31), and
 // a file none of whose blocks kept a compressed form is recorded with codec store. Small files do NOT share blocks:
 // every file starts its own block, so any file can be read without decoding a neighbour (the cost is a worse ratio on
@@ -32,6 +33,8 @@
 //
 // Checks. Every block's checksum is verified each time it is read, and the index's when the pack is opened, so a pack
 // damaged on the drive or in a download is an error that names the file (and block) instead of wrong bytes in a game.
+// Opening also checks every size in the index (blocks inside the file, stored sizes that add up, a compressed block
+// smaller than what it decodes to and able to hold it), so a tampered index is refused before a read allocates.
 //
 // Format 1 (FactorIA 0.18 and before) is still read: the same header, footer and path order, with an index of u32 count
 // then per file u16 path length, path, u64 offset, u64 size, and the files' bytes stored as they are, unchecked.

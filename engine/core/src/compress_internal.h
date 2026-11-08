@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/core/compress.h"
 #include "fa/core/types.h"
 
 namespace fa::codec {
@@ -58,6 +59,18 @@ inline unsigned highbit64(std::uint64_t v) { return 63u - static_cast<unsigned>(
 // a + b, a * b with saturation at the largest size_t (the web build is wasm32).
 inline std::size_t sat_size(std::uint64_t v) {
     return v > static_cast<std::uint64_t>(SIZE_MAX) ? SIZE_MAX : static_cast<std::size_t>(v);
+}
+
+// The most bytes a block of `stored` bytes can decode to. A damaged header (or a game.pak index) can claim any size:
+// callers refuse a larger claim before they allocate. lz4: every length byte adds 255; zstd: a 4-byte RLE block
+// yields 128 KiB. Store decodes to itself.
+inline std::uint64_t max_decoded_size(Codec codec, std::uint64_t stored) {
+    switch (codec) {
+        case Codec::Store: return stored;
+        case Codec::Lz4: return stored * 255 + 64;
+        case Codec::Zstd: return (stored / 4 + 1) * 131072;
+    }
+    return stored;
 }
 
 // An error that names the codec, what is wrong and where (byte offset in the block).

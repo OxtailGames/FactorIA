@@ -337,12 +337,6 @@ TEST_CASE("export --release: a damaged load-order.json is a warning and the pack
 }
 
 TEST_CASE("export --release: export.pack.codecs picks the codec of an extension, the rest keep their default") {
-    const std::vector<std::uint8_t> probe(64, 7);
-    if (!compress(probe, CompressOptions{Codec::Lz4, 0}).ok() || !compress(probe, CompressOptions{Codec::Zstd, 0}).ok()) {
-        MESSAGE("skipped: the lz4/zstd codecs of fa/core/compress.h are not in this build yet (M70.4a); this test runs once "
-                "they are merged");
-        return;
-    }
     testing::TempDir tmp;
     const std::string proj = make_project(tmp);
     testing::write_all(stdfs::path(proj) / "data" / "big.json", std::string(200000, 'a'));

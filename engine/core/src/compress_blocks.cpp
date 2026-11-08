@@ -82,12 +82,7 @@ Result<void> decompress_into(Codec codec, std::span<const std::uint8_t> block, s
 Result<std::vector<std::uint8_t>> decompress(Codec codec, std::span<const std::uint8_t> block,
                                              std::size_t expectedSize) {
     // A damaged header can claim any size: refuse what this block could never hold before allocating it.
-    std::uint64_t most = block.size();
-    switch (codec) {
-        case Codec::Store: break;
-        case Codec::Lz4: most = most * 255 + 64; break;           // every length byte adds 255
-        case Codec::Zstd: most = (most / 4 + 1) * 131072; break;  // a 4-byte RLE block yields 128 KiB
-    }
+    const std::uint64_t most = codec::max_decoded_size(codec, block.size());
     if (static_cast<std::uint64_t>(expectedSize) > most)
         return Error{"a " + std::string(codec_name(codec)) + " block of " + std::to_string(block.size()) +
                          " bytes cannot hold " + std::to_string(expectedSize) + " bytes",
