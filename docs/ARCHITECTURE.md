@@ -168,6 +168,39 @@ See `engine/runtime/include/fa/runtime/engine.h`. Fixed-step simulation
 (default 60 Hz) + variable render. Headless `Engine::step(n)` advances exactly
 `n` fixed frames — deterministic given seed + input.
 
+### Jobs and threads
+See `engine/core/include/fa/core/jobs.h`. One process-wide pool of worker threads (`fa::jobs`) that engine code hands
+pieces of work to: `submit(name, fn, deps)` returns a `Handle` to `wait` for, `Group` waits for several,
+`parallel_for(name, count, grain, fn, seed)` splits `[0, count)` into chunks, `parallel_map_chunks` and
+`parallel_reduce` merge per-chunk results, `post_main` hands a task back to the main thread (the engine runs those at
+the start of the next frame). The Engine starts the pool in `init()` and joins it in `shutdown()`; the pool is
+reference counted, so a second engine in the same process (the editor) shares it, with the first one's setting.
+
+- **How many threads**: `runtime.jobThreads` in factoria.json: `"auto"` (the default: hardware threads - 1, at most 8
+  on desktop and 4 on phones), a number 0..32, or `"inline"`. `FA_JOB_THREADS` overrides it and
+  `EngineConfig::jobThreads` overrides both. With 0 workers a job runs on the main thread when something waits for it,
+  or at the end of the frame. `"inline"` runs every job at once on the thread that submits it, in submission order: use
+  it to debug a job with a plain call stack. Before the pool starts (tools, tests) jobs also run inline. The web build
+  has no threads (compiled without `-pthread`): every setting gives 0 workers there.
+- **Determinism (the rule every job follows)**: threads never change what the game computes. A job reads shared data
+  and writes only its own slot; it never touches `world.rng()` or the World's entity list. Random numbers come from a
+  seed drawn on the main thread and `Chunk::rng()` (a stream that depends only on the seed and the chunk index). Chunk
+  bounds depend only on `count` and `grain`, and results are merged in chunk order, never in the order chunks finish.
+  `game.state_hash` (one 64-bit hash of every entity, component, field, the clock and the random generator) is how a
+  test checks it: the same game with 0, 1, N threads and inline gives the same hash every frame
+  (engine/runtime/tests/jobs_engine_tests.cpp).
+- **Waiting**: `wait()` on the main thread (or in a job) does not block idle: it runs queued jobs, the one waited for
+  first, until it is done. A wait that can never end (a job waiting for itself, every thread stuck) returns an error
+  instead of hanging. A job that throws is caught and logged with its name; `wait()` returns the error, and jobs that
+  depend on it do not run and report it.
+- **Cost**: idle workers sleep on a condition variable (no CPU while nothing is queued). A job costs one allocation and
+  one lock; give a parallel_for a grain of at least a few hundred cheap items. Each worker thread is named (`fa-job-1`..)
+  in debuggers and profilers; its stack is the platform default (512 KB on macOS and iOS, 1 MB on Windows, 8 MB on
+  Linux): keep big buffers on the heap.
+- **What it reports**: `jobs.info` (workers, mode, the setting and where it came from, jobs run and queued last frame,
+  how busy each thread was) and, with the profiler on, a `threads` section per thread in `perf.profile` and
+  `play.report` (docs/PERFORMANCE.md) and the Threads tab of the editor's Profiler panel.
+
 ### Coordinates & units
 Right-handed, +Y up, angles in degrees, colors 0..1. 2D world units = design
 pixels (a default 2D camera shows exactly the design resolution, origin at the

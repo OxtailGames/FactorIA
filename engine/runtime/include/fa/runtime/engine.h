@@ -64,6 +64,11 @@ struct EngineConfig {
     bool audioDevice = true;       // false = null audio device (always false when headless)
     int width = 0, height = 0;     // override design resolution (0 = project)
     std::uint64_t seed = 1;        // world RNG seed
+    // Worker threads of the job system (fa/core/jobs.h): "auto", "inline" or a number 0..32; "" = the FA_JOB_THREADS
+    // environment variable, else factoria.json runtime.jobThreads, else "auto". The first engine of a process starts the
+    // pool with it; an engine started while another runs shares that pool (jobs.info says what runs). A bad value makes
+    // init fail. Threads never change what the game computes.
+    std::string jobThreads;
     // The calendar date `game.today()` answers, "YYYY-MM-DD" ("" = the fixed default, kDefaultDate 2026-01-01: a simulation
     // never reads the clock). A host with a window puts the player's real date here (run_windowed does, with
     // local_calendar_date()); `factoria test`, headless runs, `factoria call/session` and the MCP server leave it empty unless

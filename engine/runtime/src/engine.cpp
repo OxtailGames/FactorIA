@@ -9,6 +9,7 @@
 #include "fa/core/image_tools.h"
 #include "fa/core/log.h"
 #include "fa/core/perf.h"
+#include "fa/core/jobs.h"
 #include "fa/core/profiler.h"
 #include "fa/core/screenshot_files.h"
 #include "fa/core/strings.h"
@@ -394,6 +395,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     // Store answers and events reach scripts here, before anything else of the frame runs (never in the middle of a call).
     {
         ProfSystemScope prof(ProfSystem::Platform);
+        if (profiled) jobs::run_main_thread_tasks();  // results jobs posted for the main thread (fa/core/jobs.h)
         platform.frame();
         scripts.dispatch_platform();
         scripts.dispatch_back();  // the Back button of this frame: input.onBack handlers, else quit
@@ -505,7 +507,10 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     ++frame;
     if (recorder.recording()) recorder.timing(frame, dt, fixedSteps, fixedDt);  // [dt, steps] of the frame that just ran
     inFrame = false;
-    if (profiled) Profiler::get().end_frame();
+    if (profiled) {
+        jobs::end_frame();  // with 0 workers the jobs nobody waited for run here; closes the frame's job statistics
+        Profiler::get().end_frame();
+    }
 }
 
 void Engine::Impl::end_of_frame(double dt, bool simulated) {
@@ -531,6 +536,10 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     auto fail = [&](const std::string& msg) {
         FA_ERROR("engine", "{}", msg);
         if (error) *error = msg;
+        if (I.jobsStarted) {  // init failed after the pool started: give its reference back
+            I.jobsStarted = false;
+            jobs::stop();
+        }
         return false;
     };
     if (I.initialized) return fail("Engine::init called twice");
@@ -550,6 +559,32 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     auto proj = load_project(dir);
     if (!proj.ok()) return fail(proj.error().to_string());
     I.project = proj.value();
+    {
+        // The job pool (fa/core/jobs.h): EngineConfig, then FA_JOB_THREADS, then factoria.json runtime.jobThreads, then auto.
+        jobs::Settings threads = jobs::Settings::automatic();
+        I.jobThreadsSource = "default";
+        if (!config.jobThreads.empty()) {
+            auto r = jobs::parse_settings_text(config.jobThreads, "EngineConfig.jobThreads");
+            if (!r) return fail(r.error().to_string());
+            threads = r.value();
+            I.jobThreadsSource = "EngineConfig";
+        } else if (const char* env = std::getenv("FA_JOB_THREADS"); env && *env) {
+            auto r = jobs::parse_settings_text(env, "the FA_JOB_THREADS environment variable");
+            if (r) {
+                threads = r.value();
+                I.jobThreadsSource = "FA_JOB_THREADS";
+            } else {
+                FA_WARN("engine", "{}; using the project setting", r.error().to_string());
+                I.startupProblems.push_back("jobs: " + r.error().to_string());
+            }
+        }
+        if (I.jobThreadsSource == "default" && I.project.jobThreadsSet) {
+            threads = I.project.jobThreads;
+            I.jobThreadsSource = std::string(kProjectFileName);
+        }
+        jobs::start(threads);
+        I.jobsStarted = true;
+    }
     // Screenshots the engine named itself (game.screenshot without a path) pile up over a long session: drop the old ones.
     if (!dir.empty()) prune_screenshots(stdfs::path(dir));
     I.projectMtime = fs::modified_time(kProjectFileName);
@@ -765,6 +800,11 @@ void Engine::shutdown() {
     Impl& I = *impl_;
     if (!I.initialized) return;
     I.initialized = false;
+    // Every job runs to the end before the systems it may touch go away (the pool joins when the last engine stops).
+    if (I.jobsStarted) {
+        I.jobsStarted = false;
+        jobs::stop();
+    }
     clear_vfx_cache();
     I.scripts.shutdown();
     I.appWindow.reset();
@@ -783,9 +823,11 @@ void Engine::frame(double dt) {
     dt = std::clamp(dt, 0.0, kMaxFrameDt);
     if (I.paused) {
         I.inFrame = true;
+        jobs::run_main_thread_tasks();  // a paused game still takes the results of its jobs (a load that finished)
         I.render(0.0);
         I.end_of_frame(dt, false);
         I.inFrame = false;
+        jobs::end_frame();
         return;
     }
     I.accumulator += dt;

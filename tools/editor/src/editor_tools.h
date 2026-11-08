@@ -57,6 +57,18 @@ struct ProfilerView {
     double smoothFrameMs = 0;
     std::array<double, kProfSystemCount> systemMs{};  // smoothed
     std::vector<Row> rows;                           // sorted by ms, slowest first
+    // One row per thread of the job pool (fa/core/jobs.h): main first, then worker 1.., then "other" when a thread outside
+    // the pool ran jobs. Smoothed like the rows; a lane the frame no longer has fades out.
+    struct JobRow {
+        std::string name;
+        double ms = 0, count = 0;  // smoothed per frame
+    };
+    struct LaneRow {
+        std::string name;
+        double jobMs = 0, jobs = 0;  // smoothed per frame
+        std::vector<JobRow> top;     // the lane's jobs by name, slowest first
+    };
+    std::vector<LaneRow> lanes;
     std::uint64_t frames = 0;                        // frames added since reset
     bool gpuSupported = false;
     std::string gpuReason = "no GPU time yet";

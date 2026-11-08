@@ -2,6 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "fa/core/jobs.h"
 
 namespace fa {
 
@@ -19,8 +24,12 @@ Profiler& Profiler::get() {
 }
 
 void Profiler::set_enabled(bool on) {
-    if (on == flag_) return;
-    flag_ = on;
+    if (on == flag_.load(std::memory_order_relaxed)) return;
+    flag_.store(on, std::memory_order_relaxed);
+    {
+        std::lock_guard<std::mutex> lk(jobsMu_);
+        jobLanes_.clear();
+    }
     cur_ = ProfFrame{};
     last_ = ProfFrame{};
     index_.clear();
@@ -31,14 +40,30 @@ void Profiler::set_enabled(bool on) {
 }
 
 void Profiler::begin_frame() {
-    if (!flag_) return;
+    if (!on()) return;
     childMs_ = 0;  // cur_, index_ and slots_ are empty: set_enabled and end_frame leave them so
     t0_ = now_ms();
 }
 
 void Profiler::end_frame() {
-    if (!flag_) return;
+    if (!on()) return;
     cur_.totalMs = now_ms() - t0_;
+    std::vector<ProfLane> recorded;
+    {
+        std::lock_guard<std::mutex> lk(jobsMu_);
+        recorded.swap(jobLanes_);
+    }
+    const int poolLanes = jobs::lane_count();
+    for (int lane = 0; lane < jobs::kMaxLanes; ++lane) {
+        const bool has = std::size_t(lane) < recorded.size() && recorded[std::size_t(lane)].jobs > 0;
+        if (lane >= poolLanes && !has) continue;  // every thread of the pool, idle or not; others only when they ran jobs
+        ProfLane l = has ? std::move(recorded[std::size_t(lane)]) : ProfLane{};
+        l.name = jobs::lane_name(lane);
+        std::sort(l.samples.begin(), l.samples.end(), [](const ProfJobSample& a, const ProfJobSample& b) {
+            return a.ms != b.ms ? a.ms > b.ms : a.name < b.name;
+        });
+        cur_.lanes.push_back(std::move(l));
+    }
     cur_.classes = std::move(slots_);
     slots_.clear();
     index_.clear();
@@ -66,6 +91,24 @@ void Profiler::add_behaviour(const std::string& className, const std::string& pa
     ProfClassSample& s = slots_[it->second];
     s.ms += std::max(0.0, ms);
     ++s.calls;
+}
+
+void Profiler::add_job(int lane, std::string_view name, double ms) {
+    if (lane < 0 || lane >= jobs::kMaxLanes) lane = jobs::lane_other();
+    std::lock_guard<std::mutex> lk(jobsMu_);
+    if (jobLanes_.size() <= std::size_t(lane)) jobLanes_.resize(std::size_t(lane) + 1);
+    ProfLane& l = jobLanes_[std::size_t(lane)];
+    ms = std::max(0.0, ms);
+    l.jobMs += ms;
+    ++l.jobs;
+    for (ProfJobSample& j : l.samples) {
+        if (j.name == name) {
+            j.ms += ms;
+            ++j.count;
+            return;
+        }
+    }
+    l.samples.push_back(ProfJobSample{std::string(name), ms, 1});
 }
 
 // ---------------------------------------------------------------------------------------------------------------- summary
@@ -100,6 +143,23 @@ void ProfileSummary::add_frame(const ProfFrame& f) {
         a.maxMs = std::max(a.maxMs, c.ms);
         a.calls += std::uint64_t(c.calls);
     }
+    for (const ProfLane& l : f.lanes) {
+        auto it = std::find_if(lanes_.begin(), lanes_.end(), [&](const LaneAcc& a) { return a.name == l.name; });
+        if (it == lanes_.end()) {
+            lanes_.push_back(LaneAcc{});
+            it = lanes_.end() - 1;
+            it->name = l.name;
+        }
+        it->sumMs += l.jobMs;
+        it->maxMs = std::max(it->maxMs, l.jobMs);
+        it->jobs += std::uint64_t(l.jobs);
+        for (const ProfJobSample& j : l.samples) {
+            JobAcc& a = it->byName[j.name];
+            a.sumMs += j.ms;
+            a.maxMs = std::max(a.maxMs, j.ms);
+            a.count += std::uint64_t(j.count);
+        }
+    }
 }
 
 void ProfileSummary::add_gpu_ms(double ms) { gpu_.add(ms); }
@@ -125,6 +185,7 @@ void ProfileSummary::add_memory(const ProfMemory& m) {
 
 namespace {
 double r3(double v) { return std::round(v * 1000.0) / 1000.0; }
+double r1(double v) { return std::round(v * 10.0) / 10.0; }
 double mb(std::uint64_t b) { return std::round(double(b) / (1024.0 * 1024.0) * 100.0) / 100.0; }
 Json mem_json(const ProfMemory& m) {
     return Json::object({{"processMB", mb(m.processBytes)}, {"jsHeapMB", mb(m.jsHeapBytes)}, {"textureMB", mb(m.textureBytes)},
@@ -157,6 +218,24 @@ Json ProfileSummary::to_json() const {
                                     {"callsPerFrame", r3(double(c.calls) / n)}}));
     }
     out["behaviours"] = cls;
+    Json threads = Json::array();
+    for (const LaneAcc& l : lanes_) {
+        std::vector<std::pair<const std::string*, const JobAcc*>> names;
+        for (const auto& kv : l.byName) names.emplace_back(&kv.first, &kv.second);
+        std::sort(names.begin(), names.end(), [](const auto& a, const auto& b) {
+            return a.second->sumMs != b.second->sumMs ? a.second->sumMs > b.second->sumMs : *a.first < *b.first;
+        });
+        Json list = Json::array();
+        for (std::size_t i = 0; i < names.size() && i < kMaxLaneJobs; ++i)
+            list.push_back(Json::object({{"name", *names[i].first}, {"avgMs", r3(names[i].second->sumMs / n)},
+                                         {"maxMs", r3(names[i].second->maxMs)},
+                                         {"callsPerFrame", r3(double(names[i].second->count) / n)}}));
+        const double busy = frame_.sum > 0 ? std::min(100.0, l.sumMs / frame_.sum * 100.0) : 0.0;
+        threads.push_back(Json::object({{"name", l.name}, {"jobMsAvg", r3(l.sumMs / n)}, {"jobMsMax", r3(l.maxMs)},
+                                        {"busyPct", r1(busy)}, {"jobsPerFrame", r3(double(l.jobs) / n)},
+                                        {"jobs", list}}));
+    }
+    out["threads"] = threads;
     Json gpu = Json::object();
     if (gpu_.n > 0) {
         gpu["avgMs"] = r3(gpu_.sum / double(gpu_.n));
