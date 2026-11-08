@@ -329,12 +329,20 @@ Result<PackStats> PackWriter::write(const stdfs::path& out) const {
     file.close();
     if (!file) return fail("Cannot write " + quoted(tmp), "Is the disk full?");
     stats.packBytes = position;
+    // The readers refuse a file bigger than this pack may hold (pack_max_file_size): never write one.
+    for (const Item* item : sorted)
+        if (item->size > pack_max_file_size(position))
+            return fail("Cannot pack '" + item->path + "': its " + std::to_string(item->size) +
+                            " bytes compress to so little that a pack of " + std::to_string(position) +
+                            " bytes may not hold it (a file may be at most 64 times its pack's size, or 256 MiB)",
+                        "Store that file as it is: give its extension the codec \"store\" in factoria.json, export.pack.codecs "
+                        "(docs/EXPORTING.md).");
 
     fs::replace_file(osTmp, fs::os_path(out), ec);
     if (ec && fs::is_sharing_violation(ec))
         return fail("Cannot replace " + quoted(out) + ": it is in use (" + ec.message() + ")",
                     "A running copy of the game has its pack open (Windows does not let a program replace a file another one has "
-                    "mapped). Close the game, and any program that has " + fs::path_to_utf8(out.filename()) +
+                    "open). Close the game, and any program that has " + fs::path_to_utf8(out.filename()) +
                         " open, then export again. The old pack was not changed.");
     if (ec) return fail("Cannot move the finished pack to " + quoted(out) + ": " + ec.message(), "Is a file of that name open in another program?");
     return stats;
@@ -446,6 +454,11 @@ Result<std::shared_ptr<const PackReader>> PackReader::open(const stdfs::path& fi
             e.offset = get_le(&index[at + 9], 8);
             e.stored = get_le(&index[at + 17], 8);
             e.firstBlock = read32(&index[at + 25]);
+            // Before anything trusts the size: a hostile index must not make a read allocate gigabytes (pack.h).
+            if (e.size > pack_max_file_size(fileSize))
+                return make_error("The game pack " + name + " is damaged ('" + e.path + "' claims " + std::to_string(e.size) +
+                                      " bytes, more than a pack of " + std::to_string(fileSize) + " bytes may hold)",
+                                  again);
             const std::uint64_t blocks = e.size / pack->blockSize_ + (e.size % pack->blockSize_ != 0 ? 1 : 0);
             if (e.firstBlock != nextBlock || blocks > blockTotal - std::min(blockTotal, nextBlock))
                 return make_error("The game pack " + name + " is damaged (the blocks of '" + e.path + "' are not in its block table)", again);
@@ -492,10 +505,11 @@ Result<std::shared_ptr<const PackReader>> PackReader::open(const stdfs::path& fi
         }
     }
 
-    if (options.map && env_allows_map() && detail::pack_map(pack->native_, fileSize, pack->map_, pack->mapping_)) {
+    if (options.map && env_allows_map() && detail::pack_map(pack->native_, fileSize, pack->map_, pack->mapping_))
         pack->mapSize_ = fileSize;
-        pack->registered_ = fs::detail::register_open_file(file);  // Windows refuses to replace a mapped file: so does the emulation
-    }
+    // Windows refuses to replace a file that is open, mapped or not (MoveFileExW onto it fails even with FILE_SHARE_DELETE):
+    // so does the emulation, for as long as the reader lives.
+    pack->registered_ = fs::detail::register_open_file(file);
     return std::shared_ptr<const PackReader>(std::move(pack));
 }
 

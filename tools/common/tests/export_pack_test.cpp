@@ -279,9 +279,11 @@ TEST_CASE("export --release: game.pak follows the recorded first-use order, main
     for (const std::string& line : byPath->size_lines()) explains = explains || line.find("Pack order: by path") != std::string::npos;
     CHECK(explains);
 
-    // A session recorded a menu scene first, then the main scene; a file the export does not ship is in it too.
+    // A session recorded a menu scene first, then the main scene, and the start-up reads after them (a file the export
+    // does not ship is in it too).
     LoadOrder seen;
     seen.push_back(SceneFiles{"scenes/menu.scene.json", {"data/README.md"}});
+    seen.push_back(SceneFiles{LoadTrace::kStartupScene, {"factoria.json"}});
     seen.push_back(SceneFiles{"scenes/main.scene.json", {"scripts/player.js", "scenes/main.scene.json", "README.md"}});
     auto rec = record_load_order(stdfs::path(proj), seen);
     REQUIRE_MESSAGE(rec.ok(), (rec.ok() ? "" : rec.error().to_string()));
@@ -290,7 +292,7 @@ TEST_CASE("export --release: game.pak follows the recorded first-use order, main
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     const Json stats = r->to_json()["packStats"];
     CHECK(stats["order"] == "firstUse");
-    CHECK(stats["orderedFiles"] == 3);
+    CHECK(stats["orderedFiles"] == 4);
     CHECK(stats["bytes"].get<std::uint64_t>() > 0);
     CHECK(stats["fileBytes"].get<std::uint64_t>() > 0);
     REQUIRE(stats["codecs"].is_array());
@@ -300,16 +302,17 @@ TEST_CASE("export --release: game.pak follows the recorded first-use order, main
     CHECK(codecFiles == r->packed.size());
     bool named = false;
     for (const std::string& line : r->size_lines())
-        named = named || (line.find("Pack order: first use in play sessions for 3 of") != std::string::npos);
+        named = named || (line.find("Pack order: first use in play sessions for 4 of") != std::string::npos);
     CHECK(named);
 
     auto pack = PackReader::open(tmp.sub("out/pack-test-linux/game.pak"));
     REQUIRE(pack.ok());
     const std::vector<std::string> order = pack.value()->data_order();
-    REQUIRE(order.size() >= 3);
-    CHECK(order[0] == "scenes/main.scene.json");  // the main scene's group first, its scene file at the front
-    CHECK(order[1] == "scripts/player.js");
-    CHECK(order[2] == "data/README.md");          // then the other scene's files
+    REQUIRE(order.size() >= 4);
+    CHECK(order[0] == "factoria.json");           // what the game reads before its first scene
+    CHECK(order[1] == "scenes/main.scene.json");  // then the main scene's group, its scene file at the front
+    CHECK(order[2] == "scripts/player.js");
+    CHECK(order[3] == "data/README.md");          // then the other scene's files
     CHECK(pack.value()->format_version() == 2);
     pack.value().reset();  // a mapped pack cannot be replaced on Windows: the reader lets go before the next export
 
@@ -322,6 +325,44 @@ TEST_CASE("export --release: game.pak follows the recorded first-use order, main
     auto off = export_project(options_for(tmp, proj, "linux", true));
     REQUIRE_MESSAGE(off.ok(), (off.ok() ? "" : off.error().to_string()));
     CHECK(off->to_json()["packStats"]["order"] == "path");
+}
+
+TEST_CASE("export: over a game that is running from the folder, it deletes nothing and says to close the game") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    // Windows refuses to delete an open file; FA_FS_WINDOWS_RULES gives macOS and Linux the same rule (a no-op on Windows).
+    const bool rulesBefore = fs::windows_rules();
+    fs::set_windows_rules(true);
+    struct Restore {
+        bool on;
+        ~Restore() { fs::set_windows_rules(on); }
+    } restore{rulesBefore};
+
+    REQUIRE(export_project(options_for(tmp, proj, "linux", true)).ok());
+    const stdfs::path root = tmp.sub("out/pack-test-linux");
+    const std::vector<std::string> before = files_below(root);
+    REQUIRE_FALSE(before.empty());
+    const std::string pakBefore = testing::read_all(root / "game.pak");
+
+    for (const bool map : {true, false}) {
+        CAPTURE(map);
+        auto running = PackReader::open(root / "game.pak", PackOpenOptions{map});  // the game is running
+        REQUIRE(running.ok());
+        CHECK(fs::find_file_in_use(root) == root / "game.pak");
+        auto r = export_project(options_for(tmp, proj, "linux", true));
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("is in use: close the running game (or the editor's preview of it) and export again") !=
+              std::string::npos);
+        CHECK(r.error().hint.find("game.pak") != std::string::npos);
+        CHECK(r.error().hint.find("Nothing was deleted") != std::string::npos);
+        CHECK(files_below(root) == before);  // the old export is all there
+        CHECK(testing::read_all(root / "game.pak") == pakBefore);
+        CHECK(running.value()->read("factoria.json").ok());
+    }
+    // The game quits: the export goes through.
+    CHECK(fs::find_file_in_use(root).empty());
+    auto again = export_project(options_for(tmp, proj, "linux", true));
+    REQUIRE_MESSAGE(again.ok(), (again.ok() ? "" : again.error().to_string()));
 }
 
 TEST_CASE("export --release: a damaged load-order.json is a warning and the pack goes by path") {

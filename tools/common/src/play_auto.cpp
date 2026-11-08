@@ -101,7 +101,9 @@ Json run_play_auto(const Json& a, const std::string& projectDir) {
 
     EngineConfig cfg = tooling_detail::headless_engine_config(projectDir, scene, opt.screenshots && !gfx_device_active(), RenderMode::OnDemand);
     // The order the bot's run first read the files in goes into .factoria/cache/load-order.json (fa/tooling/load_order.h).
-    cfg.loadOrderSink = [projectDir](const LoadOrder& order) { record_load_order_logged(project_root_path(projectDir), order); };
+    cfg.loadOrderSink = [projectDir](const LoadOrder& order) {  // a cold session (fa/tooling/load_order.h, "Which session wins")
+        record_load_order_logged(fs::path_from_utf8(projectDir), order, LoadOrderSource::Run);
+    };
     auto r = play_auto(cfg, opt);
     if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
     Json out = r.value();

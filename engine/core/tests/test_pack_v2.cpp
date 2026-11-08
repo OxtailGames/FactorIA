@@ -16,6 +16,16 @@
 #include "fa/core/load_trace.h"
 #include "fa/core/pack.h"
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 using namespace fa;
 namespace stdfs = std::filesystem;
 
@@ -40,6 +50,16 @@ struct RulesScope {
     explicit RulesScope(bool on) { fs::set_windows_rules(on); }
     ~RulesScope() { fs::set_windows_rules(before); }
 };
+
+// The Windows build running under Wine (the MinGW CI job): Wine keeps some POSIX file behaviour real Windows does not.
+bool running_under_wine() {
+#ifdef _WIN32
+    const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    return ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
+#else
+    return false;
+#endif
+}
 
 void set_env(const char* name, const char* value) {
 #ifdef _WIN32
@@ -348,14 +368,30 @@ TEST_CASE("pack v2: an index that claims more than a block can decode to is refu
     REQUIRE(!r.ok());
     CHECK(r.error().message.find("block 1 of 'a.bin' has an impossible size") != std::string::npos);
     CHECK(r.error().hint.find("Export the game again") != std::string::npos);
+
+    // A file bigger than a pack of this size may hold (pack_max_file_size: 256 MiB for a small pack) is refused first.
+    CHECK(pack_max_file_size(pak.size()) == kPackMinFileCap);
+    CHECK(pack_max_file_size(64ull << 20) == 4096ull << 20);
+    CHECK(pack_max_file_size(~std::uint64_t(0)) == ~std::uint64_t(0));
+    put(indexOffset + 12 + 2 + 5 + 1, kPackMinFileCap * 2, 8);
+    put(indexOffset + indexSize - 4,
+        pack_checksum(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(pak.data()) + indexOffset, indexSize - 4)), 4);
+    write_file(bad, pak);
+    auto huge = PackReader::open(bad);
+    REQUIRE(!huge.ok());
+    CHECK(huge.error().message.find("is damaged ('a.bin' claims 536870912 bytes, more than a pack of") != std::string::npos);
+    CHECK(huge.error().hint.find("Export the game again") != std::string::npos);
 }
 
 TEST_CASE("pack v2: many threads read one pack at once, mapped and read") {
     Scratch s;
     PackWriter w;
     std::vector<std::vector<std::uint8_t>> contents;
-    for (int i = 0; i < 16; ++i) {
-        contents.push_back(i % 2 ? noise_bytes(std::size_t(B / 3 + std::uint64_t(i) * 7919), std::uint32_t(i)) : text_bytes(std::size_t(B + 1000 + i * 37), i));
+    // Few files and rounds (a loaded CI VM runs it too); the text files cross a block boundary, the noise ones do not.
+    constexpr int kFiles = 8, kThreads = 8, kRounds = 4;
+    for (int i = 0; i < kFiles; ++i) {
+        contents.push_back(i % 2 ? noise_bytes(std::size_t(B / 3 + std::uint64_t(i) * 7919), std::uint32_t(i))
+                                 : text_bytes(std::size_t(B + 1000 + i * 37), i));
         REQUIRE(w.add_bytes("d/" + std::to_string(i) + ".json", contents.back(), Codec::Lz4).ok());
     }
     REQUIRE(w.write(s.pak()).ok());
@@ -364,18 +400,19 @@ TEST_CASE("pack v2: many threads read one pack at once, mapped and read") {
         REQUIRE(pack.ok());
         std::atomic<int> wrong{0};
         std::vector<std::thread> threads;
-        for (int t = 0; t < 12; ++t)
+        for (int t = 0; t < kThreads; ++t)
             threads.emplace_back([&, t] {
-                for (int round = 0; round < 20; ++round)
-                    for (int i = 0; i < 16; ++i) {
-                        const int n = (i + t * 5 + round) % 16;
+                for (int round = 0; round < kRounds; ++round)
+                    for (int i = 0; i < kFiles; ++i) {
+                        const int n = (i + t * 5 + round) % kFiles;
                         const auto& want = contents[std::size_t(n)];
                         const std::string path = "d/" + std::to_string(n) + ".json";
                         if ((round + t) % 2) {
                             auto r = pack.value()->read(path);
                             if (!r.ok() || r.value() != want) ++wrong;
                         } else {
-                            const std::uint64_t from = std::uint64_t(round * 997 + t * 131) % want.size();
+                            // Around the end of the first block: ranges of the text files span two blocks.
+                            const std::uint64_t from = (B - 2500 + std::uint64_t(round * 997 + t * 131)) % want.size();
                             auto r = pack.value()->read_range(path, from, 5000);
                             const std::size_t l = std::min<std::size_t>(5000, want.size() - std::size_t(from));
                             if (!r.ok() || !std::equal(r.value().begin(), r.value().end(), want.begin() + std::ptrdiff_t(from)) ||
@@ -386,7 +423,7 @@ TEST_CASE("pack v2: many threads read one pack at once, mapped and read") {
             });
         for (auto& th : threads) th.join();
         CHECK(wrong == 0);
-        CHECK(pack.value()->counters().reads == 12u * 20u * 16u);
+        CHECK(pack.value()->counters().reads == std::uint64_t(kThreads * kRounds * kFiles));
     }
 }
 
@@ -478,36 +515,35 @@ TEST_CASE("pack v2: the data follows set_order, the index stays sorted, and the 
     CHECK(p.value()->list("", true) == std::vector<std::string>{"a.json", "b/c.json", "b/d.png", "e.txt", "z.js"});
 }
 
-TEST_CASE("pack v2: under the Windows rules a mapped pack cannot be replaced, and the old one stays") {
+TEST_CASE("pack v2: under the Windows rules an open pack cannot be replaced, mapped or not, and the old one stays") {
     RulesScope rules(true);
-    Scratch s;
-    {
-        PackWriter w;
-        REQUIRE(w.add_bytes("a.txt", bytes_of("old")).ok());
-        REQUIRE(w.write(s.pak()).ok());
-    }
-    auto running = PackReader::open(s.pak());  // a game that runs from the pack
-    REQUIRE(running.ok());
-    PackWriter again;
-    REQUIRE(again.add_bytes("a.txt", bytes_of("new")).ok());
-    if (running.value()->mapped()) {
+    for (const bool map : {true, false}) {
+        CAPTURE(map);
+        Scratch s;
+        {
+            PackWriter w;
+            REQUIRE(w.add_bytes("a.txt", bytes_of("old")).ok());
+            REQUIRE(w.write(s.pak()).ok());
+        }
+        auto running = PackReader::open(s.pak(), PackOpenOptions{map});  // a game that runs from the pack
+        REQUIRE(running.ok());
+        PackWriter again;
+        REQUIRE(again.add_bytes("a.txt", bytes_of("new")).ok());
         auto r = again.write(s.pak());
-        REQUIRE(!r.ok());
-        CHECK(r.error().message.find("in use") != std::string::npos);
-        CHECK(r.error().hint.find("Close the game") != std::string::npos);
-        CHECK(!stdfs::exists(s.dir / "game.pak.tmp"));
-        CHECK(running.value()->read("a.txt").value() == bytes_of("old"));
+        // Wine renames onto an open file as POSIX does, so only a real Windows (and the emulation) refuses.
+        if (!running_under_wine()) {
+            REQUIRE(!r.ok());
+            CHECK(r.error().message.find("in use") != std::string::npos);
+            CHECK(r.error().hint.find("Close the game") != std::string::npos);
+            CHECK(!stdfs::exists(s.dir / "game.pak.tmp"));
+            CHECK(running.value()->read("a.txt").value() == bytes_of("old"));
+        }
         running.value().reset();  // the game quits
+        REQUIRE(again.write(s.pak()).ok());
+        auto fresh = PackReader::open(s.pak(), PackOpenOptions{map});
+        REQUIRE(fresh.ok());
+        CHECK(fresh.value()->read("a.txt").value() == bytes_of("new"));
     }
-    REQUIRE(again.write(s.pak()).ok());
-    auto fresh = PackReader::open(s.pak());
-    REQUIRE(fresh.ok());
-    CHECK(fresh.value()->read("a.txt").value() == bytes_of("new"));
-    fresh.value().reset();
-    // A pack read without a mapping is opened with FILE_SHARE_DELETE on Windows: it can be replaced while open.
-    auto reading = PackReader::open(s.pak(), PackOpenOptions{false});
-    REQUIRE(reading.ok());
-    REQUIRE(again.write(s.pak()).ok());
 }
 
 TEST_CASE("load trace: reads by scene in first-read order, scene load times, slowest assets") {
@@ -520,7 +556,7 @@ TEST_CASE("load trace: reads by scene in first-read order, scene load times, slo
         LoadTrace trace;
         CHECK(LoadTrace::any());
         REQUIRE(fs::read_text("factoria-free.json").ok() == false);  // a failed read is not recorded
-        REQUIRE(fs::read_text("b.json").ok());                      // before the first scene: belongs to it
+        REQUIRE(fs::read_text("b.json").ok());                      // before the first scene: the start-up group
         trace.scene_started("scenes/one.scene.json");
         REQUIRE(fs::read_text("a.json").ok());
         REQUIRE(fs::read_text("b.json").ok());  // already listed
@@ -536,11 +572,13 @@ TEST_CASE("load trace: reads by scene in first-read order, scene load times, slo
         REQUIRE(fs::read_bytes("a.json").ok());
 
         const LoadOrder order = trace.order();
-        REQUIRE(order.size() == 2);
-        CHECK(order[0].scene == "scenes/one.scene.json");
-        CHECK(order[0].files == std::vector<std::string>{"b.json", "a.json", "c.json"});
-        CHECK(order[1].scene == "scenes/two.scene.json");
-        CHECK(order[1].files == std::vector<std::string>{"d.json"});
+        REQUIRE(order.size() == 3);
+        CHECK(order[0].scene == LoadTrace::kStartupScene);
+        CHECK(order[0].files == std::vector<std::string>{"b.json"});
+        CHECK(order[1].scene == "scenes/one.scene.json");
+        CHECK(order[1].files == std::vector<std::string>{"a.json", "c.json"});
+        CHECK(order[2].scene == "scenes/two.scene.json");
+        CHECK(order[2].files == std::vector<std::string>{"d.json"});
 
         const Json r = trace.report();
         CHECK(r["timeToFirstFrameMs"].is_number());
@@ -557,6 +595,45 @@ TEST_CASE("load trace: reads by scene in first-read order, scene load times, slo
         CHECK(r["reads"]["fromPack"] == 0);
     }
     CHECK(!LoadTrace::any());
+}
+
+TEST_CASE("load trace: a trace with an owner records only the reads made for it, on any thread") {
+    Scratch s;
+    fs::set_project_root(s.dir);
+    for (const char* f : {"mine.json", "editor.json", "other.json", "worker.json", "asset.json"})
+        std::ofstream(s.dir / f, std::ios::binary) << "{\"n\":1}";
+    int engineA = 0, engineB = 0;  // two engines in one process: only their addresses matter
+    LoadTrace a(&engineA), b(&engineB);
+    CHECK(LoadTrace::current_owner() == nullptr);
+    REQUIRE(fs::read_text("editor.json").ok());  // the editor's own read: nobody's
+    {
+        LoadTrace::ReadingFor reading(&engineA);
+        CHECK(LoadTrace::current_owner() == &engineA);
+        REQUIRE(fs::read_text("mine.json").ok());
+        {
+            LoadTrace::ReadingFor nested(&engineB);  // another engine runs inside (an in-process play.auto)
+            REQUIRE(fs::read_text("other.json").ok());
+        }
+        CHECK(LoadTrace::current_owner() == &engineA);
+        // A job handed to a worker thread takes its owner along (what a background loader does).
+        const LoadTrace::Owner owner = LoadTrace::current_owner();
+        std::thread worker([owner] {
+            CHECK(LoadTrace::current_owner() == nullptr);  // a thread is never an owner by itself
+            LoadTrace::ReadingFor onWorker(owner);
+            REQUIRE(fs::read_text("worker.json").ok());
+            AssetLoadScope asset("texture", "asset.json");
+            REQUIRE(fs::read_bytes("asset.json").ok());
+        });
+        worker.join();
+    }
+    CHECK(LoadTrace::current_owner() == nullptr);
+    const LoadOrder orderA = a.order();
+    REQUIRE(orderA.size() == 1);
+    CHECK(orderA[0].files == std::vector<std::string>{"mine.json", "worker.json", "asset.json"});
+    REQUIRE(b.order().size() == 1);
+    CHECK(b.order()[0].files == std::vector<std::string>{"other.json"});
+    CHECK(a.report()["slowestAssets"].size() == 1);
+    CHECK(b.report()["slowestAssets"].size() == 0);
 }
 
 TEST_CASE("load trace: reads from a mounted pack say so") {

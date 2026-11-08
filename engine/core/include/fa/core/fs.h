@@ -10,6 +10,7 @@
 // Writes are for tools and save games; game data on mobile and in a pack is read-only.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -92,6 +93,14 @@ std::filesystem::path os_path(const std::filesystem::path& p);
 // Under the Windows rules (below) a file inside that is open through ReadStream stays, the rest is deleted and `ec` is a
 // sharing violation, as remove_all does on Windows.
 std::uintmax_t remove_tree(const std::filesystem::path& dir, std::error_code& ec);
+// The first file under `dir` (or `dir` itself when it is a file) that is held open so that Windows would refuse to delete
+// or replace it, in directory order; empty when there is none. On Windows that is a file for which an open that shares
+// nothing keeps failing for about a second (a running game's exe, its open or mapped pack, a file open in another
+// program; a scanner that lets go sooner does not count); under the Windows rules emulation a file open through
+// ReadStream, read_bytes or a fa::PackReader; elsewhere nothing (macOS and Linux delete open files). Call it before
+// remove_tree when a half-deleted folder would be worse than an error; it reads the folder, so never on a UI thread. It
+// looks at `maxFiles` files at most (a deterministic count, not a time: what lies past it is not looked at).
+std::filesystem::path find_file_in_use(const std::filesystem::path& dir, std::size_t maxFiles = 100000);
 
 // ---- Windows file rules ------------------------------------------------------------------------------------------
 // Some file bugs only happen on Windows, so only a Windows CI run found them. Two rules cause most of them:
@@ -107,8 +116,8 @@ std::uintmax_t remove_tree(const std::filesystem::path& dir, std::error_code& ec
 // `FA_FS_WINDOWS_RULES=0 ctest` turns the mode off for one run). set_windows_rules overrides both (tests).
 //
 // What it covers: files opened through ReadStream or fs::read_bytes / read_text (the registry only knows those: a file
-// opened with a bare std::ifstream, or by another process, is invisible to it), and a game pack while fa::PackReader has
-// it memory-mapped (Windows refuses to replace or delete a mapped file: an export over a running game); replace_file,
+// opened with a bare std::ifstream, or by another process, is invisible to it), and a game pack while a fa::PackReader has
+// it open, mapped or not (Windows refuses to replace an open file: an export over a running game); replace_file,
 // remove_file, remove_tree and write_bytes against them; modified_time. What it does not: files held open for writing or
 // mapped by anything else, other processes, reserved names (CON, NUL), the 260-character limit, text/binary newline translation.
 bool windows_rules();             // true when file operations follow Windows rules: on Windows always, elsewhere when the mode is on

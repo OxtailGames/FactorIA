@@ -213,7 +213,11 @@ Result<void> install_player(const Project& p, const stdfs::path& player, const s
         }
     }
     stdfs::copy_file(os_path(player), os_path(dest), stdfs::copy_options::overwrite_existing, ec);
-    if (ec) return err("export: cannot copy the player to " + generic(dest) + ": " + ec.message());
+    if (ec)
+        return err("export: cannot copy the player to " + generic(dest) + ": " + ec.message(),
+                   fs::is_sharing_violation(ec) ? "The game is running from that folder: close it (or the editor's preview of it) and "
+                                                  "export again."
+                                                : "Check that the output folder can be written, then export again.");
     return {};
 }
 

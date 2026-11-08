@@ -644,7 +644,7 @@ bool Editor::boot(const std::string& dirIn) {
         cfg.shaderCompiler = make_engine_shader_compiler(dir);
         // What a Play reads first, per scene, goes into .factoria/cache/load-order.json for the release export's pack order,
         // written on a background thread: Stop never waits for the project's lock or the disk (fa/tooling/load_order.h).
-        cfg.loadOrderSink = [dir](const LoadOrder& order) { record_load_order_async(std::filesystem::path(dir), order); };  // as the engine builds its root
+        cfg.loadOrderSink = [dir](const LoadOrder& order) { record_load_order_async(fs::path_from_utf8(dir), order); };
         cfg.editorMode = true;
         cfg.hotReload = false;       // the editor reloads scenes and scripts itself
         cfg.hotReloadAssets = true;  // but materials, snippets and textures edited on disk show right away

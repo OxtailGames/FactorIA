@@ -7,8 +7,10 @@
 
 namespace fa::detail {
 
-// Opens `file` for reading; -1 when it cannot. On Windows other processes may read, write, rename and delete it while
-// it is open (FILE_SHARE_READ | WRITE | DELETE), as with a loose file.
+// Opens `file` for reading; -1 when it cannot. On Windows it is opened with FILE_SHARE_READ | WRITE | DELETE: other
+// processes may read and write it, and rename or delete it while it is not mapped, but nobody can replace it: MoveFileExW
+// onto a file that is open fails (mapped or not), so an export cannot replace the pack of a running game (fa::PackWriter
+// reports it). fs::replace_file keeps that rule; the Windows rules emulation (fs.h) follows it for every open PackReader.
 std::intptr_t pack_open(const std::filesystem::path& file);
 void pack_close(std::intptr_t native);
 // Reads `size` bytes at `offset` without moving a file position (pread / ReadFile with an offset): any number of threads

@@ -17,6 +17,7 @@ std::vector<LoadTrace*>& traces() {
     return t;
 }
 
+thread_local LoadTrace::Owner t_owner = nullptr;
 thread_local std::int64_t t_readNs = 0;
 thread_local std::uint64_t t_readBytes = 0;
 
@@ -32,7 +33,12 @@ std::int64_t LoadTrace::now_ns() {
 
 std::int64_t LoadTrace::thread_read_ns() { return t_readNs; }
 
-LoadTrace::LoadTrace() : startNs_(now_ns()) {
+LoadTrace::Owner LoadTrace::current_owner() { return t_owner; }
+
+LoadTrace::ReadingFor::ReadingFor(Owner owner) : previous_(t_owner) { t_owner = owner; }
+LoadTrace::ReadingFor::~ReadingFor() { t_owner = previous_; }
+
+LoadTrace::LoadTrace(Owner owner) : owner_(owner), startNs_(now_ns()) {
     std::lock_guard<std::mutex> lock(traces_mutex());
     traces().push_back(this);
     activeCount_.fetch_add(1, std::memory_order_relaxed);
@@ -50,23 +56,19 @@ void LoadTrace::file_read(std::string_view path, std::uint64_t bytes, std::uint6
     t_readNs += readNs;
     t_readBytes += bytes;
     std::lock_guard<std::mutex> lock(traces_mutex());
-    for (LoadTrace* t : traces()) t->record_file(path, bytes, storedBytes, fromPack);
+    for (LoadTrace* t : traces())
+        if (t->records(t_owner)) t->record_file(path, bytes, storedBytes, fromPack);
 }
 
 void LoadTrace::asset_loaded(std::string_view kind, std::string_view path, std::uint64_t bytes, std::int64_t totalNs, std::int64_t readNs) {
     std::lock_guard<std::mutex> lock(traces_mutex());
-    for (LoadTrace* t : traces()) t->record_asset(kind, path, bytes, totalNs, readNs);
+    for (LoadTrace* t : traces())
+        if (t->records(t_owner)) t->record_asset(kind, path, bytes, totalNs, readNs);
 }
 
 void LoadTrace::scene_started(std::string scene) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (loads_.size() < kMaxScenes) loads_.push_back(SceneLoad{scene, now_ns(), -1, 0, 0});
-    // The files read before the first scene (the project file, the start-up scripts) belong to that first scene.
-    if (order_.size() == 1 && order_.back().scene.empty()) {
-        order_.back().scene = std::move(scene);
-        current_ = 0;
-        return;
-    }
     // A scene loaded again keeps its place (scenes stay in first-loaded order); its new files are appended to it.
     auto it = std::find_if(order_.begin(), order_.end(), [&](const SceneFiles& s) { return s.scene == scene; });
     if (it == order_.end()) {
@@ -99,8 +101,8 @@ void LoadTrace::record_file(std::string_view path, std::uint64_t bytes, std::uin
     if (seen_.size() >= kMaxFiles) return;
     std::string p(path);
     if (!seen_.insert(p).second) return;
-    if (order_.empty()) {
-        order_.push_back(SceneFiles{});
+    if (order_.empty()) {  // read before the first scene: the start-up group
+        order_.push_back(SceneFiles{kStartupScene, {}});
         current_ = 0;
     }
     order_[current_].files.push_back(std::move(p));

@@ -91,7 +91,10 @@ Command make_run_command() {
         // A run is a play session: the files it reads first, per scene, go into .factoria/cache/load-order.json, the order a
         // release export packs game.pak in (fa/tooling/load_order.h).
         cfg.traceLoads = true;
-        cfg.loadOrderSink = [dir](const LoadOrder& order) { record_load_order_logged(fsys::path(dir), order); };  // as set_project_root(dir) above
+        // A cold session: its order of a scene replaces an editor Play's (fa/tooling/load_order.h, "Which session wins").
+        cfg.loadOrderSink = [dir](const LoadOrder& order) {
+            record_load_order_logged(fs::path_from_utf8(dir), order, LoadOrderSource::Run);
+        };
         if (a.has("props")) {
             std::string text = a.str("props");
             std::string where = "--props";

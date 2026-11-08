@@ -152,9 +152,13 @@ folder: use `fs::`, or the file will be missing from a packed game. A pack (form
 memory-mapped once; elsewhere (32-bit, web, `FA_PACK_MAP=0`) it reads positionally (no shared file offset), so it is safe from
 any thread either way. `fs::read_view(path)` answers an `fs::FileView` instead of a vector: no copy for a file of a mapped
 pack stored as it is (the view keeps the pack mapped while it lives, also after `unmount_pack`), a warm file or an Android
-APK asset (`AAsset_getBuffer`), and an owned buffer otherwise; a loader that only reads the bytes should prefer it. A play
-session's `fa::LoadTrace` (`core/load_trace.h`) hooks into these reads to record each scene's first-use order and the
-`loading` section of `play.report`; with no trace alive the hooks cost one atomic load. `script/bytecode.h` compiles scripts
+APK asset (`AAsset_getBuffer`), and an owned buffer otherwise; the background loader (M70.3) will use it, and today's loaders
+still read vectors. A play session's `fa::LoadTrace` (`core/load_trace.h`) hooks into these reads to record each scene's
+first-use order and the `loading` section of `play.report`; with no trace alive the hooks cost one atomic load. A trace
+belongs to its engine, not to a thread: `Engine` marks its entry points with `LoadTrace::ReadingFor(this)`, so two engines in
+one process (the editor's and an in-process `play.auto`) never record each other's reads, the editor's own reads (panels,
+the asset browser, tools) are left out of a Play's trace, and work handed to another thread takes
+`LoadTrace::current_owner()` with it (the music loader does; the M70.3 loader will, per job). `script/bytecode.h` compiles scripts
 for the pack; the module loader reads a compiled script from the same `.js` path.
 
 **Windows file rules.** Windows refuses to replace or delete a file another thread has open for reading and moves a file's

@@ -49,8 +49,9 @@
 // A pack is immutable: the writer builds a new file next to the target and renames it over it when it is complete, so
 // a game that has the old pack mapped keeps reading the old bytes on macOS and Linux (rename never touches the old
 // file; changing a mapped pack IN PLACE, by truncating it, would make the reading process crash with SIGBUS, which is
-// why nothing in FactorIA writes into an existing pack). On Windows a mapped file cannot be replaced at all: exporting
-// over a game that is running fails with an error that says to close it, and the old pack stays as it was.
+// why nothing in FactorIA writes into an existing pack). On Windows an open file cannot be replaced at all, mapped or not:
+// PackWriter::write over the pack of a running game fails with an error that says to close it, and the old pack stays as
+// it was (a release export looks for open files in its whole output folder before it deletes anything, EXPORTING.md).
 #pragma once
 
 #include <array>
@@ -73,6 +74,17 @@ namespace fa {
 inline constexpr std::uint32_t kPackFormatVersion = 2;
 inline constexpr std::uint32_t kPackBlockSize = 256 * 1024;  // the most bytes one block decodes to (format 2)
 inline constexpr const char* kPackFileName = "game.pak";  // where an export puts it: next to the executable (see EXPORTING.md)
+
+// The largest file (decoded) a pack of `packBytes` bytes may hold: 64 times the pack's size, and never less than 256 MiB.
+// A reader refuses a bigger one as damaged when it opens the pack, so a hostile index cannot make a read allocate
+// gigabytes from a small file; a writer refuses to write one (a file that compresses more than 64 times, in a pack under
+// 4 MiB: store it, `export.pack.codecs`). Real game data is far below it: zstd packs text 3 to 10 times.
+inline constexpr std::uint64_t kPackMinFileCap = 256ull << 20;
+inline constexpr std::uint64_t kPackFileCapRatio = 64;
+constexpr std::uint64_t pack_max_file_size(std::uint64_t packBytes) {
+    if (packBytes > ~std::uint64_t(0) / kPackFileCapRatio) return ~std::uint64_t(0);
+    return packBytes * kPackFileCapRatio > kPackMinFileCap ? packBytes * kPackFileCapRatio : kPackMinFileCap;
+}
 
 // The codec a file gets when nobody chose one (factoria.json export.pack.codecs overrides it per extension,
 // docs/EXPORTING.md): data that is compressed already is stored (PNG, JPG, WebP, OGG, MP3, QOA, MP4, WebM, Basis, KTX2
@@ -126,7 +138,8 @@ public:
     // Writes the pack to `out` (the folder must exist). The file appears complete or not at all: the bytes go to
     // `out` + ".tmp", which replaces `out` once it is complete (fs::replace_file, which waits about a second for a
     // reader to let go). The same files, codecs, order and level give the same bytes on every platform. When `out` is in
-    // use (Windows: a running game has it mapped), the error says to close the game, and `out` stays as it was.
+    // use (Windows: a running game has it open), the error says to close the game, and `out` stays as it was. A file over
+    // pack_max_file_size of the finished pack is an error (nothing is written).
     Result<PackStats> write(const std::filesystem::path& out) const;
 
 private:
@@ -228,7 +241,7 @@ private:
     std::intptr_t mapping_ = 0;    // Windows: the file mapping object
     const std::uint8_t* map_ = nullptr;  // the whole pack, when mapped
     std::uint64_t mapSize_ = 0;
-    std::string registered_;  // the Windows rules registry key while mapped (fs.h, "Windows file rules")
+    std::string registered_;  // the Windows rules registry key while open (fs.h, "Windows file rules")
     mutable std::atomic<std::uint64_t> reads_{0}, bytesRead_{0}, storedRead_{0};
 };
 

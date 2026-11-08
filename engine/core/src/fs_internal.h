@@ -1,5 +1,5 @@
-// Platform hooks used by fs.cpp (the Android ones are in fs_android.cpp, Android only), and the hooks pack.cpp uses to
-// tell the "Windows file rules" emulation about a mapped pack.
+// Platform hooks used by fs.cpp (the Android ones are in fs_android.cpp, Android only; the Windows one in
+// fs_in_use_win32.cpp), and the hooks pack.cpp uses to tell the "Windows file rules" emulation about an open pack.
 #pragma once
 
 #include <cstddef>
@@ -26,4 +26,10 @@ std::vector<std::string> android_list(const std::string& dir, bool recursive);
 // unregister_open_file(key). Returns the key, "" when the emulation is off (then there is nothing to unregister).
 std::string register_open_file(const std::filesystem::path& file);
 void unregister_open_file(const std::string& key);
+
+#ifdef _WIN32
+// fs_in_use_win32.cpp: true when an open of `file` that shares nothing fails because someone holds it open
+// (ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION): a running exe, a mapped or open pack, a file open in an editor.
+bool held_open(const std::filesystem::path& file);
+#endif
 }  // namespace fa::fs::detail
