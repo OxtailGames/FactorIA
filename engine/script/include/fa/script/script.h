@@ -139,7 +139,8 @@ public:
         (void)props;
         return make_error("this host does not load in the background", "Load the scene or the files directly.");
     }
-    // Stops a job (its handle hears `cancelled` next frame) or gives a finished one's files back. False: unknown id.
+    // Stops a job (its handle hears `cancelled` next frame) or gives a finished one's files back; an async scene load whose
+    // files were ready this frame does not switch at its end. False: unknown id.
     virtual bool background_load_cancel(int id) {
         (void)id;
         return false;
@@ -151,6 +152,10 @@ public:
     // would cancel those jobs die with the context, and nothing else would ever step them. A job started by the console, the MCP
     // server or the editor is not in the list and is left alone.
     virtual void drop_script_jobs(const std::vector<int>& jobs) { (void)jobs; }
+    // Stops the background loads the script side started (background_load_start), an async scene load's pending switch
+    // included, and drops their updates not delivered yet: the handles that would hear them die with the JavaScript context.
+    // Called with drop_script_jobs, when the context is created or closed. Loads started by a command are left alone.
+    virtual void drop_script_background_loads() {}
     // Deferred to the end of the current frame.
     virtual void request_scene_change(std::string_view scenePath) = 0;
     // Scene props (scene.load(path, { props }), game.sceneProps()): plain JSON the new scene's scripts read from their first

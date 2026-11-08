@@ -88,15 +88,16 @@ void register_background_load_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add({"load.cancel", "Stop a background load, or drop the files a finished one read ahead.",
            "A running load stops: what it decoded is thrown away, an async scene.load does not switch, and a script's handle "
-           "rejects with \"cancelled\" in the next frame. A finished load's files read ahead are dropped now. Answers "
-           "{id, cancelled}. Example: load.cancel {\"id\":1}",
+           "rejects with \"cancelled\" in the next frame. A finished load's files read ahead are dropped now, and an async "
+           "scene.load whose files were ready this frame does not switch at its end. Answers {id, cancelled}. "
+           "Example: load.cancel {\"id\":1}",
            parse_schema(R"({"type":"object","required":["id"],"properties":{
                "id":{"type":"integer","minimum":1,"description":"The loadId to stop."}}})"),
            false, "scene"},
           [&I](const Json& a) {
               if (!I.loader) throw CommandError("unavailable", "The engine is not running.", "");
               const int id = need_id(a, "load.cancel");
-              if (!I.loader->cancel(id, I.loadTrace.get()))
+              if (!I.cancel_background_load(id))
                   throw CommandError("not_found", "load.cancel: no background load " + std::to_string(id),
                                      "load.status {} lists the loads that run.");
               return Json::object({{"id", id}, {"cancelled", true}});

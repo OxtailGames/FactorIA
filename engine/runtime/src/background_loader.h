@@ -20,6 +20,9 @@
 // The fixed order: round after round, one unit of each job in the order the jobs started. A timed frame stops at the
 // first job whose next unit is not ready, so what it took is always a prefix of that order and a count replays it.
 //
+// Warm files are counted across the loaders of every engine in the process (a reference per item that read a file, then
+// per job or finished load holding it): fs::unwarm runs when the last reference goes, so one engine's cancel never drops
+// a file another engine read ahead.
 // The warm files of a job are dropped once what they hold is in a cache. Those still warm when it finishes (the scene
 // file, scripts, prefabs, files the renderer does not decode) stay through the first scene load after it finished and are
 // dropped at the second (or by cancel()), so memory stays bounded: about one scene's files beyond the one in use.
@@ -74,6 +77,7 @@ public:
         std::string path;
         std::optional<Json> props;
         std::uint64_t traceTag = 0;
+        Origin origin = Origin::Tool;
     };
     struct Frame {
         std::vector<Update> updates;  // the jobs that changed (and those cancelled since the last tick)
@@ -96,7 +100,10 @@ public:
     bool cancel(int id, LoadTrace* trace);
     // Cancels every async scene load still loading (a scene change was asked for meanwhile). Returns how many.
     int cancel_scene_loads(LoadTrace* trace);
-    // Cancels every job and drops every warm file of the process (a script test file starts afresh).
+    // Cancels every job a script started (its JavaScript context is gone) and forgets their updates not delivered yet.
+    void cancel_origin(Origin origin, LoadTrace* trace);
+    // Cancels every job and drops every file this loader holds warm (a script test file starts afresh). Files another
+    // engine's loader holds stay warm.
     void reset(LoadTrace* trace);
     // Cancels every job and drops its files; the IO thread lets go of this engine's files before it returns. The engine
     // then waits for its jobs owner (the decodes still running) and destroys the loader.
@@ -151,8 +158,8 @@ private:
     void run_unit(Job& job, Renderer* renderer, Audio* audio, std::uint64_t& uploaded);
     void take_scan(Job& job, Renderer* renderer, Audio* audio);
     void abandon(Job& job);  // its queued items become orphans; its warm files are dropped
-    void hold(Job& job, const std::string& path);
-    void drop(const std::string& path);
+    void hold(Job& job, const std::string& path);  // the job takes over an item's reference to a warm file
+    void drop(const std::string& path);             // gives one reference back (warm_release)
     void collect_orphans(bool all);
     void remember(const Job& job);
     Json job_status(const Job& job) const;
@@ -163,7 +170,6 @@ private:
     std::vector<Job> jobs_;
     std::vector<Update> pending_;  // updates of jobs cancelled since the last tick
     std::vector<std::shared_ptr<Shared>> orphans_;  // items of cancelled jobs the IO thread may still be reading
-    std::map<std::string, int> warmRefs_;  // file -> jobs (running or kept) holding it warm
     struct Kept {
         std::set<std::string> files;
         int loads = 0;  // scene loads since the job finished

@@ -136,6 +136,8 @@ struct Engine::Impl {
     std::string pendingScene;
     bool hasPendingScene = false;
     std::uint64_t pendingTraceTag = 0;  // the pending scene change is an async scene load's (its load-trace tag)
+    int pendingLoadId = 0;              // ... and that load's id (0: not an async load's switch)
+    BackgroundLoader::Origin pendingLoadOrigin = BackgroundLoader::Origin::Tool;
 
     // Background loading (scene.preload, assets.preload, scene.load {async: true}; background_loader.h). Made after the job
     // pool started (whether its IO thread runs depends on the pool), stopped before the engine waits for its jobs.
@@ -149,6 +151,13 @@ struct Engine::Impl {
     BackgroundLoader::Budget load_budget();
     void tick_background_loads();
     void cancel_background_scene_loads();  // a scene change was asked for: the async scene loads before it stop
+    // load.cancel / a handle's cancel(): stops a running load, drops a finished one's files, and stops the switch of an
+    // async scene load whose files were ready this frame (it would happen at the end of the frame). False: unknown id.
+    bool cancel_background_load(int id);
+    // The JavaScript context that started them is gone: its loads stop (an async scene load's pending switch too), and
+    // no update of theirs is delivered to the next context.
+    void cancel_script_background_loads();
+    void drop_pending_async_switch();  // forgets the pending scene change of an async load (records it as cancelled)
     std::string currentScene;
     // The current scene is the project's mainScene, loaded at start because no start scene was given (no EngineConfig::scene),
     // and no scene was loaded since. scene.import_ascii refuses `save` without `path` then: see level_commands.cpp.

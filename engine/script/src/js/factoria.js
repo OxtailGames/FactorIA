@@ -1829,7 +1829,7 @@
     get error() { return this.$error; }
     /** True when the job was cancelled (cancel(), release(), or a newer scene load replaced an async one). */
     get cancelled() { return this.$cancelled; }
-    /** Stops the job now: its Promise rejects with "cancelled" and the files it read ahead are dropped. An async scene load does not switch. */
+    /** Stops the job now: its Promise rejects with "cancelled" and the files it read ahead are dropped. An async scene load does not switch, also in the frame its files were ready. */
     cancel() { this.$stop("cancelled"); }
     /** Gives the files read ahead back: stops a job still running (like cancel()), or drops a finished job's files now. */
     release() { this.$stop("released before it finished"); }

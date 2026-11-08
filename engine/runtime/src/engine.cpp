@@ -305,6 +305,7 @@ void Engine::Impl::apply_scene_change() {
     hasPendingScene = false;
     const bool keep = std::exchange(pendingKeepProps, false);
     const std::uint64_t tag = std::exchange(pendingTraceTag, 0);  // an async scene load's switch
+    pendingLoadId = 0;
     std::string err;
     load_scene_impl(path, &err, keep, tag);
 }
@@ -338,6 +339,8 @@ void Engine::Impl::tick_background_loads() {
         nextProps = ready.props;
         pendingKeepProps = false;
         pendingTraceTag = ready.traceTag;
+        pendingLoadId = ready.id;  // a cancel() later in this frame still stops the switch
+        pendingLoadOrigin = ready.origin;
     }
     Json list = Json::array();
     for (const BackgroundLoader::Update& u : f.updates)
@@ -351,6 +354,32 @@ void Engine::Impl::cancel_background_scene_loads() {
         if (loadTrace) loadTrace->load_cancelled(pendingTraceTag);
         pendingTraceTag = 0;
     }
+    pendingLoadId = 0;
+}
+
+void Engine::Impl::drop_pending_async_switch() {
+    if (pendingTraceTag != 0 && loadTrace) loadTrace->load_cancelled(pendingTraceTag);
+    hasPendingScene = false;
+    pendingScene.clear();
+    nextProps.reset();
+    pendingKeepProps = false;
+    pendingTraceTag = 0;
+    pendingLoadId = 0;
+}
+
+bool Engine::Impl::cancel_background_load(int id) {
+    bool found = false;
+    if (id != 0 && pendingLoadId == id) {  // its files were ready this frame: the switch at the end of it does not happen
+        drop_pending_async_switch();
+        found = true;
+    }
+    if (loader && loader->cancel(id, loadTrace.get())) found = true;  // running: stops; finished: its files are dropped
+    return found;
+}
+
+void Engine::Impl::cancel_script_background_loads() {
+    if (pendingLoadId != 0 && pendingLoadOrigin == BackgroundLoader::Origin::Script) drop_pending_async_switch();
+    if (loader) loader->cancel_origin(BackgroundLoader::Origin::Script, loadTrace.get());
 }
 
 namespace {
@@ -1366,6 +1395,8 @@ void Engine::drop_script_jobs(const std::vector<int>& jobs) {
     for (int id : jobs) impl_->wfcJobs.erase(id);
 }
 
+void Engine::drop_script_background_loads() { impl_->cancel_script_background_loads(); }
+
 Result<int> Engine::Impl::start_background_load(BackgroundLoader::Kind kind, const std::vector<std::string>& paths,
                                                 std::optional<Json> props, BackgroundLoader::Origin origin) {
     if (!loader) return make_error("background loading needs a running engine (Engine::init)", "");
@@ -1376,6 +1407,7 @@ Result<int> Engine::Impl::start_background_load(BackgroundLoader::Kind kind, con
         // The last request wins: a scene change asked for earlier in this frame does not happen.
         if (pendingTraceTag != 0 && loadTrace) loadTrace->load_cancelled(pendingTraceTag);
         pendingTraceTag = 0;
+        pendingLoadId = 0;
         hasPendingScene = false;
         nextProps.reset();
         pendingKeepProps = false;
@@ -1392,11 +1424,10 @@ Result<int> Engine::background_load_start(int kind, const std::vector<std::strin
     return impl_->start_background_load(k, paths, std::move(p), BackgroundLoader::Origin::Script);
 }
 
-bool Engine::background_load_cancel(int id) {
-    return impl_->loader && impl_->loader->cancel(id, impl_->loadTrace.get());
-}
+bool Engine::background_load_cancel(int id) { return impl_->cancel_background_load(id); }
 
 void Engine::background_loads_reset() {
+    if (impl_->pendingLoadId != 0) impl_->drop_pending_async_switch();  // an async load ready this frame does not switch
     if (impl_->loader) impl_->loader->reset(impl_->loadTrace.get());
 }
 

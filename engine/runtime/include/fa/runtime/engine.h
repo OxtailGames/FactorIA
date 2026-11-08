@@ -248,6 +248,7 @@ public:
     std::string set_language(std::string_view language) override;
     double preload_time_budget_ms() const override;
     void drop_script_jobs(const std::vector<int>& jobs) override;
+    void drop_script_background_loads() override;
     Result<int> background_load_start(int kind, const std::vector<std::string>& paths, const Json* props) override;
     bool background_load_cancel(int id) override;
     void background_loads_reset() override;

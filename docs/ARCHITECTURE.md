@@ -277,10 +277,15 @@ files while frames run. The pieces and who owns what:
   still running finishes on its worker and is dropped. `Engine::shutdown` stops the loader (`cancel_all`: the IO thread lets
   go of this engine's files), then waits for its jobs owner (the decodes still running), then destroys the loader; nothing
   of a load outlives its engine.
-- **The warm set is the process's** (`fs::warm`, keyed by path): a loader counts which of its own jobs hold each file and
-  drops it when the last one lets go. Two engines that load the same file share that one copy, so when one drops it the
-  other reads it again from the disk on first use; `background_loads_reset` (a script test file starting afresh) drops every
-  warm file of the process. Either way a load is slower, never different.
+- **The warm set is the process's** (`fs::warm`, keyed by path), and the loaders of every engine count their references
+  to each file in one registry (`background_loader.cpp`): a reference per item that read the file (taken before it is
+  warmed), then one per job or finished load that holds it. `fs::unwarm` runs when the last reference goes, so two engines
+  that load the same file share one copy and one engine's cancel, finish or `background_loads_reset` (a script test file
+  starting afresh) never drops a file the other read ahead.
+- **Script loads die with their context**: `ScriptHost::drop_script_background_loads` (called with `drop_script_jobs` when
+  the JavaScript context is created or closed) cancels the loads a script started, an async scene load's pending switch
+  included, and drops their updates, so none reaches a handle that is gone. A cancel in the frame a load's files became
+  ready still stops its switch: the pending scene change keeps the load's id.
 - **Load trace**: reads run in `LoadTrace::ReadingFor(owner, tag)`, which counts them in the totals and the async load's
   entry but enters a file into the first-use order only at `LoadTrace::file_used` (a warm file read through `fs`, or the
   renderer and audio adopting a prepared asset on first use), so an async load records what a sync load records.
