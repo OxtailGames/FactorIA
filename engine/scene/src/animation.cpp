@@ -10,6 +10,7 @@
 #include <format>
 
 #include "fa/core/fs.h"
+#include "fa/core/jobs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/scene/anim3d.h"
@@ -497,12 +498,13 @@ void animator_apply_pose(Animator& a, const Pose& pose) {
 
 namespace {
 
-void update_one(World& w, Entity e, Animator& a, float dt) {
+// One animator's step; true when its pose must be built again (update_animators builds the poses afterwards, as jobs).
+bool update_one(World& w, Entity e, Animator& a, float dt) {
     AnimatorRuntime& rt = a.rt;
     std::string why;
     if (!resolve_skeleton(w, e, a, &why)) {
         warn_once(w, e, a, why);
-        return;
+        return false;
     }
     bool dirty = a.palette.empty();
     if (!rt.started) {
@@ -546,8 +548,15 @@ void update_one(World& w, Entity e, Animator& a, float dt) {
         dirty = true;
     }
     rt.triggers.clear();
-    if (dirty) build_palette(a);
+    return dirty;
 }
+
+// The poses of the animators that changed this step (every channel of their clips sampled, the blend of a fade, the
+// skinning palettes) are built as jobs once this many skeleton nodes are to be posed and the pool has a worker thread,
+// kPoseGrain animators per chunk: a node costs ~0.2 us, a chunk a few microseconds to hand out. A job writes only its
+// own animators' pose and palettes, so the result is the same either way.
+constexpr std::size_t kParallelPoseNodes = 512;
+constexpr std::size_t kPoseGrain = 2;
 
 }  // namespace
 
@@ -559,11 +568,30 @@ void emit_game_event(World& w, const std::string& name, Entity source, Json data
 }  // namespace animdetail
 
 void update_animators(World& world, float dt) {
+    // The state machines, clips, fades and events on this thread, in the order of the animators; then the poses.
+    std::vector<Entity> posed;
+    std::size_t nodes = 0;
     world.each<Animator>([&](Entity e, Animator& a) {
         if (!world.active_in_hierarchy(e)) return;
         if (clipanim::uses_clip_files(world, e, a)) clipanim::update(world, e, a, dt);
-        else update_one(world, e, a, dt);
+        else if (update_one(world, e, a, dt)) {
+            posed.push_back(e);
+            nodes += a.rt.skeleton->nodes.size();
+        }
     });
+    if (posed.empty()) return;
+    std::vector<Animator*> anims;
+    anims.reserve(posed.size());
+    for (Entity e : posed)
+        if (Animator* a = world.get<Animator>(e); a && a->rt.skeleton) anims.push_back(a);
+    if (nodes < kParallelPoseNodes || anims.size() < 2 || jobs::worker_count() == 0) {
+        for (Animator* a : anims) build_palette(*a);
+        return;
+    }
+    auto r = jobs::parallel_for("scene.animation_poses", anims.size(), kPoseGrain, [&](const jobs::Chunk& c) {
+        for (std::size_t i = c.begin; i < c.end; ++i) build_palette(*anims[i]);
+    });
+    if (!r) FA_ERROR("animation", "building the poses of the animators failed: {}", r.error().message);
 }
 
 // ==================================================================================================== API ======

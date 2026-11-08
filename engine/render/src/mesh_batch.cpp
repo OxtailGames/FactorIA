@@ -1,7 +1,11 @@
 #include "mesh_batch.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <string_view>
 #include <tuple>
+
+#include "render_jobs.h"
 
 namespace fa::render {
 
@@ -47,14 +51,42 @@ auto material_key(const MeshItem& a) {
                            r.normalScale, a.anim, a.material, a.paramsHash, a.colorsHash, a.flash.r, a.flash.g, a.flash.b, a.flash.a);
 }
 
+// The order of the batches: the same values, with each asset by its name (path or key) and a skinned item by its
+// entity, never by its address. Addresses differ from one process to the next (ASLR, the heap), and so would the
+// order of opaque meshes of different materials, and with it the pixels of coplanar ones. Floats go through
+// order_float (NaN would break the sort's strict weak order). Items with equal material_key have equal order_key, so
+// they sort next to each other and share a batch (the asset caches hold one asset per name; two of one name would
+// only split a batch, never merge two).
+std::string_view name_of(const MeshAsset* m) { return m ? std::string_view(m->key) : std::string_view(); }
+std::string_view name_of(const TextureAsset* t) { return t ? std::string_view(t->path) : std::string_view(); }
+std::string_view name_of(const MaterialAsset* m) { return m ? std::string_view(m->path) : std::string_view(); }
+
+auto order_key(const MeshItem& a) {
+    const MeshRenderer& r = *a.mr;
+    using rjobs::order_float;
+    return std::make_tuple(name_of(a.mesh), name_of(a.tex), name_of(a.normalTex), order_float(r.color.r),
+                           order_float(r.color.g), order_float(r.color.b), order_float(r.color.a),
+                           order_float(r.metallic), order_float(r.roughness), order_float(r.emissive.r),
+                           order_float(r.emissive.g), order_float(r.emissive.b), r.unlit, r.receiveShadows,
+                           order_float(r.uvScale.x), order_float(r.uvScale.y), order_float(r.normalScale),
+                           a.anim ? a.entity.bits() : std::uint64_t(0), name_of(a.material), a.paramsHash,
+                           a.colorsHash, order_float(a.flash.r), order_float(a.flash.g), order_float(a.flash.b),
+                           order_float(a.flash.a));
+}
+
 // Items that can share one instanced draw have the same mesh, textures and every MeshRenderer value the shader reads.
 bool same_material(const MeshItem& a, const MeshItem& b) { return material_key(a) == material_key(b); }
-bool material_less(const MeshItem& a, const MeshItem& b) { return material_key(a) < material_key(b); }
+bool material_less(const MeshItem& a, const MeshItem& b) { return order_key(a) < order_key(b); }
+
+// The items of a camera are sorted by material as jobs from this many on, in chunks of kSortGrain (render_jobs.h:
+// the same order as one std::stable_sort).
+constexpr std::size_t kParallelSortItems = 1024;
+constexpr std::size_t kSortGrain = 256;
 }  // namespace
 
 void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vector<MeshBatch>& batches,
                    std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats) {
-    if (sortByMaterial) std::stable_sort(items.begin(), items.end(), material_less);
+    if (sortByMaterial) rjobs::stable_sort("render.sort_meshes", items, material_less, kParallelSortItems, kSortGrain);
     for (std::size_t i = 0; i < items.size(); ++i) {
         if (batches.empty() || !same_material(items[batches.back().rep], items[i])) {
             MeshBatch b;
