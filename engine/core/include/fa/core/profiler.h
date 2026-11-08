@@ -5,17 +5,23 @@
 // reaches the simulation, game.state, replays or saved data (same rule as RenderStats::cpuMs): the numbers are wall-clock
 // milliseconds and differ from run to run.
 //
-// One process-wide instance (Profiler::get()), single threaded like the engine loop. The engine brackets each frame with
-// begin_frame/end_frame and each system with ProfSystemScope; the script system brackets each behaviour callback with
-// ProfBehaviourScope. Time inside a nested scope is not counted twice: a behaviour callback that runs another behaviour's
-// hook is charged only its own time.
+// One process-wide instance (Profiler::get()). The frame, system and behaviour probes are main-thread only, like the
+// engine loop: the engine brackets each frame with begin_frame/end_frame and each system with ProfSystemScope; the script
+// system brackets each behaviour callback with ProfBehaviourScope. Time inside a nested scope is not counted twice: a
+// behaviour callback that runs another behaviour's hook is charged only its own time.
+//
+// Jobs (fa/core/jobs.h) report from any thread through add_job(): each thread is a lane (main, worker 1..), and
+// end_frame() publishes one ProfLane per thread of the pool in ProfFrame::lanes.
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -52,10 +58,26 @@ struct ProfClassSample {
     int calls = 0;          // callbacks run this frame (onUpdate, onFixedUpdate, collision handlers...)
 };
 
+// The jobs of one name that one thread ran in a frame (a parallel_for chunk counts as one job).
+struct ProfJobSample {
+    std::string name;  // the name given to jobs::submit / parallel_for ("physics.islands")
+    double ms = 0;
+    int count = 0;
+};
+
+// One thread of the job pool in a frame.
+struct ProfLane {
+    std::string name;  // "main", "worker 1".., "other" (a thread outside the pool that ran jobs)
+    double jobMs = 0;  // time spent in jobs
+    int jobs = 0;
+    std::vector<ProfJobSample> samples;  // sorted by ms, slowest first
+};
+
 struct ProfFrame {
     double totalMs = 0;  // begin_frame .. end_frame
     std::array<double, kProfSystemCount> systemMs{};
     std::vector<ProfClassSample> classes;  // sorted by ms, slowest first
+    std::vector<ProfLane> lanes;           // main first, then every worker of the pool (idle ones too)
 };
 
 // Memory the engine can name. Bytes; what the build cannot measure stays 0.
@@ -71,7 +93,7 @@ struct ProfMemory {
 class Profiler {
 public:
     static Profiler& get();
-    static bool on() { return flag_; }
+    static bool on() { return flag_.load(std::memory_order_relaxed); }
     void set_enabled(bool on);  // changing the state forgets what was recorded
 
     // Frame bracket (Engine::Impl::run_frame). end_frame() publishes last().
@@ -83,6 +105,8 @@ public:
     // Probes (call only when on(); the scopes below check).
     void add_system(ProfSystem s, double ms) { cur_.systemMs[std::size_t(s)] += ms; }
     void add_behaviour(const std::string& className, const std::string& path, double ms);
+    // A job's time on a lane (jobs::current_lane()). Any thread; the job system calls it when on().
+    void add_job(int lane, std::string_view name, double ms);
 
     static double now_ms() {
         return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -90,8 +114,10 @@ public:
     double& child_ms() { return childMs_; }  // nesting: the time of an inner probe is subtracted from the outer one
 
 private:
-    static inline bool flag_ = false;
+    static inline std::atomic<bool> flag_{false};
     ProfFrame cur_, last_;
+    std::mutex jobsMu_;                    // jobLanes_: workers add while the main thread publishes
+    std::vector<ProfLane> jobLanes_;       // indexed by lane, grown on demand
     std::unordered_map<std::string, std::size_t> index_;  // path + '\n' + className -> slots_ index
     std::vector<ProfClassSample> slots_;
     double t0_ = 0;
@@ -143,6 +169,7 @@ class ProfileSummary {
 public:
     static constexpr std::size_t kMaxWindow = 20000;  // p95 is over the last this many frames; avg and max are exact
     static constexpr std::size_t kMaxClasses = 30;    // behaviour classes listed (the slowest by average)
+    static constexpr std::size_t kMaxLaneJobs = 10;   // job names listed per thread (the slowest by average)
 
     void add_frame(const ProfFrame& f);
     void add_gpu_ms(double ms);  // one resolved GPU frame time (they arrive a few frames late)
@@ -165,10 +192,21 @@ private:
         double sumMs = 0, maxMs = 0;
         std::uint64_t calls = 0;
     };
+    struct JobAcc {
+        double sumMs = 0, maxMs = 0;
+        std::uint64_t count = 0;
+    };
+    struct LaneAcc {
+        std::string name;
+        double sumMs = 0, maxMs = 0;
+        std::uint64_t jobs = 0;
+        std::unordered_map<std::string, JobAcc> byName;
+    };
     int frames_ = 0;
     Acc frame_;
     std::array<Acc, kProfSystemCount> systems_;
     std::unordered_map<std::string, ClassAcc> classes_;
+    std::vector<LaneAcc> lanes_;  // in the order the lanes first appeared (main, worker 1..)
     Acc gpu_;
     bool gpuSupported_ = false;
     std::string gpuReason_ = "the GPU time was not measured";

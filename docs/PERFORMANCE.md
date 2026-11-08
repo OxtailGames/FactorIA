@@ -215,6 +215,8 @@ profile: {
   systems: {platform, physics, scriptsFixedUpdate, animation, scriptsEvents, ui, scriptsUpdate, audio,
             scriptsLateUpdate, localization, render, endOfFrame: {avgMs, p95Ms, maxMs}},
   behaviours: [{class, path, avgMs, maxMs, callsPerFrame}],   // slowest first
+  threads: [{name, jobMsAvg, jobMsMax, busyPct, jobsPerFrame,  // "main", "worker 1".., "other"
+             jobs: [{name, avgMs, maxMs, callsPerFrame}]}],    // that thread's 10 slowest job names
   gpu: {avgMs, p95Ms, maxMs, samples, reason},                // numbers, or null + reason
   memory: {start, end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, entities}}
 }
@@ -239,4 +241,37 @@ Reading it:
   would need the `EXT_disjoint_timer_query` extension, which is not used. A run with no GPU at all also gives `null`.
 - `memory` samples the process (resident memory now and at its peak), the JavaScript heap, texture memory, decoded audio
   and the entity count, at the start, the end and the peak of the run: a number that only grows over a long session is a leak.
+- `threads` has one entry per thread of the job pool (main first, then every worker, idle ones too; `other` when a
+  thread outside the pool ran jobs): the time it spent in jobs per frame and as a share of the frame (`busyPct`), and its
+  slowest jobs by the name they were submitted with (a `parallel_for` chunk counts as one job). Which thread ran a job
+  changes from run to run; the results do not (see "Job threads" below). A game whose engine work uses no jobs shows
+  zeros there.
 - Measuring has a small cost of its own (a few microseconds per behaviour callback); with it off there is none.
+
+## Job threads
+
+The engine hands pieces of its work to a pool of worker threads (docs/ARCHITECTURE.md, "Jobs and threads"). How many is
+the `runtime` setting of factoria.json:
+
+```json
+"runtime": { "jobThreads": "auto" }
+```
+
+- `"auto"` (the default): hardware threads - 1, at most 8 on desktop and 4 on phones (their slow cores count too, and
+  the OS, the GPU driver and audio need room). The web build has no threads: 0 there.
+- A number 0..32: that many workers besides the main thread. `0` runs every job on the main thread, when something
+  waits for it or at the end of the frame: the cheapest setting for a game that is light anyway.
+- `"inline"`: every job runs at once on the thread that submits it, in submission order. For debugging only: a job's
+  crash then has the plain call stack of its caller.
+- The `FA_JOB_THREADS` environment variable (same values) overrides the file for one run:
+  `FA_JOB_THREADS=0 factoria run`, `FA_JOB_THREADS=inline factoria test`. A bad value is reported at start and the
+  file's setting is used; a bad value in the file stops the start with an error at `/runtime/jobThreads`.
+
+Threads never change what the game computes. `factoria call game.state_hash` gives one hash of the whole simulation
+state; the same replay gives the same hash with any setting (`{"perEntity":true}` lists one hash per entity to find which
+one differs). `factoria call jobs.info` says what runs now: workers, mode, the setting and where it came from, the jobs
+of the last frame and how busy each thread was.
+
+Cost: idle workers sleep and use no CPU. A job costs about one allocation and one lock, so the engine only splits work
+big enough to gain from it. Each worker has a stack and a few kilobytes of its own: on a phone, fewer workers save a
+little memory and battery.

@@ -1,14 +1,90 @@
 // Profiler panel (View > Profiler): where the time of a frame goes while the game plays. Milliseconds per engine system and per
-// script behaviour class (smoothed over a few frames), the frame-time graph, GPU time where the backend has timer queries, and
-// memory. The numbers come from the engine's profiler (fa/core/profiler.h), which runs only while this panel is open or a play
-// session records; ProfilerView (editor_tools.h) holds them and is unit-tested without a window.
+// script behaviour class (smoothed over a few frames), the frame-time graph, GPU time where the backend has timer queries,
+// memory, and a Threads tab with one row per thread of the job pool. The numbers come from the engine's profiler
+// (fa/core/profiler.h), which runs only while this panel is open or a play session records; ProfilerView (editor_tools.h)
+// holds them and is unit-tested without a window.
 #include <algorithm>
 #include <cfloat>
+#include <cstdio>
+#include <string>
 
 #include "editor_internal.h"
+#include "fa/core/jobs.h"
 #include "imgui_internal.h"
 
 namespace fa::editor {
+
+namespace {
+
+// The tables fill the rest of the panel, but keep room for a few rows when the panel is short (a 1024x642 screen): the
+// panel scrolls to them instead of squeezing them to nothing.
+float table_height() {
+    return std::max(ImGui::GetContentRegionAvail().y, ImGui::GetTextLineHeightWithSpacing() * 6.0f);
+}
+
+// The Threads tab: one row per thread of the job pool (main, worker 1.., other) with the time it spent in jobs, its share
+// of the frame and its slowest jobs by name.
+void draw_profiler_threads(const ProfilerView& v, ImGuiTableFlags flags) {
+    if (v.lanes.empty()) {
+        ImGui::TextDisabled("No frame measured yet.");
+        return;
+    }
+    ImGui::TextDisabled("%d worker thread(s)%s; jobs run where a thread is free, the results do not depend on it", jobs::worker_count(),
+                        jobs::inline_mode() ? " (inline mode: every job runs on the main thread)" : "");
+    if (!ImGui::BeginChild("##profthreads", ImVec2(0, table_height()))) {
+        ImGui::EndChild();
+        return;
+    }
+    if (ImGui::BeginTable("##profthreadtable", 5, flags)) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("thread", ImGuiTableColumnFlags_WidthFixed, 70);
+        ImGui::TableSetupColumn("job ms", ImGuiTableColumnFlags_WidthFixed, 52);
+        ImGui::TableSetupColumn("jobs", ImGuiTableColumnFlags_WidthFixed, 44);
+        ImGui::TableSetupColumn("busy", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+        ImGui::TableSetupColumn("slowest jobs", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableHeadersRow();
+        const double frameMs = std::max(v.smoothFrameMs, 0.001);
+        for (std::size_t i = 0; i < v.lanes.size(); ++i) {
+            const ProfilerView::LaneRow& l = v.lanes[i];
+            ImGui::PushID(int(i));
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(l.name.c_str());
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%.3f", l.jobMs);
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("%.1f", l.jobs);
+            ImGui::TableSetColumnIndex(3);
+            const double share = std::clamp(l.jobMs / frameMs, 0.0, 1.0);
+            char pct[16];
+            std::snprintf(pct, sizeof pct, "%.0f%%", share * 100.0);
+            ImGui::ProgressBar(float(share), ImVec2(-FLT_MIN, 0), pct);
+            ImGui::SetItemTooltip("Share of the frame (%.2f ms) this thread spent in jobs", v.smoothFrameMs);
+            ImGui::TableSetColumnIndex(4);
+            if (l.top.empty()) {
+                ImGui::TextDisabled(i == 0 ? "no jobs on the main thread" : "idle");
+            } else {
+                std::string text;
+                for (std::size_t k = 0; k < l.top.size() && k < 3; ++k) {
+                    char part[96];
+                    std::snprintf(part, sizeof part, "%s%s %.3f", k ? ", " : "", l.top[k].name.c_str(), l.top[k].ms);
+                    text += part;
+                }
+                ImGui::TextUnformatted(text.c_str());
+                if (ImGui::BeginItemTooltip()) {
+                    for (const ProfilerView::JobRow& j : l.top)
+                        ImGui::Text("%-28s %7.3f ms  %5.1f per frame", j.name.c_str(), j.ms, j.count);
+                    ImGui::EndTooltip();
+                }
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    ImGui::EndChild();
+}
+
+}  // namespace
 
 void Editor::profile_tick(std::uint64_t frameBefore) {
     if (!engine_) return;
@@ -73,58 +149,73 @@ void Editor::draw_profiler_panel() {
 
     constexpr ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable |
                                       ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings;
-    const float half = ImGui::GetContentRegionAvail().x * 0.4f;
-    if (ImGui::BeginChild("##profsys", ImVec2(half, 0))) {
-        if (ImGui::BeginTable("##profsystems", 3, flags)) {
-            ImGui::TableSetupScrollFreeze(0, 1);
-            ImGui::TableSetupColumn("system", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-            ImGui::TableSetupColumn("ms", ImGuiTableColumnFlags_WidthFixed, 52);
-            ImGui::TableSetupColumn("share", ImGuiTableColumnFlags_WidthStretch, 0.6f);
-            ImGui::TableHeadersRow();
-            double worst = 0.001;
-            for (double ms : v.systemMs) worst = std::max(worst, ms);
-            for (int i = 0; i < kProfSystemCount; ++i) {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::TextUnformatted(prof_system_name(ProfSystem(i)));
-                ImGui::TableSetColumnIndex(1);
-                ImGui::Text("%.3f", v.systemMs[std::size_t(i)]);
-                ImGui::TableSetColumnIndex(2);
-                ImGui::ProgressBar(float(v.systemMs[std::size_t(i)] / worst), ImVec2(-FLT_MIN, 0), "");
+    if (ImGui::BeginTabBar("##proftabs")) {
+        if (ImGui::BeginTabItem("Systems and scripts")) {
+            const float half = ImGui::GetContentRegionAvail().x * 0.4f;
+            const float tableH = table_height();
+            if (ImGui::BeginChild("##profsys", ImVec2(half, tableH))) {
+                if (ImGui::BeginTable("##profsystems", 3, flags)) {
+                    ImGui::TableSetupScrollFreeze(0, 1);
+                    ImGui::TableSetupColumn("system", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                    ImGui::TableSetupColumn("ms", ImGuiTableColumnFlags_WidthFixed, 52);
+                    ImGui::TableSetupColumn("share", ImGuiTableColumnFlags_WidthStretch, 0.6f);
+                    ImGui::TableHeadersRow();
+                    double worst = 0.001;
+                    for (double ms : v.systemMs) worst = std::max(worst, ms);
+                    for (int i = 0; i < kProfSystemCount; ++i) {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::TextUnformatted(prof_system_name(ProfSystem(i)));
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("%.3f", v.systemMs[std::size_t(i)]);
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::ProgressBar(float(v.systemMs[std::size_t(i)] / worst), ImVec2(-FLT_MIN, 0), "");
+                    }
+                    ImGui::EndTable();
+                }
             }
-            ImGui::EndTable();
+            ImGui::EndChild();
+            ImGui::SameLine();
+            if (ImGui::BeginChild("##profcls", ImVec2(0, tableH))) {
+                if (ImGui::BeginTable("##profbehaviours", 4, flags)) {
+                    ImGui::TableSetupScrollFreeze(0, 1);
+                    ImGui::TableSetupColumn("behaviour class", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                    ImGui::TableSetupColumn("script", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                    ImGui::TableSetupColumn("ms", ImGuiTableColumnFlags_WidthFixed, 52);
+                    ImGui::TableSetupColumn("calls", ImGuiTableColumnFlags_WidthFixed, 48);
+                    ImGui::TableHeadersRow();
+                    for (const ProfilerView::Row& r : v.rows) {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::TextUnformatted(r.className.c_str());
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::TextUnformatted(r.path.c_str());
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::Text("%.3f", r.ms);
+                        ImGui::TableSetColumnIndex(3);
+                        ImGui::Text("%.1f", r.calls);
+                    }
+                    if (v.rows.empty()) {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::TextDisabled("No script ran yet.");
+                    }
+                    ImGui::EndTable();
+                }
+            }
+            ImGui::EndChild();
+            ImGui::EndTabItem();
         }
-    }
-    ImGui::EndChild();
-    ImGui::SameLine();
-    if (ImGui::BeginChild("##profcls", ImVec2(0, 0))) {
-        if (ImGui::BeginTable("##profbehaviours", 4, flags)) {
-            ImGui::TableSetupScrollFreeze(0, 1);
-            ImGui::TableSetupColumn("behaviour class", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-            ImGui::TableSetupColumn("script", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-            ImGui::TableSetupColumn("ms", ImGuiTableColumnFlags_WidthFixed, 52);
-            ImGui::TableSetupColumn("calls", ImGuiTableColumnFlags_WidthFixed, 48);
-            ImGui::TableHeadersRow();
-            for (const ProfilerView::Row& r : v.rows) {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::TextUnformatted(r.className.c_str());
-                ImGui::TableSetColumnIndex(1);
-                ImGui::TextUnformatted(r.path.c_str());
-                ImGui::TableSetColumnIndex(2);
-                ImGui::Text("%.3f", r.ms);
-                ImGui::TableSetColumnIndex(3);
-                ImGui::Text("%.1f", r.calls);
-            }
-            if (v.rows.empty()) {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::TextDisabled("No script ran yet.");
-            }
-            ImGui::EndTable();
+        const bool threadsOpen =
+            ImGui::BeginTabItem("Threads", nullptr, profShowThreads_ ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
+        ImGui::SetItemTooltip("Time each thread of the job system spent in jobs (runtime.jobThreads in factoria.json; jobs.info)");
+        profShowThreads_ = false;
+        if (threadsOpen) {
+            draw_profiler_threads(v, flags);
+            ImGui::EndTabItem();
         }
+        ImGui::EndTabBar();
     }
-    ImGui::EndChild();
     ImGui::End();
 }
 

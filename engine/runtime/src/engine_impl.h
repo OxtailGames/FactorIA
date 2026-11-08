@@ -87,6 +87,8 @@ struct Engine::Impl {
     std::uint64_t logSeqAtInit = 0;  // state() only reports logs emitted by THIS engine
     ProjectSettings project;
     bool initialized = false;
+    bool jobsStarted = false;      // this engine holds a reference on the job pool (jobs::start in init, jobs::stop in shutdown)
+    std::string jobThreadsSource;  // where the job thread setting came from: "EngineConfig", "FA_JOB_THREADS", "factoria.json", "default"
     bool windowed = false;  // GPU comes from the platform window (GfxEnvironment passed to init)
 
     World world;

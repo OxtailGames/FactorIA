@@ -203,3 +203,48 @@ TEST_CASE("profiler view: smooths the per-frame profile, sorts the behaviour cla
     CHECK(v.frames == 0);
     CHECK(v.rows.empty());
 }
+
+TEST_CASE("profiler view: one row per thread, in the frame's order, with each thread's slowest jobs") {
+    ProfilerView v;
+    auto lane = [](const char* name, std::vector<ProfJobSample> samples) {
+        ProfLane l;
+        l.name = name;
+        for (const ProfJobSample& s : samples) {
+            l.jobMs += s.ms;
+            l.jobs += s.count;
+        }
+        l.samples = std::move(samples);
+        return l;
+    };
+    ProfFrame f;
+    f.totalMs = 10;
+    f.lanes = {lane("main", {{"physics.islands", 0.5, 1}}),
+               lane("worker 1", {{"particles", 1.0, 2}, {"physics.islands", 2.0, 3}}),
+               lane("worker 2", {}),
+               lane("other", {{"loader", 0.25, 1}})};
+    for (int i = 0; i < 60; ++i) v.add_frame(f);
+    REQUIRE(v.lanes.size() == 4);
+    CHECK(v.lanes[0].name == "main");
+    CHECK(v.lanes[1].name == "worker 1");
+    CHECK(v.lanes[2].name == "worker 2");
+    CHECK(v.lanes[1].jobMs == doctest::Approx(3.0));
+    CHECK(v.lanes[1].jobs == doctest::Approx(5.0));
+    REQUIRE(v.lanes[1].top.size() == 2);
+    CHECK(v.lanes[1].top[0].name == "physics.islands");  // slowest first, whatever order the frame had
+    CHECK(v.lanes[1].top[0].count == doctest::Approx(3.0));
+    CHECK(v.lanes[2].top.empty());
+
+    // "other" stops: it fades out and goes; the pool's own lanes stay (idle ones too).
+    ProfFrame g;
+    g.totalMs = 10;
+    g.lanes = {lane("main", {}), lane("worker 1", {}), lane("worker 2", {})};
+    v.add_frame(g);
+    REQUIRE(v.lanes.size() == 4);
+    CHECK(v.lanes[3].name == "other");
+    CHECK(v.lanes[3].jobMs < 0.25);
+    for (int i = 0; i < 400; ++i) v.add_frame(g);
+    REQUIRE(v.lanes.size() == 3);
+    CHECK(v.lanes[1].top.empty());  // its jobs stopped too
+    v.reset();
+    CHECK(v.lanes.empty());
+}
