@@ -1,7 +1,9 @@
 // The first-use order of a project's files (fa/tooling/load_order.h).
 #include "fa/tooling/load_order.h"
 
+#include <algorithm>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <mutex>
 #include <thread>
