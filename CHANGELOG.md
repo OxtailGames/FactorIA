@@ -2,6 +2,12 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- **For engine developers (M70.4a):** the engine's own LZ4 and Zstandard codecs behind `fa/core/compress.h` (no outside library). `Codec::Lz4` reads and writes the LZ4 block format (levels 1 to 12: a fast greedy level 1-2, a hash chain with lazy matching from 3); `Codec::Zstd` reads every Zstandard frame the reference tool writes (all levels including `--ultra`, `--long` windows up to 128 MiB, Huffman and FSE tables of every kind, repeat offsets, skippable and concatenated frames, the content checksum; a dictionary or a larger window is an error that says so) and writes valid frames with the content size, Huffman-coded literals and FSE-coded sequences (levels 1 to 19; level 3 makes a smaller frame than `zstd -3` on the files tried). Output is deterministic on every platform. Decoders check every bound and refuse an `expectedSize` the block cannot hold before allocating. docs/ARCHITECTURE.md, "Block codecs".
+
 ## 0.18.0
 
 FactorIA 0.18.0 (M66-M69) makes the AI cheaper to trust and quicker to check. M66 puts an estimated price on every paid picture, sound, voice, song and 3D model, refuses a call that would pass a per-run or per-day limit before anything is sent, asks the user before an expensive one, and makes 1 to 4 candidates for one asset that the user picks from (`assets.generate_image {count}`, `assets.pick`). M67 lets the game play itself: `play.auto` runs it headless and fast with a bot, reports where it got stuck, fell or crashed with screenshots, and the editor's Let the AI play shows the sessions. M68 puts the game on a phone: `project.serve_web` and File > Play on Phone... serve the web build on the local network behind a QR code with live reload and the phone's log, and the web export can be one HTML file. M69 shows many choices at once: `review.sheet` draws numbered candidates on one contact sheet, `review.pick` keeps the person's choice, and the editor's Review window lets them pick with the keyboard, compare two side by side and see the history.
