@@ -24,6 +24,10 @@ target_include_directories(fa_core PRIVATE ${FA_BUILD_FINGERPRINT_DIR})
 if(FA_PLATFORM STREQUAL "android")
     target_link_libraries(fa_core PRIVATE android log)
 endif()
+# The job system (jobs.cpp) runs std::thread workers. A web build without -pthread links no thread library and starts none.
+if(NOT FA_PLATFORM STREQUAL "web")
+    target_link_libraries(fa_core PUBLIC Threads::Threads)
+endif()
 if(WIN32)
     target_link_libraries(fa_core PRIVATE dbghelp)  # crash_win32.cpp: names for the frames of a crash report, minidumps
 endif()

@@ -99,6 +99,14 @@ Json ProjectSettings::to_json() const {
     j["feedbackFile"] = feedbackFile;
     if (icon.empty()) j.erase("icon");
     else j["icon"] = icon;
+    if (jobThreadsSet) {
+        Json runtime = j.contains("runtime") && j["runtime"].is_object() ? j["runtime"] : Json::object();
+        runtime["jobThreads"] = jobThreads.to_json();
+        j["runtime"] = runtime;
+    } else if (j.contains("runtime") && j["runtime"].is_object()) {
+        j["runtime"].erase("jobThreads");
+        if (j["runtime"].empty()) j.erase("runtime");
+    }
     return j;
 }
 
@@ -207,7 +215,7 @@ Result<void> read_double(const Json& obj, const char* key, std::string_view ptr,
 const std::vector<std::string>& reserved_plugin_names() {
     static const std::vector<std::string> names = {
         "ai",   "api",     "app",    "assets",  "audio",   "debug",   "docs",    "editor", "engine", "fa",    "factoria",
-        "feedback", "fs",  "game",   "i18n",    "input",   "level",   "math",    "mcp",     "nav",     "physics", "play",  "plugin", "plugins",
+        "feedback", "fs",  "game",   "i18n",    "input",   "jobs",    "level",   "math",    "mcp",     "nav",     "physics", "play",  "plugin", "plugins",
         "platform", "prefab", "project", "scene", "script", "session", "settings", "setup", "test", "ui", "world"};
     return names;
 }
@@ -482,6 +490,15 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
         double ppm = s.pixelsPerMeter;
         FA_TRY(read_double(*it, "pixelsPerMeter", "/physics", ppm, 0.0, true));
         s.pixelsPerMeter = float(ppm);
+    }
+    if (auto it = j.find("runtime"); it != j.end() && !it->is_null()) {
+        if (!it->is_object()) return field_error("/runtime", "an object like {\"jobThreads\": \"auto\"}", *it);
+        if (auto jt = it->find("jobThreads"); jt != it->end() && !jt->is_null()) {
+            auto threads = jobs::parse_settings(*jt, at("/runtime/jobThreads"));
+            if (!threads) return threads.error();
+            s.jobThreads = threads.value();
+            s.jobThreadsSet = true;
+        }
     }
     if (auto it = j.find("input"); it != j.end() && !it->is_null()) {
         if (!it->is_object()) return field_error("/input", "an object like {\"actions\": {...}}", *it);
@@ -834,6 +851,30 @@ constexpr const char* kSchemaText =
             "type": "boolean",
             "description": "true: the game runs without this plugin, so a missing build for this computer is a warning in `factoria validate`, not an error. Without the build, `plugins.<name>` still exists but throws \"the native plugin is not loaded\" when a function is used (wrap calls in try/catch, or reach the plugin only through what it provides, e.g. the `platform` API falls back to the development fake store), and the runtime only logs a warning. `factoria export` still fails without the build for the target platform, so a store build cannot ship without it by accident. Default false."
           }
+        }
+      }
+    },
+)JSON"
+    R"JSON(    "runtime": {
+      "type": "object",
+      "description": "How the engine runs the game on the player's machine. These settings never change what the game computes: a game gives the same result with any of them (docs/PERFORMANCE.md, \"Job threads\").",
+      "properties": {
+        "jobThreads": {
+          "description": "Worker threads of the job system (docs/ARCHITECTURE.md, \"Jobs and threads\"): \"auto\" (the default: hardware threads - 1, at most 8 on desktop and 4 on phones; 0 in a web build, which has no threads), a number from 0 to 32 written as a number, not in quotes (0: jobs run on the main thread when it waits for them or at the end of the frame), or \"inline\" (debugging: every job runs on the main thread when it is submitted, in order). The FA_JOB_THREADS environment variable overrides it.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "auto",
+                "inline"
+              ]
+            },
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 32
+            }
+          ]
         }
       }
     },

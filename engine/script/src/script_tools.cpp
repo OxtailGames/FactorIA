@@ -1,6 +1,9 @@
 // JS tools (tools/*.js -> project.<name> commands), eval, syntax check, hot reload and the test runner.
 #include <algorithm>
 #include <format>
+#include <memory>
+#include <mutex>
+#include <vector>
 
 #include "fa/core/date.h"
 #include "fa/core/fs.h"
@@ -458,9 +461,17 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
     // level is lowered to info while tests run so --log-level warn does not hide console.log; stderr keeps showing
     // only what the caller's level allowed, minus script lines (they are in the report instead).
     const LogLevel savedLevel = log_level();
-    std::vector<LogEntry> captured;
-    int sinkId = add_log_sink([&captured](const LogEntry& e) {
-        if (e.category == "script" && e.level >= LogLevel::Info) captured.push_back(e);
+    // The sink runs on the thread that logs (a job worker too) and may still run once after remove_log_sink (the log
+    // calls a copy of the sink list outside its lock): it owns its buffer and locks it.
+    struct Captured {
+        std::mutex mu;
+        std::vector<LogEntry> lines;
+    };
+    auto captured = std::make_shared<Captured>();
+    int sinkId = add_log_sink([captured](const LogEntry& e) {
+        if (e.category != "script" || e.level < LogLevel::Info) return;
+        std::lock_guard<std::mutex> lk(captured->mu);
+        captured->lines.push_back(e);
     });
     if (savedLevel > LogLevel::Info) set_log_level(LogLevel::Info);
     set_log_stderr_filter([savedLevel](const LogEntry& e) { return e.category != "script" && e.level >= savedLevel; });
@@ -556,7 +567,12 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
             ranges.push_back({static_cast<std::uint64_t>(j.value("seq0", 0.0)), static_cast<std::uint64_t>(j.value("seq1", 0.0))});
         }
     }
-    for (const LogEntry& e : captured) {
+    std::vector<LogEntry> capturedLines;
+    {
+        std::lock_guard<std::mutex> lk(captured->mu);
+        capturedLines.swap(captured->lines);
+    }
+    for (const LogEntry& e : capturedLines) {
         TestLogLine line{e.level, e.message};
         bool placed = false;
         for (std::size_t i = 0; i < rep.cases.size() && !placed; ++i)
