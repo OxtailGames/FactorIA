@@ -1627,8 +1627,11 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
         }
     });
     for (std::size_t i = 0; i < meshes.size(); ++i) (meshBlended[i] ? blended : opaque).push_back(meshes[i]);
-    rjobs::stable_sort("render.sort_blended", blended, [](const MeshItem& a, const MeshItem& b) { return a.dist > b.dist; },
-                       kParallelMeshes * 4, kMeshGrain * 4);
+    // Far to near; a NaN distance (a NaN transform) counts as the farthest (order_float), so the order stays total.
+    const auto farther = [](const MeshItem& a, const MeshItem& b) {
+        return rjobs::order_float(a.dist) > rjobs::order_float(b.dist);
+    };
+    rjobs::stable_sort("render.sort_blended", blended, farther, kParallelMeshes * 4, kMeshGrain * 4);
     if (fr.wantWorld && !fr.cam.studio) world.each<Light>([&](Entity e, Light& l) {
         if (!entity_active(world, e)) return;
         Mat4 m = world.world_matrix(e);

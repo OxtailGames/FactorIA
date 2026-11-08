@@ -85,40 +85,60 @@ inline Vertex2D stream_vertex(const QuadItem& it, Vertex2D v) {
 }  // namespace
 
 void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batches) {
-    // seq is unique within a list, so the order is total: any correct sort gives this one.
+    // seq is unique within a list and a NaN secondary key counts as +infinity (order_float), so the order is total:
+    // any correct sort gives this one.
     rjobs::stable_sort("render.sort_quads", items, [](const QuadItem& a, const QuadItem& b) {
         if (a.layer != b.layer) return a.layer < b.layer;
-        if (a.secondary != b.secondary) return a.secondary > b.secondary;
+        const float sa = rjobs::order_float(a.secondary), sb = rjobs::order_float(b.secondary);
+        if (sa != sb) return sa > sb;
         return a.seq < b.seq;
     }, kParallelSortItems, kSortGrain);
 
-    // Where each item's vertices land in `out` (offsets from `base`), then the copy, by ranges of vertices so one huge
-    // item (a big Tilemap) is shared out too.
+    std::size_t total = 0;
+    for (const QuadItem& it : items) total += std::size_t(it.quadCount) * 4;
     const std::size_t base = out.size();
-    std::vector<std::size_t> offsets(items.size() + 1, 0);
-    for (std::size_t i = 0; i < items.size(); ++i) offsets[i + 1] = offsets[i] + std::size_t(items[i].quadCount) * 4;
-    const std::size_t total = offsets.back();
-    out.resize(base + total);
-    rjobs::run("render.flatten_quads", rjobs::split(total, kCopyGrain, kParallelCopyVerts), [&](const jobs::Chunk& c) {
-        // The item holding vertex c.begin: the last offset <= c.begin (items without quads are never in the list).
-        std::size_t i = std::size_t(std::upper_bound(offsets.begin(), offsets.end(), c.begin) - offsets.begin()) - 1;
-        for (std::size_t v = c.begin; v < c.end; ++i) {
-            const QuadItem& it = items[i];
-            const std::size_t stop = std::min(c.end, offsets[i + 1]);
-            const Vertex2D* src = raw.data() + it.firstVert + (v - offsets[i]);
-            Vertex2D* dst = out.data() + base + v;
+    const rjobs::Split copySplit = rjobs::split(total, kCopyGrain, kParallelCopyVerts);
+    if (copySplit.chunks <= 1) {
+        // One chunk (a small list, or no worker): appended in order, nothing else allocated.
+        for (const QuadItem& it : items) {
+            const Vertex2D* src = raw.data() + it.firstVert;
+            const std::size_t n = std::size_t(it.quadCount) * 4;
             if (it.lit || it.blend == BlendMode::Multiply || it.flash != 0) {
-                for (std::size_t k = 0, n = stop - v; k < n; ++k) dst[k] = stream_vertex(it, src[k]);
+                for (std::size_t k = 0; k < n; ++k) out.push_back(stream_vertex(it, src[k]));
             } else {
-                std::copy(src, src + (stop - v), dst);
+                out.insert(out.end(), src, src + n);
             }
-            v = stop;
         }
-    });
+    } else {
+        // Where each item's vertices land in `out` (offsets from `base`), then the copy, by ranges of vertices so one
+        // huge item (a big Tilemap) is shared out too. offsets_ is kept from frame to frame.
+        offsets_.assign(items.size() + 1, 0);
+        for (std::size_t i = 0; i < items.size(); ++i)
+            offsets_[i + 1] = offsets_[i] + std::size_t(items[i].quadCount) * 4;
+        out.resize(base + total);
+        rjobs::run("render.flatten_quads", copySplit, [&](const jobs::Chunk& c) {
+            // The item holding vertex c.begin: the last offset <= c.begin (items without quads are never in the list).
+            const auto after = std::upper_bound(offsets_.begin(), offsets_.end(), c.begin);
+            std::size_t i = std::size_t(after - offsets_.begin()) - 1;
+            for (std::size_t v = c.begin; v < c.end; ++i) {
+                const QuadItem& it = items[i];
+                const std::size_t stop = std::min(c.end, offsets_[i + 1]);
+                const Vertex2D* src = raw.data() + it.firstVert + (v - offsets_[i]);
+                Vertex2D* dst = out.data() + base + v;
+                if (it.lit || it.blend == BlendMode::Multiply || it.flash != 0) {
+                    for (std::size_t k = 0, n = stop - v; k < n; ++k) dst[k] = stream_vertex(it, src[k]);
+                } else {
+                    std::copy(src, src + (stop - v), dst);
+                }
+                v = stop;
+            }
+        });
+    }
 
-    for (std::size_t i = 0; i < items.size(); ++i) {
-        const QuadItem& it = items[i];
-        const std::uint32_t firstQuad = std::uint32_t((base + offsets[i]) / 4);
+    std::size_t at = base;  // the first vertex of the item in `out`
+    for (const QuadItem& it : items) {
+        const std::uint32_t firstQuad = std::uint32_t(at / 4);
+        at += std::size_t(it.quadCount) * 4;
         const bool plain = it.plain && !it.lit && it.blend != BlendMode::Multiply;
         const bool opaque = it.opaque && it.blend == BlendMode::Alpha;
         // Textures packed into one atlas share its GPU image, so their quads batch together.
