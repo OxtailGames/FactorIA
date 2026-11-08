@@ -166,6 +166,7 @@ Result<Json> nav_tile_run(const NavTileGrid& grid, const Mat4* toWorld, const Js
 // run as jobs. Every query is checked first: a bad cell is an Error naming its pointer ("/queries/3/from") and nothing runs.
 Result<Json> nav_tile_query_many(World& world, const Json& args);
 // The searches of nav_tile_query_many on a grid that is already built (a script's NavCostGrid): (from, to) cells in request order.
+// `grid.minOpenCost` should be current (NavCostGrid keeps it, nav_tile_query_many sets it): else every query sweeps the cells.
 Result<Json> nav_tile_run_many(const NavTileGrid& grid, const Mat4* toWorld, const Json& args,
                                const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>& queries);
 

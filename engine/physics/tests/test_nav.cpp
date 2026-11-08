@@ -534,6 +534,7 @@ TEST_CASE("nav: find_paths reports a query that cannot be answered with its inde
     auto r = l.physics.nav_find_paths(l.world, qs);
     REQUIRE_FALSE(r.ok());
     CHECK(r.error().message.find("query 13 of 20") != std::string::npos);
+    CHECK(r.error().message.find("/queries/13") != std::string::npos);
     CHECK(r.error().message.find("nope") != std::string::npos);
     qs[13].options.mesh.clear();
     qs[7].options.radius = 5.0f;  // bigger than the mesh was baked for

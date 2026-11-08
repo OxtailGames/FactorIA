@@ -29,13 +29,18 @@ void feed(Sha256& h, float v) {
 void feed(Sha256& h, Vec3 v) { feed(h, v.x); feed(h, v.y); feed(h, v.z); }
 void feed(Sha256& h, std::uint64_t v) { h.update(&v, sizeof v); }
 
-// Starts the pool for one run and stops it at the end; `threads` < 0 is inline mode.
+// Starts the pool for one run and stops it at the end; `threads` -1 is inline mode and kNoPool leaves the pool stopped.
+constexpr int kNoPool = -2;
 struct Pool {
-    explicit Pool(int threads) {
+    explicit Pool(int threads) : started_(threads != kNoPool) {
+        if (!started_) return;
         const jobs::Settings s = threads < 0 ? jobs::Settings::inline_jobs() : jobs::Settings::threads(threads);
         REQUIRE(jobs::start(s));
     }
-    ~Pool() { jobs::stop(); }
+    ~Pool() {
+        if (started_) jobs::stop();
+    }
+    bool started_;
 };
 
 void add_static_box(World& w, const char* id, Vec3 pos, Vec3 size) {
@@ -88,13 +93,33 @@ void build_basin_2d(World& w, int n) {
     }
 }
 
+// Many identical pairs of dynamic boxes, each pair dropped together on a wide floor: they bounce apart a little (a contact
+// between two dynamic bodies ends, so Box2D marks the island as one that must be split before it sleeps), then settle on
+// the SAME step, so their sleep times are bit-equal. Which island Box2D splits next is picked among the candidates the
+// workers found, and a tie there is broken by the island id: the pieces a task is cut into must not depend on the pool.
+void build_tied_islands_2d(World& w, int pairs) {
+    add_static_box(w, "floor", {0, -20, 0}, {40.0f * float(pairs) + 400.0f, 40, 0});
+    for (int i = 0; i < pairs; ++i) {
+        for (int k = 0; k < 2; ++k) {
+            const std::string id = "t" + std::to_string(i) + "_" + std::to_string(k);
+            Entity e = w.create(id, id);
+            w.get<Transform>(e)->position = {40.0f * float(i), 14.0f + 90.0f * float(k), 0};
+            Collider2D& c = w.add<Collider2D>(e);
+            c.size = {20, 20};
+            c.restitution = 0.35f;
+            w.add<RigidBody2D>(e);
+        }
+    }
+}
+
 // `submitted` (if given) gets the number of jobs the run queued.
-std::string run_2d(int threads, int n, int frames, int* submitted = nullptr) {
+std::string run_2d(int threads, int n, int frames, int* submitted = nullptr, bool tied = false) {
     Pool pool(threads);
     World world;
     Physics physics;
     physics.init(PhysicsSettings{});
-    build_basin_2d(world, n);
+    if (tied) build_tied_islands_2d(world, n);
+    else build_basin_2d(world, n);
     Sha256 h;
     const std::vector<Entity> all = world.entities();
     const bool bench = std::getenv("FA_PHYSICS_BENCH") != nullptr;
@@ -115,7 +140,7 @@ std::string run_2d(int threads, int n, int frames, int* submitted = nullptr) {
             feed(h, ev.normal);
             feed(h, ev.impulse);
         }
-        if (f % 3 == 2) {
+        if (f % 3 == 2 || tied) {
             for (Entity e : all) {
                 if (!world.get<RigidBody2D>(e)) continue;
                 const Transform* t = world.get<Transform>(e);
@@ -255,6 +280,16 @@ TEST_CASE("physics jobs 2D: a big basin gives the same hash inline and with 1, 2
     CHECK(jobs1 > 150);      // the pool really takes part: several tasks per step
     CHECK(jobs2 == jobs1);   // what is queued depends on the scene, not on the thread count
     CHECK(jobs8 == jobs1);
+}
+
+TEST_CASE("physics jobs 2D: tied islands that settle on the same step give the same hash with the pool stopped, inline and on 1 and 8 threads") {
+    const ScopedPhysicsJobThresholds lowered({64, 128});
+    const int pairs = 90, frames = 200;  // 180 bodies: every task is cut into 4 pieces
+    const std::string reference = run_2d(1, pairs, frames, nullptr, true);
+    CHECK(run_2d(kNoPool, pairs, frames, nullptr, true) == reference);
+    CHECK(run_2d(-1, pairs, frames, nullptr, true) == reference);
+    CHECK(run_2d(0, pairs, frames, nullptr, true) == reference);
+    CHECK(run_2d(8, pairs, frames, nullptr, true) == reference);
 }
 
 TEST_CASE("physics jobs 2D: a step below the default thresholds queues nothing") {
