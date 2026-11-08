@@ -4097,7 +4097,9 @@ void Editor::at_build_tools_script() {
                      "the made picture has a recipe and is up to date");
             at_check(!at_visible("recipe:notice"), "no banner while everything is up to date");
         });
-        step(2, [project_file, svg, svg_text] { write_file(project_file(svg), svg_text("#3060e0", 26)); });  // the source is saved
+        // The source is saved, one byte shorter: the watcher compares size and file time, and on Windows a file's time moves in
+        // steps of 1/64 s, so a save of the same size a few fast frames after the first one could leave both unchanged.
+        step(2, [project_file, svg, svg_text] { write_file(project_file(svg), svg_text("#3060e0", 8)); });
         step(1, [this] {
             atWaitCount_ = 0;
             atWaitUntil_ = [this] { return at_visible("recipe:notice"); };  // the watcher looks once a second
