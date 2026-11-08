@@ -2,6 +2,7 @@
 #include <cstring>
 
 #include "frame.h"
+#include "render_jobs.h"
 
 namespace fa::render {
 
@@ -37,27 +38,87 @@ void QuadList::end_item() {
     if (cur_.quadCount > 0) items.push_back(cur_);
 }
 
+void QuadList::append(QuadList& part) {
+    const std::uint32_t base = std::uint32_t(raw.size());
+    items.reserve(items.size() + part.items.size());
+    for (QuadItem it : part.items) {
+        it.firstVert += base;
+        it.seq = seq_++;  // the part's items keep their order among themselves and come after this list's
+        items.push_back(it);
+    }
+    raw.insert(raw.end(), part.raw.begin(), part.raw.end());
+    part.clear();
+}
+
+void QuadList::add_quads_of(const QuadList& part) {
+    if (!open_ || part.raw.size() <= part.cur_.firstVert) return;
+    raw.insert(raw.end(), part.raw.begin() + part.cur_.firstVert, part.raw.end());
+    cur_.plain = cur_.plain && part.cur_.plain;
+}
+
+namespace {
+
+// A list with this many items is sorted as jobs, in chunks of kSortGrain (a sort of fewer takes a few microseconds).
+constexpr std::size_t kParallelSortItems = 4096;
+constexpr std::size_t kSortGrain = 1024;
+// This many vertices (4096 quads, 192 KB) and more are copied into the stream as jobs, kCopyGrain vertices per chunk;
+// fewer are copied faster than they are handed out.
+constexpr std::size_t kParallelCopyVerts = 16384;
+constexpr std::size_t kCopyGrain = 8192;
+
+// A vertex of `it` as the stream holds it: lit items shade every textured / circle / ring / shape quad (shader mode
+// + 16), Multiply items use the shader's multiply variant (+ 8), flashing items the flash variant (+ 32, colour in color2;
+// shapes and glyphs keep theirs). The steps run in that order, as the flags are the higher bits of the mode.
+inline Vertex2D stream_vertex(const QuadItem& it, Vertex2D v) {
+    if (it.lit && (v.mode < float(kModeLit) || v.mode == float(kModeShape))) v.mode += 16.0f;
+    if (it.blend == BlendMode::Multiply) v.mode += 8.0f;
+    if (it.flash != 0) {
+        const int base = int(v.mode) & 7;
+        if (base != kModeShape && base != kModeGlyph) {
+            v.mode += 32.0f;
+            v.color2 = it.flash;
+        }
+    }
+    return v;
+}
+
+}  // namespace
+
 void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batches) {
-    std::stable_sort(items.begin(), items.end(), [](const QuadItem& a, const QuadItem& b) {
+    // seq is unique within a list, so the order is total: any correct sort gives this one.
+    rjobs::stable_sort("render.sort_quads", items, [](const QuadItem& a, const QuadItem& b) {
         if (a.layer != b.layer) return a.layer < b.layer;
         if (a.secondary != b.secondary) return a.secondary > b.secondary;
         return a.seq < b.seq;
-    });
-    for (const QuadItem& it : items) {
-        std::uint32_t firstQuad = std::uint32_t(out.size() / 4);
-        out.insert(out.end(), raw.begin() + it.firstVert, raw.begin() + it.firstVert + std::size_t(it.quadCount) * 4);
-        if (it.lit)  // shapes: textured / circle / ring quads of a lit item are shaded too (shader mode + 16)
-            for (std::size_t i = std::size_t(firstQuad) * 4; i < out.size(); ++i)
-                if (out[i].mode < float(kModeLit) || out[i].mode == float(kModeShape)) out[i].mode += 16.0f;
-        if (it.blend == BlendMode::Multiply)  // shader variant: output mix(1, rgb, a) for the multiply blend
-            for (std::size_t i = std::size_t(firstQuad) * 4; i < out.size(); ++i) out[i].mode += 8.0f;
-        if (it.flash != 0)  // the flash variant (mode + 32) reads the colour from color2; shapes and glyphs keep theirs
-            for (std::size_t i = std::size_t(firstQuad) * 4; i < out.size(); ++i) {
-                const int base = int(out[i].mode) & 7;  // the +8 / +16 flags of lit and multiply quads are the higher bits
-                if (base == kModeShape || base == kModeGlyph) continue;
-                out[i].mode += 32.0f;
-                out[i].color2 = it.flash;
+    }, kParallelSortItems, kSortGrain);
+
+    // Where each item's vertices land in `out` (offsets from `base`), then the copy, by ranges of vertices so one huge
+    // item (a big Tilemap) is shared out too.
+    const std::size_t base = out.size();
+    std::vector<std::size_t> offsets(items.size() + 1, 0);
+    for (std::size_t i = 0; i < items.size(); ++i) offsets[i + 1] = offsets[i] + std::size_t(items[i].quadCount) * 4;
+    const std::size_t total = offsets.back();
+    out.resize(base + total);
+    rjobs::run("render.flatten_quads", rjobs::split(total, kCopyGrain, kParallelCopyVerts), [&](const jobs::Chunk& c) {
+        // The item holding vertex c.begin: the last offset <= c.begin (items without quads are never in the list).
+        std::size_t i = std::size_t(std::upper_bound(offsets.begin(), offsets.end(), c.begin) - offsets.begin()) - 1;
+        for (std::size_t v = c.begin; v < c.end; ++i) {
+            const QuadItem& it = items[i];
+            const std::size_t stop = std::min(c.end, offsets[i + 1]);
+            const Vertex2D* src = raw.data() + it.firstVert + (v - offsets[i]);
+            Vertex2D* dst = out.data() + base + v;
+            if (it.lit || it.blend == BlendMode::Multiply || it.flash != 0) {
+                for (std::size_t k = 0, n = stop - v; k < n; ++k) dst[k] = stream_vertex(it, src[k]);
+            } else {
+                std::copy(src, src + (stop - v), dst);
             }
+            v = stop;
+        }
+    });
+
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        const QuadItem& it = items[i];
+        const std::uint32_t firstQuad = std::uint32_t((base + offsets[i]) / 4);
         const bool plain = it.plain && !it.lit && it.blend != BlendMode::Multiply;
         const bool opaque = it.opaque && it.blend == BlendMode::Alpha;
         // Textures packed into one atlas share its GPU image, so their quads batch together.

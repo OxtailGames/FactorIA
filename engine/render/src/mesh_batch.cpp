@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <tuple>
 
+#include "render_jobs.h"
+
 namespace fa::render {
 
 bool box_in_frustum(const Mat4& viewProj, bool zeroToOne, Vec3 bmin, Vec3 bmax, const Mat4& model) {
@@ -50,11 +52,16 @@ auto material_key(const MeshItem& a) {
 // Items that can share one instanced draw have the same mesh, textures and every MeshRenderer value the shader reads.
 bool same_material(const MeshItem& a, const MeshItem& b) { return material_key(a) == material_key(b); }
 bool material_less(const MeshItem& a, const MeshItem& b) { return material_key(a) < material_key(b); }
+
+// The items of a camera are sorted by material as jobs from this many on, in chunks of kSortGrain (render_jobs.h:
+// the same order as one std::stable_sort).
+constexpr std::size_t kParallelSortItems = 1024;
+constexpr std::size_t kSortGrain = 256;
 }  // namespace
 
 void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vector<MeshBatch>& batches,
                    std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats) {
-    if (sortByMaterial) std::stable_sort(items.begin(), items.end(), material_less);
+    if (sortByMaterial) rjobs::stable_sort("render.sort_meshes", items, material_less, kParallelSortItems, kSortGrain);
     for (std::size_t i = 0; i < items.size(); ++i) {
         if (batches.empty() || !same_material(items[batches.back().rep], items[i])) {
             MeshBatch b;

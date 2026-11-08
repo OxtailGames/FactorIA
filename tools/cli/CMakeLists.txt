@@ -179,6 +179,16 @@ if(FA_BUILD_TESTS)
             endforeach()
         endif()
     endforeach()
+    # The same frames with jobs inline and on 8 threads (docs/ARCHITECTURE.md, "Systems that run as jobs"): Tidewater
+    # Market's stress scene gathers its sprites as jobs, Larkspur Lodge's 3D ground scene (shadows, skinned guests) stays
+    # under the thresholds and must not change either.
+    add_test(NAME example_jobs_same_frames
+        COMMAND ${CMAKE_COMMAND} -DFACTORIA=$<TARGET_FILE:factoria> -DROOT=${FA_ROOT} -DOUT=${CMAKE_CURRENT_BINARY_DIR}
+                -DSCENES=tidewater-market=scenes/stress.scene.json,larkspur-lodge=scenes/ground.scene.json
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/jobs_same_frames.cmake
+        WORKING_DIRECTORY ${FA_ROOT})
+    set_tests_properties(example_jobs_same_frames PROPERTIES LABELS "gpu;example" TIMEOUT ${fa_example_timeout}
+        DISABLED ${fa_examples_disabled})
     # The menu kit of docs/MENUS.md as a project, checked the same way and driven with a gamepad only.
     set(fx ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/menus)
     add_test(NAME fixture_menus_validate COMMAND factoria validate ${fx} WORKING_DIRECTORY ${FA_ROOT})
