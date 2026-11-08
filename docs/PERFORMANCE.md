@@ -193,6 +193,40 @@ with `factoria call perf.baseline` (see the file's `runners`) in the same PR.
 
 Not covered yet: the web and Android players report memory and time with the limits above but have no CI baseline.
 
+## Loading
+
+A play session (the editor's Play, `play.auto`) also measures how the game loads, and `play.report` returns it as `loading`:
+
+```json
+"loading": {
+  "timeToFirstFrameMs": 412.3,
+  "scenes": [ { "scene": "scenes/main.scene.json", "loadMs": 380.1, "files": 57, "bytes": 18234567 } ],
+  "slowestAssets": [ { "kind": "texture", "path": "assets/sky.png", "bytes": 4194304, "readMs": 3.2, "decodeMs": 41.7 } ],
+  "reads": { "count": 61, "bytes": 18301234, "fromPack": 0, "packStoredBytes": 0 },
+  "note": "Times are this machine's, rounded to 0.1 ms: ..."
+}
+```
+
+- `timeToFirstFrameMs`: from the start of the session to the end of its first frame.
+- `scenes`: each scene loaded during the session, with the project files first read while it was the current scene and
+  their bytes; its `loadMs` runs from the start of its load to the end of the first frame after it.
+- `slowestAssets` (at most 10): the textures, meshes, sounds and fonts that took longest, split into the time spent
+  reading the file (`readMs`) and the rest of the load (`decodeMs`: decoding, uploading, building). A large `decodeMs` on a
+  PNG says to ship it as KTX2 ([EXPORTING.md](EXPORTING.md)); a large `readMs` says the file is big or the drive slow.
+- `reads`: the project files read (an absolute path is not counted), how many came out of a mounted `game.pak`, and what
+  those took in the pack (compressed).
+
+The times are this machine's and are rounded: compare two runs on one machine, never pass or fail on them (no test does). A
+time not reached yet (the session ended before its first frame) is `null`.
+
+The same sessions, and `factoria run`, record which files each scene reads first, in that order, into
+`.factoria/cache/load-order.json`; a `--release` export writes `game.pak` in that order, so a scene's files lie next to each
+other on the drive and a load reads mostly forward ([EXPORTING.md](EXPORTING.md#compression-and-pack-order)). A `factoria run`
+or `play.auto` (a fresh engine that reads every file it needs itself) sets a scene's order; an editor Play only adds the
+files it was missing. Recording costs one short lock and a set lookup per file read while a session runs (nothing when none
+does); the file is written when the session ends, under the project's lock, and the editor writes it on a background
+thread so Stop never waits on the disk. An exported game records nothing.
+
 ## Finding what is slow: the profiler
 
 A budget says THAT the game got slower. The profiler says WHERE the time goes. It measures the CPU time of every engine

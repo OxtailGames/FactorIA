@@ -5,6 +5,7 @@
 #include "embedded_fonts.h"
 #include "fa/render/builtin_fonts.h"
 #include "fa/core/fs.h"
+#include "fa/core/load_trace.h"
 #include "fa/core/strings.h"
 #include "fa/core/utf8.h"
 #include "font_internal.h"
@@ -37,6 +38,7 @@ std::unique_ptr<FontFace> load_font_face(const std::string& keyIn) {
     auto f = std::make_unique<FontFace>();
     f->key = keyIn.empty() ? "builtin" : keyIn;
     const std::string& font = f->key;
+    AssetLoadScope trace("font", font);  // the load trace's read and parse time (fa/core/load_trace.h); free without one
     auto init_builtin = [&](const char* name) {
         for (const auto& file : fa_render_fonts::files()) {
             if (file.path == name) {

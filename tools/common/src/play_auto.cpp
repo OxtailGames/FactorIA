@@ -11,6 +11,7 @@
 #include "fa/core/strings.h"
 #include "fa/platform/app.h"
 #include "fa/runtime/play_auto.h"
+#include "fa/tooling/load_order.h"
 #include "fa/tooling/self_update.h"
 #include "headless_run.h"
 #include "util.h"
@@ -99,6 +100,10 @@ Json run_play_auto(const Json& a, const std::string& projectDir) {
     if (opt.screenshots && gfx_device_active()) return assets_detail::call_in_child(projectDir, "play.auto", a);
 
     EngineConfig cfg = tooling_detail::headless_engine_config(projectDir, scene, opt.screenshots && !gfx_device_active(), RenderMode::OnDemand);
+    // The order the bot's run first read the files in goes into .factoria/cache/load-order.json (fa/tooling/load_order.h).
+    cfg.loadOrderSink = [projectDir](const LoadOrder& order) {  // a cold session (fa/tooling/load_order.h, "Which session wins")
+        record_load_order_logged(project_root_path(projectDir), order, LoadOrderSource::Run);
+    };
     auto r = play_auto(cfg, opt);
     if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
     Json out = r.value();

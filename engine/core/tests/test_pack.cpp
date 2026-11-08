@@ -49,7 +49,8 @@ Result<void> write_sample_pack(const stdfs::path& out, std::string& binary) {
     if (auto r = w.add_bytes("assets/hero.bin", std::vector<std::uint8_t>(binary.begin(), binary.end())); !r.ok()) return r;
     if (auto r = w.add_bytes("assets/ui/empty.txt", {}); !r.ok()) return r;
     if (auto r = w.add_bytes("scripts/player.js", bytes_of("export default 1;")); !r.ok()) return r;
-    return w.write(out);
+    if (auto r = w.write(out); !r.ok()) return r.error();
+    return {};
 }
 
 }  // namespace
@@ -226,7 +227,7 @@ TEST_CASE("pack: a file that is not a pack, was cut short or has another version
     auto version = open_with(newer);
     REQUIRE(!version.ok());
     CHECK(version.error().message.find("format version 9") != std::string::npos);
-    CHECK(version.error().message.find("reads version 1") != std::string::npos);
+    CHECK(version.error().message.find("reads versions 1 and 2") != std::string::npos);
     CHECK(version.error().hint.find("Export the game again with this FactorIA version") != std::string::npos);
 
     std::string lies = good;  // the index offset in the footer points past the file
