@@ -173,7 +173,7 @@ struct Pool {
     FrameStats last;
     Clock::time_point frameStart = Clock::now();
     const OwnerState* frameOwner = nullptr;  // the owner whose end_frame closes the frames (compared, never read)
-    int framesWithoutOwner = 0;  // end_frame calls of other owners since frameOwner's last one (hand-over at 8)
+    Clock::time_point frameOwnerLast;  // when frameOwner last called end_frame (hand-over after kFrameOwnerHandOverMs)
 };
 #if defined(_MSC_VER)
 #pragma warning(pop)  // C4324 covers LaneCounters and Pool, which holds them
@@ -192,7 +192,10 @@ struct FrameReaper {
     bool armed = false;
     ~FrameReaper() {
         if (!armed) return;
-        std::lock_guard<std::mutex> lk(pool().mu);
+        // No Pool::mu here, on purpose. On Windows this runs under DLL_THREAD_DETACH with the loader lock held: waiting
+        // for a mutex another thread holds while it waits for that lock (it starts a thread, loads a library) would
+        // deadlock. It is not needed either: the thread is ending, so no job runs on it and no frame is open (the
+        // stack is empty), and other threads only read ThreadInfo::frames of a thread a running job sits on.
         delete[] tls.frames.data;
         tls.frames = detail::FrameStack{};
         tls.reaped = true;
@@ -764,7 +767,7 @@ void start_impl(const Settings& s, std::vector<std::pair<LogLevel, std::string>>
         p.last = FrameStats{};
         p.frameStart = Clock::now();
         p.frameOwner = nullptr;
-        p.framesWithoutOwner = 0;
+        p.frameOwnerLast = Clock::time_point();
         for (LaneCounters& l : p.lanes) {  // the first frame counts from here, not what ran inline before
             l.jobs.store(0, std::memory_order_relaxed);
             l.busyNs.store(0, std::memory_order_relaxed);
@@ -864,7 +867,7 @@ void stop() {
             {
                 std::lock_guard<std::mutex> st(p.statsMu);
                 p.frameOwner = nullptr;
-                p.framesWithoutOwner = 0;
+                p.frameOwnerLast = Clock::time_point();
             }
         }
     }
@@ -1194,7 +1197,7 @@ void Owner::close() {
         std::lock_guard<std::mutex> st(p.statsMu);
         if (p.frameOwner == state_.get()) {
             p.frameOwner = nullptr;
-            p.framesWithoutOwner = 0;
+            p.frameOwnerLast = Clock::time_point();
         }
     }
     if (!dropped.empty())
@@ -1283,14 +1286,15 @@ void end_frame(const Owner* owner) {
     std::lock_guard<std::mutex> st(p.statsMu);
     if (owner) {
         const OwnerState* o = Access::state(*owner).get();
+        const Clock::time_point now = Clock::now();
         if (p.frameOwner == o) {
-            p.framesWithoutOwner = 0;
-        } else if (p.frameOwner && ++p.framesWithoutOwner < kFrameOwnerHandOver) {
+            p.frameOwnerLast = now;
+        } else if (p.frameOwner && now - p.frameOwnerLast < std::chrono::milliseconds(kFrameOwnerHandOverMs)) {
             return;  // another engine closes the frames
         } else {
             // No owner yet, or the one that had it stopped ending frames without closing (a hidden view): this one.
             p.frameOwner = o;
-            p.framesWithoutOwner = 0;
+            p.frameOwnerLast = now;
         }
     }
     FrameStats f;

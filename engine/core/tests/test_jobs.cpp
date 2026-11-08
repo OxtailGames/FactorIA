@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <mutex>
@@ -812,23 +813,52 @@ TEST_CASE("jobs: chunks of parallel_for run by the calling thread count as insid
     }
 }
 
-TEST_CASE("jobs: the frame statistics go to another owner after kFrameOwnerHandOver frames without their owner") {
+namespace {
+// Sleeps (steady clock, so a stalled VM only makes it longer) until `ms` have passed since `since`.
+void sleep_until_elapsed(std::chrono::steady_clock::time_point since, int ms) {
+    while (std::chrono::steady_clock::now() - since < std::chrono::milliseconds(ms))
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+}
+}  // namespace
+
+TEST_CASE("jobs: the frame statistics go to another owner after kFrameOwnerHandOverMs without their owner") {
     PoolScope pool(jobs::Settings::threads(1));
     jobs::Owner editor("editor"), preview("preview");
     jobs::end_frame(&editor);  // the editor closes the frames, then stops ending them (it never closes either)
+    const auto editorLast = std::chrono::steady_clock::now();
     REQUIRE(jobs::wait(jobs::submit("test.frame", [] {})).ok());
-    for (int i = 1; i < jobs::kFrameOwnerHandOver; ++i) {
-        jobs::end_frame(&preview);
+    jobs::end_frame(&preview);
+    // Only when the machine did not stall for most of the interval: then the editor surely still holds the frames.
+    if (std::chrono::steady_clock::now() - editorLast < std::chrono::milliseconds(jobs::kFrameOwnerHandOverMs / 2))
         CHECK(jobs::info().submittedLastFrame == 0);  // still the editor's frame
-    }
-    jobs::end_frame(&preview);  // the kFrameOwnerHandOver-th: the preview takes over and closes this frame
+    sleep_until_elapsed(editorLast, jobs::kFrameOwnerHandOverMs + 50);
+    jobs::end_frame(&preview);  // the editor was silent for the whole interval: the preview takes over, closes this frame
     CHECK(jobs::info().submittedLastFrame == 1);
     REQUIRE(jobs::wait(jobs::submit("test.frame", [] {})).ok());
     REQUIRE(jobs::wait(jobs::submit("test.frame", [] {})).ok());
-    jobs::end_frame(&editor);  // the editor now is the other one
-    CHECK(jobs::info().submittedLastFrame == 1);
+    jobs::end_frame(&editor);  // the editor now is the other one (the preview called a moment ago)
     jobs::end_frame(&preview);
     CHECK(jobs::info().submittedLastFrame == 2);
+}
+
+TEST_CASE("jobs: a secondary engine running many frames per main frame does not take the frames") {
+    PoolScope pool(jobs::Settings::threads(1));
+    jobs::Owner mainEngine("main"), secondary("secondary");
+    // Frame k queues k + 1 jobs, so the frame a close reports says whose call closed it.
+    // Once the machine stalls for most of the hand-over interval the secondary may hold the frames from then on (the
+    // main engine gets them back only after the secondary's silence), so no later frame is checked either.
+    bool stalled = false;
+    for (int frame = 0; frame < 3; ++frame) {
+        const auto start = std::chrono::steady_clock::now();
+        jobs::end_frame(&mainEngine);  // the main engine closes the previous frame (frame jobs)...
+        for (int i = 0; i <= frame; ++i) REQUIRE(jobs::wait(jobs::submit("test.frame", [] {})).ok());
+        // ...then the secondary runs far more than the old limit of 8 calls before the main engine's next frame.
+        for (int i = 0; i < 50; ++i) jobs::end_frame(&secondary);
+        if (std::chrono::steady_clock::now() - start >= std::chrono::milliseconds(jobs::kFrameOwnerHandOverMs / 2))
+            stalled = true;
+        if (!stalled) CHECK(jobs::info().submittedLastFrame == frame);  // still the main engine's: nothing took over
+    }
+    jobs::end_frame(&mainEngine);
 }
 
 TEST_CASE("jobs: an owner's wait runs only what that owner needs, not another owner's queued jobs") {

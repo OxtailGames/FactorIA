@@ -104,7 +104,8 @@ void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vecto
 int select_lights(std::vector<LightData>& lights, std::size_t maxCount) {
     std::stable_sort(lights.begin(), lights.end(), [](const LightData& a, const LightData& b) {
         if (a.rank != b.rank) return a.rank < b.rank;
-        return a.score > b.score;
+        // A NaN score (a NaN light position) counts as the lowest, so the order stays a strict weak one.
+        return rjobs::order_float(-a.score) < rjobs::order_float(-b.score);
     });
     if (lights.size() <= maxCount) return 0;
     const int dropped = int(lights.size() - maxCount);
