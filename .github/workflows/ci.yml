@@ -173,12 +173,19 @@ jobs:
   # Windows: MSVC through the Visual Studio 2022 generator. Headless GPU code
   # uses the D3D11 software adapter (WARP).
   # One command per step, so a failing command fails the step (PowerShell).
+  # Three machines, each builds (from the same ccache) and runs a third of the suite: one test at a time already fills a
+  # runner's 4 vCPUs (see the Test step), so the suite's 30 minutes only shrink on more machines. scripts/ctest_shard.py
+  # gives every test to exactly one shard, balanced by the times it lists.
   windows:
-    name: Windows (Visual Studio 2022, MSVC)
+    name: Windows (Visual Studio 2022, MSVC, tests ${{ matrix.shard }}/3)
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: windows-2022  # the preset uses the "Visual Studio 17 2022" generator; windows-latest now ships VS 2026
-    timeout-minutes: 90  # a build with a cold ccache takes 35-45 min
+    timeout-minutes: 90  # a build with a cold ccache takes 35-60 min
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
 
@@ -216,13 +223,13 @@ jobs:
         run: '"$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --show-stats --verbose'
 
       - name: Trim ccache to what this build used (see the linux job)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.shard == 1 }}
         shell: bash
         run: '"$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --evict-older-than 7200s'
 
-      # Saved even when the tests fail (see the linux job).
+      # Saved even when the tests fail (see the linux job). The shards build the same objects, so one of them saves.
       - name: Save ccache
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.shard == 1 }}
         uses: actions/cache/save@v4
         with:
           path: ~\AppData\Local\ccache  # ccache's default directory on Windows
@@ -244,25 +251,25 @@ jobs:
           Set-DisplayResolution -Width 1920 -Height 1080 -Force
           Get-CimInstance Win32_VideoController | Select-Object CurrentHorizontalResolution, CurrentVerticalResolution
 
-      - name: Test (windows-release)
+      - name: Test (windows-release, shard ${{ matrix.shard }}/3)
         env:
           FA_REQUIRE_SHDC: '1'
         # One test at a time: the software D3D11 (WARP) of the editor autotests and the tooling suite already fill the 4
         # vCPUs. With --parallel 4 the step took longer (17.5 min against 15) and the timing-sensitive tests failed.
-        run: ctest --preset windows-release
+        run: python scripts/ctest_shard.py --preset windows-release --shard ${{ matrix.shard }} --of 3
 
       # The hash of a physics replay, in the log of every job (FA_PHYSICS_REPLAY_HASH). The test above compares it with the value
       # committed in engine/physics/tests/test_determinism.cpp; this step prints it even when that test failed, so a mismatch
       # shows what to commit. The Linux, Windows and macOS lines should be equal (docs/AI_GUIDE.md, "Physics and platforms").
       - name: Physics replay hash (windows)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.shard == 1 }}
         run: ctest --preset windows-release -R physics_determinism -V
 
       - name: Upload test output on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: windows-test-output
+          name: windows-test-output-${{ matrix.shard }}
           path: |
             build/**/Testing/**
             build/**/test-output/**/*.png
