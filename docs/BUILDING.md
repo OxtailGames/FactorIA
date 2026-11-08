@@ -590,7 +590,13 @@ changes it is merged by hand once its Release run is green.
 
 The Linux and macOS test steps run `ctest --parallel` with the runner's vCPUs (4 on Linux, 3 on macOS). Windows runs
 one test at a time: its editor autotests draw with the software D3D11 renderer (WARP), which already fills the runner's
-4 vCPUs, so running tests side by side made the step slower and its timing-sensitive tests fail. The performance
+4 vCPUs, so running tests side by side made the step slower and its timing-sensitive tests fail. Instead the Windows job is a
+matrix of three machines (`Windows (... tests 1/3)` to `3/3`): each builds (with a warm ccache that takes about a
+minute) and runs a third of the tests, chosen by `scripts/ctest_shard.py`. Every machine lists the same tests and
+splits them the same way, balancing the expected time of each third with the times measured on the runner (the table
+in the script; a test not listed counts 2 s), so a new test runs in exactly one shard. Only shard 1 saves the ccache
+and prints the physics replay hash. `python scripts/ctest_shard.py --preset <preset> --shard 1 --of 3` runs one third
+on your machine too. The performance
 budgets have the `RUN_SERIAL` property, so `ctest` runs each of them alone and the other tests cannot skew their times.
 A newer push to the same pull request or branch cancels the older run.
 Each job that compiles restores a ccache and saves it again with only the entries its build used, right after the build,
