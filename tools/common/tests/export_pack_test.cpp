@@ -252,7 +252,7 @@ TEST_CASE("export: REVIEW.md (the note the AI reviewers read first) is not part 
     CHECK_FALSE(stdfs::exists(tmp.sub("out/pack-test-windows/game") + "/REVIEW.md"));
 }
 
-TEST_CASE("export: a shipped script that calls a command of tools/*.js is warned about, one that does not is not") {
+TEST_CASE("export: a shipped script that calls a command of a tool module is warned about, one that does not is not") {
     testing::TempDir tmp;
     const std::string proj = make_project(tmp);
     const stdfs::path dir(proj);
@@ -260,20 +260,30 @@ TEST_CASE("export: a shipped script that calls a command of tools/*.js is warned
                        "export default { name: \"scatter_gems\", summary: \"x\", run() { return {}; } };\n");
     testing::write_all(dir / "tools" / "other_file.js",  // the command is named by `name`, not by the file
                        "export default { name: \"renamed\", summary: \"x\", run() { return {}; } };\n");
+    // In a subfolder (the engine loads tools/ recursively), with a `name` before the default export that is not the
+    // tool's, and a name the engine cleans ("make-path" registers project.make_path).
+    testing::write_all(dir / "tools" / "level" / "paths.js",
+                       "const opts = { name: \"helper\" };\n"
+                       "export default {\n  name : 'make-path',\n  summary: \"x\",\n  run() { return {}; },\n};\n");
+    testing::write_all(dir / "tools" / "no_default.js", "export function f() {}\n");  // registers nothing
     testing::write_all(dir / "scripts" / "uses_tool.js",
                        "fa.call(\"project.scatter_gems\", {});\nfa.call('project.renamed', {});\n"
+                       "fa . call ( \"project.make_path\" );\nfa.call(\"project.helper\");\nfa.call(\"project.no_default\");\n"
                        "fa.call(\"project.scatter_gems\", {});\nfa.call(\"project.not_a_tool\", {});\nfa.call(\"scene.list\");\n");
     testing::write_all(dir / "scripts" / "no_tool.js", "fa.call(\"scene.list\");\n");
     auto r = export_project(options_for(tmp, proj, "linux", false));
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    int scatter = 0, renamed = 0, other = 0;
+    int scatter = 0, renamed = 0, nested = 0, other = 0;
     for (const std::string& w : r->warnings) {
         if (w.find("scripts/uses_tool.js calls project.scatter_gems, the command of tools/scatter_gems.js") == 0) ++scatter;
         if (w.find("scripts/uses_tool.js calls project.renamed, the command of tools/other_file.js") == 0) ++renamed;
-        if (w.find("not_a_tool") != std::string::npos || w.find("no_tool.js") != std::string::npos) ++other;
+        if (w.find("scripts/uses_tool.js calls project.make_path, the command of tools/level/paths.js") == 0) ++nested;
+        for (const char* never : {"not_a_tool", "no_tool.js", "project.helper", "project.no_default"})
+            if (w.find(never) != std::string::npos) ++other;
     }
     CHECK(scatter == 1);  // once per script and command
     CHECK(renamed == 1);
+    CHECK(nested == 1);
     CHECK(other == 0);
     for (const std::string& w : r->warnings)
         if (w.find("scatter_gems") != std::string::npos) CHECK(w.find("move what the game needs") != std::string::npos);
