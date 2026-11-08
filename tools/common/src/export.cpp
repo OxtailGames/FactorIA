@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <regex>
 #include <set>
@@ -435,6 +436,64 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
     return out;
 }
 
+// Gradle's working folders in an Android export (relative, forward slashes): the Gradle daemon, alive for 15 minutes after
+// a build (platforms/android/gradle.properties), keeps files in them open, which on Windows stops a delete; they also
+// make the next build incremental. An export over an Android export keeps them, and the report does not list them.
+bool gradle_working_dir(const std::string& rel) {
+    if (rel == ".gradle" || rel == ".kotlin" || rel == "build" || rel == "app/build") return true;
+    if (rel.rfind("plugins/", 0) != 0) return false;
+    const std::size_t slash = rel.find('/', 8);  // plugins/<name>/build
+    return slash != std::string::npos && slash > 8 && rel.compare(slash, std::string::npos, "/build") == 0;
+}
+// A folder with a Gradle working folder inside: app, plugins, plugins/<name>.
+bool holds_gradle_working_dir(const std::string& rel) {
+    return rel == "app" || rel == "plugins" || (rel.rfind("plugins/", 0) == 0 && rel.size() > 8 && rel.find('/', 8) == std::string::npos);
+}
+
+// The files a game that runs from an export holds open for as long as it runs, so that Windows refuses to delete them:
+// its executable and libraries (Windows maps them) and its pack. Its loose files are read and closed again.
+bool held_while_running(const std::string& rel) {
+    const std::string ext = to_lower(fs::extension(rel));
+    if (ext == ".exe" || ext == ".dll" || ext == ".pak" || ext == ".so" || ext == ".dylib") return true;
+    if (rel.find(".app/Contents/MacOS/") != std::string::npos) return true;  // a macOS bundle's executable
+    return rel.find('/') == std::string::npos && ext.empty();                // a Linux player at the top
+}
+
+// Deletes the previous export in `outRoot`; an Android one keeps Gradle's working folders (and the folders around them).
+void remove_output(const stdfs::path& outRoot, bool keepGradle, std::error_code& ec) {
+    ec.clear();
+    if (!keepGradle) {
+        fs::remove_tree(outRoot, ec);
+        return;
+    }
+    std::error_code sec;
+    if (!stdfs::is_directory(stdfs::symlink_status(os_path(outRoot), sec))) {
+        fs::remove_tree(outRoot, ec);
+        return;
+    }
+    std::function<void(const stdfs::path&, const std::string&)> clear = [&](const stdfs::path& dir, const std::string& relDir) {
+        std::error_code lec;
+        std::vector<stdfs::path> names;
+        for (stdfs::directory_iterator it(os_path(dir), lec), end; !lec && it != end; it.increment(lec)) names.push_back(it->path().filename());
+        if (lec && !ec) ec = lec;
+        for (const stdfs::path& name : names) {
+            const std::string rel = relDir.empty() ? fs::path_to_utf8(name) : relDir + "/" + fs::path_to_utf8(name);
+            const stdfs::path path = dir / name;
+            std::error_code tec;
+            const bool folder = stdfs::is_directory(stdfs::symlink_status(os_path(path), tec));
+            if (folder && gradle_working_dir(rel)) continue;
+            if (folder && holds_gradle_working_dir(rel)) {
+                clear(path, rel);  // the folder itself stays
+                continue;
+            }
+            std::error_code rec;
+            fs::remove_tree(path, rec);
+            if (rec && !ec) ec = rec;
+        }
+    };
+    clear(outRoot, "");
+}
+
 // The files of an export, relative to its root. An Android export that ran Gradle holds thousands of build products too
 // (.gradle/, build/, app/build/, plugins/<name>/build/): they are not part of the export and are left out.
 std::vector<std::string> list_files(const stdfs::path& root, bool skipGradleOutput) {
@@ -443,10 +502,7 @@ std::vector<std::string> list_files(const stdfs::path& root, bool skipGradleOutp
     const stdfs::path osRoot = os_path(root);
     for (stdfs::recursive_directory_iterator it(osRoot, ec), end; !ec && it != end; it.increment(ec)) {
         const std::string rel = generic(it->path().lexically_relative(osRoot));
-        const std::size_t pluginSlash = rel.rfind("plugins/", 0) == 0 ? rel.find('/', 8) : std::string::npos;
-        if (skipGradleOutput && it->is_directory(ec) &&
-            (rel == ".gradle" || rel == ".kotlin" || rel == "build" || rel == "app/build" ||
-             (pluginSlash != std::string::npos && rel.compare(pluginSlash, std::string::npos, "/build") == 0))) {
+        if (skipGradleOutput && it->is_directory(ec) && gradle_working_dir(rel)) {
             it.disable_recursion_pending();
             continue;
         }
@@ -922,18 +978,27 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     stdfs::create_directories(os_path(plan.outParent), ec);
     if (ec) return err("export: cannot create output directory '" + generic(plan.outParent) + "': " + ec.message());
     // Always a fresh <slug>-<platform> folder; the plan checked that an export wrote it. On Windows a game running from it
-    // holds its files open (the exe, the pack), and a delete would stop half-way: look first, and delete nothing then.
-    if (const stdfs::path busy = fs::find_file_in_use(outRoot); !busy.empty())
-        return err("export: " + generic(outRoot) + " is in use: close the running game (or the editor's preview of it) and export again",
-                   "'" + generic(busy) + "' is open in another program, and Windows does not let a program delete or replace a file "
-                   "that is open. Nothing was deleted: the previous export is as it was.");
-    fs::remove_tree(outRoot, ec);
-    if (ec)
-        return err("export: cannot delete the previous export " + generic(outRoot) + ": " + ec.message(),
-                   fs::is_sharing_violation(ec)
-                       ? "A file in it is open in another program: close the running game (or the editor's preview of it) and export "
-                         "again. Part of the previous export may be gone already; the next export writes all of it."
-                       : "Check that the folder can be written (permissions, a read-only drive), or delete it yourself, then export again.");
+    // holds its exe, its libraries and its pack open, and a delete would stop half-way: look first, and delete nothing
+    // then. An Android export keeps Gradle's working folders (the daemon holds files in them; gradle_working_dir).
+    const bool keepGradle = platform == "android";
+    const auto probed = [keepGradle](const stdfs::path& rel, bool folder) {
+        const std::string r = fs::path_to_utf8(rel);
+        return folder ? !(keepGradle && gradle_working_dir(r)) : held_while_running(r);
+    };
+    if (const stdfs::path busy = fs::find_file_in_use(outRoot, probed); !busy.empty())
+        return err("export: '" + fs::path_to_utf8(busy) + "' is open in another program (the game running from " +
+                       fs::path_to_utf8(outRoot) + "?): close it and export again",
+                   "Windows does not let a program delete or replace a file that is open, and the export replaces that folder. "
+                   "Nothing was deleted: the previous export is as it was.");
+    remove_output(outRoot, keepGradle, ec);
+    if (ec) {
+        const bool held = fs::is_sharing_violation(ec) && ec != std::errc::permission_denied;
+        return err("export: cannot delete the previous export " + fs::path_to_utf8(outRoot) + ": " + ec.message(),
+                   held ? "A file in it is open in another program: close it and export again. Part of the previous export may "
+                          "be gone already; the next export writes all of it."
+                        : "Check that the folder can be written (permissions, a read-only drive or folder), or delete it yourself, "
+                          "then export again.");
+    }
     stdfs::create_directories(os_path(outRoot), ec);
     if (ec) return err("export: cannot create '" + generic(outRoot) + "': " + ec.message());
     if (auto r = write_text(outRoot / kExportMarkerFile, marker_text(p, platform)); !r.ok()) return r.error();
@@ -955,7 +1020,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     const std::vector<std::string> projectFiles = files;  // before the asset steps swap files for their converted forms
     const SetupContext thisMachine;
     if (auto assetsReady = prepare_game_assets(p, platform, files, report, options.setup ? *options.setup : thisMachine); !assetsReady.ok()) {
-        fs::remove_tree(outRoot, ec);
+        remove_output(outRoot, keepGradle, ec);
         return assetsReady.error();
     }
 
@@ -984,7 +1049,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     }
     if (r.ok() && platform == "android") r = build_android(options, p, plan.mobile, plan.android, outRoot, report, keepOutput);
     if (!r.ok()) {
-        if (!keepOutput) fs::remove_tree(outRoot, ec);
+        if (!keepOutput) remove_output(outRoot, keepGradle, ec);
         return r.error();
     }
     if (platform == "macos") {  // last: the signature seals every file of the bundle, the notices too

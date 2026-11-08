@@ -533,7 +533,7 @@ TEST_CASE("pack v2: under the Windows rules an open pack cannot be replaced, map
         // Wine renames onto an open file as POSIX does, so only a real Windows (and the emulation) refuses.
         if (!running_under_wine()) {
             REQUIRE(!r.ok());
-            CHECK(r.error().message.find("in use") != std::string::npos);
+            CHECK(r.error().message.find("is open in another program") != std::string::npos);
             CHECK(r.error().hint.find("Close the game") != std::string::npos);
             CHECK(!stdfs::exists(s.dir / "game.pak.tmp"));
             CHECK(running.value()->read("a.txt").value() == bytes_of("old"));
@@ -602,31 +602,45 @@ TEST_CASE("load trace: a trace with an owner records only the reads made for it,
     fs::set_project_root(s.dir);
     for (const char* f : {"mine.json", "editor.json", "other.json", "worker.json", "asset.json"})
         std::ofstream(s.dir / f, std::ios::binary) << "{\"n\":1}";
-    int engineA = 0, engineB = 0;  // two engines in one process: only their addresses matter
-    LoadTrace a(&engineA), b(&engineB);
-    CHECK(LoadTrace::current_owner() == nullptr);
+    // Two engines in one process, each with its token; a token is never handed out twice.
+    const LoadTrace::Owner engineA = LoadTrace::new_owner(), engineB = LoadTrace::new_owner();
+    CHECK(engineA != LoadTrace::kNoOwner);
+    CHECK(engineA != engineB);
+    LoadTrace a(engineA), b(engineB);
+    CHECK(LoadTrace::current_owner() == LoadTrace::kNoOwner);
     REQUIRE(fs::read_text("editor.json").ok());  // the editor's own read: nobody's
     {
-        LoadTrace::ReadingFor reading(&engineA);
-        CHECK(LoadTrace::current_owner() == &engineA);
+        LoadTrace::ReadingFor reading(engineA);
+        CHECK(LoadTrace::current_owner() == engineA);
         REQUIRE(fs::read_text("mine.json").ok());
         {
-            LoadTrace::ReadingFor nested(&engineB);  // another engine runs inside (an in-process play.auto)
+            LoadTrace::ReadingFor nested(engineB);  // another engine runs inside (an in-process play.auto)
             REQUIRE(fs::read_text("other.json").ok());
         }
-        CHECK(LoadTrace::current_owner() == &engineA);
-        // A job handed to a worker thread takes its owner along (what a background loader does).
+        CHECK(LoadTrace::current_owner() == engineA);
+        // A job handed to a worker thread takes its owner along (what a background loader does). The worker only
+        // collects; the checks run on this thread (doctest's REQUIRE must not throw on another one).
         const LoadTrace::Owner owner = LoadTrace::current_owner();
-        std::thread worker([owner] {
-            CHECK(LoadTrace::current_owner() == nullptr);  // a thread is never an owner by itself
+        LoadTrace::Owner workerOwnerAtStart = owner;
+        bool workerReadsOk = false;
+        std::thread worker([&, owner] {
+            workerOwnerAtStart = LoadTrace::current_owner();
             LoadTrace::ReadingFor onWorker(owner);
-            REQUIRE(fs::read_text("worker.json").ok());
+            const bool text = fs::read_text("worker.json").ok();
             AssetLoadScope asset("texture", "asset.json");
-            REQUIRE(fs::read_bytes("asset.json").ok());
+            workerReadsOk = text && fs::read_bytes("asset.json").ok();
         });
         worker.join();
+        CHECK(workerOwnerAtStart == LoadTrace::kNoOwner);  // a thread is never an owner by itself
+        CHECK(workerReadsOk);
     }
-    CHECK(LoadTrace::current_owner() == nullptr);
+    {
+        // A read for an engine that is gone (a loader thread finishing late) is nobody's, even when a new engine came.
+        const LoadTrace::Owner gone = LoadTrace::new_owner();
+        LoadTrace::ReadingFor late(gone);
+        REQUIRE(fs::read_text("editor.json").ok());
+    }
+    CHECK(LoadTrace::current_owner() == LoadTrace::kNoOwner);
     const LoadOrder orderA = a.order();
     REQUIRE(orderA.size() == 1);
     CHECK(orderA[0].files == std::vector<std::string>{"mine.json", "worker.json", "asset.json"});

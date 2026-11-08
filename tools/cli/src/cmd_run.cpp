@@ -92,8 +92,9 @@ Command make_run_command() {
         // release export packs game.pak in (fa/tooling/load_order.h).
         cfg.traceLoads = true;
         // A cold session: its order of a scene replaces an editor Play's (fa/tooling/load_order.h, "Which session wins").
+        // `dir` is a native string (the engine builds its root from it the same way), never UTF-8 on Windows.
         cfg.loadOrderSink = [dir](const LoadOrder& order) {
-            record_load_order_logged(fs::path_from_utf8(dir), order, LoadOrderSource::Run);
+            record_load_order_logged(std::filesystem::path(dir), order, LoadOrderSource::Run);
         };
         if (a.has("props")) {
             std::string text = a.str("props");

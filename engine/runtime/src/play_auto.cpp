@@ -333,6 +333,9 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     std::string initError;
     if (!engine.init(config, nullptr, &initError))
         return make_error("The project did not start: " + initError, "Run 'factoria run --headless --frames 5' to see the same problem, and fix the scene or script it names.");
+    // The session's reads are this engine's (its load trace and play.report's loading section): the frames, the draws and the
+    // scene loads say so themselves, and this covers the bot hook too (autoplay_begin / autoplay_step load scripts).
+    const LoadTrace::ReadingFor reading(engine.load_trace_owner());
     Engine::Impl& I = engine.runtime_impl();
     World& world = engine.world();
     if (!config.scene.empty() && !fs::is_absolute(config.scene) && !fs::exists(config.scene))  // init only logs it, and plays nothing

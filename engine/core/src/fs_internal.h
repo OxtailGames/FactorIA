@@ -28,8 +28,8 @@ std::string register_open_file(const std::filesystem::path& file);
 void unregister_open_file(const std::string& key);
 
 #ifdef _WIN32
-// fs_in_use_win32.cpp: true when an open of `file` that shares nothing fails because someone holds it open
-// (ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION): a running exe, a mapped or open pack, a file open in an editor.
+// fs_in_use_win32.cpp: true when something holds `file` so that a delete of it would fail: a handle that did not allow
+// deleting, a running exe or loaded library, a mapped file. One look, no retry (fs::file_in_use retries).
 bool held_open(const std::filesystem::path& file);
 #endif
 }  // namespace fa::fs::detail

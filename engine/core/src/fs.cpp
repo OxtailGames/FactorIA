@@ -341,39 +341,67 @@ std::uintmax_t remove_tree(const stdfs::path& dir, std::error_code& ec) {
     std::error_code aec;
     stdfs::path abs = stdfs::absolute(dir, aec).lexically_normal();
     if (!aec && !abs.has_filename() && abs.has_relative_path()) abs = abs.parent_path();  // a trailing separator
-    if (!aec) return stdfs::remove_all(extended_path(abs), ec);
+    if (!aec) {
+        const stdfs::path target = extended_path(abs);
+        std::uintmax_t removed = stdfs::remove_all(target, ec);
+        if (ec == std::errc::permission_denied) {
+            // A read-only file (copy_file keeps the attribute: a previous export of a read-only player) refuses a
+            // delete with ERROR_ACCESS_DENIED: drop the attribute of what is left and try once more.
+            std::error_code wec;
+            for (auto it = stdfs::recursive_directory_iterator(target, wec); !wec && it != stdfs::recursive_directory_iterator();
+                 it.increment(wec)) {
+                std::error_code pec;
+                if (!it->is_symlink(pec) && it->is_regular_file(pec))
+                    stdfs::permissions(it->path(), stdfs::perms::owner_write, stdfs::perm_options::add, pec);
+            }
+            ec.clear();
+            removed = stdfs::remove_all(target, ec);  // the first call's count is -1 on an error, like this one's
+        }
+        return removed;
+    }
 #endif
     return stdfs::remove_all(dir, ec);
 }
 
-stdfs::path find_file_in_use(const stdfs::path& dir, std::size_t maxFiles) {
+bool file_in_use(const stdfs::path& file) {
+    if (open_conflict(file)) return true;  // the emulation
 #ifdef _WIN32
-    auto held = [](const stdfs::path& f) {
-        if (open_conflict(f)) return true;
-        // A scanner or indexer that opened the file a moment ago lets go within milliseconds (as replace_file waits for):
-        // only a file still held after about a second is in use. A running game holds its files for as long as it runs.
-        for (int i = 0; i < 100; ++i) {
-            if (!detail::held_open(f)) return false;
-            retry_pause(i);
-        }
-        return true;
-    };
+    // A scanner or indexer that opened the file a moment ago lets go within milliseconds (as replace_file waits for):
+    // only a file still held after about a second is in use. A running game holds its files for as long as it runs.
+    for (int i = 0; i < 100; ++i) {
+        if (!detail::held_open(file)) return false;
+        retry_pause(i);
+    }
+    return true;
 #else
+    return false;  // POSIX deletes and replaces open files
+#endif
+}
+
+stdfs::path find_file_in_use(const stdfs::path& dir, const std::function<bool(const stdfs::path&, bool)>& which,
+                             std::size_t maxFiles) {
+#ifndef _WIN32
     if (!emulating()) return {};  // POSIX deletes and replaces open files
-    auto held = [](const stdfs::path& f) { return bool(open_conflict(f)); };
 #endif
     std::error_code ec;
     const stdfs::path root = os_path(dir);
     const auto status = stdfs::symlink_status(root, ec);
     if (ec || !stdfs::exists(status)) return {};
-    if (!stdfs::is_directory(status)) return held(root) ? dir : stdfs::path();
+    if (!stdfs::is_directory(status)) return file_in_use(dir) ? dir : stdfs::path();
     std::size_t looked = 0;
     for (auto it = stdfs::recursive_directory_iterator(root, stdfs::directory_options::skip_permission_denied, ec);
          !ec && it != stdfs::recursive_directory_iterator() && looked < maxFiles; it.increment(ec)) {
         std::error_code tec;
-        if (it->is_directory(tec) || it->is_symlink(tec)) continue;
+        if (it->is_symlink(tec)) continue;
+        const bool folder = it->is_directory(tec);
+        const stdfs::path rel = it->path().lexically_relative(root);
+        if (which && !which(rel, folder)) {
+            if (folder) it.disable_recursion_pending();
+            continue;
+        }
+        if (folder) continue;
         ++looked;
-        if (held(it->path())) return dir / it->path().lexically_relative(root);
+        if (file_in_use(it->path())) return dir / rel;
     }
     return {};
 }

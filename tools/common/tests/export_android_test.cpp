@@ -13,6 +13,7 @@
 
 #include "fa/core/build_info.h"
 #include "fa/core/command.h"
+#include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/tooling/export.h"
 #include "fa/tooling/export_settings.h"
@@ -198,6 +199,51 @@ TEST_CASE("android export: the Gradle project follows the settings and ships the
     CHECK_FALSE(has(r->files, "app/src/main/assets/keys/upload.jks"));
     CHECK(any_contains(r->warnings, "keystore 'keys/upload.jks' is inside the project folder"));
     CHECK_FALSE(any_contains(r->warnings, "No icon is set"));
+}
+
+TEST_CASE("android export: a second export keeps Gradle's working folders, whose files the Gradle daemon holds open") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp);
+    // Windows refuses to delete an open file; FA_FS_WINDOWS_RULES gives macOS and Linux the same rule (a no-op on Windows).
+    const bool rulesBefore = fs::windows_rules();
+    fs::set_windows_rules(true);
+    struct Restore {
+        bool on;
+        ~Restore() { fs::set_windows_rules(on); }
+    } restore{rulesBefore};
+
+    auto first = export_project(options(game, tmp, "gradle"));
+    REQUIRE_MESSAGE(first.ok(), (first.ok() ? "" : first.error().to_string()));
+    const stdfs::path root = first->outputDir;
+    // What a Gradle build leaves, with the daemon still alive: a lock it holds and outputs of the app module.
+    const stdfs::path lock = root / ".gradle" / "8.14.3" / "fileHashes" / "fileHashes.lock";
+    const stdfs::path native = root / "app" / "build" / "intermediates" / "merged_native_libs" / "libmain.so";
+    testing::write_all(lock, "lock");
+    testing::write_all(native, "elf");
+    testing::write_all(root / "build" / "reports" / "problems.html", "<html/>");
+    testing::write_all(root / "stale.txt", "from a build that is gone");  // not Gradle's: the next export removes it
+    const std::string manifest = testing::read_all(root / "app/src/main/AndroidManifest.xml");
+    stdfs::remove(root / "app/src/main/AndroidManifest.xml");
+
+    {
+        fs::ReadStream daemonLock(lock);
+        fs::ReadStream daemonLib(native);  // a .so, which the probe looks at elsewhere: inside app/build it is Gradle's
+        REQUIRE(daemonLock.is_open());
+        REQUIRE(daemonLib.is_open());
+        auto second = export_project(options(game, tmp, "gradle"));
+        REQUIRE_MESSAGE(second.ok(), (second.ok() ? "" : second.error().to_string()));
+        CHECK(stdfs::exists(lock));
+        CHECK(testing::read_all(native) == "elf");
+        CHECK(stdfs::exists(root / "build" / "reports" / "problems.html"));
+        CHECK_FALSE(stdfs::exists(root / "stale.txt"));
+        CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml") == manifest);  // written again
+        CHECK(second->files == first->files);  // Gradle's folders are not part of the export
+        for (const std::string& f : second->files) {
+            CAPTURE(f);
+            CHECK(f.rfind(".gradle/", 0) != 0);
+            CHECK(f.rfind("app/build/", 0) != 0);
+        }
+    }
 }
 
 TEST_CASE("android export: INTERNET is requested when the game declares network hosts, and once") {

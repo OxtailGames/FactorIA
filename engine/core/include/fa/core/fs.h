@@ -89,18 +89,26 @@ std::string path_to_utf8(const std::filesystem::path& p);
 // calls only: show users the path itself.
 std::filesystem::path os_path(const std::filesystem::path& p);
 // std::filesystem::remove_all that also deletes files deeper than MAX_PATH: on Windows it always goes through the
-// \\?\ form of `dir`, since remove_all on a short folder path stops at its first long child. Same result and error.
+// \\?\ form of `dir`, since remove_all on a short folder path stops at its first long child, and a read-only file in it
+// (copy_file keeps the attribute) loses the attribute and is deleted too. Same result and error otherwise.
 // Under the Windows rules (below) a file inside that is open through ReadStream stays, the rest is deleted and `ec` is a
 // sharing violation, as remove_all does on Windows.
 std::uintmax_t remove_tree(const std::filesystem::path& dir, std::error_code& ec);
-// The first file under `dir` (or `dir` itself when it is a file) that is held open so that Windows would refuse to delete
-// or replace it, in directory order; empty when there is none. On Windows that is a file for which an open that shares
-// nothing keeps failing for about a second (a running game's exe, its open or mapped pack, a file open in another
-// program; a scanner that lets go sooner does not count); under the Windows rules emulation a file open through
-// ReadStream, read_bytes or a fa::PackReader; elsewhere nothing (macOS and Linux delete open files). Call it before
-// remove_tree when a half-deleted folder would be worse than an error; it reads the folder, so never on a UI thread. It
-// looks at `maxFiles` files at most (a deterministic count, not a time: what lies past it is not looked at).
-std::filesystem::path find_file_in_use(const std::filesystem::path& dir, std::size_t maxFiles = 100000);
+// Whether Windows would refuse to delete or replace `file` because something holds it: on Windows, an open that asks for
+// delete access and shares everything fails (a handle that did not allow deleting), or marking the file for deletion
+// fails (an exe or a library that is running, a mapped file), and keeps failing for about a second (a scanner that lets
+// go sooner does not count); a read-only file or one this process may not delete is not "held" (remove_tree's error says
+// so). Marking it is taken back before the probe's handle closes: the file stays. Under the Windows rules emulation, a
+// file open through ReadStream, read_bytes or a fa::PackReader; elsewhere never (macOS and Linux delete open files).
+bool file_in_use(const std::filesystem::path& file);
+// The first file under `dir` (or `dir` itself when it is a file) for which file_in_use is true, in directory order; empty
+// when there is none. `which` (optional) picks what to look at by path relative to `dir`: for a folder, false skips all
+// of it; for a file, false skips the file. Call it before remove_tree when a half-deleted folder would be worse than an
+// error; it reads the folder and opens files, so never on a UI thread. It looks at `maxFiles` files at most (a
+// deterministic count, not a time: what lies past it is not looked at).
+std::filesystem::path find_file_in_use(const std::filesystem::path& dir,
+                                       const std::function<bool(const std::filesystem::path& rel, bool folder)>& which = {},
+                                       std::size_t maxFiles = 100000);
 
 // ---- Windows file rules ------------------------------------------------------------------------------------------
 // Some file bugs only happen on Windows, so only a Windows CI run found them. Two rules cause most of them:
