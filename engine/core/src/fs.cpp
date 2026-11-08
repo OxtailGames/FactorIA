@@ -380,8 +380,10 @@ std::filesystem::path path_from_utf8(std::string_view text) {
 stdfs::path resolve(std::string_view path) {
     auto n = normalize_checked(path);
     if (!n) return {};
-    if (is_absolute(n.value())) return stdfs::path(n.value());
-    return project_root() / n.value();
+    // The text is UTF-8 (path_to_utf8 made it): stdfs::path(std::string) would read it in the ANSI code page on Windows and
+    // put a file of a folder with an accent somewhere else ("juego-AdriÃ ").
+    if (is_absolute(n.value())) return path_from_utf8(n.value());
+    return project_root() / path_from_utf8(n.value());
 }
 
 std::string path_to_utf8(const stdfs::path& p) {

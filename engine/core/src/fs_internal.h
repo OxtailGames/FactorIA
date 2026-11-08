@@ -36,5 +36,9 @@ void unregister_open_file(const std::string& token, bool sharesDelete);
 // would not take the mark back, so it goes when the probe's handle closes. One look, no retry (fs::file_in_use retries).
 enum class Held { No, Yes, MarkLost };
 Held held_open(const std::filesystem::path& file);
+// fs_in_use_win32.cpp: whether another handle is open on `file`, whatever it shares (an exclusive open fails with a
+// sharing or lock violation). MoveFileExW answers ERROR_ACCESS_DENIED both for a target that is open somewhere (mapped
+// or not, delete shared or not) and for one this process may not write: this tells the two apart. One look, no retry.
+bool open_elsewhere(const std::filesystem::path& file);
 #endif
 }  // namespace fa::fs::detail
