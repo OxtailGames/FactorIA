@@ -352,6 +352,47 @@ static std::string report_folder(const std::string& path) {
     return second == std::string::npos ? path.substr(0, first) : path.substr(0, second);
 }
 
+// The project's own commands (tools/*.js) are for the people and AIs who work on the game: `factoria export` leaves tools/
+// out, so a shipped game has no `project.<name>` command and a script that calls one fails when it runs there. Warns, for
+// each shipped script, about every `fa.call("project.<name>")` whose command a tool defines (docs/EXPORTING.md).
+static void report_tool_only_calls(const Project& p, const std::vector<std::string>& files, ExportReport& report) {
+    static const std::regex nameRe(R"re(\bname\s*:\s*["']([A-Za-z0-9_]+)["'])re");
+    static const std::regex callRe(R"re(\bfa\s*\.\s*call\s*\(\s*["']project\.([A-Za-z0-9_]+)["'])re");
+    constexpr std::uintmax_t kMaxScriptBytes = 1u << 20;  // a script over 1 MiB is generated code: not scanned
+    std::map<std::string, std::string> toolFile;           // command name -> the tool file that defines it
+    std::error_code ec;
+    for (stdfs::directory_iterator it(os_path(p.dir / "tools"), ec), end; !ec && it != end; it.increment(ec)) {
+        if (!it->is_regular_file(ec) || it->path().extension() != ".js") continue;
+        const std::string file = "tools/" + fs::path_to_utf8(it->path().filename());
+        std::string name = fs::path_to_utf8(it->path().stem());
+        const auto text = read_file(it->path());
+        std::smatch m;
+        if (text && text->size() <= kMaxScriptBytes && std::regex_search(*text, m, nameRe)) name = m[1].str();
+        toolFile.emplace(name, file);
+    }
+    if (toolFile.empty()) return;
+    for (const std::string& f : files) {
+        if (to_lower(fs::extension(f)) != ".js") continue;
+        std::error_code sec;
+        const auto size = stdfs::file_size(os_path(p.dir / f), sec);
+        if (sec || size > kMaxScriptBytes) continue;
+        const auto text = read_file(p.dir / f);
+        if (!text) continue;
+        std::set<std::string> seen;
+        for (std::sregex_iterator it(text->begin(), text->end(), callRe), end; it != end; ++it) {
+            const std::string name = (*it)[1].str();
+            const auto tool = toolFile.find(name);
+            if (tool == toolFile.end() || !seen.insert(name).second) continue;
+            report.warnings.push_back(
+                f + " calls project." + name + ", the command of " + tool->second + ". tools/ is left out of the export, so in the "
+                "shipped game that call fails (there is no such command). Tools are for working on the game: move what the game "
+                "needs into a module under scripts/ and import it from both the tool and the script (docs/EXPORTING.md, \"What "
+                "is shipped and what is not\")");
+        }
+    }
+}
+
+
 // What the pack (or the game folder) holds, folder by folder: fills report.largestFolders and warns about the folders that
 // are almost always material for making the game, never something it loads (docs/EXPORTING.md, "What is shipped").
 static void report_packed_sizes(const Project& p, const std::vector<std::string>& files, ExportReport& report) {
@@ -1032,6 +1073,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     }
 
     report_packed_sizes(p, files, report);
+    report_tool_only_calls(p, projectFiles, report);
     Result<void> r;
     bool keepOutput = false;  // a failed Gradle build leaves its project in place, so that it can be opened and fixed
     if (platform == "android" || platform == "ios") {

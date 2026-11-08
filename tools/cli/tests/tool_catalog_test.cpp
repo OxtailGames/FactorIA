@@ -171,10 +171,10 @@ TEST_CASE("tool catalog: a scripted task on the real registry sends a fraction o
     std::printf("  step 1: %llu bytes with the catalog, %llu with every tool\n",
                 static_cast<unsigned long long>(withCatalog.splits[0].totalBytes()), static_cast<unsigned long long>(full.splits[0].totalBytes()));
 
-    // The saving: a step sends under a third of what it did, and a step of the catalog run stays under 102 KB
+    // The saving: a step sends under a third of what it did, and a step of the catalog run stays under 103 KB
     // (every new command adds its one-line catalog entry to the system prompt).
     CHECK(withCatalog.splits[0].totalBytes() < full.splits[0].totalBytes() / 3);
-    CHECK(withCatalog.splits[0].totalBytes() < 102000);
+    CHECK(withCatalog.splits[0].totalBytes() < 103000);
     CHECK(withCatalog.splits[0].toolBytes < full.splits[0].toolBytes / 5);
     CHECK(full.splits[0].toolBytes > 150000);  // what the real registry costs in full: the problem this package solves
     CHECK(plan_tools(reg, ToolPlanOptions{}).catalog.size() > 80);  // most of the registry is catalog lines

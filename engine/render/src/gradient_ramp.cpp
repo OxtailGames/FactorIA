@@ -6,6 +6,7 @@
 #include <format>
 
 #include "fa/core/log.h"
+#include "render_jobs.h"
 
 namespace fa::render {
 
@@ -79,7 +80,9 @@ bool gradient_spec(const Shape2D& s, const Color& tint, GradientSpec& out, std::
     // Sorted by position (stable: equal positions keep their order, which makes a hard edge).
     std::array<int, kMaxGradientStops> order{};
     for (int i = 0; i < out.count; ++i) order[std::size_t(i)] = i;
-    std::stable_sort(order.begin(), order.begin() + out.count, [&](int a, int b) { return out.t[std::size_t(a)] < out.t[std::size_t(b)]; });
+    std::stable_sort(order.begin(), order.begin() + out.count, [&](int a, int b) {
+        return rjobs::order_float(out.t[std::size_t(a)]) < rjobs::order_float(out.t[std::size_t(b)]);
+    });
     GradientSpec sorted = out;
     for (int i = 0; i < out.count; ++i) {
         sorted.t[std::size_t(i)] = out.t[std::size_t(order[std::size_t(i)])];

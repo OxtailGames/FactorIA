@@ -240,21 +240,22 @@ struct Viewport { float x, y, w, h, scale; };
 
 Viewport compute_viewport(ScaleMode mode, int fbW, int fbH, int tw, int th) {
     if (fbW <= 0 || fbH <= 0 || tw <= 0 || th <= 0) return {0, 0, float(fbW), float(fbH), 1.0f};
+    const float fw = float(fbW), fh = float(fbH), tfw = float(tw), tfh = float(th);
     switch (mode) {
         case ScaleMode::Stretch:
-            return {0, 0, float(fbW), float(fbH), float(fbW) / float(tw)};
+            return {0, 0, fw, fh, fw / tfw};
         case ScaleMode::PixelPerfect: {
-            float s = std::floor(std::min(float(fbW) / tw, float(fbH) / th));
-            if (s < 1.0f) s = std::min(float(fbW) / tw, float(fbH) / th);
-            float w = tw * s, h = th * s;
-            return {std::floor((fbW - w) * 0.5f), std::floor((fbH - h) * 0.5f), w, h, s};
+            float s = std::floor(std::min(fw / tfw, fh / tfh));
+            if (s < 1.0f) s = std::min(fw / tfw, fh / tfh);
+            float w = tfw * s, h = tfh * s;
+            return {std::floor((fw - w) * 0.5f), std::floor((fh - h) * 0.5f), w, h, s};
         }
         case ScaleMode::Expand:
         case ScaleMode::Fit:
         default: {
-            float s = std::min(float(fbW) / tw, float(fbH) / th);
-            float w = tw * s, h = th * s;
-            return {std::floor((fbW - w) * 0.5f), std::floor((fbH - h) * 0.5f), w, h, s};
+            float s = std::min(fw / tfw, fh / tfh);
+            float w = tfw * s, h = tfh * s;
+            return {std::floor((fw - w) * 0.5f), std::floor((fh - h) * 0.5f), w, h, s};
         }
     }
 }
