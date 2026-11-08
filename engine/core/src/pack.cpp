@@ -339,7 +339,13 @@ Result<PackStats> PackWriter::write(const stdfs::path& out) const {
                         "(docs/EXPORTING.md).");
 
     fs::replace_file(osTmp, fs::os_path(out), ec);
-    if (ec && fs::is_sharing_violation(ec) && ec != std::errc::permission_denied)  // access denied: permissions, not a holder
+    bool held = ec && fs::is_sharing_violation(ec) && ec != std::errc::permission_denied;  // the emulation's code
+#ifdef _WIN32
+    // MoveFileExW refuses a target another program has open (mapped or not) with ERROR_ACCESS_DENIED, the same code as
+    // for a file this process may not write: an exclusive open of the target tells them apart.
+    if (ec && !held && ec == std::errc::permission_denied) held = fs::detail::open_elsewhere(fs::os_path(out));
+#endif
+    if (held)
         return fail("Cannot replace " + quoted(out) + ": it is open in another program (" + ec.message() + ")",
                     "A running copy of the game has its pack open (Windows does not let a program replace a file another one has "
                     "open). Close the game, and any program that has " + fs::path_to_utf8(out.filename()) +

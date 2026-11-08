@@ -136,4 +136,15 @@ Held held_open(const std::filesystem::path& file) {
     return unmarked ? Held::No : Held::MarkLost;
 }
 
+bool open_elsewhere(const std::filesystem::path& file) {
+    const std::wstring path = os_path(file).native();
+    const HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h != INVALID_HANDLE_VALUE) {
+        CloseHandle(h);
+        return false;
+    }
+    const DWORD code = GetLastError();
+    return code == ERROR_SHARING_VIOLATION || code == ERROR_LOCK_VIOLATION;
+}
+
 }  // namespace fa::fs::detail

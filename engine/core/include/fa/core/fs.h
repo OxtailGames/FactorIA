@@ -87,7 +87,7 @@ std::string normalize(std::string_view path);
 // Same, but the error says why and how to fix it.
 Result<std::string> normalize_checked(std::string_view path);
 bool is_absolute(std::string_view path);
-std::filesystem::path resolve(std::string_view path);  // absolute host path (desktop)
+std::filesystem::path resolve(std::string_view path);  // absolute host path (desktop); `path` is UTF-8 text
 // UTF-8 text <-> host path. On Windows std::filesystem::path(std::string) and path::string()/generic_string() go through the
 // ANSI code page and mangle accents (and can put bytes that are not UTF-8 into JSON); these two never do. path_to_utf8 gives the
 // forward-slash form.
