@@ -401,7 +401,7 @@ bool huffman_weights_fse(const std::uint8_t* weights, unsigned count, std::vecto
 bool huffman_write_tree(const HufCode& h, std::vector<std::uint8_t>& out) {
     const unsigned count = h.lastSymbol;  // the last symbol's weight is implied
     std::array<std::uint8_t, 256> weights{};
-    for (unsigned s = 0; s < count; ++s) weights[s] = h.len[s] ? static_cast<std::uint8_t>(h.maxBits + 1 - h.len[s]) : 0;
+    for (unsigned s = 0; s < count; ++s) weights[s] = static_cast<std::uint8_t>(h.len[s] ? h.maxBits + 1 - h.len[s] : 0);
     std::vector<std::uint8_t> fse;
     const bool haveFse = huffman_weights_fse(weights.data(), count, fse) && fse.size() < 128;
     const std::size_t direct = count <= 128 ? 1 + (count + 1) / 2 : SIZE_MAX;

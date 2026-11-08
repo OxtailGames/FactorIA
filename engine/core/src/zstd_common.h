@@ -1,6 +1,7 @@
 // Tables and structures shared by the Zstandard decoder and encoder (RFC 8878).
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace fa::codec::zstd {
