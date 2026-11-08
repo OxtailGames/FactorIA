@@ -845,15 +845,18 @@ TEST_CASE("jobs: a secondary engine running many frames per main frame does not 
     PoolScope pool(jobs::Settings::threads(1));
     jobs::Owner mainEngine("main"), secondary("secondary");
     // Frame k queues k + 1 jobs, so the frame a close reports says whose call closed it.
+    // Once the machine stalls for most of the hand-over interval the secondary may hold the frames from then on (the
+    // main engine gets them back only after the secondary's silence), so no later frame is checked either.
+    bool stalled = false;
     for (int frame = 0; frame < 3; ++frame) {
         const auto start = std::chrono::steady_clock::now();
         jobs::end_frame(&mainEngine);  // the main engine closes the previous frame (frame jobs)...
         for (int i = 0; i <= frame; ++i) REQUIRE(jobs::wait(jobs::submit("test.frame", [] {})).ok());
         // ...then the secondary runs far more than the old limit of 8 calls before the main engine's next frame.
         for (int i = 0; i < 50; ++i) jobs::end_frame(&secondary);
-        // Only when the machine did not stall for most of the interval (else the main engine may have lost the frames).
-        if (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(jobs::kFrameOwnerHandOverMs / 2))
-            CHECK(jobs::info().submittedLastFrame == frame);  // still what the main engine closed: nothing took over
+        if (std::chrono::steady_clock::now() - start >= std::chrono::milliseconds(jobs::kFrameOwnerHandOverMs / 2))
+            stalled = true;
+        if (!stalled) CHECK(jobs::info().submittedLastFrame == frame);  // still the main engine's: nothing took over
     }
     jobs::end_frame(&mainEngine);
 }

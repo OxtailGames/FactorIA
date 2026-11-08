@@ -352,23 +352,98 @@ static std::string report_folder(const std::string& path) {
     return second == std::string::npos ? path.substr(0, first) : path.substr(0, second);
 }
 
-// The project's own commands (tools/*.js) are for the people and AIs who work on the game: `factoria export` leaves tools/
-// out, so a shipped game has no `project.<name>` command and a script that calls one fails when it runs there. Warns, for
-// each shipped script, about every `fa.call("project.<name>")` whose command a tool defines (docs/EXPORTING.md).
+// A small reader of JavaScript source for report_tool_only_calls: no regex, so a huge script cannot exhaust the stack of
+// a recursive regex engine (libstdc++). It only skips blanks and matches fixed words; strings and comments are not
+// parsed, which is enough for the literal calls it looks for.
+namespace {
+struct JsScan {
+    const std::string& s;
+    std::size_t i = 0;
+    void blanks() {
+        while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
+    }
+    bool word(std::string_view w) {
+        if (s.compare(i, w.size(), w) != 0) return false;
+        i += w.size();
+        return true;
+    }
+    // A quoted string ('...' or "..."), without escapes: the names looked for have none.
+    bool quoted(std::string& out) {
+        if (i >= s.size() || (s[i] != '"' && s[i] != '\'')) return false;
+        const char q = s[i];
+        const std::size_t close = s.find(q, i + 1);
+        if (close == std::string::npos || s.find('\n', i + 1) < close) return false;
+        out = s.substr(i + 1, close - i - 1);
+        i = close + 1;
+        return true;
+    }
+};
+
+bool js_ident_char(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '$'; }
+
+// The name a tool module registers: the first `name: "<text>"` after `export default`, cleaned the way the script
+// module cleans it (every character but letters, digits and '_' becomes '_'). Empty when there is none: the engine
+// does not register such a file either.
+std::string tool_module_name(const std::string& text) {
+    const std::size_t def = text.find("export default");
+    if (def == std::string::npos) return {};
+    JsScan sc{text, def};
+    for (std::size_t at = text.find("name", def); at != std::string::npos; at = text.find("name", at + 4)) {
+        if (at > 0 && js_ident_char(text[at - 1])) continue;
+        sc.i = at + 4;
+        sc.blanks();
+        if (!sc.word(":")) continue;
+        sc.blanks();
+        std::string name;
+        if (!sc.quoted(name)) continue;
+        for (char& c : name)
+            if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_')) c = '_';
+        return name;
+    }
+    return {};
+}
+
+// Every literal `fa.call("project.<name>"` in a script, as <name>.
+std::set<std::string> literal_project_calls(const std::string& text) {
+    std::set<std::string> out;
+    for (std::size_t at = text.find("fa"); at != std::string::npos; at = text.find("fa", at + 2)) {
+        if (at > 0 && js_ident_char(text[at - 1])) continue;
+        JsScan sc{text, at + 2};
+        sc.blanks();
+        if (!sc.word(".")) continue;
+        sc.blanks();
+        if (!sc.word("call")) continue;
+        sc.blanks();
+        if (!sc.word("(")) continue;
+        sc.blanks();
+        std::string target;
+        if (!sc.quoted(target) || target.rfind("project.", 0) != 0) continue;
+        out.insert(target.substr(8));
+    }
+    return out;
+}
+}  // namespace
+
+// The project's own commands (the modules under tools/, subfolders included) are for the people and AIs who work on the
+// game: `factoria export` leaves tools/ out, so a shipped game has no `project.<name>` command and a script that calls
+// one fails when it runs there. Warns, for each shipped script, about every literal `fa.call("project.<name>")` whose
+// command a tool defines (docs/EXPORTING.md).
 static void report_tool_only_calls(const Project& p, const std::vector<std::string>& files, ExportReport& report) {
-    static const std::regex nameRe(R"re(\bname\s*:\s*["']([A-Za-z0-9_]+)["'])re");
-    static const std::regex callRe(R"re(\bfa\s*\.\s*call\s*\(\s*["']project\.([A-Za-z0-9_]+)["'])re");
     constexpr std::uintmax_t kMaxScriptBytes = 1u << 20;  // a script over 1 MiB is generated code: not scanned
     std::map<std::string, std::string> toolFile;           // command name -> the tool file that defines it
+    const stdfs::path toolsDir = os_path(p.dir / "tools");
     std::error_code ec;
-    for (stdfs::directory_iterator it(os_path(p.dir / "tools"), ec), end; !ec && it != end; it.increment(ec)) {
-        if (!it->is_regular_file(ec) || it->path().extension() != ".js") continue;
-        const std::string file = "tools/" + fs::path_to_utf8(it->path().filename());
-        std::string name = fs::path_to_utf8(it->path().stem());
+    for (stdfs::recursive_directory_iterator it(toolsDir, stdfs::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end; it.increment(ec)) {
+        std::error_code fec;
+        if (!it->is_regular_file(fec) || to_lower(fs::path_to_utf8(it->path().extension())) != ".js") continue;
+        const auto size = it->file_size(fec);
+        if (fec || size > kMaxScriptBytes) continue;
         const auto text = read_file(it->path());
-        std::smatch m;
-        if (text && text->size() <= kMaxScriptBytes && std::regex_search(*text, m, nameRe)) name = m[1].str();
-        toolFile.emplace(name, file);
+        if (!text) continue;
+        const std::string name = tool_module_name(*text);
+        if (name.empty()) continue;
+        toolFile.emplace(name, "tools/" + fs::path_to_utf8(it->path().lexically_relative(toolsDir)));
     }
     if (toolFile.empty()) return;
     for (const std::string& f : files) {
@@ -378,11 +453,9 @@ static void report_tool_only_calls(const Project& p, const std::vector<std::stri
         if (sec || size > kMaxScriptBytes) continue;
         const auto text = read_file(p.dir / f);
         if (!text) continue;
-        std::set<std::string> seen;
-        for (std::sregex_iterator it(text->begin(), text->end(), callRe), end; it != end; ++it) {
-            const std::string name = (*it)[1].str();
+        for (const std::string& name : literal_project_calls(*text)) {
             const auto tool = toolFile.find(name);
-            if (tool == toolFile.end() || !seen.insert(name).second) continue;
+            if (tool == toolFile.end()) continue;
             report.warnings.push_back(
                 f + " calls project." + name + ", the command of " + tool->second + ". tools/ is left out of the export, so in the "
                 "shipped game that call fails (there is no such command). Tools are for working on the game: move what the game "
@@ -391,7 +464,6 @@ static void report_tool_only_calls(const Project& p, const std::vector<std::stri
         }
     }
 }
-
 
 // What the pack (or the game folder) holds, folder by folder: fills report.largestFolders and warns about the folders that
 // are almost always material for making the game, never something it loads (docs/EXPORTING.md, "What is shipped").
