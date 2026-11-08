@@ -61,7 +61,7 @@ const char* setting_source_name(SettingSource s);  // "default", "you", "project
 // The settings a project can override, as one JSON document shaped like the project's file (the same keys), with EVERY value
 // of `cfg` filled in:
 //   /roles/<role>/{enabled,provider,model,effort,maxTokens,maxContextTokens[,toolGroups]}   (the seven roles; toolGroups only when set)
-//   /limits/{maxTurns,maxCostUsd,maxTotalTokens,stuckAfterSeconds,maxConcurrentRuns}
+//   /limits/{maxTurns,maxCostUsd,maxTotalTokens,stuckAfterSeconds,maxConcurrentRuns,askAboveUsd}, /limits/maxAssetCostUsd/{perRun,perDay}
 //   /assets/<kind>/{provider[,model][,voice]}                                              (the kinds that have a route)
 //   /assetSources/{images,models,audio,fonts,other,onlyListed}                              (a category: the array of sites)
 //   /savers/{loopGuard,loopGuardJudge,learnedToolGroups,projectFacts,retrospective,retrospectiveSteps,retrospectiveCostUsd}

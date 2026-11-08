@@ -1,6 +1,6 @@
 import { test, expect, game } from "factoria:test";
 import { session } from "factoria";
-import { loadLevel, listen, teleportOnto } from "./helpers/autoplay.js";
+import { loadLevel, listen, teleportOnto } from "./helpers/level.js";
 import * as progress from "../scripts/progress.js";
 
 // The player stands on the ground with its centre 24 px above the top of the ground; the ground's top is 4 tiles up.

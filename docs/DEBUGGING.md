@@ -245,6 +245,62 @@ Play .. Stop with the same recorder (docs/EDITOR.md, "Play sessions").
 - Replay it with `factoria run --headless --input replays/bug.json --frames N` (plus `--props` when the scene needs them: props
   are not part of the replay).
 
+## Let the game play itself
+
+`play.auto` (MCP `play_auto`, `factoria call play.auto`) plays the game with a bot, headless, for a number of GAME seconds, and writes a
+session in the format of the editor's play sessions ([EDITOR.md](EDITOR.md#play-sessions)) with `"source": "auto"`. `play.report` reads it
+unchanged and `play.sessions` lists it with its ending and score. Use it after a change to see that the game still starts, plays and
+ends, or to find where it gets stuck, with nobody at the keyboard.
+
+A run keeps the newest 30 `-auto` sessions (once its own session is written it deletes the older ones) and writes its session folder
+only when it is complete: the pictures wait in `.factoria/cache/play-auto-<process id>-<n>/` and move into the session at the end. A
+run that is cancelled leaves no session folder, and a run that is killed leaves only its `play-auto-*` folder in `.factoria/cache/`,
+which the next run deletes (when its process is gone, or the folder is more than an hour old).
+
+```
+factoria call --project games/x play.auto '{"seconds":120,"seed":7}'
+factoria call --project games/x play.report '{}'
+```
+
+| Argument | Meaning |
+|---|---|
+| `scene` | Scene to start in (default: the main scene). Wrong names say "did you mean". |
+| `seconds` | Game seconds to play at most, 0.1 to 3600 (default 60). The run ends `timeout` when they pass. |
+| `seed` | Seed of the world's random numbers and of the bot (default 1). The same project, scene, seed and speed give the same input, phases, ending and numbers; only the milliseconds of the frame times differ between runs. |
+| `speed` | 1 to 8 (default 1): the bot answers once per frame and each frame runs that many fixed steps, so the game runs faster for the bot to decide less often. A different speed is a different play. |
+| `stuckSeconds` | Game seconds without any change before the run is stuck (default 10, or half of `seconds` when the run is shorter than 20; at most `seconds`). |
+| `bot` | `auto` (default: the hook if `scripts/autoplay.js` exists, else the explorer), `hook` (an error without the file) or `explorer` (ignore the hook). |
+| `screenshots` | `false` takes no pictures. |
+
+The hook is the game's own `scripts/autoplay.js` ([SCRIPTING.md](SCRIPTING.md#the-bot-gameautoplay)); without one a generic explorer presses
+the declared input actions in patterns drawn from `seed`. Never `Math.random` and never the clock: time is game time (fixed steps), and the real
+clock only stops a run that takes far longer than any normal one (`aborted` after 800 real seconds, a safety net that no normal run reaches).
+
+The result and the session hold:
+
+- `ended` and `endedWhy`: `won` or `lost` (the hook or a `game.phase(name, { ends })` said so), `timeout`, `stuck`, `broken` (a script keeps failing, or
+  something fell out of the world), `quit` (the game asked to close) or `aborted`. `score` is the last score the hook reported.
+- `phases`: the scenes the run loaded and the `game.phase(name)` marks, each with its game time and a screenshot; `end.png` is the picture when it ended.
+  A session keeps at most 60 phases and 40 pictures; the notes say when it dropped some.
+- The frame times, the slowest frames, the warnings, errors and script errors, as in an editor session. The frame times are the engine's simulation
+  and script time per frame: a run draws only when it takes a picture (nobody watches), so they do not include rendering; measure that with
+  `perf.measure`.
+- `problems`: one mark for each thing found, with a screenshot and the fixed `step` it happened at.
+
+| Problem | Found when |
+|---|---|
+| `stuck` | the player (an entity tagged or named `player`, else the bodies that move, else the scripts) stays put for `stuckSeconds` and nothing else changes: no new scene or `game.phase`, no new score from the hook, no entity spawned or removed, no other text on screen (a text that changes more than twice a second, like a clock, does not count as a change). |
+| `menu` | the same, when there is no player and nothing moves, or a modal panel or a focused control is open: a menu with nothing the bot can press to leave it (a soft lock). |
+| `exception loop` | at least 5 script errors in each of 3 game seconds in a row (a hook that throws every step counts). |
+| `fall` | something pulled by gravity (a dynamic body whose scene has gravity, or a `CharacterController3D`) is far below everything else in the scene. The limit is measured again whenever the scene, its entity count or a tilemap's size changes, so a level a script generates later is fine; a top-down game without gravity never "falls". |
+| `not finite` | an entity's position is NaN or infinite. |
+| `hook` | `scripts/autoplay.js` could not be loaded (a syntax error, a failed import), or with `bot: "hook"` it never called `game.autoplay`. The run ends before the first step with the message in `scriptErrors`, and the explorer does not play instead. |
+
+A run ends at its first problem. `input.json` of the session is the bot's input in the replay format, and the result's `replay` is the
+command that plays it again, so a problem is reproduced without the bot: `factoria run --headless --frames N --input .factoria/sessions/<name>/input.json --seed S`.
+Without a GPU (a CI machine with no display) the run still happens; it only has no pictures, and the session's `notes` say so. A graphics device
+that is already in use makes `play.auto` play in a child process instead.
+
 ## Under the hood
 
 `factoria dap` is a Debug Adapter Protocol server on stdio, which is what VS Code starts. It runs the game on the main

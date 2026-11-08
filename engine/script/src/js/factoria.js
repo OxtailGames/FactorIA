@@ -2076,6 +2076,39 @@
     get device() { return Object.freeze(N.deviceInfo()); },
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
+    // The bot hook (docs/SCRIPTING.md, "The bot"): fn(bot) is called once per step by `play.auto` (never by a shipped game, which
+    // does not import scripts/autoplay.js) and answers what to press. See autoplayStep for the answers it takes.
+    autoplay(fn) {
+      if (typeof fn !== "function") {
+        throw new Error(`game.autoplay(fn) expects a function that gets the bot state and returns the actions to hold, e.g. game.autoplay((bot) => ["move_right"]), but got ${inspect(fn)}`);
+      }
+      autoplayFn = fn;
+    },
+    // A named mark of the run in the play.auto report ("boss", "shop"); { ends: "won" | "lost" } also ends the run. Does nothing outside play.auto.
+    phase(name, options) {
+      if (typeof name !== "string" || name === "") {
+        throw new Error(`game.phase(name, options?) expects a non-empty string such as "boss", but got ${inspect(name)}`);
+      }
+      let ends = "";
+      if (options !== undefined) {
+        if (options === null || typeof options !== "object" || Array.isArray(options)) {
+          throw new Error(`game.phase("${name}", options) expects an object like { ends: "won" }, but got ${inspect(options)}`);
+        }
+        for (const key of Object.keys(options)) {
+          if (key !== "ends") {
+            const sug = closest(key, ["ends"]);
+            throw new Error(`game.phase("${name}", options): unknown option "${key}"${sug ? ` (did you mean "${sug}"?)` : ""}; the only option is ends: "won" | "lost"`);
+          }
+        }
+        if (options.ends !== undefined) {
+          if (options.ends !== "won" && options.ends !== "lost") {
+            throw new Error(`game.phase("${name}", { ends }): ends must be "won" or "lost", but got ${inspect(options.ends)}`);
+          }
+          ends = options.ends;
+        }
+      }
+      N.autoplayPhase(name, ends);
+    },
     get platform() { return N.platform(); },
     // The operating system's accessibility settings (read when the game starts and again when the window regains focus).
     get accessibility() {
@@ -4436,6 +4469,57 @@
     return results;
   }
 
+  // ---- the bot (game.autoplay): state kept between steps, and the call the play.auto driver makes every step
+  let autoplayFn = null;
+  let autoplayRng = null;
+  let autoplayRngSeed = null;
+  const AUTOPLAY_ANSWER_KEYS = ["actions", "end", "score", "note"];
+  function autoplayStep(state) {
+    if (autoplayFn === null) return null;
+    if (autoplayRng === null || autoplayRngSeed !== state.seed) { autoplayRng = createRng(state.seed); autoplayRngSeed = state.seed; }
+    const bot = Object.freeze({ ...state, actions: Object.freeze(state.actions.slice()), uiActions: Object.freeze(state.uiActions.slice()),
+      held: Object.freeze(state.held.slice()), rng: autoplayRng });
+    const out = autoplayFn(bot);
+    const known = state.actions.concat(state.uiActions);
+    const names = (list, where) => {
+      if (!Array.isArray(list) || list.some((n) => typeof n !== "string")) {
+        throw new Error(`${where} must be an array of action names, e.g. ["move_right", "jump"], but got ${inspect(list)}`);
+      }
+      const seen = [];
+      for (const n of list) {
+        if (!known.includes(n)) {
+          const sug = closest(n, known);
+          throw new Error(`"${n}" is not an input action${sug ? ` (did you mean "${sug}"?)` : ""}. The actions of this game: ${known.map((k) => `"${k}"`).join(", ") || "none declared"}; declare more in factoria.json "input": { "actions": {...} }`);
+        }
+        if (!seen.includes(n)) seen.push(n);
+      }
+      return seen;
+    };
+    if (out === undefined || out === null) return { actions: [], end: "", score: null, note: "" };
+    if (typeof out === "object" && typeof out.then === "function") {
+      throw new Error("the function must answer at once (an array of action names or an object), not a promise: it is called once per step");
+    }
+    if (Array.isArray(out)) return { actions: names(out, "the answer"), end: "", score: null, note: "" };
+    if (typeof out !== "object") {
+      throw new Error(`the function must return an array of action names or an object like { actions: ["jump"], end: "won", score: 10 }, but returned ${inspect(out)}`);
+    }
+    for (const key of Object.keys(out)) {
+      if (!AUTOPLAY_ANSWER_KEYS.includes(key)) {
+        const sug = closest(key, AUTOPLAY_ANSWER_KEYS);
+        throw new Error(`unknown field "${key}" in the answer${sug ? ` (did you mean "${sug}"?)` : ""}; use ${AUTOPLAY_ANSWER_KEYS.join(", ")}`);
+      }
+    }
+    if (out.end !== undefined && out.end !== "won" && out.end !== "lost") {
+      throw new Error(`end must be "won" or "lost", but got ${inspect(out.end)}`);
+    }
+    if (out.score !== undefined && (typeof out.score !== "number" || !Number.isFinite(out.score))) {
+      throw new Error(`score must be a finite number, but got ${inspect(out.score)}`);
+    }
+    return { actions: out.actions === undefined ? [] : names(out.actions, "actions"), end: out.end || "",
+      score: out.score === undefined ? null : out.score, note: out.note === undefined ? "" : String(out.note) };
+  }
+  const autoplayHas = () => autoplayFn !== null;
+
   function resetScene() {
     generateReset();
     voiceEnded.clear(); timers.reset(); tweens.reset(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; N.inCursor(4, false); pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
@@ -4449,7 +4533,7 @@
     isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, generateTick, storageDeliver, back: deliverBack,
     tick: (dt) => { timers.tick(dt); tickTweens(dt); tickVoices(); },
     serviceTick, serviceSuspend, serviceQuit, servicePending,
-    resetScene,
+    resetScene, autoplayStep, autoplayHas,
     dropOwner: (h) => timers.dropOwner(h),
     entityDestroyed: (h) => { timers.dropOwner(h); dropOwnedTweens(h); entityCache.delete(h); tooltipFns.delete(h); dropFns.delete(h); },
     entity: (h) => entityOf(h),

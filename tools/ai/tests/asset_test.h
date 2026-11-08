@@ -2,10 +2,13 @@
 // and PNG helpers.
 #pragma once
 
+#include <optional>
 #include <set>
 
+#include "fa/ai/asset_cost.h"
 #include "fa/ai/commands.h"
 #include "fa/core/image.h"
+#include "fa/tooling/feedback_share.h"
 #include "test_common.h"
 
 namespace fa::ai::test {
@@ -80,11 +83,25 @@ inline std::set<std::uint32_t> colours_of(const Image& img) {
 }
 
 // A game project in a temp folder with the ai commands (assets.* among them) registered on `config`.
+//
+// The user folder (~/.factoria: the per-day asset spending file lives there) is a temp dir of its own with a fixed clock, so a paid
+// provider in a test never writes the developer's real folder and the day does not change under a test that runs at midnight.
+inline ShareEnv scratch_home_env(const std::string& home) {
+    ShareEnv env;
+    env.env = [home](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : ""; };
+    env.now = [] { return std::int64_t(1800000000); };  // 2027-01-15 08:00 UTC
+    return env;
+}
+// A test that already gave the user folder its own (a `Home` with a fixed clock or a short lock wait) keeps it: the Game does not replace it.
 struct Game {
+    TempDir home;                 // first: the user folder outlives everything that uses it
+    std::optional<ScopedShareEnv> scopedHome;  // set first thing in the constructor (MSVC does not build it from a ?: of a non-copyable type)
     TempDir dir;
     CommandRegistry registry;
 
     explicit Game(const AiConfig& config, ProviderRuntime runtime = {}) {
+        if (share_env().config_dir() == ShareEnv().config_dir()) scopedHome.emplace(scratch_home_env(home.str()));
+        asset_run_begin("");  // calls without a named run (CLI, MCP) add up per process: every test starts from nothing spent
         AiCommandOptions opt;
         opt.loadConfig = [config] { return Result<AiConfig>(config); };
         opt.projectDir = [this] { return dir.str(); };

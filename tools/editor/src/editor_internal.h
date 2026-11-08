@@ -52,8 +52,10 @@
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
 #include "fa/tooling/export.h"  // executable_dir: where the update goes
+#include "fa/tooling/qr.h"
 #include "fa/tooling/self_update.h"
 #include "fa/tooling/tooling.h"
+#include "ai_asset_approval.h"
 #include "ai_chat.h"
 #include "ai_runs.h"
 #include "ai_usage.h"
@@ -61,6 +63,12 @@
 #include "anim_ui.h"
 #include "editor_tools.h"
 #include "export_job.h"
+#include "phone_model.h"
+#include "auto_play_job.h"
+#include "play_sessions_model.h"
+#include "child_command_job.h"
+#include "review_loader.h"
+#include "review_model.h"
 #include "feedback_share_ui.h"
 #include "gizmo_model.h"
 #include "image_ui.h"
@@ -139,6 +147,13 @@ struct TextureEntry {
     bool failed = false;
 };
 
+// A picture of the Review window (review_panel.cpp): its texture once the reader decoded it and the UI thread uploaded it.
+struct ReviewTextureSlot {
+    TextureEntry tex;
+    std::uint64_t usedFrame = 0;    // uiFrame_ when it was last drawn: unused for a while, it is freed
+    std::string error;              // why it cannot be shown ("" = fine, or not read yet)
+};
+
 // What the viewport selects, outlines and hit-tests for one entity. The geometry is the engine's own footprint of the
 // entity's 2D visuals (fa/scene/bounds.h, shared with `entity.bounds()`), plus a marker for entities that draw nothing.
 struct PickBounds {
@@ -211,6 +226,7 @@ public:
     void mark_problem();                                       // F9: pause, screenshot, ask for a note
     void mark_finish(bool save);
     void draw_mark_popup();
+    void ai_attach_session(const std::string& name, const std::string& note);  // summary + mark pictures of one session
     void ai_attach_last_session();                             // summary into the message + mark pictures
 
     // ---------------------------------------------------------------- selection & edits
@@ -434,6 +450,8 @@ public:
     void draw_image_provider(ImageModel& m);               // Inpaint selection... / Generate layer... (image_provider_panel.cpp)
     void image_provider_refresh();
     void image_provider_start(ImageModel& m);
+    void image_provider_estimate(ImageModel& m);
+    void image_provider_estimate_poll(ImageModel& m);
     void image_provider_poll(ImageModel& m);
     void draw_image_layer_inspector(ImageModel& m);
     void draw_image_operations(ImageModel& m, const ImageLayer& layer, bool effect);
@@ -656,6 +674,51 @@ public:
     void refresh_export_status();   // plan_export for every platform
     void reset_export_state();      // project switch: waits for a running export, forgets settings and report
 
+    // Play on Phone window (phone_panel.cpp; File > Play on Phone...): the web server of project.serve_web for the Wi-Fi, its address as
+    // a QR code, what to check when the phone cannot open it. The server itself is web_server() (fa/tooling/serve_web.h).
+    void open_phone_window();
+    void draw_phone_window();
+    void poll_phone();           // every frame: takes a finished start's error
+    void reset_phone_state();    // project switch: asks for the server of the project that closes to stop (on the helper thread)
+    // Play sessions window and Play > Let the AI Play (play_sessions_panel.cpp, auto_play_job.h, play_sessions_model.h): the sessions
+    // under .factoria/sessions/ (yours and the AI bot's, marked), one session's report, and the button that runs play.auto in a
+    // child process on a worker thread. Progress and Cancel in the window; the finished run opens its report.
+    void open_play_sessions(const std::string& select = std::string());
+    void draw_play_sessions_window();
+    void draw_play_session_report();
+    void refresh_play_sessions();
+    void start_auto_play();
+    void poll_auto_play();            // every frame: takes a finished run's outcome
+    void reset_auto_play_state();     // project switch: stops a running bot and forgets the list
+    // Review window (review_panel.cpp; View > Review, docs/EDITOR.md "Review window"): the sheets review.sheet made, one shown big with
+    // keyboard picking, Compare two and the History of past picks. The reader thread (review_loader.h) lists, reads and decodes; the
+    // UI thread uploads one picture a frame. A pick is review.pick (assets.pick for asset candidates) through the command registry.
+    void open_review(const std::string& sheet = std::string(), bool focus = true);
+    void draw_review_window();
+    void draw_review_sheet_tab();
+    void draw_review_compare_tab();
+    void draw_review_history_tab();
+    void draw_review_pick_popup();
+    void poll_review();                       // every frame: the reader's results, one upload, the seeds sheet job, a pick waiting
+    void reset_review_state();                // project switch, autotest section: stops the reader and the job, frees the textures
+    void review_release_textures();
+    void review_request_pick(int n);          // opens the confirmation (or says why the number cannot be picked)
+    void review_do_pick();                    // the confirmed pick: keeps what was confirmed, then starts it (or waits for the reader)
+    void review_start_pick();                 // starts review_.pickPlan in a child factoria (reviewPickJob_)
+    // A running pick gets kReviewPickShutdownSeconds to finish; one that hangs has its child killed, which is logged (FA_WARN, with the
+    // command, sheet and arguments) and, when the editor stays alive (`editorStays`: a project switch), told in a toast.
+    void review_end_pick_for_shutdown(bool editorStays);
+    void review_finish_pick(const ChildCommandOutcome& done);   // its result in the window (poll_review)
+    // review_pick_plan, plus what the window itself forbids: a pick still running, an older sheet of asset candidates (superseded).
+    ReviewPickPlan review_plan_for(const ReviewSheetView& sheet, int n, bool drop, const std::string& note) const;
+    // A toast with Open in Review; `slot`: a sheet of asset candidates for that slot (assets.generate_image with a count).
+    void review_announce_sheet(const std::string& sheet, const std::string& label, const std::string& slot, const std::string& who);
+    void start_level_seeds_sheet();           // the Level generator's "Sheet of N seeds"
+    void review_show_sheet(const std::string& id);   // shows that sheet (its manifest and pictures are read on the reader thread)
+    // The texture of a picture of the shown sheet, asked of the reader the first time (tex.view is 0 until it is uploaded, `error` when
+    // it cannot be read). Marked as used this frame; one not drawn for a while is freed.
+    const ReviewTextureSlot& review_texture(const std::string& key, const std::filesystem::path& file, int maxSide, bool projectFile);
+
     // Platform settings window (platform_settings_panel.cpp; File > Platform Settings..., the Export window's Settings...
     // buttons): the game icon and what each platform's export needs, as a working copy that Save writes with
     // fa::save_export_settings (platform_settings.h has the logic).
@@ -747,6 +810,11 @@ public:
     void ai_add_pending(Result<ChatAttachment> attached);
     void ai_paste_image();                    // clipboard picture -> pending attachment (does nothing without one)
     std::shared_ptr<CommandRegistry> make_proxy_registry(AiRun& run);
+    // Paid asset calls that wait for the user's yes (ai_asset_approval.h): the cards of `chat` under its transcript. `height` is
+    // the room reserved for them (ai_asset_cards_height); the answers go to the waiting agent thread.
+    float ai_asset_cards_height(const AiChat& chat, float availableY);
+    void draw_ai_asset_cards(AiChat& chat, float height);
+    void ai_asset_notify_other_chats();   // a card in a chat that is not in front: tell the user once
     MainThreadQueue& queue() { return queue_; }
     // True while any chat's run is going: an agent thread, or the wait for a delegated worker whose orchestrator turn already
     // ended.
@@ -890,6 +958,68 @@ public:
     std::string pendingScene_;  // open-scene request waiting for the unsaved-changes dialog
     std::string windowTitle_;   // what set_window_title last set ("FactorIA <version> — <project>")
 
+    // Play sessions window
+    bool showPlaySessions_ = false, playSessionsFocus_ = false, playSessionsDirty_ = true;
+    std::atomic<bool> playSessionsOutside_{false};  // an AI agent thread ran play.auto (make_proxy_registry): the list reads the folder again
+    AutoPlayJob autoPlay_;
+    std::optional<AutoPlayOutcome> autoPlayLast_;  // the last run's outcome (an error stays under the button)
+    double autoPlaySeconds_ = kAutoPlayDefaultSeconds;
+    // Review window
+    struct ReviewDeadTexture {
+        std::uint32_t image = 0, view = 0;
+        std::uint64_t frame = 0;
+    };
+    struct ReviewUi {
+        bool show = false, wasShown = false, focus = false, listDirty = true, sheetDirty = false;
+        std::uint64_t gen = 1;                       // the listing's generation (a project switch bumps it): older results are dropped
+        std::uint64_t sheetGen = 1;                  // the shown sheet's generation (another sheet bumps it): its manifest and pictures
+        bool listLoading = false, listLoaded = false;
+        std::vector<ReviewListRow> rows;
+        std::vector<ReviewHistoryRow> history;
+        std::map<std::string, std::string> superseded;   // review_superseded(rows): an older candidates sheet -> the newest of its slot
+        std::string listError;
+        std::string sheetId;                         // the sheet shown ("" = the first in the list)
+        bool sheetLoading = false;
+        std::optional<ReviewSheetView> sheet;
+        std::string sheetError;
+        int selected = 0;
+        int tab = 0, tabSet = -1;                    // 0 Sheet, 1 Compare, 2 History; tabSet selects one next frame
+        float zoom = 0;                              // 0 = fit the window, else the scale of sheet.png
+        int compareA = 1, compareB = 2;
+        bool compareSource = true;                   // the candidates' own pictures (image items), else the thumbnails
+        std::map<std::string, ReviewTextureSlot> textures;
+        std::deque<ReviewLoaded> uploads;            // decoded pictures waiting for their frame (one upload a frame)
+        // the pick
+        bool confirmRequest = false, confirmOpen = false, keepFiles = false, pickPending = false;
+        std::optional<ReviewSheetView> pickSheet;    // the sheet a running pick answers (a copy: the shown one can change meanwhile)
+        ReviewPickPlan pickPlan;                     // ...its command and arguments
+        int pickN = 0;
+        std::uint64_t confirmFrame = 0;
+        int confirmN = 0;
+        std::string note;
+        ReviewPickPlan plan;
+        std::string pickMessage;                     // what the last pick did (or why it failed)
+        bool pickBad = false;
+        std::vector<std::string> pickLines;          // its moved files and warnings
+        // the Level generator's sheet of seeds
+        int seedsCount = kReviewSeedsDefault;
+    };
+    ReviewUi review_;
+    std::vector<ReviewDeadTexture> reviewGraveyard_;
+    ReviewLoader reviewLoader_;
+    ChildCommandJob reviewSeedsJob_;
+    ChildCommandJob reviewPickJob_;                // review.pick / assets.pick: they move files (with retries on Windows) and write manifests
+    // Review sheets an AI module command made on an agent thread (make_proxy_registry): offered in a toast by poll_review.
+    std::mutex reviewInboxMu_;
+    std::vector<ReviewAnnounce> reviewInbox_;
+    bool autoPlayPictures_ = true;
+    std::vector<PlaySessionRow> playSessionRows_;
+    std::string playSessionsPick_;                 // the folder shown in the report pane
+    std::uint64_t playSessionsGen_ = 0;            // bumped at every listing: the report is re-read after it
+    Json playSessionDoc_;
+    std::string playSessionDocName_, playSessionDocError_;
+    std::uint64_t playSessionDocGen_ = 0;
+
     // Export window
     bool showExport_ = false, exportFocus_ = false, exportScroll_ = false;
     ExportSettings exportSettings_;
@@ -899,6 +1029,17 @@ public:
     std::optional<ExportOutcome> exportLast_;  // the last export's report (or error), shown under the buttons
     ProjectExportSettings exportSaved_;        // what factoria.json says now (the Android row's format), read with the rows
     std::string exportSavedError_;             // why it could not be read ("" = fine)
+
+    // Play on Phone window
+    bool showPhone_ = false, phoneFocus_ = false;
+    PhoneSession phone_;
+    bool phoneStopPending_ = false;        // a project switch asked for the server to stop; poll_phone() starts the stop job
+    std::string phoneError_, phoneHint_;   // why the last Start did not start the server
+    std::string phoneQrUrl_;               // the address phoneQr_ was made for
+    std::optional<QrCode> phoneQr_;
+    int phoneUrlIndex_ = 0;                // which LAN address the code shows
+    std::string phonePlayer_;              // ServeWebOptions::playerBinary ("" = the installed web player); the autotest sets a stand-in
+    bool phoneAllowMismatch_ = false;      // ServeWebOptions::allowPlayerMismatch; the autotest's stand-in has no build fingerprint
 
     // Platform settings window
     bool showPlatformSettings_ = false, platformFocus_ = false, platformCloseAsk_ = false, platformDiskChanged_ = false;
@@ -1078,6 +1219,8 @@ public:
     std::thread aiDetectThread_;
     // The runs, one per chat that is working (main thread owns the vector; ai_runs.h says what is shared with the threads).
     std::vector<std::unique_ptr<AiRun>> aiRuns_;
+    AssetApprovals aiApprovals_;    // paid asset calls waiting for the user's yes (any thread asks, the main thread answers)
+    std::set<u64> aiCardNotified_;  // cards of other chats the user was told about
     std::vector<FileConflict> aiConflicts_;  // same-file conflicts found this frame, not yet written into the chats
     RunTouchTracker aiTouch_;       // main thread: which files each running chat changed (the same-file warning, Revert's scope)
     AiChats chat_;                  // the conversations (tabs); the active one is chat_.current()
@@ -1142,6 +1285,9 @@ public:
         std::map<std::string, std::string> command, args;  // asset-command providers: the program and its arguments line
         std::array<std::string, 5> newUrl, newNote;       // the "add a site" row of each category
         std::string siteError, saveError;
+        // "Spending limits" (Assets tab): limits.maxAssetCostUsd.perRun / perDay and limits.askAboveUsd of ai.json, with their own Save.
+        double limRun = 0, limDay = 0, limAsk = 0.5;
+        std::string limError, limMessage;
         std::vector<ai::ProviderStatus> status;    // key / program checks, taken when the window loaded the file
         // The "External tools" tab: the user's tool servers (ai.json "mcpServers") being edited.
         struct ToolTests {                         // what the Test buttons found; shared with the thread that runs them

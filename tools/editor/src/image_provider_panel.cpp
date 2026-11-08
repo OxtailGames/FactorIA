@@ -1,9 +1,10 @@
 // The Image panel's "Inpaint selection..." and "Generate layer...": the same work as the commands image.inpaint and image.generate_layer
 // (tools/ai/src/image_provider_commands.cpp), split so the editor never waits for the provider:
-//   1. plan_image_edit   (main thread) reads the document, the selection and the configuration, resolves the provider;
-//   2. run_image_edit    (a worker thread) makes the call;
+//   1. plan_image_edit   (the job's thread) reads the document, the selection and the configuration, resolves the provider;
+//   2. run_image_edit    (the same thread) makes the call;
 //   3. store_image_edit + ImageModel::add_provider_layer (main thread) write the picture and add the layer as ONE undo step.
-// The picture is never added to another document than the one it was asked for.
+// The picture is never added to another document than the one it was asked for. The price shown in the popup is worked out on a
+// thread of its own when the popup opens (image_provider_estimate), the same planning without the call.
 
 #include <algorithm>
 #include <format>
@@ -49,7 +50,73 @@ void Editor::image_provider_refresh() {
                       "(docs/AI_PROVIDERS.md). " + kOfflineRoute;
 }
 
-// Starts the request: everything that can be wrong with it is found here, before a thread starts.
+namespace {
+
+// The price of a call as one sentence for the popup. The money is only ever an estimate from the provider's price list.
+std::string estimate_sentence(const ai::AssetEstimate& e, const std::string& provider) {
+    if (e.free) return "Free: " + e.basis;
+    if (!e.usd) return "The price is not known" + (e.basis.empty() ? std::string() : " (" + e.basis + ")") + ". Set it in AI Settings or ai.json (assetPricing).";
+    return "About " + ai::format_usd(*e.usd) + " with " + provider + " (" + e.basis + "), an estimate from the provider's price list" +
+           (e.checked.empty() ? std::string() : " checked " + e.checked) + ", not an invoice.";
+}
+
+}  // namespace
+
+// What "Make it" would cost, shown in the popup before the user clicks. Worked out on a thread when the popup opens (not every
+// frame, not on the UI thread: planning reads the document, the style references and the price list); image_provider_estimate_poll
+// takes the answer. Threading: this runs on the UI thread and only starts the thread (and joins an earlier one, which is a plan that
+// has been running for a moment); the thread reads nothing of the editor (the configuration is copied in first) and writes only its
+// ImageProviderEstimate, `done` last. The states the popup shows: pending (u.estimate set, not done: "Working out the price..."),
+// ready (providerEstimate has the sentence) and failed (providerEstimateError says why the request would fail).
+void Editor::image_provider_estimate(ImageModel& m) {
+    ImageUi& u = image_;
+    u.providerEstimate.clear();
+    u.providerEstimateError.clear();
+    u.estimate.reset();   // joins an earlier one
+    Json args = Json::object({{"prompt", "estimate"}});
+    if (m.has_selection()) args["selection"] = ImageModel::kSelectionName;
+    if (m.animated() || m.frame_count() > 1) args["frame"] = m.frame();
+    args["path"] = m.path();
+    ai::ImageEditEnv env;
+    env.projectDir = projectDir_;
+    Result<ai::AiConfig> cfg = ai_project_config(true);   // read here: the thread must not call back into the editor
+    env.load = [cfg]() -> Result<ai::AiConfig> { return cfg; };
+    auto est = std::make_unique<ImageProviderEstimate>();
+    est->doc = m.path();
+    const bool inpaint = u.providerInpaint;
+    ImageProviderEstimate* raw = est.get();
+    est->thread = std::thread([raw, env, args, inpaint] {
+        try {
+            const ai::ImageEditPlan plan = ai::plan_image_edit(env, inpaint, args);
+            raw->text = estimate_sentence(plan.cost, plan.provider.name);
+            if (!plan.cost.free) raw->text += " Limits: AI Settings > Spending limits.";
+        } catch (const CommandError& e) {
+            raw->error = std::string(e.what()) + (e.hint.empty() ? std::string() : "\n" + e.hint);
+        } catch (const std::exception& e) {
+            raw->error = std::string("The estimate failed: ") + e.what();
+        } catch (...) {
+            raw->error = "The estimate failed.";
+        }
+        raw->done = true;
+    });
+    u.estimate = std::move(est);
+}
+
+// Takes the estimate once the thread has finished (every frame the popup is drawn; cheap).
+void Editor::image_provider_estimate_poll(ImageModel& m) {
+    ImageUi& u = image_;
+    if (!u.estimate || !u.estimate->done.load()) return;
+    if (u.estimate->thread.joinable()) u.estimate->thread.join();
+    if (m.is_open() && m.path() == u.estimate->doc) {   // a result of another document is not this one's price
+        u.providerEstimate = u.estimate->text;
+        u.providerEstimateError = u.estimate->error;
+    }
+    u.estimate.reset();
+}
+
+// Starts the request. Nothing slow runs on the UI thread: the job's thread plans (the document, the style references and the price
+// list are read there), takes the cost check and makes the call; what is wrong with the request comes back like any failure of the job
+// (image_provider_poll shows it under the panel). Only the configuration is read here, because the thread must not call the editor.
 void Editor::image_provider_start(ImageModel& m) {
     ImageUi& u = image_;
     u.providerError.clear();
@@ -60,21 +127,39 @@ void Editor::image_provider_start(ImageModel& m) {
     args["path"] = m.path();
     ai::ImageEditEnv env;
     env.projectDir = projectDir_;
-    env.load = [this]() -> Result<ai::AiConfig> { return ai_project_config(true); };
+    Result<ai::AiConfig> cfg = ai_project_config(true);
+    env.load = [cfg]() -> Result<ai::AiConfig> { return cfg; };
     auto job = std::make_unique<ImageProviderJob>();
-    try {
-        job->plan = ai::plan_image_edit(env, inpaint, args);
-    } catch (const CommandError& e) {
-        u.providerError = std::string(e.what()) + (e.hint.empty() ? std::string() : "\n" + e.hint);
-        return;
-    }
     job->inpaint = inpaint;
     job->doc = m.path();
     job->shared = std::make_shared<ImageProviderShared>();
     job->startedAt = ImGui::GetTime();
-    job->thread = std::thread([shared = job->shared, plan = job->plan] {
-        auto made = ai::run_image_edit(plan, ai::ProviderRuntime{}, &shared->cancel);
-        shared->result.emplace(std::move(made));
+    // "Make it" in a popup that showed the estimate is the user's yes (no second question); the limits still hold. The cost check takes
+    // the cross-process lock of the day total, so it runs on this thread and not on the UI thread.
+    job->thread = std::thread([shared = job->shared, env, inpaint, args] {
+        try {
+            const ai::AssetRunScope run(kImagePanelRun);   // the panel's own run (spending total), not the process's shared one
+            shared->plan.emplace(ai::plan_image_edit(env, inpaint, args));
+            shared->planned = true;
+            const ai::ImageEditPlan& plan = *shared->plan;
+            // userApproved: this click is the person's yes, whatever approver the registries of the AI runs have installed
+            ai::AssetCostGuard guard = ai::begin_image_edit_cost(plan, env, false, &shared->cancel, true);
+            if (!guard.go()) {
+                shared->result.emplace(make_error("The call needs your approval and was not made.", "Click Make it again."));
+            } else {
+                auto made = ai::run_image_edit(plan, ai::ProviderRuntime{}, &shared->cancel);
+                if (made) guard.commit();
+                shared->warnings = guard.warnings();
+                shared->spentUsd = made && plan.cost.usd ? *plan.cost.usd : 0.0;
+                shared->result.emplace(std::move(made));
+            }
+        } catch (const CommandError& e) {
+            shared->result.emplace(make_error(e.what(), e.hint));
+        } catch (const std::exception& e) {
+            shared->result.emplace(make_error(std::string("The request failed: ") + e.what(), "Try again; if it keeps failing, check the provider with ai.providers (action doctor)."));
+        } catch (...) {
+            shared->result.emplace(make_error("The request failed for a reason that was not reported.", "Try again; if it keeps failing, check the provider with ai.providers (action doctor)."));
+        }
         shared->done = true;
     });
     u.job = std::move(job);
@@ -90,7 +175,7 @@ void Editor::image_provider_poll(ImageModel& m) {
     std::unique_ptr<ImageProviderJob> own = std::move(u.job);
     const std::string what = own->inpaint ? "Inpaint" : "Generated layer";
     if (!own->shared->result->ok()) {
-        const Error& e = own->shared->result->error();
+        const Error& e = own->shared->result->error();   // (a request that could not be planned fails here too)
         u.providerError = what + " failed: " + e.message + (e.hint.empty() ? std::string() : "\n" + e.hint);
         notify(what + " failed: " + e.message, 2);
         return;
@@ -103,12 +188,15 @@ void Editor::image_provider_poll(ImageModel& m) {
     ai::ImageEditEnv env;
     env.projectDir = projectDir_;
     try {
-        ai::ImageEditStored stored = ai::store_image_edit(env, own->plan, **own->shared->result);
-        const ImageEditOutcome out = m.add_provider_layer(what + " (" + own->plan.layerName + ")", std::move(stored.addArgs));
+        const ai::ImageEditPlan& plan = *own->shared->plan;
+        ai::ImageEditStored stored = ai::store_image_edit(env, plan, **own->shared->result);
+        const ImageEditOutcome out = m.add_provider_layer(what + " (" + plan.layerName + ")", std::move(stored.addArgs));
         image_edited(out);
         if (out.ok) {
-            std::string msg = "Added the provider layer '" + own->plan.layerName + "'.";
+            std::string msg = "Added the provider layer '" + plan.layerName + "'.";
             for (const std::string& w : stored.warnings) msg += " " + w;
+            for (const std::string& w : own->shared->warnings) msg += " " + w;
+            if (own->shared->spentUsd > 0) msg += " About " + ai::format_usd(own->shared->spentUsd) + " (an estimate).";
             m.set_status(msg);
             project_files_changed();
         }
@@ -135,6 +223,7 @@ void Editor::draw_image_provider(ImageModel& m) {
             u.providerInpaint = inpaint;
             u.providerAsk = true;
             u.providerError.clear();
+            image_provider_estimate(m);
         }
         at_track(id);
         ImGui::EndDisabled();
@@ -157,6 +246,16 @@ void Editor::draw_image_provider(ImageModel& m) {
         ImGui::TextWrapped("%s", u.providerInpaint
                                      ? "The picture and the selection go to the provider; what comes back is a new provider layer masked by the selection."
                                      : "The provider makes a picture; it becomes a new provider layer (masked by the selection, if there is one).");
+        image_provider_estimate_poll(m);
+        if (u.estimate) {
+            ImGui::TextDisabled("Working out the price...");
+        } else if (!u.providerEstimate.empty()) {
+            ImGui::TextWrapped("%s", u.providerEstimate.c_str());
+            at_track("img:provider:estimate");
+        } else if (!u.providerEstimateError.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1), "No estimate: %s", u.providerEstimateError.c_str());
+            at_track("img:provider:estimate");
+        }
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
         ImGui::InputTextMultiline("##prompt", &u.providerPrompt, ImVec2(400, 70));
         at_track("img:provider:prompt");
@@ -168,14 +267,16 @@ void Editor::draw_image_provider(ImageModel& m) {
             if (u.providerError.empty()) ImGui::CloseCurrentPopup();
         }
         at_track("img:provider:go");
+        ImGui::SetItemTooltip("Make the picture. When the estimate above is not free, this click is your approval of that cost.");
         ImGui::EndDisabled();
         ImGui::SameLine();
         if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
     if (u.job) {
-        ImGui::TextDisabled("%s", std::format("{} for '{}' ({} s)...", u.job->inpaint ? "Inpainting" : "Generating",
-                                              u.job->plan.layerName, int(ImGui::GetTime() - u.job->startedAt)).c_str());
+        const std::string layer = u.job->shared->planned.load() ? " for '" + u.job->shared->plan->layerName + "'" : std::string();
+        ImGui::TextDisabled("%s", std::format("{}{} ({} s)...", u.job->inpaint ? "Inpainting" : "Generating", layer,
+                                              int(ImGui::GetTime() - u.job->startedAt)).c_str());
         ImGui::SameLine();
         if (ImGui::SmallButton("Cancel")) u.job->shared->cancel = true;
         at_track("img:provider:cancel");

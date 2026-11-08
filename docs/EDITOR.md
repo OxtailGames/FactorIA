@@ -33,7 +33,7 @@ FactorIA** shows it with the build fingerprint.
 
 ## The menu bar
 
-On **Windows and Linux** the menus (File, Edit, View, AI, Help) are a bar at the top of the editor window, with a
+On **Windows and Linux** the menus (File, Edit, View, Play, AI, Help) are a bar at the top of the editor window, with a
 clickable **Export Game** item after Help and the engine version at the right end.
 
 On **macOS** they are in the Mac's own menu bar at the top of the screen, like any Mac app, and the window has no bar of
@@ -42,7 +42,7 @@ its own:
 - **FactorIA** (the app menu): **About FactorIA** (the engine version and the build fingerprint), **Settings...**
   (Cmd+, opens AI Settings), Services, **Hide FactorIA** (Cmd+H), Hide Others, Show All and **Quit FactorIA** (Cmd+Q;
   the unsaved-changes dialog still asks). Quit is not in File on a Mac.
-- **File, Edit, View, AI** and **Help** have the same items as on the other systems. **Export** is a menu of its own
+- **File, Edit, View, Play, AI** and **Help** have the same items as on the other systems. **Export** is a menu of its own
   (a system menu bar cannot hold a clickable item) with **Export Game...** (Cmd+E). **Window** (Minimize Cmd+M, Zoom) comes
   before Help. The version text of the in-window bar is not there: About and the window title show it.
 - Shortcuts are the Mac's: Cmd+S saves the scene, Cmd+Z undoes, Cmd+Shift+Z redoes (Ctrl+S, Ctrl+Z and Ctrl+Y on the
@@ -331,6 +331,24 @@ The height is kept with the layout.
   showing the worker's live steps. Play stays blocked. When the worker finishes, its report goes into the chat and the
   editor sends it to the orchestrator as a new message of the same conversation (Claude Code `--resume`), once. **Stop**
   stops the orchestrator and the worker, and sends no continuation.
+- **Paid assets ask first.** When the assistant asks a provider for a picture, sound, voice or model estimated above
+  `limits.askAboveUsd` (default $0.50; the estimates and limits are in [AI_COSTS.md](AI_COSTS.md#asset-generation), AI Settings >
+  Assets > Spending limits), the call waits and a card appears under that chat's messages: what will be made, how many, with
+  which provider, the estimate (an estimate from the provider's price list, not an invoice) and when the prices were looked up.
+  **Approve** lets this call go, **Approve all for this run** lets the rest of this chat's run go without asking (the spending
+  limits still hold), **Cancel** declines it and the assistant carries on without it. The editor stays usable while the card
+  waits; the chat's tab shows `?` and a card in a chat that is not in front raises a toast; the "may be stuck" warning does
+  not appear while a card waits, and the run's **Stop** ends the wait (the assistant is told the run was stopped, not that you said
+  no). Small calls that were not asked about count together: the card of the call that takes them over the limit says how much came
+  before it, and **Approve** starts that count again. The buttons are at the top of the card so that they stay visible in a
+  narrow panel; the text under them scrolls. The assistant's own `approved` argument is ignored here. The card is only for runs this editor started (its chats, the
+  CLI agents it launches, the Image panel's popup); a terminal command or an MCP client with its own `factoria mcp` gets a
+  `needsApproval` answer instead. A refund of a failed call that could not be written is a warning in the Console and in the
+  result of the next paid call that goes ahead (AI_COSTS.md, "The day total"). What you answered is written into the chat. While a run
+  has spent something, its status line ends with `assets ~$X (estimate)`. The `fake` provider and your own programs never ask.
+  A Claude Code, Codex or other MCP client that waits for the card can hit its own tool-call timeout (often 60 to 120 seconds); if the
+  call comes back abandoned the card stays, and approving it late still makes the picture, but the agent is not told: answer
+  soon, or ask the agent to try again.
 - Chats are saved in `.factoria/ai/chats/` after each answer and when a tab closes; the open tabs come back when the project opens.
 
 ### Several chats at once
@@ -497,7 +515,26 @@ how to finish them.
 - **Release** makes a release build; hover it to see what changes for each platform (for Android, an APK or AAB signed
   with the keystore of the Android tab).
 
+- **Web row**: **One HTML file** exports the web build as ONE page that opens from a double click (`singleFile`; refused over
+  64 MB or with a threaded web player, with the reason in the report), and **Play on phone...** opens the window below.
+
 Details: [EXPORTING.md, From the editor](EXPORTING.md#from-the-editor).
+
+## Play on Phone
+
+File > Play on Phone... (also the **Play on phone...** button of the Export window's Web row) opens the **Play on phone**
+window, the editor's front for `project.serve_web` ([EXPORTING.md](EXPORTING.md#serving-the-web-build-projectserve_web)).
+**Start** exports the web build (on a helper thread: the editor keeps working) and serves it on the local network under a
+random port and token; the window shows the state in one line (exporting, ready, the export failed and why), the address
+as a **QR code** drawn by the engine (point the phone's camera at it; a menu picks the address when this computer has
+several; none when it has no private network address, since a code of `127.0.0.1` would open the phone's own localhost),
+**Copy address**, **Open on this computer**, **Stop** and the checklist for a phone that cannot open it (same Wi-Fi, the
+firewall prompt on Windows and macOS, guest networks that isolate devices, a VPN; [MOBILE.md](MOBILE.md#play-on-a-phone)).
+A changed script or asset exports again and the phone's page reloads; what the page logs comes to the Console with the
+category `phone`. The scene on disk is what the phone gets: the window warns about unsaved changes and has **Save scene**.
+Without the web player the window says how to install it (**Open Set Up This Computer...**). The server stops with **Stop**,
+when you switch project and when the editor quits. The window fits a 1024x642 display; the autotest section T2 covers it with
+a stand-in player.
 
 ## Setting up this computer
 
@@ -634,6 +671,12 @@ you keep a level.
    already exists (a scene, `factoria.json`, `assets.json`, the sample itself...) a **Replace <file>?** window offers Replace or
    Cancel, and only Replace overwrites it; the Project panel lists a newly written file at once.
 
+**Sheet of seeds** (on the Generate row, with how many: 2 to 16, 6 by default) makes the levels of the shown seed and the next ones
+with the same options as one numbered review sheet and opens it in the Review window (below): pick the one you like and this window
+takes that seed, sample, size and options and generates it. The sheet is made by `review.sheet` in a child `factoria` process, so the
+editor keeps drawing (Cancel stops it and no sheet is made); a sample entity needs the scene saved first (the child reads the project
+as it is on disk), and the sheet draws levels up to 1024 cells a side.
+
 A generation runs in pieces of about 4 ms of each frame, so the window and the viewport keep drawing; **Cancel** stops it, closing
 the window stops it (so does collapsing it or hiding its tab, and picking another sample), and loading another scene ends it quietly with a grey note instead of an error (a job belongs to the scene that started it; the last good level stays). A mistake (a
 size out of range, extra options that are not JSON, a sample that cannot be found, a level the sample cannot make) is shown in red
@@ -646,6 +689,59 @@ the seed with Next and Previous seed (the first level comes back row by row), Ke
 and solid tiles, one undo step), Save level file (the file parses; saving again over it opens the Replace window, Cancel leaves the file,
 Replace overwrites it) and Ctrl+Z. It is in the first shard. `fa_test_editor` covers the
 model (`tools/editor/src/level_gen_model.*`) against a headless engine.
+
+## Review window
+
+View > Review shows the review sheets of the project (`.factoria/review/`): N candidates (pictures, scenes, prefabs, levels, vector
+art, effects) drawn as ONE picture with numbered thumbnails by `review.sheet` (AI_GUIDE.md section 9.32), answered with one number.
+The AI makes them when you have to choose; the editor offers each new one (from `review.sheet`, or a sheet of candidates from
+`assets.generate_image` with a `count`) in a toast with an **Open in Review** button and never takes the focus away from what you are
+doing.
+
+- **The list** (left) has the sheets still waiting for an answer first, then the answered ones, newest first in each group (the 200 most
+  recent). **Refresh** reads the folder again; the list also follows every `review.*` command the editor runs.
+- **Sheet** shows one sheet big: fitted to the window, or zoomed with **-**, **+** and **100%** and scrolled. Click a thumbnail (or press
+  its number, **1** to **9**; the **arrows** move over the grid) to select it; hover it for its label and facts. **Enter**, a double click
+  or **Pick #n...** asks first: the confirmation lists every file the pick MOVES to the drop folder (`.factoria/review/dropped/<sheet>/`:
+  the other items marked as candidates; nothing is deleted then, `review.cleanup` deletes them days later and moving one back undoes
+  it), takes an optional note (at most 500 bytes, kept with the choice), and **Keep the other files where they are** records the choice
+  only (`review.pick` with `drop: false`).
+  **Pick** (or Enter again) runs the command itself in a child `factoria` (`factoria call --project ...`, the same command the
+  Console and the AI call), so the window keeps drawing while the files move, and then shows what happened: the files moved and any
+  warning. When a file of the sheet is open in another program (or another program is changing the sheets), nothing is picked and the
+  window says to close it and try again. A pick is final: an answered sheet is read-only, with its number outlined in green. What is
+  picked is the sheet, number and note shown when you confirm, even if you look at another sheet meanwhile; a pick waits a moment
+  while the window is still reading pictures of that sheet. Closing the editor or opening another project waits up to 15 seconds for
+  a running pick (it normally takes about a second), then stops it; a stopped pick may leave the sheet unanswered, and
+  `review.info` says where it stands.
+- **Compare** puts two numbers side by side, large, with their labels and facts; **The candidates' own pictures** shows the image files
+  themselves (sharper than the thumbnails; other items show their thumbnail; while a pick waits or runs, which may move those files,
+  it reads none of them: a picture it already has stays, the others show their thumbnail), and each side has its own Pick button.
+- **History** lists the answered sheets, newest pick first: who picked which number and when, the note, and every dropped file with
+  its status (`moved`: still in the drop folder; `expired`: deleted by `review.cleanup`; `gone`: moved back or deleted by hand).
+  **Open** shows that sheet read-only.
+
+A sheet of **asset candidates** (`meta.kind` `"assetCandidates"`, made by `assets.generate_image` with a `count`) shows the asset slot
+it is for, and its pick runs `assets.pick` with that slot in the child `factoria`, which puts the picked file in place and records it
+in `assets.json`; the editor then reloads that file, so the scene shows the new picture. Only the newest sheet of candidates of a slot
+(the highest sheet number) can be picked: an older one waiting for an answer is marked *superseded* in the list and is read-only,
+naming the newer sheet, and if a newer sheet appears while you pick, the window says the pick was refused as superseded and which
+sheet to open. When the `factoria` tool has no `assets.pick`, the window says so and picks nothing: it never records the choice with
+`review.pick` instead. A sheet of **level seeds** (the Level generator's Sheet
+of seeds) brings the picked seed back to the Level generator.
+
+Pictures are read and decoded off the UI thread (one upload to the GPU per frame), shrunk on upload (a sheet to 4096 pixels a side,
+a candidate's own picture to 2048, a thumbnail to 512) and freed about two seconds after the window stops drawing them (the Compare
+view's own pictures a few frames after); a picture larger than 8192 x 8192 pixels is refused from its header before it is decoded
+(PNG, JPG, BMP, TGA...), and a picture file other than a PNG over 32 MB is not read.
+
+**Autotest.** Section R4 of `fa_editor_autotest` makes a sheet of four pictures through the queued command path (the toast appears and
+the window does not open by itself), opens it from the toast and from View > Review, selects with 3 and the arrows, compares 1 and 2,
+picks with Enter and the confirmation in a child `factoria` (the manifest records number 3, the other three files are in the drop folder), checks History
+and opens the answered sheet read-only, then makes a Sheet of seeds from the Level generator in a child `factoria` and picks one,
+which sets that seed. Last, `assets.generate_image` with `count` 2 and the offline `fake` provider makes a sheet of candidates for a
+slot through an AI run's command registry, as an AI calls it (its toast names the slot), and the window picks number 2 with `assets.pick` in a child
+`factoria`: the slot's file is the second candidate's picture and `assets.json` records it. `fa_test_editor` covers the model, the reader and the child job (`tools/editor/tests/review_tests.cpp`).
 
 ## Play sessions
 
@@ -663,8 +759,35 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
 - **Tell the AI**: after Stop, if the session has marks or errors, the AI Assistant panel shows a line with an **Attach** button. The
   **Attach last play session** button next to **Attach image...** does the same at any time: it adds a short summary (performance, errors, your
   notes) to the message and the mark screenshots as pictures.
+- **Let the AI play**: **Play > Let the AI Play** (or the button of the same name in the **Play sessions** window, **Play > Play Sessions...**)
+  runs `play.auto` ([DEBUGGING.md](DEBUGGING.md#let-the-game-play-itself)) on the project as saved on disk: a bot plays it from the start,
+  faster than real time, and finds what is stuck or broken. The window has the game seconds the bot may play (5 to 600, 60 by default)
+  and a box for the pictures. The bot runs in a `factoria` process of its own (the editor keeps the GPU), so the editor never waits: the
+  window shows the time elapsed and the last line the bot printed, and **Cancel** stops it (a cancelled run writes no session). It needs
+  the `factoria` program next to the editor, or the one `FA_FACTORIA_EXE` names; if it is not found the window says so and nothing runs.
+  The menu item is disabled while the game plays or a run is going. When the run ends a toast says how it ended (won, lost, timeout,
+  stuck, broken...) and how many problems it marked, and **Open report** selects the session in the window.
+  A run of an AI that works in the editor (the AI panel calls `play.auto`) is the same child process, started from the AI's own thread:
+  the editor never waits for it either, and the AI panel's **Stop** kills it (a cancelled run writes no session); the Play sessions window
+  lists its session when it ends. While a run goes its pictures are in `.factoria/cache/play-auto-<process id>-<n>/` and move into
+  `.factoria/sessions/<name>/` only when the run ends, so a cancelled run leaves no half-written session folder (a run that is killed
+  leaves only its `play-auto-*` folder in the cache, which the next run deletes). A run keeps the newest 30 sessions of `play.auto`
+  (`-auto` in the name) and, once its own session is written, deletes the older ones, so playing again and again does not fill the
+  disk; the sessions you recorded with Play .. Stop are never deleted. A project folder with accents works; on Windows a folder with
+  characters outside the system's code page (the ANSI code page of the PC's language) cannot be handed to the child process yet, and
+  the run fails with an error instead of playing.
+- **Play sessions window**: lists the sessions of `.factoria/sessions/`, newest first. A session the AI's bot played is marked **AI** and
+  shows how it ended; one you recorded is not. Click a row for its report (how it ended, score, phases, performance, marks and notes), with
+  **Attach to the AI chat** and, for a run of the bot, **Copy replay command** (the command that plays the bot's input again). The list is read
+  again when the window opens, when a session is written (Stop, or the end of a run) and with **Refresh**.
+- **Attach last play session** (AI panel) picks the last session YOU played. A session of the AI's bot is attached only when you have
+  none of your own, and then the editor says so (a toast, and a note in the message: "This is a session the AI's bot played with
+  play.auto, not one the user played."), so the AI does not take its own bot's run for what you saw. The Play sessions window has an
+  **Attach** button for the selected session, auto or not.
 - **For AIs and tools**: `play.sessions` lists the recent sessions, `play.report` returns one (the latest by default) with the replay path and a `profile` section: where the time went over the session (per engine system, per script behaviour class, GPU, memory; PERFORMANCE.md).
   The report says how to replay it: `factoria run --headless --frames <n> --input .factoria/sessions/<name>/input.json`.
+- **Sessions played by the bot**: `play.auto` ([DEBUGGING.md](DEBUGGING.md#let-the-game-play-itself)) writes the same folder with `"source": "auto"`
+  (phases, score, how it ended, the problems it found as marks). `play.report` and `play.sessions` read both kinds.
 
 ## Project panel
 
@@ -734,9 +857,11 @@ one. An edit writes the document (and the layer's PNG) as it happens; the baked 
   selection `image.select` writes, so a command sees it too.
 - **Provider pictures.** Under the layer list, **Inpaint selection...** and **Generate layer...** ask for a prompt and make what
   `image.inpaint` and `image.generate_layer` make ([IMAGES.md](IMAGES.md), "Pictures from a provider"): the plan (provider, selection,
-  size) is made first, so a mistake shows in the window before anything is paid for; the provider call runs on its own thread (the
+  size) is made first, on the same thread as the call and before anything is paid for, so a mistake is shown under the panel as a
+  failure with nothing charged; the plan, the cost check and the provider call run on that thread (the
   panel stays usable, a line shows the seconds and a **Cancel** button) and the picture is added as one undo step, selected, as a new
-  `provider` layer masked by the selection. The two are off, with a tooltip saying why, when no image provider is configured, the
+  `provider` layer masked by the selection. The popup shows the estimate for the provider's call (looked up when it opens), and **Make it** is your approval of that cost: the
+  spending limits still hold, and a refusal is shown in the panel. The two are off, with a tooltip saying why, when no image provider is configured, the
   configured one cannot inpaint, there is no selection (Inpaint) or the game is running. An answer that arrives after another document
   was opened is dropped with a message instead of being added to it.
 - **Transform** shows a box with eight handles around the selected pixels (or the whole layer without a selection): drag a handle to
@@ -1173,7 +1298,7 @@ The AI's commands run on the editor's main thread, but never for long at a time:
 ### Run only some sections
 
 The autotest is a list of sections, each a letter (`tools/editor/src/autotest_sections.h`): S (the start: select, edit, undo,
-play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Show-in-file-manager toast button), A (Audio panel), A2 (Profiler panel), B (commands that
+play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Show-in-file-manager toast button), T2 (Play on Phone: no player, the stand-in player's server, the QR code, a phone log line, a re-export, Stop), A (Audio panel), A2 (Profiler panel) and A3 (the card of a paid asset call waiting for the user's yes, in the 1024x642 window: Approve, Approve all for this run, Cancel and Stop; it uses a scratch user folder, never your own ~/.factoria), B (commands that
 rebuild the open scene file), C (pick bounds and the selection outline), D (bloom), E (Ctrl+V into the AI input), F (AI text:
 wrapping, right-click menu), G (delete a project), H (Export window), I (Platform settings), J (Set Up This Computer), K
 (custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI

@@ -118,6 +118,7 @@ void register_preview_sheet_command(CommandRegistry& registry, const std::string
 void register_check_art_command(CommandRegistry& registry, const std::string& projectDir);  // assets.check_art
 void register_bake_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.bake_sheet
 void register_contact_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.contact_sheet
+void register_review_commands(CommandRegistry& registry, const std::string& projectDir);  // review.sheet, review.pick, review.list, review.info
 void register_preview_scene_command(CommandRegistry& registry, const std::string& projectDir);  // assets.preview_in_scene
 void register_music_commands(CommandRegistry& registry, const std::string& projectDir);  // music.* (assets_music.cpp, assets_music_edit.cpp, docs/MUSIC.md)
 void register_audio_doc_commands(CommandRegistry& registry, const std::string& projectDir);  // audio.info, audio.render, audio.bake, audio.create, audio.edit (assets_audio_doc.cpp)

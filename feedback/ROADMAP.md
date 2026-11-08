@@ -1918,7 +1918,7 @@ cost card before spending, LAN play by QR, one-file HTML export) and a post abou
 and mockup variants that nobody could review. Their ideas only: nothing of theirs is bundled, and each milestone is
 FactorIA's own version over its commands. They start after the M61-M65 block ships.
 
-## M66. Paid asset generation shows its cost and asks first (M; 3 packages) — the user, 2026-11-06
+## M66. Paid asset generation shows its cost and asks first (M; 3 packages) — DONE (0.18.0)
 
 Today asset providers (image, voice, sound, 3D) bill per call and FactorIA does not know their prices
 (AI_PROVIDERS.md, "Cost"); `limits.maxCostUsd` covers LLM runs only, so a batch can spend without anyone seeing it.
@@ -1937,7 +1937,7 @@ Today asset providers (image, voice, sound, 3D) bill per call and FactorIA does 
   (cleaned after 7 days). The estimate is for all candidates. Docs (ASSETS.md, AI_COSTS.md), tests with the fake
   provider.
 
-## M67. The AI plays the game and reports, with nobody at the keyboard (L; 4 packages) — the user, 2026-11-06
+## M67. The AI plays the game and reports, with nobody at the keyboard (L; 4 packages) — DONE (0.18.0)
 
 `play.report` reads what happened while a person played; Lantern Keep and Clockwork Courier carry their own bot
 (`tests/helpers/autoplay.js`) for tests only. A game-making AI should be able to play its game end to end and read the
@@ -1959,7 +1959,7 @@ same report before it shows the game to the user.
   the user to play; the Play menu gets "Let the AI play" with the report in the Play sessions list; an example game
   (Lantern Keep) swaps its test bot for the hook. Autotest section.
 
-## M68. Try it on the phone: LAN play by QR and a one-file web build (M; 3 packages) — the user, 2026-11-06
+## M68. Try it on the phone: LAN play by QR and a one-file web build (M; 3 packages) — DONE (0.18.0)
 
 Today the web export has to be served by hand (`python -m http.server`, EXPORTING.md) and a phone needs a full Android or
 iOS build to try the game.
@@ -1975,7 +1975,7 @@ iOS build to try the game.
   inlined (base64), that runs offline from a double click; refused with a teaching error over a size limit (default
   64 MB) and when a feature needs a server (threads, which need cross-origin isolation). EXPORTING.md, MOBILE.md.
 
-## M69. Reviewing many variants at once: contact sheets (M; 2 packages) — the user, 2026-11-06
+## M69. Reviewing many variants at once: contact sheets (M; 2 packages) — DONE (0.18.0)
 
 When an AI makes many versions of something (candidates of a sprite, layouts of a menu, seeds of a level, effects,
 whole prototypes), looking at them one by one costs the user more than making them did.
@@ -2086,7 +2086,8 @@ SHADERS.md "Not available yet" becomes empty.
 - M74.1 (M) Soft 2D shadows (penumbra by light size), shadow casters on sprites and shapes (`ShadowCaster2D` from the
   sprite's alpha or a polygon), self-shadowing off/on, more than 32 shadowed lights with an atlas.
 - M74.2 (M) Emission and masks: emissive maps on sprites (feeding HDR bloom), light masks per layer, light cookies, a
-  normal map generated from height or from the sprite itself, rim light.
+  normal map generated from height or from the sprite itself, rim light. The normal map is also an image layer the AI
+  and the user can edit (paint, smooth, flip a channel) with the M52 tools, previewed under a moving light.
 - M74.3 (L) 2D global illumination: radiance-cascades-style GI (light bounces off coloured walls, emissive sprites
   light the scene), quality levels, off by default.
 - M74.4 (M) 2D water and refraction: reflective water planes, refraction and distortion zones through M72 materials,
@@ -2160,8 +2161,48 @@ interface (external/ is not edited). They are the base of M78, M79, DirectStorag
 - M80.1 (M) Low-resolution rendering: render at a console-like resolution (320x240, 256x224...) with integer or
   aspect-correct scaling and a sharp-bilinear option, for 2D and 3D.
 - M80.2 (M) Palettes and dithering: palette quantization (built-in palettes and `.pal`/`.gpl`/image import), ordered and
-  error-diffusion dithering, colour limits per sprite, 1-bit and 4-colour handheld presets.
+  error-diffusion dithering, colour limits per sprite, 1-bit and 4-colour handheld presets. Also blue-noise dithering
+  (our own generated blue-noise texture, void-and-cluster, no shipped file), at runtime and as a `blueNoise` method of
+  the image tools' `dither` (today bayer2/4/8, floydSteinberg, atkinson).
 - M80.3 (M) Screens: CRT (scanlines, shadow mask, curvature, bloom, phosphor persistence), NTSC/PAL composite artefacts,
   LCD grid, VHS.
 - M80.4 (M) Retro 3D: vertex snapping, affine texture mapping, no filtering, low colour depth, draw distance fog, per
   material or for the whole game; a retro template for 2D and one for 3D that use these presets.
+
+## M81. Cleaner art from rough sources (M; 4 packages) — the user, 2026-11-07
+
+From the user's X bookmarks (pixel-art grid detectors, video-to-sprite tools, parametric model kits). Ideas only: each
+is FactorIA's own command, nothing of those projects is bundled, depended on or wrapped as a provider. Checked against
+the roadmap and docs first: none of these is done or planned.
+- M81.1 (M) Automatic pixel grid: `image.to_pixel_art {pixelSize: "auto"}` finds the art-pixel size and offset of an
+  upscaled or AI-made "fake pixel art" image (edge spacing and colour runs per axis), reports the grid it found with
+  its confidence, and snaps to it; `image.detect_pixel_grid` returns the grid alone. Today `pixelSize` is given by hand.
+- M81.2 (M) Video to sprite sheet: `image.sheet_from_video {path, fps?, from?, to?, crop?, background?}` takes the
+  frames of an imported video (the same decoders as video import), drops near-duplicates, keys out a plain background
+  and bakes a sheet with its animation clip, so a filmed or generated clip becomes a game animation.
+- M81.3 (S) Remove a fringe or a background: `image.clean_edges` removes the halo `assets.check_art` reports (dark or
+  light fringe around the alpha edge, matte decontamination) and `image.remove_background` keys out a flat or
+  near-flat background colour; both as M52 layer operations, and as a fix `assets.check_art` offers.
+- M81.4 (M) Parametric kits and variants: a model document declares shared top-level knobs (size, roof pitch, wear,
+  palette...) that drive its nodes' params, and `model.variants {path, count, vary?, seed}` makes a set of seeded
+  variants; with M69 contact sheets to review them and a pick that saves the chosen ones as assets.
+
+## M82. Secondary motion and more generated animation (L; 3 packages) — the user, 2026-11-08
+
+From the user's X bookmarks (TailorRig and HairDeck for clothing and hair bones, UniMate and Prompt2Rig for motion from
+a description, DirtyMoCap and a mocap clean-up app). Those are trained models; ours are procedural and live in the
+engine, nothing of theirs is bundled, depended on or wrapped. Checked against the roadmap and docs first: rigs today
+have only the body (plus `tail`/`chain` templates for whole models), `anim3d.generate` makes 7 kinds, and nothing
+cleans an imported clip.
+- M82.1 (L) Secondary chains and spring bones: `rig.add_chain {rig, part, from, segments}` adds bone chains for hair,
+  capes, skirts, sleeves and ears to a fitted rig, with skin weights kept on their part (they do not leak into the legs
+  or the body); a `SpringBones` component (3D, and the same for `Bone2D` chains) moves them at runtime with stiffness,
+  damping, gravity and collider spheres, deterministic on the fixed step; the Animation panel shows them, and
+  `anim3d.preview` can draw them settling.
+- M82.2 (M) More generated actions: `anim3d.generate` kinds `jump`, `attack`, `wave`, `crouch`, `death`, `climb`,
+  `sit`, `fall`, `turn` and `push`, from the rig's proportions with IK for contacts and the same `params` and
+  `generated` record as today; for the humanoid, quadruped and bird templates where each makes sense (a teaching error
+  otherwise).
+- M82.3 (M) Clean an imported clip: `anim3d.clean {path, rig, out?}` filters jitter, finds the foot contacts and locks
+  them (no foot skating), keeps the root over the feet, reduces keys within an error budget and reports what it changed
+  with a before/after filmstrip; `anim.check` gains a `foot_skate` finding that suggests it.

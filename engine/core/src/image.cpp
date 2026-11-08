@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 
 #include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
@@ -105,6 +106,15 @@ Result<ImageSize> ktx2_size(const std::uint8_t* data, std::size_t size) {
     return ImageSize{int(w), int(h)};
 }
 
+Result<ImageSize> image_size(const std::uint8_t* data, std::size_t size) {
+    int w = 0, h = 0, comp = 0;
+    const bool readable = data && size != 0 && size <= std::size_t(std::numeric_limits<int>::max()) &&
+                          stbi_info_from_memory(data, int(size), &w, &h, &comp) && w > 0 && h > 0;
+    if (!readable)
+        return make_error("cannot read the image size", "Supported formats: PNG, JPG, TGA, BMP. Re-export the file from your image editor.");
+    return ImageSize{w, h};
+}
+
 Result<ImageSize> texture_size(std::string_view path) {
     std::string key = fs::normalize(path);
     if (key.empty()) key = path;
@@ -112,10 +122,9 @@ Result<ImageSize> texture_size(std::string_view path) {
         auto bytes = fs::read_bytes(file);
         if (!bytes) return bytes.error();
         if (fs::extension(file) == kTextureTwinExtension) return ktx2_size(bytes->data(), bytes->size());
-        int w = 0, h = 0, comp = 0;
-        if (!stbi_info_from_memory(bytes->data(), int(bytes->size()), &w, &h, &comp) || w <= 0 || h <= 0)
-            return make_error("'" + file + "': cannot read the image size", "Supported formats: PNG, JPG, TGA, BMP. Re-export the file from your image editor.");
-        return ImageSize{w, h};
+        auto size = image_size(bytes->data(), bytes->size());
+        if (!size) return make_error("'" + file + "': " + size.error().message, size.error().hint);
+        return size;
     };
     if (fs::exists(key)) return of_file(key);
     if (const assets::PackedTexture packed = assets::packed_texture(key); !packed.atlas.empty()) return ImageSize{packed.w, packed.h};

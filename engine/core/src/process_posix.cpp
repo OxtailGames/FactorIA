@@ -31,11 +31,14 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
 #include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include "exec_posix.h"
 
 extern char** environ;
 
@@ -161,8 +164,8 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
         // execvpe is a GNU extension; emulate: search PATH of the *child* env is
         // unnecessary, so use the parent's PATH via execvp after setting environ.
         environ = envp.data();
-        if (hasSlash) execv(argv[0], argv.data());
-        else execvp(argv[0], argv.data());
+        detail::close_inherited_descriptors(execPipe[1]);
+        detail::exec_with_retry(hasSlash, argv.data());
         int e = errno;
         ssize_t w = write(execPipe[1], &e, sizeof e); (void)w;
         _exit(127);

@@ -62,6 +62,8 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     file.push_back(menu::action("Open Screenshots Folder", [this] { open_screenshots_folder(); }, have));
     file.push_back(with(menu::action("Export Game...", [this] { open_export_window(); }, have), "",
                         "Package the game for Windows, macOS, Linux, Android or iOS"));
+    file.push_back(with(menu::action("Play on Phone...", [this] { open_phone_window(); }, have), "menu:play-phone",
+                        "Play the web build on a phone on the same Wi-Fi: its address as a QR code, rebuilt and reloaded when the project changes"));
     file.push_back(with(menu::action("Platform Settings...", [this] { open_platform_settings(); }, have), "menu:platform-settings",
                         "The game icon and what each platform's export needs: Android version and signing key, macOS category, iOS team..."));
     file.push_back(with(menu::action("Feedback Settings...", [this] { open_share_settings(); }), "menu:feedback-settings",
@@ -108,6 +110,8 @@ menu::MainMenu Editor::build_main_menu(bool native) {
                         "Where the time goes while the game plays: milliseconds per engine system and per script behaviour class, GPU time, memory"));
     view.push_back(with(toggle("Level generator", showLevelGen_), "menu:levelgen",
                         "Make a level from a sample you drew: pick a seed, regenerate, preview it and keep the one you like"));
+    view.push_back(with(toggle("Review", review_.show), "menu:review",
+                        "The review sheets: N candidates (images, levels, scenes...) as numbered thumbnails; pick one by its number and the others move to a drop folder"));
     view.push_back(with(toggle("Animation", showAnimation_), "menu:animation",
                         "The clips of the selected entity's Animator: dopesheet and curves, scrubbing, record mode, event markers and the onion skin"));
     view.push_back(with(toggle("Image", showImage_), "menu:image",
@@ -130,6 +134,14 @@ menu::MainMenu Editor::build_main_menu(bool native) {
                         "Draws the walkable cells of every NavMesh3D (green; red where a moving obstacle blocks; blue on a walkable moving body) and its off-mesh links (yellow lines), the ground nav.findPath walks on"));
     view.push_back(toggle("Selection overlay", showOverlay_));
     view.push_back(menu::action("Reset layout", [this] { resetLayout_ = true; }));
+
+    // ---- Play
+    std::vector<Item> playMenu;
+    playMenu.push_back(with(menu::action("Let the AI Play", [this] { start_auto_play(); }, editing && !autoPlay_.running()), "menu:play-auto",
+                            "A bot plays the project from its start, faster than real time, and finds what is stuck or broken (play.auto). It runs in a\n"
+                            "separate process, so the editor stays free; the report opens in Play Sessions when it ends. Plays the project as saved on disk."));
+    playMenu.push_back(with(menu::action("Play Sessions...", [this] { open_play_sessions(); }, have), "menu:play-sessions",
+                            "The sessions you recorded with Play .. Stop and the ones the AI's bot played, with their reports"));
 
     // ---- AI
     std::vector<Item> ai;
@@ -155,6 +167,7 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     m.items.push_back(with(menu::submenu("File", std::move(file)), "menu:file"));
     m.items.push_back(menu::submenu("Edit", std::move(edit)));
     m.items.push_back(with(menu::submenu("View", std::move(view)), "menu:view"));
+    m.items.push_back(with(menu::submenu("Play", std::move(playMenu)), "menu:play"));
     m.items.push_back(with(menu::submenu("AI", std::move(ai)), "menu:ai"));
     if (native) {
         // A system menu bar cannot hold a click item: Export is a menu of its own, with the shortcut.

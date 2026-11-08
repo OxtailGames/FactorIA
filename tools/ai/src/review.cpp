@@ -111,7 +111,8 @@ std::string review_task(std::string_view role, std::string_view focus) {
                           ? "Look at the current build of the game and write your art critique: play it and take screenshots of "
                             "every scene and state you can reach, then judge the art as your role describes."
                           : "Play the current build of the game and write your review: reach every scene and state you can, play "
-                            "like a reviewer would, then judge the game as your role describes.";
+                            "like a reviewer would (by hand first, then with play_auto as support, as your role says), then judge the game as your "
+                            "role describes.";
     if (!focus.empty()) out += "\nThe user asks you to pay special attention to: " + std::string(focus);
     out += "\nEnd with the report's closing json block (score, subScores, summary) exactly as your role says.";
     return out;

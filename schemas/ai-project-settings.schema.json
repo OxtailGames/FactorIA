@@ -27,7 +27,17 @@
         "maxCostUsd": { "type": "number", "minimum": 0, "description": "0 = unlimited." },
         "maxTotalTokens": { "type": "integer", "minimum": 0, "description": "0 = unlimited." },
         "stuckAfterSeconds": { "type": "integer", "minimum": 0, "description": "0 = never warn." },
-        "maxConcurrentRuns": { "type": "integer", "minimum": 1 }
+        "maxConcurrentRuns": { "type": "integer", "minimum": 1 },
+        "maxAssetCostUsd": {
+          "type": "object",
+          "description": "The most the asset providers may charge in this project, in estimated US dollars (the same keys as ai.json's limits.maxAssetCostUsd). A call that would pass it is refused before it is paid. The project can set one of the two and keep the other from ai.json.",
+          "properties": {
+            "perRun": { "type": "number", "minimum": 0, "description": "Per agent run. 0 = no limit." },
+            "perDay": { "type": "number", "minimum": 0, "description": "Per calendar day, counted across every program that works on this project. 0 = no limit." }
+          },
+          "additionalProperties": false
+        },
+        "askAboveUsd": { "type": "number", "minimum": 0, "description": "A paid asset call whose estimate is above this many US dollars waits for the user (ai.json's limits.askAboveUsd). 0 asks for every paid call." }
       },
       "additionalProperties": false
     },

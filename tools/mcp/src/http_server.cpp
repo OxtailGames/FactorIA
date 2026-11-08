@@ -1,21 +1,5 @@
 #include "fa/mcp/http_server.h"
 
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX  // MinGW: winsock2.h includes windows.h, whose min/max macros break std::min
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#endif
-
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
@@ -25,50 +9,29 @@
 #include <future>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <thread>
 #include <vector>
 
 #include "fa/core/strings.h"
+#include "fa/tooling/net.h"
 
 namespace fa {
 
 namespace {
 
-#ifdef _WIN32
-using Socket = SOCKET;
-using IoLen = int;
-constexpr Socket kNoSocket = INVALID_SOCKET;
-constexpr int kShutBoth = SD_BOTH;
-void close_socket(Socket s) { ::closesocket(s); }
-#else
-using Socket = int;
-using IoLen = std::size_t;
-constexpr Socket kNoSocket = -1;
-constexpr int kShutBoth = SHUT_RDWR;
-void close_socket(Socket s) { ::close(s); }
-#endif
-#ifdef MSG_NOSIGNAL
-constexpr int kSendFlags = MSG_NOSIGNAL;  // a closed peer must not raise SIGPIPE (macOS sets SO_NOSIGPIPE instead)
-#else
-constexpr int kSendFlags = 0;
-#endif
+using net::Socket;
+using net::kNoSocket;
+using net::close_socket;
+using net::send_all;
 
 constexpr std::size_t kMaxHeader = 64 * 1024;
 constexpr std::size_t kMaxBody = 64 * 1024 * 1024;  // a tool call carrying a whole file or picture still fits
 
-bool send_all(Socket s, std::string_view data) {
-    while (!data.empty()) {
-        const auto n = ::send(s, data.data(), static_cast<IoLen>(std::min<std::size_t>(data.size(), 1 << 20)), kSendFlags);
-        if (n <= 0) return false;
-        data.remove_prefix(static_cast<std::size_t>(n));
-    }
-    return true;
-}
-
 bool receive(Socket s, std::string& buf) {  // false when the peer closed, or stop() shut the socket
     char chunk[16384];
-    const auto n = ::recv(s, chunk, static_cast<IoLen>(sizeof chunk), 0);
+    const auto n = net::recv_some(s, chunk, sizeof chunk);
     if (n <= 0) return false;
     buf.append(chunk, static_cast<std::size_t>(n));
     return true;
@@ -99,7 +62,8 @@ struct McpHttpServer::Impl {
     std::chrono::milliseconds streamAfter{};
     std::string url, path;
     Socket listener = kNoSocket;
-    sockaddr_in addr{};
+    std::uint16_t port = 0;
+    std::optional<net::SocketRuntime> sockets;  // Windows: WSAStartup for as long as the server runs
     std::thread acceptThread;
     std::mutex mu;  // guards everything below
     bool stopping = false;
@@ -108,7 +72,7 @@ struct McpHttpServer::Impl {
 
     void accept_loop() {
         for (;;) {
-            Socket c = ::accept(listener, nullptr, nullptr);
+            Socket c = net::accept_connection(listener);
             std::unique_lock<std::mutex> lock(mu);
             if (stopping) {
                 if (c != kNoSocket) close_socket(c);
@@ -119,10 +83,6 @@ struct McpHttpServer::Impl {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 continue;
             }
-#ifdef SO_NOSIGPIPE
-            int one = 1;
-            setsockopt(c, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
-#endif
             clients.push_back(c);
             // ponytail: one thread per connection, joined at stop(); a CLI keeps a few connections alive per run.
             threads.emplace_back([this, c] {
@@ -248,37 +208,23 @@ Result<std::string> McpHttpServer::start(Handler handler, std::chrono::milliseco
 
 Result<std::string> McpHttpServer::start(StreamHandler handler, std::chrono::milliseconds streamAfter) {
     stop();
-#ifdef _WIN32
-    WSADATA wsa;
-    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
-        return make_error("Cannot start the editor's MCP endpoint: Windows sockets (WSAStartup) are unavailable.",
-                          "Restart the editor; if it keeps failing, check that the network stack is installed.");
-#endif
-    auto fail = [this](const std::string& what) -> Result<std::string> {
-        if (impl_->listener != kNoSocket) close_socket(impl_->listener);
-        impl_->listener = kNoSocket;
-#ifdef _WIN32
-        WSACleanup();
-#endif
-        return make_error("Cannot start the editor's MCP endpoint on 127.0.0.1: " + what + " failed.",
+    Impl& m = *impl_;
+    m.sockets.emplace();
+    auto fail = [&m](const std::string& what) -> Result<std::string> {
+        m.sockets.reset();
+        return make_error("Cannot start the editor's MCP endpoint on 127.0.0.1. " + what,
                           "Another program may be blocking local connections (firewall, security software). "
                           "Allow loopback connections for the editor, then send the message again.");
     };
-    Impl& m = *impl_;
-    m.listener = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (m.listener == kNoSocket) return fail("socket()");
-    m.addr = {};
-    m.addr.sin_family = AF_INET;
-    m.addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    m.addr.sin_port = 0;  // any free port
-    if (::bind(m.listener, reinterpret_cast<sockaddr*>(&m.addr), sizeof m.addr) != 0) return fail("bind()");
-    socklen_t addrLen = sizeof m.addr;
-    if (::getsockname(m.listener, reinterpret_cast<sockaddr*>(&m.addr), &addrLen) != 0) return fail("getsockname()");
-    if (::listen(m.listener, 16) != 0) return fail("listen()");
+    if (!m.sockets->ok()) return fail("Windows sockets (WSAStartup) are unavailable.");
+    auto listener = net::listen_tcp(false);
+    if (!listener.ok()) return fail(listener.error().message);
+    m.listener = listener->socket;
+    m.port = listener->port;
     m.handler = std::move(handler);
     m.streamAfter = streamAfter;
     m.path = "/mcp/" + random_token();
-    m.url = "http://127.0.0.1:" + std::to_string(ntohs(m.addr.sin_port)) + m.path;
+    m.url = "http://127.0.0.1:" + std::to_string(m.port) + m.path;
     m.stopping = false;
     m.acceptThread = std::thread([&m] { m.accept_loop(); });
     return m.url;
@@ -290,14 +236,11 @@ void McpHttpServer::stop() {
     {
         std::lock_guard<std::mutex> lock(m.mu);
         m.stopping = true;
-        for (Socket c : m.clients) ::shutdown(c, kShutBoth);  // wakes the connection threads blocked in recv()
+        for (Socket c : m.clients) net::shutdown_socket(c);  // wakes the connection threads blocked in recv()
     }
     // Wake accept(): shutdown() does on Linux, a connection does everywhere (it sees `stopping` and returns).
-    ::shutdown(m.listener, kShutBoth);
-    if (Socket wake = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP); wake != kNoSocket) {
-        (void)::connect(wake, reinterpret_cast<sockaddr*>(&m.addr), sizeof m.addr);
-        close_socket(wake);
-    }
+    net::shutdown_socket(m.listener);
+    close_socket(net::connect_loopback(m.port));
     m.acceptThread.join();
     for (std::thread& t : m.threads) t.join();  // each closes its own socket
     close_socket(m.listener);
@@ -306,9 +249,7 @@ void McpHttpServer::stop() {
     m.url.clear();
     m.path.clear();
     m.handler = nullptr;
-#ifdef _WIN32
-    WSACleanup();
-#endif
+    m.sockets.reset();
 }
 
 }  // namespace fa

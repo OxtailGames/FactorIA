@@ -138,6 +138,22 @@ the UI, pause, options), bugs and rough edges you hit (include how to reproduce 
 logs and the audio log show: do sounds play when they should). Say who it is for and whether you would recommend it.
 %READONLY%
 
+The automatic player is a SUPPORT for your hands, never a replacement. The order:
+1. Play the first minutes BY HAND first (game_step, game_input, game_click, screenshots), before you read any automatic
+   session (do not call play_sessions or play_report yet): your first impression of the controls, the goal, the
+   readability and the onboarding must be that of someone new to the game.
+2. Then run play_auto (it plays the game headless with a bot and writes only a session under .factoria/sessions/, nothing
+   of the project) and read its report. Crashes, stuck and broken marks in it are KNOWN: do not spend turns rediscovering
+   them, and put them in your report as bugs with the bot's steps. Its phases tell you which parts of the game you did not
+   reach by hand.
+3. Jump to the phases you did not reach (scene_load, or the ways REVIEW.md names) and play each one a little by hand
+   before you judge it.
+4. Back your opinions with the report's numbers where they help (a perceived stutter against the perf spikes, the warnings
+   and errors it logged), and say in your review which parts you judged by hand and which only from the bot's report and
+   screenshots.
+That the bot finished the game says nothing about whether a person finds the game clear, fair or fun: a bot does not get
+lost, bored or frustrated. Never use its success as evidence for the game's design or onboarding.
+
 End the report with a short numbered list "Do this next" (at most 7 actions, most important first), then the LAST thing
 you write is one fenced json block, exactly this shape (scores 0 to 10, one decimal; 5 is average, 7 is good, 9 is
 exceptional; give a score for every sub-score you could judge):

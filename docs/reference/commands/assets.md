@@ -203,7 +203,7 @@ Since 0.1.6.
 
 Generate a PNG image with the image asset provider and record where it came from.
 
-Calls the provider that ai.json assigns to "image" (assets.image; there is no default, so add one, or pass `provider` such as "fake" for an offline placeholder), writes a PNG of exactly width x height at `path` and records provenance (origin generated, ai true, provider, model, the full prompt, references, date, license note) in assets.json. The house style of assets.json is applied unless style is false: its `prompt` is appended to yours, its `references` are sent along with `references`, and its `palette` reduces the result to those colours. Returns the path, size, provenance and the image itself. Generation costs money with paid providers: check the first result before generating more. Example: {"prompt":"a red potion bottle, side view","path":"assets/items/potion.png","width":64,"height":64,"transparent":true}
+Calls the provider that ai.json assigns to "image" (assets.image; there is no default, so add one, or pass `provider` such as "fake" for an offline placeholder), writes a PNG of exactly width x height at `path` and records provenance (origin generated, ai true, provider, model, the full prompt, references, date, license note) in assets.json. The house style of assets.json is applied unless style is false: its `prompt` is appended to yours, its `references` are sent along with `references`, and its `palette` reduces the result to those colours. Returns the path, size, provenance and the image itself. Generation costs money with paid providers: check the first result before generating more. With `count` 2 to 4 it makes that many candidates for the slot `path` instead (files next to it named <name>.candidate-<n>.png, each with its own seed and provenance; the cost estimate and the approval cover all of them at once) and ONE review sheet that shows them numbered: show that sheet to the person, ask for one number and call assets.pick {slot, n}. Never pick for them. Example: {"prompt":"a red potion bottle, side view","path":"assets/items/potion.png","width":64,"height":64,"transparent":true} COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -212,12 +212,14 @@ Calls the provider that ai.json assigns to "image" (assets.image; there is no de
 | `width` | integer | no | Width of the PNG in pixels. The provider's picture is resized to it. Default 512. |
 | `height` | integer | no | Height of the PNG in pixels. Default 512. |
 | `transparent` | boolean | no | Ask for a transparent background (sprites, items, icons). Default false. |
+| `count` | integer | no | How many candidates to make for the slot `path` (1 to 4). 1 writes `path` itself. 2 to 4 write <name>.candidate-1.png... next to it (seeds seed, seed+1...; without `seed` they come from the prompt) and one review sheet; the person picks one with assets.pick, which moves it to `path`. With overwrite false, existing candidate files are refused; with overwrite true they are replaced, and the slot's earlier sheet can no longer be answered (assets.pick answers the newest). Default 1. |
 | `references` | array | no | Project-relative images the result should follow (a character to keep consistent, a style). Sent to providers that accept reference images, in addition to style.references of assets.json. |
 | `style` | boolean | no | Apply the house style of assets.json (style.prompt, style.references, style.palette). false skips all of it for this call. Default true. |
 | `provider` | string | no | Asset provider to use instead of the one ai.json assigns to this kind of asset (a name from ai.providers, for example "fake" to try the flow offline). |
 | `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
 | `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
 | `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; with the fake provider and local programs it is not needed. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 
 ## `assets.generate_loop` (modifies state)
@@ -262,7 +264,7 @@ Since 0.1.6.
 
 Generate a 3D model with the model3d asset provider and record where it came from.
 
-Calls the provider that ai.json assigns to "model3d" (assets.model3d) and writes the glTF binary at `path` (.glb; the fake provider makes a small .gltf cube). Generating models takes minutes with real providers. The model is not textured or rigged; check it in the scene before building on it. Records provenance in assets.json. Example: {"prompt":"a low-poly wooden crate","path":"assets/models/crate.glb"}
+Calls the provider that ai.json assigns to "model3d" (assets.model3d) and writes the glTF binary at `path` (.glb; the fake provider makes a small .gltf cube). Generating models takes minutes with real providers. The model is not textured or rigged; check it in the scene before building on it. Records provenance in assets.json. Example: {"prompt":"a low-poly wooden crate","path":"assets/models/crate.glb"} COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -272,6 +274,7 @@ Calls the provider that ai.json assigns to "model3d" (assets.model3d) and writes
 | `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
 | `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
 | `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; with the fake provider and local programs it is not needed. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 
 ## `assets.generate_music` (modifies state)
@@ -280,7 +283,7 @@ Since 0.1.6.
 
 Generate a music track with the music asset provider and record where it came from.
 
-Calls the provider that ai.json assigns to "music" (assets.music) and writes the audio file at `path` (extension as for assets.generate_sound). Tracks are instrumental. Records provenance in assets.json. Tracks are not looped for you: ask for a loopable piece in the prompt and set `loop` on the AudioSource. Example: {"prompt":"calm forest theme, soft flute and strings","path":"assets/music/forest.mp3","seconds":60}
+Calls the provider that ai.json assigns to "music" (assets.music) and writes the audio file at `path` (extension as for assets.generate_sound). Tracks are instrumental. Records provenance in assets.json. Tracks are not looped for you: ask for a loopable piece in the prompt and set `loop` on the AudioSource. Example: {"prompt":"calm forest theme, soft flute and strings","path":"assets/music/forest.mp3","seconds":60} COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -291,6 +294,7 @@ Calls the provider that ai.json assigns to "music" (assets.music) and writes the
 | `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
 | `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
 | `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; with the fake provider and local programs it is not needed. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 
 ## `assets.generate_sound` (modifies state)
@@ -299,7 +303,7 @@ Since 0.1.6.
 
 Generate a sound effect with the sound asset provider and record where it came from.
 
-Calls the provider that ai.json assigns to "sound" (assets.sound) and writes the audio file at `path`, whose extension must be the one the provider makes (.mp3 for elevenlabs, .wav for fake and asset-command). Records provenance in assets.json. Example: {"prompt":"short coin pickup chime","path":"assets/sfx/coin.mp3","seconds":1}
+Calls the provider that ai.json assigns to "sound" (assets.sound) and writes the audio file at `path`, whose extension must be the one the provider makes (.mp3 for elevenlabs, .wav for fake and asset-command). Records provenance in assets.json. Example: {"prompt":"short coin pickup chime","path":"assets/sfx/coin.mp3","seconds":1} COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -310,6 +314,7 @@ Calls the provider that ai.json assigns to "sound" (assets.sound) and writes the
 | `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
 | `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
 | `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; with the fake provider and local programs it is not needed. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 
 ## `assets.generate_sprite_sheet` (modifies state)
@@ -318,7 +323,7 @@ Since 0.1.6.
 
 Generate a sprite sheet (a grid of animation frames) and record its layout for SpriteAnimator.
 
-Like assets.generate_image, but the picture is a grid of `frames` animation frames of frameWidth x frameHeight, normalized to exactly columns * frameWidth by rows * frameHeight pixels (each side at most 4096). The layout is written to assets.json as the `sheet` of the file with one clip "default" (all frames, at `fps`), and the result shows the Sprite and SpriteAnimator components to use. Providers draw grids unevenly: look at the result and regenerate when frames wander. Example: {"prompt":"a knight walking right","path":"assets/knight_walk.png","frames":6,"columns":3,"frameWidth":64,"frameHeight":64,"fps":10}
+Like assets.generate_image, but the picture is a grid of `frames` animation frames of frameWidth x frameHeight, normalized to exactly columns * frameWidth by rows * frameHeight pixels (each side at most 4096). The layout is written to assets.json as the `sheet` of the file with one clip "default" (all frames, at `fps`), and the result shows the Sprite and SpriteAnimator components to use. Providers draw grids unevenly: look at the result and regenerate when frames wander. Example: {"prompt":"a knight walking right","path":"assets/knight_walk.png","frames":6,"columns":3,"frameWidth":64,"frameHeight":64,"fps":10} COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -336,6 +341,7 @@ Like assets.generate_image, but the picture is a grid of `frames` animation fram
 | `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
 | `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
 | `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; with the fake provider and local programs it is not needed. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 
 ## `assets.generate_texture` (modifies state)
@@ -391,7 +397,7 @@ Since 0.1.6.
 
 Generate spoken audio from text with the voice asset provider and record where it came from.
 
-Calls the provider that ai.json assigns to "voice" (assets.voice) to speak `text` with `voice` (default: the voice in ai.json) and writes the audio file at `path`. Records provenance in assets.json (the text is the prompt). Needs a key in the environment: ELEVENLABS_API_KEY (elevenlabs) or OPENAI_API_KEY (openai); without a provider the error says what to add to ai.json. To test code that depends on voice lines without a provider or a key, pass `silent: true`: it writes a silent .wav as long as the line (about 0.06 s per character, or `seconds`) and records it as a placeholder, not AI. Example: {"text":"Welcome, traveller.","path":"assets/voice/welcome.mp3"}
+Calls the provider that ai.json assigns to "voice" (assets.voice) to speak `text` with `voice` (default: the voice in ai.json) and writes the audio file at `path`. Records provenance in assets.json (the text is the prompt). Needs a key in the environment: ELEVENLABS_API_KEY (elevenlabs) or OPENAI_API_KEY (openai); without a provider the error says what to add to ai.json. To test code that depends on voice lines without a provider or a key, pass `silent: true`: it writes a silent .wav as long as the line (about 0.06 s per character, or `seconds`) and records it as a placeholder, not AI. Example: {"text":"Welcome, traveller.","path":"assets/voice/welcome.mp3"} COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -404,6 +410,7 @@ Calls the provider that ai.json assigns to "voice" (assets.voice) to speak `text
 | `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
 | `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
 | `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; with the fake provider and local programs it is not needed. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 
 ## `assets.import` (modifies state)
@@ -462,6 +469,22 @@ Packing again is stable: a frame whose size did not change keeps its rectangle (
 | `table` | string | no | Project-relative .json for the frame table. Default: out with the .json extension. |
 | `maxSize` | integer | no | Largest side of the page in pixels. Default 2048 (what every phone samples); 4096 is fine on desktop. Frames that do not fit are an error. |
 | `padding` | integer | no | Pixels of the frame's own edge repeated around each frame. Default 2. |
+
+## `assets.pick` (modifies state)
+
+Since 0.18.0.
+
+Keep the candidate the person chose: it becomes the slot, the others are dropped.
+
+Answers the review sheet that assets.generate_image {count} made for `slot` (its newest one: a newer sheet for the same slot replaces the older ones, which are refused as superseded) with the number the PERSON chose: never pick for them; show the sheet and ask. Candidate `n` is moved to `slot` and the slot's entry in assets.json gets its provenance (prompt, provider, model, seed, plus `candidates`: the sheet, the number picked, how many there were and the estimated cost of the batch); the candidates' own entries are removed. The other candidates move to .factoria/assets/candidates/<sheet id>/, where review.cleanup deletes them after 7 days. An existing slot file needs overwrite (here or in the generate call) and is kept in the same folder. All or nothing: when a file cannot be moved (open in another program: code busy) nothing changes. Refused: a slot whose newest sheet was already answered (already_picked), and a candidate file that is no longer the picture on the sheet (superseded). The editor's Review window calls it with {sheet, n, slot}. Example: {"slot":"assets/items/potion.png","n":2}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `slot` | string | yes | The path the candidates were made for: the `path` given to assets.generate_image, project-relative under assets/. |
+| `n` | integer | yes | The number printed on the thumbnail the person chose (1 is the first candidate). |
+| `sheet` | string | no | The candidates sheet to answer ("sheet-0007", or its number). It must be the newest candidates sheet of `slot` (an older one is refused as superseded). Default: that newest sheet. |
+| `note` | string | no | Why this one, in the person's words; kept in the sheet's manifest with the choice. |
+| `overwrite` | boolean | no | Replace a file that already exists at `slot` (the old file is kept in the sheet's drop folder for 7 days). Not needed when the generate call had overwrite:true. Default false. |
 
 ## `assets.preview_in_scene`
 
@@ -968,7 +991,7 @@ Since 0.16.0.
 
 Generate a picture with the image provider and add it to an image document as a `provider` layer, optionally masked by a selection.
 
-Draws `prompt` with the image provider and adds the picture as a `provider` layer: the whole canvas by default, or `size` {width,height} at `placement` ("center" when a size is given, "fill", or {x,y}). `selection` (a stored selection, "all", or an inline image.select object) masks the layer so it shows only there. The layer carries the provider's provenance and is recorded in assets.json; the baked picture counts as AI-made. `transparent` asks for a transparent background (sprites, props). In a document with a palette the result is reduced to it. Any image provider works (openai, fake, asset-command); without one the error says how to configure it (docs/AI_PROVIDERS.md) and the offline route with exact commands. The call is synchronous and costs what the provider charges for one image: `dryRun` shows what would be sent. A provider layer is never regenerated by itself. Example: {"path":"assets/art/hero.image.json","prompt":"a brass key, side view","size":{"width":64,"height":64},"placement":{"x":10,"y":4},"transparent":true}
+Draws `prompt` with the image provider and adds the picture as a `provider` layer: the whole canvas by default, or `size` {width,height} at `placement` ("center" when a size is given, "fill", or {x,y}). `selection` (a stored selection, "all", or an inline image.select object) masks the layer so it shows only there. The layer carries the provider's provenance and is recorded in assets.json; the baked picture counts as AI-made. `transparent` asks for a transparent background (sprites, props). In a document with a palette the result is reduced to it. Any image provider works (openai, fake, asset-command); without one the error says how to configure it (docs/AI_PROVIDERS.md) and the offline route with exact commands. The call is synchronous and costs what the provider charges for one image: `dryRun` shows what would be sent and the estimate.  COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored. A provider layer is never regenerated by itself. Example: {"path":"assets/art/hero.image.json","prompt":"a brass key, side view","size":{"width":64,"height":64},"placement":{"x":10,"y":4},"transparent":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -982,6 +1005,7 @@ Draws `prompt` with the image provider and adds the picture as a `provider` laye
 | `style` | boolean | no | Apply the house style of assets.json (style.prompt, style.references). false skips it for this call. Default true. |
 | `quantize` | boolean | no | Reduce the picture to the document's palette. Default: true when the document has a palette (an indexed document), else false. |
 | `dryRun` | boolean | no | Only check the call and return what would be sent and what it may cost. Sends nothing, writes nothing. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; the fake provider and local programs never need it. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 | `bake` | boolean | no | Also draw the PNG of the document (default true). Default true. |
 | `selection` | any | no | Show the layer only inside this selection: a stored name (image.select), "all", or an inline object with the arguments of image.select. |
@@ -1008,7 +1032,7 @@ Since 0.16.0.
 
 Repaint the selected part of an image document with the image provider and add the result as a masked `provider` layer.
 
-Sends the picture of the document (its composite, or `layer` alone, at `frame`) and the selection as the mask to an image provider that can inpaint, and adds what it paints as a new `provider` layer over the whole canvas whose mask is the selection (with the selection's feather), so the rest of the picture is untouched and the layer can be hidden, moved or removed. `selection` is the name of a stored selection (image.select; "all" is the whole canvas) or an object with the arguments of image.select (stored as `selectionName`, default "inpaint"). The layer carries the provider's provenance (provider, model, prompt, seed, references, license) and is recorded in assets.json; the baked picture counts as AI-made. In a document with a palette the result is reduced to it (pixel_dominant_downscale: palette colours only, no blends). A picture smaller than 512 px is magnified by whole pixels before it is sent, and the answer is resized back. Providers that can inpaint: the built-in openai (OPENAI_API_KEY), fake (placeholder pattern, free, offline) and asset-command providers whose argv has {input} and {mask}. Without one the error says how to configure it (docs/AI_PROVIDERS.md) and the offline route with exact commands. The call is synchronous and costs what the provider charges for one image: `dryRun` shows what would be sent. A provider layer is never regenerated by itself: call this again for another try. Example: {"path":"assets/art/hero.image.json","selection":"sky","prompt":"a stormy sky with a red moon","seed":7}
+Sends the picture of the document (its composite, or `layer` alone, at `frame`) and the selection as the mask to an image provider that can inpaint, and adds what it paints as a new `provider` layer over the whole canvas whose mask is the selection (with the selection's feather), so the rest of the picture is untouched and the layer can be hidden, moved or removed. `selection` is the name of a stored selection (image.select; "all" is the whole canvas) or an object with the arguments of image.select (stored as `selectionName`, default "inpaint"). The layer carries the provider's provenance (provider, model, prompt, seed, references, license) and is recorded in assets.json; the baked picture counts as AI-made. In a document with a palette the result is reduced to it (pixel_dominant_downscale: palette colours only, no blends). A picture smaller than 512 px is magnified by whole pixels before it is sent, and the answer is resized back. Providers that can inpaint: the built-in openai (OPENAI_API_KEY), fake (placeholder pattern, free, offline) and asset-command providers whose argv has {input} and {mask}. Without one the error says how to configure it (docs/AI_PROVIDERS.md) and the offline route with exact commands. The call is synchronous and costs what the provider charges for one image: `dryRun` shows what would be sent and the estimate.  COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored. A provider layer is never regenerated by itself: call this again for another try. Example: {"path":"assets/art/hero.image.json","selection":"sky","prompt":"a stormy sky with a red moon","seed":7}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1022,6 +1046,7 @@ Sends the picture of the document (its composite, or `layer` alone, at `frame`) 
 | `style` | boolean | no | Apply the house style of assets.json (style.prompt, style.references). false skips it for this call. Default true. |
 | `quantize` | boolean | no | Reduce the picture to the document's palette. Default: true when the document has a palette (an indexed document), else false. |
 | `dryRun` | boolean | no | Only check the call and return what would be sent and what it may cost. Sends nothing, writes nothing. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; the fake provider and local programs never need it. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 | `bake` | boolean | no | Also draw the PNG of the document (default true). Default true. |
 | `selection` | any | yes | The part to repaint: the name of a stored selection (image.select), "all", or an object with the arguments of image.select (by, x, y, width, height, color, ...). |

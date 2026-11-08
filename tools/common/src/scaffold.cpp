@@ -144,16 +144,16 @@ Result<ScaffoldResult> create_project(const std::string& targetDir, const std::s
     std::error_code ec;
     stdfs::path dir = stdfs::absolute(targetDir, ec);
     if (stdfs::exists(dir, ec)) {
-        if (!stdfs::is_directory(dir, ec)) return make_error(dir.string() + " exists and is not a directory.");
+        if (!stdfs::is_directory(dir, ec)) return make_error(fs::path_to_utf8(dir) + " exists and is not a directory.");
         if (!stdfs::is_empty(dir, ec) && !options.force)
-            return make_error("Target directory " + dir.string() + " is not empty.",
+            return make_error("Target directory " + fs::path_to_utf8(dir) + " is not empty.",
                               "Choose a new folder or pass force to overwrite template files.");
     }
     dir = dir.lexically_normal();
     if (dir.filename().empty()) dir = dir.parent_path();
 
     Vars v;
-    v.name = options.name.empty() ? dir.filename().string() : options.name;
+    v.name = options.name.empty() ? fs::path_to_utf8(dir.filename()) : options.name;
     if (v.name.empty()) v.name = "My Game";
     std::string slug = tooling_detail::slugify(v.name, '_');
     if (slug.empty() || std::isdigit(static_cast<unsigned char>(slug[0]))) slug = "game_" + slug;

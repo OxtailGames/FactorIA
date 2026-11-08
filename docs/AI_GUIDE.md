@@ -149,7 +149,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `game_state` | `game.state` | Dump the running game: entities, physics, script errors, render stats. Filters: `entities` (ids), `components` (names), `includeDefaults`, `maxEntities` (default 200). |
 | `game_logs` | `game.logs` | Recent log lines: `{"minLevel":"warn","max":50}`. Pass `after` (a `seq` from an earlier call) to get only new lines. Each line has `wallTime`, the computer's local time when it was logged (ISO 8601 with offset). |
 | `game_pause`, `game_resume` | `game.pause`, `game.resume` | Pause or resume the simulation. |
-| `play_sessions`, `play_report` | `play.sessions`, `play.report` | What the user saw while playing in the editor (Play .. Stop): `play_report {}` returns the latest session with frame-time stats (avg, p95, max), the slowest frames, a `profile` (where the time went: ms per engine system and per script behaviour class, GPU, memory; `perf_profile` gives the same for a headless run), warnings/errors, the problems the user marked with F9 (frame, note, screenshot; the first one comes back as a picture, `{"mark":2}` for the next) and the path of `input.json`, an input replay for `factoria run --headless --input`. **When the user says they played and found problems (slow, ugly UI, bugs), call `play_report` first**, then replay or inspect the marked frames. `play_sessions` lists older ones. |
+| `play_sessions`, `play_report` | `play.sessions`, `play.report` | What the user saw while playing in the editor (Play .. Stop): `play_report {}` returns the latest session with frame-time stats (avg, p95, max), the slowest frames, a `profile` (where the time went: ms per engine system and per script behaviour class, GPU, memory; `perf_profile` gives the same for a headless run), warnings/errors, the problems the user marked with F9 (frame, note, screenshot; the first one comes back as a picture, `{"mark":2}` for the next) and the path of `input.json`, an input replay for `factoria run --headless --input`. **When the user says they played and found problems (slow, ugly UI, bugs), call `play_report` first**, then replay or inspect the marked frames. `play_sessions` lists older ones. **To play without the user**, call `play_auto` (`play.auto`): the game's bot (`scripts/autoplay.js`, `game.autoplay`, see [SCRIPTING.md](SCRIPTING.md#the-bot-gameautoplay)) or a seeded explorer plays headless for `seconds` of game time and writes a session `play_report` reads (`source: "auto"`: phases, score, `ended`, a screenshot per phase, and a mark with a screenshot and the step for each stuck screen, fall out of the world or script error loop; `input.json` replays it). Run it after every change that could break the way through the game. |
 | `audio_log` | `audio.log` | Sounds played so far (scripts, `AudioSource`, music), oldest first: `{"path":"jump.wav"}` keeps one clip (a file name matches any folder). Each play has `frame`, `path`, `volume`, `bus`, `source` (entity id) and `ok` (false = the clip failed to load). Pass `after` (a `seq`) for only new plays. |
 | `audio_bus`, `audio_snapshot` | `audio.bus`, `audio.snapshot` | The mixer. `audio_bus {"bus":"music","lowpass":800,"fade":0.5}` sets only the keys you pass (`volume`, `lowpass` in Hz with 0 or null = off, `reverb` 0..1, `duck` `{by, amount, attack, release}` or null) and returns the bus state; with just `bus` it reads it. `audio_snapshot {"name":"underwater"}` applies a snapshot of factoria.json `audio.snapshots`; without `name` it lists them. Section 9.7. |
 | `script_eval` | `script.eval` | Evaluate JavaScript in the running game: `{"code":"world.findByTag(\"coin\").length"}`. |
@@ -1440,6 +1440,17 @@ speech: `assets.generate_voice {text, path, voice}`, models: `assets.generate_mo
   add; do not edit `ai.json` yourself, tell the user. `provider: "fake"` works offline and makes small placeholders: use it
   to build and test the flow, then ask the user which real provider to use. Generation costs money: one call, look, then
   decide; never loop over variations.
+- **What it costs, and asking.** Every generate result carries `estimatedCostUsd` (an ESTIMATE from the provider's price table,
+  not an invoice; 0 for `fake` and local programs) and the project's limits (`limits.maxAssetCostUsd.perRun` and `.perDay`)
+  refuse a call that would pass them, with an error that says which. A call estimated above `limits.askAboveUsd` (default
+  $0.50), or small calls that add up above it since the user last said yes, is not made (cutting a batch into small calls does
+  not avoid the question): in the editor the user answers a card and the call goes on; over MCP or the CLI the command returns
+  `{"needsApproval": true, "plan": {...}}`. **Then tell the user what will be made, how many, with which provider and the
+  estimate, and ask. Only when they say yes, call again with the same arguments and `approved: true`. Never set `approved: true`
+  yourself and never raise a limit or edit `ai.json` to avoid the question.** In the editor `approved` is ignored: the user
+  answers on a card. If they say no (`asset_declined`; `cancelled` means they stopped the run, do not start it again),
+  carry on without the asset (a placeholder from `assets.generate_texture`, `assets.rasterize_svg` or `fake`). The same holds for
+  `image.inpaint` and `image.generate_layer`. See `docs_read {"name":"ai-costs"}`.
 - **Provenance.** Every generate command records `origin`, `ai`, provider, model, prompt and license in `assets.json`. Files
   you did not generate get a record with `assets.set_provenance {path, origin: "original" | "imported", ai, license, source}`
   (`ai: true` for something made with AI elsewhere). `assets.provenance {}` lists the records and the files that have none.
@@ -1454,6 +1465,10 @@ will, measure it, fix it, and repeat until the check has no `fail`.
 2. **See** it. `assets.contact_sheet {"paths":["assets/knight.png","assets/orc.png"]}` puts a set side by side at its on-screen
    size over the game's backgrounds, light and dark, and in greyscale. `assets.preview_in_scene {"path":"assets/knight.png","scene":"scenes/level1.scene.json"}`
    places it in a copy of a real scene and returns screenshots at phone and desktop resolutions. Look at the picture; do not skip this.
+   When the person must choose between candidates, put them on one numbered sheet (`review.sheet`) and ask for one number (section 9.32).
+   For one asset the person chooses, make N in one call, show the one sheet it returns, ask for one number, then call `assets.pick`:
+   `assets.generate_image {"prompt":"...","path":"assets/items/potion.png","count":3}` then `assets.pick {"slot":"assets/items/potion.png","n":<their number>}`.
+   Only the newest sheet of a slot counts: after a regeneration, show the new sheet (a number given for an old one is refused as `superseded`).
 3. **Check** it. `assets.check_art {"path":"assets/knight.png"}` gives numbers: palette fit, contrast over the real backgrounds,
    readability at the size the camera shows it, halos on alpha edges, pixel density and outline against the `style` rules of
    `assets.json`. Each rule has a verdict (`ok`, `warn`, `fail`) and a `hint` naming the command or setting that fixes it.
@@ -1971,6 +1986,53 @@ hit lands on the frame the sword does: `{ "t": 0.3, "feel": [{ "action": "hitSto
 "audio/hit.wav" }] }` in a clip file (2D or 3D), in `Animator.events` (`{clip, time, feel}`) or in `SpriteAnimator.events`
 (`{frame, clip?, feel}`). An event needs a `name`, `feel` or both. `anim.add_event` and `anim3d.add_event` take `feel`.
 
+### 9.32 Show choices: make N, show ONE sheet, ask for ONE number
+
+When the person has to choose (which hero portrait, which level layout, which effect), do not describe the options and do not
+show them one by one: make N candidates, put them on ONE picture and ask for ONE number. `review.sheet` draws every candidate
+as a numbered thumbnail (a big number, its label and a line of facts) and returns the picture as `$image`; look at it, show it,
+ask "which number?", and then record the answer with `review.pick`:
+
+```
+review.sheet {"label":"Which hero?","items":[
+  {"image":"assets/hero_a.png","label":"A: round","candidate":true},
+  {"image":"assets/hero_b.png","label":"B: tall","candidate":true},
+  {"image":"assets/hero_c.png","label":"C: tiny","candidate":true}]}
+review.sheet {"items":[{"level":{"sample":"example","size":[40,24]},"seeds":[11,12,13,14]}]}   # four layouts, one thumbnail per seed
+                                                                                          # (entity "example" with a Tilemap, in the main scene)
+review.pick {"sheet":"latest","n":2}                                                       # only after the person said "2"
+```
+
+- Items: `image`, `vector` (an .svg), `level` (the arguments of `tilemap.generate`, drawn on the CPU), and `scene`, `prefab`, `vfx`
+  (drawn by the engine's renderer; they need a graphics device and fail with `no_gpu` before anything is written, so leave them out
+  on a machine without one). A level's `sample` is ASCII rows, a rows file, or the id or name of an entity with a Tilemap; for the
+  entity the scene is the main scene, or the one named by `sampleScene` on the item (`{"level":{"sample":"town",...},"sampleScene":"scenes/town.scene.json"}`).
+  Four to nine candidates is what a person judges well; the most is 48 and the sheet is at most
+  8192 pixels a side.
+- **Never pick for the person.** `review.pick` records THEIR number. Over MCP and the CLI nothing asks them, so the number must come from the person in the conversation; if you do not have it, ask.
+- Candidates are MOVED by the pick, never deleted by it (`review.cleanup` deletes the dropped files 7 days later; `droppedDays: 0` keeps them). Mark `candidate: true` on the items whose files you made only for this choice (variants of an
+  image, a scene, a prefab). `review.pick` then moves the files of the items that were not chosen to
+  `.factoria/review/dropped/<sheet id>/` (`drop: false` touches no file, `dropDir` picks another folder under `.factoria/`), and
+  its result lists every move (`from`, `to`): moving a file back undoes it. The main scene, a file in `.git` and a file that is not marked
+  are never moved (nor `factoria.json`, `assets.json`, anything under `.factoria/`, or the stage scene of an effect on the sheet).
+  A level is not a file: picking it records its seed in the manifest, and `tilemap.generate` with the same arguments and
+  that seed makes the very level.
+- Every sheet is kept under `.factoria/review/sheet-NNNN/` (`sheet.png`, `thumbs/NN.png` and `manifest.json` with the items, their facts,
+  when it was made and what was picked). `review.list` shows the sheets (newest first, which are still waiting for an answer),
+  `review.info {"sheet":"sheet-0003"}` one manifest and its picture. A choice is final: to choose again, make a new sheet.
+  `meta` (a small object of yours, e.g. `{"slot":"hero"}`) is stored with the sheet and returned by `review.pick`, `review.info` and `review.list`.
+  Dropped files are deleted 7 days after the pick by `review.cleanup` (it runs after each new sheet; the chosen file is never touched).
+- An effect is drawn as the middle picture of `vfx.filmstrip`; a prefab on a plain stage, framed from its visuals (2D) or turned
+  three quarters under a studio light (3D). An item that cannot be drawn is a red tile that cannot be picked; the others still show.
+- **In the editor** the person can answer on their own: each sheet you make (and each sheet of candidates `assets.generate_image`
+  `{count}` makes) is offered in a toast ("Open in Review"), and the Review window (View > Review, EDITOR.md "Review window") shows it
+  big and lets them pick with the keys 1-9 and Enter. So make the sheet, say in one line what it is for, ask for one number, and stop
+  there: you never pick for them. Then read `review.info {"sheet":"<its id>"}`:
+  - if `picked` is set, they answered in the window: the choice is done (and for candidates, the picked file is already the slot);
+    do not call a pick yourself, a second pick of an answered sheet fails;
+  - otherwise wait until they tell you the number in the conversation, and only then call `review.pick {"sheet":..., "n":...}`, or
+    `assets.pick {"slot":..., "n":...}` for a sheet of asset candidates (never `review.pick` on those: it refuses them).
+
 ## 10. Tests
 
 Each test file starts with fresh module state, an empty `session` and storage, and the project's start scene and seed, so results are deterministic. Drive the game through inputs and assert on the result:
@@ -2123,13 +2185,38 @@ the game must show itself to them. Keep these in place as the game grows:
 - **`REVIEW.md` at the project root**, the note they read first. It is never exported. Sections: *How to play* (controls,
   the goal, what a session looks like), *Status* (what is finished and what is a placeholder, so nobody judges a
   placeholder as final), *Reach everything fast* (every scene, level and state and how to get there in one step),
-  *Bot-playable flows* (input replays or tests that play the first minutes, a whole level, the ending) and *Known issues*
+  *Bot-playable flows* (`scripts/autoplay.js`, the hook that `play.auto` runs, and input replays or tests that play the first minutes, a whole level, the ending) and *Known issues*
   (what not to report again).
 - **Every scene and state reachable in one call**: a boss, the shop, game over or the last level must not need an hour of
   play. Name the way in REVIEW.md: scene paths for `scene_load`, a project tool in `tools/*.js`, a debug key or cheat
   action, start-scene props, saved states under `review/`.
 - **Stable screenshots**: a fixed seed, and no random camera shake or fade at the moment a picture is taken.
 - **No debug overlay in normal play**: cheats and debug entry points live behind a key, an action or a tool that REVIEW.md names.
+- **A `scripts/autoplay.js` that plays the game** (section 11.5): the game reviewers run `play.auto` after they have played
+  by hand, and its phases tell them which parts they did not reach. It supports their hands and never replaces them (the
+  bot finishing the level says nothing about whether a person finds it clear or fair).
+
+### 11.5 Play the game yourself: `play.auto`
+
+After a feature or a fix, and BEFORE you ask the user to play, run `play_auto` (`factoria call play.auto`): a bot plays the
+game headless and fast for `seconds` of game time and writes a play session. Without a hook it explores the declared input
+actions with a seeded generator; with `scripts/autoplay.js` (`game.autoplay`, [SCRIPTING.md](SCRIPTING.md#the-bot-gameautoplay))
+it plays the way you describe, marks the stages (`game.phase`) and says when the level is done. Read the answer in this order:
+
+1. `ended`: `won`, `lost`, `timeout` (it played the whole time without a problem), `stuck` (nothing moved or changed) or
+   `broken` (a fall, a NaN position, a script error every frame, or a hook that could not load: mark kind `hook` means
+   `scripts/autoplay.js` failed to import, nothing was played).
+2. `problems`: one mark each (kind `stuck`, `menu`, `fall`, `not finite`, `exception loop`, `hook`) with the step, the game time, a note and a
+   screenshot. `play_report {"session": "...", "mark": 2}` shows the next one. A `menu` mark is a screen the bot could not
+   leave: give it a button the actions can reach, or teach the hook to press it.
+3. `phases`, the score and the perf: which stages it reached and how long each took. A phase missing from the list is one
+   it never reached, which is worth a look by hand.
+4. The warnings and errors the game logged during the run.
+
+The session's `input.json` replays a problem: `factoria run --headless --input <input.json> --seed <seed>`. Keep
+`scripts/autoplay.js` in step with the game: when the way through changes, the bot must still finish the level. A green run
+means the game can be finished by a script, not that a person finds it clear or fun: that is still the user's call. In the
+editor the user can start the same run from **Play > Let the AI play**; it appears in the Play sessions list marked "auto".
 
 ## 12. Common mistakes
 

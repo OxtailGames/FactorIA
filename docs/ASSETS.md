@@ -70,7 +70,19 @@ add. To try the whole flow offline and for free use the `fake` provider (`{"prov
 | `assets.generate_model` | a 3D model | `prompt`, `path` |
 
 Every one also takes `provider` and `model` (use another one for this call), `seed` (providers that take none ignore it with
-a warning), `overwrite` and `author` (the credit in the provenance; default `factoria`).
+a warning), `overwrite` and `author` (the credit in the provenance; default `factoria`) and `approved` (see "What it costs").
+
+**What it costs.** These calls bill money. Before the provider is called the command estimates the price from the provider's
+`assetPricing` ([AI_PROVIDERS.md](AI_PROVIDERS.md#asset-providers)), refuses a call that would pass `limits.maxAssetCostUsd`
+(`perRun`, `perDay`) and, above `limits.askAboveUsd` (default $0.50, counting the small calls since the user last said yes that
+were not asked about), does not make it: in the editor the user answers a card
+under the chat (Approve, Approve all for this run, Cancel); over MCP or the CLI the command returns
+`{"needsApproval": true, "plan": {...}}` with what, how many, the provider and the estimate (in the editor `approved` is ignored: only the
+user's click on the card counts). **Ask the user, and only after
+they say yes call again with the same arguments and `approved: true`. Never set `approved: true` yourself and never raise a
+limit.** The result carries `estimatedCostUsd` (an estimate, not an invoice; 0 for `fake` and local programs, `null` when the
+price is unknown), `costIsEstimate: true` and `cost` (the basis, what the run and the day have spent). Details and the price
+table (looked up 2026-11-06, several figures unverified): [AI_COSTS.md](AI_COSTS.md#asset-generation).
 
 - `path` is project-relative and under `assets/`. Its extension has to be the one the provider makes: `.png` for images;
   `.mp3` for OpenAI speech and ElevenLabs; `.wav` for `fake` and `asset-command` audio; `.glb` for Meshy and
@@ -585,6 +597,119 @@ without a graphics device it fails with `no_gpu` and says to use `assets.contact
 - The size of the screens comes from the resolution you ask for, not from the project's design resolution.
 
 The result has `asset`, `scene`, `screens`, `sceneFileChanged: false`, `warnings` and `nextSteps`.
+
+### Choosing between candidates: review.sheet and review.pick
+
+`review.sheet {"items":[{"image":"assets/hero_a.png","candidate":true},{"image":"assets/hero_b.png","candidate":true}],"label":"Which hero?"}`
+puts N candidates on ONE picture, each in a cell with a big number (1..N, in the order of `items`), its label and one line of facts, so
+a person answers with one number. The picture comes back as `$image` and is kept in the project: `.factoria/review/sheet-NNNN/` holds
+`sheet.png`, `thumbs/NN.png` (each thumbnail alone) and `manifest.json`. The guide to the loop (make N, show one sheet, ask for one
+number) is [AI_GUIDE.md](AI_GUIDE.md), section 9.32.
+
+Each item has exactly one of these keys, plus `label` (default: the file name) and `candidate`:
+
+| Key | What is drawn | The line of facts | GPU |
+|---|---|---|---|
+| `image` | the picture as it is (shrunk with averaging, grown by a whole factor with hard pixels) | size, colours (counted up to 1000), % clear | no |
+| `vector` | the .svg rasterized like `assets.rasterize_svg` | size, shapes and colours (counted from the file's text) | no |
+| `level` | `tilemap.generate` with these arguments (`seeds`: one thumbnail per seed); one square per cell, a letter on it when it is big enough | size, seed, tries | no |
+| `scene` | the scene started and run for `steps` frames (default 2), then captured | entities, picture size | yes |
+| `prefab` | spawned on a plain stage and framed: 2D from its visuals, 3D turned three quarters under a studio light | entities, size | yes |
+| `vfx` | the middle picture of `vfx.filmstrip`, over a dark stage or the scene given as `stage` | peak particles, length | yes |
+
+- A level's `sample` takes the forms of `tilemap.generate`: ASCII rows as an array of strings (with `legend` next to it), an object
+  `{rows, legend?}`, one string with line breaks, the project path of a `.json` rows file, or the id or name of an ENTITY WITH A TILEMAP.
+  Only the entity form needs a scene to look the entity up in: the project's main scene (`mainScene` in `factoria.json`), or the scene
+  the item names with `sampleScene` (`{"level":{"sample":"town","size":[40,24]},"sampleScene":"scenes/town.scene.json","seeds":[1,2]}`).
+  The scene is read, never changed, and the manifest keeps it as `spec.sampleScene`, so `tilemap.generate` afterwards sees the same
+  entity. With neither a main scene nor `sampleScene` an entity sample is an error with the JSON pointer. `maxSeconds` of a level is
+  not fixed by the sheet (the 1800 CPU seconds of `tilemap.generate` are only a safety net); `maxWork` is, at 20 million unless set.
+- Items that need a GPU fail the whole command with `no_gpu` before any file is written, like `assets.preview_in_scene`; images, vector
+  art and levels need none, and the same input gives the same thumbnails on every machine.
+- Limits: 48 items (a level's `seeds` count one each), 12 columns, a thumbnail of 64 to 512 pixels (`thumbSize`; by default chosen
+  from the number of items, about 1800 pixels wide) and a sheet of at most 8192 pixels a side and 16 million pixels. A level thumbnail
+  is generated up to 1024 cells a side, with `maxWork` 20 million unless the item sets it. A request over a limit, a level with `into`,
+  or `seed` together with `seeds` is refused first, with the JSON pointer of the item and what to change. Each picture is fitted into
+  its thumbnail as soon as it is drawn and the original is dropped, a picture whose header announces more than 64 million pixels
+  (PNG, JPG, BMP or TGA) is refused before it is decoded, so a sheet of 48 big pictures stays small.
+- `candidate: true` is for files you made for the choice: it needs the right kind of file (`.png/.jpg/.bmp/.tga`, `.svg`,
+  `.scene.json`, `.prefab.json` or `.vfx.json`, so `factoria.json` and `assets.json` can never be one), never the main scene, anything under
+  `.factoria/` or `.git`, nor a file that another item shows or plays in as the `stage` of an effect. The request is refused with the
+  pointer of the item, and `review.pick` checks every file again before it moves it (the manifest is a file anyone can edit), through
+  the same project-path rules as the other commands (no absolute path, no `..`, no link that leads out of the project).
+- `meta` is your own small object (at most 4096 bytes as JSON, for example `{"slot":"hero"}`): `review.sheet` stores it in the manifest
+  and `review.pick`, `review.info` and `review.list` return it untouched.
+- An item that cannot be drawn (a corrupt picture, a level the solver could not make in its attempts) is a red tile that
+  `review.pick` refuses, with the reason in `warnings`; if no item can be drawn nothing is written.
+- The manifest (`factoria.review/1`) records each item (`n`, `type`, `label`, `source`, `candidate`, `info`, `numbers`, `spec`, where its
+  cell and picture are on the sheet), when the sheet was made (from the engine's clock), and `picked`: null until `review.pick`
+  answers. `review.list` and `review.info` read it, and the files are plain JSON and PNG, so any tool can list the sheets and their history.
+
+`review.pick {"sheet":"latest","n":2}` records the number the person chose (who picked, when, an optional `note`, and the item's
+`spec`, so a picked level's seed is kept). With `drop` (default true) it MOVES the files of the other items that were marked
+`candidate: true` to `.factoria/review/dropped/<sheet id>/<NN>_<file name>` (another folder below `.factoria/` with `dropDir` on the
+sheet); the pick itself deletes nothing (`review.cleanup` deletes the dropped files 7 days later; `droppedDays: 0` keeps them), and the result and the manifest list each move (`from`, `to`), so moving a file back undoes it. The
+picked item's file, files that are not marked, the main scene and files in `.git` are never moved, and `assets.json` is not edited
+(the result warns when it still lists a moved file). It is all or nothing: if a move fails (code `busy` when the file is open in another
+program, `failed` otherwise) the ones already made are put back and the manifest does not change; a leftover in the drop folder (`exists`) stops it before any move. The manifest is changed under a lock in
+`.factoria/review/`, so the editor, the CLI and an agent can use sheets at the same time. A sheet can be picked once. A crash (a power cut) between the moves and the manifest write leaves the moved files in the drop folder
+with the sheet still unanswered: pick again (a file that is already gone is reported, not an error), or move the files back by hand.
+`dropDir` is a folder below `.factoria/`, not `.factoria/tmp`, not `.factoria/review` itself and not another sheet's folder.
+
+**Housekeeping.** The files a pick moved are kept 7 days after the pick; `review.cleanup` (it also runs after every new `review.sheet`;
+failures there are only warnings) then deletes them, marks them `expired` (or `gone` when they were moved back) in the manifest and
+removes the empty folder. It only deletes the file `<dropDir>/<sheet id>/<NN>_<name>` that a pick recorded, never the chosen file, never
+anything of a sheet nobody answered, and `droppedDays: 0` keeps them for ever. A sheet folder without a manifest (the process died while
+it was made) is listed by `review.list` as an `orphan` and removed by `review.cleanup` once nothing in it changed for 60 minutes
+(`orphanMinutes`). `dryRun: true` reports what would go and deletes nothing.
+
+**Over MCP and the CLI nothing asks the person: `review.pick` must get the number THEY gave you.** Never choose for them: ask in the conversation, show the sheet,
+wait for the number.
+
+### Candidates for one asset: assets.generate_image count and assets.pick
+
+`assets.generate_image {"prompt":"a red potion bottle","path":"assets/items/potion.png","width":64,"height":64,"count":3}` makes
+three candidates for the slot `assets/items/potion.png` instead of the file itself, and one review sheet that shows them:
+
+- The candidates are written next to the slot as `potion.candidate-1.png`, `potion.candidate-2.png`... (`count` is 1 to 4; 1 is the
+  plain call that writes the slot). Each has its own seed (`seed`, `seed+1`...; without `seed` the first comes from the prompt, so the
+  same prompt gives the same seeds) and its own provenance in `assets.json`, with `candidate: {slot, n, count}`.
+- Everything that can be refused is refused before the provider is called: a `count` out of 1..4 (with the pointer `/count`), a slot
+  that exists, candidate files that exist (left by an earlier call) unless `overwrite` is true, and a slot path so long that the sheet's
+  `meta` would pass its 4 KB limit. With `overwrite`, a file replaced that `assets.json` did not record as a candidate of this slot
+  is named in `warnings`. The same prompt without `seed` gives the same pictures again with providers that honour seeds: for different
+  ones change the prompt or pass another `seed`.
+- The cost estimate, the limits and the approval cover all the candidates at once, before the first picture (docs/AI_COSTS.md,
+  "Asset generation"): one question, one yes, for the batch. When the provider fails part way, the error lists the candidates that were
+  written (kept, with their provenance), the estimated cost of those, and gives the rest of the estimate back; no sheet is made then.
+- The sheet is an ordinary `review.sheet` (the section above): every item is `candidate: true`, its label is the seed, the sheet's label
+  is the prompt, its `dropDir` is `.factoria/assets/candidates`, and its `meta` is
+  `{"kind":"assetCandidates","slot":...,"command":"assets.generate_image","count":...,"candidates":[...],"overwrite":...,"estimatedCostUsd":...,"sha256":[...]}`
+  (`sha256`: of each candidate file as written). The result carries the sheet id, the candidates, the cost, the sheet picture as
+  `$image` and the next steps. Only the newest candidates sheet of a slot can be answered: when this sheet replaces one that was not
+  answered yet, the result names it in `replacedSheet` and `warnings` (show the new sheet, not the old one).
+
+Show the sheet, ask the person for ONE number, then `assets.pick {"slot":"assets/items/potion.png","n":2}`:
+
+- It answers the newest candidates sheet of that slot, with `review.pick` itself: the same lock, the same file checks, the same all
+  or nothing, the choice and `note` recorded in the manifest. `sheet` (an id or its number) must be that newest sheet: an older one
+  (its thumbnails may show pictures a regeneration with `overwrite` replaced) is refused with `superseded` and a hint naming the
+  current sheet, and so is a candidate whose file no longer matches its `sha256` on the sheet (an edit, or a regeneration that
+  failed part way). Plain `review.pick` refuses these sheets and names `assets.pick`.
+- Candidate 2 is moved to the slot. The slot's entry in `assets.json` gets that candidate's provenance (prompt, provider, model, seed)
+  plus `candidates: {sheet, picked, count, estimatedCostUsd, costIsEstimate}`, and the candidates' own entries are removed.
+- The other candidates move to `.factoria/assets/candidates/<sheet id>/NN_<name>`, where `review.cleanup` deletes them 7 days later,
+  like the files of any picked sheet. A slot file that exists needs `overwrite` (in the generate call or the pick) and is kept there as
+  `00_<name>` for the same 7 days.
+- When a file cannot be moved (open in a viewer: code `busy`) or `assets.json` cannot be written, every move is put back and nothing
+  changes. A slot whose newest sheet was answered is refused with `already_picked`, never answered from an older sheet (make new
+  candidates, with a changed prompt or another `seed`, to choose again); a slot with no candidates sheet is `not_found`, with the slots
+  that have one as suggestions.
+- Until the pick the candidates are files under `assets/`, so an export would ship them: pick (or delete them) before exporting.
+
+Never pick for the person. The editor's Review window answers these sheets with the same call, `assets.pick {"sheet":..., "n":..., "slot":...}`,
+for every sheet whose `meta.kind` is `"assetCandidates"`.
+
 ### Checking art: assets.check_art
 
 `assets.check_art {"path":"assets/hero.png"}` (or `{"paths":[...]}`, up to 12 pictures, checked one by one and as a set) looks

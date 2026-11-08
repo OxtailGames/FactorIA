@@ -165,6 +165,7 @@ struct AgentEvent {
     bool isError = false;
     ai::Usage usage;      // cumulative for Type::Usage
     double costUsd = 0;   // cumulative for Type::Usage / Done
+    double assetCostUsd = 0;  // Type::Done: the estimated dollars the run's tool calls spent on generated assets (SessionResult::assetCostUsd)
     // Type::Usage from a CLI agent: costUsd is the engine's running estimate (the price table applied to the tokens seen
     // so far), not yet the CLI's own total. The CLI's total replaces it when the run's result arrives.
     bool costIsEstimate = false;

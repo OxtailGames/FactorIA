@@ -41,7 +41,7 @@ std::string export_target_note(const ExportTarget& target, const std::string& fo
     if (p == "ios") return "An Xcode project and build_ios.sh: build it on a Mac with Xcode afterwards (the next steps say how).";
     if (p == "web")
         return "A folder with index.html, the web player and game.pak, and a .zip of it to upload to itch.io as an HTML5 game. "
-               "Serve the folder over http to try it (the next steps say how).";
+               "Serve the folder over http to try it (the next steps say how), or tick One HTML file for one page that opens from a double click.";
     if (p == "macos") return "An .app with the game and its player, ready to run and share.";
     if (p == "windows" && format == "msix")
         return "A folder with the game and its player, and an .msix next to it: the package of the Microsoft Store (unsigned: the Store signs it).";
@@ -60,6 +60,7 @@ ExportOptions export_options(const std::string& projectDir, const std::string& p
     o.platform = platform;
     o.outDir = export_parent_dir(projectDir, settings);
     o.release = settings.release;
+    o.singleFile = settings.webSingleFile && normalize_export_platform(platform) == "web";
     if (auto it = settings.players.find(normalize_export_platform(platform)); it != settings.players.end())
         o.playerBinary = it->second;
     return o;

@@ -323,7 +323,7 @@ one file per promise (about 75 seconds in all):
 | File | Keeps true |
 |---|---|
 | `tests/levels.test.js` | every scene is what its map builds; every level has its parts |
-| `tests/mechanics.test.js`, `play.test.js` | the mechanics work; a bot (`tests/helpers/autoplay.js`) finishes every level |
+| `tests/mechanics.test.js`, `play.test.js` | the mechanics work; a bot (`scripts/autoplay.js`, the bot of `play.auto`, driven by `tests/helpers/level.js`) finishes every level |
 | `tests/menus.test.js` | main menu, pause, options, language and the level end panel, with the gamepad only |
 | `tests/saves.test.js` | slots, migration from a fixture, damaged saves, `storage.corrupt`, cloud saves and their failures |
 | `tests/accessibility.test.js` | every option saved, applied and effective; every screen in every language at 100 % and 200 % |

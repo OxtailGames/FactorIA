@@ -386,6 +386,54 @@ TEST_CASE("templates: every template's tests pass on the engine that factoria te
     fa::fs::set_project_root(oldRoot);
 }
 
+// `factoria call play.auto` on a project made from each template: the platformer's bot (scripts/autoplay.js) finishes its sample
+// level, the empty templates are played by the generic explorer, and every run leaves a session that play.report reads. Graphics
+// off, so there are no pictures (the notes say so); the game time asked for is a few seconds.
+TEST_CASE("play.auto: runs on a project made from each template and writes a session play.report reads") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    for (const char* name : {"2d-empty", "2d-platformer", "3d-empty"}) {
+        CAPTURE(name);
+        const bool platformer = std::string(name) == "2d-platformer";
+        const stdfs::path root = fa::fs::make_temp_dir(std::string("fa_cli_play_auto_") + name);
+        const std::string dir = (root / "game").string();
+        fa::ScaffoldOptions opt;
+        opt.writeTypings = false;
+        auto made = fa::create_project(dir, name, opt);
+        REQUIRE_MESSAGE(made.ok(), made.error().to_string());
+        {
+            fa::cli::SessionOptions so;
+            so.gfx = fa::cli::Gfx::None;
+            auto session = fa::cli::Session::open(dir, so);
+            REQUIRE(session->registry().has("play.auto"));
+            auto r = session->registry().call("play.auto", fa::Json{{"seconds", platformer ? 30 : 3}, {"seed", 5}, {"screenshots", false}});
+            REQUIRE_MESSAGE(r.ok, r.error.dump());
+            CHECK(r.result["bot"] == (platformer ? "hook" : "explorer"));
+            // The empty templates have nothing that moves, so the explorer ends in a stuck mark before the 3 seconds are over.
+            if (platformer) CHECK(r.result["ended"] == "won");
+            else CHECK((r.result["ended"] == "timeout" || r.result["ended"] == "stuck"));
+            CHECK(r.result["seed"] == 5);
+            CHECK(r.result["phases"].size() >= 1);
+            auto rep = session->registry().call("play.report", fa::Json{{"session", r.result["session"]}});
+            REQUIRE_MESSAGE(rep.ok, rep.error.dump());
+            CHECK(rep.result["source"] == "auto");
+            CHECK(rep.result["ended"] == r.result["ended"]);
+            // A very short run never asks for more stuck time than it lasts (the default is clamped to `seconds`), and an explicit one says so.
+            auto shortRun = session->registry().call("play.auto", fa::Json{{"seconds", 0.3}, {"screenshots", false}});
+            CHECK_MESSAGE(shortRun.ok, shortRun.error.dump());
+            auto tooLong = session->registry().call("play.auto", fa::Json{{"seconds", 1}, {"stuckSeconds", 2}, {"screenshots", false}});
+            REQUIRE_FALSE(tooLong.ok);
+            CHECK(tooLong.error.dump().find("/stuckSeconds") != std::string::npos);
+            // A bad argument names its JSON pointer.
+            auto bad = session->registry().call("play.auto", fa::Json{{"scene", "scenes/nope.scene.json"}});
+            CHECK_FALSE(bad.ok);
+            CHECK(bad.error.dump().find("/scene") != std::string::npos);
+        }
+        std::error_code ec;
+        stdfs::remove_all(root, ec);
+    }
+    fa::fs::set_project_root(oldRoot);
+}
+
 // docs/MENUS.md gives every file of the menu kit (templates/menus/), and tools/cli/tests/fixtures/menus holds the kit's files
 // (menu_kit_test.cpp keeps them identical) and the demo's own, run by ctest (fixture_menus_validate, fixture_menus_test). A
 // code block whose info string names a file ("```js scripts/settings.js") must be the kit's file, or the fixture's when the kit
