@@ -787,21 +787,22 @@ Result<std::vector<NavPath>> Physics3D::nav_find_paths(World& world, const std::
     for (std::size_t i = 0; i < queries.size(); ++i) {  // every error before any search runs
         auto mesh = nav_pick_mesh(world, queries[i].from, queries[i].options);
         if (!mesh.ok())
-            return Error{std::format("{} (query {} of {})", mesh.error().message, i, queries.size()), mesh.error().hint};
+            return Error{std::format("{} (/queries/{}, query {} of {})", mesh.error().message, i, i, queries.size()),
+                         mesh.error().hint};
         meshes[i] = mesh.value();
     }
     std::vector<NavPath> out(queries.size());
     auto run = [&](std::size_t begin, std::size_t end) {
-        // Working memory per mesh, made when the chunk first needs it; a result never depends on it.
-        std::vector<std::pair<const NavState*, NavGrid::Scratch>> scratches;
+        // Working memory of the searches of this thread, kept between calls (it only grows; a result never depends on
+        // it) and let go when it is big, so an idle worker does not hold a large map's arrays.
+        thread_local NavGrid::Scratch scratch;
+        constexpr std::size_t kKeepCells = std::size_t(1) << 20;
         for (std::size_t i = begin; i < end; ++i) {
-            auto it = std::find_if(scratches.begin(), scratches.end(), [&](const auto& s) { return s.first == meshes[i]; });
-            if (it == scratches.end()) {
-                scratches.emplace_back(meshes[i], meshes[i]->grid.scratch());
-                it = scratches.end() - 1;
-            }
-            out[i] = nav_search(*meshes[i], queries[i].from, queries[i].to, queries[i].options, &it->second);
+            const std::size_t cells = std::size_t(meshes[i]->grid.total_count());
+            if (scratch.g.size() < cells) scratch.resize(cells);
+            out[i] = nav_search(*meshes[i], queries[i].from, queries[i].to, queries[i].options, &scratch);
         }
+        if (scratch.g.size() > kKeepCells) scratch = NavGrid::Scratch{};
     };
     if (queries.size() < kNavBatchMinQueries || !jobs::running() || jobs::inline_mode() || jobs::worker_count() <= 0) {
         run(0, queries.size());  // in request order on this thread

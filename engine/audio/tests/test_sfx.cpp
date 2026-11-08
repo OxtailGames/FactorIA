@@ -773,18 +773,21 @@ TEST_CASE("sfx jobs: a layered patch renders the same samples inline and with 1,
     }
 }
 
-TEST_CASE("sfx jobs: a short patch or one layer renders on the calling thread, whatever the pool") {
-    const SfxAudio one = render_osc(R"({"wave": "saw"})", 220.0);  // no pool running here: the reference
-    REQUIRE(jobs::start(jobs::Settings::threads(2)));
+TEST_CASE("sfx jobs: a short patch renders on the calling thread, with the same samples whatever the pool") {
     auto json = parse_json(R"({"format": "factoria.sfx/1", "length": 0.1, "layers": [{"oscillators": [{"wave": "saw"}]}, {"oscillators": [{"wave": "sine"}]}]})");
     REQUIRE(json.ok());
     auto patch = parse_sfx(*json, "short");
     REQUIRE(patch.ok());
+    auto stopped = render_sfx(*patch);  // no pool running here: the reference
+    REQUIRE(stopped.ok());
+    REQUIRE(jobs::start(jobs::Settings::threads(2)));
     auto audio = render_sfx(*patch);
     jobs::end_frame();
     const int queued = jobs::info().submittedLastFrame;
     jobs::stop();
     REQUIRE(audio.ok());
     CHECK(queued == 0);  // 0.1 s is under kSfxJobMinSamples
-    CHECK(one.samples.size() > 0);
+    REQUIRE(stopped->samples.size() > 0);
+    CHECK(audio->samples.size() == stopped->samples.size());
+    CHECK(sample_hash(*audio) == sample_hash(*stopped));
 }

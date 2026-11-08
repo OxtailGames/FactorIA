@@ -428,6 +428,7 @@ Result<Json> nav_tile_query_many(World& world, const Json& args) {
     bool worldPoints = false;
     auto map = nav_tile_map(world, args, "nav.findTilePaths", grid, toWorld, worldPoints);
     if (!map.ok()) return map.error();
+    grid.minOpenCost = nav_tile_min_open_cost(grid);  // once for the whole list, not by every query
     if (!args.contains("queries") || !args["queries"].is_array())
         return Error{"nav.findTilePaths /queries: pass a list of {from: [col,row], to: [col,row]}.",
                      "Example: {\"tilemap\":\"ground\",\"queries\":[{\"from\":[0,0],\"to\":[5,3]},{\"from\":[1,1],\"to\":[9,2]}]}."};

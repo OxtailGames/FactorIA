@@ -3307,19 +3307,32 @@ NATIVE(navGridPaths) {  // (grid, [from c, from r, to c, to r, ...], opts) -> [t
     NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, false, &exc);
     if (!h) return exc;
     std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> queries;
+    if (argc < 2 || !JS_IsArray(argv[1]))
+        return throw_err(ctx, "nav.findTilePaths: the cells must be an array [from col, from row, to col, to row, ...]; use nav.findTilePaths(map, [{from: [c, r], to: [c, r]}, ...]).");
     uint32_t n = 0;
     JSValue len = JS_GetPropertyStr(ctx, argv[1], "length");
     JS_ToUint32(ctx, &n, len);
     JS_FreeValue(ctx, len);
+    if (n % 4 != 0)
+        return throw_err(ctx, "nav.findTilePaths: " + std::to_string(n) + " numbers is not a whole number of queries; each query is four numbers (from col, from row, to col, to row).");
+    if (n / 4 > kNavMaxBatch) return throw_err(ctx, "nav.findTilePaths: too many queries in one call (the most is " + std::to_string(kNavMaxBatch) + ")");
+    bool badNumber = false;
+    uint32_t badAt = 0;
     auto whole = [&](uint32_t i) {
         JSValue v = JS_GetPropertyUint32(ctx, argv[1], i);
         double d = 0;
-        JS_ToFloat64(ctx, &d, v);
+        const bool ok = JS_ToFloat64(ctx, &d, v) == 0 && std::isfinite(d);
         JS_FreeValue(ctx, v);
-        return static_cast<int>(std::floor(std::clamp(d, -1e9, 1e9)));
+        if (!ok && !badNumber) {
+            badNumber = true;
+            badAt = i;
+            JS_FreeValue(ctx, JS_GetException(ctx));
+        }
+        return ok ? static_cast<int>(std::floor(std::clamp(d, -1e9, 1e9))) : 0;
     };
-    if (n / 4 > kNavMaxBatch) return throw_err(ctx, "nav.findTilePaths: too many queries in one call (the most is " + std::to_string(kNavMaxBatch) + ")");
     for (uint32_t i = 0; i + 3 < n; i += 4) queries.push_back({{whole(i), whole(i + 1)}, {whole(i + 2), whole(i + 3)}});
+    if (badNumber)
+        return throw_err(ctx, "nav.findTilePaths /queries/" + std::to_string(badAt / 4) + ": every cell coordinate must be a finite number.");
     auto r = nav_tile_run_many(h->grid->grid(), nullptr, I->to_json(argc > 2 ? argv[2] : JS_UNDEFINED), queries);
     if (!r.ok()) return throw_err(ctx, r.error().to_string());
     return I->from_json(r.value());

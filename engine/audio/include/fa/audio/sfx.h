@@ -266,7 +266,7 @@ inline constexpr double kSfxMaxSeconds = 30.0;
 // kSfxJobBufferBytes; otherwise they render one after the other. The samples are the same either way. Neither the device
 // callback nor anything else on the audio thread ever waits for a job: only offline renders (sfx.render, previews, builds).
 inline constexpr std::size_t kSfxJobMinSamples = 24000;
-inline constexpr double kSfxJobBufferBytes = 256.0 * 1024.0 * 1024.0;
+inline constexpr double kSfxJobBufferBytes = 64.0 * 1024.0 * 1024.0;
 
 // The notes of a name like "A4", "C#3", "Bb2" (C4 = middle C = MIDI 60, A4 = 440 Hz) as a frequency; nothing for other text.
 std::optional<double> sfx_note_hz(std::string_view note);

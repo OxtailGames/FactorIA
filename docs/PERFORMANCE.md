@@ -314,5 +314,9 @@ sleeping, joints, character controllers and the device's audio callback stay on 
 below these sizes: their draw calls, entities and per-frame time did not change (`perf.measure` with `FA_JOB_THREADS=inline`,
 `4` and `8` on the examples gave the same numbers within noise), so no example budget was tightened.
 
+Box2D's constraint solver runs its worker tasks as jobs that spin-wait on each other during the solve (they wait for the
+other pieces of each stage without sleeping). On a loaded machine, or with fewer cores than job threads, that spinning costs
+CPU time and can make a wide step slower than on one thread; the sizes in the table are what keeps small steps off it.
+
 `cpuMsAvg` of `perf.measure` is the CPU time of the whole process: work moved to another thread does not lower it, it
 lowers the wall time of the frame. Compare frames per second, or `jobs.info` (how busy each thread was), to see the gain.

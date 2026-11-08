@@ -249,7 +249,13 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     measured: below that the jobs cost more than they gain); only then its tasks (broad-phase pairs, contact update, constraint solver, finalize, sensors) are
     queued; any other step, a step outside the main thread and the `inline` mode run them on the calling thread. The world
     is always made with the fixed `B2JobTasks::kWorkers = 4`, so a task is cut into at most 4 pieces by item count and
-    minimum range only, never by the pool's size: more than 4 threads are not used by 2D physics. Box2D merges what its
+    minimum range only, never by the pool's size: more than 4 threads are not used by 2D physics. A wide step cuts every task into
+    the same pieces whatever runs them (a stopped pool, `inline`, no workers or a step off the main thread run the pieces one
+    after the other on the calling thread, each with its own worker index), because what each worker finds is merged in
+    worker order: Box2D picks the island to split next among the candidates of the workers, and when two have the same
+    sleep time the winner depends on how the task was cut. A step below the thresholds is one piece, as before. So a world
+    this big (1536 or more awake bodies or 4096 or more contacts) can settle differently than the engine did before M70
+    when islands tie; smaller worlds are unchanged. Box2D merges what its
     pieces wrote in bit sets (OR), and its solver colours constraints so that no two pieces touch the same body, so the
     merge order is fixed by the data, not by who finishes first. Joints, the sleeping rules, the callbacks into scripts and
     the write-back to the components stay on the main thread.
@@ -266,7 +272,7 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     error (with its query number and JSON pointer) comes before any search starts. At most 10000 queries per call.
     Single `nav.find_path` calls stay on the calling thread.
   - *Audio*: `render_sfx` renders each layer of a patch as a job when the patch has at least 2 layers and at least 24000
-    samples (`kSfxJobMinSamples`; about half a second at 48 kHz) and the layer buffers fit in 256 MB; the layers are
+    samples (`kSfxJobMinSamples`; about half a second at 48 kHz) and the layer buffers fit in 64 MB; the layers are
     summed in layer order afterwards, so the samples are identical. A noise oscillator draws from a stream keyed by
     `(seed, layer, oscillator)` rather than `Chunk::rng()`, so the sound does not change with how layers are grouped.
     The device callback never waits for a job and starts none; the mixer of live voices and `song_preview` stay on their
