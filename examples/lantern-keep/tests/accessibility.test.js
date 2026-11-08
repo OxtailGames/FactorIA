@@ -3,7 +3,7 @@ import { ui, scene, storage, i18n, time, session, platform } from "factoria";
 import { screenProblems } from "./helpers/screens.js";
 import * as progress from "../scripts/progress.js";
 import { LEVELS } from "../scripts/levels.js";
-import { listen, playLevel, teleportOnto } from "./helpers/autoplay.js";
+import { listen, playLevel, teleportOnto } from "./helpers/level.js";
 
 // The Accessibility tab of the options (text size, assist mode, shake, reduced effects) and what each option does.
 const pad = () => game.gamepad(0);

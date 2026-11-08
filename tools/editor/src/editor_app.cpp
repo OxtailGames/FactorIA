@@ -25,6 +25,7 @@
 #include "sokol_glue.h"
 #include "ui_backend.h"
 #include "fa/tooling/feedback_fixed.h"
+#include "fa/tooling/serve_web.h"
 #include "fa/tooling/setup.h"
 #include "fa/tooling/shaders.h"
 
@@ -221,7 +222,9 @@ void MainThreadQueue::reopen() {
 }
 
 // ------------------------------------------------------------------------------------------
-Editor::Editor(EditorOptions options) : options_(std::move(options)) {}
+Editor::Editor(EditorOptions options) : options_(std::move(options)) {
+    set_serve_web_blocking(false);  // project.serve_web runs on the UI thread here: it starts the server on a helper thread and answers "starting"
+}
 
 Editor::~Editor() {
     ai_stop("editor_closing");
@@ -238,6 +241,12 @@ Editor::~Editor() {
     if (updateThread_.joinable()) updateThread_.join();
     if (launcherThread_.joinable()) launcherThread_.join();
     share_.join_all();  // sign-in, flush and AI review threads (they only touch share_)
+    phone_.wait();       // the Play on Phone window's start or stop...
+    // A Review pick still moving files is given time to finish (killing it could leave a sheet half answered; it takes about a second);
+    // one that hangs is killed after kReviewPickShutdownSeconds, so closing never waits minutes.
+    review_end_pick_for_shutdown(false);
+    serve_web_shutdown();  // ...the helper thread of project.serve_web, and the server itself: no thread of it outlives the editor
+    set_serve_web_blocking(true);  // the process-wide setting goes back to the default (a later Editor in the same process sets it again)
 }
 
 int Editor::run() {
@@ -559,6 +568,8 @@ bool Editor::boot(const std::string& dirIn) {
     std::string dir = dirIn;
     ai_stop("project_closed");
     reset_export_state();  // an export of the previous project finishes first
+    reset_phone_state();   // and the phone server of the previous project stops
+    reset_auto_play_state();  // a bot still playing the previous project is stopped
     reset_platform_settings_state();  // so does a keystore being created; the unsaved settings of the old project are dropped
     // Tear down: UI first (it owns GPU resources), then the engine (owns sg_setup).
     if (uiUp_) {
@@ -582,6 +593,7 @@ bool Editor::boot(const std::string& dirIn) {
         anim3d_.model.reset();
         modeler_release_textures();
         modeler_.model.reset();  // (its evaluation worker is joined here)
+        reset_review_state();    // the Review window's reader and its sheet of seeds stop; its pictures are freed
         sound_.player.reset();   // before the engine: it owns a voice of the mixer
         music_.preview.reset();  // ...and so does the Music panel's preview
         music_.model.reset();    // (its render worker is joined here)
@@ -919,6 +931,13 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
     if (mutating && r.ok && play_ == PlayState::Edit) dirty_ = true;
     after_command(name, args, r);
     if (!queue_.current_tag().empty()) ai_note_command(queue_.current_tag(), name, args, r);  // which chat's run changed what
+    // A sheet the AI (or an MCP client) made for the person: offered in the Review window, without taking the focus. Any command that
+    // changes the project and answers with a review sheet id (review.sheet; assets.generate_image with a count: a sheet of candidates
+    // for a slot); never a pick, which answers a sheet instead of making one.
+    if (r.ok && r.result.is_object() && info && !info->readOnly && name != "review.pick" && name != "assets.pick") {
+        const ReviewAnnounce a = review_announce_from(r.result, args);
+        if (!a.sheet.empty()) review_announce_sheet(a.sheet, a.label, a.slot, queue_.current_tag().empty() ? "A tool" : "The AI");
+    }
     if (elapsed() > 100.0) FA_WARN("editor", "command {} took {:.0f} ms on the UI thread", name, elapsed());
     return r;
 }
@@ -961,6 +980,7 @@ void Editor::on_frame(double dt) {
         const bool slicing = bool(slicedJob_);
         sync_scene_path();
         ai_drain_events();
+        ai_asset_notify_other_chats();
         ai_review_tick();
         const std::uint64_t frameBefore = engine_->frame_index();
         if (stepPending_ > 0) {
@@ -1027,6 +1047,11 @@ bool Editor::command_edits_scene(const std::string& name, const Json& args) cons
 
 void Editor::after_command(const std::string& name, const Json& args, const CommandResult& r) {
     if (!r.ok || !engine_) return;
+    // The Review window reads the sheets again (a sheet made, picked or cleaned up by the AI, the Console or the window itself).
+    if (name.rfind("review.", 0) == 0 || name == "assets.pick") {
+        review_.listDirty = true;
+        review_.sheetDirty = true;
+    }
     // The Level generator window reads its sample's Tilemap again (it never does it on a timer).
     if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly) levelGenSampleStale_ = true;
     // A clip file changed (the Console, the AI or the panel): the pose on screen is out of date.
@@ -1034,7 +1059,7 @@ void Editor::after_command(const std::string& name, const Json& args, const Comm
     // Commands that write or delete project files: the Project panel reads the folder again (it never walks the disk per frame).
     // vfx.play and vfx.stop change the running game only (they write no file), and a game plays many of them: no rescan for those.
     if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly && name != "vfx.play" && name != "vfx.stop")
-        for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "image.", "vector.", "sfx.", "vfx.", "audio.", "scene.save", "scene.format", "scene.import_ascii",
+        for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "image.", "vector.", "sfx.", "vfx.", "audio.", "review.pick", "scene.save", "scene.format", "scene.import_ascii",
                                    "scene.ascii_edit"})
             if (name.rfind(prefix, 0) == 0) { project_files_changed(); break; }
     // A file-mode import (scene.import_ascii with `path`, or scene.ascii_edit rebuilding its level) returns `path` and, unless
@@ -1437,6 +1462,9 @@ void Editor::build_ui() {
     ImGuiIO& io = ImGui::GetIO();
     ImGuiViewport* vp = ImGui::GetMainViewport();
     poll_export();
+    poll_phone();
+    poll_auto_play();
+    poll_review();
     poll_platform_settings();
     poll_setup();
     draw_main_menu();
@@ -1547,6 +1575,9 @@ void Editor::build_ui() {
     draw_project_dialog();
     draw_validation_window();
     draw_export_window();
+    draw_phone_window();
+    draw_play_sessions_window();
+    draw_review_window();
     draw_platform_settings_window();
     draw_ai_settings_window();
     draw_setup_window();

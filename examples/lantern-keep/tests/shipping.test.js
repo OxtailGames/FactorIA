@@ -1,6 +1,6 @@
 import { test, expect, game } from "factoria:test";
 import { fa, assets, time, input, screen, ui } from "factoria";
-import { loadLevel } from "./helpers/autoplay.js";
+import { loadLevel } from "./helpers/level.js";
 
 // The on-screen gamepad (landscape phone) and the project settings the exports rely on.
 // The controls are touched by id (the centre of their laid-out rectangle, safe area included), see

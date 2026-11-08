@@ -68,7 +68,9 @@ SettingSource ResolvedAiConfig::source_of(std::string_view pointer) const {
 
 namespace {
 
-const char* const kLimitKeys[] = {"maxTurns", "maxCostUsd", "maxTotalTokens", "stuckAfterSeconds", "maxConcurrentRuns"};
+const char* const kLimitKeys[] = {"maxTurns", "maxCostUsd", "maxTotalTokens", "stuckAfterSeconds", "maxConcurrentRuns", "maxAssetCostUsd",
+                                  "askAboveUsd"};
+const char* const kAssetCostKeys[] = {"perRun", "perDay"};
 const char* const kRoleKeys[] = {"enabled", "provider", "model", "effort", "maxTokens", "maxContextTokens", "toolGroups"};
 const char* const kAssetKeys[] = {"provider", "model", "voice"};
 const char* const kSaverKeys[] = {"loopGuard", "loopGuardJudge", "learnedToolGroups", "projectFacts",
@@ -141,7 +143,7 @@ std::set<std::string> raw_leaf_pointers(const Json& raw) {
         }
     };
     at_depth("roles", 2);
-    at_depth("limits", 1);
+    at_depth("limits", 2);  // maxAssetCostUsd holds perRun and perDay
     at_depth("savers", 1);
     at_depth("assets", 2);
     at_depth("assetSources", 1);
@@ -180,7 +182,10 @@ Json settings_view(const AiConfig& cfg) {
                                    {"maxCostUsd", cfg.limits.maxCostUsd},
                                    {"maxTotalTokens", cfg.limits.maxTotalTokens},
                                    {"stuckAfterSeconds", cfg.limits.stuckAfterSeconds},
-                                   {"maxConcurrentRuns", cfg.limits.maxConcurrentRuns}});
+                                   {"maxConcurrentRuns", cfg.limits.maxConcurrentRuns},
+                                   {"maxAssetCostUsd", Json::object({{"perRun", cfg.limits.maxAssetCostPerRunUsd},
+                                                                     {"perDay", cfg.limits.maxAssetCostPerDayUsd}})},
+                                   {"askAboveUsd", cfg.limits.askAboveUsd}});
     Json assets = Json::object();
     for (MediaKind k : kMediaKinds) {
         auto it = cfg.assets.find(media_kind_name(k));
@@ -365,7 +370,11 @@ Result<void> validate_project_settings(const Json& file, const AiConfig& user, s
             check_keys(it.value(), at, names_of(kRoleKeys), kProviders, problems);
         }
     }
-    if (const Json* v = child(file, "limits")) check_keys(*v, "/limits", names_of(kLimitKeys), kProviders, problems);
+    if (const Json* v = child(file, "limits")) {
+        check_keys(*v, "/limits", names_of(kLimitKeys), kProviders, problems);
+        if (const Json* cost = child(*v, "maxAssetCostUsd"); cost && cost->is_object())
+            check_keys(*cost, "/limits/maxAssetCostUsd", names_of(kAssetCostKeys), kProviders, problems);
+    }
     if (const Json* v = child(file, "savers")) check_keys(*v, "/savers", names_of(kSaverKeys), kProviders, problems);
     if (const Json* v = child(file, "assetSources")) {
         std::vector<std::string> keys;
@@ -528,7 +537,14 @@ Json merged_json(const Json& raw, const Json& ov, const AiConfig& user) {
         const Json* s = child(ov, section);
         if (!s || !s->is_object()) continue;
         Json& base = object_at(m, section);
-        for (auto f = s->begin(); f != s->end(); ++f) base[f.key()] = f.value();
+        for (auto f = s->begin(); f != s->end(); ++f) {
+            if (f.value().is_object()) {  // limits.maxAssetCostUsd: the project may set perRun and leave perDay to the user's file
+                Json& inner = object_at(base, f.key());
+                for (auto g = f.value().begin(); g != f.value().end(); ++g) inner[g.key()] = g.value();
+            } else {
+                base[f.key()] = f.value();
+            }
+        }
     }
     if (const Json* assets = child(ov, "assets"); assets && assets->is_object()) {
         for (auto it = assets->begin(); it != assets->end(); ++it) {
@@ -759,7 +775,7 @@ Json ordered(const Json& ov) {
         out[section] = std::move(sec);
     };
     each("roles", std::vector<std::string>(std::begin(kAllRoles), std::end(kAllRoles)), names_of(kRoleKeys));
-    each("limits", names_of(kLimitKeys), {});
+    each("limits", names_of(kLimitKeys), names_of(kAssetCostKeys));
     each("assets", {"image", "sound", "music", "voice", "model3d"}, names_of(kAssetKeys));
     each("assetSources", {"images", "models", "audio", "fonts", "other", "onlyListed"}, {});
     each("savers", names_of(kSaverKeys), {});

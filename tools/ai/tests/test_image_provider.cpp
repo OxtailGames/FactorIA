@@ -286,7 +286,7 @@ TEST_CASE("image.inpaint through OpenAI: /images/edits with the picture, the mas
     auto r = g.call("image.inpaint", {{"path", kDoc}, {"selection", "hole"}, {"prompt", "a stained glass window"}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     REQUIRE(wire.requests.size() == 1);
-    const HttpRequest& req = wire.requests[0];
+    const fa::ai::HttpRequest& req = wire.requests[0];
     CHECK(req.url == "https://api.openai.com/v1/images/edits");
     CHECK(Wire::header(req, "Content-Type").rfind("multipart/form-data; boundary=", 0) == 0);
     CHECK(req.body.find("name=\"image[]\"; filename=\"picture.png\"") != std::string::npos);

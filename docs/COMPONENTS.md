@@ -1414,7 +1414,7 @@ Since 0.17.0.
 
 Change one AI setting of this project; a project change waits for the user to accept it in the editor. Your own defaults (scope user) only the user changes.
 
-Writes ONE value, named by its JSON pointer as ai.settings.get lists them (/roles/artist/enabled, /roles/worker/model, /limits/maxCostUsd, /savers/loopGuard, /assets/image/provider, /assetSources/images, /mcpServers/<name> true or false, /extensions/plugins/<name> true or false). scope "project" writes <project>/.factoria/ai/settings.json (only what differs from your defaults is kept). scope "user" writes the user's own ~/.factoria/ai.json defaults and is only for the user (`factoria call`): an AI agent or MCP client that asks for it gets the error user_only, and the user changes them in the editor's AI settings window (Your defaults). `value` null removes the setting: from the project file (it goes back to your default) or from ai.json (it goes back to the engine's). A new provider for a role or asset route drops its model, effort and voice. A project can only NAME providers, tool servers and extensions that your ai.json defines, and never holds a command, address, header, environment or key: such keys, and pointers that are not settings, are refused with where they belong and a "did you mean" (errors unknown_pointer, rejected_key, invalid_setting). IMPORTANT: this command NEVER accepts a project file: setting a value never writes ai-trust.json. A project file written here is NOT applied until the user accepts it once in the editor (AI settings, with this project open); until then the project runs with the user's settings. Setting a value in an already accepted file makes the whole file wait for acceptance again. Removing a value (null) from an accepted file keeps it accepted (it only gets smaller; its acceptance is updated to the smaller file), and a removal that empties the file deletes it and forgets its acceptance; removing a value from a file that is not accepted leaves it waiting. The result says so: needsAcceptance true plus a hint. Returns {ok, scope, pointer, removed (true only when a value was really taken out: null for a setting the file did not hold changes nothing, says removed false and a hint that nothing changed), value (what you asked for), runsWith (what the project runs with right now, which is unchanged while its file waits), source (where runsWith comes from), file, needsAcceptance, applied, hint}; scope "user" also returns changed: [{pointer, from, to}], every setting whose value is different now (a new provider for a role also drops its model, effort and voice). Example: {"scope":"project","pointer":"/roles/artist/enabled","value":false}
+Writes ONE value, named by its JSON pointer as ai.settings.get lists them (/roles/artist/enabled, /roles/worker/model, /limits/maxCostUsd, /limits/maxAssetCostUsd/perRun and /limits/maxAssetCostUsd/perDay (the most that paid asset generation may spend, estimated dollars, 0 = no limit), /limits/askAboveUsd (a generation estimated above this waits for the user's yes), /savers/loopGuard, /assets/image/provider, /assetSources/images, /mcpServers/<name> true or false, /extensions/plugins/<name> true or false). scope "project" writes <project>/.factoria/ai/settings.json (only what differs from your defaults is kept). scope "user" writes the user's own ~/.factoria/ai.json defaults and is only for the user (`factoria call`): an AI agent or MCP client that asks for it gets the error user_only, and the user changes them in the editor's AI settings window (Your defaults). `value` null removes the setting: from the project file (it goes back to your default) or from ai.json (it goes back to the engine's). A new provider for a role or asset route drops its model, effort and voice. A project can only NAME providers, tool servers and extensions that your ai.json defines, and never holds a command, address, header, environment or key: such keys, and pointers that are not settings, are refused with where they belong and a "did you mean" (errors unknown_pointer, rejected_key, invalid_setting). Do not raise the asset limits or askAboveUsd to get a generation past the guard: those are the user's decision, and a project file you write waits for the user's acceptance anyway. IMPORTANT: this command NEVER accepts a project file: setting a value never writes ai-trust.json. A project file written here is NOT applied until the user accepts it once in the editor (AI settings, with this project open); until then the project runs with the user's settings. Setting a value in an already accepted file makes the whole file wait for acceptance again. Removing a value (null) from an accepted file keeps it accepted (it only gets smaller; its acceptance is updated to the smaller file), and a removal that empties the file deletes it and forgets its acceptance; removing a value from a file that is not accepted leaves it waiting. The result says so: needsAcceptance true plus a hint. Returns {ok, scope, pointer, removed (true only when a value was really taken out: null for a setting the file did not hold changes nothing, says removed false and a hint that nothing changed), value (what you asked for), runsWith (what the project runs with right now, which is unchanged while its file waits), source (where runsWith comes from), file, needsAcceptance, applied, hint}; scope "user" also returns changed: [{pointer, from, to}], every setting whose value is different now (a new provider for a role also drops its model, effort and voice). Example: {"scope":"project","pointer":"/roles/artist/enabled","value":false}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2196,7 +2196,7 @@ Since 0.1.6.
 
 Generate a PNG image with the image asset provider and record where it came from.
 
-Calls the provider that ai.json assigns to "image" (assets.image; there is no default, so add one, or pass `provider` such as "fake" for an offline placeholder), writes a PNG of exactly width x height at `path` and records provenance (origin generated, ai true, provider, model, the full prompt, references, date, license note) in assets.json. The house style of assets.json is applied unless style is false: its `prompt` is appended to yours, its `references` are sent along with `references`, and its `palette` reduces the result to those colours. Returns the path, size, provenance and the image itself. Generation costs money with paid providers: check the first result before generating more. Example: {"prompt":"a red potion bottle, side view","path":"assets/items/potion.png","width":64,"height":64,"transparent":true}
+Calls the provider that ai.json assigns to "image" (assets.image; there is no default, so add one, or pass `provider` such as "fake" for an offline placeholder), writes a PNG of exactly width x height at `path` and records provenance (origin generated, ai true, provider, model, the full prompt, references, date, license note) in assets.json. The house style of assets.json is applied unless style is false: its `prompt` is appended to yours, its `references` are sent along with `references`, and its `palette` reduces the result to those colours. Returns the path, size, provenance and the image itself. Generation costs money with paid providers: check the first result before generating more. With `count` 2 to 4 it makes that many candidates for the slot `path` instead (files next to it named <name>.candidate-<n>.png, each with its own seed and provenance; the cost estimate and the approval cover all of them at once) and ONE review sheet that shows them numbered: show that sheet to the person, ask for one number and call assets.pick {slot, n}. Never pick for them. Example: {"prompt":"a red potion bottle, side view","path":"assets/items/potion.png","width":64,"height":64,"transparent":true} COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2205,12 +2205,14 @@ Calls the provider that ai.json assigns to "image" (assets.image; there is no de
 | `width` | integer | no | Width of the PNG in pixels. The provider's picture is resized to it. Default 512. |
 | `height` | integer | no | Height of the PNG in pixels. Default 512. |
 | `transparent` | boolean | no | Ask for a transparent background (sprites, items, icons). Default false. |
+| `count` | integer | no | How many candidates to make for the slot `path` (1 to 4). 1 writes `path` itself. 2 to 4 write <name>.candidate-1.png... next to it (seeds seed, seed+1...; without `seed` they come from the prompt) and one review sheet; the person picks one with assets.pick, which moves it to `path`. With overwrite false, existing candidate files are refused; with overwrite true they are replaced, and the slot's earlier sheet can no longer be answered (assets.pick answers the newest). Default 1. |
 | `references` | array | no | Project-relative images the result should follow (a character to keep consistent, a style). Sent to providers that accept reference images, in addition to style.references of assets.json. |
 | `style` | boolean | no | Apply the house style of assets.json (style.prompt, style.references, style.palette). false skips all of it for this call. Default true. |
 | `provider` | string | no | Asset provider to use instead of the one ai.json assigns to this kind of asset (a name from ai.providers, for example "fake" to try the flow offline). |
 | `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
 | `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
 | `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; with the fake provider and local programs it is not needed. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 
 ### `assets.generate_loop` (modifies state)
@@ -2255,7 +2257,7 @@ Since 0.1.6.
 
 Generate a 3D model with the model3d asset provider and record where it came from.
 
-Calls the provider that ai.json assigns to "model3d" (assets.model3d) and writes the glTF binary at `path` (.glb; the fake provider makes a small .gltf cube). Generating models takes minutes with real providers. The model is not textured or rigged; check it in the scene before building on it. Records provenance in assets.json. Example: {"prompt":"a low-poly wooden crate","path":"assets/models/crate.glb"}
+Calls the provider that ai.json assigns to "model3d" (assets.model3d) and writes the glTF binary at `path` (.glb; the fake provider makes a small .gltf cube). Generating models takes minutes with real providers. The model is not textured or rigged; check it in the scene before building on it. Records provenance in assets.json. Example: {"prompt":"a low-poly wooden crate","path":"assets/models/crate.glb"} COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2265,6 +2267,7 @@ Calls the provider that ai.json assigns to "model3d" (assets.model3d) and writes
 | `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
 | `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
 | `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; with the fake provider and local programs it is not needed. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 
 ### `assets.generate_music` (modifies state)
@@ -2273,7 +2276,7 @@ Since 0.1.6.
 
 Generate a music track with the music asset provider and record where it came from.
 
-Calls the provider that ai.json assigns to "music" (assets.music) and writes the audio file at `path` (extension as for assets.generate_sound). Tracks are instrumental. Records provenance in assets.json. Tracks are not looped for you: ask for a loopable piece in the prompt and set `loop` on the AudioSource. Example: {"prompt":"calm forest theme, soft flute and strings","path":"assets/music/forest.mp3","seconds":60}
+Calls the provider that ai.json assigns to "music" (assets.music) and writes the audio file at `path` (extension as for assets.generate_sound). Tracks are instrumental. Records provenance in assets.json. Tracks are not looped for you: ask for a loopable piece in the prompt and set `loop` on the AudioSource. Example: {"prompt":"calm forest theme, soft flute and strings","path":"assets/music/forest.mp3","seconds":60} COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2284,6 +2287,7 @@ Calls the provider that ai.json assigns to "music" (assets.music) and writes the
 | `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
 | `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
 | `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; with the fake provider and local programs it is not needed. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 
 ### `assets.generate_sound` (modifies state)
@@ -2292,7 +2296,7 @@ Since 0.1.6.
 
 Generate a sound effect with the sound asset provider and record where it came from.
 
-Calls the provider that ai.json assigns to "sound" (assets.sound) and writes the audio file at `path`, whose extension must be the one the provider makes (.mp3 for elevenlabs, .wav for fake and asset-command). Records provenance in assets.json. Example: {"prompt":"short coin pickup chime","path":"assets/sfx/coin.mp3","seconds":1}
+Calls the provider that ai.json assigns to "sound" (assets.sound) and writes the audio file at `path`, whose extension must be the one the provider makes (.mp3 for elevenlabs, .wav for fake and asset-command). Records provenance in assets.json. Example: {"prompt":"short coin pickup chime","path":"assets/sfx/coin.mp3","seconds":1} COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2303,6 +2307,7 @@ Calls the provider that ai.json assigns to "sound" (assets.sound) and writes the
 | `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
 | `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
 | `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; with the fake provider and local programs it is not needed. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 
 ### `assets.generate_sprite_sheet` (modifies state)
@@ -2311,7 +2316,7 @@ Since 0.1.6.
 
 Generate a sprite sheet (a grid of animation frames) and record its layout for SpriteAnimator.
 
-Like assets.generate_image, but the picture is a grid of `frames` animation frames of frameWidth x frameHeight, normalized to exactly columns * frameWidth by rows * frameHeight pixels (each side at most 4096). The layout is written to assets.json as the `sheet` of the file with one clip "default" (all frames, at `fps`), and the result shows the Sprite and SpriteAnimator components to use. Providers draw grids unevenly: look at the result and regenerate when frames wander. Example: {"prompt":"a knight walking right","path":"assets/knight_walk.png","frames":6,"columns":3,"frameWidth":64,"frameHeight":64,"fps":10}
+Like assets.generate_image, but the picture is a grid of `frames` animation frames of frameWidth x frameHeight, normalized to exactly columns * frameWidth by rows * frameHeight pixels (each side at most 4096). The layout is written to assets.json as the `sheet` of the file with one clip "default" (all frames, at `fps`), and the result shows the Sprite and SpriteAnimator components to use. Providers draw grids unevenly: look at the result and regenerate when frames wander. Example: {"prompt":"a knight walking right","path":"assets/knight_walk.png","frames":6,"columns":3,"frameWidth":64,"frameHeight":64,"fps":10} COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2329,6 +2334,7 @@ Like assets.generate_image, but the picture is a grid of `frames` animation fram
 | `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
 | `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
 | `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; with the fake provider and local programs it is not needed. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 
 ### `assets.generate_texture` (modifies state)
@@ -2384,7 +2390,7 @@ Since 0.1.6.
 
 Generate spoken audio from text with the voice asset provider and record where it came from.
 
-Calls the provider that ai.json assigns to "voice" (assets.voice) to speak `text` with `voice` (default: the voice in ai.json) and writes the audio file at `path`. Records provenance in assets.json (the text is the prompt). Needs a key in the environment: ELEVENLABS_API_KEY (elevenlabs) or OPENAI_API_KEY (openai); without a provider the error says what to add to ai.json. To test code that depends on voice lines without a provider or a key, pass `silent: true`: it writes a silent .wav as long as the line (about 0.06 s per character, or `seconds`) and records it as a placeholder, not AI. Example: {"text":"Welcome, traveller.","path":"assets/voice/welcome.mp3"}
+Calls the provider that ai.json assigns to "voice" (assets.voice) to speak `text` with `voice` (default: the voice in ai.json) and writes the audio file at `path`. Records provenance in assets.json (the text is the prompt). Needs a key in the environment: ELEVENLABS_API_KEY (elevenlabs) or OPENAI_API_KEY (openai); without a provider the error says what to add to ai.json. To test code that depends on voice lines without a provider or a key, pass `silent: true`: it writes a silent .wav as long as the line (about 0.06 s per character, or `seconds`) and records it as a placeholder, not AI. Example: {"text":"Welcome, traveller.","path":"assets/voice/welcome.mp3"} COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2397,6 +2403,7 @@ Calls the provider that ai.json assigns to "voice" (assets.voice) to speak `text
 | `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
 | `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
 | `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; with the fake provider and local programs it is not needed. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 
 ### `assets.import` (modifies state)
@@ -2455,6 +2462,22 @@ Packing again is stable: a frame whose size did not change keeps its rectangle (
 | `table` | string | no | Project-relative .json for the frame table. Default: out with the .json extension. |
 | `maxSize` | integer | no | Largest side of the page in pixels. Default 2048 (what every phone samples); 4096 is fine on desktop. Frames that do not fit are an error. |
 | `padding` | integer | no | Pixels of the frame's own edge repeated around each frame. Default 2. |
+
+### `assets.pick` (modifies state)
+
+Since 0.18.0.
+
+Keep the candidate the person chose: it becomes the slot, the others are dropped.
+
+Answers the review sheet that assets.generate_image {count} made for `slot` (its newest one: a newer sheet for the same slot replaces the older ones, which are refused as superseded) with the number the PERSON chose: never pick for them; show the sheet and ask. Candidate `n` is moved to `slot` and the slot's entry in assets.json gets its provenance (prompt, provider, model, seed, plus `candidates`: the sheet, the number picked, how many there were and the estimated cost of the batch); the candidates' own entries are removed. The other candidates move to .factoria/assets/candidates/<sheet id>/, where review.cleanup deletes them after 7 days. An existing slot file needs overwrite (here or in the generate call) and is kept in the same folder. All or nothing: when a file cannot be moved (open in another program: code busy) nothing changes. Refused: a slot whose newest sheet was already answered (already_picked), and a candidate file that is no longer the picture on the sheet (superseded). The editor's Review window calls it with {sheet, n, slot}. Example: {"slot":"assets/items/potion.png","n":2}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `slot` | string | yes | The path the candidates were made for: the `path` given to assets.generate_image, project-relative under assets/. |
+| `n` | integer | yes | The number printed on the thumbnail the person chose (1 is the first candidate). |
+| `sheet` | string | no | The candidates sheet to answer ("sheet-0007", or its number). It must be the newest candidates sheet of `slot` (an older one is refused as superseded). Default: that newest sheet. |
+| `note` | string | no | Why this one, in the person's words; kept in the sheet's manifest with the choice. |
+| `overwrite` | boolean | no | Replace a file that already exists at `slot` (the old file is kept in the sheet's drop folder for 7 days). Not needed when the generate call had overwrite:true. Default false. |
 
 ### `assets.preview_in_scene`
 
@@ -3809,7 +3832,7 @@ Since 0.16.0.
 
 Generate a picture with the image provider and add it to an image document as a `provider` layer, optionally masked by a selection.
 
-Draws `prompt` with the image provider and adds the picture as a `provider` layer: the whole canvas by default, or `size` {width,height} at `placement` ("center" when a size is given, "fill", or {x,y}). `selection` (a stored selection, "all", or an inline image.select object) masks the layer so it shows only there. The layer carries the provider's provenance and is recorded in assets.json; the baked picture counts as AI-made. `transparent` asks for a transparent background (sprites, props). In a document with a palette the result is reduced to it. Any image provider works (openai, fake, asset-command); without one the error says how to configure it (docs/AI_PROVIDERS.md) and the offline route with exact commands. The call is synchronous and costs what the provider charges for one image: `dryRun` shows what would be sent. A provider layer is never regenerated by itself. Example: {"path":"assets/art/hero.image.json","prompt":"a brass key, side view","size":{"width":64,"height":64},"placement":{"x":10,"y":4},"transparent":true}
+Draws `prompt` with the image provider and adds the picture as a `provider` layer: the whole canvas by default, or `size` {width,height} at `placement` ("center" when a size is given, "fill", or {x,y}). `selection` (a stored selection, "all", or an inline image.select object) masks the layer so it shows only there. The layer carries the provider's provenance and is recorded in assets.json; the baked picture counts as AI-made. `transparent` asks for a transparent background (sprites, props). In a document with a palette the result is reduced to it. Any image provider works (openai, fake, asset-command); without one the error says how to configure it (docs/AI_PROVIDERS.md) and the offline route with exact commands. The call is synchronous and costs what the provider charges for one image: `dryRun` shows what would be sent and the estimate.  COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored. A provider layer is never regenerated by itself. Example: {"path":"assets/art/hero.image.json","prompt":"a brass key, side view","size":{"width":64,"height":64},"placement":{"x":10,"y":4},"transparent":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3823,6 +3846,7 @@ Draws `prompt` with the image provider and adds the picture as a `provider` laye
 | `style` | boolean | no | Apply the house style of assets.json (style.prompt, style.references). false skips it for this call. Default true. |
 | `quantize` | boolean | no | Reduce the picture to the document's palette. Default: true when the document has a palette (an indexed document), else false. |
 | `dryRun` | boolean | no | Only check the call and return what would be sent and what it may cost. Sends nothing, writes nothing. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; the fake provider and local programs never need it. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 | `bake` | boolean | no | Also draw the PNG of the document (default true). Default true. |
 | `selection` | any | no | Show the layer only inside this selection: a stored name (image.select), "all", or an inline object with the arguments of image.select. |
@@ -3849,7 +3873,7 @@ Since 0.16.0.
 
 Repaint the selected part of an image document with the image provider and add the result as a masked `provider` layer.
 
-Sends the picture of the document (its composite, or `layer` alone, at `frame`) and the selection as the mask to an image provider that can inpaint, and adds what it paints as a new `provider` layer over the whole canvas whose mask is the selection (with the selection's feather), so the rest of the picture is untouched and the layer can be hidden, moved or removed. `selection` is the name of a stored selection (image.select; "all" is the whole canvas) or an object with the arguments of image.select (stored as `selectionName`, default "inpaint"). The layer carries the provider's provenance (provider, model, prompt, seed, references, license) and is recorded in assets.json; the baked picture counts as AI-made. In a document with a palette the result is reduced to it (pixel_dominant_downscale: palette colours only, no blends). A picture smaller than 512 px is magnified by whole pixels before it is sent, and the answer is resized back. Providers that can inpaint: the built-in openai (OPENAI_API_KEY), fake (placeholder pattern, free, offline) and asset-command providers whose argv has {input} and {mask}. Without one the error says how to configure it (docs/AI_PROVIDERS.md) and the offline route with exact commands. The call is synchronous and costs what the provider charges for one image: `dryRun` shows what would be sent. A provider layer is never regenerated by itself: call this again for another try. Example: {"path":"assets/art/hero.image.json","selection":"sky","prompt":"a stormy sky with a red moon","seed":7}
+Sends the picture of the document (its composite, or `layer` alone, at `frame`) and the selection as the mask to an image provider that can inpaint, and adds what it paints as a new `provider` layer over the whole canvas whose mask is the selection (with the selection's feather), so the rest of the picture is untouched and the layer can be hidden, moved or removed. `selection` is the name of a stored selection (image.select; "all" is the whole canvas) or an object with the arguments of image.select (stored as `selectionName`, default "inpaint"). The layer carries the provider's provenance (provider, model, prompt, seed, references, license) and is recorded in assets.json; the baked picture counts as AI-made. In a document with a palette the result is reduced to it (pixel_dominant_downscale: palette colours only, no blends). A picture smaller than 512 px is magnified by whole pixels before it is sent, and the answer is resized back. Providers that can inpaint: the built-in openai (OPENAI_API_KEY), fake (placeholder pattern, free, offline) and asset-command providers whose argv has {input} and {mask}. Without one the error says how to configure it (docs/AI_PROVIDERS.md) and the offline route with exact commands. The call is synchronous and costs what the provider charges for one image: `dryRun` shows what would be sent and the estimate.  COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns {needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored. A provider layer is never regenerated by itself: call this again for another try. Example: {"path":"assets/art/hero.image.json","selection":"sky","prompt":"a stormy sky with a red moon","seed":7}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3863,6 +3887,7 @@ Sends the picture of the document (its composite, or `layer` alone, at `frame`) 
 | `style` | boolean | no | Apply the house style of assets.json (style.prompt, style.references). false skips it for this call. Default true. |
 | `quantize` | boolean | no | Reduce the picture to the document's palette. Default: true when the document has a palette (an indexed document), else false. |
 | `dryRun` | boolean | no | Only check the call and return what would be sent and what it may cost. Sends nothing, writes nothing. Default false. |
+| `approved` | boolean | no | The USER said yes to this paid call, after a needsApproval answer showed them the plan and the estimate. Never set it unless the user approved this call in this conversation; the fake provider and local programs never need it. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 | `bake` | boolean | no | Also draw the PNG of the document (default true). Default true. |
 | `selection` | any | yes | The part to repaint: the name of a stored selection (image.select), "all", or an object with the arguments of image.select (by, x, y, width, height, color, ...). |
@@ -5467,22 +5492,41 @@ Returns {backend, why, adsBackend, adsWhy, httpBackend, httpWhy, networkHosts, a
 
 ## play
 
+### `play.auto` (modifies state)
+
+Since 0.18.0.
+
+Let the game play itself, headless and fast, and write the run as a play session: phases, score, how it ended, problems found, pictures.
+
+Run this after you build a feature and BEFORE you ask the user to play: it plays the game with nobody at the keyboard and tells you whether it can be finished, where it gets stuck and what breaks. A second headless engine in this process (fake platform, in-memory saves, fixed 1/fixedHz steps, the same `seed` plays the same game) plays up to `seconds` GAME seconds. The bot is the game's own: scripts/autoplay.js calls game.autoplay(fn) and fn(bot) answers, every step, the input actions to hold (docs/SCRIPTING.md, "The bot"; the project templates ship one that finishes their sample level). Without that file a generic explorer holds the declared input actions in seeded patterns (and taps the menu actions when the scene has buttons), so any game still gets smoke-played; bot "explorer" forces it. The run ends with `ended`: "won" or "lost" (the hook returned { end } or the game called game.phase(name, { ends })), "timeout" (the seconds passed), "quit" (the game quit), "stuck" (nothing moved and nothing changed for stuckSeconds, or a menu has nobody to press it), "broken" (a script raised errors every second for 3 seconds, something pulled by gravity fell out of the world, a position became NaN, or scripts/autoplay.js could not be loaded) or "aborted" (a real-time safety net of 800 seconds, far above any normal run). Each problem becomes a mark with its `kind`, the `step`, a screenshot and a one-line note. The session is written to .factoria/sessions/<name>/ with "source": "auto" next to the editor's: session.json (perf, spikes, warnings, errors, marks, `phases` = the scenes and the game.phase("boss") marks with their game time and a screenshot, `score`, `ended`, `endedWhy`, `notes`, `scriptErrors`, `auto`), input.json (the bot's input in the replay format) and the pictures. Returns {session, dir, ended, endedWhy, score, gameSeconds, steps, frames, bot ("hook" or "explorer"), seed, speed, phases, problems, scriptErrors, warningsAndErrorsLogged, notes, avgFrameMs, maxFrameMs, screenshots, endScreenshot, replay, next} and the picture of the end ($image). Read the details with play.report {session}; replay the problem with the `replay` command (factoria run --headless --input ... --seed ...). Without a GPU the numbers, phases and marks are complete and `notes` says there are no pictures (a Linux machine without a display needs Mesa's EGL, llvmpipe). From the editor or any process that already uses the graphics card the command runs `factoria call play.auto` in a child process. The result never depends on how fast the machine is. Example: {"seconds":120,"seed":7} or {"scene":"scenes/level2.scene.json","bot":"explorer","speed":4}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `scene` | string | no | Project-relative scene to start in (default: the project's mainScene). |
+| `seconds` | number | no | How many GAME seconds to play at most (simulation time: steps / fixedHz, never the clock). The run ends "timeout" when they pass. Default 60. |
+| `seed` | integer | no | Seed of the world's random numbers, of the explorer and of bot.rng in the hook: the same seed plays the same game. Default 1. |
+| `speed` | integer | no | Fixed steps run per frame. The bot answers once per frame, so 4 plays about four times as much game time per second of real time, with a coarser bot. Replays keep the same timing. Default 1. |
+| `stuckSeconds` | number | no | Game seconds without the player (or whatever can move) moving and without a scene, phase, score or menu-focus change before the run is called stuck. Must not be more than seconds. Default 10, or half of seconds when the run is shorter than 20. |
+| `bot` | string ["auto","hook","explorer"] | no | auto: scripts/autoplay.js when the project has one, else the generic explorer. hook: the file is required (error without it). explorer: ignore the file and press the declared actions in seeded patterns. Default "auto". |
+| `screenshots` | boolean | no | Take a screenshot per phase, per problem and at the end (needs a GPU; without one the session says so in its notes). false: numbers only, a little faster. Default true. |
+
 ### `play.report`
 
-What happened while the user played: perf, spikes, warnings/errors, their problem marks and screenshots.
+What happened while the game was played (by the user or by play.auto): perf, spikes, warnings/errors, the problem marks and screenshots.
 
-Call it when the user says they played the game and saw problems (slow, ugly UI, bugs). Returns the session.json content (perf: avg/p95/max frame ms and frames over 16.7/33 ms; profile: where the time went, per engine system, per script behaviour class (ms and calls per frame, slowest first), GPU ms or null + reason, memory; spikes: slowest frames with entity count and render stats; logs: warnings and errors; marks: frame, time, note and screenshot path, 1-based `n`), `replay` (the input file, absolute path) and `replayHow`. The result carries ONE picture ($image): the screenshot of mark `mark` (default 1); call again with mark 2, 3... to see the others. `session` defaults to the latest (see play.sessions). Example: play.report {"mark":2}
+Call it when the user says they played the game and saw problems (slow, ugly UI, bugs), and after play.auto. Returns the session.json content (perf: avg/p95/max frame ms and frames over 16.7/33 ms; profile: where the time went, per engine system, per script behaviour class (ms and calls per frame, slowest first), GPU ms or null + reason, memory; spikes: slowest frames with entity count and render stats; logs: warnings and errors; marks: frame, time, note and screenshot path, 1-based `n`; for a play.auto session (`source` "auto") also `kind` and `step` of each problem the bot found, `phases` (scenes and game.phase marks with their time and screenshot), `score`, `ended` (won, lost, timeout, stuck, broken, quit, aborted) with `endedWhy`, `endScreenshot`, `notes` and `auto` (seed, speed, bot, stuckSeconds)), `replay` (the input file, absolute path) and `replayHow`. The result carries ONE picture ($image): the screenshot of mark `mark` (default 1) or, with `phase`, of that phase; a play.auto session without marks shows the picture taken when the run ended. Call again with mark 2, 3... or phase 1, 2... to see the others. `session` defaults to the latest (see play.sessions). Example: play.report {"mark":2}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `session` | string | no | Session folder name from play.sessions. Default: the latest. |
-| `mark` | integer | no | Which mark's screenshot to attach as the picture. Default 1. |
+| `mark` | integer | no | Which mark's screenshot to attach as the picture. Default 1 (when the session has marks). |
+| `phase` | integer | no | Attach the screenshot of this phase (1-based, play.auto sessions) instead of a mark's. Cannot be combined with mark. |
 
 ### `play.sessions`
 
-List the recent play sessions recorded by the editor (Play .. Stop), newest first.
+List the recent play sessions (recorded by the editor on Play .. Stop, or by play.auto), newest first.
 
-Each session is a folder .factoria/sessions/<yyyymmdd-hhmmss>/ written when the user pressed Stop in the editor. Rows have a short summary: scene, duration, frame time p95/max, number of warnings/errors and the user's marks (notes). Call play.report {session} for the details and screenshots. Example: play.sessions {"max":5}
+Each session is a folder .factoria/sessions/<yyyymmdd-hhmmss>/ written when the user pressed Stop in the editor, or <yyyymmdd-hhmmss>-auto/ by play.auto (`source` "auto"; those rows also carry `ended` and `score`). Rows have a short summary: source, scene, duration, frame time p95/max, number of warnings/errors and the marks (the user's notes, or the problems the bot found). Call play.report {session} for the details and screenshots. Example: play.sessions {"max":5}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -5558,7 +5602,7 @@ Since 0.1.2.
 
 Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5).
 
-Validates the project (factoria.json, name, mainScene, reverse-DNS id, the icon and export settings) and writes a fresh <out>/<game-slug>-<platform>/ folder (deleted and recreated on every call, but only when it is empty or an export wrote it: every export leaves a .factoria-export file at its top, and any other existing folder of that name is an error that says how to proceed, never deleted; the project itself is not modified, except that a layered image document (*.image.json, docs/IMAGES.md) whose PNG is missing or stale is baked first). linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria binary, so exporting for another OS than this machine's fails with a hint. android: a complete Gradle project that is then BUILT with its own Gradle wrapper (needs a JDK 17+ and the Android SDK, found automatically; the first build downloads Gradle and the Android Gradle plugin, so it takes minutes and needs network): `format` "apk" (default) or "aab" (Google Play bundle) leaves <slug>[-debug].apk/.aab next to the project and reports it as `artifact`; "gradle" only writes the project and builds nothing. `release` builds the release variant (signed with export.android.signing; without a keystore it is an error unless `allowDebugKey` is true); on linux, windows and macos it packs the whole game into one archive, game.pak, next to the executable (no game/ folder, no loose scripts: they become bytecode unless export.scriptBytecode is false) and reports it as `pack` with the packed paths in `packed`. ios: the game plus an Xcode/CMake project and build_ios.sh. Android and iOS have a mode, reported as `mode`: "prebuilt" (the engine is the ready-made player in the mobile/ folder next to the factoria binary of the FactorIA download: no engine source, and for Android no NDK or CMake) or "source" (the engine is compiled from a source checkout, chosen by $FACTORIA_ENGINE_DIR or when factoria runs from a development build); with no players and no checkout the error says what to do. A failed Gradle build is an error that quotes what went wrong and where the log is (<out>/<slug>-android/build.log); the Gradle project stays on disk. linux with `format` "appimage" also builds the whole game as one <out>/<slug>-linux/<slug>-x86_64.AppImage (reported as `artifact`; needs Linux x86_64 or WSL and the tools of `setup.install` component appimage; the folder export stays). web: <slug>-web/ holds index.html (the loading page), factoria_player.js and factoria_player.wasm (the Emscripten player, found with `player`, else next to the factoria binary in web/, else installed by `setup.install` component players with platforms ["web"], else a web build of the engine source) and game.pak (the whole game, scripts as bytecode, always, whatever `release` says), and <out>/<slug>-web.zip next to the folder holds the same with index.html at its root: upload it to itch.io as an HTML5 game (`artifact`, format "zip"; `mode` says where the player came from: explicit, package, installed or build). windows with `format` "msix" (or export.windows.format) also writes <out>/<slug>-windows.msix next to the folder, the package of the Microsoft Store, from any computer (reported as `artifact`, format "msix"; identity in export.windows.msix; sign it with `sign.windows`, upload it with `publish.microsoft`). A browser needs the folder served over http, not opened as a file (nextSteps has the command). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). The built-in fonts that are files (builtin:serif, builtin:hand, builtin:blackletter, builtin:display) are copied to builtin-fonts/ only when a scene, prefab, script, data file or factoria.json names them in full, with their licenses in the notices (`builtinFonts` in the result). Returns {outputDir, mode (android/ios/web), format and artifact (android, web), pack (web too), notices, files[], nextSteps[], warnings[]}; nextSteps lists what to do next (e.g. the adb install command). dryRun: true runs every check and writes nothing (no Gradle either): it returns {platform, outputDir (the folder an export would replace), mode, format, artifact (the file a build would write) and toolchain (android: the JDK and SDK found and where from), player (desktop), warnings[]} or the error the export would give (e.g. no JDK installed). Details: docs_read {"name":"exporting"}. Examples: {"platform":"windows","release":true}, {"platform":"android","format":"aab","release":true}.
+Validates the project (factoria.json, name, mainScene, reverse-DNS id, the icon and export settings) and writes a fresh <out>/<game-slug>-<platform>/ folder (deleted and recreated on every call, but only when it is empty or an export wrote it: every export leaves a .factoria-export file at its top, and any other existing folder of that name is an error that says how to proceed, never deleted; the project itself is not modified, except that a layered image document (*.image.json, docs/IMAGES.md) whose PNG is missing or stale is baked first). linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria binary, so exporting for another OS than this machine's fails with a hint. android: a complete Gradle project that is then BUILT with its own Gradle wrapper (needs a JDK 17+ and the Android SDK, found automatically; the first build downloads Gradle and the Android Gradle plugin, so it takes minutes and needs network): `format` "apk" (default) or "aab" (Google Play bundle) leaves <slug>[-debug].apk/.aab next to the project and reports it as `artifact`; "gradle" only writes the project and builds nothing. `release` builds the release variant (signed with export.android.signing; without a keystore it is an error unless `allowDebugKey` is true); on linux, windows and macos it packs the whole game into one archive, game.pak, next to the executable (no game/ folder, no loose scripts: they become bytecode unless export.scriptBytecode is false) and reports it as `pack` with the packed paths in `packed`. ios: the game plus an Xcode/CMake project and build_ios.sh. Android and iOS have a mode, reported as `mode`: "prebuilt" (the engine is the ready-made player in the mobile/ folder next to the factoria binary of the FactorIA download: no engine source, and for Android no NDK or CMake) or "source" (the engine is compiled from a source checkout, chosen by $FACTORIA_ENGINE_DIR or when factoria runs from a development build); with no players and no checkout the error says what to do. A failed Gradle build is an error that quotes what went wrong and where the log is (<out>/<slug>-android/build.log); the Gradle project stays on disk. linux with `format` "appimage" also builds the whole game as one <out>/<slug>-linux/<slug>-x86_64.AppImage (reported as `artifact`; needs Linux x86_64 or WSL and the tools of `setup.install` component appimage; the folder export stays). web: <slug>-web/ holds index.html (the loading page), factoria_player.js and factoria_player.wasm (the Emscripten player, found with `player`, else next to the factoria binary in web/, else installed by `setup.install` component players with platforms ["web"], else a web build of the engine source) and game.pak (the whole game, scripts as bytecode, always, whatever `release` says), and <out>/<slug>-web.zip next to the folder holds the same with index.html at its root: upload it to itch.io as an HTML5 game (`artifact`, format "zip"; `mode` says where the player came from: explicit, package, installed or build). windows with `format` "msix" (or export.windows.format) also writes <out>/<slug>-windows.msix next to the folder, the package of the Microsoft Store, from any computer (reported as `artifact`, format "msix"; identity in export.windows.msix; sign it with `sign.windows`, upload it with `publish.microsoft`). A browser needs the folder served over http, not opened as a file (nextSteps has the command; `project.serve_web` serves it for you, also to a phone), unless you pass singleFile: true, which writes <slug>-web/<slug>.html as ONE page with everything inlined that opens from a double click (`artifact`, format "html"; no zip; size limit singleFileMaxMb, default 64). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). The built-in fonts that are files (builtin:serif, builtin:hand, builtin:blackletter, builtin:display) are copied to builtin-fonts/ only when a scene, prefab, script, data file or factoria.json names them in full, with their licenses in the notices (`builtinFonts` in the result). Returns {outputDir, mode (android/ios/web), format and artifact (android, web), pack (web too), notices, files[], nextSteps[], warnings[]}; nextSteps lists what to do next (e.g. the adb install command). dryRun: true runs every check and writes nothing (no Gradle either): it returns {platform, outputDir (the folder an export would replace), mode, format, artifact (the file a build would write) and toolchain (android: the JDK and SDK found and where from), player (desktop), warnings[]} or the error the export would give (e.g. no JDK installed). Details: docs_read {"name":"exporting"}. Examples: {"platform":"windows","release":true}, {"platform":"android","format":"aab","release":true}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -5568,6 +5612,8 @@ Validates the project (factoria.json, name, mainScene, reverse-DNS id, the icon 
 | `release` | boolean | no | Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script. Default false. |
 | `allowDebugKey` | boolean | no | Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android). Default false. |
 | `player` | string | no | The player to bundle, an absolute path or one relative to the project folder; the CLI flag is --player. Desktop (linux, windows, macos): the factoria_player binary, e.g. one built for another OS. Web: the folder with factoria_player.js and factoria_player.wasm, or factoria_player.js. Default: the player next to this factoria for its own platform, or the one `factoria setup players` downloaded for another. |
+| `singleFile` | boolean | no | Web only: write ONE html file, <slug>-web/<slug>.html, with the player's JavaScript, the wasm, the icon and the game inlined (base64), that runs offline from a double click (file://) in a browser with no server. No zip, no loose files besides FACTORIA_NOTICES.txt. Refused with an error that says how to fix it when the page would be over singleFileMaxMb, or when the web player needs a server (a threaded build with shared memory needs cross-origin isolation headers, which a file cannot have). The CLI flag is --single-file. Default false. |
+| `singleFileMaxMb` | number | no | With singleFile: the biggest page to write, in megabytes (1 MB = 1048576 bytes; a fraction such as 1.5 is accepted, rounded to the nearest byte), from 1 to 256 (below 1 is refused); the size is worked out from the files BEFORE the page is built, so a game over it fails fast. Default 64. Browsers get slow with pages over about 100 MB, a page of 256 MB is about the biggest string a browser's JavaScript can hold, and base64 makes every file a third bigger. The CLI flag is --single-file-max-mb. |
 | `allowMissingPlugins` | boolean | no | Leave out a native plugin whose build for the target platform is missing (plugins/<name>/<platform>/, see docs_read EXTENDING.md) instead of stopping the export. Works for optional and non-optional plugins: a warning names each one and the result lists them in pluginsLeftOut[]. The exported game runs without the plugin (scripts that call it fail unless it is "optional" in factoria.json and they check for it). A plugin is built only for the computer you build it on (platform.add_backend and CMake): get the other platforms' builds from CI or another machine. The CLI flag is --allow-missing-plugins. Default false. |
 | `allowPlayerMismatch` | boolean | no | Bundle the player (the desktop factoria_player, the web factoria_player.wasm, the prebuilt Android and iOS libraries) even when it was built from another commit than this factoria (its build fingerprint differs or is missing). By default that export stops with an error, because an old player may lack what the game uses (components, script API) or fail to start; the CLI flag is --allow-player-mismatch. Rebuild both from one checkout instead when you can. Default false. |
 | `dryRun` | boolean | no | Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing. Default false. |
@@ -5611,6 +5657,21 @@ Writes a plugin folder (default plugins/<name>, or `path`: project-relative, abs
 | `platforms` | array | no | The platforms it will be built for (default: this computer's). |
 | `optional` | boolean | no | Written as "optional" in factoria.json: true = the game runs without the plugin (a missing build is a validate warning, not an error). Pass false when the game cannot work without it. Default true. |
 | `dryRun` | boolean | no | true = write nothing: list the files and the factoria.json keys it would write. Default false. |
+
+### `project.serve_web` (modifies state)
+
+Since 0.18.0.
+
+Serve the game's web build on this computer, or on the Wi-Fi to try it on a phone; it reloads when the project changes.
+
+Exports the web build (the same as project.export {platform:"web"}, into build/serve-web/, so the real export folder is not touched; the web player must be installed: `factoria setup players --platforms web`) and serves it from a small HTTP server inside this process. It listens on 127.0.0.1 (this computer only) unless `lan` is true, on a random port, and the URL has a random token in its path: http://<address>:<port>/<token>/ (a request without the token is a 404). Returns {running, state, url (this computer), lanUrl and urls[] (lan), port, version, warnings[]}. While the server runs, a changed script, scene, asset or factoria.json exports the build again and every open page reloads itself (a banner on the page says when it is rebuilding or when the export failed); what the page logs (console.log/warn/error and uncaught errors) comes back to the log with category "phone" (read it with game.logs or in the editor console). With lan, open the URL on a phone on the same Wi-Fi; the editor's File > Play on Phone... window shows it as a QR code. The server stops with the process or with {"stop":true}; it lives in the process that runs it: the editor, `factoria mcp` and `factoria session` keep it, a one-shot `factoria call` ends it when the call returns. Calling it again with the same project and `lan` returns the current status; with another `lan` it restarts the server (new port and token). In the editor the call never waits: it answers {running:false, state:"starting"} while the server starts and exports on a helper thread; call it again (same arguments) until state is "ready" (a start that failed is reported as an error by that call). Elsewhere (CLI, MCP, session) it waits for the first export. Limits: 8 connections answered at a time (32 waiting), requests bounded to 8 KB. Details: docs_read {"name":"exporting"}, section Web, and MOBILE.md.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `lan` | boolean | no | Listen on every network interface so a phone or another computer on the same Wi-Fi or Ethernet can open the URL (lanUrl). Default false: only this computer (127.0.0.1) can connect. The first time, Windows and macOS ask whether this program may accept connections from the network: allow it for private networks. A guest Wi-Fi that isolates devices cannot reach this computer. Default false. |
+| `stop` | boolean | no | Stop the server and close its connections (instead of starting it). Cannot be combined with the other arguments. The server also stops when the process ends. Default false. |
+| `player` | string | no | The folder with factoria_player.js and factoria_player.wasm to serve instead of the installed web player, relative to the project folder or absolute (like project.export). Default "". |
+| `allowPlayerMismatch` | boolean | no | Serve a web player built from another commit than this factoria (like project.export). Default false. |
 
 ### `project.templates`
 
@@ -5778,6 +5839,79 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 |---|---|---|---|
 | `position` | array | yes | [x, y] in design pixels (origin top-left). |
 | `max` | integer | no | At most this many hits. Default 20. |
+
+## review
+
+### `review.cleanup` (modifies state)
+
+Since 0.18.0.
+
+Delete the candidate files a review pick moved away long ago, and the folders of sheets that were never finished.
+
+review.sheet runs it by itself after each new sheet; call it to see what it would do (dryRun) or to use other ages. Two things only: (1) the files review.pick MOVED to a sheet's drop folder are deleted `droppedDays` days after the pick (the clock against the pick's time in the manifest); the manifest entry becomes status "expired" ("gone" when the file was already moved back or removed) and the empty folder goes. Nothing else is ever deleted there: only the files named `<NN>_<name>` that the pick put in <dropDir>/<sheet id>/. (2) a sheet folder with no manifest.json (the process died between starting the sheet and writing it; review.list shows these as `orphans`) is removed once nothing in it changed for `orphanMinutes` minutes. A sheet nobody has answered, the files of the picked item and every chosen file are never touched. At most 200 sheets are changed per call (`more` says there are others: call again). A file that is open in another program is kept and tried again next time. Runs under the project's review lock; busy when another process holds it (nothing changed). Result: {droppedExpired: [{sheet, files}], orphansRemoved: [ids], skipped: [{sheet, reason}], examined, more, dryRun, droppedDays, orphanMinutes}. Example: review.cleanup {"dryRun":true}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `droppedDays` | integer | no | Delete a dropped candidate this many days after the pick. 0: keep them for ever. Default 7. |
+| `orphanMinutes` | integer | no | Remove a sheet folder without a manifest once nothing in it changed for this many minutes. 0: leave them. Default 60. |
+| `dryRun` | boolean | no | Report what would be removed and remove nothing. Default false. |
+
+### `review.info`
+
+Since 0.18.0.
+
+The manifest of one review sheet (items, facts, the choice) and its picture.
+
+Result: the manifest of the sheet (format factoria.review/1: id, label, createdAt, columns, rows, thumbSize, picture, dropDir, items [{n, type, label, source, candidate, ok, info, numbers, thumb, cell, picture, spec}], picked ({n, label, at, atUnix, who, note, drop, dropped [{n, label, from, to, status: moved | expired | gone}], spec}), meta, warnings) plus `dir` and the picture as `$image`. `picked` is null until review.pick answers it. Example: review.info {"sheet":"sheet-0002"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `sheet` | any | no | The sheet: its id ("sheet-0003"), its number (3 or "3") or "latest" (default). |
+
+### `review.list`
+
+Since 0.18.0.
+
+List the review sheets of the project, newest first, with what was picked.
+
+Reads .factoria/review/. Result: {total, sheets: [{id, label, createdAt, count, picked (the number, or null while unanswered), pickedLabel, picture, meta, dir}], unreadable?, orphans?}. `orphans` are sheet folders with no manifest: a sheet being made right now, or one whose process died (review.cleanup removes the old ones). Use it to find a sheet that is still waiting for an answer (picked null) or to see what was chosen before. Example: review.list {"limit":5}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `limit` | integer | no | The most sheets to list, newest first. Default 20. |
+
+### `review.pick` (modifies state)
+
+Since 0.18.0.
+
+Record which numbered thumbnail of a review sheet the person chose, and move the other candidates' files away (the pick itself deletes nothing; review.cleanup deletes the dropped files after 7 days, or never with droppedDays 0).
+
+Call it with the number THE PERSON gave you for a sheet that review.sheet made; never pick for them (over MCP and the CLI nothing asks them, so the number must be theirs: show the sheet, ask, wait). The choice is written into the sheet's manifest (who, when, the note and the exact spec of the item: a level's seed and arguments) and is final: a sheet is picked once. With `drop` (default true) the files of every OTHER item marked `candidate` are MOVED to <dropDir>/<sheet id>/<NN>_<file name> (default .factoria/review/dropped/): the pick deletes nothing (review.cleanup deletes the dropped files after 7 days; droppedDays 0 keeps them), the result and the manifest list each move (from, to) and moving the file back undoes it. What dropping means per item type: image, vector, scene, prefab and vfx items marked candidate: their file moves; items not marked candidate and level items (no file): only recorded. The picked item's file stays where it is. A candidate that shares its file with the picked item, or was already gone, is left alone and reported in `warnings`; assets.json is not edited (it warns when it still lists a moved file). Every file is checked again before the first one moves (the manifest is a file anyone can edit): it must be inside the project and of the kind its type needs, never factoria.json, assets.json, anything under .factoria/, a version-control folder, the main scene or a scene another item plays an effect in; the drop folder must be one review.sheet would accept; otherwise nothing is moved and the error says why. All or nothing: if a move fails (a file open in another program) the moves already made are put back and the manifest is not changed. The manifest is changed under the project's review lock, so the editor, the CLI and an agent may use sheets at once. A crash between the moves and the manifest write (a power cut) leaves the moved files in the drop folder with the sheet still unanswered: pick again (the files that are gone are reported, not an error), or move them back by hand from <dropDir>/<id>/. Errors: not_found (no such sheet), invalid_argument (a number not on the sheet, the item failed to render, or a sheet of asset candidates, which assets.pick answers), already_picked, exists (a leftover in the drop folder), busy (another process holds the lock, or a file to move is open in another program). Result: {sheet, n, label, type, source, spec, drop, dropped: [{n, label, from, to, status}], who, at, meta (the object review.sheet was given), warnings, nextSteps}. Example: review.pick {"sheet":"latest","n":3}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `sheet` | any | no | The sheet: its id ("sheet-0003"), its number (3 or "3") or "latest" (default), the newest finished sheet. |
+| `n` | integer | yes | The number printed on the thumbnail the person chose. It must come from them. |
+| `drop` | boolean | no | Move the files of the other candidates to the sheet's drop folder. false: only record the choice and touch no file. Default true. |
+| `note` | string | no | Why it was chosen, in the person's words (at most 500 characters); kept in the manifest. |
+
+### `review.sheet` (modifies state)
+
+Since 0.18.0.
+
+Show N candidates as ONE picture with big numbers (images, scenes, prefabs, level seeds, vector art, effects) so a person can answer with one number.
+
+Make the candidates, call review.sheet, show the picture to the person, ask for ONE number, then review.pick. Do not choose for them and do not show candidates one by one. Each item is an object with exactly one of image (a PNG/JPG/BMP/TGA), scene, prefab, level (the arguments of tilemap.generate, with `seeds` next to it for one thumbnail per seed), vector (an .svg) or vfx (a .vfx.json), plus an optional label and candidate. Every thumbnail carries its number (1..N, in the item order), its label and one line of facts: an image its size, colors and how much is clear; a scene its entity count; a prefab its entities and size; a level its size, seed and tries; vector art its size, shapes and colors (counted from the file's text); an effect its peak particles and length. How each is drawn: images and vector art on the CPU as they are; a level on the CPU, one square per cell (letters on the squares when they are big enough); a scene is started and captured by the engine's renderer (`steps` frames in); a prefab is spawned on a plain stage and framed (2D from its visuals, 3D turned three quarters under a studio light); an effect is the MIDDLE picture of vfx.filmstrip (the label in its corner is its time), over a dark stage or your `stage` scene. Scenes, prefabs and effects need a graphics device like assets.preview_in_scene; without one the whole command fails with no_gpu before anything is written (images, vector art and levels need none). An item that cannot be drawn (a corrupt image, a level the solver could not make) is a red tile that review.pick refuses; if none can be drawn nothing is written; a wrong argument of a level fails the command with its JSON pointer. A level is generated with the project's engine (graphics off), at most 1024 cells a side, with `maxWork` 20000000 unless you set it, so the same arguments and seed give the same thumbnail on every machine; tilemap.generate's `maxSeconds` is NOT fixed here (its default of 1800 CPU seconds is only a safety net far above what a thumbnail takes), so the work cap decides, never the speed of the machine. The level's `sample` takes the forms of tilemap.generate: ASCII rows as an array of strings (with `legend` next to it), an object {rows, legend?}, one string with line breaks, a project path of a .json rows file, or the id or name of an ENTITY WITH A TILEMAP. Only the entity form needs a scene to look the entity up in: it is the project's main scene (factoria.json mainScene), or the scene you name with `sampleScene` on the item; the thumbnails never change that scene. Without a main scene and without `sampleScene` an entity sample is an error with its JSON pointer. At most 48 items (after `seeds` are expanded; 4 to 9 is what a person judges well) and a sheet of at most 8192 px a side; the thumbnail size and the columns are chosen from the item count unless you give them. The sheet is stored under .factoria/review/<id>/ (sheet.png, manifest.json, thumbs/NN.png): the manifest records the items with their labels, facts and the exact arguments of each (a level's seed), when it was made, and later who picked what. The picture comes back as `$image` (a file in the project, not a temporary one). Mark `candidate: true` on the items whose FILES you made only for this choice (variants of an image, scene, prefab, vector art or effect): review.pick then MOVES the ones that were not chosen to .factoria/review/dropped/<id>/ (or `dropDir`); the pick never deletes them (review.cleanup does, 7 days later; `droppedDays` 0 keeps them). A file that is not marked is never touched. Levels are not files: picking one only records its seed. A candidate must be a file of the project of the kind its type needs (.scene.json, .prefab.json, .vfx.json, .svg, a picture), never factoria.json, assets.json, anything under .factoria/ or a version-control folder, the main scene, or a scene another item uses as its `stage`; no other item may show a candidate's file; paths are compared after normalizing (./, backslashes, upper case), and review.pick checks all of it again before it moves anything. `meta` is your own small object (e.g. {"slot":"hero"}, at most 4096 bytes as JSON), stored with the sheet and returned untouched by review.pick, review.info and review.list. After the sheet is made, files review.pick dropped more than 7 days ago and sheet folders abandoned (no manifest) for more than 60 minutes are cleaned up (review.cleanup says what; the sheets that were not answered and the chosen files are never touched). Result: {sheet, dir, manifest, picture: {path, width, height}, columns, rows, thumbSize, count, items: [{n, type, label, info, ok, source, candidate}], meta, warnings, housekeeping?, nextSteps, $image}. Example: review.sheet {"label":"Which hero?","items":[{"image":"assets/hero_a.png","candidate":true},{"image":"assets/hero_b.png","candidate":true}]} or {"items":[{"level":{"sample":["#..#","#..#"],"legend":{"#":0,".":1},"size":[40,24]},"seeds":[1,2,3,4]}]}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `items` | array | yes | What to show, in order: the first is number 1. |
+| `label` | string | no | The question or title printed at the top of the sheet, e.g. "Which hero?" (at most 120 characters). |
+| `columns` | integer | no | Thumbnails per row. Default: nearly square. |
+| `thumbSize` | integer | no | Pixels of the square each thumbnail is fitted into. Default: chosen from the number of items so the sheet is about 1800 px wide. |
+| `candidates` | boolean | no | Treat every file item (not levels) as a candidate unless it says `candidate: false`: the files of the items that are not picked are moved away. Default false. |
+| `dropDir` | string | no | Project folder below .factoria/ that review.pick moves unpicked candidates into (a sub-folder per sheet). Not .factoria/tmp, not .factoria/review itself or another sheet's folder. Default .factoria/review/dropped. |
+| `meta` | object | no | Your own small object (e.g. {"slot":"hero"}, at most 4096 bytes as JSON), stored with the sheet and returned by review.pick, review.info and review.list. Default {}. |
 
 ## assets
 
@@ -10136,6 +10270,16 @@ declare module "factoria" {
      */
     notices(): { name: string; url: string; license: string; usedFor: string }[];
     /**
+     * Declares how the game plays itself, for `play.auto` (the AI testing the game with nobody at the keyboard): fn is called once per step with the bot state and returns what to press. Put the call at the top level of scripts/autoplay.js, the file `play.auto` imports; a shipped game never imports it, so fn is never called outside play.auto. Return the action names to HOLD during this step (an array; the ones you leave out are released), or an object { actions?, end?: "won" | "lost", score?, note? }: end finishes the run with that result, score is reported in the session, note is the first line of the session's notes. Only action names of factoria.json "input" (and the ui_* ones) are accepted, so the run can be replayed with `factoria run --input`; a name that is not an action throws with a did-you-mean. The function must not change the game (no teleporting, no spawning): read the world, answer with actions. Use bot.rng for choices, never Math.random. Example: game.autoplay((bot) => { const p = world.find("player"); return ["move_right", ...(p && p.isGrounded() && bot.rng.chance(0.05) ? ["jump"] : [])]; });
+     * @since 0.18.0
+     */
+    autoplay(fn: (bot: AutoplayState) => AutoplayAnswer): void;
+    /**
+     * Marks a stage of the run for the `play.auto` report ("boss", "shop", "level 2"): the session lists it in `phases` with its time and takes a screenshot. { ends: "won" } or { ends: "lost" } also ends the automatic run with that result, so a game without a bot hook can still tell the explorer it is over (game.phase("victory", { ends: "won" })). Does nothing in a normal run. Example: game.phase("boss");
+     * @since 0.18.0
+     */
+    phase(name: string, options?: { ends?: "won" | "lost" }): void;
+    /**
      * The platform this runtime was built for. Menus use it for platform rules, e.g. phone and tablet apps have no Quit button (the system closes them).
      * @since 0.1.6
      */
@@ -10151,6 +10295,74 @@ declare module "factoria" {
      */
     readonly accessibility: Readonly<{ textScale: number; reduceMotion: boolean; highContrast: boolean; screenReader: boolean }>;
   }
+
+  /**
+   * What game.autoplay's function gets every step: where the run is, what the game declares and what the bot holds.
+   * @since 0.18.0
+   */
+  export interface AutoplayState {
+    /**
+     * Game seconds since the run began (fixed steps run / fixedHz; never the wall clock).
+     * @since 0.18.0
+     */
+    readonly time: number;
+    /**
+     * Fixed steps run since the run began (0 on the first call).
+     * @since 0.18.0
+     */
+    readonly step: number;
+    /**
+     * Game seconds this decision lasts: 1 / fixedHz, times play.auto's speed (at speed 4 the answer is held for 4 fixed steps, so dt is 4 / fixedHz).
+     * @since 0.18.0
+     */
+    readonly dt: number;
+    /**
+     * The path of the current scene.
+     * @since 0.18.0
+     */
+    readonly scene: string;
+    /**
+     * Game seconds since the current scene was loaded.
+     * @since 0.18.0
+     */
+    readonly sceneTime: number;
+    /**
+     * The latest phase: the scene path, or the name of the last game.phase(name) mark.
+     * @since 0.18.0
+     */
+    readonly phase: string;
+    /**
+     * The input actions the game declares in factoria.json ("input": { "actions": ... }).
+     * @since 0.18.0
+     */
+    readonly actions: readonly string[];
+    /**
+     * The interface actions every game has (ui_up, ui_down, ui_left, ui_right, ui_next, ui_previous, ui_submit, ui_cancel) that move the focus of menus.
+     * @since 0.18.0
+     */
+    readonly uiActions: readonly string[];
+    /**
+     * The actions the function asked to hold in the previous step.
+     * @since 0.18.0
+     */
+    readonly held: readonly string[];
+    /**
+     * The seed of the run (play.auto's seed).
+     * @since 0.18.0
+     */
+    readonly seed: number;
+    /**
+     * A generator seeded with the run's seed, the same for the whole run: draw every random choice from it so the same seed plays the same game.
+     * @since 0.18.0
+     */
+    readonly rng: Rng;
+  }
+
+  /**
+   * What game.autoplay's function returns: the actions to hold during this step, or an object that can also end the run (end), report a score and add a note.
+   * @since 0.18.0
+   */
+  export type AutoplayAnswer = readonly string[] | { actions?: readonly string[]; end?: "won" | "lost"; score?: number; note?: string } | void;
 
   /**
    * How the window is shown: windowed (a frame and a size of its own), borderless (no frame, covers the monitor) or fullscreen (covers the monitor; on macOS its own Space). See window.setMode() for what each one means on each OS.

@@ -6,8 +6,12 @@
 #include <format>
 #include <sstream>
 #if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #else
 #include <time.h>
@@ -434,6 +438,7 @@ ScriptError ScriptSystem::Impl::error_from_exception(JSValueConst exc, const std
 }
 
 void ScriptSystem::Impl::record_error(ScriptError e, const std::string& where) {
+    ++errorEvents;
     std::string key = e.file + ":" + std::to_string(e.line) + ":" + e.message;
     bool fresh = loggedKeys.insert(key).second;
     if (!fresh) return;

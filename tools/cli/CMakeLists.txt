@@ -154,6 +154,15 @@ if(FA_BUILD_TESTS)
             # developer machine it passes.
             # One example may measure several scenes: <example>.perf.json and <example>-*.perf.json (not <example>*, which
             # would catch another example with the same prefix). Each file names its scene.
+            # An example whose bot is the hook that `play.auto` runs (scripts/autoplay.js) is played by that command: Lantern Keep
+            # finishes every level and the way from its main menu (tests/lantern_autoplay_test.py; the JS tests drive the same bot).
+            if(ex_name STREQUAL "lantern-keep" AND Python3_FOUND)
+                add_test(NAME example_${ex_name}_autoplay
+                    COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/lantern_autoplay_test.py $<TARGET_FILE:factoria>
+                    WORKING_DIRECTORY ${FA_ROOT})
+                set_tests_properties(example_${ex_name}_autoplay PROPERTIES LABELS "example" TIMEOUT ${fa_example_timeout}
+                    DISABLED ${fa_examples_disabled})
+            endif()
             file(GLOB ex_perf_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/${ex_name}.perf.json
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/${ex_name}-*.perf.json)
             foreach(perf_file ${ex_perf_files})

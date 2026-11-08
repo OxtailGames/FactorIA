@@ -9,9 +9,11 @@
 namespace fa::ai {
 
 Json ProviderStatus::to_json() const {
-    return Json::object({{"name", name}, {"kind", kind}, {"cli", isCli}, {"available", available}, {"detail", detail},
-                         {"version", version}, {"path", path}, {"keySource", keySource}, {"hint", hint},
-                         {"makes", makes}});
+    Json out = Json::object({{"name", name}, {"kind", kind}, {"cli", isCli}, {"available", available}, {"detail", detail},
+                             {"version", version}, {"path", path}, {"keySource", keySource}, {"hint", hint},
+                             {"makes", makes}});
+    if (!assetPricing.is_null()) out["assetPricing"] = assetPricing;
+    return out;
 }
 
 static std::string probe_version(const std::string& exe) {
@@ -36,6 +38,7 @@ std::vector<ProviderStatus> detect_providers(const AiConfig& cfg, const DetectOp
         s.name = name;
         s.kind = provider_kind_name(p.kind);
         s.isCli = is_cli_kind(p.kind);
+        if (!p.assetPricing.empty()) s.assetPricing = asset_pricing_to_json(p.assetPricing);
         if (s.isCli) {
             std::string command = p.command.empty() ? default_cli_command(p.kind) : p.command;
             s.path = which_fn(command);

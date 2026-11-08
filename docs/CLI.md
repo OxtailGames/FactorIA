@@ -59,14 +59,14 @@ error, not a warning), and `factoria call scene.format '{"paths":[...]}'` is the
 `Script.props` keys that do not exist on the behaviour (typos) and a placeholder `types/factoria.d.ts` are reported as
 warnings. A `.gltf`/`.glb` whose texture or buffer file is missing is an error (docs/ASSETS.md, "Checks"), a `MeshRenderer.materialColors` key that is not a material of its model is an error with a "did you mean", and loudness warnings use the gain that `defaults.audio.normalize` applies. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same as `factoria api --dts --project .`).
 
-### `factoria export [project] [--platform P] [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]] [--allow-player-mismatch] [--allow-missing-plugins] [--player PATH] [--engine-root DIR] [--mobile-dir DIR] [--json]`
+### `factoria export [project] [--platform P] [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]] [--allow-player-mismatch] [--allow-missing-plugins] [--player PATH] [--single-file [--single-file-max-mb N]] [--engine-root DIR] [--mobile-dir DIR] [--json]`
 Packages the game (linux/windows/macos bundle, Android APK or AAB, iOS project, `--platform web`: a page, the web player and `game.pak` plus a zip for itch.io). Without `--platform` the
 current machine's platform is used; `--out` is the parent folder (default `<project>/build/export`); the export is written to `<out>/<slug>-<platform>/`,
 which is replaced only when it is empty or an earlier export wrote it (it holds `.factoria-export`): any other folder of
 that name is an error, never deleted ([EXPORTING.md](EXPORTING.md#replacing-an-earlier-export)).
 The exported game (and `factoria_player <game folder>`) takes `--frames N`: draw N frames, then exit 0, or 1 after a script error (a smoke test for CI, [EXPORTING.md](EXPORTING.md#ci-for-your-game)). With `--frames N` it also takes `--input <replay>`, `--dump-state <file>` and `--screenshot <file>`: a headless run like `factoria run --headless`, so a shipped build can be checked against the editor's ([EXPORTING.md](EXPORTING.md#checking-an-exported-build)).
 
-`--player` selects the `factoria_player` binary to bundle (web: the folder with `factoria_player.js` and `.wasm`). Android/iOS exports are `prebuilt` (the ready-made `mobile/`
+`--single-file` (web only) writes ONE html page with the player, the wasm and the game inlined, that opens from a double click; it is refused over `--single-file-max-mb` megabytes (default 64, 1 to 256, a fraction such as 1.5 is fine) or with a threaded web player ([EXPORTING.md](EXPORTING.md#one-html-file-singlefile)). `--player` selects the `factoria_player` binary to bundle (web: the folder with `factoria_player.js` and `.wasm`). Android/iOS exports are `prebuilt` (the ready-made `mobile/`
 folder next to `factoria`, or `--mobile-dir`) or `source` (`--engine-root`, `$FACTORIA_ENGINE_DIR`, or the checkout a
 development build came from); the mode is printed and reported as `mode`, and the rule is in [EXPORTING.md](EXPORTING.md).
 A desktop export checks that the `factoria_player` comes from the same build as `factoria` and stops with an error naming both builds when it does not; `--allow-player-mismatch` bundles it anyway ([EXPORTING.md](EXPORTING.md#desktop-linux-windows-macos)). `--allow-missing-plugins` exports without the native plugins whose build for that platform is missing and lists them ([EXPORTING.md](EXPORTING.md#desktop-linux-windows-macos)).
@@ -196,6 +196,14 @@ The script debugger as a Debug Adapter Protocol server on stdin/stdout. VS Code 
 client's `launch` request. stdout carries only protocol; logs go to stderr and to the debug console. Any DAP client can
 use it. Guide, launch attributes and limits: [DEBUGGING.md](DEBUGGING.md). For AIs the same facility is the command
 `script.trace`.
+
+### `factoria call play.auto [JSON args]`
+The game plays itself, headless and fast, with its bot (`scripts/autoplay.js`, `game.autoplay`) or a generic explorer, and the run is written
+as a play session under `.factoria/sessions/`. `factoria call --project DIR play.auto '{"seconds":60,"seed":1}'` prints the summary (how it ended, score,
+phases, problems, the command that replays the input) and `play.report` reads the session. The arguments (`scene`, `seconds`, `seed`, `speed`, `stuckSeconds`, `bot`,
+`screenshots`) and what a run finds: [DEBUGGING.md](DEBUGGING.md#let-the-game-play-itself). It draws its pictures with a graphics device of its
+own (the run is a second engine), so the global `--no-graphics` does not switch them off: it only keeps the session that hosts the command off the GPU.
+Pass `"screenshots": false` for a run without pictures; a machine without a display (no GPU the engine can use) gives a session without pictures and a note.
 
 ### `factoria call <command> ['<json args>'] [options]` / `factoria call --batch '<json array>'`
 Runs registered commands on a headless engine and prints the JSON result. Arguments: inline JSON, `@file.json`, or

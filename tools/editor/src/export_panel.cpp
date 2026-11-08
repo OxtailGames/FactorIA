@@ -251,6 +251,18 @@ void Editor::draw_export_window() {
                 at_track(std::string("export:settings:") + t.platform);
                 ImGui::SetItemTooltip("Platform settings for %s: icon and what this export needs.", t.label);
             }
+            if (std::string(t.platform) == "web") {
+                ImGui::BeginDisabled(busy);
+                if (ImGui::Checkbox("One HTML file", &exportSettings_.webSingleFile)) exportChecked_ = -100;
+                ImGui::EndDisabled();
+                at_track("export:web-single-file");
+                ImGui::SetItemTooltip("Write ONE page, <name>.html, with the player, the wasm and the game inlined: it opens from a double click and runs offline, "
+                                      "with no server and no zip. Refused over 64 MB, or when the web player needs threads (a file cannot have the headers they need).");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Play on phone...")) open_phone_window();
+                at_track("export:play-phone");
+                ImGui::SetItemTooltip("Try the web build on a phone on the same Wi-Fi: a QR code of its address (File > Play on Phone...).");
+            }
             if (export_needs_player(t.platform)) {
                 ImGui::SameLine();
                 const auto it = exportSettings_.players.find(t.platform);

@@ -9,15 +9,17 @@
 #include "fa/ai/assets.h"
 #include "fa/ai/config.h"
 #include "fa/ai/provider.h"
+#include "fa/ai/asset_cost.h"
 #include "fa/core/command.h"
 #include "fa/tooling/style_guide.h"
 
 namespace fa::ai {
 
 // assets.generate_image, assets.generate_sprite_sheet, assets.generate_sound, assets.generate_music,
-// assets.generate_voice, assets.generate_model, assets.provenance, assets.set_provenance, assets.disclosure.
+// assets.generate_voice, assets.generate_model, assets.pick, assets.provenance, assets.set_provenance, assets.disclosure.
 void register_asset_commands(CommandRegistry& registry, std::function<Result<AiConfig>()> load,
-                             std::function<std::string()> projectDir, ProviderRuntime runtime, const CancelFlag* cancel);
+                             std::function<std::string()> projectDir, ProviderRuntime runtime, const CancelFlag* cancel,
+                             std::string runKey = {}, AssetApprover approver = {});
 
 // What image_provider_commands.cpp shares with the generate_* commands (asset_commands.cpp).
 namespace asset_support {

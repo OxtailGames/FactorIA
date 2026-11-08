@@ -18,7 +18,9 @@ Controls (the input actions of `factoria.json`), the goal, and what a session of
 | Game over | debug key F9, or `review/game_over.json` loaded by the tool above |
 
 ## Bot-playable flows
-Replays or tests that play the first minutes, a whole level, the ending (`tests/`, `review/*.replay.json`).
+`scripts/autoplay.js`: the hook that `play.auto` runs (it plays the first minutes, a whole level, the ending; say which
+phases it marks). Also replays or tests (`tests/`, `review/*.replay.json`). The game reviewers play by hand first and run
+`play.auto` after, to learn what they did not reach.
 
 ## Known issues
 What not to report again.

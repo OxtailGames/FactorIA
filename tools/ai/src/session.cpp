@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -127,6 +128,7 @@ Json SessionResult::to_json() const {
                            {"hint", hint},
                            {"usage", usage.to_json()},
                            {"costUsd", costUsd},
+                           {"assetCostUsd", std::round(assetCostUsd * 10000.0) / 10000.0},
                            {"turns", turns},
                            {"transcript", transcriptPath}});
     if (!conversation.cliSessionId.empty()) j["sessionId"] = conversation.cliSessionId;
@@ -168,7 +170,12 @@ bool is_read_only_tool(const CommandInfo& info) {
     static const char* const kPlay[] = {"game.step",         "game.input",       "game.click",     "game.pause",
                                         "game.resume",       "game.screenshot",  "scene.load",     "scene.reload",
                                         "ui.set_text_scale", "ui.set_scale",     "ui.set_slider",  "ui.check_layout",
-                                        "i18n.set_language", "screen.set_safe_area"};
+                                        "i18n.set_language", "screen.set_safe_area",
+                                        // The game reviewers' automatic player: a headless run of the game with a bot that writes only
+                                        // a session under .factoria/sessions/ (play.sessions / play.report read it); it changes no
+                                        // file of the project, so the read-only roles may start it. Only the reviewer's prompt
+                                        // tells it to (the art critic has no use for it).
+                                        "play.auto"};
     for (const char* name : kPlay) {
         if (info.name == name) return true;
     }
@@ -277,6 +284,7 @@ bool AgentSession::over_budget(const Usage& usageNow, double costNow, std::strin
 SessionResult AgentSession::run(const std::string& task, const std::vector<std::string>& imageFiles) {
     totalUsage_ = {};
     totalCost_ = 0;
+    totalAssetCost_ = 0;
     delegateCount_ = 0;
     stamp_ = make_stamp();
     images_.clear();
@@ -299,12 +307,14 @@ SessionResult AgentSession::run(const std::string& task, const std::vector<std::
     maybe_retrospective(r);
     r.usage = totalUsage_;
     r.costUsd = totalCost_;
+    r.assetCostUsd = totalAssetCost_;
     AgentEvent e;
     e.type = r.ok ? AgentEvent::Type::Done : AgentEvent::Type::Error;
     e.text = r.ok ? r.finalText : r.error;
     e.isError = !r.ok;
     e.usage = totalUsage_;
     e.costUsd = totalCost_;
+    e.assetCostUsd = totalAssetCost_;
     emit(e, 0, opt_.role);
     return r;
 }
@@ -677,6 +687,8 @@ ToolResult AgentSession::execute_tool(const ToolCall& original, const std::strin
         return finish(tr, cr.error);
     }
     Json shown = cr.result;
+    // A generating command reports what it spent (an estimate): the run's asset cost is their sum.
+    if (const Json* spent = child(shown, "estimatedCostUsd"); spent && spent->is_number() && spent->get<double>() > 0) totalAssetCost_ += spent->get<double>();
     // Image conventions (both attach the image to the model message):
     //   {"image": {"mediaType"|"mimeType", "data"|"base64"}}
     //   {"$image": {"path": "...", "mimeType": "image/png"}} or {"$image": {"base64": "...", "mimeType": ...}}

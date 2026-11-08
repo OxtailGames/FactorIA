@@ -137,6 +137,16 @@ TEST_CASE("export window: the options a button exports with") {
     CHECK(export_options(project, "linux", s).outDir == elsewhere);
 }
 
+TEST_CASE("export window: One HTML file applies to the web export only") {
+    const std::string project = (stdfs::temp_directory_path() / "my-game").generic_string();
+    ExportSettings s;
+    CHECK_FALSE(export_options(project, "web", s).singleFile);
+    s.webSingleFile = true;
+    CHECK(export_options(project, "web", s).singleFile);
+    CHECK_FALSE(export_options(project, "linux", s).singleFile);
+    CHECK_FALSE(export_options(project, "android", s).singleFile);
+}
+
 TEST_CASE("export window: each row says what an export writes, or why it cannot run here") {
     TempProject p("rows");
     ExportSettings s;

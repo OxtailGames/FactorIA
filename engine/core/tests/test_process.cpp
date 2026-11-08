@@ -3,7 +3,9 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <fcntl.h>
 #include <signal.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
@@ -134,6 +136,30 @@ TEST_CASE("process runner: timeout") {
     auto r = run_process(po);
     REQUIRE(r);
     CHECK(r->timedOut);
+}
+
+
+TEST_CASE("process runner: a program still open for writing (ETXTBSY) starts once the writer closes it") {
+    // Linux refuses to exec a file that is open for writing ("Text file busy"); macOS does not, and the test passes there too.
+    // The launcher tries three times, 10 ms apart, in the child: the writer closes the file after 5 ms.
+    TempDir dir;
+    const std::string script = (dir.path / "fresh.sh").string();
+    int fd = ::open(script.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0755);
+    REQUIRE(fd >= 0);
+    const char text[] = "#!/bin/sh\necho fresh\n";
+    REQUIRE(::write(fd, text, sizeof text - 1) == ssize_t(sizeof text - 1));
+    REQUIRE(::fchmod(fd, 0755) == 0);
+    std::thread closer([fd] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        ::close(fd);
+    });
+    ProcessOptions po;
+    po.argv = {script};
+    auto r = run_process(po);
+    closer.join();
+    REQUIRE_MESSAGE(bool(r), (r ? std::string() : r.error().message));
+    CHECK(r->exitCode == 0);
+    CHECK(r->stdoutText == "fresh\n");
 }
 
 #endif  // !_WIN32

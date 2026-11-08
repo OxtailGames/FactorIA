@@ -26,16 +26,23 @@ struct ImageTexture {
     std::uint64_t revision = ~std::uint64_t(0);
 };
 
-// A picture asked of an image provider from the panel (Inpaint selection / Generate layer). The provider call runs on its own thread
-// and touches only `shared`; the plan was made, and the answer is stored, on the main thread (image_provider_panel.cpp).
+// A picture asked of an image provider from the panel (Inpaint selection / Generate layer). The planning (it reads the document, the style
+// references and the price list), the cost check and the provider call run on the job's own thread and touch only `shared`; the answer is
+// stored on the main thread (image_provider_panel.cpp).
+// The asset run the Image panel's calls count into (ai::AssetRunScope): its own total for limits.maxAssetCostUsd.perRun, not the process's
+// run "" that the CLI and external MCP clients share. A new project starts it again (Editor::ai_stop).
+inline constexpr const char* kImagePanelRun = "image-panel";
+
 struct ImageProviderShared {
-    std::atomic<bool> cancel{false}, done{false};
+    std::atomic<bool> cancel{false}, done{false}, planned{false};
+    std::optional<ai::ImageEditPlan> plan;           // set before `planned` (and so before `done` when planning worked)
     std::optional<Result<ai::AssetResult>> result;   // set before `done`
+    std::vector<std::string> warnings;               // of the cost check (the per-day file could not be read...); set before `done`
+    double spentUsd = 0;                             // the estimate that was counted for the call (0 for a free one or a failure)
 };
 struct ImageProviderJob {
     bool inpaint = false;
     std::string doc;                    // the document the picture is for: the answer is dropped if another one is open by then
-    ai::ImageEditPlan plan;
     std::shared_ptr<ImageProviderShared> shared;
     std::thread thread;
     double startedAt = 0;               // ImGui time, for the elapsed seconds
@@ -44,6 +51,21 @@ struct ImageProviderJob {
     ImageProviderJob& operator=(const ImageProviderJob&) = delete;
     ~ImageProviderJob() {
         if (shared) shared->cancel = true;
+        if (thread.joinable()) thread.join();
+    }
+};
+
+// The price of the popup's "Make it", worked out on a thread: planning reads the document, the style references and the price list,
+// which is not work for the UI thread. The thread touches only this object (the configuration is copied in before it starts).
+struct ImageProviderEstimate {
+    std::atomic<bool> done{false};
+    std::string doc;                    // the document it is for
+    std::string text, error;            // set before `done`: the sentence to show, or why there is no estimate
+    std::thread thread;
+    ImageProviderEstimate() = default;
+    ImageProviderEstimate(const ImageProviderEstimate&) = delete;
+    ImageProviderEstimate& operator=(const ImageProviderEstimate&) = delete;
+    ~ImageProviderEstimate() {
         if (thread.joinable()) thread.join();
     }
 };
@@ -101,6 +123,9 @@ struct ImageUi {
     bool providerInpaint = true;                // what the popup asks for
     std::string providerPrompt;
     std::string providerError;                  // why the last request could not start or finish (shown in the popup)
+    std::string providerEstimate;               // what the popup's "Make it" would cost, as text (the estimate of the price list)
+    std::string providerEstimateError;          // why there is no estimate (the request would fail the same way); shown in the popup
+    std::unique_ptr<ImageProviderEstimate> estimate;   // the one being worked out
     std::string noGenerate, noInpaint;          // why each action is off ("" = a provider is ready)
     int layersBefore = 0;                       // autotest bookkeeping
     std::size_t providerUndo = 0;               // autotest bookkeeping

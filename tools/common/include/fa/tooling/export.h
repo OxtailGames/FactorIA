@@ -16,7 +16,8 @@
 //                     CMake (-DFA_GAME_PROJECT_DIR=game ...) using the same settings as the `ios` preset
 //   web             : <out>/<slug>-web/{index.html, favicon.png (from the icon), factoria_player.js, factoria_player.wasm, game.pak, FACTORIA_NOTICES.txt} and,
 //                     next to that folder, <out>/<slug>-web.zip with the same files and index.html at its root (what itch.io
-//                     takes as an HTML5 game; ExportReport::artifact, format "zip"). The game is always ONE game.pak (like a
+//                     takes as an HTML5 game; ExportReport::artifact, format "zip"). With singleFile the folder holds ONE page,
+//                     <slug>.html (everything inlined, runs from a double click), and no zip (artifact = that file, format "html"). The game is always ONE game.pak (like a
 //                     desktop `release`), the page is platforms/web/shell.html (embedded in factoria) with {{title}},
 //                     {{wasmBytes}}, {{pakBytes}} and {{favicon}} filled in. The player is two Emscripten files found by --player, then
 //                     <factoria dir>/web, then `factoria setup players --platforms web`, then a web build of the source;
@@ -43,7 +44,7 @@
 // puts it, for exports older than the marker). Any other folder is an error, so an unrelated one is never deleted.
 // Never shipped (every platform, release or not): files that are not game data, so no game reads them. Top level of the
 // project: .factoria/ and every other dot-file/dot-folder (.git, .gitignore, .mcp.json), build/ (earlier exports), tests/,
-// tools/, types/, node_modules/, ENGINE_FEEDBACK.json (the file named by feedbackFile), AGENTS.md, CLAUDE.md, jsconfig.json,
+// tools/, types/, node_modules/, scripts/autoplay.js (the bot of play.auto), ENGINE_FEEDBACK.json (the file named by feedbackFile), AGENTS.md, CLAUDE.md, jsconfig.json,
 // README.md (any capitalization: the project's own documentation), steam_appid.txt, the folder of a native plugin that lives in
 // the project (its build ships instead), and the output folder itself. A README.md or CREDITS.md deeper in the project, a
 // LICENSE, a data file of any kind: shipped, because a game may load them. Everything else the project holds is shipped.
@@ -78,6 +79,10 @@ struct ExportOptions {
                                 // changes the build commands of the script
     bool allowDebugKey = false; // android release without a keystore: sign with the debug key (fine to try on a device,
                                 // Google Play rejects it) instead of failing
+    bool singleFile = false;    // web: ONE html file, <out>/<slug>-web/<slug>.html, with the player's JavaScript, the wasm, the favicon and game.pak
+                                // inlined (base64), that runs from a double click (file://). No zip. Refused over singleFileMaxBytes and
+                                // when the player needs a server (threads: shared memory, which needs cross-origin isolation headers)
+    std::uint64_t singleFileMaxBytes = 64ull * 1024 * 1024;  // singleFile: the biggest page written, checked before it is built
     std::string playerBinary;   // web: the folder with factoria_player.js and factoria_player.wasm (or factoria_player.js itself)
                                 // desktop: path of factoria_player for the target platform
                                 // ("" = next to the running factoria binary, or the build tree layout)

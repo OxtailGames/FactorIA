@@ -76,9 +76,11 @@ Options > Controls.
   gamepad only), `store.test.js` (stats, achievements and leaderboard submits from the events) and `store_screens.test.js` (the
   three screens and the purchases, with the gamepad only), both against the fake store, `accessibility.test.js` (every option saved, applied and effective; every
   screen in every language at 100% and 200% text, with `tests/helpers/screens.js`), `languages.test.js` (the four tables have the same keys and
-  placeholders, the language button, Arabic's mirrored HUD) and `shipping.test.js`. `tests/helpers/autoplay.js` is the bot: `playLevel("1-2")` plays a level to its exit and returns
+  placeholders, the language button, Arabic's mirrored HUD) and `shipping.test.js`. `scripts/autoplay.js` is the bot (the `game.autoplay` hook that `play.auto` runs; `factoria export` leaves it out): it plays
+  a level to its exit and ends the run `won`. `tests/helpers/level.js` drives the same `decide` step by step from a test: `playLevel("1-2")` plays a level to its exit and returns
   `{ completed, seconds, deaths, embers, events }`; `loadLevel(id)`, `listen(...eventNames)` and `teleportOnto(entity, target)`
-  help other tests. The levels are built so that this bot finishes all of them.
+  help other tests. The levels are built so that this bot finishes all of them; the ctest `example_lantern-keep_autoplay` runs the real
+  `play.auto` on every level and on the main menu and checks it ends `won`.
 - `screenshots/`: the main menu, the save slots, the level select, a level of each world, the level end panel and the achievements, leaderboards and shop screens;
   `a11y-*.png`: the Accessibility tab, the menu, a level and the level end panel at 200% text, and the hazards in colour and
   in greyscale; `main-menu-ar.png`, `level-select-ar.png` (Arabic) and `options-de-200.png` (German at 200% text).
