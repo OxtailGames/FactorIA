@@ -222,6 +222,7 @@ void Engine::Impl::take_scene_props(bool keepProps) {
 }
 
 bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error, bool keepProps) {
+    const jobs::OwnerScope jobScope(&jobOwner);  // the jobs a scene load queues (asset loads) are this engine's
     std::string path = pathIn;
     if (!fs::is_absolute(path)) {
         auto n = fs::normalize_checked(path);
@@ -274,6 +275,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
 }
 
 bool Engine::Impl::load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error) {
+    const jobs::OwnerScope jobScope(&jobOwner);  // the jobs a scene load queues (asset loads) are this engine's
     hasPendingScene = false;
     take_scene_props(false);
     audio.on_scene_load();
@@ -385,6 +387,7 @@ void Engine::Impl::poll_hot_reload(bool force) {
 }
 
 void Engine::Impl::run_frame(double dt, int fixedSteps) {
+    const jobs::OwnerScope jobScope(&jobOwner);  // the jobs a system or script of this frame queues are this engine's
     const bool profiled = !inFrame;  // a nested frame (a script stepping the game) belongs to the outer one
     if (profiled) Profiler::get().begin_frame();  // no-op unless the profiler is on (fa/core/profiler.h); measures only
     inFrame = true;
@@ -395,7 +398,10 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     // Store answers and events reach scripts here, before anything else of the frame runs (never in the middle of a call).
     {
         ProfSystemScope prof(ProfSystem::Platform);
-        if (profiled) jobs::run_main_thread_tasks();  // results jobs posted for the main thread (fa/core/jobs.h)
+        if (profiled) {  // results jobs posted for the main thread (fa/core/jobs.h): this engine's, then the shared ones
+            jobOwner.run_main_thread_tasks();
+            jobs::run_main_thread_tasks();
+        }
         platform.frame();
         scripts.dispatch_platform();
         scripts.dispatch_back();  // the Back button of this frame: input.onBack handlers, else quit
@@ -508,7 +514,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     if (recorder.recording()) recorder.timing(frame, dt, fixedSteps, fixedDt);  // [dt, steps] of the frame that just ran
     inFrame = false;
     if (profiled) {
-        jobs::end_frame();  // with 0 workers the jobs nobody waited for run here; closes the frame's job statistics
+        jobs::end_frame(&jobOwner);  // with 0 workers the jobs nobody waited for run here; closes the job statistics
         Profiler::get().end_frame();
     }
 }
@@ -533,10 +539,17 @@ Engine::~Engine() { shutdown(); }
 bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::string* error) {
     impl_->logSeqAtInit = log_last_seq();
     Impl& I = *impl_;
+    // Only what THIS call started is undone: a second init of a running engine fails and leaves the pool running.
+    bool startedHere = false;
+    std::optional<jobs::OwnerScope> jobScope;
     auto fail = [&](const std::string& msg) {
         FA_ERROR("engine", "{}", msg);
         if (error) *error = msg;
-        if (I.jobsStarted) {  // init failed after the pool started: give its reference back
+        if (startedHere) {  // init failed after the pool started: its jobs end, then its reference goes back
+            if (auto w = I.jobOwner.wait(); !w) FA_ERROR("engine", "{}", w.error().to_string());
+            I.jobOwner.close();
+            jobScope.reset();
+            startedHere = false;
             I.jobsStarted = false;
             jobs::stop();
         }
@@ -582,8 +595,11 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             threads = I.project.jobThreads;
             I.jobThreadsSource = std::string(kProjectFileName);
         }
-        jobs::start(threads);
+        if (auto r = jobs::start(threads); !r) return fail(r.error().to_string());
+        startedHere = true;
         I.jobsStarted = true;
+        jobScope.emplace(&I.jobOwner);  // what init queues (a first scene's loads) belongs to this engine
+        I.commands.set_job_owner(&I.jobOwner);
     }
     // Screenshots the engine named itself (game.screenshot without a path) pile up over a long session: drop the old ones.
     if (!dir.empty()) prune_screenshots(stdfs::path(dir));
@@ -800,7 +816,13 @@ void Engine::shutdown() {
     Impl& I = *impl_;
     if (!I.initialized) return;
     I.initialized = false;
-    // Every job runs to the end before the systems it may touch go away (the pool joins when the last engine stops).
+    // This engine's jobs run to the end before the systems they may touch go away; its main-thread tasks still queued
+    // are dropped. Other engines' jobs keep running: the pool joins its threads when the last engine stops it.
+    {
+        const jobs::OwnerScope jobScope(&I.jobOwner);
+        if (auto w = I.jobOwner.wait(); !w) FA_ERROR("engine", "{}", w.error().to_string());
+        I.jobOwner.close();
+    }
     if (I.jobsStarted) {
         I.jobsStarted = false;
         jobs::stop();
@@ -822,12 +844,14 @@ void Engine::frame(double dt) {
     if (!I.initialized) return;
     dt = std::clamp(dt, 0.0, kMaxFrameDt);
     if (I.paused) {
+        const jobs::OwnerScope jobScope(&I.jobOwner);
         I.inFrame = true;
-        jobs::run_main_thread_tasks();  // a paused game still takes the results of its jobs (a load that finished)
+        I.jobOwner.run_main_thread_tasks();  // a paused game still takes the results of its jobs (a load that finished)
+        jobs::run_main_thread_tasks();
         I.render(0.0);
         I.end_of_frame(dt, false);
         I.inFrame = false;
-        jobs::end_frame();
+        jobs::end_frame(&I.jobOwner);
         return;
     }
     I.accumulator += dt;

@@ -259,7 +259,7 @@ the `runtime` setting of factoria.json:
 
 - `"auto"` (the default): hardware threads - 1, at most 8 on desktop and 4 on phones (their slow cores count too, and
   the OS, the GPU driver and audio need room). The web build has no threads: 0 there.
-- A number 0..32: that many workers besides the main thread. `0` runs every job on the main thread, when something
+- A number 0..32 (a JSON number: `"4"` in quotes is refused with a hint): that many workers besides the main thread. `0` runs every job on the main thread, when something
   waits for it or at the end of the frame: the cheapest setting for a game that is light anyway.
 - `"inline"`: every job runs at once on the thread that submits it, in submission order. For debugging only: a job's
   crash then has the plain call stack of its caller.
@@ -270,7 +270,8 @@ the `runtime` setting of factoria.json:
 Threads never change what the game computes. `factoria call game.state_hash` gives one hash of the whole simulation
 state; the same replay gives the same hash with any setting (`{"perEntity":true}` lists one hash per entity to find which
 one differs). `factoria call jobs.info` says what runs now: workers, mode, the setting and where it came from, the jobs
-of the last frame and how busy each thread was.
+of the last frame, how busy each thread was, the threads waiting now (`waiting`) and this engine's unfinished jobs
+(`enginePending`).
 
 Cost: idle workers sleep and use no CPU. A job costs about one allocation and one lock, so the engine only splits work
 big enough to gain from it. Each worker has a stack and a few kilobytes of its own: on a phone, fewer workers save a

@@ -1,5 +1,6 @@
 #include "fa/scene/state_hash.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -104,32 +105,49 @@ void hash_field(Fnv& h, const FieldInfo& f, const void* o) {
 
 }  // namespace
 
+std::uint64_t entity_state_hash(Entity entity, const std::string& id, const std::string& parentId,
+                                std::vector<ComponentRef> components, const StateHashOptions& options) {
+    // Sorted by type name: registration order depends on which code registered its components first (a module, a
+    // script, a test), and the hash must not.
+    std::sort(components.begin(), components.end(), [](const ComponentRef& a, const ComponentRef& b) {
+        if (!a.type || !b.type) return a.type == nullptr && b.type != nullptr;
+        return a.type->name < b.type->name;
+    });
+    Fnv h;
+    h.u64(entity.bits());
+    h.str(id);
+    h.str(parentId);
+    for (const ComponentRef& c : components) {
+        if (!c.type || !c.object) continue;
+        h.str(c.type->name);
+        for (const FieldInfo& f : c.type->fields) {
+            if (!f.serialized && !options.includeRuntime) continue;
+            h.str(f.name);
+            hash_field(h, f, c.object);
+        }
+    }
+    return h.h;
+}
+
 StateHash world_state_hash(const World& world, const StateHashOptions& options) {
     StateHash out;
     Fnv all;
     all.u64(world.frame());
     all.f64(world.time());
     all.u64(world.rng().state());
+    std::vector<ComponentRef> components;
     for (Entity e : world.entities()) {
-        Fnv h;
-        h.u64(e.bits());
-        h.str(world.id_of(e));
-        const Entity parent = world.parent(e);
-        h.str(parent ? world.id_of(parent) : std::string());
+        components.clear();
         for (const TypeInfo* t : world.components_of(e)) {
-            const void* obj = world.get(e, *t);
-            if (!obj) continue;
-            h.str(t->name);
-            for (const FieldInfo& f : t->fields) {
-                if (!f.serialized && !options.includeRuntime) continue;
-                h.str(f.name);
-                hash_field(h, f, obj);
-            }
-            ++out.components;
+            if (const void* obj = world.get(e, *t)) components.push_back(ComponentRef{t, obj});
         }
-        all.u64(h.h);
+        out.components += int(components.size());
+        const Entity parent = world.parent(e);
+        const std::uint64_t h =
+            entity_state_hash(e, world.id_of(e), parent ? world.id_of(parent) : std::string(), components, options);
+        all.u64(h);
         ++out.entities;
-        if (options.perEntity) out.perEntity.push_back(EntityHash{e, world.id_of(e), h.h});
+        if (options.perEntity) out.perEntity.push_back(EntityHash{e, world.id_of(e), h});
     }
     out.hash = all.h;
     return out;

@@ -105,8 +105,9 @@ public:
     // Probes (call only when on(); the scopes below check).
     void add_system(ProfSystem s, double ms) { cur_.systemMs[std::size_t(s)] += ms; }
     void add_behaviour(const std::string& className, const std::string& path, double ms);
-    // A job's time on a lane (jobs::current_lane()). Any thread; the job system calls it when on().
-    void add_job(int lane, std::string_view name, double ms);
+    // `count` jobs of one name and their total time on a lane (jobs::current_lane()). Any thread; the job system calls
+    // it when on(), once per job and once per thread for the chunks of a parallel_for call.
+    void add_job(int lane, std::string_view name, double ms, int count = 1);
 
     static double now_ms() {
         return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();

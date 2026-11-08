@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "fa/core/i18n.h"
+#include "fa/core/jobs.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/input_recorder.h"
 #include "fa/scene/rich_text.h"
@@ -89,6 +90,7 @@ struct Engine::Impl {
     bool initialized = false;
     bool jobsStarted = false;      // this engine holds a reference on the job pool (jobs::start in init, jobs::stop in shutdown)
     std::string jobThreadsSource;  // where the job thread setting came from: "EngineConfig", "FA_JOB_THREADS", "factoria.json", "default"
+    jobs::Owner jobOwner{"engine"};  // this engine's jobs and main-thread tasks (shutdown waits for them; a frame runs its tasks)
     bool windowed = false;  // GPU comes from the platform window (GfxEnvironment passed to init)
 
     World world;

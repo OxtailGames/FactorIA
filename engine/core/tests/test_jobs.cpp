@@ -21,7 +21,7 @@ namespace {
 
 // Starts the pool for one test and stops it at the end (also when a REQUIRE fails).
 struct PoolScope {
-    explicit PoolScope(const jobs::Settings& s) { jobs::start(s); }
+    explicit PoolScope(const jobs::Settings& s) { REQUIRE(jobs::start(s).ok()); }
     ~PoolScope() { jobs::stop(); }
     PoolScope(const PoolScope&) = delete;
     PoolScope& operator=(const PoolScope&) = delete;
@@ -110,7 +110,11 @@ TEST_CASE("jobs: settings parse auto, inline and counts, and errors teach") {
     CHECK(jobs::parse_settings(Json(0), "x")->count == 0);
     CHECK(jobs::parse_settings(Json(2.0), "x")->count == 2);
     CHECK(jobs::parse_settings_text(" 5 ", "FA_JOB_THREADS")->count == 5);
-    CHECK(jobs::parse_settings(Json("4"), "x")->count == 4);
+    auto quoted = jobs::parse_settings(Json("4"), "factoria.json /runtime/jobThreads");  // the schema wants a number
+    REQUIRE(!quoted.ok());
+    CHECK(quoted.error().message.find("write it as a number") != std::string::npos);
+    CHECK(quoted.error().hint.find("\"jobThreads\": 4") != std::string::npos);
+    CHECK(jobs::parse_settings_text("4", "FA_JOB_THREADS")->count == 4);  // text (an environment variable) may
 
     auto neg = jobs::parse_settings(Json(-1), "factoria.json /runtime/jobThreads");
     REQUIRE(!neg.ok());
@@ -288,7 +292,7 @@ TEST_CASE("jobs: a throw is caught, named and returned; dependents are skipped")
 
 TEST_CASE("jobs: stop runs every queued job, also those queued while it stops") {
     std::atomic<int> ran{0};
-    jobs::start(jobs::Settings::threads(2));
+    REQUIRE(jobs::start(jobs::Settings::threads(2)).ok());
     for (int i = 0; i < 200; ++i) {
         (void)jobs::submit("test.queued", [&ran, i] {
             ran.fetch_add(1);
@@ -306,17 +310,23 @@ TEST_CASE("jobs: stop runs every queued job, also those queued while it stops") 
 }
 
 TEST_CASE("jobs: start and stop are reference counted; stop from a job is refused") {
-    jobs::start(jobs::Settings::threads(1));
-    jobs::start(jobs::Settings::threads(3));  // already running: keeps its first settings
+    REQUIRE(jobs::start(jobs::Settings::threads(1)).ok());
+    REQUIRE(jobs::start(jobs::Settings::threads(3)).ok());  // already running: keeps its first settings
     CHECK(jobs::worker_count() == 1);
     CHECK(jobs::settings() == jobs::Settings::threads(1));
     jobs::stop();
     CHECK(jobs::running());
     // Not wait(): this thread would help and run the job itself. A worker must take it.
-    jobs::Handle h = jobs::submit("test.stop", [] { jobs::stop(); });
+    std::atomic<bool> startRefused{false};
+    jobs::Handle h = jobs::submit("test.stop", [&] {
+        jobs::stop();
+        auto r = jobs::start(jobs::Settings::threads(1));
+        startRefused = !r.ok() && r.error().message.find("inside a job") != std::string::npos;
+    });
     for (int i = 0; i < 30000000 && !h.done(); ++i) std::this_thread::yield();
     REQUIRE(h.done());
     CHECK(jobs::running());  // the job's stop() was refused
+    CHECK(startRefused.load());
     jobs::stop();
     CHECK(!jobs::running());
     jobs::stop();  // unmatched: a warning, nothing else
@@ -464,4 +474,250 @@ TEST_CASE("jobs: stress: many small jobs with dependencies, far below the test t
         jobs::end_frame();
     }
     CHECK(sum.load() == expected);
+}
+
+namespace {
+// Spins (no sleeping: the tests never depend on timing) until `cond` holds; false after far more tries than a loaded
+// machine needs.
+template <class F>
+bool spin_until(F&& cond) {
+    for (long i = 0; i < 200000000L; ++i) {
+        if (cond()) return true;
+        std::this_thread::yield();
+    }
+    return cond();
+}
+}  // namespace
+
+TEST_CASE("jobs: a waiting job's thread never takes an unrelated job (no false 'can never end')") {
+    // A waits for H, which runs on the other worker. C is queued meanwhile and waits for A. A's thread must not pick C up
+    // while it waits: C would then sit on top of A on that thread, and C's wait for A could never end.
+    PoolScope pool(jobs::Settings::threads(2));
+    REQUIRE(jobs::worker_count() == 2);
+    std::atomic<bool> hStarted{false}, cStarted{false}, aWaitOk{false}, cWaitOk{false};
+    std::atomic<int> cLane{-1};
+    jobs::Handle h = jobs::submit("test.h", [&] {
+        hStarted = true;
+        spin_until([&] { return cStarted.load(); });  // H ends only once C runs: C cannot have waited for a worker
+    });
+    REQUIRE(spin_until([&] { return hStarted.load(); }));
+    jobs::Handle a = jobs::submit("test.a", [&, h] { aWaitOk = jobs::wait(h).ok(); });
+    REQUIRE(spin_until([] { return jobs::info().waiting >= 1; }));  // A sits in its wait for H on the other worker
+    jobs::Handle c = jobs::submit("test.c", [&, a] {
+        cLane = jobs::current_lane();
+        cStarted = true;
+        cWaitOk = jobs::wait(a).ok();
+    });
+    // Both workers are busy (H spins, A waits for H), so only this thread's wait can run C.
+    REQUIRE(jobs::wait(c).ok());
+    CHECK(cLane.load() == 0);
+    CHECK(cWaitOk.load());
+    REQUIRE(jobs::wait(a).ok());
+    CHECK(aWaitOk.load());
+}
+
+TEST_CASE("jobs: parallel_for waits for its own chunks and never runs another job on the calling thread") {
+    // One worker runs the call's helper; its chunk queues a foreign job F and holds until the main thread is in the
+    // wait at the end of parallel_for. The main thread must sleep there (its own helper is running), not take F.
+    PoolScope pool(jobs::Settings::threads(1));
+    REQUIRE(jobs::worker_count() == 1);
+    std::atomic<bool> workerInChunk{false};
+    std::atomic<int> fLane{-1};
+    jobs::Handle f;
+    std::mutex fMu;
+    auto r = jobs::parallel_for("test.own", 2, 1, [&](const jobs::Chunk&) {
+        if (jobs::is_worker_thread()) {
+            {
+                std::lock_guard<std::mutex> lk(fMu);
+                f = jobs::submit("test.foreign", [&] { fLane = jobs::current_lane(); });
+            }
+            workerInChunk = true;
+            spin_until([] { return jobs::info().waiting >= 1; });  // the main thread waits for this helper
+        } else {
+            spin_until([&] { return workerInChunk.load(); });  // the worker holds the other chunk
+        }
+    });
+    REQUIRE(r.ok());
+    REQUIRE(workerInChunk.load());
+    jobs::Handle foreign;
+    {
+        std::lock_guard<std::mutex> lk(fMu);
+        foreign = f;
+    }
+    // Not wait(): that would run F here, legitimately. The worker takes it once the helper is done.
+    REQUIRE(spin_until([&] { return foreign.done(); }));
+    CHECK(fLane.load() == 1);
+}
+
+TEST_CASE("jobs: a wait that loops back through another thread's wait returns an error") {
+    // A (worker 1) waits for B; B (worker 2) waits for X, and X depends on A: X can only run after A, A after B, B
+    // after X. B's wait sees the loop and fails; A's wait then ends and X runs.
+    PoolScope pool(jobs::Settings::threads(2));
+    REQUIRE(jobs::worker_count() == 2);
+    std::atomic<bool> handlesSet{false}, aOk{false}, xRan{false};
+    std::string bError;
+    jobs::Handle a, b;
+    a = jobs::submit("test.loop.a", [&] {
+        spin_until([&] { return handlesSet.load(); });
+        aOk = jobs::wait(b).ok();
+    });
+    b = jobs::submit("test.loop.b", [&] {
+        spin_until([&] { return handlesSet.load(); });
+        spin_until([] { return jobs::info().waiting >= 1; });  // A waits for this job
+        jobs::Handle x = jobs::submit("test.loop.x", [&] { xRan = true; }, {a});
+        auto r = jobs::wait(x);
+        bError = r.ok() ? "" : r.error().message;
+    });
+    handlesSet = true;
+    // Not wait(): this thread would count as a waiter, and B must start its wait only after A is in its own.
+    REQUIRE(spin_until([&] { return a.done() && b.done(); }));
+    REQUIRE(jobs::wait(a).ok());
+    REQUIRE(jobs::wait(b).ok());
+    CHECK(aOk.load());
+    CHECK(bError.find("can never end") != std::string::npos);
+    jobs::end_frame();
+    REQUIRE(spin_until([&] { return xRan.load(); }));  // X ran once A was done
+}
+
+TEST_CASE("jobs: an owner counts its jobs, the jobs they submit too, and waits for them") {
+    for (const jobs::Settings& s : {jobs::Settings::threads(0), jobs::Settings::threads(2)}) {
+        CAPTURE(s.describe());
+        PoolScope pool(s);
+        jobs::Owner engineA("engine A"), engineB("engine B");
+        std::atomic<bool> release{false};
+        std::atomic<int> ran{0}, asOwner{0};
+        {
+            jobs::OwnerScope scope(&engineA);
+            CHECK(jobs::current_owner_name() == "engine A");
+            for (int i = 0; i < 3; ++i)
+                (void)jobs::submit("test.owned", [&] {
+                    spin_until([&] { return release.load(); });
+                    if (jobs::current_owner_name() == "engine A") asOwner.fetch_add(1);  // a job runs as its owner
+                    (void)jobs::submit("test.child", [&] { ran.fetch_add(1); });  // engine A's too
+                    ran.fetch_add(1);
+                });
+        }
+        CHECK(jobs::current_owner_name().empty());
+        {
+            jobs::OwnerScope scope(&engineB);
+            (void)jobs::submit("test.other", [&] { ran.fetch_add(100); });
+        }
+        CHECK(engineA.pending() >= 3);
+        release = true;
+        REQUIRE(engineA.wait().ok());
+        CHECK(engineA.pending() == 0);
+        CHECK(ran.load() % 100 == 6);  // engine A's three jobs and their three children
+        CHECK(asOwner.load() == 3);
+        REQUIRE(engineB.wait().ok());
+        CHECK(ran.load() == 106);
+
+        // From inside a job the wait is refused (the job may be one of the owner's).
+        std::string inner;
+        {
+            jobs::OwnerScope scope(&engineA);
+            REQUIRE(jobs::wait(jobs::submit("test.inner", [&] {
+                auto r = engineA.wait();
+                inner = r.ok() ? "" : r.error().message;
+            })).ok());
+        }
+        CHECK(inner.find("inside a job") != std::string::npos);
+    }
+}
+
+TEST_CASE("jobs: main-thread tasks go to their owner's queue; with the pool stopped they run at once") {
+    {
+        PoolScope pool(jobs::Settings::threads(1));
+        jobs::Owner engineA("engine A"), engineB("engine B");
+        std::vector<std::string> order;
+        {
+            jobs::OwnerScope scope(&engineA);
+            REQUIRE(jobs::wait(jobs::submit("test.posts", [&] {
+                jobs::post_main("test.a", [&] { order.push_back("a"); });  // the job's owner: engine A
+            })).ok());
+        }
+        {
+            jobs::OwnerScope scope(&engineB);
+            jobs::post_main("test.b", [&] { order.push_back("b"); });
+        }
+        jobs::post_main("test.shared", [&] { order.push_back("shared"); });
+        CHECK(jobs::main_tasks_queued() == 3);
+        CHECK(engineA.main_tasks_queued() == 1);
+        CHECK(engineB.main_tasks_queued() == 1);
+        CHECK(engineB.run_main_thread_tasks() == 1);
+        CHECK(order == std::vector<std::string>{"b"});
+        CHECK(jobs::run_main_thread_tasks() == 1);  // the shared queue only
+        CHECK(order == std::vector<std::string>{"b", "shared"});
+        engineA.close();  // dropped, never run
+        CHECK(engineA.main_tasks_queued() == 0);
+        CHECK(engineA.run_main_thread_tasks() == 0);
+        CHECK(jobs::main_tasks_queued() == 0);
+        CHECK(order.size() == 2);
+    }
+    REQUIRE(!jobs::running());
+    int ranNow = 0;
+    jobs::post_main("test.now", [&] { ++ranNow; });
+    CHECK(ranNow == 1);
+    CHECK(jobs::main_tasks_queued() == 0);
+}
+
+TEST_CASE("jobs: with two owners only the first one to end a frame closes the frame statistics") {
+    PoolScope pool(jobs::Settings::threads(1));
+    jobs::Owner editor("editor"), preview("preview");
+    jobs::end_frame(&editor);  // the editor closes the frames from now on
+    for (int i = 0; i < 3; ++i) REQUIRE(jobs::wait(jobs::submit("test.frame", [] {})).ok());
+    jobs::end_frame(&preview);  // not its frames: nothing changes
+    CHECK(jobs::info().submittedLastFrame == 0);
+    jobs::end_frame(&editor);
+    CHECK(jobs::info().submittedLastFrame == 3);
+    editor.close();  // the editor stops: the next owner takes over
+    REQUIRE(jobs::wait(jobs::submit("test.frame", [] {})).ok());
+    jobs::end_frame(&preview);
+    CHECK(jobs::info().submittedLastFrame == 1);
+}
+
+TEST_CASE("jobs: start from another thread while the pool runs is refused") {
+    PoolScope pool(jobs::Settings::threads(1));
+    std::string error;
+    std::thread t([&] {
+        auto r = jobs::start(jobs::Settings::threads(1));
+        error = r.ok() ? "" : r.error().message;
+        if (r.ok()) jobs::stop();
+    });
+    t.join();
+    CHECK(error.find("not the job pool's main thread") != std::string::npos);
+    CHECK(jobs::running());
+    CHECK(jobs::is_main_thread());
+}
+
+TEST_CASE("jobs: a start from another thread during a stop finds either the old pool or a whole new one") {
+    for (int round = 0; round < 3; ++round) {
+        REQUIRE(jobs::start(jobs::Settings::threads(2)).ok());
+        std::atomic<bool> go{false};
+        std::atomic<bool> other{false};
+        std::atomic<int> otherWorkers{-1};
+        std::atomic<bool> otherStarted{false};
+        (void)jobs::submit("test.slow", [&] {  // keeps a worker busy, so stop() is still joining when the start comes
+            go = true;
+            for (int i = 0; i < 2000; ++i) std::this_thread::yield();
+        });
+        std::thread t([&] {
+            spin_until([&] { return go.load(); });
+            auto r = jobs::start(jobs::Settings::threads(3));
+            otherStarted = r.ok();
+            if (r.ok()) {
+                otherWorkers = jobs::worker_count();
+                std::atomic<int> ran{0};
+                const bool waited = jobs::wait(jobs::submit("test.new", [&] { ran = 1; })).ok();  // no CHECK here:
+                other = waited && ran.load() == 1;                                                  // not thread-safe
+                jobs::stop();
+            }
+        });
+        jobs::stop();
+        t.join();
+        CHECK(!jobs::running());
+        if (otherStarted) {  // it came after the stop: a whole pool with its own settings, and jobs ran
+            CHECK(otherWorkers.load() == jobs::resolve_workers(jobs::Settings::threads(3)));
+            CHECK(other.load());
+        }
+    }
 }

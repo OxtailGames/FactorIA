@@ -93,22 +93,23 @@ void Profiler::add_behaviour(const std::string& className, const std::string& pa
     ++s.calls;
 }
 
-void Profiler::add_job(int lane, std::string_view name, double ms) {
+void Profiler::add_job(int lane, std::string_view name, double ms, int count) {
     if (lane < 0 || lane >= jobs::kMaxLanes) lane = jobs::lane_other();
+    count = std::max(count, 0);
     std::lock_guard<std::mutex> lk(jobsMu_);
     if (jobLanes_.size() <= std::size_t(lane)) jobLanes_.resize(std::size_t(lane) + 1);
     ProfLane& l = jobLanes_[std::size_t(lane)];
     ms = std::max(0.0, ms);
     l.jobMs += ms;
-    ++l.jobs;
+    l.jobs += count;
     for (ProfJobSample& j : l.samples) {
         if (j.name == name) {
             j.ms += ms;
-            ++j.count;
+            j.count += count;
             return;
         }
     }
-    l.samples.push_back(ProfJobSample{std::string(name), ms, 1});
+    l.samples.push_back(ProfJobSample{std::string(name), ms, count});
 }
 
 // ---------------------------------------------------------------------------------------------------------------- summary
@@ -225,15 +226,15 @@ Json ProfileSummary::to_json() const {
         std::sort(names.begin(), names.end(), [](const auto& a, const auto& b) {
             return a.second->sumMs != b.second->sumMs ? a.second->sumMs > b.second->sumMs : *a.first < *b.first;
         });
-        Json list = Json::array();
+        Json laneJobs = Json::array();
         for (std::size_t i = 0; i < names.size() && i < kMaxLaneJobs; ++i)
-            list.push_back(Json::object({{"name", *names[i].first}, {"avgMs", r3(names[i].second->sumMs / n)},
+            laneJobs.push_back(Json::object({{"name", *names[i].first}, {"avgMs", r3(names[i].second->sumMs / n)},
                                          {"maxMs", r3(names[i].second->maxMs)},
                                          {"callsPerFrame", r3(double(names[i].second->count) / n)}}));
         const double busy = frame_.sum > 0 ? std::min(100.0, l.sumMs / frame_.sum * 100.0) : 0.0;
         threads.push_back(Json::object({{"name", l.name}, {"jobMsAvg", r3(l.sumMs / n)}, {"jobMsMax", r3(l.maxMs)},
                                         {"busyPct", r1(busy)}, {"jobsPerFrame", r3(double(l.jobs) / n)},
-                                        {"jobs", list}}));
+                                        {"jobs", laneJobs}}));
     }
     out["threads"] = threads;
     Json gpu = Json::object();

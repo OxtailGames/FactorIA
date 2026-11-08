@@ -13,9 +13,14 @@
 // - parallel_for splits [0, count) into chunks whose bounds depend only on count and grain. Results are merged in chunk
 //   order (parallel_map_chunks, parallel_reduce), never in the order chunks happen to finish.
 // - Results that must reach the World come back to the main thread: wait() for them, or post_main() a task that the
-//   engine runs at the start of the next frame.
+//   engine runs at the start of its next frame.
 // - A job that throws does not take the process down: the exception is caught, logged with the job's name and
 //   returned by wait() as an error. Jobs that depend on it do not run and report the same failure.
+// - Jobs belong to an Owner (each Engine is one): the jobs and main-thread tasks queued while an OwnerScope is active,
+//   or by a job of that owner, are its own. Engine::shutdown waits for its own jobs before its systems go away, and an
+//   engine runs only its own main-thread tasks, so two engines that share the pool (the editor and a preview) never
+//   run each other's results.
+// - Log sinks (add_log_sink) are called from the thread that logs, a worker too: a sink must be thread-safe.
 //
 // Threads: hardware threads - 1 workers by default (the main thread is the other one), capped by kAutoCapDesktop /
 // kAutoCapMobile. Idle workers sleep on a condition variable: no CPU is used while nothing is queued (a game in the
@@ -66,9 +71,11 @@ struct Settings {
     friend bool operator==(const Settings&, const Settings&) = default;
 };
 
-// "auto" | "inline" | an integer 0..kMaxWorkers. `where` names the value in the error ("factoria.json /runtime/jobThreads").
+// A JSON value (factoria.json runtime.jobThreads): the string "auto" or "inline", or a number 0..kMaxWorkers. A count
+// written as a string ("4") is refused with a hint to write the number, as the project schema says. `where` names the
+// value in the error ("factoria.json /runtime/jobThreads").
 Result<Settings> parse_settings(const Json& value, std::string_view where);
-// The same values as text (an environment variable): "auto", "inline" or digits.
+// The same values as text (FA_JOB_THREADS, EngineConfig::jobThreads): "auto", "inline" or digits.
 Result<Settings> parse_settings_text(std::string_view text, std::string_view where);
 
 bool threads_supported();               // false in a web build without pthreads
@@ -78,9 +85,12 @@ int resolve_workers(const Settings& s);      // the worker count `s` gives here 
 
 // ------------------------------------------------------------------------------------------------------------ the pool
 // Reference counted: the first start() creates the workers and makes the calling thread the main thread; later calls
-// only count (the pool keeps its first settings). The last stop() runs every queued job to the end, joins the workers
-// and drops the main-thread tasks still queued. stop() from a job is refused (it would join its own thread).
-void start(const Settings& s);
+// only count (the pool keeps its first settings) and must come from that same thread: start() from another thread
+// while the pool runs is refused with an error (every engine of a process runs on the main thread). start() and stop()
+// from inside a job are refused too. A start() that another thread calls while stop() is joining the workers waits for
+// the stop to end, then starts a new pool. The last stop() runs every queued job to the end, joins the workers and
+// drops the main-thread tasks still queued.
+Result<void> start(const Settings& s);
 void stop();
 bool running();
 bool inline_mode();       // running in inline mode: every job runs at once on the thread that submits it
@@ -91,9 +101,61 @@ bool is_worker_thread();  // one of the pool's workers
 
 namespace detail {
 struct JobState;
-}
+struct OwnerState;
+}  // namespace detail
 
-// A submitted job. Copyable; done() and wait() can be asked from any thread.
+// ------------------------------------------------------------------------------------------------------------ owners
+// Who jobs and main-thread tasks belong to: each Engine has one. Not copyable; the jobs of an owner that is destroyed
+// still run (they keep what they need), its main-thread tasks still queued are dropped.
+class Owner {
+public:
+    explicit Owner(std::string_view name = "jobs");
+    ~Owner();
+    Owner(const Owner&) = delete;
+    Owner& operator=(const Owner&) = delete;
+
+    const std::string& name() const;
+    int pending() const;  // its jobs submitted and not finished yet
+
+    // Blocks until every job of this owner is done, the ones those jobs submit too. The waiting thread runs queued
+    // jobs meanwhile (any job: this is for shutdown, not for the middle of a frame), so it ends with 0 workers too.
+    // Called from inside a job (or from a wait that runs one) it returns an error at once: the job could be one of
+    // this owner's.
+    Result<void> wait();
+
+    // Runs this owner's main-thread tasks queued so far, in order, on the calling thread (the engine calls it on its
+    // thread at the start of each frame); returns how many ran. A task that throws is logged; the rest still run.
+    int run_main_thread_tasks();
+    int main_tasks_queued() const;
+
+    // Drops the main-thread tasks still queued (they never run) and gives up the frame statistics (end_frame). The
+    // owner can be used again afterwards. Engine::shutdown calls it after wait().
+    void close();
+
+private:
+    friend struct Access;
+    std::shared_ptr<detail::OwnerState> state_;
+};
+
+// Makes `owner` this thread's current owner until the scope ends (scopes nest; null means no owner). submit(),
+// parallel_for() and post_main() tag what they queue with the current owner. A job runs with its own owner as the
+// current one, so the jobs and tasks it queues belong to the same owner. The engine opens a scope in init, shutdown,
+// each frame, each scene load and each command call.
+class OwnerScope {
+public:
+    explicit OwnerScope(Owner* owner);
+    ~OwnerScope();
+    OwnerScope(const OwnerScope&) = delete;
+    OwnerScope& operator=(const OwnerScope&) = delete;
+
+private:
+    detail::OwnerState* previous_ = nullptr;
+};
+
+// The name of this thread's current owner ("" for none).
+std::string current_owner_name();
+
+// A submitted job. Copyable; done() and jobs::wait(handle) can be asked from any thread.
 class Handle {
 public:
     Handle() = default;
@@ -111,9 +173,15 @@ private:
 // ("physics.islands"). When the pool is not running, or in inline mode, the job runs before submit returns.
 Handle submit(std::string_view name, std::function<void()> fn, const std::vector<Handle>& deps = {});
 
-// Blocks until the job is done and returns its error (a throw, a failed dependency). The waiting thread runs queued
-// jobs meanwhile, so a wait inside a job, or with 0 workers, makes progress instead of deadlocking. A wait that can
-// never end (what it waits for depends on the job that is waiting) returns an error instead of hanging.
+// Blocks until the job is done and returns its error (a throw, a failed dependency). Meanwhile the waiting thread runs
+// only what the job needs: the job itself and its dependencies (and theirs) while they are still queued; when those run
+// on other threads it sleeps. So a wait inside a job, or with 0 workers, makes progress, and a wait never picks up an
+// unrelated job (a long background load does not end up on the main thread).
+//
+// A wait that can never end returns an error instead of hanging: the job, or a job it needs, is running on this thread
+// under the wait, or is running on another thread that waits (directly or through more waits) for a job running on
+// this thread under this wait. Only waits through wait()/wait_all()/Group/parallel_for are seen: a job that blocks on
+// its own mutex, condition variable or future is not, and can still hang.
 Result<void> wait(const Handle& h);
 Result<void> wait_all(const std::vector<Handle>& hs);  // waits for all; the first error in list order
 
@@ -149,6 +217,7 @@ Chunk chunk_at(std::size_t count, std::size_t grain, std::size_t index, std::uin
 // Runs fn once per chunk of `grain` items, on the workers and the calling thread, and returns when every chunk is done.
 // Every chunk runs even when one throws; the error returned is the one of the lowest chunk index that failed (the same
 // whatever the threads). fn must only write data of its own chunk. Nested calls (a parallel_for inside a job) work.
+// While it waits for the last chunks the calling thread runs only chunks of this call, never another job.
 Result<void> parallel_for(std::string_view name, std::size_t count, std::size_t grain,
                           const std::function<void(const Chunk&)>& fn, std::uint64_t seed = 0);
 
@@ -176,22 +245,29 @@ Result<T> parallel_reduce(std::string_view name, std::size_t count, std::size_t 
 }
 
 // --------------------------------------------------------------------------------------------- the main thread's queue
-// Queues fn for the main thread (from any thread). The engine runs the queue at the start of each frame, before the
-// platform events, in the order tasks were posted; a task posted while the queue runs waits for the next frame.
+// Queues fn for the main thread (from any thread). The task belongs to the current owner (OwnerScope, or the job that
+// posts it): its engine runs it at the start of its next frame, before the platform events, in the order tasks were
+// posted; a task posted while the queue runs waits for the next frame. A task posted with no owner goes to the shared
+// queue, which every engine runs at the start of its frames. While the pool is not running there is no main thread to
+// hand it to: fn runs at once on the calling thread (like submit()).
 void post_main(std::string_view name, std::function<void()> fn);
-// Runs the tasks queued so far, in order; returns how many ran. Main thread only (another thread gets 0 and nothing
-// runs). A task that throws is logged with its name; the rest still run.
+// Runs the tasks of the shared queue (the ones posted with no owner) queued so far, in order; returns how many ran.
+// Main thread only while the pool runs (another thread gets 0 and nothing runs). A task that throws is logged with its
+// name; the rest still run.
 int run_main_thread_tasks();
-int main_tasks_queued();
+int main_tasks_queued();  // every task queued now: the shared queue and every owner's
 
 // The engine calls this once at the end of each frame on the main thread. With 0 workers it runs the jobs nobody waited
-// for (queued before this call), then it closes the frame's statistics (jobs.info, the profiler's thread lanes).
-void end_frame();
+// for (queued before this call), then it closes the frame's statistics (jobs.info, the profiler's thread lanes). With
+// several engines (the editor and a preview) only one owner closes the frames: the first that calls end_frame, until
+// it closes (Owner::close) or the pool stops; the calls of the others return after the 0-worker step. A null owner
+// (tools and tests) always closes the frame.
+void end_frame(const Owner* owner = nullptr);
 
 // --------------------------------------------------------------------------------------------------- what jobs.info says
 struct LaneInfo {
     std::string name;   // "main", "worker 1".., "other" (threads that are neither)
-    int jobs = 0;       // jobs (parallel_for chunks count one each) this thread ran last frame
+    int jobs = 0;       // jobs (each parallel_for chunk counts as one) this thread ran last frame
     double busyMs = 0;  // their time, rounded to 0.01 ms
     double busyPct = 0; // busyMs / the frame's wall time, rounded to 0.1
 };
@@ -207,6 +283,7 @@ struct Info {
     int jobsLastFrame = 0;          // jobs that ran last frame (sum of the lanes)
     int submittedLastFrame = 0;
     int pending = 0;                // submitted and not finished now
+    int waiting = 0;                // threads in a wait now (asleep, or running a job the wait needs)
     int mainTasksLastFrame = 0;
     int mainTasksQueued = 0;
     double frameMs = 0;             // wall time of the last frame (end_frame to end_frame), rounded to 0.01
