@@ -4,7 +4,7 @@
 
 ## `jobs.info`
 
-Not released yet (on main after 0.18.0).
+Since 0.19.0.
 
 The job system now: worker threads, mode, jobs run and queued last frame, how busy each thread was.
 

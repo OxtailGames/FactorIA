@@ -33,7 +33,7 @@ A* over the walkable grid, then string pulling: the result is few corner points 
 
 ## `nav.find_paths`
 
-Not released yet (on main after 0.18.0).
+Since 0.19.0.
 
 Find many walkable paths on the baked NavMesh3D in one call (run in parallel on the job threads).
 
@@ -69,7 +69,7 @@ Cells are (col, row), 0-based, row 0 = the top row. Pass `tilemap` (id of an ent
 
 ## `nav.find_tile_paths`
 
-Not released yet (on main after 0.18.0).
+Since 0.19.0.
 
 Find many tile paths on one Tilemap (or cost grid) in one call (run in parallel on the job threads).
 

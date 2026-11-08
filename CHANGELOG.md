@@ -2,11 +2,16 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.19.0
 
-M70 (in progress) gives the engine a job system: a pool of worker threads that engine work is split over, set by
-`runtime.jobThreads`, with a hash of the whole game state that shows threads never change what the game computes, and
-loads scenes and assets in the background while the game keeps running.
+FactorIA 0.19.0 (M70) puts the engine's work on threads and loads games faster. A job system runs the big pieces of a
+frame (sprites, tilemaps, particles, 3D culling, animation, physics, path searches, sound rendering) on worker threads,
+set by `runtime.jobThreads`, and `game.state_hash` shows a game computes the same with any thread count. Scenes and
+assets load in the background (`scene.load {async: true}`, `scene.preload`, `assets.preload`) while frames keep
+running, with GPU uploads budgeted per frame. `game.pak` is memory-mapped, compressed per block with the engine's own
+LZ4 and Zstandard, and packed in the order the game reads its files; `play.report` says how long each load took. The
+player shows its first frame before reading the game, D3D11 keeps compiled shaders on disk, and `perf.startup` budgets
+the start-up time.
 
 ### Changes
 
