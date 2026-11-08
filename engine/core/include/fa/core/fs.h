@@ -90,7 +90,8 @@ bool is_absolute(std::string_view path);
 std::filesystem::path resolve(std::string_view path);  // absolute host path (desktop); `path` is UTF-8 text
 // UTF-8 text <-> host path. On Windows std::filesystem::path(std::string) and path::string()/generic_string() go through the
 // ANSI code page and mangle accents (and can put bytes that are not UTF-8 into JSON); these two never do. path_to_utf8 gives the
-// forward-slash form.
+// forward-slash form. path_from_utf8 never throws: on Windows text that is not valid UTF-8 is read in the ANSI code page,
+// the form path::string() gives, so a caller that still builds its text that way finds the same file.
 std::filesystem::path path_from_utf8(std::string_view text);
 std::string path_to_utf8(const std::filesystem::path& p);
 
