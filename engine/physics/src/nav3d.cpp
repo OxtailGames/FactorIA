@@ -5,7 +5,9 @@
 #include <cstring>
 #include <format>
 #include <set>
+#include <string_view>
 
+#include "fa/core/jobs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "physics_internal.h"
@@ -15,6 +17,81 @@ namespace fa {
 namespace {
 Json vec_json(Vec3 v) { return Json::array({v.x, v.y, v.z}); }
 }  // namespace
+
+namespace {
+// A finite JSON number as a float, or an Error naming `pointer`.
+Result<float> nav_number(const Json& v, const std::string& who, const std::string& pointer, const char* what) {
+    if (!v.is_number() || !std::isfinite(v.get<double>()) || std::fabs(v.get<double>()) > 1e30)
+        return Error{std::format("{} {}: {} must be a finite number, but got {}.", who, pointer, what, v.dump()),
+                     "Pass plain numbers (meters), for example 0.4."};
+    return v.get<float>();
+}
+Result<bool> nav_point(const Json& v, const std::string& who, const std::string& pointer, Vec3& out) {
+    bool ok = v.is_array() && v.size() == 3;
+    for (std::size_t i = 0; ok && i < 3; ++i) ok = v[i].is_number() && std::isfinite(v[i].get<double>()) && std::fabs(v[i].get<double>()) <= 1e30;
+    if (!ok)
+        return Error{std::format("{} {}: must be [x,y,z] numbers, but got {}.", who, pointer, v.dump()),
+                     "Pass 3D points in meters, for example [0,0,0]."};
+    out = {v[0].get<float>(), v[1].get<float>(), v[2].get<float>()};
+    return true;
+}
+// radius / snap / closest / mesh of `o` (an object at `pointer`) over `opt`.
+Result<bool> nav_options(const Json& o, const std::string& who, const std::string& pointer, NavPathOptions& opt) {
+    for (const char* key : {"radius", "snap"}) {
+        if (!o.contains(key) || o[key].is_null()) continue;
+        auto n = nav_number(o[key], who, pointer + "/" + key, key);
+        if (!n.ok()) return n.error();
+        (std::string_view(key) == "radius" ? opt.radius : opt.snap) = n.value();
+    }
+    if (o.contains("closest") && !o["closest"].is_null()) {
+        if (!o["closest"].is_boolean())
+            return Error{std::format("{} {}/closest: must be true or false, but got {}.", who, pointer, o["closest"].dump()),
+                         "Pass closest: true to get a path to the reachable point nearest the goal, or leave it out."};
+        opt.closest = o["closest"].get<bool>();
+    }
+    if (o.contains("mesh") && !o["mesh"].is_null()) {
+        if (!o["mesh"].is_string())
+            return Error{std::format("{} {}/mesh: must be the id of an entity with a NavMesh3D, but got {}.", who, pointer, o["mesh"].dump()),
+                         "Pass a string such as \"navmesh\", or leave it out."};
+        opt.mesh = o["mesh"].get<std::string>();
+    }
+    return true;
+}
+}  // namespace
+
+Result<std::vector<NavPathQuery>> nav_parse_path_queries(const Json& args, const std::string& who) {
+    if (!args.is_object() || !args.contains("queries") || !args["queries"].is_array())
+        return Error{who + " /queries: pass a list of queries, each {from: [x,y,z], to: [x,y,z], radius?, snap?, closest?, mesh?}.",
+                     "Example: {\"queries\":[{\"from\":[0,0,0],\"to\":[10,0,5]},{\"from\":[2,0,2],\"to\":[-4,0,6]}]}."};
+    const Json& list = args["queries"];
+    if (list.size() > kNavMaxBatch)
+        return Error{std::format("{} /queries: {} queries in one call, the most is {}.", who, list.size(), kNavMaxBatch),
+                     "Split the list into several calls."};
+    NavPathOptions defaults;
+    auto d = nav_options(args, who, "", defaults);
+    if (!d.ok()) return d.error();
+    std::vector<NavPathQuery> out;
+    out.reserve(list.size());
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        const std::string at = "/queries/" + std::to_string(i);
+        const Json& q = list[i];
+        if (!q.is_object())
+            return Error{std::format("{} {}: must be an object {{from, to, ...}}, but got {}.", who, at, q.dump()),
+                         "Each query is {\"from\":[x,y,z],\"to\":[x,y,z]} with the optional radius, snap, closest and mesh."};
+        NavPathQuery nq;
+        nq.options = defaults;
+        for (const char* key : {"from", "to"}) {
+            if (!q.contains(key))
+                return Error{std::format("{} {}/{}: missing.", who, at, key), "Every query needs `from` and `to` as [x,y,z] in meters."};
+            auto pt = nav_point(q[key], who, at + "/" + key, key[0] == 'f' ? nq.from : nq.to);
+            if (!pt.ok()) return pt.error();
+        }
+        auto o = nav_options(q, who, at, nq.options);
+        if (!o.ok()) return o.error();
+        out.push_back(std::move(nq));
+    }
+    return out;
+}
 
 Json NavBakeStats::to_json() const {
     Json j = Json::object();
@@ -520,8 +597,8 @@ Result<std::vector<NavBakeStats>> Physics3D::nav_bake(World& world, const std::s
 }
 
 // ------------------------------------------------------------------ paths ----
-Result<NavPath> Physics3D::nav_find_path(World& world, Vec3 from, Vec3 to, const NavPathOptions& options) {
-    nav_update(world, true);
+// Which NavMesh3D answers a query (reads the world: main thread only; nav_update must have run).
+Result<const Physics3D::NavState*> Physics3D::nav_pick_mesh(World& world, Vec3 from, const NavPathOptions& options) {
     std::vector<NavState*> usable;
     for (std::uint64_t k : navOrder_) {
         NavState& n = navs_[k];
@@ -577,6 +654,18 @@ Result<NavPath> Physics3D::nav_find_path(World& world, Vec3 from, Vec3 to, const
                      std::format("Bake for the bigger agent: add a second NavMesh3D with agentRadius {:.2f} (same size and "
                                  "position) and pass its id as the `mesh` option, or raise agentRadius on this one.", radius)};
 
+    return mesh;
+}
+
+// The search itself: reads only the mesh, so queries on one mesh can run at once when each has its own `scratch`
+// (null = the grid's own, one query at a time).
+NavPath Physics3D::nav_search(const NavState& meshState, Vec3 from, Vec3 to, const NavPathOptions& options,
+                              NavGrid::Scratch* scratch) const {
+    const NavState* mesh = &meshState;
+    const NavMesh3D& cfg = mesh->cfg;
+    auto search = [&](int a, int b, int* closestOut, std::vector<int>* viaOut) {
+        return scratch ? mesh->grid.search(a, b, closestOut, viaOut, *scratch) : mesh->grid.search(a, b, closestOut, viaOut);
+    };
     const NavGrid& g = mesh->grid;
     const NavParams& p = g.params();
     NavPath res;
@@ -624,7 +713,7 @@ Result<NavPath> Physics3D::nav_find_path(World& world, Vec3 from, Vec3 to, const
         chain = {ss};
         via = {-1};
     } else {
-        chain = g.search(ss, gs, &closest, &via);
+        chain = search(ss, gs, &closest, &via);
     }
     if (chain.empty()) {
         if (options.closest) {
@@ -632,7 +721,7 @@ Result<NavPath> Physics3D::nav_find_path(World& world, Vec3 from, Vec3 to, const
                 chain = {ss};
                 via = {-1};
             } else {
-                chain = g.search(ss, closest, nullptr, &via);
+                chain = search(ss, closest, nullptr, &via);
             }
             res.complete = false;
         } else {
@@ -683,6 +772,46 @@ Result<NavPath> Physics3D::nav_find_path(World& world, Vec3 from, Vec3 to, const
     res.to = res.points.back();
     for (std::size_t i = 1; i < res.points.size(); ++i) res.length += distance(res.points[i - 1], res.points[i]);
     return res;
+}
+
+Result<NavPath> Physics3D::nav_find_path(World& world, Vec3 from, Vec3 to, const NavPathOptions& options) {
+    nav_update(world, true);
+    auto mesh = nav_pick_mesh(world, from, options);
+    if (!mesh.ok()) return mesh.error();
+    return nav_search(*mesh.value(), from, to, options, nullptr);
+}
+
+Result<std::vector<NavPath>> Physics3D::nav_find_paths(World& world, const std::vector<NavPathQuery>& queries) {
+    nav_update(world, true);
+    std::vector<const NavState*> meshes(queries.size(), nullptr);
+    for (std::size_t i = 0; i < queries.size(); ++i) {  // every error before any search runs
+        auto mesh = nav_pick_mesh(world, queries[i].from, queries[i].options);
+        if (!mesh.ok())
+            return Error{std::format("{} (query {} of {})", mesh.error().message, i, queries.size()), mesh.error().hint};
+        meshes[i] = mesh.value();
+    }
+    std::vector<NavPath> out(queries.size());
+    auto run = [&](std::size_t begin, std::size_t end) {
+        // Working memory per mesh, made when the chunk first needs it; a result never depends on it.
+        std::vector<std::pair<const NavState*, NavGrid::Scratch>> scratches;
+        for (std::size_t i = begin; i < end; ++i) {
+            auto it = std::find_if(scratches.begin(), scratches.end(), [&](const auto& s) { return s.first == meshes[i]; });
+            if (it == scratches.end()) {
+                scratches.emplace_back(meshes[i], meshes[i]->grid.scratch());
+                it = scratches.end() - 1;
+            }
+            out[i] = nav_search(*meshes[i], queries[i].from, queries[i].to, queries[i].options, &it->second);
+        }
+    };
+    if (queries.size() < kNavBatchMinQueries || !jobs::running() || jobs::inline_mode() || jobs::worker_count() <= 0) {
+        run(0, queries.size());  // in request order on this thread
+    } else {
+        // Each chunk writes only its own slots of `out`, so the results are in request order whatever ran first.
+        auto done = jobs::parallel_for("nav.find_paths", queries.size(), kNavBatchGrain,
+                                       [&](const jobs::Chunk& c) { run(c.begin, c.end); });
+        if (!done) return Error{"nav.find_paths: " + done.error().message, done.error().hint};
+    }
+    return out;
 }
 
 // ------------------------------------------------------------------ debug ----

@@ -261,6 +261,13 @@ std::vector<std::uint8_t> sfx_wav_bytes(const SfxAudio& audio);
 
 inline constexpr double kSfxMaxSeconds = 30.0;
 
+// render_sfx renders the layers of a patch as jobs (fa::jobs, only while the pool runs) when the patch has at least two layers
+// and at least kSfxJobMinSamples samples (a sound of about half a second at 48 kHz), and the layers' buffers together fit
+// kSfxJobBufferBytes; otherwise they render one after the other. The samples are the same either way. Neither the device
+// callback nor anything else on the audio thread ever waits for a job: only offline renders (sfx.render, previews, builds).
+inline constexpr std::size_t kSfxJobMinSamples = 24000;
+inline constexpr double kSfxJobBufferBytes = 256.0 * 1024.0 * 1024.0;
+
 // The notes of a name like "A4", "C#3", "Bb2" (C4 = middle C = MIDI 60, A4 = 440 Hz) as a frequency; nothing for other text.
 std::optional<double> sfx_note_hz(std::string_view note);
 

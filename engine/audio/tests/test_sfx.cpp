@@ -1,7 +1,10 @@
 // Sound patches (fa/audio/sfx.h): every oscillator and effect on a measurable property, determinism, the presets, and the errors.
 #include <doctest.h>
 
+#include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <cstdint>
 #include <set>
@@ -10,6 +13,8 @@
 #include "audio_test_helpers.h"
 #include "fa/audio/analysis.h"
 #include "fa/audio/sfx.h"
+#include "fa/core/hash.h"
+#include "fa/core/jobs.h"
 
 using namespace fa;
 
@@ -716,4 +721,70 @@ TEST_CASE("sfx variations: the file names of baked variants") {
     REQUIRE(issues.size() == 2);
     CHECK(issues[0].pointer == "/variations/count");
     CHECK(issues[1].hint.find("pitch") != std::string::npos);
+}
+
+namespace {
+// A long patch of five layers (noise, filters, effects, a delayed one): the layers render as jobs when a pool runs.
+struct Layered {
+    SfxAudio audio;
+    int queued = 0;  // jobs the render queued
+};
+Layered render_layered(int threads) {
+    const std::string text = R"({"format": "factoria.sfx/1", "length": 2.0, "tail": 0.5, "seed": 7, "fadeOut": 0.1, "layers": [
+        {"oscillators": [{"wave": "saw"}, {"wave": "square", "detune": 7}], "pitch": {"freq": 110, "vibrato": {"rate": 5, "depth": 0.2}},
+         "filter": {"mode": "lowpass", "cutoff": 900, "resonance": 2}, "effects": [{"type": "delay", "time": 0.21, "feedback": 0.4, "mix": 0.3}]},
+        {"oscillators": [{"wave": "noise", "color": "white"}], "amp": {"attack": 0.01, "release": 0.4}, "start": 0.1,
+         "filter": {"mode": "bandpass", "cutoff": 2400, "resonance": 3}},
+        {"oscillators": [{"wave": "sine"}], "pitch": {"freq": 440, "sweep": {"semitones": -12}}, "start": 0.5},
+        {"oscillators": [{"wave": "triangle"}], "pitch": {"freq": 220}, "start": 1.0},
+        {"oscillators": [{"wave": "noise", "color": "pink"}], "start": 1.9, "length": 0.4}
+    ], "master": {"normalize": {"mode": "peak", "target": -3}}})";
+    auto json = parse_json(text);
+    REQUIRE_MESSAGE(json.ok(), (json.ok() ? "" : json.error().to_string()));
+    auto patch = parse_sfx(*json, "layered");
+    REQUIRE_MESSAGE(patch.ok(), (patch.ok() ? "" : patch.error().to_string()));
+    REQUIRE(jobs::start(threads < 0 ? jobs::Settings::inline_jobs() : jobs::Settings::threads(threads)));
+    const auto t0 = std::chrono::steady_clock::now();
+    auto audio = render_sfx(*patch);
+    if (std::getenv("FA_SFX_BENCH"))  // timing runs: FA_SFX_BENCH=1 on a Release build
+        std::printf("FA_SFX_BENCH threads=%d render %.2f ms\n", threads, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+    jobs::end_frame();
+    const int queued = jobs::info().submittedLastFrame;
+    jobs::stop();
+    REQUIRE_MESSAGE(audio.ok(), (audio.ok() ? "" : audio.error().to_string()));
+    return {*audio, queued};
+}
+std::string sample_hash(const SfxAudio& a) {
+    Sha256 h;
+    h.update(a.samples.data(), a.samples.size() * sizeof(float));
+    return h.finish_hex();
+}
+}  // namespace
+
+TEST_CASE("sfx jobs: a layered patch renders the same samples inline and with 1, 2 and 8 job threads") {
+    const Layered ref = render_layered(-1);
+    REQUIRE(ref.audio.samples.size() >= kSfxJobMinSamples * 3);  // well past the threshold
+    CHECK(ref.queued == 0);                                      // inline mode queues nothing
+    for (int threads : {1, 2, 8}) {
+        const Layered a = render_layered(threads);
+        CHECK(sample_hash(a.audio) == sample_hash(ref.audio));
+        CHECK(a.audio.samples.size() == ref.audio.samples.size());
+        CHECK(a.queued >= 5);  // one job per layer
+    }
+}
+
+TEST_CASE("sfx jobs: a short patch or one layer renders on the calling thread, whatever the pool") {
+    const SfxAudio one = render_osc(R"({"wave": "saw"})", 220.0);  // no pool running here: the reference
+    REQUIRE(jobs::start(jobs::Settings::threads(2)));
+    auto json = parse_json(R"({"format": "factoria.sfx/1", "length": 0.1, "layers": [{"oscillators": [{"wave": "saw"}]}, {"oscillators": [{"wave": "sine"}]}]})");
+    REQUIRE(json.ok());
+    auto patch = parse_sfx(*json, "short");
+    REQUIRE(patch.ok());
+    auto audio = render_sfx(*patch);
+    jobs::end_frame();
+    const int queued = jobs::info().submittedLastFrame;
+    jobs::stop();
+    REQUIRE(audio.ok());
+    CHECK(queued == 0);  // 0.1 s is under kSfxJobMinSamples
+    CHECK(one.samples.size() > 0);
 }

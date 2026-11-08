@@ -1114,6 +1114,60 @@ declare module "factoria" {
   }
 
   /**
+   * One query of nav.findPaths: the same fields as nav.findPath's arguments, each overriding the default given in findPaths' opts.
+   * @since unreleased
+   */
+  export interface NavPathQuery {
+    /**
+     * Start point (the agent's feet), meters.
+     * @since unreleased
+     */
+    from: Vec3Like;
+    /**
+     * Goal point, meters.
+     * @since unreleased
+     */
+    to: Vec3Like;
+    /**
+     * Agent radius of this query (meters). Default: findPaths' opts.radius, else the NavMesh3D's agentRadius.
+     * @since unreleased
+     */
+    radius?: number;
+    /**
+     * How far (meters) a start or goal off the walkable cells is moved onto the nearest one.
+     * @since unreleased
+     */
+    snap?: number;
+    /**
+     * Goal unreachable: return a path to the reachable point nearest to it (complete = false).
+     * @since unreleased
+     */
+    closest?: boolean;
+    /**
+     * Id of the entity with the NavMesh3D to use.
+     * @since unreleased
+     */
+    mesh?: string;
+  }
+
+  /**
+   * One query of nav.findTilePaths.
+   * @since unreleased
+   */
+  export interface NavTileQuery {
+    /**
+     * Start cell (0-based, row 0 = top).
+     * @since unreleased
+     */
+    from: NavCell | readonly [number, number];
+    /**
+     * Goal cell.
+     * @since unreleased
+     */
+    to: NavCell | readonly [number, number];
+  }
+
+  /**
    * Options of nav.findPath.
    * @since 0.3.0
    */
@@ -1488,6 +1542,16 @@ declare module "factoria" {
      * @since 0.3.0
      */
     findTilePath(map: Entity | string | NavGrid | NavTileGrid | NavGrid, from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath;
+    /**
+     * Many findPath queries in one call, searched in parallel on the job threads (runtime.jobThreads): for a crowd or a planner that asks for dozens of routes in one frame. Returns one NavPath per query, IN THE ORDER YOU ASKED, each exactly what findPath gives for it, and the same whatever the thread count (8 or more queries use the threads, fewer run in order). opts holds the defaults of every query (radius, snap, closest, mesh). Never throws for 'no route'; throws an Error naming the query when one cannot be answered (no baked NavMesh3D, unknown mesh, radius bigger than the mesh was baked for) or when a query is not { from, to }. At most 10000 queries per call. Example: const paths = nav.findPaths(guards.map((g) => ({ from: g.position, to: player.position })), { radius: 0.3 }); paths.forEach((p, i) => { if (p.found) guards[i].target = p.points[1] ?? p.points[0]; });
+     * @since unreleased
+     */
+    findPaths(queries: readonly NavPathQuery[], opts?: NavPathOptions): NavPath[];
+    /**
+     * Many findTilePath queries on ONE map in one call, searched in parallel on the job threads; the map is read once (a Tilemap or a plain grid is converted once, not per query; a grid from nav.createGrid is used as it is). Returns one NavTilePath per query in the order you asked, each exactly what findTilePath gives, the same whatever the thread count (8 or more queries use the threads). opts apply to every query. Never throws for 'no route'; throws, naming the query, when the map or a cell is not what the call expects. At most 10000 queries per call. Example: const paths = nav.findTilePaths(grid, walkers.map((w) => ({ from: w.cell, to: market })), { diagonals: true });
+     * @since unreleased
+     */
+    findTilePaths(map: Entity | string | NavGrid | NavTileGrid, queries: readonly NavTileQuery[], opts?: NavTileOptions): NavTilePath[];
     /**
      * A counter of the changes to the Tilemap's tiles. Compare it with the value from when you searched to know a cached path is stale. It goes up on setTile / tilemap.set_tile and on any write that replaces `tiles` (a script assigning tilemap.tiles, scene.set_component, the editor); it starts at 0 on every scene load and each call costs one pass over the tiles.
      * @since 0.3.0

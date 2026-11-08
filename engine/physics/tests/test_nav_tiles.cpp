@@ -6,6 +6,7 @@
 #include <memory>
 #include <tuple>
 
+#include "fa/core/jobs.h"
 #include "fa/physics/nav.h"
 #include "fa/scene/tilemap.h"
 
@@ -496,4 +497,51 @@ TEST_CASE("nav tiles: the Tilemap grid and the shared rules give the same cost i
         CHECK(a.cells == b.cells);
         CHECK(a.cost == b.cost);
     }
+}
+
+TEST_CASE("nav tiles: many queries give the answers of single ones, in request order, with any job thread count") {
+    // A 40 x 30 field of walls with gaps, so the routes differ.
+    NavTileGrid g;
+    g.width = 40;
+    g.height = 30;
+    for (int r = 0; r < g.height; ++r)
+        for (int c = 0; c < g.width; ++c) g.cost.push_back((c % 6 == 3 && r % 7 != 2) || (r % 8 == 5 && c % 9 != 4) ? -1.0f : 1.0f + float((c * r) % 3));
+    Json args = Json::object();
+    args["diagonals"] = true;
+    args["closest"] = true;
+    std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> qs;
+    for (int i = 0; i < 80; ++i) qs.push_back({{(i * 7) % 40, (i * 3) % 30}, {(i * 11 + 5) % 40, (i * 5 + 1) % 30}});
+    std::vector<std::string> single;
+    for (const auto& q : qs) {
+        auto r = nav_tile_run(g, nullptr, args, q.first, q.second);
+        REQUIRE(r.ok());
+        single.push_back(r.value().dump());
+    }
+    for (int threads : {-1, 0, 1, 2, 8}) {
+        const jobs::Settings s = threads < 0 ? jobs::Settings::inline_jobs() : jobs::Settings::threads(threads);
+        REQUIRE(jobs::start(s));
+        auto r = nav_tile_run_many(g, nullptr, args, qs);
+        jobs::stop();
+        REQUIRE(r.ok());
+        REQUIRE(r.value().size() == qs.size());
+        for (std::size_t i = 0; i < qs.size(); ++i) CHECK(r.value()[i].dump() == single[i]);
+    }
+}
+
+TEST_CASE("nav tiles: nav_tile_query_many checks every query first and names the pointer") {
+    World world;
+    const Json good = Json::parse(R"({"grid":{"width":3,"height":2,"cost":[1,1,1,1,1,1]},
+        "queries":[{"from":[0,0],"to":[2,1]},{"from":[2,1],"to":[0,0]}]})");
+    auto r = nav_tile_query_many(world, good);
+    REQUIRE(r.ok());
+    REQUIRE(r.value().size() == 2);
+    CHECK(r.value()[0]["found"].get<bool>());
+    const Json bad = Json::parse(R"({"grid":{"width":3,"height":2,"cost":[1,1,1,1,1,1]},
+        "queries":[{"from":[0,0],"to":[2,1]},{"from":[0,0],"to":"x"}]})");
+    auto b = nav_tile_query_many(world, bad);
+    REQUIRE_FALSE(b.ok());
+    CHECK(b.error().message.find("/queries/1/to") != std::string::npos);
+    auto none = nav_tile_query_many(world, Json::parse(R"({"grid":{"width":1,"height":1,"cost":[1]}})"));
+    REQUIRE_FALSE(none.ok());
+    CHECK(none.error().message.find("/queries") != std::string::npos);
 }

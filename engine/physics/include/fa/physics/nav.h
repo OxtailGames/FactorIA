@@ -47,6 +47,24 @@ struct NavPathOptions {
     std::string mesh;       // id of the entity with the NavMesh3D to use; empty = the first enabled one that fits
 };
 
+// Many queries in one call (`nav.find_paths`, `nav.findPaths`): run as jobs when there are at least kNavBatchMinQueries of them
+// (fewer run in order on the calling thread: a job costs more than a short search), kNavBatchGrain queries to a chunk. The
+// answers are in request order and are the ones a loop of single queries gives; the thread count never changes them. A batch
+// holds at most kNavMaxBatch queries.
+inline constexpr std::size_t kNavBatchMinQueries = 8;
+inline constexpr std::size_t kNavBatchGrain = 4;
+inline constexpr std::size_t kNavMaxBatch = 10000;
+
+struct NavPathQuery {
+    Vec3 from, to;
+    NavPathOptions options;
+};
+
+// The `queries` of a nav.find_paths call: args = {queries: [{from, to, radius?, snap?, closest?, mesh?}, ...], radius?, snap?,
+// closest?, mesh?}; the options outside `queries` are the defaults of every query. A wrong argument is an Error that names its
+// JSON pointer ("/queries/3/from"). `who` prefixes the messages ("nav.find_paths").
+Result<std::vector<NavPathQuery>> nav_parse_path_queries(const Json& args, const std::string& who);
+
 // An off-mesh link (NavLink3D) a path takes: points[point] is where it starts, points[point + 1] where it ends.
 struct NavPathLink {
     int point = 0;
@@ -141,6 +159,15 @@ Result<Json> nav_tile_query(World& world, const Json& args);
 // allowBlockedGoal? (checked, a wrong type is an Error); `toWorld` (or null for grid-local points) places `points`.
 Result<Json> nav_tile_run(const NavTileGrid& grid, const Mat4* toWorld, const Json& args, std::pair<int, int> from,
                           std::pair<int, int> to);
+
+// Many tile paths in one call (`nav.find_tile_paths`, `nav.findTilePaths`): `args` = a map and the options of nav_tile_query, and
+// `queries: [{from: [col,row], to: [col,row]}, ...]` instead of from/to. The map is built once. The result is an array with one
+// entry per query, in request order, each exactly what nav_tile_query gives for that query. At least kNavBatchMinQueries queries
+// run as jobs. Every query is checked first: a bad cell is an Error naming its pointer ("/queries/3/from") and nothing runs.
+Result<Json> nav_tile_query_many(World& world, const Json& args);
+// The searches of nav_tile_query_many on a grid that is already built (a script's NavCostGrid): (from, to) cells in request order.
+Result<Json> nav_tile_run_many(const NavTileGrid& grid, const Mat4* toWorld, const Json& args,
+                               const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>& queries);
 
 // Resolves the `tilemap` (entity id) or `grid` ({width, height, cost, origin?, cellSize?}) argument of the tile commands
 // into a cost grid. `toWorld` and `worldPoints` are set for a Tilemap (its cell centres are placed by the entity's transform).
