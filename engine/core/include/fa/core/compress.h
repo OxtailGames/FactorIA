@@ -66,8 +66,9 @@ Result<std::vector<std::uint8_t>> compress(std::span<const std::uint8_t> input, 
 // Decompresses one block into exactly `expectedSize` bytes. A block that decodes to another size, or is damaged, is
 // an error naming what is wrong and where (offset in the block).
 Result<std::vector<std::uint8_t>> decompress(Codec codec, std::span<const std::uint8_t> block, std::size_t expectedSize);
-// Same, into a caller buffer of exactly `out.size()` bytes (memory-mapped packs decode in place). It allocates no output
-// buffer; the zstd decoder still allocates its working state per call (~14 KiB, plus up to 128 KiB of literals).
+// Same, into a caller buffer of exactly `out.size()` bytes (memory-mapped packs decode in place). It makes no
+// allocation proportional to the output; the zstd decoder still allocates its working state on every call (~14 KiB, plus
+// up to 128 KiB of literals), which it frees before returning.
 Result<void> decompress_into(Codec codec, std::span<const std::uint8_t> block, std::span<std::uint8_t> out);
 
 }  // namespace fa

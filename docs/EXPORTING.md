@@ -107,6 +107,10 @@ file of any kind, ships, because a game may load it. That includes the files a g
 (`import tables from "../data/dialogue/*.json"`, [SCRIPTING](SCRIPTING.md#imports)) lists: keep them outside `tests/`, `tools/`
 and `export.exclude`, or the exported game finds fewer files than the project does.
 
+The project's own commands live in `tools/*.js` (`project.<name>`), so a shipped game has none of them. An export warns when a shipped
+script calls one with a literal name (`fa.call("project.scatter_gems", ...)`): the call would fail in the game. Move what the game needs
+into a module under `scripts/` and import it from both the tool and the script. A name built at run time is not found by the warning.
+
 **Dot-folders never ship** (`.git`, `.factoria`, `.github`, `.vscode`, a `.cache` of your own): anything whose name starts with a dot is
 left out at every depth, so a game must not keep data it loads in a folder like `.data/`. Rename the folder
 instead. To leave out more, list project-relative globs in `export.exclude` of `factoria.json`:

@@ -598,7 +598,7 @@ Result<void> Decoder::frame(const std::uint8_t*& ip) {
         const unsigned exponent = wd >> 3, mantissa = wd & 7;
         const std::uint64_t windowBase = 1ull << (10 + exponent);
         windowSize = windowBase + (windowBase / 8) * mantissa;
-        if (10 + exponent > kMaxWindowLog)
+        if (windowSize > (1ull << kMaxWindowLog))
             return fail("the frame needs a window of " + std::to_string(windowSize) +
                             " bytes, more than the 128 MiB this engine accepts (game packs never need it)",
                         ip - 1);
@@ -721,29 +721,6 @@ Result<void> Decoder::run(bool exact, std::size_t* written) {
 Result<void> zstd_decompress(std::span<const std::uint8_t> block, std::span<std::uint8_t> out, bool exact,
                              std::size_t* written) {
     return Decoder(block, out).run(exact, written);
-}
-
-bool zstd_frame_content_size(std::span<const std::uint8_t> block, std::uint64_t& size) {
-    const std::uint8_t* ip = block.data();
-    const std::uint8_t* const end = ip + block.size();
-    while (end - ip >= 8 && (load32(ip) & kSkippableMask) == kSkippableMagic) {
-        const std::uint64_t n = load32(ip + 4);
-        if (n > static_cast<std::uint64_t>(end - ip) - 8) return false;
-        ip += 8 + n;
-    }
-    if (end - ip < 5 || load32(ip) != kFrameMagic) return false;
-    const unsigned fhd = ip[4];
-    const unsigned fcsFlag = fhd >> 6;
-    const bool single = (fhd & 0x20) != 0;
-    const unsigned dictFlag = fhd & 3;
-    std::size_t at = 5 + (single ? 0 : 1) + (dictFlag == 0 ? 0 : dictFlag == 1 ? 1 : dictFlag == 2 ? 2 : 4);
-    const std::size_t fcsBytes = fcsFlag == 0 ? (single ? 1 : 0) : fcsFlag == 1 ? 2 : fcsFlag == 2 ? 4 : 8;
-    if (fcsBytes == 0 || static_cast<std::size_t>(end - ip) < at + fcsBytes) return false;
-    std::uint64_t v = 0;
-    for (std::size_t i = 0; i < fcsBytes; ++i) v |= static_cast<std::uint64_t>(ip[at + i]) << (8 * i);
-    if (fcsBytes == 2) v += 256;
-    size = v;
-    return true;
 }
 
 }  // namespace fa::codec
