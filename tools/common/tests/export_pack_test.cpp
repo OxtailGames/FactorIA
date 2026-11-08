@@ -351,9 +351,9 @@ TEST_CASE("export: over a game that is running from the folder, it deletes nothi
         CHECK(fs::find_file_in_use(root) == root / "game.pak");
         auto r = export_project(options_for(tmp, proj, "linux", true));
         REQUIRE_FALSE(r.ok());
-        CHECK(r.error().message.find("is in use: close the running game (or the editor's preview of it) and export again") !=
-              std::string::npos);
-        CHECK(r.error().hint.find("game.pak") != std::string::npos);
+        CHECK(r.error().message.find("is open in another program (the game running from") != std::string::npos);
+        CHECK(r.error().message.find("game.pak' is open") != std::string::npos);  // names the file
+        CHECK(r.error().message.find("close it and export again") != std::string::npos);
         CHECK(r.error().hint.find("Nothing was deleted") != std::string::npos);
         CHECK(files_below(root) == before);  // the old export is all there
         CHECK(testing::read_all(root / "game.pak") == pakBefore);

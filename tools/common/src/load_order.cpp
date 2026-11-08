@@ -123,8 +123,9 @@ bool load_order_recordable(const stdfs::path& projectDir, std::string* why) {
     stdfs::path dir = stdfs::absolute(fs::os_path(projectDir), ec);
     if (ec) dir = fs::os_path(projectDir);
     dir = dir.lexically_normal();
-    // An export puts the game's files at most a few folders below its marker (Contents/Resources/game in a macOS app).
-    for (int depth = 0; depth < 8 && !dir.empty(); ++depth) {
+    // An export puts the game's files at most four folders below its marker (<Name>.app/Contents/Resources/game in a macOS
+    // app): the folder and its four parents, no higher, so a project kept somewhere inside an old export's tree still records.
+    for (int depth = 0; depth <= 4 && !dir.empty(); ++depth) {
         if (stdfs::exists(dir / kExportMarkerFile, ec)) {
             if (why) *why = fs::path_to_utf8(projectDir) + " is inside an exported game (" + fs::path_to_utf8(dir / kExportMarkerFile) +
                             "): the order is recorded by the sessions of the project itself";

@@ -17,7 +17,8 @@ std::vector<LoadTrace*>& traces() {
     return t;
 }
 
-thread_local LoadTrace::Owner t_owner = nullptr;
+thread_local LoadTrace::Owner t_owner = LoadTrace::kNoOwner;
+std::atomic<LoadTrace::Owner> g_nextOwner{1};
 thread_local std::int64_t t_readNs = 0;
 thread_local std::uint64_t t_readBytes = 0;
 
@@ -34,6 +35,7 @@ std::int64_t LoadTrace::now_ns() {
 std::int64_t LoadTrace::thread_read_ns() { return t_readNs; }
 
 LoadTrace::Owner LoadTrace::current_owner() { return t_owner; }
+LoadTrace::Owner LoadTrace::new_owner() { return g_nextOwner.fetch_add(1, std::memory_order_relaxed); }
 
 LoadTrace::ReadingFor::ReadingFor(Owner owner) : previous_(t_owner) { t_owner = owner; }
 LoadTrace::ReadingFor::~ReadingFor() { t_owner = previous_; }

@@ -278,6 +278,9 @@ public:
     void begin_load_trace();
     Json loading_report() const;
     void end_load_trace();
+    // This engine's reader token (fa/core/load_trace.h): a host that drives the engine through calls outside its entry
+    // points (play.auto's bot hook) opens a LoadTrace::ReadingFor with it, so those reads are the game's too.
+    LoadTrace::Owner load_trace_owner() const;
 
     struct Impl;
     Impl& runtime_impl() { return *impl_; }  // internal (runners, commands)

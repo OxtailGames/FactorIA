@@ -339,8 +339,8 @@ Result<PackStats> PackWriter::write(const stdfs::path& out) const {
                         "(docs/EXPORTING.md).");
 
     fs::replace_file(osTmp, fs::os_path(out), ec);
-    if (ec && fs::is_sharing_violation(ec))
-        return fail("Cannot replace " + quoted(out) + ": it is in use (" + ec.message() + ")",
+    if (ec && fs::is_sharing_violation(ec) && ec != std::errc::permission_denied)  // access denied: permissions, not a holder
+        return fail("Cannot replace " + quoted(out) + ": it is open in another program (" + ec.message() + ")",
                     "A running copy of the game has its pack open (Windows does not let a program replace a file another one has "
                     "open). Close the game, and any program that has " + fs::path_to_utf8(out.filename()) +
                         " open, then export again. The old pack was not changed.");
@@ -351,9 +351,10 @@ Result<PackStats> PackWriter::write(const stdfs::path& out) const {
 // ================================================================== PackReader
 
 PackReader::~PackReader() {
-    if (!registered_.empty()) fs::detail::unregister_open_file(registered_);
     detail::pack_unmap(map_, mapSize_, mapping_);
     detail::pack_close(native_);
+    // After the file is let go, as fs::ReadStream does: the registry never says closed while the file is still open.
+    if (!registered_.empty()) fs::detail::unregister_open_file(registered_);
 }
 
 bool PackReader::read_at(std::uint64_t offset, void* dst, std::uint64_t size) const {

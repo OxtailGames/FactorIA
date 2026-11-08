@@ -1,11 +1,14 @@
 // Load trace: which game files a run reads, in which order, and how long its loads take.
 //
-// A trace belongs to an OWNER: an opaque token, the Engine that made it (`this`). It records the reads through fa::fs
-// (read_bytes, read_text, read_view, warm) made while that owner is the thread's current reader, set by a
-// LoadTrace::ReadingFor scope: the engine opens one in each of its entry points (init, frame, step, the scene loads,
-// render_now). Reads outside such a scope are not the game's (the editor's panels and asset browser, an AI or MCP tool,
-// another engine in the process such as an in-process play.auto, which has its own trace) and are left out. A trace made
-// without an owner (nullptr) records every read of the process (tests, tools). Loaders that turn bytes into something
+// A trace belongs to an OWNER: a token unique in the process (LoadTrace::new_owner(); each Engine takes one when it is
+// made, and no later engine ever gets the same one, so a read that arrives after its engine is gone is nobody's). It
+// records the reads through fa::fs (read_bytes, read_text, read_view, warm) made while that owner is the thread's current
+// reader, set by a LoadTrace::ReadingFor scope: the engine opens one in its public entry points (init, frame, step, the
+// scene loads, render_now) and in the primitives under them (a frame, a draw, a scene load), so the runners, play.auto
+// and the screenshots that call those directly are covered too. Reads outside such a scope are not the game's (the
+// editor's panels and asset browser, an AI or MCP tool, another engine in the process such as an in-process play.auto,
+// which has its own trace) and are left out. A trace made without an owner (kNoOwner) records every read of the process
+// (tests, tools). Loaders that turn bytes into something
 // (textures, meshes, sounds, fonts) wrap their work in an AssetLoadScope, which records the asset with the time the read
 // took and the time the rest (the decode) took, for the same owner. Hosts that develop a game create one (the engine does
 // when EngineConfig::traceLoads is on: `factoria run`, `play.auto`, a Play in the editor); a shipped game never does, and
@@ -57,13 +60,17 @@ public:
     static constexpr std::size_t kMaxScenes = 64;
     static constexpr std::size_t kMaxSlowest = 10;
 
-    // The group of the files read before the first scene starts (the project file, the start-up scripts).
+    // The group of the files read before the first scene starts (the engine opens factoria.json by its absolute path, so it
+    // is not one of them).
     static constexpr const char* kStartupScene = "(start-up)";
-    // The token of whoever reads (the Engine). Compared, never dereferenced.
-    using Owner = const void*;
+    // The token of whoever reads (an Engine): never reused within the process. kNoOwner: nobody's.
+    using Owner = std::uint64_t;
+    static constexpr Owner kNoOwner = 0;
+    // A token no one had before (thread-safe).
+    static Owner new_owner();
 
-    // Starts recording the reads of `owner` (nullptr: every read): the clock of time_to_first_frame starts now.
-    explicit LoadTrace(Owner owner = nullptr);
+    // Starts recording the reads of `owner` (kNoOwner: every read): the clock of time_to_first_frame starts now.
+    explicit LoadTrace(Owner owner = kNoOwner);
     ~LoadTrace();  // stops
     LoadTrace(const LoadTrace&) = delete;
     LoadTrace& operator=(const LoadTrace&) = delete;
@@ -88,9 +95,10 @@ public:
     // Nanoseconds this thread spent in file reads since it started (AssetLoadScope subtracts it from its total).
     static std::int64_t thread_read_ns();
 
-    // The owner this thread reads for now (nullptr outside every ReadingFor scope).
+    // The owner this thread reads for now (kNoOwner outside every ReadingFor scope).
     static Owner current_owner();
-    // Makes `owner` this thread's current reader until the scope ends (scopes nest: the previous one comes back). Free.
+    // Makes `owner` this thread's current reader until the scope ends (scopes nest: the previous one comes back, and a
+    // scope for the owner that is current already changes nothing). Free.
     class ReadingFor {
     public:
         explicit ReadingFor(Owner owner);
@@ -121,7 +129,7 @@ private:
 
     static std::atomic<int> activeCount_;
 
-    bool records(Owner reader) const { return owner_ == nullptr || owner_ == reader; }
+    bool records(Owner reader) const { return owner_ == kNoOwner || owner_ == reader; }
 
     const Owner owner_;
     mutable std::mutex mutex_;

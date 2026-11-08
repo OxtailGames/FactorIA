@@ -472,6 +472,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         return finish(2);
     }
     Engine::Impl& I = engine.runtime_impl();
+    const LoadTrace::ReadingFor reading(engine.load_trace_owner());  // what the run reads is the game's (fa/core/load_trace.h)
 
     // Video: validated before the run, so a wrong request does not cost a whole replay.
     const bool wantVideo = !options.videoOutPath.empty();

@@ -192,6 +192,27 @@ needed. A folder exported by a factoria older than the license notices has neith
 again; from then on every export replaces it on its own. The check is part of the plan (`fa::plan_export`), so the
 editor's Export window shows it on each platform's row and `project_export {"dryRun":true}` returns it as its error.
 
+**A game running from the folder (Windows).** Windows does not delete a file a program holds open, and a game that runs
+from an export holds its exe, its libraries and `game.pak` (when it is memory-mapped, the default on 64-bit) open for as
+long as it runs. So before an export deletes the previous folder it looks at those files (the `.exe`, `.dll`, `.so`,
+`.dylib` and `.pak` files, a macOS bundle's executable and a player at the top of the folder; the loose files of a game
+are never held, it reads them and closes them again). It looks at 100000 files at most, a count and not a time, so the
+same folder always gets the same answer. If one is held it stops with
+`export: '<file>' is open in another program (the game running from <folder>?): close it and export again`; nothing is
+deleted and the previous export stays as it was. Close the game and export again. A program that only reads a file and
+lets others delete it (a cloud sync client, a virus scanner, `tail`) does not stop an export, and a file that was held for
+less than about a second is not counted. A read-only file left by an earlier export (copied from a read-only player) is
+deleted anyway. On macOS and Linux an open file can be deleted, so nothing is looked at there (with `FA_FS_WINDOWS_RULES`
+the same check runs on the files the engine holds open itself, so the tests see it).
+
+**Android keeps Gradle's working folders.** An Android export is a Gradle project, and the APK or AAB build runs Gradle
+inside it. The Gradle daemon stays alive for 15 minutes after a build (`org.gradle.daemon.idletimeout` in
+`gradle.properties`) and keeps files open in the project's working folders, so an export over an Android export deletes
+everything except `.gradle/`, `.kotlin/`, `build/`, `app/build/` and `plugins/<name>/build/`, then writes the project
+again. The next build is then incremental (Gradle sees which inputs changed) and a second export right after the first
+works on Windows with the daemon alive. Those folders are never part of the export's `files`. To start Gradle from
+nothing, delete the folder yourself (or run `gradlew --stop` first on Windows).
+
 ## License notices
 
 Your game is yours. FactorIA is open source under the MIT License, and the files `factoria new` puts in a project
@@ -916,11 +937,9 @@ which version it has and which ones this FactorIA reads.
 The writer builds `game.pak.tmp` and renames it over `game.pak` once it is complete, so an export never leaves a half-written
 pack under the real name, and the same files and settings always give a byte-identical pack (on every platform). A pack is
 never changed in place: a game running from the old pack on macOS or Linux keeps its mapped bytes after the rename (writing
-into a mapped file would crash that game with `SIGBUS`). **On Windows a game that is running from the export folder holds
-its files open** (its exe, `game.pak`, mapped or not), and Windows does not delete or replace a file a program holds open.
-So before an export deletes the previous `<slug>-<platform>` folder it looks for a file in it that is open, and if there is
-one it stops with `export: <folder> is in use: close the running game (or the editor's preview of it) and export again`,
-naming the file; nothing is deleted and the previous export stays as it was. Close the game and export again.
+into a mapped file would crash that game with `SIGBUS`). On Windows a game that is running from the export folder holds
+its exe and the mapped `game.pak` open, and the export stops before it deletes anything, with nothing changed
+([Replacing an earlier export](#replacing-an-earlier-export)).
 
 A pack also refuses a file bigger than 64 times the pack's own size (and never less than 256 MiB): a reader treats such an
 entry as a damaged pack, so a tampered index cannot make the game allocate gigabytes, and the writer refuses to pack one
@@ -945,9 +964,9 @@ that does not compress costs nothing to decode. Choose another codec for an exte
 
 `export.pack.codecs` maps an extension (with its dot; `a.scene.json` counts as `.json`; any case) to `store`, `lz4` or `zstd`.
 `export.pack.useLoadOrder` (default `true`) writes the files in the order the game first read them. Every play session (the
-editor's Play, `factoria run`, `play.auto`) records the files read before its first scene (the group `(start-up)`:
-`factoria.json`, the start-up scripts and what they load) and, per scene, the project files first read while that scene was
-the current one, and merges them into `.factoria/cache/load-order.json` under the project's lock (a session whose lock is
+editor's Play, `factoria run`, `play.auto`) records the files read before its first scene (the group `(start-up)`: what
+the engine and the scripts read after `factoria.json`, which is read by its full path and is not listed) and, per scene,
+the project files first read while that scene was the current one, and merges them into `.factoria/cache/load-order.json` under the project's lock (a session whose lock is
 busy logs a `loadorder` warning and changes nothing; the next one records again). Which session wins: a `factoria run` or a
 `play.auto` starts a fresh engine that reads every file it needs itself, so it sets the order of each scene it played (its files
 first, in the order it read them, then the ones earlier sessions listed and it did not read), and the scene is marked

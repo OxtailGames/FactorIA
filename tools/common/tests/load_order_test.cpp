@@ -5,10 +5,13 @@
 #include <string>
 #include <vector>
 
+#include "fa/core/command.h"
+#include "fa/core/fs.h"
 #include "fa/core/json.h"
 #include "fa/tooling/export.h"
 #include "fa/tooling/feedback_share.h"
 #include "fa/tooling/load_order.h"
+#include "fa/tooling/play_auto.h"
 #include "test_helpers.h"
 
 using namespace fa;
@@ -273,4 +276,27 @@ TEST_CASE("pack order: the start-up files, the main scene's, then the other scen
     const PackOrder none = pack_order({}, "scenes/main.scene.json", shipped);
     CHECK(none.files.empty());
     CHECK(none.scenes == 0);
+}
+
+TEST_CASE("load order record: play.auto in a folder with an accent records into that folder (the path stays native)") {
+    testing::TempDir tmp;
+    const stdfs::path project = tmp.path / stdfs::path(u8"juego-Adrià");
+    testing::write_all(project / "factoria.json",
+                       R"({"format":"factoria.project/1","name":"Acc","id":"com.example.acc","mainScene":"scenes/main.scene.json",
+                           "display":{"width":64,"height":64}})");
+    testing::write_all(project / "scenes" / "main.scene.json",
+                       R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})");
+    // The tooling carries a project folder as a native string (what a command line or current_path().string() gives),
+    // the way the engine builds its root from it: on Windows that is the code page, never UTF-8.
+    const std::string nativeDir = project.string();
+    CommandRegistry registry;
+    register_play_auto_commands(registry, nativeDir);
+    const CommandResult r = registry.call("play.auto", Json::object({{"seconds", 0.5}, {"screenshots", false}}));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    REQUIRE(stdfs::exists(load_order_file(project)));
+    auto order = read_load_order(project);
+    REQUIRE(order.ok());
+    REQUIRE(!order.value().empty());
+    CHECK(order.value().front().scene == "scenes/main.scene.json");  // factoria.json is read by an absolute path: not the game's read
+    CHECK(order.value().front().cold);
 }
