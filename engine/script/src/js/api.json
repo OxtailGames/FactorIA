@@ -1341,6 +1341,52 @@
     },
     {
      "kind": "interface",
+     "name": "NavPathQuery",
+     "doc": "One query of nav.findPaths: the same fields as nav.findPath's arguments, each overriding the default given in findPaths' opts.",
+     "members": [
+      {
+       "sig": "from: Vec3Like",
+       "doc": "Start point (the agent's feet), meters."
+      },
+      {
+       "sig": "to: Vec3Like",
+       "doc": "Goal point, meters."
+      },
+      {
+       "sig": "radius?: number",
+       "doc": "Agent radius of this query (meters). Default: findPaths' opts.radius, else the NavMesh3D's agentRadius."
+      },
+      {
+       "sig": "snap?: number",
+       "doc": "How far (meters) a start or goal off the walkable cells is moved onto the nearest one."
+      },
+      {
+       "sig": "closest?: boolean",
+       "doc": "Goal unreachable: return a path to the reachable point nearest to it (complete = false)."
+      },
+      {
+       "sig": "mesh?: string",
+       "doc": "Id of the entity with the NavMesh3D to use."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "NavTileQuery",
+     "doc": "One query of nav.findTilePaths.",
+     "members": [
+      {
+       "sig": "from: NavCell | readonly [number, number]",
+       "doc": "Start cell (0-based, row 0 = top)."
+      },
+      {
+       "sig": "to: NavCell | readonly [number, number]",
+       "doc": "Goal cell."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "NavPathOptions",
      "doc": "Options of nav.findPath.",
      "members": [
@@ -1653,6 +1699,14 @@
       {
        "sig": "findTilePath(map: Entity | string | NavGrid | NavTileGrid | NavGrid, from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath",
        "doc": "A* over the cells of a Tilemap (the entity or its id: solidTiles block, other cells cost 1, opts.costs changes that per tile) or of your own grid { width, height, cost } or a grid kept natively by nav.createGrid (the fast form for many queries on one map: the array form converts and sweeps the whole map on every call). 4-way by default; opts.diagonals allows 8-way without cutting corners. Deterministic (same query, same path) and no JS callback per cell: put the rules in the costs. Never throws for 'no route': check `found` (reason, message and hint explain). Throws when the map or a cell is not what the call expects. Example: const p = nav.findTilePath(world.find(\"ground\"), { col: 1, row: 1 }, { col: 8, row: 5 }, { costs: { 4: 5 }, diagonals: true }); if (p.found) this.target = p.points[1] ?? p.points[0];"
+      },
+      {
+       "sig": "findPaths(queries: readonly NavPathQuery[], opts?: NavPathOptions): NavPath[]",
+       "doc": "Many findPath queries in one call, searched in parallel on the job threads (runtime.jobThreads): for a crowd or a planner that asks for dozens of routes in one frame. Returns one NavPath per query, IN THE ORDER YOU ASKED, each exactly what findPath gives for it, and the same whatever the thread count (8 or more queries use the threads, fewer run in order). opts holds the defaults of every query (radius, snap, closest, mesh). Never throws for 'no route'; throws an Error naming the query when one cannot be answered (no baked NavMesh3D, unknown mesh, radius bigger than the mesh was baked for) or when a query is not { from, to }. At most 10000 queries per call. Example: const paths = nav.findPaths(guards.map((g) => ({ from: g.position, to: player.position })), { radius: 0.3 }); paths.forEach((p, i) => { if (p.found) guards[i].target = p.points[1] ?? p.points[0]; });"
+      },
+      {
+       "sig": "findTilePaths(map: Entity | string | NavGrid | NavTileGrid, queries: readonly NavTileQuery[], opts?: NavTileOptions): NavTilePath[]",
+       "doc": "Many findTilePath queries on ONE map in one call, searched in parallel on the job threads; the map is read once (a Tilemap or a plain grid is converted once, not per query; a grid from nav.createGrid is used as it is). Returns one NavTilePath per query in the order you asked, each exactly what findTilePath gives, the same whatever the thread count (8 or more queries use the threads). opts apply to every query. Never throws for 'no route'; throws, naming the query, when the map or a cell is not what the call expects. At most 10000 queries per call. Example: const paths = nav.findTilePaths(grid, walkers.map((w) => ({ from: w.cell, to: market })), { diagonals: true });"
       },
       {
        "sig": "tileVersion(tilemap: Entity | string): number",

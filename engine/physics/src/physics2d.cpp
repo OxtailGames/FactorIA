@@ -181,7 +181,12 @@ void Physics2D::ensure_world(World& world) {
         b2WorldDef wd = b2DefaultWorldDef();
         wd.gravity = {0.0f, -9.8f};
         wd.hitEventThreshold = 0.05f;
-        wd.workerCount = 1;  // single-threaded: the one-way pre-solve callback relies on it
+        // Box2D's tasks run as jobs on big steps (B2JobTasks); the one-way pre-solve callback below only reads, so it
+        // may run on any of them. The worker count is a constant, not the pool's size: see B2JobTasks.
+        wd.workerCount = B2JobTasks::kWorkers;
+        wd.enqueueTask = &B2JobTasks::enqueue;
+        wd.finishTask = &B2JobTasks::finish;
+        wd.userTaskContext = &tasks_;
         world_ = b2CreateWorld(&wd);
         b2World_SetPreSolveCallback(world_, &Physics2D::pre_solve, this);
     }
@@ -702,7 +707,7 @@ b2AABB tight_aabb(b2ShapeId id) {
 }
 }  // namespace
 
-// One-way platforms (Box2D pre-solve; runs on the calling thread because workerCount = 1). The contact is kept
+// One-way platforms (Box2D pre-solve; read-only, so it may run on a job thread). The contact is kept
 // only if the visitor's bottom was above the platform's top (previous-step AABBs, small speed-based slop for soft
 // contact penetration). Rising bodies are below the top until they clear it, so they pass through; at the apex
 // inside the platform they are still below the top, so they never get popped up.
@@ -1042,7 +1047,10 @@ void Physics2D::read_joints(World& world) {
 void Physics2D::step(World& world, float dt) {
     sync(world);
 
-    // ---- 2. simulate
+    // ---- 2. simulate (as jobs only when the step is big enough; the result is the same)
+    const PhysicsJobThresholds bigStep = physics_job_thresholds();
+    tasks_.wide = b2World_GetAwakeBodyCount(world_) >= bigStep.awakeBodies ||
+                  b2World_GetCounters(world_).contactCount >= bigStep.contacts;
     b2World_Step(world_, dt, std::max(settings_.subSteps, 1));
 
     // ---- 3. write back

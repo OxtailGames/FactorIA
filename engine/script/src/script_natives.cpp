@@ -3173,6 +3173,22 @@ NATIVE(navFindPath) {  // ({ from: [x,y,z], to: [x,y,z], radius?, snap?, closest
     if (!r.ok()) return throw_err(ctx, "nav.findPath(from, to): " + r.error().to_string());
     return I->from_json(r.value().to_json());
 }
+NATIVE(navFindPaths) {  // ({ queries: [{ from, to, radius?, snap?, closest?, mesh? }], radius?, snap?, closest?, mesh? }) -> [path]
+    SETUP;
+    auto queries = nav_parse_path_queries(I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED), "nav.findPaths(queries)");
+    if (!queries.ok()) return throw_err(ctx, queries.error().to_string());
+    auto r = I->host->physics().nav_find_paths(W, queries.value());
+    if (!r.ok()) return throw_err(ctx, "nav.findPaths(queries): " + r.error().to_string());
+    Json out = Json::array();
+    for (const NavPath& p : r.value()) out.push_back(p.to_json());
+    return I->from_json(out);
+}
+NATIVE(navFindTilePaths) {  // ({ tilemap | grid, queries: [{ from, to }], costs?, diagonals?, ... }) -> [result]
+    SETUP;
+    auto r = nav_tile_query_many(W, I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED));
+    if (!r.ok()) return throw_err(ctx, r.error().to_string());
+    return I->from_json(r.value());
+}
 NATIVE(navFindTilePath) {  // ({ tilemap | grid, from, to, costs?, diagonals?, maxNodes?, closest?, allowBlockedGoal? })
     SETUP;
     auto r = nav_tile_query(W, I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED));
@@ -3282,6 +3298,42 @@ NATIVE(navGridPath) {  // (grid, from [c,r], to [c,r], opts) -> the nav.findTile
         return std::make_pair(static_cast<int>(std::floor(dc)), static_cast<int>(std::floor(dr)));
     };
     auto r = nav_tile_run(h->grid->grid(), nullptr, I->to_json(argc > 3 ? argv[3] : JS_UNDEFINED), cell(1), cell(2));
+    if (!r.ok()) return throw_err(ctx, r.error().to_string());
+    return I->from_json(r.value());
+}
+NATIVE(navGridPaths) {  // (grid, [from c, from r, to c, to r, ...], opts) -> [the nav.findTilePath result]
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, false, &exc);
+    if (!h) return exc;
+    std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> queries;
+    if (argc < 2 || !JS_IsArray(argv[1]))
+        return throw_err(ctx, "nav.findTilePaths: the cells must be an array [from col, from row, to col, to row, ...]; use nav.findTilePaths(map, [{from: [c, r], to: [c, r]}, ...]).");
+    uint32_t n = 0;
+    JSValue len = JS_GetPropertyStr(ctx, argv[1], "length");
+    JS_ToUint32(ctx, &n, len);
+    JS_FreeValue(ctx, len);
+    if (n % 4 != 0)
+        return throw_err(ctx, "nav.findTilePaths: " + std::to_string(n) + " numbers is not a whole number of queries; each query is four numbers (from col, from row, to col, to row).");
+    if (n / 4 > kNavMaxBatch) return throw_err(ctx, "nav.findTilePaths: too many queries in one call (the most is " + std::to_string(kNavMaxBatch) + ")");
+    bool badNumber = false;
+    uint32_t badAt = 0;
+    auto whole = [&](uint32_t i) {
+        JSValue v = JS_GetPropertyUint32(ctx, argv[1], i);
+        double d = 0;
+        const bool ok = JS_ToFloat64(ctx, &d, v) == 0 && std::isfinite(d);
+        JS_FreeValue(ctx, v);
+        if (!ok && !badNumber) {
+            badNumber = true;
+            badAt = i;
+            JS_FreeValue(ctx, JS_GetException(ctx));
+        }
+        return ok ? static_cast<int>(std::floor(std::clamp(d, -1e9, 1e9))) : 0;
+    };
+    for (uint32_t i = 0; i + 3 < n; i += 4) queries.push_back({{whole(i), whole(i + 1)}, {whole(i + 2), whole(i + 3)}});
+    if (badNumber)
+        return throw_err(ctx, "nav.findTilePaths /queries/" + std::to_string(badAt / 4) + ": every cell coordinate must be a finite number.");
+    auto r = nav_tile_run_many(h->grid->grid(), nullptr, I->to_json(argc > 2 ? argv[2] : JS_UNDEFINED), queries);
     if (!r.ok()) return throw_err(ctx, r.error().to_string());
     return I->from_json(r.value());
 }
@@ -4145,7 +4197,7 @@ const Reg kRegs[] = {
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
     R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
     R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
-    R(raycast3d, 10), R(raycast2dAll, 8), R(raycast3dAll, 11), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(musicCall, 3), R(spriteAnimCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(tileCellAt, 3), R(tileCellToWorld, 3), R(tilePaintTerrain, 4), R(tileRetile, 1), R(tileTerrainAt, 3), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(uiMirrorRtl, 0), R(setUiMirrorRtl, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderCaptureWorld, 6), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(uiAim, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4), R(meshCreate, 2), R(meshUpdate, 3), R(meshDestroy, 1), R(meshInfo, 1), R(meshList, 0), R(meshSave, 2),
+    R(raycast3d, 10), R(raycast2dAll, 8), R(raycast3dAll, 11), R(navFindPath, 1), R(navFindPaths, 1), R(navBake, 1), R(navFindTilePath, 1), R(navFindTilePaths, 1), R(navGridPaths, 3), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(musicCall, 3), R(spriteAnimCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(tileCellAt, 3), R(tileCellToWorld, 3), R(tilePaintTerrain, 4), R(tileRetile, 1), R(tileTerrainAt, 3), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(uiMirrorRtl, 0), R(setUiMirrorRtl, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderCaptureWorld, 6), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(uiAim, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4), R(meshCreate, 2), R(meshUpdate, 3), R(meshDestroy, 1), R(meshInfo, 1), R(meshList, 0), R(meshSave, 2),
     R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(autoplayPhase, 2), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 3), R(storageSetAsync, 3), R(storageSize, 1), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nGender, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(generateActive, 1), R(testDiskReads, 0), R(testScreenshot, 3),

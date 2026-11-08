@@ -5,7 +5,9 @@
 #include <cmath>
 #include <format>
 #include <string>
+#include <vector>
 
+#include "fa/core/jobs.h"
 #include "fa/physics/physics.h"
 
 using namespace fa;
@@ -463,4 +465,103 @@ TEST_CASE("nav: re-marking a moved body gives the cells a fresh bake would") {
     const auto fresh = describe(p2, w2);
     CHECK(!fresh.empty());
     CHECK(incremental == fresh);
+}
+
+namespace {
+// A path as text with the float bits rounded away, so two runs compare as strings.
+std::string path_text(const NavPath& p) {
+    std::string t = p.found ? "found" : "not:" + p.reason;
+    for (const Vec3& v : p.points) t += std::format(" ({:.3f},{:.3f},{:.3f})", v.x, v.y, v.z);
+    t += std::format(" len={:.3f} complete={} mesh={}", p.length, p.complete, p.mesh);
+    return t;
+}
+std::vector<NavPathQuery> many_queries(int n) {
+    std::vector<NavPathQuery> qs;
+    for (int i = 0; i < n; ++i) {  // across the wall, up the ramp, to the high step, off the level, to the same point
+        const float a = float(i % 13) - 6.0f, b = float((i * 5) % 11) - 5.0f;
+        NavPathQuery q;
+        q.from = {a * 1.5f, 0, b};
+        q.to = {-a * 1.5f + float(i % 3), 0, float((i * 7) % 15) - 7.0f};
+        if (i % 9 == 4) q.to = {8, 1, 6};
+        if (i % 9 == 5) q.to = {-8, 1, 6};
+        if (i % 9 == 6) q.to = {40, 0, 0};  // off the mesh
+        if (i % 4 == 3) q.options.closest = true;
+        qs.push_back(q);
+    }
+    return qs;
+}
+}  // namespace
+
+TEST_CASE("nav: find_paths gives the answers of single queries, in request order, with any job thread count") {
+    Level l;
+    const std::vector<NavPathQuery> qs = many_queries(60);  // well over kNavBatchMinQueries
+    std::vector<std::string> single;
+    for (const NavPathQuery& q : qs) {
+        auto r = l.physics.nav_find_path(l.world, q.from, q.to, q.options);
+        REQUIRE(r.ok());
+        single.push_back(path_text(r.value()));
+    }
+    for (int threads : {-1, 0, 1, 2, 8}) {
+        const jobs::Settings s = threads < 0 ? jobs::Settings::inline_jobs() : jobs::Settings::threads(threads);
+        REQUIRE(jobs::start(s));
+        auto r = l.physics.nav_find_paths(l.world, qs);
+        jobs::stop();
+        REQUIRE(r.ok());
+        REQUIRE(r.value().size() == qs.size());
+        for (std::size_t i = 0; i < qs.size(); ++i) CHECK(path_text(r.value()[i]) == single[i]);
+    }
+    CHECK(single[0] != single[1]);  // the queries differ: the order check means something
+}
+
+TEST_CASE("nav: find_paths with job threads queues jobs, and fewer than kNavBatchMinQueries queue none") {
+    Level l;
+    REQUIRE(jobs::start(jobs::Settings::threads(2)));
+    REQUIRE(l.physics.nav_find_paths(l.world, many_queries(40)).ok());
+    jobs::end_frame();
+    const int big = jobs::info().submittedLastFrame;
+    REQUIRE(l.physics.nav_find_paths(l.world, many_queries(int(kNavBatchMinQueries) - 1)).ok());
+    jobs::end_frame();
+    const int small = jobs::info().submittedLastFrame;
+    jobs::stop();
+    CHECK(big >= 10);  // 40 queries in chunks of kNavBatchGrain
+    CHECK(small == 0);
+}
+
+TEST_CASE("nav: find_paths reports a query that cannot be answered with its index, before searching") {
+    Level l;
+    std::vector<NavPathQuery> qs = many_queries(20);
+    qs[13].options.mesh = "nope";
+    auto r = l.physics.nav_find_paths(l.world, qs);
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("query 13 of 20") != std::string::npos);
+    CHECK(r.error().message.find("/queries/13") != std::string::npos);
+    CHECK(r.error().message.find("nope") != std::string::npos);
+    qs[13].options.mesh.clear();
+    qs[7].options.radius = 5.0f;  // bigger than the mesh was baked for
+    auto r2 = l.physics.nav_find_paths(l.world, qs);
+    REQUIRE_FALSE(r2.ok());
+    CHECK(r2.error().message.find("query 7 of 20") != std::string::npos);
+}
+
+TEST_CASE("nav: nav_parse_path_queries names the JSON pointer of a bad argument") {
+    auto ok = nav_parse_path_queries(Json::parse(R"({"closest":true,"queries":[{"from":[0,0,0],"to":[1,0,1]},
+        {"from":[0,0,0],"to":[2,0,2],"closest":false,"radius":0.2}]})"), "nav.find_paths");
+    REQUIRE(ok.ok());
+    REQUIRE(ok.value().size() == 2);
+    CHECK(ok.value()[0].options.closest);
+    CHECK_FALSE(ok.value()[1].options.closest);
+    CHECK(ok.value()[1].options.radius == doctest::Approx(0.2f));
+
+    auto bad = nav_parse_path_queries(Json::parse(R"({"queries":[{"from":[0,0,0],"to":[1,0,1]},{"from":[0,0],"to":[1,0,1]}]})"), "nav.find_paths");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("/queries/1/from") != std::string::npos);
+    auto missing = nav_parse_path_queries(Json::parse(R"({"queries":[{"from":[0,0,0]}]})"), "nav.find_paths");
+    REQUIRE_FALSE(missing.ok());
+    CHECK(missing.error().message.find("/queries/0/to") != std::string::npos);
+    auto none = nav_parse_path_queries(Json::parse(R"({"from":[0,0,0]})"), "nav.find_paths");
+    REQUIRE_FALSE(none.ok());
+    CHECK(none.error().message.find("/queries") != std::string::npos);
+    auto badOpt = nav_parse_path_queries(Json::parse(R"({"queries":[{"from":[0,0,0],"to":[1,0,1],"closest":"yes"}]})"), "nav.find_paths");
+    REQUIRE_FALSE(badOpt.ok());
+    CHECK(badOpt.error().message.find("/queries/0/closest") != std::string::npos);
 }
