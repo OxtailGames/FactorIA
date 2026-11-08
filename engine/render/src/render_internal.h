@@ -611,6 +611,7 @@ public:
     // `shader` = a program of a custom material (the pipeline is keyed by it); default = the built-in mesh program.
     sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, sg_shader shader = {});
     sg_pipeline sky_pipeline();
+    std::size_t pipeline_count() const { return pipelines_.size(); }  // pipelines made so far (start-up report)
     // `fullVertex` (custom shadow programs: vertex() or alphaMode "clip") also reads normal, texcoord0 and tangent from
     // vertex buffer 0, at locations 5, 6, 7 (skinned: 7, 8, 9) as shadow_vs of mesh_common.glsl declares them.
     sg_pipeline shadow_pipeline(bool skinned = false, sg_shader shader = {}, bool fullVertex = false);

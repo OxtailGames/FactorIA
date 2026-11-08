@@ -527,7 +527,11 @@ extern "C" sapp_desc sokol_main(int, char*[]) {
     const auto* activity = static_cast<const ANativeActivity*>(sapp_android_get_native_activity());
     if (!activity) return error_desc("Android: sapp_android_get_native_activity() returned null.");
     fa::fs::set_android_asset_manager(activity->assetManager);
-    if (activity->internalDataPath) fa::fs::set_user_dir(activity->internalDataPath);
+    if (activity->internalDataPath) {
+        fa::fs::set_user_dir(activity->internalDataPath);
+        // The app's cache folder is the sibling of its files folder (/data/data/<package>/cache): the system may clear it.
+        fa::fs::set_cache_dir((stdfs::path(activity->internalDataPath).parent_path() / "cache").generic_string());
+    }
     cfg.projectDir = "";  // the APK assets root
     fa::fs::set_project_root("");
     if (!fa::fs::exists(fa::kProjectFileName))
@@ -536,6 +540,8 @@ extern "C" sapp_desc sokol_main(int, char*[]) {
 #else
     cfg.projectDir = fa_player_ios_game_dir();
     fa::fs::set_user_dir(fa_player_ios_documents_dir());
+    // Library/Caches next to Documents: backed up never, cleared by the system when space runs low.
+    fa::fs::set_cache_dir((stdfs::path(fa_player_ios_documents_dir()).parent_path() / "Library" / "Caches").generic_string());
     if (!stdfs::exists(stdfs::path(cfg.projectDir) / fa::kProjectFileName))
         return error_desc("No game in the app bundle (expected " + cfg.projectDir +
                           "/factoria.json). Configure with -DFA_GAME_PROJECT_DIR=<game folder> "

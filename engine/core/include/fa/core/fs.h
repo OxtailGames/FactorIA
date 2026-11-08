@@ -35,6 +35,17 @@ const std::filesystem::path& project_root();
 void set_user_dir(const std::filesystem::path& dir);
 const std::filesystem::path& user_dir();
 
+// Per-user folder for files the engine can always rebuild (compiled shaders: fa/core/blob_cache.h). Never the game folder and
+// never the save folder: a cache is private to the machine, may be deleted at any time, and is not backed up. Empty = no disk
+// cache (the web build, or a mobile player before it called set_cache_dir). Default on desktop: macOS ~/Library/Caches/FactorIA,
+// Windows %LOCALAPPDATA%\FactorIA\Cache, Linux $XDG_CACHE_HOME/factoria or ~/.cache/factoria. The environment variable
+// FA_CACHE_DIR overrides it for a process (tests and CI point it at a scratch folder). Not created here: the writer creates it.
+void set_cache_dir(const std::filesystem::path& dir);
+// Returned by value: another thread may call set_cache_dir.
+std::filesystem::path cache_dir();
+// Forgets set_cache_dir: the next cache_dir() reads FA_CACHE_DIR and the platform default again (tests).
+void reset_cache_dir();
+
 // Tell the platform that the game wrote something in user_dir() (a save game). Does nothing on desktop and mobile, where
 // the folder is on disk. On the web the folder lives in browser memory: this schedules copying it to the browser's
 // IndexedDB (a few writes in a row become one copy, and a closing tab flushes it), so saves survive a reload.

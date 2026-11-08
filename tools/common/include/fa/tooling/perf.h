@@ -24,6 +24,10 @@ struct PerfSample {
     double triangles = -1;                            // triangles of the main pass
     double lights = -1;                               // lights sent to the shader
     double textureMB = -1;                            // GPU texture memory
+    // CPU milliseconds from the start of reading the game to its first frame (Engine::init up to the end of frame 1: files read,
+    // scenes, scripts, textures, shaders; fa/core/startup.h). -1 = not recorded. Process CPU time, so a busy machine moves it less
+    // than the wall clock; still the noisiest number here, so its limits are wide and a budget on it is a "timing" row.
+    double startupMs = -1;
     std::string graphics;                             // the GPU used, "none" without one
 };
 Json perf_sample_json(const PerfSample& s);
@@ -41,6 +45,8 @@ struct PerfTolerance {
     double lights = 0.10;
     double textureMB = 0.10;
     double textureSlackMB = 1.0;
+    double startup = 2.0;         // +200%: reading files and compiling shaders depends on the disk, its cache and the driver
+    double startupSlackMs = 500.0;
     double cpuSlackMs = 1.0;
     double memorySlackMB = 8.0;
     double countSlack = 2.0;
@@ -51,7 +57,7 @@ PerfTolerance perf_tolerance_from_json(const Json& j, std::vector<std::string>* 
 struct PerfCheckRow {
     std::string metric;  // "cpuMsAvg", "cpuMsP95", "peakMemoryMB", "drawCalls", "entities", "triangles", "lights", "textureMB"; "maxTriangles"... for a budget
     double measured = 0, baseline = 0, limit = 0;
-    bool timing = false;  // a time metric: over budget only warns outside CI
+    bool timing = false;  // a time metric (also maxStartupMs): over budget only warns outside CI
     bool exceeded = false;
 };
 struct PerfVerdict {
@@ -62,14 +68,21 @@ struct PerfVerdict {
 PerfVerdict perf_compare(const PerfSample& measured, const PerfSample& baseline, const PerfTolerance& tol, bool strictTime);
 
 // Absolute caps, whatever the runner: the "budgets" object of a budget file or the `budgets` argument of perf.check.
-// {maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities}; a key left out is not checked. A unknown key or a
+// {maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs}; a key left out is not checked. A unknown key or a
 // bad value goes to `problems` with a "did you mean".
 struct PerfBudgets {
     double maxTriangles = -1, maxLights = -1, maxTextureMB = -1, maxDrawCalls = -1, maxEntities = -1;  // -1 = no cap
+    // The `perf.startup` budget: the most CPU milliseconds the game may take from reading its files to its first frame
+    // (PerfSample::startupMs). A time: over it only warns outside CI, and fails in CI after two re-measures.
+    double maxStartupMs = -1;
 };
 PerfBudgets perf_budgets_from_json(const Json& j, std::vector<std::string>* problems = nullptr);
 // One row per cap that is set (baseline = limit = the cap); `exceeded` when the measurement is over it.
+// maxStartupMs is a timing row; it is skipped when the sample has no startupMs.
 std::vector<PerfCheckRow> perf_budget_rows(const PerfSample& measured, const PerfBudgets& budgets);
+// The sentence that teaches how to bring a game's start-up time down (docs/AI_GUIDE.md, "Keep startup low"), for a perf.check
+// message when a startup row is over its limit.
+std::string perf_startup_advice();
 
 // "<os>-<compiler>-<renderer>[-debug]", e.g. linux-gcc-llvmpipe, windows-msvc-d3d11-warp, macos-clang-metal-paravirtual
 // (GitHub's macOS VMs; a Mac's own GPU is macos-clang-metal). A Debug build (no NDEBUG) adds "-debug": it costs more memory

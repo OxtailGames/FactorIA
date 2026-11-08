@@ -305,6 +305,8 @@ cmake --build build/my-build -j 2
   `ctest -L example`. `--debug-only` and `--examples-only` run one half; `FA_TEST_DEBUG_DIR`, `FA_TEST_RELEASE_DIR`,
   `FA_TEST_JOBS` and `FA_TEST_CTEST_JOBS` (default 3) tune it; ccache is used when installed. CI already builds Release,
   so its `ctest` runs the examples with no extra job.
+- **A scratch shader cache in tests.** `add_test` also gives every test `FA_CACHE_DIR=<build dir>/test-cache`, so a test run never
+  reads or writes your real per-user cache folder (`fs::cache_dir()`, docs/PERFORMANCE.md "Startup"); delete the folder for a cold-cache run.
 - **Windows file rules in tests (macOS and Linux).** Two Windows behaviours broke the engine and only the Windows CI job
   found them: a file open for reading cannot be replaced or deleted (every `std::ifstream` opens without
   `FILE_SHARE_DELETE`, so the atomic rename of `fs::write_bytes` fails while another thread reads the file), and a file's
