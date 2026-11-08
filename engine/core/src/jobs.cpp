@@ -12,7 +12,10 @@
 #include <limits>
 #include <mutex>
 #include <system_error>
+#include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
@@ -26,44 +29,87 @@
 namespace fa::jobs {
 
 namespace detail {
+
+struct MainTask {
+    std::string name;
+    std::function<void()> fn;
+};
+
+struct OwnerState : std::enable_shared_from_this<OwnerState> {
+    std::string name;
+    int pending = 0;  // Pool::mu: its jobs not finished
+    mutable std::mutex mainMu;
+    std::vector<MainTask> main;  // mainMu
+    bool alive = true;           // mainMu: false once the Owner is destroyed (its late tasks are dropped)
+};
+
+struct ThreadInfo;
+
 struct JobState {
     std::string name;
     std::function<void()> fn;
     bool internal = false;  // a parallel_for helper: its chunks are counted, not the helper itself
+    std::shared_ptr<OwnerState> owner;
     // Guarded by Pool::mu until finished; read-only after doneFlag is true.
     int pendingDeps = 0;
-    bool queued = false;
+    bool queued = false;  // in Pool::ready and not taken yet
     bool finished = false;
     bool failed = false;
     Error error;                                       // what wait() returns when failed
     Error rootError;                                   // the throw a failure goes back to (for skipped dependents)
     std::string failedDep;                             // the first dependency that failed: the job is skipped
     std::vector<std::shared_ptr<JobState>> dependents;
+    std::vector<std::shared_ptr<JobState>> deps;       // the dependencies not finished at submit (dropped when it ends)
+    ThreadInfo* runningOn = nullptr;                   // the thread running it now
+    std::size_t frame = 0;                             // its place in runningOn->frames
+    std::uint64_t mark = 0;                            // graph walks (Pool::walk)
     std::atomic<bool> doneFlag{false};                 // finished, readable without the lock
 };
+
+// One level of a thread's stack: a job it runs, or a wait. A job can only end once every wait above it has ended.
+struct Frame {
+    JobState* job = nullptr;
+    JobState* waitFor = nullptr;
+};
+
+struct ThreadInfo {
+    std::uint32_t gen = 0;
+    int lane = -1;
+    OwnerState* owner = nullptr;  // the current owner (OwnerScope, or the job running now)
+    std::vector<Frame> frames;    // Pool::mu (other threads read it to find waits that can never end); innermost last
+};
+
 }  // namespace detail
 
+using detail::Frame;
 using detail::JobState;
+using detail::MainTask;
+using detail::OwnerState;
+using detail::ThreadInfo;
 using JobPtr = std::shared_ptr<JobState>;
 
 struct Access {
     static const JobPtr& state(const Handle& h) { return h.state_; }
     static Handle make(JobPtr s) { return Handle(std::move(s)); }
+    static const std::shared_ptr<OwnerState>& state(const Owner& o) { return o.state_; }
 };
 
 namespace {
 
 using Clock = std::chrono::steady_clock;
 
-struct LaneCounters {
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4324)  // padded because of alignas: that is the point
+#endif
+// One cache line per lane: workers add to their own lane without sharing a line with another worker's.
+struct alignas(64) LaneCounters {
     std::atomic<std::uint64_t> jobs{0};
     std::atomic<std::uint64_t> busyNs{0};
 };
-
-struct MainTask {
-    std::string name;
-    std::function<void()> fn;
-};
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 struct FrameStats {
     std::array<std::uint64_t, kMaxLanes> jobs{};
@@ -75,18 +121,20 @@ struct FrameStats {
 };
 
 struct Pool {
-    std::mutex mu;  // everything below up to `threads`
+    std::mutex life;  // held for the whole of start() and stop(): one at a time, a start never sees a half-stopped pool
+    std::mutex mu;    // everything below up to `threads`, and every JobState and ThreadInfo::frames
     std::condition_variable workCv;  // workers sleep here while nothing is queued
     std::condition_variable doneCv;  // waiters sleep here until a job finishes or becomes ready
-    std::deque<JobPtr> ready;
+    std::deque<JobPtr> ready;        // FIFO; a job a waiter took out of order stays here with queued == false
+    std::size_t readyCount = 0;      // entries of `ready` still queued
     int refs = 0;
     bool active = false;  // started and not fully stopped
     bool stopping = false;
     bool inlineMode = false;
     int workers = 0;
-    int runningJobs = 0;  // jobs executing now, on any thread
-    int pending = 0;      // submitted and not finished
-    int waiters = 0;
+    int pending = 0;  // submitted and not finished
+    int waiters = 0;  // threads sleeping (or about to) on doneCv
+    std::uint64_t walk = 0;
     Settings settings;
     std::thread::id mainId;
     std::vector<std::thread> threads;
@@ -97,7 +145,8 @@ struct Pool {
     std::atomic<int> workerCount{0};
 
     std::mutex mainMu;
-    std::vector<MainTask> mainQueue;
+    std::vector<MainTask> mainQueue;  // tasks posted with no owner
+    std::atomic<int> mainQueued{0};   // every queued task: mainQueue and every owner's
 
     std::array<LaneCounters, kMaxLanes> lanes;
     std::atomic<std::uint64_t> submitted{0};
@@ -107,6 +156,7 @@ struct Pool {
     std::mutex statsMu;
     FrameStats last;
     Clock::time_point frameStart = Clock::now();
+    const OwnerState* frameOwner = nullptr;  // the owner whose end_frame closes the frames (compared, never read)
 };
 
 // Never destroyed: a static destructor at exit must not join threads or free state a late job still reads.
@@ -115,11 +165,6 @@ Pool& pool() {
     return *p;
 }
 
-struct ThreadInfo {
-    std::uint32_t gen = 0;
-    int lane = -1;
-    int depth = 0;  // jobs running on this thread now (a wait inside a job runs others on top)
-};
 thread_local ThreadInfo tls;
 
 std::uint64_t ns_since(Clock::time_point t0) {
@@ -131,19 +176,26 @@ std::uint64_t ns_since(Clock::time_point t0) {
 double round2(double v) { return std::round(v * 100.0) / 100.0; }
 double round1(double v) { return std::round(v * 10.0) / 10.0; }
 
-void record(int lane, const std::string& name, std::uint64_t ns) {
+void record(int lane, const std::string& name, std::uint64_t count, std::uint64_t ns) {
     Pool& p = pool();
     if (lane < 0 || lane >= kMaxLanes) lane = lane_other();
-    p.lanes[std::size_t(lane)].jobs.fetch_add(1, std::memory_order_relaxed);
+    p.lanes[std::size_t(lane)].jobs.fetch_add(count, std::memory_order_relaxed);
     p.lanes[std::size_t(lane)].busyNs.fetch_add(ns, std::memory_order_relaxed);
     if (lane == lane_other()) p.otherUsed.store(true, std::memory_order_relaxed);
-    if (Profiler::on()) Profiler::get().add_job(lane, name, double(ns) / 1e6);
+    if (Profiler::on())
+        Profiler::get().add_job(lane, name, double(ns) / 1e6, int(std::min<std::uint64_t>(count, 1u << 30)));
 }
 
 Error thrown_error(const std::string& what, const std::string& name) {
     return make_error("job '" + name + "' failed: " + what,
                       "The job system caught the exception and the job's work is incomplete; fix the code the job runs "
                       "(the log has the same line with the job's name).");
+}
+
+Error skipped_error(const JobState& j) {
+    return make_error("job '" + j.name + "' did not run: its dependency '" + j.failedDep + "' failed: " +
+                          j.rootError.message,
+                      j.rootError.hint);
 }
 
 // What a caught exception says.
@@ -157,11 +209,58 @@ std::string current_exception_text() {
     }
 }
 
+// Runs the tasks in order, catching what they throw. Returns how many ran.
+int run_tasks(std::vector<MainTask>& tasks) {
+    Pool& p = pool();
+    p.mainQueued.fetch_sub(int(tasks.size()), std::memory_order_relaxed);
+    for (MainTask& t : tasks) {
+        try {
+            if (t.fn) t.fn();
+        } catch (...) {
+            FA_ERROR("jobs", "main-thread task '{}' failed: {}", t.name, current_exception_text());
+        }
+        t.fn = nullptr;
+    }
+    p.mainTasksRun.fetch_add(tasks.size(), std::memory_order_relaxed);
+    return int(tasks.size());
+}
+
 struct Finished {
     bool newReady = false;
     std::vector<JobPtr> runHere;                 // dependents that became ready while the pool is not running
     std::vector<std::function<void()>> discard;  // functions of skipped jobs: destroyed after the lock is released
+    std::vector<JobPtr> release;                 // dependency lists of finished jobs: dropped after the lock too
 };
+
+// Puts j, which this thread is about to run, on this thread's stack. Pool::mu must be held.
+void claim_locked(JobState* j) {
+    j->runningOn = &tls;
+    j->frame = tls.frames.size();
+    tls.frames.push_back(Frame{j, nullptr});
+}
+
+// Takes `j`, which is queued, out of order: its entry in `ready` stays behind, no longer queued. Pool::mu held.
+void take_locked(Pool& p, JobState* j) {
+    j->queued = false;
+    --p.readyCount;
+    if (!p.ready.empty() && p.ready.front().get() == j) p.ready.pop_front();
+    else if (!p.ready.empty() && p.ready.back().get() == j) p.ready.pop_back();
+    claim_locked(j);
+}
+
+// The oldest queued job, taken; null when none. Pool::mu must be held.
+JobPtr pop_front_locked(Pool& p) {
+    while (!p.ready.empty()) {
+        JobPtr j = std::move(p.ready.front());
+        p.ready.pop_front();
+        if (!j->queued) continue;  // a waiter took it already
+        j->queued = false;
+        --p.readyCount;
+        claim_locked(j.get());
+        return j;
+    }
+    return nullptr;
+}
 
 // Marks `j` finished (its failed/error already set) and every dependent it releases. Pool::mu must be held.
 void finish_locked(Pool& p, const JobPtr& j, Finished& out) {
@@ -172,6 +271,9 @@ void finish_locked(Pool& p, const JobPtr& j, Finished& out) {
         cur->finished = true;
         cur->doneFlag.store(true, std::memory_order_release);
         --p.pending;
+        if (cur->owner) --cur->owner->pending;
+        for (JobPtr& d : cur->deps) out.release.push_back(std::move(d));
+        cur->deps.clear();
         for (JobPtr& d : cur->dependents) {
             if (cur->failed && d->failedDep.empty()) {
                 d->failedDep = cur->name;
@@ -180,17 +282,15 @@ void finish_locked(Pool& p, const JobPtr& j, Finished& out) {
             if (--d->pendingDeps > 0) continue;
             if (!d->failedDep.empty()) {
                 d->failed = true;
-                d->error = make_error("job '" + d->name + "' did not run: its dependency '" + d->failedDep +
-                                          "' failed: " + d->rootError.message,
-                                      d->rootError.hint);
+                d->error = skipped_error(*d);
                 out.discard.push_back(std::move(d->fn));
                 work.push_back(d);
             } else if (p.active && !p.inlineMode) {
                 d->queued = true;
                 p.ready.push_back(d);
+                ++p.readyCount;
                 out.newReady = true;
             } else {
-                ++p.runningJobs;
                 out.runHere.push_back(d);
             }
         }
@@ -200,17 +300,25 @@ void finish_locked(Pool& p, const JobPtr& j, Finished& out) {
 
 void run_job(const JobPtr& j);
 
-void notify_finished(Pool& p, Finished& f) {
+void notify_finished(Pool& p, Finished& f, bool wakeWaiters) {
     if (f.newReady) p.workCv.notify_all();
-    p.doneCv.notify_all();
+    if (wakeWaiters) p.doneCv.notify_all();
     f.discard.clear();
-    for (const JobPtr& d : f.runHere) run_job(d);
+    f.release.clear();
+    for (const JobPtr& d : f.runHere) {
+        {
+            std::lock_guard<std::mutex> lk(p.mu);
+            claim_locked(d.get());
+        }
+        run_job(d);
+    }
 }
 
-// Runs a job the caller took (Pool::runningJobs already counts it) and finishes it.
+// Runs a job this thread claimed (claim_locked) and finishes it.
 void run_job(const JobPtr& j) {
     const int lane = current_lane();
-    ++tls.depth;
+    OwnerState* const prevOwner = tls.owner;
+    tls.owner = j->owner.get();
     const Clock::time_point t0 = Clock::now();
     bool failed = false;
     std::string what;
@@ -224,11 +332,12 @@ void run_job(const JobPtr& j) {
         }
     }  // the captures die here, before any waiter wakes
     const std::uint64_t ns = ns_since(t0);
-    --tls.depth;
-    if (!j->internal) record(lane, j->name, ns);
+    tls.owner = prevOwner;
+    if (!j->internal) record(lane, j->name, 1, ns);
     if (failed) FA_ERROR("jobs", "job '{}' failed: {}", j->name, what);
     Pool& p = pool();
     Finished f;
+    bool wake = false;
     {
         std::lock_guard<std::mutex> lk(p.mu);
         if (failed) {
@@ -236,10 +345,12 @@ void run_job(const JobPtr& j) {
             j->error = thrown_error(what, j->name);
             j->rootError = j->error;
         }
-        --p.runningJobs;
+        tls.frames.pop_back();  // this job's frame: every wait it made has ended
+        j->runningOn = nullptr;
         finish_locked(p, j, f);
+        wake = p.waiters > 0;
     }
-    notify_finished(p, f);
+    notify_finished(p, f, wake);
 }
 
 JobPtr make_job(std::string_view name, std::function<void()> fn, bool internal) {
@@ -247,6 +358,7 @@ JobPtr make_job(std::string_view name, std::function<void()> fn, bool internal) 
     j->name.assign(name.data(), name.size());
     j->fn = std::move(fn);
     j->internal = internal;
+    if (tls.owner) j->owner = tls.owner->shared_from_this();
     return j;
 }
 
@@ -254,12 +366,12 @@ Handle submit_job(const JobPtr& j, const std::vector<Handle>& deps) {
     Pool& p = pool();
     if (!j->internal) p.submitted.fetch_add(1, std::memory_order_relaxed);
     bool runNow = false;
-    bool wakeWaiters = false;
+    bool wake = false;
     Finished f;
     {
         std::lock_guard<std::mutex> lk(p.mu);
         ++p.pending;
-        wakeWaiters = p.waiters > 0;
+        if (j->owner) ++j->owner->pending;
         if (!p.active || p.inlineMode) {
             runNow = true;
         } else {
@@ -269,6 +381,7 @@ Handle submit_job(const JobPtr& j, const std::vector<Handle>& deps) {
                 if (!d->finished) {
                     ++j->pendingDeps;
                     d->dependents.push_back(j);
+                    j->deps.push_back(d);
                 } else if (d->failed && j->failedDep.empty()) {
                     j->failedDep = d->name;
                     j->rootError = d->rootError;
@@ -277,26 +390,23 @@ Handle submit_job(const JobPtr& j, const std::vector<Handle>& deps) {
             if (j->pendingDeps == 0) {
                 if (!j->failedDep.empty()) {
                     j->failed = true;
-                    j->error = make_error("job '" + j->name + "' did not run: its dependency '" + j->failedDep +
-                                              "' failed: " + j->rootError.message,
-                                          j->rootError.hint);
+                    j->error = skipped_error(*j);
                     f.discard.push_back(std::move(j->fn));
                     finish_locked(p, j, f);
+                    wake = p.waiters > 0;
                 } else {
                     j->queued = true;
                     p.ready.push_back(j);
+                    ++p.readyCount;
                     f.newReady = true;
                 }
             }
         }
     }
     if (!runNow) {
-        if (f.newReady) {
-            p.workCv.notify_one();
-            if (wakeWaiters) p.doneCv.notify_all();  // a helping waiter may take it (0 workers)
-        } else if (!f.discard.empty()) {
-            notify_finished(p, f);
-        }
+        // A new job is in nobody's wait yet (waits only take what the waited job needs), so only workers wake.
+        if (f.newReady) p.workCv.notify_one();
+        else notify_finished(p, f, wake);  // skipped at once: its waiters (none yet, or a copy of the handle) wake
         return Access::make(j);
     }
     // Not running or inline: the job runs here, once its dependencies are done (they may run on another thread).
@@ -314,36 +424,66 @@ Handle submit_job(const JobPtr& j, const std::vector<Handle>& deps) {
         {
             std::lock_guard<std::mutex> lk(p.mu);
             j->failed = true;
-            j->error = make_error("job '" + j->name + "' did not run: its dependency '" + j->failedDep + "' failed: " +
-                                      j->rootError.message,
-                                  j->rootError.hint);
+            j->error = skipped_error(*j);
             discard = std::move(j->fn);
             finish_locked(p, j, f);
+            wake = p.waiters > 0;
         }
-        notify_finished(p, f);
+        notify_finished(p, f, wake);
         return Access::make(j);
     }
     {
         std::lock_guard<std::mutex> lk(p.mu);
-        ++p.runningJobs;
+        claim_locked(j.get());
     }
     run_job(j);
     return Access::make(j);
 }
 
-// Takes the next queued job (`prefer` first when it is queued). Pool::mu must be held.
-JobPtr take_locked(Pool& p, const JobState* prefer) {
-    if (p.ready.empty()) return nullptr;
-    auto it = p.ready.begin();
-    if (prefer && prefer->queued) {
-        auto found = std::find_if(p.ready.begin(), p.ready.end(), [&](const JobPtr& x) { return x.get() == prefer; });
-        if (found != p.ready.end()) it = found;
+// A queued job that `root` needs: root itself or one of its unfinished dependencies (and theirs). Pool::mu held.
+JobPtr find_needed_locked(Pool& p, const JobPtr& root) {
+    const std::uint64_t mark = ++p.walk;
+    std::vector<const JobPtr*> todo{&root};
+    root->mark = mark;
+    while (!todo.empty()) {
+        const JobPtr& cur = *todo.back();
+        todo.pop_back();
+        if (cur->finished) continue;
+        if (cur->queued) return cur;
+        for (const JobPtr& d : cur->deps) {
+            if (d->finished || d->mark == mark) continue;
+            d->mark = mark;
+            todo.push_back(&d);
+        }
     }
-    JobPtr j = std::move(*it);
-    p.ready.erase(it);
-    j->queued = false;
-    ++p.runningJobs;
-    return j;
+    return nullptr;
+}
+
+// True when `root` can only finish after the wait this thread is starting has ended: root, or a job it needs, runs on
+// this thread, or runs on another thread under a wait that (through more waits and dependencies) leads back here.
+// Pool::mu must be held; every frame of every thread changes only under it.
+bool never_ends_locked(Pool& p, JobState* root) {
+    const std::uint64_t mark = ++p.walk;
+    std::vector<JobState*> todo{root};
+    root->mark = mark;
+    auto visit = [&](JobState* j) {
+        if (j->finished || j->mark == mark) return;
+        j->mark = mark;
+        todo.push_back(j);
+    };
+    while (!todo.empty()) {
+        JobState* cur = todo.back();
+        todo.pop_back();
+        if (cur->finished) continue;
+        if (cur->runningOn == &tls) return true;  // it is under this wait on this thread's stack
+        if (ThreadInfo* t = cur->runningOn) {
+            // It ends only after every wait above it on that thread: follow them.
+            for (std::size_t k = cur->frame + 1; k < t->frames.size(); ++k)
+                if (JobState* w = t->frames[k].waitFor) visit(w);
+        }
+        for (const JobPtr& d : cur->deps) visit(d.get());
+    }
+    return false;
 }
 
 void worker_main(int index, std::uint32_t gen) {
@@ -354,11 +494,12 @@ void worker_main(int index, std::uint32_t gen) {
     Pool& p = pool();
     std::unique_lock<std::mutex> lk(p.mu);
     for (;;) {
-        p.workCv.wait(lk, [&p] { return !p.ready.empty() || p.stopping; });
-        JobPtr j = take_locked(p, nullptr);
+        p.workCv.wait(lk, [&p] { return p.readyCount > 0 || p.stopping; });
+        JobPtr j = pop_front_locked(p);
         if (!j) break;  // stopping and nothing left: the jobs queued during shutdown ran too
         lk.unlock();
         run_job(j);
+        j.reset();  // the last reference may go here: not under the lock
         lk.lock();
     }
 }
@@ -425,7 +566,17 @@ Result<Settings> parse_settings_text(std::string_view text, std::string_view whe
 }
 
 Result<Settings> parse_settings(const Json& v, std::string_view where) {
-    if (v.is_string()) return parse_settings_text(v.get<std::string>(), where);
+    if (v.is_string()) {
+        // The project schema allows only the two words as strings: a count is a JSON number.
+        const std::string text = v.get<std::string>();
+        const std::string t(trim(text));
+        const std::string_view digits = std::string_view(t).substr(!t.empty() && t[0] == '-' ? 1 : 0);
+        if (!digits.empty() && std::all_of(digits.begin(), digits.end(), [](char c) { return c >= '0' && c <= '9'; }))
+            return make_error(std::string(where) + ": the thread count is the string \"" + text +
+                                  "\"; write it as a number",
+                              "Use " + t + " without quotes (\"jobThreads\": " + t + "), \"auto\" or \"inline\".");
+        return parse_settings_text(text, where);
+    }
     if (v.is_number_unsigned()) {
         const std::uint64_t u = v.get<std::uint64_t>();
         return count_setting(u > std::uint64_t(kMaxWorkers) ? std::int64_t(kMaxWorkers) + 1 : std::int64_t(u), where,
@@ -477,16 +628,26 @@ int resolve_workers(const Settings& s) {
     return 0;
 }
 
-// --------------------------------------------------------------------------------------------------------- the pool
-void start(const Settings& s) {
+namespace {
+
+void start_impl(const Settings& s, std::vector<std::pair<LogLevel, std::string>>& logs, Result<void>& result) {
     Pool& p = pool();
     std::lock_guard<std::mutex> lk(p.mu);
-    if (p.refs++ > 0) {
+    if (p.refs > 0) {
+        if (std::this_thread::get_id() != p.mainId) {
+            result = make_error("jobs::start() was called from a thread that is not the job pool's main thread: the "
+                                "pool already runs, started by another thread",
+                                "Create and run every Engine on the same thread (the main thread), or stop the pool "
+                                "everywhere before starting it from another thread.");
+            return;
+        }
+        ++p.refs;
         if (!(s == p.settings))
-            FA_DEBUG("jobs", "the job pool already runs with jobThreads {}; {} is ignored until it stops",
-                     p.settings.describe(), s.describe());
+            logs.emplace_back(LogLevel::Debug, "the job pool already runs with jobThreads " + p.settings.describe() +
+                                                   "; " + s.describe() + " is ignored until it stops");
         return;
     }
+    p.refs = 1;
     p.settings = s;
     p.mainId = std::this_thread::get_id();
     const std::uint32_t gen = p.gen.fetch_add(1, std::memory_order_acq_rel) + 1;
@@ -501,7 +662,9 @@ void start(const Settings& s) {
         try {
             p.threads.emplace_back(worker_main, i, gen);
         } catch (const std::system_error& e) {
-            FA_WARN("jobs", "could not start job thread {} of {} ({}); the pool runs with {}", i + 1, want, e.what(), i);
+            logs.emplace_back(LogLevel::Warn, "could not start job thread " + std::to_string(i + 1) + " of " +
+                                                  std::to_string(want) + " (" + e.what() + "); the pool runs with " +
+                                                  std::to_string(i));
             break;
         }
     }
@@ -513,60 +676,110 @@ void start(const Settings& s) {
         std::lock_guard<std::mutex> st(p.statsMu);
         p.last = FrameStats{};
         p.frameStart = Clock::now();
+        p.frameOwner = nullptr;
+        for (LaneCounters& l : p.lanes) {  // the first frame counts from here, not what ran inline before
+            l.jobs.store(0, std::memory_order_relaxed);
+            l.busyNs.store(0, std::memory_order_relaxed);
+        }
+        p.submitted.store(0, std::memory_order_relaxed);
+        p.mainTasksRun.store(0, std::memory_order_relaxed);
+        p.otherUsed.store(false, std::memory_order_relaxed);
     }
-    FA_DEBUG("jobs", "job pool started: jobThreads {}, {} worker thread(s), {} hardware thread(s)", s.describe(),
-             p.workers, hardware_threads());
+    logs.emplace_back(LogLevel::Debug, "job pool started: jobThreads " + s.describe() + ", " +
+                                           std::to_string(p.workers) + " worker thread(s), " +
+                                           std::to_string(hardware_threads()) + " hardware thread(s)");
+}
+
+void flush_logs(const std::vector<std::pair<LogLevel, std::string>>& logs) {
+    for (const auto& [level, text] : logs) fa::log(level, "jobs", text);
+}
+
+// In a job, or in a wait (only this thread changes its own frames, so it may read them without the lock).
+bool inside_job() { return !tls.frames.empty(); }
+
+}  // namespace
+
+// --------------------------------------------------------------------------------------------------------- the pool
+Result<void> start(const Settings& s) {
+    if (inside_job())
+        return make_error("jobs::start() was called from inside a job",
+                          "Start the pool from the main thread before submitting jobs (Engine::init does).");
+    Pool& p = pool();
+    std::vector<std::pair<LogLevel, std::string>> logs;
+    Result<void> result;
+    {
+        std::lock_guard<std::mutex> life(p.life);  // waits for a stop() that another thread is in the middle of
+        start_impl(s, logs, result);
+    }
+    flush_logs(logs);
+    return result;
 }
 
 void stop() {
+    if (inside_job()) {
+        FA_ERROR("jobs", "jobs::stop() was called from inside a job; the pool keeps running (stop it from the thread "
+                         "that started it, outside jobs)");
+        return;
+    }
     Pool& p = pool();
-    std::vector<std::thread> joining;
-    {
-        std::lock_guard<std::mutex> lk(p.mu);
-        if (p.refs == 0) {
-            FA_WARN("jobs", "jobs::stop() without a matching jobs::start()");
-            return;
-        }
-        if (tls.gen == p.gen.load(std::memory_order_acquire) && tls.lane >= 1 && tls.lane <= kMaxWorkers) {
-            FA_ERROR("jobs", "jobs::stop() was called from a job thread; the pool keeps running (stop it from the "
-                             "thread that started it)");
-            return;
-        }
-        if (--p.refs > 0) return;
-        p.stopping = true;
-        joining = std::move(p.threads);
-        p.threads.clear();
-    }
-    p.workCv.notify_all();
-    for (std::thread& t : joining)
-        if (t.joinable()) t.join();
-    // Jobs another thread queued after the last worker left run here; then the pool is off and submit runs inline.
-    for (;;) {
-        JobPtr j;
-        {
-            std::lock_guard<std::mutex> lk(p.mu);
-            j = take_locked(p, nullptr);
-            if (!j) {
-                p.active = false;
-                p.inlineMode = false;
-                p.stopping = false;
-                p.workers = 0;
-                p.settings = Settings{};
-                p.mainId = std::thread::id();
-                p.gen.fetch_add(1, std::memory_order_acq_rel);
-                p.activeFlag.store(false, std::memory_order_release);
-                p.inlineFlag.store(false, std::memory_order_release);
-                p.workerCount.store(0, std::memory_order_release);
-                break;
-            }
-        }
-        run_job(j);
-    }
+    std::vector<std::pair<LogLevel, std::string>> logs;
     std::vector<MainTask> dropped;
     {
-        std::lock_guard<std::mutex> lk(p.mainMu);
-        dropped.swap(p.mainQueue);
+        std::lock_guard<std::mutex> life(p.life);
+        std::vector<std::thread> joining;
+        bool last = false;
+        {
+            std::lock_guard<std::mutex> lk(p.mu);
+            if (p.refs == 0) {
+                logs.emplace_back(LogLevel::Warn, "jobs::stop() without a matching jobs::start()");
+            } else if (--p.refs == 0) {
+                last = true;
+                p.stopping = true;
+                joining = std::move(p.threads);
+                p.threads.clear();
+            }
+        }
+        if (last) {
+            p.workCv.notify_all();
+            for (std::thread& t : joining)
+                if (t.joinable()) t.join();
+            // Jobs another thread queued after the last worker left run here; then the pool is off and submit runs
+            // inline.
+            for (;;) {
+                JobPtr j;
+                {
+                    std::lock_guard<std::mutex> lk(p.mu);
+                    j = pop_front_locked(p);
+                    if (!j) {
+                        p.ready.clear();
+                        p.readyCount = 0;
+                        p.active = false;
+                        p.inlineMode = false;
+                        p.stopping = false;
+                        p.workers = 0;
+                        p.settings = Settings{};
+                        p.mainId = std::thread::id();
+                        p.gen.fetch_add(1, std::memory_order_acq_rel);
+                        p.activeFlag.store(false, std::memory_order_release);
+                        p.inlineFlag.store(false, std::memory_order_release);
+                        p.workerCount.store(0, std::memory_order_release);
+                        break;
+                    }
+                }
+                run_job(j);
+            }
+            {
+                std::lock_guard<std::mutex> lk(p.mainMu);
+                dropped.swap(p.mainQueue);
+            }
+            p.mainQueued.fetch_sub(int(dropped.size()), std::memory_order_relaxed);
+            {
+                std::lock_guard<std::mutex> st(p.statsMu);
+                p.frameOwner = nullptr;
+            }
+        }
     }
+    flush_logs(logs);
     if (!dropped.empty())
         FA_DEBUG("jobs", "job pool stopped; {} main-thread task(s) still queued were dropped (first: '{}')",
                  dropped.size(), dropped.front().name);
@@ -634,30 +847,38 @@ Result<void> wait(const Handle& h) {
     if (!j) return {};
     if (!j->doneFlag.load(std::memory_order_acquire)) {
         Pool& p = pool();
-        std::unique_lock<std::mutex> lk(p.mu);
-        ++p.waiters;
-        while (!j->finished) {
-            if (JobPtr next = take_locked(p, j.get())) {
-                lk.unlock();
-                run_job(next);
-                lk.lock();
-                continue;
-            }
-            if (p.runningJobs - tls.depth <= 0) {
-                // Nothing is queued and no other thread runs a job: what we wait for depends on a job this thread is
-                // in the middle of. Waiting would hang forever.
+        bool stuck = false;
+        {
+            std::unique_lock<std::mutex> lk(p.mu);
+            if (!j->finished) {
+                tls.frames.push_back(Frame{nullptr, j.get()});
+                ++p.waiters;
+                while (!j->finished) {
+                    if (JobPtr next = find_needed_locked(p, j)) {
+                        take_locked(p, next.get());
+                        lk.unlock();
+                        run_job(next);
+                        next.reset();  // the last reference may go here: not under the lock
+                        lk.lock();
+                        continue;
+                    }
+                    if (never_ends_locked(p, j.get())) {
+                        stuck = true;
+                        break;
+                    }
+                    p.doneCv.wait(lk);
+                }
                 --p.waiters;
-                lk.unlock();
-                FA_ERROR("jobs", "waiting for job '{}' can never end: it depends on a job that is waiting for it",
-                         j->name);
-                return make_error("waiting for job '" + j->name +
-                                      "' can never end: it (or one of its dependencies) depends on the job that waits",
-                                  "Do not wait inside a job for a job that has the waiting job among its dependencies; "
-                                  "pass the dependency to submit() instead.");
+                tls.frames.pop_back();  // this wait's frame: the jobs it ran have ended
             }
-            p.doneCv.wait(lk);
         }
-        --p.waiters;
+        if (stuck) {
+            FA_ERROR("jobs", "waiting for job '{}' can never end: it needs a job that is waiting for it", j->name);
+            return make_error("waiting for job '" + j->name +
+                                  "' can never end: it (or a job it needs) can only finish after this wait ends",
+                              "Do not wait inside a job for a job that needs the waiting job (directly, through its "
+                              "dependencies or through another wait); pass the dependency to submit() instead.");
+        }
     }
     if (j->failed) return j->error;
     return {};
@@ -708,8 +929,10 @@ struct ForState {
     std::string errWhat;
 };
 
+// Runs chunks until none is left; the thread's chunks go to the profiler as one entry (count and total time).
 void run_chunks(ForState& s) {
     const int lane = current_lane();
+    std::uint64_t ran = 0, ns = 0;
     for (;;) {
         const std::size_t i = s.next.fetch_add(1, std::memory_order_relaxed);
         if (i >= s.chunks) break;
@@ -726,8 +949,10 @@ void run_chunks(ForState& s) {
                 s.errWhat = what;
             }
         }
-        record(lane, s.name, ns_since(t0));
+        ns += ns_since(t0);
+        ++ran;
     }
+    if (ran > 0) record(lane, s.name, ran, ns);
 }
 }  // namespace
 
@@ -752,7 +977,8 @@ Result<void> parallel_for(std::string_view name, std::size_t count, std::size_t 
     for (std::size_t k = 0; k < helpers; ++k)
         hs.push_back(submit_job(make_job(name, [s] { run_chunks(*s); }, true), {}));
     run_chunks(*s);
-    // The helpers never fail (run_chunks catches); one still queued is taken by this wait and finds no chunk left.
+    // Only this call's helpers: one still queued is taken by this wait and finds no chunk left; one running on a
+    // worker is waited for. The helpers never fail (run_chunks catches).
     for (const Handle& h : hs) (void)wait(h);
     if (s->failures == 0) return {};
     const Chunk c = chunk_at(count, grain, s->errIndex, seed);
@@ -764,18 +990,120 @@ Result<void> parallel_for(std::string_view name, std::size_t count, std::size_t 
                       "The job system caught the exception; every other chunk ran. Fix the code the chunk runs.");
 }
 
+// ------------------------------------------------------------------------------------------------------------ owners
+Owner::Owner(std::string_view name) : state_(std::make_shared<OwnerState>()) {
+    state_->name.assign(name.data(), name.size());
+}
+
+Owner::~Owner() {
+    {
+        std::lock_guard<std::mutex> lk(state_->mainMu);
+        state_->alive = false;
+    }
+    close();
+}
+
+const std::string& Owner::name() const { return state_->name; }
+
+int Owner::pending() const {
+    Pool& p = pool();
+    std::lock_guard<std::mutex> lk(p.mu);
+    return state_->pending;
+}
+
+Result<void> Owner::wait() {
+    if (inside_job())
+        return make_error("Owner::wait() for '" + state_->name + "' was called from inside a job",
+                          "Wait for an owner's jobs from the thread that owns it, outside jobs (Engine::shutdown "
+                          "does); inside a job wait for the handles it needs.");
+    Pool& p = pool();
+    std::unique_lock<std::mutex> lk(p.mu);
+    ++p.waiters;
+    while (state_->pending > 0) {
+        // Any queued job: one of its jobs may need a job of another owner, and with 0 workers nobody else runs it.
+        if (JobPtr next = pop_front_locked(p)) {
+            lk.unlock();
+            run_job(next);
+            next.reset();
+            lk.lock();
+            continue;
+        }
+        p.doneCv.wait(lk);
+    }
+    --p.waiters;
+    return {};
+}
+
+int Owner::run_main_thread_tasks() {
+    std::vector<MainTask> tasks;
+    {
+        std::lock_guard<std::mutex> lk(state_->mainMu);
+        if (state_->main.empty()) return 0;
+        tasks.swap(state_->main);
+    }
+    return run_tasks(tasks);
+}
+
+int Owner::main_tasks_queued() const {
+    std::lock_guard<std::mutex> lk(state_->mainMu);
+    return int(state_->main.size());
+}
+
+void Owner::close() {
+    Pool& p = pool();
+    std::vector<MainTask> dropped;
+    {
+        std::lock_guard<std::mutex> lk(state_->mainMu);
+        dropped.swap(state_->main);
+    }
+    p.mainQueued.fetch_sub(int(dropped.size()), std::memory_order_relaxed);
+    {
+        std::lock_guard<std::mutex> st(p.statsMu);
+        if (p.frameOwner == state_.get()) p.frameOwner = nullptr;
+    }
+    if (!dropped.empty())
+        FA_DEBUG("jobs", "{}: {} main-thread task(s) still queued were dropped (first: '{}')", state_->name,
+                 dropped.size(), dropped.front().name);
+}
+
+OwnerScope::OwnerScope(Owner* owner) : previous_(tls.owner) {
+    tls.owner = owner ? Access::state(*owner).get() : nullptr;
+}
+
+OwnerScope::~OwnerScope() { tls.owner = previous_; }
+
+std::string current_owner_name() { return tls.owner ? tls.owner->name : std::string(); }
+
 // ------------------------------------------------------------------------------------------ the main thread's queue
 void post_main(std::string_view name, std::function<void()> fn) {
     Pool& p = pool();
+    if (!running()) {
+        // No main thread to hand it to (like submit() before start): it runs now.
+        std::vector<MainTask> now;
+        now.push_back(MainTask{std::string(name), std::move(fn)});
+        p.mainQueued.fetch_add(1, std::memory_order_relaxed);
+        run_tasks(now);
+        return;
+    }
+    if (OwnerState* o = tls.owner) {
+        {
+            std::lock_guard<std::mutex> lk(o->mainMu);
+            if (o->alive) {
+                p.mainQueued.fetch_add(1, std::memory_order_relaxed);
+                o->main.push_back(MainTask{std::string(name), std::move(fn)});
+                return;
+            }
+        }
+        FA_DEBUG("jobs", "main-thread task '{}' of '{}' was dropped: its owner is gone", name, o->name);
+        fn = nullptr;  // its captures go now, outside the lock
+        return;
+    }
+    p.mainQueued.fetch_add(1, std::memory_order_relaxed);
     std::lock_guard<std::mutex> lk(p.mainMu);
     p.mainQueue.push_back(MainTask{std::string(name), std::move(fn)});
 }
 
-int main_tasks_queued() {
-    Pool& p = pool();
-    std::lock_guard<std::mutex> lk(p.mainMu);
-    return int(p.mainQueue.size());
-}
+int main_tasks_queued() { return std::max(0, pool().mainQueued.load(std::memory_order_relaxed)); }
 
 int run_main_thread_tasks() {
     Pool& p = pool();
@@ -786,19 +1114,10 @@ int run_main_thread_tasks() {
         if (p.mainQueue.empty()) return 0;
         tasks.swap(p.mainQueue);
     }
-    for (MainTask& t : tasks) {
-        try {
-            if (t.fn) t.fn();
-        } catch (...) {
-            FA_ERROR("jobs", "main-thread task '{}' failed: {}", t.name, current_exception_text());
-        }
-        t.fn = nullptr;
-    }
-    p.mainTasksRun.fetch_add(tasks.size(), std::memory_order_relaxed);
-    return int(tasks.size());
+    return run_tasks(tasks);
 }
 
-void end_frame() {
+void end_frame(const Owner* owner) {
     Pool& p = pool();
     if (running() && !is_main_thread()) return;
     if (running() && !inline_mode() && worker_count() == 0) {
@@ -808,17 +1127,29 @@ void end_frame() {
             std::lock_guard<std::mutex> lk(p.mu);
             n = p.ready.size();
         }
-        for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t i = 0; i < n; ++i) {  // n entries of `ready`: the ones a wait took count too
             JobPtr j;
+            bool run = false;
             {
                 std::lock_guard<std::mutex> lk(p.mu);
-                j = take_locked(p, nullptr);
+                if (p.ready.empty()) break;
+                if (!p.ready.front()->queued) {
+                    j = std::move(p.ready.front());  // taken by a wait: only the entry goes (after the lock)
+                    p.ready.pop_front();
+                } else {
+                    j = pop_front_locked(p);
+                    run = j != nullptr;
+                }
             }
-            if (!j) break;
-            run_job(j);
+            if (run) run_job(j);
         }
     }
     std::lock_guard<std::mutex> st(p.statsMu);
+    if (owner) {
+        const OwnerState* o = Access::state(*owner).get();
+        if (!p.frameOwner) p.frameOwner = o;
+        else if (p.frameOwner != o) return;  // another engine closes the frames
+    }
     FrameStats f;
     for (std::size_t i = 0; i < std::size_t(kMaxLanes); ++i) {
         f.jobs[i] = p.lanes[i].jobs.exchange(0, std::memory_order_relaxed);
@@ -843,6 +1174,7 @@ Info info() {
         out.workers = p.workers;
         out.settings = p.settings;
         out.pending = p.pending;
+        out.waiting = p.waiters;
     }
     out.hardwareThreads = hardware_threads();
     out.autoWorkers = auto_worker_count(out.hardwareThreads);
@@ -889,6 +1221,7 @@ Json info_json(const Info& i) {
                                                      {"mainTasks", i.mainTasksLastFrame},
                                                      {"frameMs", i.frameMs}})},
                          {"pending", i.pending},
+                         {"waiting", i.waiting},
                          {"mainTasksQueued", i.mainTasksQueued},
                          {"lanes", lanes}});
 }

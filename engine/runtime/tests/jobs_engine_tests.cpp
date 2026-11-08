@@ -2,11 +2,14 @@
 // rule checked with game.state_hash (the same game with 0, 1, N job threads or inline mode gives the same hash).
 #include <doctest.h>
 
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "fa/core/fs.h"
@@ -206,6 +209,23 @@ TEST_CASE("jobs engine: game.state_hash sees a one-bit change and lists entities
     e.shutdown();
 }
 
+TEST_CASE("jobs engine: the state hash does not depend on the order components come in") {
+    ensure_builtin_components();
+    const TypeInfo* transform = TypeRegistry::global().of<Transform>();
+    const TypeInfo* shape = TypeRegistry::global().of<Shape2D>();
+    REQUIRE(transform);
+    REQUIRE(shape);
+    Transform t;
+    t.position = Vec3{1, 2, 3};
+    Shape2D s;
+    const Entity e = Entity::from_bits(0x100000002ULL);
+    const auto ab = entity_state_hash(e, "a", "", {{transform, &t}, {shape, &s}});
+    const auto ba = entity_state_hash(e, "a", "", {{shape, &s}, {transform, &t}});
+    CHECK(ab == ba);  // registration order (who registered a component first) does not change the hash
+    t.position.x = 1.5f;
+    CHECK(entity_state_hash(e, "a", "", {{shape, &s}, {transform, &t}}) != ab);
+}
+
 TEST_CASE("jobs engine: where the thread count comes from") {
     ScopedEnv env("FA_JOB_THREADS", nullptr);
     const int two = jobs::threads_supported() ? 2 : 0;
@@ -279,6 +299,15 @@ TEST_CASE("jobs engine: where the thread count comes from") {
         CHECK(err.find("inline") != std::string::npos);  // did you mean
         CHECK_FALSE(jobs::running());
     }
+    SUBCASE("a count written as a string fails init: the schema says it is a number") {
+        TempProject p("stringcount", R"({ "jobThreads": "4" })");
+        Engine e;
+        std::string err;
+        CHECK_FALSE(e.init(headless_cfg(p), nullptr, &err));
+        CHECK(err.find("/runtime/jobThreads") != std::string::npos);
+        CHECK(err.find("without quotes") != std::string::npos);
+        CHECK_FALSE(jobs::running());
+    }
     SUBCASE("a number out of range fails init") {
         TempProject p("badcount", R"({ "jobThreads": 99 })");
         Engine e;
@@ -320,6 +349,72 @@ TEST_CASE("jobs engine: two engines share one pool; the first one's setting hold
     b.step(2);
     b.shutdown();
     CHECK_FALSE(jobs::running());
+}
+
+TEST_CASE("jobs engine: a second init fails and leaves the pool running") {
+    ScopedEnv env("FA_JOB_THREADS", nullptr);
+    TempProject p("twice");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p, "1"), nullptr, &err), err);
+    CHECK_FALSE(e.init(headless_cfg(p, "1"), nullptr, &err));
+    CHECK(err.find("called twice") != std::string::npos);
+    CHECK(jobs::running());  // the first init's reference still holds it
+    e.step(2);
+    e.shutdown();
+    CHECK_FALSE(jobs::running());
+}
+
+TEST_CASE("jobs engine: each engine owns its jobs; shutdown waits for them, a frame runs only its own tasks") {
+    ScopedEnv env("FA_JOB_THREADS", nullptr);
+    for (const char* threads : {"0", "2"}) {
+        CAPTURE(threads);
+        TempProject p(std::string("owners") + threads);
+        Engine a;
+        Engine b;
+        std::string err;
+        REQUIRE_MESSAGE(a.init(headless_cfg(p, threads), nullptr, &err), err);
+        REQUIRE_MESSAGE(b.init(headless_cfg(p, threads), nullptr, &err), err);
+        std::atomic<int> aTasks{0};
+        std::atomic<bool> slowDone{false};
+        std::atomic<bool> ownedByEngine{false};  // doctest checks are not thread-safe: the job records, the test checks
+        jobs::Handle posted;
+        // A command's handler runs with the engine as the current owner: the job and the task it posts are a's.
+        a.commands().add({"test.post", "Queue a job that posts a main-thread task.", "Test only.", Json::object(), false,
+                          "test"},
+                         [&](const Json&) {
+                             posted = jobs::submit("test.post", [&] {
+                                 ownedByEngine.store(jobs::current_owner_name() == "engine");
+                                 jobs::post_main("test.task", [&] { aTasks.fetch_add(1); });
+                             });
+                             return Json::object();
+                         });
+        a.commands().add({"test.slow", "Queue a job that takes a while.", "Test only.", Json::object(), false, "test"},
+                         [&](const Json&) {
+                             jobs::submit("test.slow", [&] {
+                                 std::this_thread::sleep_for(std::chrono::milliseconds(30));
+                                 slowDone.store(true);
+                             });
+                             return Json::object();
+                         });
+        REQUIRE(a.commands().call("test.post", Json::object()).ok);
+        REQUIRE(jobs::wait(posted).ok());  // the task is queued for a now
+        CHECK(ownedByEngine.load());
+        b.step(2);
+        CHECK(aTasks.load() == 0);  // b's frames never run a's tasks
+        a.step(1);
+        CHECK(aTasks.load() == 1);
+        auto info = a.commands().call("jobs.info", Json::object());
+        REQUIRE(info.ok);
+        CHECK(info.result["enginePending"] == 0);
+        REQUIRE(a.commands().call("test.slow", Json::object()).ok);
+        a.shutdown();
+        CHECK(slowDone.load());  // a's shutdown waited for a's job
+        CHECK(jobs::running());  // b still holds the pool
+        b.step(1);
+        b.shutdown();
+        CHECK_FALSE(jobs::running());
+    }
 }
 
 TEST_CASE("jobs engine: runtime.jobThreads round-trips through the project file") {

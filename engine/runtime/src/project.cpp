@@ -860,7 +860,7 @@ constexpr const char* kSchemaText =
       "description": "How the engine runs the game on the player's machine. These settings never change what the game computes: a game gives the same result with any of them (docs/PERFORMANCE.md, \"Job threads\").",
       "properties": {
         "jobThreads": {
-          "description": "Worker threads of the job system (docs/ARCHITECTURE.md, \"Jobs and threads\"): \"auto\" (the default: hardware threads - 1, at most 8 on desktop and 4 on phones; 0 in a web build, which has no threads), a number from 0 to 32 (0: jobs run on the main thread when it waits for them or at the end of the frame), or \"inline\" (debugging: every job runs on the main thread when it is submitted, in order). The FA_JOB_THREADS environment variable overrides it.",
+          "description": "Worker threads of the job system (docs/ARCHITECTURE.md, \"Jobs and threads\"): \"auto\" (the default: hardware threads - 1, at most 8 on desktop and 4 on phones; 0 in a web build, which has no threads), a number from 0 to 32 written as a number, not in quotes (0: jobs run on the main thread when it waits for them or at the end of the frame), or \"inline\" (debugging: every job runs on the main thread when it is submitted, in order). The FA_JOB_THREADS environment variable overrides it.",
           "oneOf": [
             {
               "type": "string",
