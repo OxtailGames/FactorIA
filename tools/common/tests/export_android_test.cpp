@@ -1060,6 +1060,40 @@ TEST_CASE("android export: a failed build says what went wrong, where the log is
     CHECK_FALSE(stdfs::exists(root / "space-dodge-debug.apk"));
 }
 
+TEST_CASE("android export: an APK or bundle of the previous build does not pass for this build's (app/build is kept)") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp, R"("icon": "assets/icon.png")");
+    write_icon(game);
+    FakeToolchain tc(tmp);
+    const bool rulesBefore = fs::windows_rules();
+    fs::set_windows_rules(true);  // the delete follows Windows' rules too (a no-op on Windows)
+    struct Restore {
+        bool on;
+        ~Restore() { fs::set_windows_rules(on); }
+    } restore{rulesBefore};
+    ExportOptions o = options(game, tmp, "apk");
+    o.engineRoot = make_fake_engine(tmp);
+    o.androidSearch = &tc.search;
+    stdfs::path root;
+    {
+        ScopedEnv noMode("FAKE_GRADLE", nullptr);
+        auto first = export_project(o);
+        REQUIRE_MESSAGE(first.ok(), (first.ok() ? "" : first.error().to_string()));
+        root = first->outputDir;
+    }
+    REQUIRE(stdfs::exists(root / "app/build/outputs/apk/debug/app-debug.apk"));
+    testing::write_all(root / "app/build/outputs/bundle/debug/app-debug.aab", "old bundle");
+    testing::write_all(root / "app/build/intermediates/kept.txt", "Gradle's");
+
+    ScopedEnv mode("FAKE_GRADLE", "nothing");  // the build ends well and writes nothing
+    auto second = export_project(o);
+    REQUIRE_FALSE(second.ok());
+    CHECK(second.error().message.find("app/build/outputs/apk/debug/app-debug.apk was not written") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(root / "app/build/outputs/apk"));
+    CHECK_FALSE(stdfs::exists(root / "app/build/outputs/bundle"));
+    CHECK(testing::read_all(root / "app/build/intermediates/kept.txt") == "Gradle's");  // the rest of app/build stays
+}
+
 TEST_CASE("android export: cancelling stops the Gradle build and keeps the project") {
     testing::TempDir tmp;
     const std::string game = make_game(tmp, R"("icon": "assets/icon.png")");

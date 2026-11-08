@@ -14,10 +14,30 @@
 #include "fa/tooling/scaffold.h"
 #include "test_helpers.h"
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 using namespace fa;
 namespace stdfs = std::filesystem;
 
 namespace {
+
+// The Windows build running under Wine (the MinGW CI job), where fs::file_in_use probes with an exclusive open.
+bool running_under_wine() {
+#ifdef _WIN32
+    const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    return ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
+#else
+    return false;
+#endif
+}
 
 bool has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
 
@@ -344,9 +364,9 @@ TEST_CASE("export: over a game that is running from the folder, it deletes nothi
     REQUIRE_FALSE(before.empty());
     const std::string pakBefore = testing::read_all(root / "game.pak");
 
-    for (const bool map : {true, false}) {
-        CAPTURE(map);
-        auto running = PackReader::open(root / "game.pak", PackOpenOptions{map});  // the game is running
+    // The player reads its pack mapped: Windows refuses to delete a mapped file, so the export deletes nothing.
+    {
+        auto running = PackReader::open(root / "game.pak", PackOpenOptions{true});  // the game is running
         REQUIRE(running.ok());
         CHECK(fs::find_file_in_use(root) == root / "game.pak");
         auto r = export_project(options_for(tmp, proj, "linux", true));
@@ -357,6 +377,25 @@ TEST_CASE("export: over a game that is running from the folder, it deletes nothi
         CHECK(r.error().hint.find("Nothing was deleted") != std::string::npos);
         CHECK(files_below(root) == before);  // the old export is all there
         CHECK(testing::read_all(root / "game.pak") == pakBefore);
+        CHECK(running.value()->read("factoria.json").ok());
+    }
+    // A pack read without mapping shares delete: Windows (MSVC's remove deletes with POSIX semantics) deletes it under
+    // the reader, which reads on from the file that has no name any more, and the export writes a new one. Under Wine
+    // the probe is an exclusive open, which this handle fails too.
+    {
+        auto running = PackReader::open(root / "game.pak", PackOpenOptions{false});
+        REQUIRE(running.ok());
+        if (running_under_wine()) {
+            CHECK(fs::find_file_in_use(root) == root / "game.pak");
+            CHECK_FALSE(export_project(options_for(tmp, proj, "linux", true)).ok());
+            CHECK(files_below(root) == before);
+        } else {
+            CHECK(fs::find_file_in_use(root).empty());
+            auto r = export_project(options_for(tmp, proj, "linux", true));
+            REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+            CHECK(stdfs::is_regular_file(root / "game.pak"));
+            CHECK(fs::find_file_in_use(root).empty());  // the new pack is not the one the reader holds
+        }
         CHECK(running.value()->read("factoria.json").ok());
     }
     // The game quits: the export goes through.

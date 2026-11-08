@@ -94,21 +94,25 @@ std::filesystem::path os_path(const std::filesystem::path& p);
 // Under the Windows rules (below) a file inside that is open through ReadStream stays, the rest is deleted and `ec` is a
 // sharing violation, as remove_all does on Windows.
 std::uintmax_t remove_tree(const std::filesystem::path& dir, std::error_code& ec);
-// Whether Windows would refuse to delete or replace `file` because something holds it: on Windows, an open that asks for
-// delete access and shares everything fails (a handle that did not allow deleting), or marking the file for deletion
-// fails (an exe or a library that is running, a mapped file), and keeps failing for about a second (a scanner that lets
-// go sooner does not count); a read-only file or one this process may not delete is not "held" (remove_tree's error says
-// so). Marking it is taken back before the probe's handle closes: the file stays. Under the Windows rules emulation, a
-// file open through ReadStream, read_bytes or a fa::PackReader; elsewhere never (macOS and Linux delete open files).
-bool file_in_use(const std::filesystem::path& file);
+// Whether Windows would refuse to delete `file` because something holds it. On Windows: an open that asks for delete
+// access and shares everything fails (a handle that did not allow deleting), or marking the file for deletion fails (an
+// exe or a library that is running, a mapped file), and keeps failing for about a second (a scanner that lets go sooner
+// does not count). The mark is taken back before the probe's handle closes, so the file stays; should Windows refuse to
+// take it back, the file is deleted when that handle closes: then `markLost` (when given) is set and the answer is true.
+// A file open with delete shared (a fa::PackReader that reads without mapping) is not held: a delete goes through. A
+// read-only file is probed too where Windows can ignore the attribute (Windows 10 1809 and later); before that it is not
+// held. Under Wine an exclusive open probes instead: any open handle holds the file. A file this process may not delete
+// is not held (remove_tree's error says so). Under the Windows rules emulation: a file open through ReadStream or read_bytes, or a
+// mapped fa::PackReader; elsewhere never (macOS and Linux delete open files).
+bool file_in_use(const std::filesystem::path& file, bool* markLost = nullptr);
 // The first file under `dir` (or `dir` itself when it is a file) for which file_in_use is true, in directory order; empty
 // when there is none. `which` (optional) picks what to look at by path relative to `dir`: for a folder, false skips all
 // of it; for a file, false skips the file. Call it before remove_tree when a half-deleted folder would be worse than an
 // error; it reads the folder and opens files, so never on a UI thread. It looks at `maxFiles` files at most (a
-// deterministic count, not a time: what lies past it is not looked at).
+// deterministic count, not a time: what lies past it is not looked at). `markLost`: as for file_in_use, for the file returned.
 std::filesystem::path find_file_in_use(const std::filesystem::path& dir,
                                        const std::function<bool(const std::filesystem::path& rel, bool folder)>& which = {},
-                                       std::size_t maxFiles = 100000);
+                                       std::size_t maxFiles = 100000, bool* markLost = nullptr);
 
 // ---- Windows file rules ------------------------------------------------------------------------------------------
 // Some file bugs only happen on Windows, so only a Windows CI run found them. Two rules cause most of them:
@@ -125,8 +129,9 @@ std::filesystem::path find_file_in_use(const std::filesystem::path& dir,
 //
 // What it covers: files opened through ReadStream or fs::read_bytes / read_text (the registry only knows those: a file
 // opened with a bare std::ifstream, or by another process, is invisible to it), and a game pack while a fa::PackReader has
-// it open, mapped or not (Windows refuses to replace an open file: an export over a running game); replace_file,
-// remove_file, remove_tree and write_bytes against them; modified_time. What it does not: files held open for writing or
+// it open (Windows refuses to replace an open file, mapped or not, and to delete a mapped one: an export over a running
+// game; an unmapped pack shares delete, so a delete of it goes through); replace_file, remove_file, remove_tree and
+// write_bytes against them; modified_time. What it does not: files held open for writing or
 // mapped by anything else, other processes, reserved names (CON, NUL), the 260-character limit, text/binary newline translation.
 bool windows_rules();             // true when file operations follow Windows rules: on Windows always, elsewhere when the mode is on
 void set_windows_rules(bool on);  // turns the emulation on or off for the rest of the process (tests); a no-op on Windows
