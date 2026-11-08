@@ -304,29 +304,6 @@ jobs:
           cmake --build --preset macos-release
           ccache --show-stats --verbose
 
-      # The macOS ccache hits almost nothing from one run to the next (16 of 1152 objects, where Linux and Windows hit
-      # all of them), and a second build from a new clone on a Mac hits everything. To see what changes between runs,
-      # this compiles one object again with ccache's debug mode and keeps what ccache hashed (compare two runs' files).
-      - name: ccache inputs of one object (diagnosis of the macOS misses)
-        if: ${{ !cancelled() }}
-        run: |
-          ccache --version | head -1; xcode-select -p; /usr/bin/c++ --version | head -1; ccache --show-config | grep -v '(default)'
-          dbg="$RUNNER_TEMP/ccache-debug"; mkdir -p "$dbg"
-          cd build/macos-release
-          cmd=$(ninja -t commands engine/core/CMakeFiles/fa_core.dir/src/fs.cpp.o | tail -n 1)
-          echo "$cmd"
-          CCACHE_DEBUG=1 CCACHE_DEBUGDIR="$dbg" bash -c "$cmd"
-          find "$dbg" -name '*.ccache-log' -exec cat {} \;
-
-      - name: Upload the ccache inputs
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-ccache-debug
-          path: ${{ runner.temp }}/ccache-debug
-          if-no-files-found: warn
-          retention-days: 7
-
       - name: Trim ccache to what this build used (see the linux job)
         if: ${{ !cancelled() }}
         run: ccache --evict-older-than 7200s
