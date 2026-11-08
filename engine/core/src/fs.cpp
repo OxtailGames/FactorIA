@@ -20,6 +20,9 @@
 #else
 #include <unistd.h>
 #endif
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
 
 #include "fa/core/load_trace.h"
 #include "fa/core/pack.h"
@@ -37,6 +40,8 @@ struct FsState {
     stdfs::path userDir;
     bool rootSet = false;
     bool userDirSet = false;
+    stdfs::path cacheDir;
+    bool cacheDirSet = false;
     std::shared_ptr<const PackReader> pack;  // mount_pack
     struct Warm {
         std::shared_ptr<const std::vector<std::uint8_t>> bytes;  // shared with the FileViews read_view gave out
@@ -249,6 +254,62 @@ void set_user_dir(const stdfs::path& dir) {
     std::lock_guard<std::mutex> lock(state().mutex);
     state().userDir = dir;
     state().userDirSet = true;
+}
+
+void set_cache_dir(const stdfs::path& dir) {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    state().cacheDir = dir;
+    state().cacheDirSet = true;
+}
+
+namespace {
+// The environment variable `name` as a path ("" when unset or empty). Windows reads the wide form: the narrow one is the ANSI code page.
+stdfs::path env_path(const char* name, [[maybe_unused]] const wchar_t* wideName) {
+#ifdef _WIN32
+    if (const wchar_t* v = _wgetenv(wideName); v && *v) return stdfs::path(std::wstring(v));
+    return {};
+#else
+    const char* v = std::getenv(name);
+    return v && *v ? stdfs::path(v) : stdfs::path();
+#endif
+}
+}  // namespace
+
+void reset_cache_dir() {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    state().cacheDir.clear();
+    state().cacheDirSet = false;
+}
+
+stdfs::path cache_dir() {
+    FsState& s = state();
+    std::lock_guard<std::mutex> lock(s.mutex);
+    if (!s.cacheDirSet) {
+        s.cacheDirSet = true;
+        stdfs::path dir = env_path("FA_CACHE_DIR", L"FA_CACHE_DIR");
+#if defined(_WIN32)
+        if (dir.empty()) {
+            const stdfs::path base = env_path("LOCALAPPDATA", L"LOCALAPPDATA");
+            if (!base.empty()) dir = base / "FactorIA" / "Cache";
+        }
+#elif defined(__EMSCRIPTEN__) || defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+        // The web has no disk; a phone's player names its cache folder (set_cache_dir) once it knows the app's storage.
+#elif defined(__APPLE__)
+        if (dir.empty()) {
+            const stdfs::path home = env_path("HOME", L"HOME");
+            if (!home.empty()) dir = home / "Library" / "Caches" / "FactorIA";
+        }
+#else
+        if (dir.empty()) {
+            const stdfs::path xdg = env_path("XDG_CACHE_HOME", L"XDG_CACHE_HOME");
+            const stdfs::path home = env_path("HOME", L"HOME");
+            if (!xdg.empty()) dir = xdg / "factoria";
+            else if (!home.empty()) dir = home / ".cache" / "factoria";
+        }
+#endif
+        s.cacheDir = dir;
+    }
+    return s.cacheDir;
 }
 
 stdfs::path make_temp_dir(std::string_view prefix) {

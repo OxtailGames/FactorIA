@@ -85,6 +85,8 @@ private:
 struct Engine::Impl {
     Engine* self = nullptr;
     EngineConfig cfg;
+    StartupTimeline startup;      // Engine::startup_timeline()
+    bool firstGameFrameMarked = false;
     std::unique_ptr<LoadTrace> loadTrace;  // EngineConfig::traceLoads / Engine::begin_load_trace; null = not tracing
     // This engine's token as a reader (fa/core/load_trace.h): never reused, so a loader thread that finishes after the
     // engine is gone records into no later engine's trace.

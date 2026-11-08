@@ -1,0 +1,7 @@
+{
+  "format": "factoria.perf/1",
+  "frames": 60,
+  "budgets": {
+    "maxStartupMs": 5000
+  }
+}

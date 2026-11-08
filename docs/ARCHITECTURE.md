@@ -161,6 +161,9 @@ the asset browser, tools) are left out of a Play's trace, and work handed to ano
 `LoadTrace::current_owner()` with it (the music loader does; the M70.3 loader will, per job). `script/bytecode.h` compiles scripts
 for the pack; the module loader reads a compiled script from the same `.js` path.
 
+`fs::cache_dir()` / `fs::set_cache_dir()` is the per-user folder for files the engine can always rebuild (the shader
+cache, [below](#start-up-order-and-the-shader-cache)); the game folder and the save folder never hold them.
+
 **Windows file rules.** Windows refuses to replace or delete a file another thread has open for reading and moves a file's
 time in steps of about 15.6 ms; POSIX does neither, so bugs that follow from them only showed in the Windows CI job. On
 macOS and Linux the environment variable `FA_FS_WINDOWS_RULES=1` (ctest sets it for every test: docs/BUILDING.md, "Running
@@ -415,6 +418,47 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   platform's dialects (Windows `hlsl5`, Linux `glsl430`, macOS `metal_macos`, iOS `metal_ios` + `metal_sim`, Android and
   web `glsl300es`), adds the twins, drops the snippets, and fails the export on a compile error. The player has no
   compiler. `factoria validate` compiles every dialect of every material.
+
+### Start-up order and the shader cache
+A window host (`run_windowed` in `runtime/src/runners.cpp`: the player and a windowed `factoria run`) starts in this order, decided by
+`StartupSequence` (`runtime/startup_sequence.h`, one `on_frame()` per window frame):
+
+1. *Frame 1.* The window and the graphics context exist (sokol_app opens them before the first frame callback). The frame
+   presents a clear frame: `Renderer::present_clear`, black = the letterbox colour. `StartupTimeline` records `WindowReady` and
+   `FirstPresent`. sokol_app presents when the callback returns, so this cannot happen inside the init callback: the first
+   frame has to be a frame of its own.
+2. *Frame 2.* `Engine::init` reads the game (scenes, scripts, textures, shaders). It adopts the context frame 1 opened
+   (`EngineConfig::adoptGraphicsContext` -> `RendererDesc::adoptContext`: the renderer does not call `sg_setup` again, does
+   not `sg_shutdown` it, and the runner calls `Renderer::close_context` at the end). A clear frame is presented again.
+3. *Frames 3+.* `Engine::warm_step` -> `Renderer::warm_step` makes pipelines in groups (blit; the 2D quad pipelines; the blend
+   variants; the 3D mesh, sky, skinned and shadow ones when a `MeshRenderer` exists), as many groups per window frame as fit in
+   about 8 ms of wall time (at least one; the time only decides how many frames the warm-up takes, never what it makes: on GL,
+   GLES and WebGL a pipeline links in the driver and costs milliseconds, on Metal microseconds), each frame presenting a clear
+   frame. The groups are fixed lists, not a scan of what the scene draws, so the warm-up also makes pipelines a game may
+   never use (Additive and Multiply sprites, the wire/lines variant, the mesh variants of a scene with one mesh). That is
+   cheap: a pipeline is a small state object (a few KB) made once, the driver's own cache makes a repeat cheap, and the
+   group is skipped for 3D when the scene has no `MeshRenderer`. A frame that draws before the warm-up finished makes a missing pipeline
+   when it needs it, exactly as without the warm-up: pipelines are keyed through `Gpu::find_or_make`, so what is drawn never
+   depends on the warm-up, and `state_hash`, recordings, replays and goldens are the same.
+4. *Then* one game frame per window frame; the first one clamps its `dt` to 1/60 s (the start took longer than the 100 ms the
+   frame-time filter allows).
+
+A host without a window (headless, `perf.measure`, tests) runs none of this: `Engine::init` makes its own context and no
+frame is presented (`firstPresentMs` is `null`). The timeline is recorded in `Engine::startup_timeline()`; the editor sets
+`adoptGraphicsContext = false` (its context is its own).
+
+**The shader cache** (`render/src/shader_cache.cpp`, `core/blob_cache.h`). `sokol-shdc` writes shader SOURCE (HLSL, MSL,
+GLSL) into the committed headers, not compiled code, and sokol_gfx accepts a compiled program only on Direct3D 11
+(`sg_shader_function.bytecode`). So only D3D11 has an engine cache: `make_shader` compiles each stage with `D3DCompile`
+(`d3dcompiler_47.dll` loaded with `LoadLibrary`), stores the DXBC and hands sokol the bytecode next time. The key is
+`d3d11|<engine version>|<flags>|src:<sha-256 of the source>` (DXBC is the same on every driver and card; the driver compiles
+it to machine code), the files are `<cache_dir>/shaders/shader-<program>-<hash>-<stage>-<keyhash>.facache`, where `keyhash` is the first 8 hex characters of the hash of the whole key, so two engine versions or two games with a material of the same path keep separate files (the folder grows by one small file per shader per version; deleting it is safe). GL, GLES and Metal link or build from
+source inside the driver or the OS, which keep their own caches; web has no folder. `BlobCache` is generic: magic `FABC`,
+format version, key, payload size, SHA-256, payload; an unreadable file is reported as `Stale` (other key) or `Damaged`
+(other magic or version, short, too big, bad checksum), logged once under category `cache`, ignored and rebuilt. A store goes
+to a temporary file that `fs::replace_file` renames over the target. The folder is `fs::cache_dir()`, per user and never the game
+folder (`FA_CACHE_DIR` overrides; the Android and iOS players call `fs::set_cache_dir`; empty means no cache). The renderer
+creates all its programs through `make_shader`, which times them: `Renderer::startup_report` gives the counters.
 
 ### Textures
 An export replaces a texture `x.png` by its twin `x.png.ktx2` (Basis Universal, written by `fa_tooling`'s
