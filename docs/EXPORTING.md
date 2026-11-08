@@ -916,9 +916,15 @@ which version it has and which ones this FactorIA reads.
 The writer builds `game.pak.tmp` and renames it over `game.pak` once it is complete, so an export never leaves a half-written
 pack under the real name, and the same files and settings always give a byte-identical pack (on every platform). A pack is
 never changed in place: a game running from the old pack on macOS or Linux keeps its mapped bytes after the rename (writing
-into a mapped file would crash that game with `SIGBUS`). **On Windows a pack that a running game has mapped cannot be
-replaced**: the export fails with `Cannot replace ".../game.pak": it is in use (...)`, says to close the game, and leaves the old pack as it was; close the game and
-export again.
+into a mapped file would crash that game with `SIGBUS`). **On Windows a game that is running from the export folder holds
+its files open** (its exe, `game.pak`, mapped or not), and Windows does not delete or replace a file a program holds open.
+So before an export deletes the previous `<slug>-<platform>` folder it looks for a file in it that is open, and if there is
+one it stops with `export: <folder> is in use: close the running game (or the editor's preview of it) and export again`,
+naming the file; nothing is deleted and the previous export stays as it was. Close the game and export again.
+
+A pack also refuses a file bigger than 64 times the pack's own size (and never less than 256 MiB): a reader treats such an
+entry as a damaged pack, so a tampered index cannot make the game allocate gigabytes, and the writer refuses to pack one
+(only a file that compresses more than 64 times in a small pack can reach it: give its extension the codec `store`).
 
 #### Compression and pack order
 
@@ -939,12 +945,18 @@ that does not compress costs nothing to decode. Choose another codec for an exte
 
 `export.pack.codecs` maps an extension (with its dot; `a.scene.json` counts as `.json`; any case) to `store`, `lz4` or `zstd`.
 `export.pack.useLoadOrder` (default `true`) writes the files in the order the game first read them. Every play session (the
-editor's Play, `factoria run`, `play.auto`) records, per scene, the project files first read while that scene was the current
-one, and merges them into `.factoria/cache/load-order.json` under the project's lock (a session whose lock is busy logs a
-`loadorder` warning and changes nothing; the next one records again). A shipped game records nothing. The export then writes
-the main scene's files first, then each other scene's in the order they were first played, and the files no session read
-after them by path: a scene's files lie next to each other and a load reads the drive mostly forward. The file is a cache;
-deleting it, or `"useLoadOrder": false`, packs by path. Both keys are edited in `factoria.json` only (the editor's export
+editor's Play, `factoria run`, `play.auto`) records the files read before its first scene (the group `(start-up)`:
+`factoria.json`, the start-up scripts and what they load) and, per scene, the project files first read while that scene was
+the current one, and merges them into `.factoria/cache/load-order.json` under the project's lock (a session whose lock is
+busy logs a `loadorder` warning and changes nothing; the next one records again). Which session wins: a `factoria run` or a
+`play.auto` starts a fresh engine that reads every file it needs itself, so it sets the order of each scene it played (its files
+first, in the order it read them, then the ones earlier sessions listed and it did not read), and the scene is marked
+`"source": "run"`. The editor's Play has most files cached from Edit mode already, so it never reorders a scene: it only adds
+the files the scene did not list yet, at its end. Nothing is recorded for an exported game (a folder inside an export,
+found by its `.factoria-export` marker, or any game running from a pack), so `factoria run` on an export never writes into
+it. The export then writes the start-up files first, then the main scene's, then each other scene's in the order they were
+first played, and the files no session read after them by path: a scene's files lie next to each other and a load reads the
+drive mostly forward. The file is a cache; deleting it, or `"useLoadOrder": false`, packs by path. Both keys are edited in `factoria.json` only (the editor's export
 window leaves them as they are), and a wrong value is an error with its JSON pointer
 (`factoria.json#/export/pack/codecs/.png: ...`, with a "did you mean").
 

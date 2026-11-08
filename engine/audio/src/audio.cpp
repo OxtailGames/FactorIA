@@ -198,7 +198,9 @@ struct MusicLoad {
     std::atomic<bool> done{false};
     std::shared_ptr<MusicSource> source;
     std::string error;
+    LoadTrace::Owner owner = LoadTrace::current_owner();  // the engine that asked: its load trace gets the reads
     void run() {
+        LoadTrace::ReadingFor reading(owner);  // on the loader thread too (fa/core/load_trace.h)
         auto r = music_load_source(path, mode, plan, &note);
         if (r) source = std::move(*r);
         else error = r.error().to_string();

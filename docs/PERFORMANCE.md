@@ -221,9 +221,11 @@ time not reached yet (the session ended before its first frame) is `null`.
 
 The same sessions, and `factoria run`, record which files each scene reads first, in that order, into
 `.factoria/cache/load-order.json`; a `--release` export writes `game.pak` in that order, so a scene's files lie next to each
-other on the drive and a load reads mostly forward ([EXPORTING.md](EXPORTING.md#compression-and-pack-order)). Recording
-costs one short lock and a set lookup per file read while a session runs (nothing when none does); the file is written when the session ends, under the project's lock, and the editor
-writes it on a background thread so Stop never waits on the disk. A shipped game records nothing.
+other on the drive and a load reads mostly forward ([EXPORTING.md](EXPORTING.md#compression-and-pack-order)). A `factoria run`
+or `play.auto` (a fresh engine that reads every file it needs itself) sets a scene's order; an editor Play only adds the
+files it was missing. Recording costs one short lock and a set lookup per file read while a session runs (nothing when none
+does); the file is written when the session ends, under the project's lock, and the editor writes it on a background
+thread so Stop never waits on the disk. An exported game records nothing.
 
 ## Finding what is slow: the profiler
 

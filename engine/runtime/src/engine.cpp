@@ -529,6 +529,7 @@ Engine::Engine() : impl_(std::make_unique<Impl>()) { impl_->self = this; }
 Engine::~Engine() { shutdown(); }
 
 bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::string* error) {
+    const LoadTrace::ReadingFor reading(this);  // what this engine reads is its load trace's (fa/core/load_trace.h)
     impl_->logSeqAtInit = log_last_seq();
     Impl& I = *impl_;
     auto fail = [&](const std::string& msg) {
@@ -549,7 +550,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         dir = abs.generic_string();
         fs::set_project_root(abs);
     }
-    if (config.traceLoads) I.loadTrace = std::make_unique<LoadTrace>();  // reads are recorded relative to the root set above
+    if (config.traceLoads) I.loadTrace = std::make_unique<LoadTrace>(this);  // reads are recorded relative to the root set above
     clear_vfx_cache();  // the effect documents are cached by project-relative path: another project (or root) has other files by that name
     auto proj = load_project(dir);
     if (!proj.ok()) return fail(proj.error().to_string());
@@ -784,7 +785,7 @@ void Engine::shutdown() {
 
 void Engine::begin_load_trace() {
     end_load_trace();
-    impl_->loadTrace = std::make_unique<LoadTrace>();
+    impl_->loadTrace = std::make_unique<LoadTrace>(this);
 }
 
 Json Engine::loading_report() const { return impl_->loadTrace ? impl_->loadTrace->report() : Json(); }
@@ -801,6 +802,7 @@ void Engine::end_load_trace() {
 }
 
 void Engine::frame(double dt) {
+    const LoadTrace::ReadingFor reading(this);
     Impl& I = *impl_;
     if (!I.initialized) return;
     dt = std::clamp(dt, 0.0, kMaxFrameDt);
@@ -823,22 +825,29 @@ void Engine::frame(double dt) {
 }
 
 void Engine::step(int frames) {
+    const LoadTrace::ReadingFor reading(this);
     Impl& I = *impl_;
     if (!I.initialized) return;
     for (int i = 0; i < frames && !I.quit; ++i) I.run_frame(I.fixedDt, 1);
 }
 
-bool Engine::load_scene(std::string_view path, std::string* error) { return impl_->load_scene_impl(std::string(path), error); }
+bool Engine::load_scene(std::string_view path, std::string* error) {
+    const LoadTrace::ReadingFor reading(this);
+    return impl_->load_scene_impl(std::string(path), error);
+}
 bool Engine::load_scene(std::string_view path, const Json& props, std::string* error) {
+    const LoadTrace::ReadingFor reading(this);
     if (props.is_object()) impl_->nextProps = props;
     return impl_->load_scene_impl(std::string(path), error);
 }
 
 bool Engine::load_scene_json(const Json& scene, std::string_view sourceName, std::string* error) {
+    const LoadTrace::ReadingFor reading(this);
     return impl_->load_scene_json_impl(scene, sourceName, error);
 }
 
 void Engine::render_now() {
+    const LoadTrace::ReadingFor reading(this);
     Impl& I = *impl_;
     if (!I.renderer) return;
     if (I.renderStale) I.draw(I.lastRenderDt);
@@ -846,6 +855,7 @@ void Engine::render_now() {
 bool Engine::render_pending() const { return impl_->renderStale; }
 
 void Engine::reload_scene() {
+    const LoadTrace::ReadingFor reading(this);
     Impl& I = *impl_;
     if (I.currentScene.empty()) return;
     std::string err;

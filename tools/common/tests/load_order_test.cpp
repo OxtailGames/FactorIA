@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "fa/core/json.h"
+#include "fa/tooling/export.h"
 #include "fa/tooling/feedback_share.h"
 #include "fa/tooling/load_order.h"
 #include "test_helpers.h"
@@ -39,6 +40,41 @@ TEST_CASE("load order merge: a known scene gains new files at its end, a new sce
     CHECK(merge_load_order(merged, seen, &again).size() == 2);
     CHECK(again.added == 0);
     CHECK(merge_load_order(recorded, seen) == merged);
+}
+
+TEST_CASE("load order merge: a cold session (factoria run, play.auto) sets a scene's order, an editor Play only adds to it") {
+    const LoadOrder editor = order_of({{"scenes/a.scene.json", {"scenes/a.scene.json", "img/late.png", "img/a.png"}}});
+    // The cold run read a.png before late.png and never read late.png's neighbour: its order comes first, the rest after.
+    const LoadOrder run = order_of({{"scenes/a.scene.json", {"scenes/a.scene.json", "img/a.png", "img/new.png", "img/a.png"}},
+                                    {"scenes/b.scene.json", {"img/b.png"}}});
+    LoadOrderMerge st;
+    const LoadOrder cold = merge_load_order(editor, run, &st, LoadOrderSource::Run);
+    REQUIRE(cold.size() == 2);
+    CHECK(cold[0].files == std::vector<std::string>{"scenes/a.scene.json", "img/a.png", "img/new.png", "img/late.png"});
+    CHECK(cold[0].cold);
+    CHECK(cold[1].cold);  // a scene a cold session adds is cold too
+    CHECK(st.added == 2);
+    CHECK(st.changed);
+
+    // An editor Play afterwards does not reorder the cold scene: it only appends what it was missing.
+    const LoadOrder play = order_of({{"scenes/a.scene.json", {"img/late.png", "img/editor.png", "scenes/a.scene.json"}}});
+    LoadOrderMerge est;
+    const LoadOrder after = merge_load_order(cold, play, &est, LoadOrderSource::Editor);
+    CHECK(after[0].files ==
+          std::vector<std::string>{"scenes/a.scene.json", "img/a.png", "img/new.png", "img/late.png", "img/editor.png"});
+    CHECK(after[0].cold);
+    CHECK(est.added == 1);
+
+    // The same cold run again changes nothing; one that only marks a scene cold is a change.
+    LoadOrderMerge same;
+    merge_load_order(cold, run, &same, LoadOrderSource::Run);
+    CHECK_FALSE(same.changed);
+    LoadOrderMerge mark;
+    const LoadOrder marked = merge_load_order(editor, order_of({{"scenes/a.scene.json", {}}}), &mark, LoadOrderSource::Run);
+    CHECK(marked[0].files == editor[0].files);
+    CHECK(marked[0].cold);
+    CHECK(mark.changed);
+    CHECK(mark.added == 0);
 }
 
 TEST_CASE("load order merge: absolute paths, '..' and backslashes are left out, and the caps hold") {
@@ -88,6 +124,12 @@ TEST_CASE("load order read: no file is an empty order, a damaged one names the f
     REQUIRE_FALSE(noScene.ok());
     CHECK(noScene.error().message.find("#/scenes/0/scene") != std::string::npos);
 
+    testing::write_all(load_order_file(dir.path),
+                       R"({"format":"factoria.loadorder/1","scenes":[{"scene":"a","files":[],"source":"cold"}]})");
+    auto badSource = read_load_order(dir.path);
+    REQUIRE_FALSE(badSource.ok());
+    CHECK(badSource.error().message.find("#/scenes/0/source") != std::string::npos);
+
     testing::write_all(load_order_file(dir.path), "{ not json");
     CHECK_FALSE(read_load_order(dir.path).ok());
 }
@@ -116,6 +158,48 @@ TEST_CASE("load order record: merges into the file under the project's lock and 
     CHECK(file_text(dir.path) == before);
     // The lock is released: no lock file is left in the cache folder.
     CHECK_FALSE(stdfs::exists(dir.path / ".factoria" / "cache" / kFeedbackShareLockFile));
+}
+
+TEST_CASE("load order record: the file keeps each scene's source, and a factoria run reorders what an editor Play wrote") {
+    testing::ScratchShareHome home;
+    testing::TempDir dir;
+    REQUIRE(record_load_order(dir.path, order_of({{"s", {"b.png", "a.png"}}, {"t", {"c.png"}}})).ok());
+    auto run = record_load_order(dir.path, order_of({{"s", {"a.png", "b.png"}}}), LoadOrderSource::Run);
+    REQUIRE_MESSAGE(run.ok(), (run.ok() ? std::string() : run.error().message));
+    CHECK(run.value().changed);
+    CHECK(run.value().added == 0);
+    CHECK(file_text(dir.path).find("\"source\": \"run\"") != std::string::npos);
+    auto read = read_load_order(dir.path);
+    REQUIRE(read.ok());
+    REQUIRE(read.value().size() == 2);
+    CHECK(read.value()[0].files == std::vector<std::string>{"a.png", "b.png"});
+    CHECK(read.value()[0].cold);
+    CHECK_FALSE(read.value()[1].cold);
+    // An editor Play with the old order leaves the file as it is.
+    const std::string before = file_text(dir.path);
+    auto play = record_load_order(dir.path, order_of({{"s", {"b.png", "a.png"}}}));
+    REQUIRE(play.ok());
+    CHECK_FALSE(play.value().changed);
+    CHECK(file_text(dir.path) == before);
+}
+
+TEST_CASE("load order record: nothing is recorded for a folder inside an exported game") {
+    testing::ScratchShareHome home;
+    testing::TempDir dir;
+    const stdfs::path game = dir.path / u8"jeu-exporté-macos" / "Game.app" / "Contents" / "Resources" / "game";
+    stdfs::create_directories(game);
+    testing::write_all(dir.path / u8"jeu-exporté-macos" / kExportMarkerFile, "factoria export\n");
+    std::string why;
+    CHECK_FALSE(load_order_recordable(game, &why));
+    CHECK(why.find("exported game") != std::string::npos);
+    auto r = record_load_order(game, order_of({{"s", {"a.png"}}}), LoadOrderSource::Run);
+    REQUIRE(r.ok());
+    CHECK(r.value().skipped);
+    CHECK_FALSE(r.value().changed);
+    CHECK_FALSE(stdfs::exists(load_order_file(game)));
+    CHECK_FALSE(stdfs::exists(game / ".factoria"));
+    // The project itself, next to its export, records as usual.
+    CHECK(load_order_recordable(dir.path));
 }
 
 TEST_CASE("load order record: a damaged file is replaced by this session's order") {
@@ -172,18 +256,19 @@ TEST_CASE("load order record_async: writes land in the order they were queued, a
     CHECK(read.value()[0].files == want);
 }
 
-TEST_CASE("pack order: the main scene's files first, then the other scenes', each shipped file once, the scene file first") {
+TEST_CASE("pack order: the start-up files, the main scene's, then the other scenes', each shipped file once, the scene file first") {
     const LoadOrder recorded = order_of({
         {"scenes/menu.scene.json", {"ui/menu.png", "fonts/a.ttf"}},
+        {LoadTrace::kStartupScene, {"factoria.json", "scripts/boot.js"}},
         {"scenes/main.scene.json", {"img/hero.png", "scenes/main.scene.json", "dev/only.txt", "fonts/a.ttf"}},
         {"scenes/gone.scene.json", {"old.png"}},
     });
-    const std::vector<std::string> shipped = {"fonts/a.ttf", "img/hero.png", "scenes/main.scene.json", "scenes/menu.scene.json",
-                                              "ui/menu.png"};
+    const std::vector<std::string> shipped = {"factoria.json", "fonts/a.ttf", "img/hero.png", "scenes/main.scene.json",
+                                              "scenes/menu.scene.json", "scripts/boot.js", "ui/menu.png"};
     const PackOrder po = pack_order(recorded, "scenes/main.scene.json", shipped);
-    CHECK(po.files == std::vector<std::string>{"scenes/main.scene.json", "img/hero.png", "fonts/a.ttf", "scenes/menu.scene.json",
-                                               "ui/menu.png"});
-    CHECK(po.scenes == 2);  // the scene whose files no longer ship gives nothing
+    CHECK(po.files == std::vector<std::string>{"factoria.json", "scripts/boot.js", "scenes/main.scene.json", "img/hero.png",
+                                               "fonts/a.ttf", "scenes/menu.scene.json", "ui/menu.png"});
+    CHECK(po.scenes == 3);  // the start-up group counts; the scene whose files no longer ship gives nothing
 
     const PackOrder none = pack_order({}, "scenes/main.scene.json", shipped);
     CHECK(none.files.empty());

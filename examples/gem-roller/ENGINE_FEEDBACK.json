@@ -365,6 +365,30 @@
       "notes": [
         "vfx.filmstrip and vfx.review default position to the point 5 m in front of the main 3D camera and say so in the result (position, positionDefault, positionNote); vfx.budget projects 3D emitters through the main camera and reports camera {used, ...} (or that there is none). docs/PARTICLES.md, Reviewing an effect."
       ]
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-11-08",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-opus-5-5"
+      },
+      "category": "scripting",
+      "severity": "major",
+      "title": "A game script that calls a project tool (fa.call(\"project.scatter_gems\")) works in the editor and factoria run but fails in the exported player",
+      "missing": "scripts/game.js calls the project tool project.scatter_gems from onStart to place the gems. Project tools live in tools/, which no export ships, so the exported player has no such command: it logs \"scatter_gems failed: Unknown command 'project.scatter_gems'\" and the level starts with no gems. Nothing warns before that: validate and the export accept a game script that calls a tool-only command.",
+      "workaround": "None yet in the example: run it from the project folder (factoria run), where the tool is loaded.",
+      "workaroundFiles": [
+        "scripts/game.js",
+        "tools/scatter_gems.js"
+      ],
+      "suggestion": "Have the export (and validate) warn when a game script calls fa.call with a literal command name that only a project tool registers, naming the file and line, and say in docs which commands a shipped game has. The example should bake the scattered gems into the scene, or move the scatter code into a game module that both the tool and the script import.",
+      "occurrences": 1,
+      "status": "open",
+      "notes": [
+        "Seen while checking the format 2 pack (M70.4b) with an exported gem-roller player."
+      ]
     }
   ]
 }

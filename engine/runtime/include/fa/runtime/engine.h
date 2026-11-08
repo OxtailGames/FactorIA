@@ -117,6 +117,9 @@ struct EngineConfig {
     // Loading trace (fa/core/load_trace.h): from init on, the engine notes which project files each scene reads first, how
     // long each scene takes to its first frame and which assets decode slowest (Engine::loading_report). Tooling sets it
     // (the editor's Play, `factoria run`, play.auto); an exported game never does, so a shipped player records nothing.
+    // The trace is this engine's (its owner is the Engine): only reads made inside the engine's entry points (init, frame,
+    // step, load_scene*, reload_scene, render_now), or on threads that carry its owner, are recorded; an editor panel or a
+    // tool reading files meanwhile is not.
     bool traceLoads = false;
     // Called with the first-use order of the trace when it ends (shutdown, or end_load_trace): the editor and `factoria`
     // merge it into the project's .factoria/cache/load-order.json (fa/tooling/load_order.h), which a release export packs

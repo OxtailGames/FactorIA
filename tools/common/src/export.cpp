@@ -921,7 +921,19 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     std::error_code ec;
     stdfs::create_directories(os_path(plan.outParent), ec);
     if (ec) return err("export: cannot create output directory '" + generic(plan.outParent) + "': " + ec.message());
-    fs::remove_tree(outRoot, ec);  // always a fresh <slug>-<platform> folder; the plan checked that an export wrote it
+    // Always a fresh <slug>-<platform> folder; the plan checked that an export wrote it. On Windows a game running from it
+    // holds its files open (the exe, the pack), and a delete would stop half-way: look first, and delete nothing then.
+    if (const stdfs::path busy = fs::find_file_in_use(outRoot); !busy.empty())
+        return err("export: " + generic(outRoot) + " is in use: close the running game (or the editor's preview of it) and export again",
+                   "'" + generic(busy) + "' is open in another program, and Windows does not let a program delete or replace a file "
+                   "that is open. Nothing was deleted: the previous export is as it was.");
+    fs::remove_tree(outRoot, ec);
+    if (ec)
+        return err("export: cannot delete the previous export " + generic(outRoot) + ": " + ec.message(),
+                   fs::is_sharing_violation(ec)
+                       ? "A file in it is open in another program: close the running game (or the editor's preview of it) and export "
+                         "again. Part of the previous export may be gone already; the next export writes all of it."
+                       : "Check that the folder can be written (permissions, a read-only drive), or delete it yourself, then export again.");
     stdfs::create_directories(os_path(outRoot), ec);
     if (ec) return err("export: cannot create '" + generic(outRoot) + "': " + ec.message());
     if (auto r = write_text(outRoot / kExportMarkerFile, marker_text(p, platform)); !r.ok()) return r.error();

@@ -1,21 +1,31 @@
 // Load trace: which game files a run reads, in which order, and how long its loads take.
 //
-// While a LoadTrace object exists, every read through fa::fs (read_bytes, read_text, read_view, warm) is recorded in
-// it: the path, the bytes, whether it came from the game pack (and how many bytes it took there), and the time of the
-// read. Loaders that turn bytes into something (textures, meshes, sounds, fonts) wrap their work in an AssetLoadScope,
-// which records the asset with the time the read took and the time the rest (the decode) took. Hosts that develop a
-// game create one (the engine does when EngineConfig::traceLoads is on: `factoria run`, `play.auto`, a Play in the
-// editor); a shipped game never does, and without a trace each hook costs one relaxed atomic load.
+// A trace belongs to an OWNER: an opaque token, the Engine that made it (`this`). It records the reads through fa::fs
+// (read_bytes, read_text, read_view, warm) made while that owner is the thread's current reader, set by a
+// LoadTrace::ReadingFor scope: the engine opens one in each of its entry points (init, frame, step, the scene loads,
+// render_now). Reads outside such a scope are not the game's (the editor's panels and asset browser, an AI or MCP tool,
+// another engine in the process such as an in-process play.auto, which has its own trace) and are left out. A trace made
+// without an owner (nullptr) records every read of the process (tests, tools). Loaders that turn bytes into something
+// (textures, meshes, sounds, fonts) wrap their work in an AssetLoadScope, which records the asset with the time the read
+// took and the time the rest (the decode) took, for the same owner. Hosts that develop a game create one (the engine does
+// when EngineConfig::traceLoads is on: `factoria run`, `play.auto`, a Play in the editor); a shipped game never does, and
+// without a trace each hook costs one relaxed atomic load.
+//
+// Work handed to another thread keeps its owner: whoever queues a read or a decode on an IO thread or a job worker takes
+// LoadTrace::current_owner() with the job and opens a ReadingFor(owner) around the job's work on that thread (the music
+// loader's thread does, audio.cpp). That is how a background loader (M70.3) attributes its reads to the engine that asked
+// for them; a thread is never an owner by itself.
 //
 // Two results come out of it:
-//   - order(): for each scene loaded during the trace, the files first read while it was the current scene, in the order
+//   - order(): the files read before the first scene (factoria.json, the start-up scripts) as the group kStartupScene,
+//     then, for each scene loaded during the trace, the files first read while it was the current scene, in the order
 //     they were first read. `factoria export` packs game.pak in that order (fa/core/pack.h, PackWriter::set_order).
 //   - report(): the "loading" section of a play report (time to the first frame, load time per scene, the slowest
 //     assets, the reads). Times depend on the machine: they are rounded to 0.1 ms and are never a pass or a fail.
 //
 // Caps are counts (deterministic): at most kMaxFiles distinct files in the order, kMaxScenes scene loads, the
-// kMaxSlowest slowest assets; anything above is counted in the totals only. Thread-safe: reads on loader threads are
-// recorded too. Times come from a steady clock, never the simulation's: nothing here changes what a game does.
+// kMaxSlowest slowest assets; anything above is counted in the totals only. Thread-safe. Times come from a steady clock,
+// never the simulation's: nothing here changes what a game does.
 #pragma once
 
 #include <atomic>
@@ -34,6 +44,9 @@ namespace fa {
 struct SceneFiles {
     std::string scene;
     std::vector<std::string> files;
+    // Set by the tools, never by a trace (fa/tooling/load_order.h): the order of this scene comes from a cold session
+    // (`factoria run`, play.auto), which ranks above an editor Play's.
+    bool cold = false;
     bool operator==(const SceneFiles&) const = default;
 };
 using LoadOrder = std::vector<SceneFiles>;
@@ -44,7 +57,13 @@ public:
     static constexpr std::size_t kMaxScenes = 64;
     static constexpr std::size_t kMaxSlowest = 10;
 
-    LoadTrace();   // starts recording: the clock of time_to_first_frame starts now
+    // The group of the files read before the first scene starts (the project file, the start-up scripts).
+    static constexpr const char* kStartupScene = "(start-up)";
+    // The token of whoever reads (the Engine). Compared, never dereferenced.
+    using Owner = const void*;
+
+    // Starts recording the reads of `owner` (nullptr: every read): the clock of time_to_first_frame starts now.
+    explicit LoadTrace(Owner owner = nullptr);
     ~LoadTrace();  // stops
     LoadTrace(const LoadTrace&) = delete;
     LoadTrace& operator=(const LoadTrace&) = delete;
@@ -69,6 +88,20 @@ public:
     // Nanoseconds this thread spent in file reads since it started (AssetLoadScope subtracts it from its total).
     static std::int64_t thread_read_ns();
 
+    // The owner this thread reads for now (nullptr outside every ReadingFor scope).
+    static Owner current_owner();
+    // Makes `owner` this thread's current reader until the scope ends (scopes nest: the previous one comes back). Free.
+    class ReadingFor {
+    public:
+        explicit ReadingFor(Owner owner);
+        ~ReadingFor();
+        ReadingFor(const ReadingFor&) = delete;
+        ReadingFor& operator=(const ReadingFor&) = delete;
+
+    private:
+        Owner previous_;
+    };
+
 private:
     friend class AssetLoadScope;
     static void asset_loaded(std::string_view kind, std::string_view path, std::uint64_t bytes, std::int64_t totalNs, std::int64_t readNs);
@@ -88,6 +121,9 @@ private:
 
     static std::atomic<int> activeCount_;
 
+    bool records(Owner reader) const { return owner_ == nullptr || owner_ == reader; }
+
+    const Owner owner_;
     mutable std::mutex mutex_;
     std::int64_t startNs_ = 0, firstFrameNs_ = -1;
     std::vector<SceneLoad> loads_;
@@ -99,8 +135,9 @@ private:
 };
 
 // Wraps one asset load (a texture, a mesh, a sound, a font) for the load trace: records it, with the decode time (its
-// whole time minus the file reads it made on this thread), when it ends. Does nothing when no trace exists, and records
-// nothing for a load that read no bytes (a built-in font, a primitive mesh, a file that is missing).
+// whole time minus the file reads it made on this thread), when it ends, in the traces of the thread's current owner.
+// Does nothing when no trace exists, and records nothing for a load that read no bytes (a built-in font, a primitive
+// mesh, a file that is missing).
 class AssetLoadScope {
 public:
     AssetLoadScope(const char* kind, std::string_view path);

@@ -346,6 +346,38 @@ std::uintmax_t remove_tree(const stdfs::path& dir, std::error_code& ec) {
     return stdfs::remove_all(dir, ec);
 }
 
+stdfs::path find_file_in_use(const stdfs::path& dir, std::size_t maxFiles) {
+#ifdef _WIN32
+    auto held = [](const stdfs::path& f) {
+        if (open_conflict(f)) return true;
+        // A scanner or indexer that opened the file a moment ago lets go within milliseconds (as replace_file waits for):
+        // only a file still held after about a second is in use. A running game holds its files for as long as it runs.
+        for (int i = 0; i < 100; ++i) {
+            if (!detail::held_open(f)) return false;
+            retry_pause(i);
+        }
+        return true;
+    };
+#else
+    if (!emulating()) return {};  // POSIX deletes and replaces open files
+    auto held = [](const stdfs::path& f) { return bool(open_conflict(f)); };
+#endif
+    std::error_code ec;
+    const stdfs::path root = os_path(dir);
+    const auto status = stdfs::symlink_status(root, ec);
+    if (ec || !stdfs::exists(status)) return {};
+    if (!stdfs::is_directory(status)) return held(root) ? dir : stdfs::path();
+    std::size_t looked = 0;
+    for (auto it = stdfs::recursive_directory_iterator(root, stdfs::directory_options::skip_permission_denied, ec);
+         !ec && it != stdfs::recursive_directory_iterator() && looked < maxFiles; it.increment(ec)) {
+        std::error_code tec;
+        if (it->is_directory(tec) || it->is_symlink(tec)) continue;
+        ++looked;
+        if (held(it->path())) return dir / it->path().lexically_relative(root);
+    }
+    return {};
+}
+
 // ---- Windows file rules: public part -----------------------------------------------------------------------------
 bool windows_rules() {
 #ifdef _WIN32
