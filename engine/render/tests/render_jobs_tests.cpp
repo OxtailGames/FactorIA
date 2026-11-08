@@ -9,6 +9,8 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <limits>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -161,7 +163,7 @@ void build_2d(World& w) {
         p.rate = 120;
         p.burst = 150;
         p.maxParticles = 400;
-        p.seed = std::uint32_t(7 + i);
+        p.seed = 7 + i;
         p.lifetime = 1.5f;
         p.speed = 20 + frac(i, 32) * 40;
         p.startSize = 3;
@@ -226,7 +228,11 @@ void build_3d(World& w) {
 struct Frames {
     std::vector<std::vector<std::uint8_t>> pictures;
     std::vector<std::string> stats;
-    bool workerRan = false;  // a worker thread ran at least one render job (the profiler's lanes)
+    // Chunks of each render / animation job over every lane, summed over the frames. The profiler records every chunk
+    // once, on the lane that ran it, so the sums depend only on how the passes split their items, never on which
+    // thread got there first.
+    std::map<std::string, int> chunks;
+    bool workerRan = false;  // a worker thread ran at least one of them (depends on timing: only reported)
 };
 
 // Draws `frames` frames of a fresh scene with the job system set up as `m`.
@@ -248,9 +254,12 @@ Frames draw(const Mode& m, Build build, int frames, bool animate) {
         p.end_frame();
         jobs::end_frame();
         const ProfFrame pf = p.last();
-        for (std::size_t lane = 1; lane < pf.lanes.size(); ++lane)
-            for (const ProfJobSample& s : pf.lanes[lane].samples)
-                if (s.name.rfind("render.", 0) == 0 || s.name.rfind("scene.", 0) == 0) out.workerRan = true;
+        for (std::size_t lane = 0; lane < pf.lanes.size(); ++lane)
+            for (const ProfJobSample& s : pf.lanes[lane].samples) {
+                if (s.name.rfind("render.", 0) != 0 && s.name.rfind("scene.", 0) != 0) continue;
+                out.chunks[s.name] += s.count;
+                if (lane > 0 && s.count > 0) out.workerRan = true;
+            }
         Json st = g.renderer.stats().to_json();
         st.erase("cpuMs");
         out.pictures.push_back(std::move(img.rgba));
@@ -261,23 +270,51 @@ Frames draw(const Mode& m, Build build, int frames, bool animate) {
     return out;
 }
 
+std::string describe(const std::map<std::string, int>& chunks) {
+    std::string out;
+    for (const auto& [name, n] : chunks) out += name + " " + std::to_string(n) + "; ";
+    return out;
+}
+
+// Draws the scene in every mode and compares each with the pool stopped. With workers, each job of `split` must
+// have been cut into more than one chunk per frame, and every worker count must give the same chunks.
 template <class Build>
-void check_same_frames(Build build, int frames, bool animate) {
+void check_same_frames(Build build, int frames, bool animate, const std::vector<std::string>& split,
+                       bool still = false) {
     const std::vector<Mode> ms = modes();
     const Frames base = draw(ms[0], build, frames, animate);
+    CHECK_MESSAGE(base.chunks.empty(), describe(base.chunks));  // no worker: every pass is one chunk, no job at all
+    const std::map<std::string, int>* firstChunks = nullptr;
+    std::vector<Frames> runs;
+    runs.reserve(ms.size());
     REQUIRE(base.pictures.size() == std::size_t(frames));
-    CHECK(base.pictures.front() != base.pictures.back());  // the frames do change (particles, poses)
+    if (!still) CHECK(base.pictures.front() != base.pictures.back());  // the frames do change (particles, poses)
     for (std::size_t i = 1; i < ms.size(); ++i) {
-        INFO("jobs: " << ms[i].name);
-        const Frames run = draw(ms[i], build, frames, animate);
+        INFO("jobs: " << std::string(ms[i].name));
+        runs.push_back(draw(ms[i], build, frames, animate));
+        const Frames& run = runs.back();
         REQUIRE(run.pictures.size() == base.pictures.size());
         for (int f = 0; f < frames; ++f) {
             INFO("frame " << f);
             CHECK(run.stats[std::size_t(f)] == base.stats[std::size_t(f)]);
             CHECK(run.pictures[std::size_t(f)] == base.pictures[std::size_t(f)]);
         }
-        // With workers the passes really ran on them: the profiler saw render jobs on a worker lane.
-        if (ms[i].settings.mode == jobs::Settings::Mode::Count) CHECK(run.workerRan);
+        if (ms[i].settings.mode != jobs::Settings::Mode::Count) {
+            CHECK_MESSAGE(run.chunks.empty(), describe(run.chunks));  // inline: no worker, one chunk per pass
+            continue;
+        }
+        INFO("chunks: " << describe(run.chunks));
+        for (const std::string& name : split) {
+            INFO("job " << name);
+            const auto it = run.chunks.find(name);
+            REQUIRE(it != run.chunks.end());
+            CHECK(it->second >= 2 * frames);
+        }
+        if (firstChunks) CHECK(run.chunks == *firstChunks);
+        else firstChunks = &run.chunks;
+        // Whether a worker took a chunk before the waiting thread ran them all depends on timing: only reported.
+        if (!run.workerRan)
+            MESSAGE("jobs: " << std::string(ms[i].name) << ": every chunk ran on the main thread this time");
     }
 }
 
@@ -286,7 +323,8 @@ void check_same_frames(Build build, int frames, bool animate) {
 TEST_CASE("render jobs: a big 2D frame (sprites, meshes, skins, tilemap, particles) is the same with 0, 1, 2, 8 threads and inline") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    check_same_frames(build_2d, 4, false);
+    check_same_frames(build_2d, 4, false, {"render.gather_sprites", "render.gather_tilemap", "render.particles",
+                                          "render.gather_particles", "render.flatten_quads"});
     // The scene is far above every 2D threshold, so these frames were split into many chunks.
     World w;
     build_2d(w);
@@ -300,7 +338,8 @@ TEST_CASE("render jobs: a big 2D frame (sprites, meshes, skins, tilemap, particl
 TEST_CASE("render jobs: a big 3D frame (meshes, blending, culling, shadows, skinned rigs) is the same with 0, 1, 2, 8 threads and inline") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    check_same_frames(build_3d, 3, true);
+    check_same_frames(build_3d, 3, true, {"render.mesh_matrices", "render.mesh_cull", "render.shadow_bounds",
+                                         "render.shadow_cull"});
     World w;
     build_3d(w);
     update_animators(w, 1.0f / 30.0f);
@@ -312,6 +351,51 @@ TEST_CASE("render jobs: a big 3D frame (meshes, blending, culling, shadows, skin
     g.renderer.clear_asset_cache();
 }
 
+namespace {
+
+// NaN sort keys: sprites and meshes with a NaN position (a NaN y sort key, a NaN distance) and meshes with a NaN
+// colour, among enough items for the sorts to run as jobs. A NaN that broke the sorts' strict weak order would make
+// the chunked sort and std::stable_sort disagree, and the frame would depend on the thread count.
+void build_nan(World& w) {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    w.add<Camera>(make(w, "cam")).clearColor = Color::hex(0x101018);
+    for (int i = 0; i < 5000; ++i) {
+        Entity e = make(w, "s", {frac(i, 70) * 300 - 150, frac(i, 71) * 160 - 80, 0});
+        if (i % 37 == 5) w.get<Transform>(e)->position.y = nan;
+        if (i % 53 == 7) w.get<Transform>(e)->position.x = nan;
+        auto& s = w.add<Sprite>(e);
+        s.size = {6 + frac(i, 72) * 20, 6 + frac(i, 73) * 20};
+        s.color = Color{frac(i, 74), frac(i, 75), frac(i, 76), 0.6f + frac(i, 77) * 0.4f};
+    }
+    Entity cam3 = make(w, "cam3d", {0, 6, 14});
+    auto& c = w.add<Camera>(cam3);
+    c.projection = Projection::Perspective;
+    c.fov = 60;
+    c.depth = 1;
+    c.clear = false;  // drawn over the first camera's picture
+    w.get<Transform>(cam3)->rotation = {-20, 0, 0};
+    const char* shapes[] = {"cube", "sphere"};
+    for (int i = 0; i < 2400; ++i) {
+        const bool blended = i % 2 == 1;
+        Entity e = make(w, "m", {frac(i, 80) * 20 - 10, frac(i, 81) * 6 - 2, frac(i, 82) * 12 - 8});
+        if (blended && i % 41 == 3) w.get<Transform>(e)->position.z = nan;
+        w.get<Transform>(e)->scale = {0.6f, 0.6f, 0.6f};
+        auto& m = w.add<MeshRenderer>(e);
+        m.mesh = shapes[(i / 2) % 2];
+        m.color = Color{float(i % 5) / 4.0f, float(i % 3) / 2.0f, float(i % 7) / 6.0f, blended ? 0.5f : 1.0f};
+        if (!blended && i % 43 == 4) m.color.g = nan;
+        m.castShadows = false;
+    }
+}
+
+}  // namespace
+
+TEST_CASE("render jobs: NaN sort keys (positions, colours) give the same frame with 0, 1, 2, 8 threads and inline") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    check_same_frames(build_nan, 2, false, {"render.sort_quads", "render.sort_blended", "render.sort_meshes"}, true);
+}
+
 TEST_CASE("render jobs: the chunked stable sort gives std::stable_sort's order, ties included") {
     struct Item {
         int key;
@@ -319,7 +403,7 @@ TEST_CASE("render jobs: the chunked stable sort gives std::stable_sort's order, 
     };
     auto less = [](const Item& a, const Item& b) { return a.key < b.key; };
     for (const Mode& m : modes()) {
-        INFO("jobs: " << m.name);
+        INFO("jobs: " << std::string(m.name));
         PoolScope pool(m);
         for (std::size_t n : {std::size_t(0), std::size_t(1), std::size_t(7), std::size_t(64), std::size_t(1000), std::size_t(1023),
                               std::size_t(1024), std::size_t(1025), std::size_t(5000), std::size_t(33333)}) {
@@ -397,7 +481,7 @@ TEST_CASE("render jobs: parts of a QuadList appended in order give the stream of
     REQUIRE(refBatches.size() > 100);
 
     for (const Mode& m : modes()) {
-        INFO("jobs: " << m.name);
+        INFO("jobs: " << std::string(m.name));
         PoolScope pool(m);
         QuadList joined;
         for (int part = 0; part < 7; ++part) {

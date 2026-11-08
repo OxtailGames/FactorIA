@@ -269,12 +269,16 @@ The determinism rule, on top of the one for every job: chunk bounds depend only 
 particle counts), each chunk writes its own `QuadList` or its own slot of a vector, and the parts are joined in chunk
 order (`QuadList::append` renumbers the items so their order is kept; `add_quads_of` joins the bands of one tilemap
 item). A stable sort has exactly one result, so the chunked sort (each chunk sorted, then pairwise `std::merge`) gives
-the order of `std::stable_sort`. The frame is therefore byte-identical with any thread count:
-engine/render/tests/render_jobs_tests.cpp draws scenes far above every threshold (3000 sprites, a 400x200 tilemap,
-more than 2048 live particles, 820 meshes with shadows and skinned rigs) stopped, inline and with 1, 2 and 8 workers and compares the
-pictures and the statistics, and checks on the profiler's lanes that the chunks really ran on workers;
+the order of `std::stable_sort`, as long as the comparison is a strict weak order: every float a render sort compares
+goes through `rjobs::order_float` (NaN, from a NaN transform or colour, sorts as +infinity). The 3D batches are
+ordered by asset names and entities, never by addresses, which differ from one process to the next. The frame is
+therefore byte-identical with any thread count. engine/render/tests/render_jobs_tests.cpp draws scenes far above every
+threshold (3000 sprites, a 400x200 tilemap, more than 2048 live particles, 820 meshes with shadows and skinned rigs;
+5000 sprites and 2400 meshes with NaN positions and colours) stopped, inline and with 1, 2 and 8 workers, compares
+the pictures and the statistics, and checks on the profiler that each pass was cut into the same chunks with every
+worker count (which thread ran a chunk depends on timing, so the test only reports it).
 engine/scene/tests/test_animation.cpp does the same for 300 animators, and the ctest `example_jobs_same_frames`
-compares example scenes drawn with `FA_JOB_THREADS=inline` and `8`.
+compares example scenes drawn by two processes with `FA_JOB_THREADS=inline` and `8`.
 
 ### Coordinates & units
 Right-handed, +Y up, angles in degrees, colors 0..1. 2D world units = design

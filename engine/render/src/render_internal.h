@@ -389,6 +389,7 @@ private:
     bool open_ = false;
     QuadItem cur_;
     std::uint32_t seq_ = 0;
+    std::vector<std::size_t> offsets_;  // flatten's scratch when it copies as jobs, kept from frame to frame
 };
 
 // ---------------------------------------------------------------------------

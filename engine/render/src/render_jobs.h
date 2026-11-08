@@ -9,8 +9,10 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -18,6 +20,12 @@
 #include "fa/core/jobs.h"
 
 namespace fa::render::rjobs {
+
+// A float as a sort key: NaN (a NaN transform, colour or distance) becomes +infinity. A comparison with NaN is
+// false both ways, which breaks the strict weak order every sort needs: std::stable_sort and the chunked sort below
+// would then disagree, and the frame would depend on the thread count. Every float a render sort compares goes
+// through this.
+inline float order_float(float v) { return std::isnan(v) ? std::numeric_limits<float>::infinity() : v; }
 
 // How a pass splits `count` items: `chunks` pieces of `grain` items (the last one shorter). One chunk with every item
 // when count < minCount, grain is 0 or the pool has no worker thread.
@@ -47,8 +55,8 @@ inline Split whole(std::size_t count) { return split(count, 0, 0); }
 // Chunks for items of very different sizes (emitters of 3 or 3000 particles): consecutive ranges [first, second) of
 // items whose weights add up to at least `target` (the last range may weigh less). They depend only on the weights.
 // One range with every item when the weights add up to less than `minTotal` or the pool has no worker thread.
-std::vector<std::pair<std::size_t, std::size_t>> weighted_ranges(const std::vector<std::size_t>& weights, std::size_t target,
-                                                                 std::size_t minTotal);
+std::vector<std::pair<std::size_t, std::size_t>> weighted_ranges(const std::vector<std::size_t>& weights,
+                                                                 std::size_t target, std::size_t minTotal);
 
 // Runs fn on every chunk of `s`: as jobs when there are several, at once on this thread when there is one. A chunk
 // that throws is logged by the job system with `name`; the frame goes on with what the other chunks wrote.
@@ -66,7 +74,9 @@ void stable_sort(std::string_view name, std::vector<T>& v, Less less, std::size_
         return;
     }
     using Diff = typename std::vector<T>::difference_type;
-    run(name, s, [&](const jobs::Chunk& c) { std::stable_sort(v.begin() + Diff(c.begin), v.begin() + Diff(c.end), less); });
+    run(name, s, [&](const jobs::Chunk& c) {
+        std::stable_sort(v.begin() + Diff(c.begin), v.begin() + Diff(c.end), less);
+    });
     std::vector<T> scratch(n);
     std::vector<T>* src = &v;
     std::vector<T>* dst = &scratch;
@@ -75,8 +85,8 @@ void stable_sort(std::string_view name, std::vector<T>& v, Less less, std::size_
         run(name, Split{pairs, 1, pairs}, [&](const jobs::Chunk& c) {
             for (std::size_t p = c.begin; p < c.end; ++p) {
                 const std::size_t lo = p * 2 * width, mid = std::min(n, lo + width), hi = std::min(n, lo + 2 * width);
-                std::merge(src->begin() + Diff(lo), src->begin() + Diff(mid), src->begin() + Diff(mid), src->begin() + Diff(hi),
-                           dst->begin() + Diff(lo), less);
+                const auto in = src->begin();
+                std::merge(in + Diff(lo), in + Diff(mid), in + Diff(mid), in + Diff(hi), dst->begin() + Diff(lo), less);
             }
         });
         std::swap(src, dst);
