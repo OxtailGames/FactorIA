@@ -200,9 +200,14 @@ are never held, it reads them and closes them again). It looks at 100000 files a
 same folder always gets the same answer. If one is held it stops with
 `export: '<file>' is open in another program (the game running from <folder>?): close it and export again`; nothing is
 deleted and the previous export stays as it was. Close the game and export again. A program that only reads a file and
-lets others delete it (a cloud sync client, a virus scanner, `tail`) does not stop an export, and a file that was held for
-less than about a second is not counted. A read-only file left by an earlier export (copied from a read-only player) is
-deleted anyway. On macOS and Linux an open file can be deleted, so nothing is looked at there (with `FA_FS_WINDOWS_RULES`
+lets others delete it (a cloud sync client, a virus scanner, `tail`, a game that reads its `game.pak` without mapping it,
+as with `FA_PACK_MAP=0`) does not stop an export: Windows deletes the file under it, the program reads on from the old
+file and the export writes a new one. A file that was held for less than about a second is not counted. A read-only exe
+that is running is found on Windows 10 1809 and later; a read-only file left by an earlier export (copied from a
+read-only player) is deleted anyway. To look, the export marks each of those files for deletion and takes the mark back
+at once; should Windows refuse to take it back, the export stops with
+`export: Windows did not take back the deletion mark ...: that file may be deleted now`, and the next export writes it
+again. Under Wine any open handle counts as held. On macOS and Linux an open file can be deleted, so nothing is looked at there (with `FA_FS_WINDOWS_RULES`
 the same check runs on the files the engine holds open itself, so the tests see it).
 
 **Android keeps Gradle's working folders.** An Android export is a Gradle project, and the APK or AAB build runs Gradle

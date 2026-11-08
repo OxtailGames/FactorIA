@@ -354,7 +354,7 @@ PackReader::~PackReader() {
     detail::pack_unmap(map_, mapSize_, mapping_);
     detail::pack_close(native_);
     // After the file is let go, as fs::ReadStream does: the registry never says closed while the file is still open.
-    if (!registered_.empty()) fs::detail::unregister_open_file(registered_);
+    if (!registered_.empty()) fs::detail::unregister_open_file(registered_, /*sharesDelete=*/map_ == nullptr);  // as registered
 }
 
 bool PackReader::read_at(std::uint64_t offset, void* dst, std::uint64_t size) const {
@@ -508,9 +508,10 @@ Result<std::shared_ptr<const PackReader>> PackReader::open(const stdfs::path& fi
 
     if (options.map && env_allows_map() && detail::pack_map(pack->native_, fileSize, pack->map_, pack->mapping_))
         pack->mapSize_ = fileSize;
-    // Windows refuses to replace a file that is open, mapped or not (MoveFileExW onto it fails even with FILE_SHARE_DELETE):
-    // so does the emulation, for as long as the reader lives.
-    pack->registered_ = fs::detail::register_open_file(file);
+    // Windows refuses to replace a file that is open, mapped or not (MoveFileExW onto it fails even with FILE_SHARE_DELETE),
+    // and to delete a mapped one; an unmapped one shares delete (pack_file_win32.cpp), so a delete goes through: the
+    // emulation does the same for as long as the reader lives.
+    pack->registered_ = fs::detail::register_open_file(file, /*sharesDelete=*/pack->map_ == nullptr);
     return std::shared_ptr<const PackReader>(std::move(pack));
 }
 

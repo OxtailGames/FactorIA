@@ -985,7 +985,14 @@ Result<ExportReport> export_project(const ExportOptions& options) {
         const std::string r = fs::path_to_utf8(rel);
         return folder ? !(keepGradle && gradle_working_dir(r)) : held_while_running(r);
     };
-    if (const stdfs::path busy = fs::find_file_in_use(outRoot, probed); !busy.empty())
+    bool markLost = false;
+    const stdfs::path busy = fs::find_file_in_use(outRoot, probed, 100000, &markLost);
+    if (!busy.empty() && markLost)
+        return err("export: Windows did not take back the deletion mark that looked whether '" + fs::path_to_utf8(busy) +
+                       "' is open in another program: that file may be deleted now",
+                   "The rest of the previous export in " + fs::path_to_utf8(outRoot) +
+                       " is as it was. Export again: the next export writes all of it.");
+    if (!busy.empty())
         return err("export: '" + fs::path_to_utf8(busy) + "' is open in another program (the game running from " +
                        fs::path_to_utf8(outRoot) + "?): close it and export again",
                    "Windows does not let a program delete or replace a file that is open, and the export replaces that folder. "

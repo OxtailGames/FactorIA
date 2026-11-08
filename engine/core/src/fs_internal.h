@@ -22,14 +22,19 @@ bool android_is_directory(const std::string& path);
 std::vector<std::string> android_list(const std::string& dir, bool recursive);
 #endif
 
-// Under the Windows rules emulation (fs.h): `file` counts as open for reading, as a ReadStream does, until
-// unregister_open_file(key). Returns the key, "" when the emulation is off (then there is nothing to unregister).
-std::string register_open_file(const std::filesystem::path& file);
-void unregister_open_file(const std::string& key);
+// Under the Windows rules emulation (fs.h): `file` counts as open for reading until unregister_open_file(token) with
+// the same `sharesDelete`. Any open file cannot be replaced; one whose handle does not share delete (a ReadStream, a
+// mapped pack) cannot be deleted either. A delete that goes through (every handle shared delete) frees the path, as
+// on Windows: the handles stay on the nameless file and a new file there is not held by them. Returns a token, "" when
+// the emulation is off (then there is nothing to unregister).
+std::string register_open_file(const std::filesystem::path& file, bool sharesDelete);
+void unregister_open_file(const std::string& token, bool sharesDelete);
 
 #ifdef _WIN32
-// fs_in_use_win32.cpp: true when something holds `file` so that a delete of it would fail: a handle that did not allow
-// deleting, a running exe or loaded library, a mapped file. One look, no retry (fs::file_in_use retries).
-bool held_open(const std::filesystem::path& file);
+// fs_in_use_win32.cpp: Yes when something holds `file` so that a delete of it would fail: a handle that did not allow
+// deleting, a running exe or loaded library, a mapped file. MarkLost: the probe marked the file for deletion and Windows
+// would not take the mark back, so it goes when the probe's handle closes. One look, no retry (fs::file_in_use retries).
+enum class Held { No, Yes, MarkLost };
+Held held_open(const std::filesystem::path& file);
 #endif
 }  // namespace fa::fs::detail
