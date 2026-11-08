@@ -57,7 +57,10 @@ using LogFilter = std::function<bool(const LogEntry&)>;
 void set_log_stderr_filter(LogFilter filter);
 std::uint64_t log_last_seq();  // seq of the most recent entry that passed the level filter (0 = none yet)
 
-// Extra sinks (editor console, files). Returns an id for remove_log_sink.
+// Extra sinks (editor console, files). Returns an id for remove_log_sink. A sink runs on the thread that logs, a
+// job worker (fa/core/jobs.h) too, and may run several at once: it must be thread-safe (lock what it writes). The log
+// calls a copy of the sink list outside its own lock, so a sink may still run once just after remove_log_sink: own
+// what it writes (a shared_ptr captured by value), never a reference to a local.
 using LogSink = std::function<void(const LogEntry&)>;
 int add_log_sink(LogSink sink);
 void remove_log_sink(int id);

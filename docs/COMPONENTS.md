@@ -3529,6 +3529,20 @@ Filters: entities (ids), components (names to include), includeDefaults, maxEnti
 | `includeDefaults` | boolean | no |  Default false. |
 | `maxEntities` | integer | no |  Default 200. |
 
+### `game.state_hash`
+
+Not released yet (on main after 0.18.0).
+
+One 64-bit hash of the whole simulation state: every entity, component and field, the clock and the random generator.
+
+Two runs that simulate the same thing give the same hash; any difference (a float off in its last bit, an extra entity, another random number drawn) changes it. Use it to check determinism: the same game with runtime.jobThreads 0, 1 or 8 (or FA_JOB_THREADS=inline) must give the same hash at the same frame, and so must a replay. Runtime-only fields (velocities, timers) are included unless includeRuntime is false. perEntity lists one hash per entity (creation order) to find which entity differs. Example: game.state_hash {"perEntity":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `perEntity` | boolean | no | Also list one hash per entity, in creation order (at most maxEntities). Default false. |
+| `includeRuntime` | boolean | no | Hash the fields that are not saved to scenes too (velocities, timers). Default true. |
+| `maxEntities` | integer | no | How many entities perEntity lists. Default 200. |
+
 ### `game.step` (modifies state)
 
 Advance the simulation by N fixed frames (deterministic) and return a state summary.
@@ -4459,6 +4473,16 @@ Record the input the game receives as an input replay (start / stop).
 |---|---|---|---|
 | `action` | string ["start","stop"] | yes | start: begin recording now. stop: end it and return the replay. |
 | `path` | string | no | stop only: also write the replay to this project-relative file (e.g. replays/run1.json). |
+
+## jobs
+
+### `jobs.info`
+
+Not released yet (on main after 0.18.0).
+
+The job system now: worker threads, mode, jobs run and queued last frame, how busy each thread was.
+
+mode is "threads" (a pool of workers; 0 workers means jobs run on the main thread when it waits for them or at the end of the frame), "inline" (debugging: every job runs on the main thread when it is submitted) or "stopped". setting is the value the pool was started with and source where this engine's setting came from ("EngineConfig", "FA_JOB_THREADS", "factoria.json" for runtime.jobThreads, or "default" = "auto"; a second engine in the same process shares the first one's pool); autoWorkers is what "auto" gives on this machine. lastFrame and lanes (one per thread: main, worker 1..) count the last finished frame; busyMs and busyPct are wall time, rounded, and differ from run to run; with several engines in the process the first one to end a frame closes these frames. waiting counts the threads in a wait now; enginePending this engine's jobs not finished yet (each engine owns the jobs it queues, and shutdown waits for them). Threads never change what the game computes (game.state_hash checks it). Example: jobs.info {}
 
 ## material
 

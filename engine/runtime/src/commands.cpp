@@ -6,11 +6,13 @@
 
 #include "engine_impl.h"
 #include "fa/core/fs.h"
+#include "fa/core/jobs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
 #include "fa/runtime/test_files.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/state_hash.h"
 #include "fa/services/platform_commands.h"
 
 namespace fa {
@@ -777,6 +779,64 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "maxEntities":{"type":"integer","default":200,"minimum":0}}})"),
            true, "game"},
           [&engine, &I](const Json& a) { return engine.state(a); });
+
+    I.commands.add({"game.state_hash", "One 64-bit hash of the whole simulation state: every entity, component and field, the clock and the random generator.",
+           "Two runs that simulate the same thing give the same hash; any difference (a float off in its last bit, an extra "
+           "entity, another random number drawn) changes it. Use it to check determinism: the same game with "
+           "runtime.jobThreads 0, 1 or 8 (or FA_JOB_THREADS=inline) must give the same hash at the same frame, and so must a "
+           "replay. Runtime-only fields (velocities, timers) are included unless includeRuntime is false. perEntity lists "
+           "one hash per entity (creation order) to find which entity differs. Example: game.state_hash {\"perEntity\":true}",
+           parse_schema(R"({"type":"object","properties":{
+               "perEntity":{"type":"boolean","default":false,"description":"Also list one hash per entity, in creation order (at most maxEntities)."},
+               "includeRuntime":{"type":"boolean","default":true,"description":"Hash the fields that are not saved to scenes too (velocities, timers)."},
+               "maxEntities":{"type":"integer","default":200,"minimum":0,"maximum":100000,"description":"How many entities perEntity lists."}}})"),
+           true, "game"},
+          [&I](const Json& a) {
+              StateHashOptions o;
+              o.perEntity = a.value("perEntity", false);
+              o.includeRuntime = a.value("includeRuntime", true);
+              const std::int64_t maxRaw = a.contains("maxEntities") && a["maxEntities"].is_number_integer()
+                                              ? a["maxEntities"].get<std::int64_t>()
+                                              : 200;
+              const std::size_t maxEntities = std::size_t(std::clamp<std::int64_t>(maxRaw, 0, 100000));
+              const StateHash h = world_state_hash(I.world, o);
+              Json out = Json::object({{"hash", state_hash_hex(h.hash)},
+                                       {"entities", h.entities},
+                                       {"components", h.components},
+                                       {"frame", I.frame},
+                                       {"worldFrame", I.world.frame()},
+                                       {"time", std::round(I.world.time() * 1e6) / 1e6},
+                                       {"includeRuntime", o.includeRuntime}});
+              if (o.perEntity) {
+                  Json list = Json::array();
+                  for (const EntityHash& e : h.perEntity) {
+                      if (list.size() >= maxEntities) break;
+                      list.push_back(Json::object({{"entity", e.id}, {"hash", state_hash_hex(e.hash)}}));
+                  }
+                  out["perEntity"] = list;
+                  out["truncated"] = h.perEntity.size() > list.size();
+              }
+              return out;
+          });
+
+    I.commands.add({"jobs.info", "The job system now: worker threads, mode, jobs run and queued last frame, how busy each thread was.",
+           "mode is \"threads\" (a pool of workers; 0 workers means jobs run on the main thread when it waits for them or at "
+           "the end of the frame), \"inline\" (debugging: every job runs on the main thread when it is submitted) or "
+           "\"stopped\". setting is the value the pool was started with and source where this engine's setting came from "
+           "(\"EngineConfig\", \"FA_JOB_THREADS\", \"factoria.json\" for runtime.jobThreads, or \"default\" = \"auto\"; a second "
+           "engine in the same process shares the first one's pool); autoWorkers is what \"auto\" gives on "
+           "this machine. lastFrame and lanes (one per thread: main, worker 1..) count the last finished frame; busyMs and "
+           "busyPct are wall time, rounded, and differ from run to run; with several engines in the process the first one "
+           "to end a frame closes these frames. waiting counts the threads in a wait now; enginePending this engine's jobs "
+           "not finished yet (each engine owns the jobs it queues, and shutdown waits for them). Threads never change what "
+           "the game computes (game.state_hash checks it). Example: jobs.info {}",
+           parse_schema(R"({"type":"object","properties":{}})"), true, "jobs"},
+          [&I](const Json&) {
+              Json out = jobs::info_json(jobs::info());
+              out["source"] = I.jobThreadsSource;
+              out["enginePending"] = I.jobOwner.pending();
+              return out;
+          });
 
     I.commands.add({"game.render_stats", "What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.",
            "Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have "

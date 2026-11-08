@@ -2247,6 +2247,7 @@ editor the user can start the same run from **Play > Let the AI play**; it appea
 - Use `RigidBody2D.bullet: true` only for fast, small bodies.
 - 3D physics handles spheres, capsules, convex hulls, static triangle meshes and (oriented) boxes, plus hinge/ball/fixed joints and a character controller. Fast bodies are swept against every solid collider. A `mesh` collider is static only; jointed bodies never sleep. Path finding over 3D ground (around walls, up ramps): a `NavMesh3D` component baked from the static colliders and `nav.findPath(from, to)` in scripts, see [NAVIGATION.md](NAVIGATION.md) (`docs_read {"name":"navigation"}`). 2D tile maps: `nav.findTilePath(map, from, to)` (A* over a Tilemap or your own cost grid) and `import { bt } from "factoria"` for behaviour trees, section 9.27.
 - Keep iteration runs short. 120 frames is 2 seconds of game time.
+- The engine spreads some of its own work over worker threads; `runtime.jobThreads` in factoria.json sets how many (`"auto"`, the default, a number 0..32 written without quotes, or `"inline"` to debug). Threads never change what the game computes: `game.state_hash` gives one hash of the whole state, the same at the same frame with any setting, and `jobs.info` says what runs (PERFORMANCE.md, "Job threads").
 
 ## 14. Where to read more
 

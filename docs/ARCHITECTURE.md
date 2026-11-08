@@ -187,6 +187,60 @@ See `engine/runtime/include/fa/runtime/engine.h`. Fixed-step simulation
 (default 60 Hz) + variable render. Headless `Engine::step(n)` advances exactly
 `n` fixed frames — deterministic given seed + input.
 
+### Jobs and threads
+See `engine/core/include/fa/core/jobs.h`. One process-wide pool of worker threads (`fa::jobs`) that engine code hands
+pieces of work to: `submit(name, fn, deps)` returns a `Handle` to `wait` for, `Group` waits for several,
+`parallel_for(name, count, grain, fn, seed)` splits `[0, count)` into chunks, `parallel_map_chunks` and
+`parallel_reduce` merge per-chunk results, `post_main` hands a task back to the main thread (the engine runs those at
+the start of the next frame). The Engine starts the pool in `init()` and stops it in `shutdown()`; the pool is
+reference counted, so a second engine in the same process (the editor) shares it, with the first one's setting, and
+the last `stop()` joins the workers. `start()` returns a `Result`: it is refused from a thread other than the one that
+started the pool and from inside a job, so an `Engine::init` on another thread fails while the pool runs: create and
+run every engine on the main thread. A second `Engine::init` of the same engine fails without touching the pool.
+
+- **Owners**: each Engine has a `jobs::Owner`. The jobs and main-thread tasks queued while its `OwnerScope` is open
+  (init, each frame, each scene load, each command call) or by one of its jobs belong to it. `Engine::shutdown` waits
+  for its own jobs before its scripts and systems go away and drops its main-thread tasks still queued; a frame runs
+  only its own engine's tasks (and the shared ones, posted with no owner), so the editor and a preview never run each
+  other's results. `Owner::wait` (shutdown) runs only its owner's queued jobs and what they depend on. With several
+  engines, the first one to end a frame closes the job statistics (`jobs.info`), until it closes or its engine stops
+  drawing frames (8 frames of the others without one of its own hand them over).
+
+- **How many threads**: `runtime.jobThreads` in factoria.json: `"auto"` (the default: hardware threads - 1, at most 8
+  on desktop and 4 on phones), an integer 0..32, or `"inline"`, exactly (lowercase, the count not in quotes).
+  `FA_JOB_THREADS` overrides it and `EngineConfig::jobThreads` overrides both; those two are text and accept any case,
+  spaces around and the count as digits. With 0 workers a job runs on the main thread when something waits for it,
+  or at the end of the frame. `"inline"` runs every job at once on the thread that submits it, in submission order: use
+  it to debug a job with a plain call stack. Before the pool starts (tools, tests) jobs also run inline. The web build
+  has no threads (compiled without `-pthread`): every setting gives 0 workers there.
+- **Determinism (the rule every job follows)**: threads never change what the game computes. A job reads shared data
+  and writes only its own slot; it never touches `world.rng()` or the World's entity list. Random numbers come from a
+  seed drawn on the main thread and `Chunk::rng()` (a stream that depends only on the seed and the chunk index). Chunk
+  bounds depend only on `count` and `grain`, and results are merged in chunk order, never in the order chunks finish.
+  `game.state_hash` (one 64-bit hash of every entity, component, field, the clock and the random generator) is how a
+  test checks it: the same game with 0, 1, N threads and inline gives the same hash every frame
+  (engine/runtime/tests/jobs_engine_tests.cpp).
+- **Waiting**: `wait()` on the main thread (or in a job) runs only what the job needs: the job itself and its
+  dependencies (and theirs) while they are still queued; while those run on other threads it sleeps. It never picks up
+  an unrelated job, and `parallel_for` runs only its own chunks on the calling thread (and never returns while one of
+  its chunks still runs elsewhere), so a long background load never lands in the middle of the main thread's frame.
+  With 0 workers a wait still ends (it runs what it needs itself). A wait that can never end returns an error instead
+  of hanging: the job (or one it needs) is running on this thread under the wait, or on another thread that waits,
+  directly or through more waits, for a job running on this thread.
+  Only waits through `wait`, `Group`, `parallel_for` are seen: a job that blocks on its own mutex, condition variable or
+  future can still hang. A job that throws is caught and logged with its name; `wait()` returns the error, and jobs
+  that depend on it do not run and report it.
+- **Logging from jobs**: `FA_LOG` and friends work on any thread. A log sink (`add_log_sink`) runs on the thread that
+  logs, a worker too, and may still run once just after `remove_log_sink`: it locks what it writes and owns it (a
+  `shared_ptr` captured by value), never a reference to a local.
+- **Cost**: idle workers sleep on a condition variable (no CPU while nothing is queued). A job costs one allocation and
+  one lock; give a parallel_for a grain of at least a few hundred cheap items. Each worker thread is named (`fa-job-1`..)
+  in debuggers and profilers; its stack is the platform default (512 KB on macOS and iOS, 1 MB on Windows, 8 MB on
+  Linux): keep big buffers on the heap.
+- **What it reports**: `jobs.info` (workers, mode, the setting and where it came from, jobs run and queued last frame,
+  how busy each thread was, threads waiting now, this engine's unfinished jobs) and, with the profiler on, a `threads` section per thread in `perf.profile` and
+  `play.report` (docs/PERFORMANCE.md) and the Threads tab of the editor's Profiler panel.
+
 ### Coordinates & units
 Right-handed, +Y up, angles in degrees, colors 0..1. 2D world units = design
 pixels (a default 2D camera shows exactly the design resolution, origin at the
