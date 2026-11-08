@@ -9341,6 +9341,9 @@ void Editor::at_build_tools_script() {
             at_check(as->sawRunning, "the run with the sleeping stand-in is going");
             at_check(at_shown("playsessions:cancel") && at_shown("playsessions:running"), "while the bot plays the window shows its progress and Cancel");
         });
+        // The first run's toast ("Open report") is drawn at the top in the middle of the window and takes clicks: on a 1024 px
+        // wide screen (the macOS runner) it lies over Cancel, and a toast with a button stays while the mouse is over it.
+        step(1, [this] { toasts_.clear(); });
         step(2, [this] {
             if (autoPlay_.running() && at_shown("playsessions:cancel")) inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("playsessions:cancel"));
         });
