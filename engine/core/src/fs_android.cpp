@@ -4,6 +4,7 @@
 #include <android/asset_manager.h>
 
 #include <atomic>
+#include <memory>
 #include <set>
 
 #include "fa/core/fs.h"
@@ -35,6 +36,25 @@ bool android_read(const std::string& path, std::vector<std::uint8_t>& out) {
         out.resize(std::size_t(n));
     }
     AAsset_close(asset);
+    return true;
+}
+
+bool android_view(const std::string& path, std::shared_ptr<const void>& owner, const std::uint8_t*& data, std::size_t& size) {
+    AAssetManager* mgr = g_manager.load();
+    if (!mgr) return false;
+    AAsset* asset = AAssetManager_open(mgr, path.c_str(), AASSET_MODE_BUFFER);
+    if (!asset) return false;
+    const off_t len = AAsset_getLength(asset);
+    // An asset stored uncompressed in the APK is mapped by the asset manager: getBuffer points into that mapping. A
+    // compressed one would be inflated into a buffer the asset owns, which is still no extra copy.
+    const void* buf = len > 0 ? AAsset_getBuffer(asset) : nullptr;
+    if (len > 0 && !buf) {
+        AAsset_close(asset);
+        return false;
+    }
+    owner = std::shared_ptr<const void>(asset, [](AAsset* a) { AAsset_close(a); });
+    data = static_cast<const std::uint8_t*>(buf);
+    size = len > 0 ? std::size_t(len) : 0;
     return true;
 }
 

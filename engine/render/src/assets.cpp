@@ -7,6 +7,7 @@
 #include <cgltf.h>
 
 #include "fa/core/asset_manifest.h"
+#include "fa/core/load_trace.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -209,6 +210,7 @@ public:
     MeshLoader(Assets& assets) : assets_(assets) {}
 
     bool load(const std::string& path, MeshAsset& out, std::string& error) {
+        AssetLoadScope trace("mesh", path);  // the load trace's read and decode time (fa/core/load_trace.h); free without one
         auto bytes = fs::read_bytes(path);
         if (!bytes) {
             error = bytes.error().message;
@@ -757,6 +759,7 @@ TextureAsset* Assets::load_texture(const std::string& path) {
         return loaded();
     }
 
+    AssetLoadScope trace("texture", path);  // the load trace's read and decode time (fa/core/load_trace.h); free without one
     // An export replaces a texture by its compressed twin (path + ".ktx2"): the twin is loaded in place of the original.
     const std::string twin = fs::extension(path) == kTextureTwinExtension ? path : path + kTextureTwinExtension;
     if (fs::exists(twin)) {

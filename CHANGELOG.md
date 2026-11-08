@@ -2,6 +2,15 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- **For game authors and AIs:** `game.pak` (a `--release` export) is format 2: every file in checksummed 256 KiB blocks, each compressed with the codec of its type (`store` for PNG, OGG, MP4, supercompressed KTX2 and other compressed data; `zstd` for fonts and text; `lz4` for JSON, scenes, scripts, meshes and the rest). `export.pack.codecs` in `factoria.json` picks another codec per extension (`{".json": "zstd"}`). A damaged or cut-short pack is an error that names the file and block. Packs of FactorIA 0.18 (format 1) are still read.
+- **For game authors and AIs:** play sessions (the editor's Play, `factoria run`, `play.auto`) record which files each scene reads first into `.factoria/cache/load-order.json` (under the project's lock; a shipped game records nothing), and the export writes `game.pak` in that order, main scene first, so a load reads the drive mostly forward. `export.pack.useLoadOrder: false` packs by path. The export prints the pack's size per codec, the ratio and whether the order was used (`packStats` in the JSON report).
+- **For game authors and AIs:** `play.report` has a `loading` section: time to the first frame, each scene's load time, files and bytes, the slowest assets split into read and decode time, and how many reads came from the pack. The times are rounded and are this machine's: compare runs, never pass or fail on them.
+- **For engine code:** the player memory-maps `game.pak` on 64-bit desktops (positional reads on 32-bit, the web and with `FA_PACK_MAP=0`), and `fa::fs::read_view` returns an `fs::FileView` that points into the mapping, a warm file or an Android APK buffer without copying when it can. On Windows, exporting over a game that is running fails with an error that says to close it, and the old pack stays.
+
 ## 0.18.0
 
 FactorIA 0.18.0 (M66-M69) makes the AI cheaper to trust and quicker to check. M66 puts an estimated price on every paid picture, sound, voice, song and 3D model, refuses a call that would pass a per-run or per-day limit before anything is sent, asks the user before an expensive one, and makes 1 to 4 candidates for one asset that the user picks from (`assets.generate_image {count}`, `assets.pick`). M67 lets the game play itself: `play.auto` runs it headless and fast with a bot, reports where it got stuck, fell or crashed with screenshots, and the editor's Let the AI play shows the sessions. M68 puts the game on a phone: `project.serve_web` and File > Play on Phone... serve the web build on the local network behind a QR code with live reload and the phone's log, and the web export can be one HTML file. M69 shows many choices at once: `review.sheet` draws numbered candidates on one contact sheet, `review.pick` keeps the person's choice, and the editor's Review window lets them pick with the keyboard, compare two side by side and see the history.

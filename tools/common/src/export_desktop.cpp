@@ -12,6 +12,7 @@
 #include "fa/core/pack.h"
 #include "fa/script/bytecode.h"
 #include "fa/tooling/icons.h"
+#include "fa/tooling/load_order.h"
 #include "fa/tooling/pe_icon.h"
 #include "fa/tooling/plugin_manifest.h"
 #include "fa/tooling/setup.h"
@@ -220,8 +221,16 @@ Result<void> install_player(const Project& p, const stdfs::path& player, const s
 // script becomes QuickJS bytecode when export.scriptBytecode is on (fa/script/bytecode.h); the module keeps its path in the
 // pack, so nothing in the game changes. A script that does not compile is packed as the source it is, with a warning: the
 // game then behaves exactly as it does when run from the folder (the error shows when something loads that script).
+// Each file gets the codec export.pack.codecs names for its extension, else the engine's default for its type
+// (pack_default_codec); the files go in the order play sessions first read them (fa/tooling/load_order.h) unless
+// export.pack.useLoadOrder is false or nothing was recorded.
 Result<void> pack_game(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile, ExportReport& report) {
     PackWriter writer;
+    const PackExportSettings& pack = p.settings.pack;
+    auto codec_for = [&](const std::string& path) -> std::optional<Codec> {
+        if (auto it = pack.codecs.find(fs::extension(path)); it != pack.codecs.end()) return it->second;
+        return std::nullopt;  // the writer picks pack_default_codec
+    };
     for (const std::string& f : files) {
         const auto staged = p.staged.find(f);
         const stdfs::path from = staged != p.staged.end() ? staged->second : p.dir / f;
@@ -231,19 +240,46 @@ Result<void> pack_game(const Project& p, const std::vector<std::string>& files, 
             if (!source) return err("export: cannot read '" + f + "' to pack it (" + generic(from) + ")");
             auto bytecode = compile_script_bytecode(*source, f);
             if (bytecode.ok()) {
-                if (auto r = writer.add_bytes(f, std::move(bytecode.value())); !r.ok()) return err("export: " + r.error().message, r.error().hint);
+                if (auto r = writer.add_bytes(f, std::move(bytecode.value()), codec_for(f)); !r.ok())
+                    return err("export: " + r.error().message, r.error().hint);
                 continue;
             }
             report.warnings.push_back(bytecode.error().message + " - '" + f + "' is packed as plain source, so the game reports this error "
                                       "when it loads the script (`factoria validate` lists the syntax errors of a project)");
         }
-        if (auto r = writer.add_file(f, from); !r.ok()) return err("export: " + r.error().message, r.error().hint);
+        if (auto r = writer.add_file(f, from, codec_for(f)); !r.ok()) return err("export: " + r.error().message, r.error().hint);
+    }
+    report.packOrder = "path";
+    if (pack.useLoadOrder) {
+        auto recorded = read_load_order(p.dir);
+        if (!recorded.ok()) {
+            report.warnings.push_back(recorded.error().message + " - the pack is written by path. " + recorded.error().hint);
+        } else if (!recorded.value().empty()) {
+            PackOrder order = pack_order(recorded.value(), p.mainScene, files);
+            if (!order.files.empty()) {
+                report.packOrder = "firstUse";
+                writer.set_order(std::move(order.files));
+            }
+        }
     }
     std::error_code ec;
     stdfs::create_directories(os_path(packFile.parent_path()), ec);
-    if (auto r = writer.write(packFile); !r.ok()) return err("export: " + r.error().message, r.error().hint);
+    auto stats = writer.write(packFile);
+    if (!stats.ok()) return err("export: " + stats.error().message, stats.error().hint);
+    const PackStats& st = stats.value();
+    if (st.compressErrors > 0)
+        report.warnings.push_back(std::to_string(st.compressErrors) + " block(s) of the pack could not be compressed and are stored as "
+                                  "they are (" + st.firstCompressError + "): the game reads them fine, the pack is only bigger");
     report.pack = generic(packFile.filename());
     report.packed = files;
+    report.packBytes = st.packBytes;
+    report.packFileBytes = st.bytes;
+    report.packOrderedFiles = st.orderedFiles;
+    report.packCodecs.clear();
+    for (std::size_t i = 0; i < st.codecs.size(); ++i)
+        if (st.codecs[i].files > 0)
+            report.packCodecs.push_back(ExportPackCodec{std::string(codec_name(Codec(i))), st.codecs[i].files, st.codecs[i].bytes,
+                                                        st.codecs[i].storedBytes});
     return {};
 }
 

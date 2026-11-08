@@ -772,6 +772,21 @@ std::vector<std::string> ExportReport::size_lines() const {
         for (const ExportSize& f : largestFolders) line += "\n  " + f.name + "  " + size_text(f.bytes) + " (" + std::to_string(f.files) + " files)";
         out.push_back(line);
     }
+    if (packBytes > 0) {
+        const double ratio = packFileBytes ? double(packBytes) / double(packFileBytes) : 1.0;
+        std::string line = "Game pack: " + size_text(packBytes) + " for " + size_text(packFileBytes) + " of files (" +
+                           std::to_string(int(std::lround(ratio * 100.0))) + "%)";
+        for (const ExportPackCodec& c : packCodecs)
+            line += "\n  " + c.codec + "  " + std::to_string(c.files) + " files, " + size_text(c.bytes) +
+                    (c.codec == "store" ? std::string() : " -> " + size_text(c.storedBytes));
+        out.push_back(line);
+        if (packOrder == "firstUse")
+            out.push_back("Pack order: first use in play sessions for " + std::to_string(packOrderedFiles) + " of " +
+                          std::to_string(packed.size()) + " files (the rest by path)");
+        else
+            out.push_back("Pack order: by path (no play session recorded the order of first use yet, or export.pack.useLoadOrder "
+                          "is false: play the game once in the editor or with `factoria run`, then export again)");
+    }
     if (!webFiles.empty()) {
         std::string line = "Web download (raw / about gzip):";
         for (const ExportSize& f : webFiles) line += "\n  " + f.name + "  " + size_text(f.bytes) + " / " + size_text(f.gzipBytes);
@@ -795,6 +810,13 @@ Json ExportReport::to_json() const {
     if (!pack.empty()) {
         j["pack"] = pack;
         j["packed"] = packed;
+    }
+    if (packBytes > 0) {
+        Json codecs = Json::array();
+        for (const ExportPackCodec& c : packCodecs)
+            codecs.push_back(Json::object({{"codec", c.codec}, {"files", c.files}, {"bytes", c.bytes}, {"storedBytes", c.storedBytes}}));
+        j["packStats"] = Json::object({{"bytes", packBytes}, {"fileBytes", packFileBytes}, {"codecs", std::move(codecs)},
+                                       {"order", packOrder}, {"orderedFiles", packOrderedFiles}});
     }
     if (!materials.empty()) j["materials"] = materials;
     if (!builtinFonts.empty()) j["builtinFonts"] = builtinFonts;
@@ -985,7 +1007,10 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "it as `artifact`; \"gradle\" only writes the project and builds nothing. `release` builds the release variant "
         "(signed with export.android.signing; without a keystore it is an error unless `allowDebugKey` is true); on linux, windows and macos it packs the whole "
         "game into one archive, game.pak, next to the executable (no game/ folder, no loose scripts: they become bytecode "
-        "unless export.scriptBytecode is false) and reports it as `pack` with the packed paths in `packed`. ios: the game plus an Xcode/CMake "
+        "unless export.scriptBytecode is false; each file compressed with its type's codec, export.pack.codecs overrides it per "
+        "extension; the files in the order play sessions first read them unless export.pack.useLoadOrder is false) and "
+        "reports it as `pack` with the packed paths in `packed` and `packStats` {bytes, fileBytes, codecs: [{codec, files, "
+        "bytes, storedBytes}], order: \"firstUse\"|\"path\", orderedFiles}. ios: the game plus an Xcode/CMake "
         "project and build_ios.sh. Android and iOS have a mode, reported as `mode`: \"prebuilt\" (the engine is the "
         "ready-made player in the mobile/ folder next to the factoria binary of the FactorIA download: no engine source, "
         "and for Android no NDK or CMake) or \"source\" (the engine is compiled from a source checkout, chosen by "

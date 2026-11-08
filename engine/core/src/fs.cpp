@@ -18,6 +18,7 @@
 #include <unistd.h>
 #endif
 
+#include "fa/core/load_trace.h"
 #include "fa/core/pack.h"
 #include "fa/core/strings.h"
 #include "fs_internal.h"
@@ -35,7 +36,7 @@ struct FsState {
     bool userDirSet = false;
     std::shared_ptr<const PackReader> pack;  // mount_pack
     struct Warm {
-        std::vector<std::uint8_t> bytes;
+        std::shared_ptr<const std::vector<std::uint8_t>> bytes;  // shared with the FileViews read_view gave out
         std::int64_t modified = 0;
     };
     std::map<std::string, Warm> warm;  // warm(): files read ahead of time, keyed by normalized path
@@ -366,12 +367,31 @@ bool is_sharing_violation(const std::error_code& ec) {
     if (!ec) return false;
     if (ec.category() == rules_category()) return true;
 #ifdef _WIN32
-    const int code = ec.value();  // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
-    return code == 5 || code == 32 || code == 33;
+    const int code = ec.value();  // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION, ERROR_USER_MAPPED_FILE
+    return code == 5 || code == 32 || code == 33 || code == 1224;
 #else
     return false;
 #endif
 }
+
+namespace detail {
+std::string register_open_file(const stdfs::path& file) {
+    if (!emulating()) return {};
+    std::string key = registry_key(file);
+    OpenFiles& o = open_files();
+    std::lock_guard<std::mutex> lock(o.mutex);
+    ++o.counts[key];
+    return key;
+}
+
+void unregister_open_file(const std::string& key) {
+    if (key.empty()) return;
+    OpenFiles& o = open_files();
+    std::lock_guard<std::mutex> lock(o.mutex);
+    auto it = o.counts.find(key);
+    if (it != o.counts.end() && --it->second <= 0) o.counts.erase(it);
+}
+}  // namespace detail
 
 ReadStream::ReadStream(const stdfs::path& file, std::ios_base::openmode mode) { open(file, mode); }
 
@@ -400,12 +420,7 @@ void ReadStream::close() {
 
 void ReadStream::unregister() {
     if (registered_.empty()) return;
-    OpenFiles& o = open_files();
-    {
-        std::lock_guard<std::mutex> lock(o.mutex);
-        auto it = o.counts.find(registered_);
-        if (it != o.counts.end() && --it->second <= 0) o.counts.erase(it);
-    }
+    detail::unregister_open_file(registered_);
     registered_.clear();
 }
 
@@ -484,7 +499,7 @@ Result<std::vector<std::uint8_t>> read_bytes(std::string_view path) {
         auto it = state().warm.find(n.value());
         if (it != state().warm.end()) {
             const std::int64_t warmModified = it->second.modified;
-            std::vector<std::uint8_t> copy = it->second.bytes;
+            std::vector<std::uint8_t> copy = *it->second.bytes;
             lock.unlock();
             // A file that changed on disk since it was read ahead is read again (hot reload, a tool that rewrote it).
             if (modified_time(n.value()) == warmModified) return copy;
@@ -515,8 +530,8 @@ Result<void> warm(std::string_view path, std::string* text, std::uint64_t* size)
         std::lock_guard<std::mutex> lock(state().mutex);
         auto it = state().warm.find(n.value());
         if (it != state().warm.end() && it->second.modified == modified) {
-            if (text) *text = text_of(it->second.bytes);
-            if (size) *size = it->second.bytes.size();
+            if (text) *text = text_of(*it->second.bytes);
+            if (size) *size = it->second.bytes->size();
             return {};
         }
     }
@@ -529,7 +544,7 @@ Result<void> warm(std::string_view path, std::string* text, std::uint64_t* size)
     if (text) *text = text_of(bytes.value());
     if (size) *size = bytes.value().size();
     std::lock_guard<std::mutex> lock(state().mutex);
-    state().warm[n.value()] = FsState::Warm{std::move(bytes.value()), modified};
+    state().warm[n.value()] = FsState::Warm{std::make_shared<const std::vector<std::uint8_t>>(std::move(bytes.value())), modified};
     return {};
 }
 
@@ -555,7 +570,7 @@ void unwarm_all() {
 std::uint64_t warm_bytes() {
     std::lock_guard<std::mutex> lock(state().mutex);
     std::uint64_t total = 0;
-    for (const auto& [path, w] : state().warm) total += w.bytes.size();
+    for (const auto& [path, w] : state().warm) total += w.bytes->size();
     return total;
 }
 
@@ -565,7 +580,30 @@ std::uint64_t disk_reads() {
 }
 
 namespace {
+Result<std::vector<std::uint8_t>> read_bytes_untraced(std::string_view path);
+
+// A project-relative file read for the load trace (fa/core/load_trace.h); absolute paths are tools' files, not the game's.
+void trace_read(const std::string& normalized, std::uint64_t bytes, std::int64_t startNs) {
+    if (is_absolute(normalized)) return;
+    std::uint64_t stored = bytes;
+    bool fromPack = false;
+    if (auto pack = pack_for(normalized)) {
+        fromPack = true;
+        const std::int64_t s = pack->stored_size_of(normalized);
+        stored = s >= 0 ? std::uint64_t(s) : bytes;
+    }
+    LoadTrace::file_read(normalized, bytes, stored, fromPack, LoadTrace::now_ns() - startNs);
+}
+
 Result<std::vector<std::uint8_t>> read_bytes_source(std::string_view path) {
+    if (!LoadTrace::any()) return read_bytes_untraced(path);
+    const std::int64_t start = LoadTrace::now_ns();
+    auto r = read_bytes_untraced(path);
+    if (r.ok()) trace_read(normalize(path), r.value().size(), start);
+    return r;
+}
+
+Result<std::vector<std::uint8_t>> read_bytes_untraced(std::string_view path) {
     auto n = normalize_checked(path);
     if (!n) return n.error();
     if (auto pack = pack_for(n.value())) {
@@ -599,6 +637,64 @@ Result<std::vector<std::uint8_t>> read_bytes_source(std::string_view path) {
     return data;
 }
 }  // namespace
+
+FileView::FileView(std::vector<std::uint8_t> bytes) {
+    auto owned = std::make_shared<const std::vector<std::uint8_t>>(std::move(bytes));
+    data_ = owned->data();
+    size_ = owned->size();
+    owner_ = std::move(owned);
+}
+
+FileView::FileView(std::shared_ptr<const void> owner, const std::uint8_t* data, std::size_t size, bool mapped)
+    : owner_(std::move(owner)), data_(data), size_(size), mapped_(mapped) {}
+
+std::string_view FileView::text() const {
+    const std::size_t skip = (size_ >= 3 && data_[0] == 0xEF && data_[1] == 0xBB && data_[2] == 0xBF) ? 3 : 0;  // UTF-8 BOM
+    return size_ == 0 ? std::string_view() : std::string_view(reinterpret_cast<const char*>(data_) + skip, size_ - skip);
+}
+
+Result<FileView> read_view(std::string_view path) {
+    auto n = normalize_checked(path);
+    if (!n) return n.error();
+    {
+        std::unique_lock<std::mutex> lock(state().mutex);
+        auto it = state().warm.find(n.value());
+        if (it != state().warm.end()) {
+            const std::int64_t warmModified = it->second.modified;
+            std::shared_ptr<const std::vector<std::uint8_t>> shared = it->second.bytes;
+            lock.unlock();
+            if (modified_time(n.value()) == warmModified) return FileView(shared, shared->data(), shared->size(), true);
+            lock.lock();
+            state().warm.erase(n.value());
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(state().mutex);
+        state().diskReads++;
+    }
+    const bool tracing = LoadTrace::any();
+    const std::int64_t start = tracing ? LoadTrace::now_ns() : 0;
+    if (auto pack = pack_for(n.value())) {
+        if (!pack->contains(n.value()) && !pack->is_directory(n.value())) return pack->not_found(path, n.value());
+        auto v = pack->view(n.value());
+        if (tracing && v.ok()) trace_read(n.value(), v.value().size(), start);
+        return v;
+    }
+#ifdef __ANDROID__
+    if (use_assets(n.value())) {
+        std::shared_ptr<const void> owner;
+        const std::uint8_t* data = nullptr;
+        std::size_t size = 0;
+        if (detail::android_view(n.value(), owner, data, size)) {
+            if (tracing) trace_read(n.value(), size, start);
+            return FileView(std::move(owner), data, size, true);
+        }
+    }
+#endif
+    auto bytes = read_bytes_source(path);  // traces itself
+    if (!bytes) return bytes.error();
+    return FileView(std::move(bytes.value()));
+}
 
 Result<std::string> read_text(std::string_view path) {
     auto bytes = read_bytes(path);

@@ -325,6 +325,7 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     config.memoryStorage = true;
     config.renderMode = RenderMode::OnDemand;
     config.seed = opt.seed;
+    config.traceLoads = true;  // the session's `loading` section (play.report); the order goes to configIn's loadOrderSink, if any
     if (config.platformBackend.empty()) config.platformBackend = "fake";
     if (config.date.empty()) config.dateUtcOffsetMinutes = 0;
 
@@ -800,6 +801,7 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     s.autoInfo = Json::object({{"bot", useHook ? "hook" : "explorer"}, {"seed", opt.seed}, {"speed", opt.speed}, {"secondsAsked", round3(opt.seconds)},
                                {"stuckSeconds", round3(opt.stuckSeconds)}, {"steps", steps}, {"errorsLogged", logErrors}, {"replay", replayCommand}});
     engine.scripts().autoplay_end();
+    s.loading = engine.loading_report();
     engine.shutdown();
 
     if (auto w = write_play_session(relDir, s); !w.ok())
