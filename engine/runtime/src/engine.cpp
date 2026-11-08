@@ -222,7 +222,8 @@ void Engine::Impl::take_scene_props(bool keepProps) {
     }
 }
 
-bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error, bool keepProps) {
+bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error, bool keepProps, std::uint64_t traceTag,
+                                   bool hotReload) {
     const jobs::OwnerScope jobScope(&jobOwner);  // the jobs a scene load queues (asset loads) are this engine's
     const LoadTrace::ReadingFor reading(traceOwner);  // a scene's reads are this engine's, whoever asked (fa/core/load_trace.h)
     std::string path = pathIn;
@@ -238,7 +239,10 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
         path = n.value();
     }
     refresh_from_disk();
-    if (loadTrace) loadTrace->scene_started(path);  // before the scene file is read: it is the first file of its scene
+    // A load the game asked for now replaces the async scene loads asked for before it (the last request wins).
+    if (traceTag == 0 && !hotReload) cancel_background_scene_loads();
+    // Before the scene file is read: it is the first file of its scene. An async load's entry opened when it was asked for.
+    if (loadTrace) loadTrace->scene_started(path, traceTag);
     hasPendingScene = false;
     take_scene_props(keepProps);
     implicitStartScene = false;  // from now on the scene was chosen (scene.load, a script, --scene, reload)
@@ -266,6 +270,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
     apply_localization();  // the first frame (and the first onStart) already read the current language
     if (renderer) renderer->reset_particles();  // emitters are kept by entity: the new scene's start from nothing, as on every Play (before the scripts, which may emit a burst)
     scripts.on_scene_loaded();
+    if (loader) loader->scene_loaded();  // files read ahead for this load are dropped at the next one
     if (renderer) renderer->debug().clear();
     // The picture of the previous scene is outdated: the next screenshot / render_now must draw the new one, also when
     // no frame is stepped in between (game.load(...) then game.screenshot(...) in a test).
@@ -280,6 +285,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
 bool Engine::Impl::load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error) {
     const jobs::OwnerScope jobScope(&jobOwner);  // the jobs a scene load queues (asset loads) are this engine's
     const LoadTrace::ReadingFor reading(traceOwner);
+    cancel_background_scene_loads();
     hasPendingScene = false;
     take_scene_props(false);
     audio.on_scene_load();
@@ -298,8 +304,53 @@ void Engine::Impl::apply_scene_change() {
     std::string path = pendingScene;
     hasPendingScene = false;
     const bool keep = std::exchange(pendingKeepProps, false);
+    const std::uint64_t tag = std::exchange(pendingTraceTag, 0);  // an async scene load's switch
     std::string err;
-    load_scene_impl(path, &err, keep);
+    load_scene_impl(path, &err, keep, tag);
+}
+
+BackgroundLoader::Budget Engine::Impl::load_budget() {
+    BackgroundLoader::Budget b;  // exact, BackgroundLoader::kFixedUnitsPerFrame
+    if (replayLoadUnits) {  // what the recorded frame took
+        b.units = *replayLoadUnits;
+        replayLoadUnits.reset();
+        return b;
+    }
+    if (replaying || !((windowed && !cfg.editorMode) || cfg.timedLoads)) return b;
+    b.exact = false;
+    b.ms = project.loadBudgetMs;
+    b.uploadMB = project.uploadBudgetMB;
+    return b;
+}
+
+void Engine::Impl::tick_background_loads() {
+    if (!loader || !loader->active()) {
+        replayLoadUnits.reset();
+        return;
+    }
+    const bool loading = loader->loading();
+    const BackgroundLoader::Frame f = loader->tick(renderer.get(), &audio, load_budget());
+    if (loading && recorder.recording()) recorder.load_units(frame, f.units);  // a replay takes the same units per frame
+    for (const BackgroundLoader::SceneReady& ready : f.scenes) {  // its files are ready: the switch happens at the end of this frame
+        if (pendingTraceTag != 0 && loadTrace) loadTrace->load_cancelled(pendingTraceTag);
+        pendingScene = ready.path;
+        hasPendingScene = true;
+        nextProps = ready.props;
+        pendingKeepProps = false;
+        pendingTraceTag = ready.traceTag;
+    }
+    Json list = Json::array();
+    for (const BackgroundLoader::Update& u : f.updates)
+        if (u.origin == BackgroundLoader::Origin::Script) list.push_back(u.to_json());
+    if (!list.empty()) scripts.deliver_background_loads(list);
+}
+
+void Engine::Impl::cancel_background_scene_loads() {
+    if (loader) loader->cancel_scene_loads(loadTrace.get());
+    if (pendingTraceTag != 0) {  // an async load was about to switch: the newer request wins
+        if (loadTrace) loadTrace->load_cancelled(pendingTraceTag);
+        pendingTraceTag = 0;
+    }
 }
 
 namespace {
@@ -383,7 +434,7 @@ void Engine::Impl::poll_hot_reload(bool force) {
             if (p == currentScene) {
                 FA_INFO("hotreload", "Scene {} changed on disk, reloading", p);
                 std::string err;
-                load_scene_impl(p, &err, true);  // the scene file changed: same scene, same props
+                load_scene_impl(p, &err, true, 0, true);  // the scene file changed: same scene, same props
             }
         } else if (renderAsset) {
             // A material, a snippet (the renderer rebuilds every material using it), a texture, font or model.
@@ -412,6 +463,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             jobs::run_main_thread_tasks();
         }
         platform.frame();
+        tick_background_loads();  // scene.preload / assets.preload / async scene.load: this frame's share, then their handles hear it
         scripts.dispatch_platform();
         scripts.dispatch_back();  // the Back button of this frame: input.onBack handlers, else quit
         scripts.dispatch_gamepads();  // pads plugged in or out since the last frame: game.on("gamepadConnected" ...)
@@ -557,7 +609,9 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         FA_ERROR("engine", "{}", msg);
         if (error) *error = msg;
         if (startedHere) {  // init failed after the pool started: its jobs end, then its reference goes back
+            if (I.loader) I.loader->stop(nullptr);
             if (auto w = I.jobOwner.wait(); !w) FA_ERROR("engine", "{}", w.error().to_string());
+            I.loader.reset();
             I.jobOwner.close();
             jobScope.reset();
             startedHere = false;
@@ -612,6 +666,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         I.jobsStarted = true;
         jobScope.emplace(&I.jobOwner);  // what init queues (a first scene's loads) belongs to this engine
         I.commands.set_job_owner(&I.jobOwner);
+        // Background loading: its IO thread runs only when the pool has worker threads (fa/core/background_io.h).
+        I.loader = std::make_unique<BackgroundLoader>(&I.jobOwner, I.traceOwner);
     }
     // Screenshots the engine named itself (game.screenshot without a path) pile up over a long session: drop the old ones.
     if (!dir.empty()) prune_screenshots(stdfs::path(dir));
@@ -833,7 +889,11 @@ void Engine::shutdown() {
     // are dropped. Other engines' jobs keep running: the pool joins its threads when the last engine stops it.
     {
         const jobs::OwnerScope jobScope(&I.jobOwner);
+        // Background loads stop first: the IO thread lets go of this engine's files, and the decodes still running are
+        // this engine's jobs, which the wait below sees through. Their results are thrown away.
+        if (I.loader) I.loader->stop(nullptr);
         if (auto w = I.jobOwner.wait(); !w) FA_ERROR("engine", "{}", w.error().to_string());
+        I.loader.reset();
         I.jobOwner.close();
     }
     if (I.jobsStarted) {
@@ -1306,7 +1366,42 @@ void Engine::drop_script_jobs(const std::vector<int>& jobs) {
     for (int id : jobs) impl_->wfcJobs.erase(id);
 }
 
+Result<int> Engine::Impl::start_background_load(BackgroundLoader::Kind kind, const std::vector<std::string>& paths,
+                                                std::optional<Json> props, BackgroundLoader::Origin origin) {
+    if (!loader) return make_error("background loading needs a running engine (Engine::init)", "");
+    const LoadTrace::ReadingFor reading(traceOwner);
+    const jobs::OwnerScope jobScope(&jobOwner);
+    auto r = loader->start(kind, paths, std::move(props), origin, loadTrace.get());
+    if (r && kind == BackgroundLoader::Kind::SceneLoad) {
+        // The last request wins: a scene change asked for earlier in this frame does not happen.
+        if (pendingTraceTag != 0 && loadTrace) loadTrace->load_cancelled(pendingTraceTag);
+        pendingTraceTag = 0;
+        hasPendingScene = false;
+        nextProps.reset();
+        pendingKeepProps = false;
+    }
+    return r;
+}
+
+Result<int> Engine::background_load_start(int kind, const std::vector<std::string>& paths, const Json* props) {
+    const BackgroundLoader::Kind k = kind == 0   ? BackgroundLoader::Kind::ScenePreload
+                                     : kind == 1 ? BackgroundLoader::Kind::Assets
+                                                 : BackgroundLoader::Kind::SceneLoad;
+    std::optional<Json> p;
+    if (props && props->is_object()) p = *props;
+    return impl_->start_background_load(k, paths, std::move(p), BackgroundLoader::Origin::Script);
+}
+
+bool Engine::background_load_cancel(int id) {
+    return impl_->loader && impl_->loader->cancel(id, impl_->loadTrace.get());
+}
+
+void Engine::background_loads_reset() {
+    if (impl_->loader) impl_->loader->reset(impl_->loadTrace.get());
+}
+
 void Engine::request_scene_change(std::string_view scenePath) {
+    impl_->cancel_background_scene_loads();  // the last request wins
     impl_->pendingScene = std::string(scenePath);
     impl_->hasPendingScene = true;
     impl_->nextProps.reset();  // the last request wins, props included

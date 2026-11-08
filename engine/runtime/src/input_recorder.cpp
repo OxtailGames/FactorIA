@@ -114,6 +114,10 @@ void InputRecorder::http(std::uint64_t frame, const Json& answer) {
     list.push_back(answer);
 }
 
+void InputRecorder::load_units(std::uint64_t frame, int units) {
+    entry(frame)["loadUnits"] = units;
+}
+
 void InputRecorder::release_all(std::uint64_t frame) {
     for (Key k : std::set<Key>(keys_)) key(frame, k, false);
     for (MouseButton b : std::set<MouseButton>(buttons_)) mouse_button(frame, b, false);

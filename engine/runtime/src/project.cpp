@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 
@@ -499,6 +500,23 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             s.jobThreads = threads.value();
             s.jobThreadsSet = true;
         }
+        // Background loading budgets (docs/PERFORMANCE.md, "Background loading"): a number in a range, else an error that
+        // names the field and the range.
+        auto budget = [&](const char* key, double maxValue, double& out, const char* example) -> Result<void> {
+            auto b = it->find(key);
+            if (b == it->end() || b->is_null()) return {};
+            const std::string ptr = std::string("/runtime/") + key;
+            if (!b->is_number()) return field_error(ptr, std::string("a number like ") + example, *b);
+            const double v = b->get<double>();
+            if (!(v > 0.0) || v > maxValue)
+                return make_error(at(ptr) + ": " + std::format("{}", v) + " is out of range (more than 0, at most " +
+                                      std::format("{}", maxValue) + ")",
+                                  std::string("Typical value: ") + example + ". Remove the field to use the default.");
+            out = v;
+            return {};
+        };
+        FA_TRY(budget("loadBudgetMs", 100.0, s.loadBudgetMs, "4"));
+        FA_TRY(budget("uploadBudgetMB", 1024.0, s.uploadBudgetMB, "16"));
     }
     if (auto it = j.find("input"); it != j.end() && !it->is_null()) {
         if (!it->is_object()) return field_error("/input", "an object like {\"actions\": {...}}", *it);
@@ -875,6 +893,20 @@ constexpr const char* kSchemaText =
               "maximum": 32
             }
           ]
+        },
+        "loadBudgetMs": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100,
+          "default": 4,
+          "description": "Background loading (scene.preload, assets.preload, scene.load with {async: true}; docs/PERFORMANCE.md, \"Background loading\"): how many milliseconds of a frame the main thread may spend taking finished files and uploading them to the GPU, in a game with a window. Default 4. Tests, headless runs, the editor and replays use a fixed number of files per frame instead, so they do not depend on the machine."
+        },
+        "uploadBudgetMB": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1024,
+          "default": 16,
+          "description": "Background loading: how many megabytes of textures and meshes a frame may upload to the GPU, in a game with a window (the frame stops taking files once it passed this; at least one file per frame). Default 16."
         }
       }
     },

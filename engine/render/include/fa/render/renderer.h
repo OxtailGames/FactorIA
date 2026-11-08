@@ -31,6 +31,7 @@
 #include <string_view>
 #include <vector>
 
+#include "fa/core/background_io.h"
 #include "fa/core/image.h"
 #include "fa/core/json.h"
 #include "fa/core/math.h"
@@ -317,6 +318,26 @@ public:
     void reset_particles();
     Json asset_report() const;  // loaded assets + failures (missing files with hints)
     std::uint64_t texture_bytes() const;  // GPU memory of the loaded textures
+
+    // Background loading (scene.preload, assets.preload, scene.load {async: true}; docs/PERFORMANCE.md, "Background
+    // loading"). The renderer prepares the files it draws from off the main thread: an IoQueue item reads the file and a
+    // job decodes it (background_work), then the main thread uploads it into the caches (adopt_background) under the
+    // frame's upload budget. The asset is then what a load on first use would have made, and its first use reads nothing.
+    // None: a file the renderer does not prepare (a glTF .bin buffer, a video): it is only read ahead (fs::warm).
+    enum class BackgroundKind { None, Texture, Model, Font };
+    static BackgroundKind background_kind(std::string_view path);  // by extension: textures, .gltf/.glb, .ttf/.otf
+    // `path` (normalized, project-relative) is in the cache already, loaded or failed: there is nothing to prepare.
+    bool background_cached(std::string_view path, BackgroundKind kind) const;
+    struct BackgroundWork {
+        IoRead read;      // any thread: reads the file (a texture's KTX2 twin or atlas when the export made one)
+        IoDecode decode;  // any thread: decodes it (pixels, transcoded KTX2 levels, vertices, a font face)
+    };
+    // Main thread (it reads the GPU's compressed format). The work touches no renderer state, so it may outlive the renderer.
+    BackgroundWork background_work(std::string_view path, BackgroundKind kind) const;
+    // Main thread: uploads a finished item of background_work into the caches and returns the GPU bytes it uploaded (0 for
+    // a font, and when the asset was loaded on first use meanwhile: the prepared copy is dropped). A failed item is left
+    // to the load on first use, which reports it as it always does.
+    std::uint64_t adopt_background(std::string_view path, BackgroundKind kind, IoResult& result);
 
     // GPU time of drawing the world. While the profiler is on (fa/core/profiler.h; docs/PERFORMANCE.md) every drawn frame is
     // timed with a timer query where the backend has them (D3D11, desktop OpenGL); the answers arrive a few frames late and

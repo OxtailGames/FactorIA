@@ -1108,7 +1108,18 @@ void ScriptSystem::on_scene_loaded() {
     // entity.behaviour exists right after a scene load; onStart runs before the first update.
     impl_->construct_all();
     impl_->run_jobs();
-    impl_->preload.scene_loaded();
+}
+
+void ScriptSystem::deliver_background_loads(const Json& updates) {
+    Impl& I = *impl_;
+    if (!I.initialized || !updates.is_array() || updates.empty()) return;
+    JSValue lv = I.from_json(updates);
+    JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "preloadDeliver");
+    JSValue r = I.call("background load progress", "", fn, I.hooks.get(), {lv});
+    JS_FreeValue(I.ctx, r);
+    JS_FreeValue(I.ctx, fn);
+    JS_FreeValue(I.ctx, lv);
+    I.run_jobs();
 }
 
 Json platform_answer_json(const PlatformAnswer& a) {
@@ -1142,23 +1153,7 @@ void ScriptSystem::dispatch_platform() {
         JS_FreeValue(I.ctx, lv);
         I.run_jobs();
     }
-    if (I.preload.active()) {  // scene.preload / assets.preload: this frame's share of the work
-        const std::vector<Preloader::Update> updates = I.preload.tick(I.host->preload_time_budget_ms());
-        if (!updates.empty()) {
-            Json list = Json::array();
-            for (const Preloader::Update& u : updates)
-                list.push_back(Json::object({{"id", u.id}, {"done", u.done}, {"total", u.total}, {"bytes", u.bytes},
-                                             {"finished", u.finished}, {"error", u.error}, {"hint", u.hint}}));
-            JSValue lv = I.from_json(list);
-            JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "preloadDeliver");
-            JSValue r = I.call("preload progress", "", fn, I.hooks.get(), {lv});
-            JS_FreeValue(I.ctx, r);
-            JS_FreeValue(I.ctx, fn);
-            JS_FreeValue(I.ctx, lv);
-            I.run_jobs();
-        }
-    }
-    if (I.generateJobs > 0) {  // tilemap.generate: this frame's share of the work (same budget as the preload)
+    if (I.generateJobs > 0) {  // tilemap.generate: this frame's share of the work
         JSValue budget = JS_NewFloat64(I.ctx, I.host->preload_time_budget_ms());
         JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "generateTick");
         JSValue r = I.call("tilemap.generate", "", fn, I.hooks.get(), {budget});

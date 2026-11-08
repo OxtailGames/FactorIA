@@ -79,7 +79,8 @@ What the command does, file by file; do it by hand when you want to see each fil
    not have gets no row. A game with local multiplayer (several people on one machine, each on their own pad or key
    block with `input.player(i)`) sets `"players": 2` (up to 4) in the same `props`: the Controls tab gets a "Player N" button
    on top, and each player rebinds their own keys and pad buttons, saved by player.
-5. **Loading screen.** `scenes/loading.scene.json` and `scripts/loading.js`.
+5. **Loading screen.** `scenes/loading.scene.json` and `scripts/loading.js`: it loads the first level in the background
+   (`scene.load` with `{ async: true }`) and shows the real progress.
 6. **Pause.** `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js`, and one entity in every level scene:
    `{ "id": "pause_menu", "components": { "Script": { "path": "scripts/pause_menu.js" } } }`.
 7. **Shop (only when the game sells things).** `scripts/ui/shop.js` and the `shop` panel and `shop_button` of
@@ -193,9 +194,13 @@ What the command does, file by file; do it by hand when you want to see each fil
   `scene.set_parent {id, parent, index}` put a child at a place (0 = first); a button added at run time can go on top
   without touching the others. The order is saved with the scene. An index counts the parent's other children and must
   be between 0 and their number, otherwise it is an error that says the range.
-- **Loading screen.** `scene.load` blocks the frame it runs in, so the loading scene first reads the next scene's files
-  ahead with `scene.preload(session.nextScene)`, a few files per frame, and shows `job.progress` (0..1) while it runs; when
-  the Promise resolves the `scene.load` that follows reads nothing from the disk (`session` outlives scene loads).
+- **Loading screen.** The loading scene loads the next scene in the background with
+  `scene.load(session.nextScene, null, { async: true })`: the IO thread reads its files and jobs decode them while the
+  loading scene keeps running, a share of the GPU uploads goes in each frame, and `job.progress` (0..1, never goes down)
+  is the real share of the files done. The engine switches to the next scene at the end of the frame its files are ready
+  (`session` outlives scene loads). Leaving the screen first cancels the load (`job.cancel()` in onDestroy); a scene that
+  cannot be loaded in the background (its JSON is broken) falls back to the sync `scene.load`, which reports what is
+  wrong. The cost and the budgets are in docs/PERFORMANCE.md, "Background loading".
 - **Quit** has no place on phones and tablets, where the system closes apps: `main_menu.js` hides it when
   `game.platform` is `"ios"` or `"android"`.
 - **Credits.** `game.notices()` lists the software inside the runtime with its license; the full texts ship next to the
@@ -1198,7 +1203,7 @@ export default class MainMenu extends Behaviour {
     // A game with an "analytics" section in factoria.json asks once whether it may count usage; nothing is sent before the answer (docs/ANALYTICS.md).  // @kit:analyticsConsent
     else openAnalyticsConsent(this.menus); // @kit:analyticsConsent
     ui.on("click", "play", () => {
-      session.nextScene = this.firstScene; // scenes/loading.scene.json shows the progress of reading it, then loads it
+      session.nextScene = this.firstScene; // scenes/loading.scene.json loads it in the background and shows the progress
       scene.load("scenes/loading.scene.json");
     });
     ui.on("click", "options_button", () => this.menus.show("options"));
@@ -2827,26 +2832,26 @@ test("the card blocks the pointer by being modal, not only by its backdrop", () 
 
 ```js scripts/loading.js
 // @ts-check
-// scenes/loading.scene.json: reads the scene the main menu put in session.nextScene ahead of time, a few files every
-// frame, so this scene keeps running (and drawing) meanwhile; then loads it, which reads nothing from the disk.
+// scenes/loading.scene.json: loads the scene the main menu put in session.nextScene in the background
+// (scene.load with { async: true }): the engine reads and decodes its files off the main thread while this scene keeps
+// running (and drawing), and switches to it at the end of the frame its files are ready.
 // A full recipe with a bar: set the width of a Shape2D from `job.progress` in onUpdate, like the text below.
 import { Behaviour, i18n, scene, session } from "factoria";
 
 export default class Loading extends Behaviour {
   onStart() {
-    this.job = scene.preload(session.nextScene);
-    // A scene that could not be read ahead still loads: scene.load reports what is wrong with it.
-    const go = () => {
-      if (this.gone) return; // this scene was left first (a test that moved on): the Promise must not load a scene now
-      this.loading = true;
+    this.job = scene.load(session.nextScene, null, { async: true });
+    this.job.promise.catch(() => {
+      // This scene was left first (a test that moved on), or another load replaced this one: nothing to do now.
+      if (this.gone || this.job.cancelled) return;
+      // The scene could not be loaded in the background (not valid JSON, say): the sync scene.load reports what is wrong.
       scene.load(session.nextScene);
-    };
-    this.job.promise.then(go, go);
+    });
   }
 
   onDestroy() {
     this.gone = true;
-    if (!this.loading) this.job.release(); // left before the files were in: give them back
+    if (!this.job.done) this.job.cancel(); // left before the next scene was ready: stop reading it
   }
 
   onUpdate() {

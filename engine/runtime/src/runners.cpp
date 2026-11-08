@@ -220,6 +220,8 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
         if (AppWindowControl* window = st->engine.runtime_impl().appWindow.get()) window->throttle();  // window.frameCap
         apply_safe_insets(*st);  // before the frame: layout and drawing read it
         if (!st->replay.empty()) {
+            // Frames without "loadUnits" take the fixed share of background loads, not what is ready (it would differ).
+            st->engine.runtime_impl().replaying = true;
             if (auto it = st->replay.find(st->replayFrame); it != st->replay.end()) {
                 std::vector<std::string> problems;
                 st->engine.apply_input_entry(it->second, problems, st->replayFrame);
@@ -311,11 +313,12 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
     }
     {
         // Misspelled entry fields used to be ignored silently ("pres" => nothing pressed).
-        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "back", "clipboard", "http"};
+        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "back", "clipboard", "http",
+                                                       "loadUnits"};
         for (auto it = entry.begin(); it != entry.end(); ++it)
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
                 note("unknown field '" + it.key() + "' (ignored). " + did_you_mean(it.key(), known) +
-                     " A frame entry takes press, release, keys, mouse, gamepad, touch, back, clipboard and http.");
+                     " A frame entry takes press, release, keys, mouse, gamepad, touch, back, clipboard, http and loadUnits.");
     }
     for (const char* key : {"press", "release"}) {
         if (!entry.contains(key)) continue;
@@ -342,6 +345,20 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
             }
         } else {
             note("'http' needs the fake platform backend (headless runs have it): the answers were ignored");
+        }
+    }
+    if (entry.contains("loadUnits")) {
+        // How many background-load units the recorded frame took (docs/PERFORMANCE.md, "Background loading"): the replay
+        // takes the same, so a load started by the game ends on the same frame.
+        const Json& u = entry["loadUnits"];
+        if (!u.is_number_integer()) {
+            note("'loadUnits' must be a whole number of background-load units like 3, got " + describe_json_value(u));
+        } else {
+            const std::int64_t n = std::clamp<std::int64_t>(u.get<std::int64_t>(), 0, BackgroundLoader::kMaxReplayUnits);
+            if (n != u.get<std::int64_t>())
+                note("'loadUnits' " + u.dump() + " is out of range: it was clamped to " + std::to_string(n) + " (0.." +
+                     std::to_string(BackgroundLoader::kMaxReplayUnits) + ")");
+            I.replayLoadUnits = int(n);
         }
     }
     if (entry.contains("keys") && !entry["keys"].is_object()) note("'keys' must be an object like {\"A\": true}");

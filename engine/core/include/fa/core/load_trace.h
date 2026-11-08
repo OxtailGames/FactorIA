@@ -16,8 +16,15 @@
 //
 // Work handed to another thread keeps its owner: whoever queues a read or a decode on an IO thread or a job worker takes
 // LoadTrace::current_owner() with the job and opens a ReadingFor(owner) around the job's work on that thread (the music
-// loader's thread does, audio.cpp). That is how a background loader (M70.3) attributes its reads to the engine that asked
-// for them; a thread is never an owner by itself.
+// loader's thread does, audio.cpp). That is how the background loader (fa/core/background_io.h) attributes its reads to
+// the engine that asked for them; a thread is never an owner by itself.
+//
+// Reading AHEAD: a background load (scene.preload, assets.preload, scene.load {async: true}) reads files before anything
+// uses them, in its own order. Its reads run in a ReadingFor(owner, tag) scope: they count in the totals and in the load
+// `tag` (the async scene load of that tag, when there is one), but a file enters the first-use order only when it is
+// USED: file_used() is called when a warm file is read through fa::fs and when a loader adopts what a background load
+// prepared (the renderer on the first draw of a texture or a model). So an async load records the same files in the same
+// order as the same load done synchronously, and `factoria export` packs game.pak the same way.
 //
 // Two results come out of it:
 //   - order(): the files read before the first scene (factoria.json, the start-up scripts) as the group kStartupScene,
@@ -76,21 +83,33 @@ public:
     LoadTrace& operator=(const LoadTrace&) = delete;
 
     // `scene` (a project-relative path, or a name for a scene that is not a file) starts loading: the files read from
-    // now on are its files, and its load time runs until the next frame_ended().
-    void scene_started(std::string scene);
+    // now on are its files, and its load time runs until the next frame_ended(). `tag` != 0: the scene of the background
+    // load scene_requested(scene, tag) opened becomes the current one now (its entry gets its readyMs; no new entry).
+    void scene_started(std::string scene, std::uint64_t tag = 0);
+    // A background load (scene.load {async: true}) of `scene` starts now: its entry (async, readyMs = the time to its
+    // first frame from now) collects the files its reads ahead with this `tag` read. The scene becomes current only at
+    // scene_started(scene, tag). `tag` != 0; a tag is used once.
+    void scene_requested(std::string scene, std::uint64_t tag);
+    // The background load `tag` was cancelled before its scene started: its entry says so and gets no time.
+    void load_cancelled(std::uint64_t tag);
     // A frame was drawn (or simulated) completely: closes the first frame and the load time of a scene started before it.
     void frame_ended();
 
     LoadOrder order() const;
     // {"timeToFirstFrameMs", "scenes": [{"scene", "loadMs", "files", "bytes"}], "slowestAssets": [{"kind", "path",
     //  "bytes", "readMs", "decodeMs"}], "reads": {"count", "bytes", "fromPack", "packStoredBytes"}, "note"}.
-    // A time that was not reached yet (no frame ended) is null.
+    // A time that was not reached yet (no frame ended) is null. The entry of a background scene load also has
+    // "async": true, "readyMs" (from the request to the frame the scene started; null while it loads) and, when it was
+    // cancelled, "cancelled": true; its loadMs runs from the request to the end of the scene's first frame.
     Json report() const;
 
     // ---- hooks (fa::fs and the loaders call them; cheap when no trace exists) ----
     static bool any() { return activeCount_.load(std::memory_order_relaxed) > 0; }
     // A file read finished: `bytes` returned, `storedBytes` taken from the pack (== bytes for a loose file).
     static void file_read(std::string_view path, std::uint64_t bytes, std::uint64_t storedBytes, bool fromPack, std::int64_t readNs);
+    // A file read earlier (ahead of time) is used now: it enters the first-use order of the current scene if it is not
+    // there yet. Counts nothing (its read was counted). Inside a reading-ahead scope it only goes to the file collector.
+    static void file_used(std::string_view path);
     static std::int64_t now_ns();  // the steady clock of every time here
     // Nanoseconds this thread spent in file reads since it started (AssetLoadScope subtracts it from its total).
     static std::int64_t thread_read_ns();
@@ -99,28 +118,54 @@ public:
     static Owner current_owner();
     // Makes `owner` this thread's current reader until the scope ends (scopes nest: the previous one comes back, and a
     // scope for the owner that is current already changes nothing). Free.
+    // ReadingFor(owner, tag) with tag != 0 reads AHEAD for the background load `tag` (see the top of this file); a
+    // scope with tag 0 inside it reads normally again.
     class ReadingFor {
     public:
-        explicit ReadingFor(Owner owner);
+        explicit ReadingFor(Owner owner, std::uint64_t aheadTag = 0);
         ~ReadingFor();
         ReadingFor(const ReadingFor&) = delete;
         ReadingFor& operator=(const ReadingFor&) = delete;
 
     private:
         Owner previous_;
+        std::uint64_t previousTag_;
+    };
+    // The background load this thread reads ahead for (0: none).
+    static std::uint64_t current_ahead_tag();
+
+    // Collects the project files this thread reads or uses (file_read, file_used) while the scope lives, in that order,
+    // each once: what a background decode read, so its user can report them with file_used() when the asset is first
+    // used. Collects nothing when no trace exists (any() is false when the scope opens).
+    class FileCollector {
+    public:
+        explicit FileCollector(std::vector<std::string>* out);
+        ~FileCollector();
+        FileCollector(const FileCollector&) = delete;
+        FileCollector& operator=(const FileCollector&) = delete;
+
+    private:
+        std::vector<std::string>* previous_;
     };
 
 private:
     friend class AssetLoadScope;
     static void asset_loaded(std::string_view kind, std::string_view path, std::uint64_t bytes, std::int64_t totalNs, std::int64_t readNs);
-    void record_file(std::string_view path, std::uint64_t bytes, std::uint64_t storedBytes, bool fromPack);
+    void record_file(std::string_view path, std::uint64_t bytes, std::uint64_t storedBytes, bool fromPack, std::uint64_t aheadTag);
+    void record_use(std::string_view path);
+    void record_use_locked(std::string_view path);
     void record_asset(std::string_view kind, std::string_view path, std::uint64_t bytes, std::int64_t totalNs, std::int64_t readNs);
 
     struct SceneLoad {
         std::string scene;
         std::int64_t startNs = 0, endNs = -1;
         std::uint64_t files = 0, bytes = 0;
+        std::uint64_t tag = 0;      // != 0: a background load (scene_requested)
+        std::int64_t readyNs = -1;  // a background load: when its scene started
+        bool started = true;        // false: a background load whose scene has not started yet
+        bool cancelled = false;
     };
+    SceneLoad* open_load();  // the entry the reads of the current scene count in (null: none)
     struct Asset {
         std::string kind, path;
         std::uint64_t bytes = 0;
