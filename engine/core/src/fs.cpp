@@ -275,7 +275,13 @@ stdfs::path env_path(const char* name, [[maybe_unused]] const wchar_t* wideName)
 }
 }  // namespace
 
-const stdfs::path& cache_dir() {
+void reset_cache_dir() {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    state().cacheDir.clear();
+    state().cacheDirSet = false;
+}
+
+stdfs::path cache_dir() {
     FsState& s = state();
     std::lock_guard<std::mutex> lock(s.mutex);
     if (!s.cacheDirSet) {

@@ -51,11 +51,16 @@ bool cached_stage_bytecode(const std::filesystem::path& cacheDir, std::string_vi
                            ShaderBuildStats& stats);
 
 // A cache file name for a program label and stage: letters, digits, '.', '_' and '-' only, bounded, unique per label.
-std::string shader_cache_file_name(std::string_view label, std::string_view stage);
+// `variant` (a few hex characters of the hash of the whole cache key: engine version, flags, source) is appended, so two
+// engine versions, or two games with a material of the same path, keep separate files instead of replacing each other's
+// entry on every start. The folder grows by one small file per shader per version; deleting it is always safe.
+std::string shader_cache_file_name(std::string_view label, std::string_view stage, std::string_view variant = {});
 
 // sg_make_shader through the cache layer. `label` names the program in the cache file and logs (desc->label when null).
 sg_shader make_shader(const sg_shader_desc* desc, const char* label = nullptr);
 
+// The counters are PROCESS-WIDE: every renderer in the process (the editor has several) adds to them and no renderer resets
+// them; a report is "since the process started". reset_shader_build_stats is for tests.
 const ShaderBuildStats& shader_build_stats();
 void reset_shader_build_stats();
 // "d3d11-dxbc" where the engine caches, "none" elsewhere or when there is no cache folder.

@@ -1,6 +1,8 @@
 #include <doctest.h>
 
 #include <atomic>
+#include <cctype>
+#include <cstdlib>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -30,6 +32,27 @@ struct RulesScope {
     explicit RulesScope(bool on) { fs::set_windows_rules(on); }
     ~RulesScope() { fs::set_windows_rules(before); }
 };
+
+void set_env(const char* name, const char* value) {
+#ifdef _WIN32
+    _putenv_s(name, value ? value : "");  // an empty value removes the variable
+#else
+    if (value) ::setenv(name, value, 1);
+    else ::unsetenv(name);
+#endif
+}
+
+// True when `dir` holds only finished cache files. A temporary file left by a failed store is deleted with retries, but on
+// Windows an antivirus scanner or the indexer may hold it for a moment: wait up to 5 s (a safety net, not a speed limit).
+bool only_cache_files(const stdfs::path& dir) {
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        bool clean = true;
+        for (const auto& e : stdfs::directory_iterator(dir)) clean = clean && e.path().extension() == ".facache";
+        if (clean) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    return false;
+}
 
 std::vector<std::uint8_t> bytes_of(const std::string& s) { return {s.begin(), s.end()}; }
 
@@ -240,7 +263,7 @@ TEST_CASE("BlobCache: the atomic write waits for a reader (Windows rules) and fa
         std::vector<std::uint8_t> out;
         CHECK(cache.load("lib", out) == BlobCache::Status::Hit);
         CHECK(out == bytes_of("first"));
-        for (const auto& e : stdfs::directory_iterator(t.dir)) CHECK(e.path().extension() == ".facache");  // the temporary file is gone
+        CHECK(only_cache_files(t.dir));  // the temporary file is gone
     }
 }
 
@@ -269,9 +292,36 @@ TEST_CASE("BlobCache: a load while a store replaces the file never sees a half f
     CHECK(hits > 0);
 }
 
-TEST_CASE("fs::cache_dir: the environment override, and it is not the project or save folder") {
+TEST_CASE("fs::cache_dir: FA_CACHE_DIR overrides the default, set_cache_dir wins over both, reset_cache_dir forgets it") {
     const stdfs::path before = fs::cache_dir();
-    fs::set_cache_dir(stdfs::path("somewhere") / "cache");
+    const char* oldEnv = std::getenv("FA_CACHE_DIR");
+    const std::string saved = oldEnv ? oldEnv : "";
+    const bool hadEnv = oldEnv != nullptr;
+
+    const stdfs::path fromEnv = fs::make_temp_dir("fa_test_cachedir_env");
+    set_env("FA_CACHE_DIR", fs::path_to_utf8(fromEnv).c_str());
+    fs::reset_cache_dir();
+    CHECK(fs::cache_dir() == fromEnv);
+
+    fs::set_cache_dir(stdfs::path("somewhere") / "cache");  // an explicit folder (a phone's player) wins
     CHECK(fs::cache_dir() == stdfs::path("somewhere") / "cache");
-    fs::set_cache_dir(before);
+
+    fs::reset_cache_dir();  // back to the variable
+    CHECK(fs::cache_dir() == fromEnv);
+
+    set_env("FA_CACHE_DIR", nullptr);  // no variable: the platform's per-user folder, which is neither the project nor the save folder
+    fs::reset_cache_dir();
+    const stdfs::path dflt = fs::cache_dir();
+    CHECK(dflt != fromEnv);
+    if (!dflt.empty()) {  // empty where HOME / LOCALAPPDATA is not set
+        std::string lower = dflt.generic_string();
+        for (char& c : lower) c = char(std::tolower(static_cast<unsigned char>(c)));
+        CHECK(lower.find("factoria") != std::string::npos);  // FactorIA (Windows, macOS) or factoria (Linux)
+    }
+
+    set_env("FA_CACHE_DIR", hadEnv ? saved.c_str() : nullptr);
+    fs::reset_cache_dir();
+    CHECK(fs::cache_dir() == before);
+    std::error_code ec;
+    fs::remove_tree(fromEnv, ec);
 }

@@ -86,7 +86,7 @@ Json ShaderBuildStats::to_json(const char* backend) const {
     return j;
 }
 
-std::string shader_cache_file_name(std::string_view label, std::string_view stage) {
+std::string shader_cache_file_name(std::string_view label, std::string_view stage, std::string_view variant) {
     std::string safe;
     for (char c : label) {
         const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-';
@@ -95,7 +95,9 @@ std::string shader_cache_file_name(std::string_view label, std::string_view stag
     }
     // Two labels that differ only in characters mapped to '_' (or past the limit) must not share a file.
     const std::string hash = sha256_hex(label).substr(0, 8);
-    return "shader-" + safe + "-" + hash + "-" + std::string(stage);
+    std::string name = "shader-" + safe + "-" + hash + "-" + std::string(stage);
+    if (!variant.empty()) name += "-" + std::string(variant.substr(0, 8));
+    return name;
 }
 
 bool cached_stage_bytecode(const stdfs::path& cacheDir, std::string_view keyBase, std::string_view label, std::string_view stage,
@@ -108,8 +110,9 @@ bool cached_stage_bytecode(const stdfs::path& cacheDir, std::string_view keyBase
     h.update(fn.entry ? std::string_view(fn.entry) : std::string_view());
     h.update(std::string_view("\0", 1));
     h.update(fn.d3d11_target ? std::string_view(fn.d3d11_target) : std::string_view());
-    const BlobCache cache(cacheDir, std::string(keyBase) + "|src:" + h.finish_hex());
-    const std::string name = shader_cache_file_name(label, stage);
+    const std::string key = std::string(keyBase) + "|src:" + h.finish_hex();
+    const BlobCache cache(cacheDir, key);
+    const std::string name = shader_cache_file_name(label, stage, sha256_hex(key));
     const BlobCache::Status status = cache.load(name, out);
     if (status == BlobCache::Status::Hit) {
         ++stats.cacheHits;
