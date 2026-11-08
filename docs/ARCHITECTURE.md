@@ -169,6 +169,25 @@ that may be read uses `fs::replace_file` / `fs::remove_file` (they wait for read
 `std::filesystem::last_write_time`, and still reads once more after a change (a time that did not move does not prove the
 file did not change). With the mode off, the registry costs one atomic load per call.
 
+### Block codecs: LZ4 and Zstandard (`core/compress.h`)
+`fa::compress` / `fa::decompress` / `fa::decompress_into` (`Codec::Store`, `Lz4`, `Zstd`) are the engine's own
+implementations of two public formats, with no outside library: the LZ4 **block** format (no frame; levels 1 to 12) and
+the Zstandard frame format of RFC 8878 (levels 1 to 19). They are for the game pack (M70.4); `zlib_compress` stays for
+`storage` and the PNG and PSD code. Their files are private (`engine/core/src/`): `lz4_codec.cpp`, `zstd_decode.cpp`
+(every frame the reference tool writes except dictionaries: any window up to 128 MiB, Huffman with 1 or 4 streams and
+treeless literals, predefined, RLE, compressed and repeated FSE tables, skippable and concatenated frames, the XXH64
+checksum), `zstd_encode.cpp` (frames with the content size, Huffman literals, FSE sequences, raw and RLE fallbacks; levels
+1-2 use one hash table, 3-19 hash chains with repeat offsets and lazy matching whose search depth grows with the level),
+`xxh64.cpp`. Both formats are byte-compatible with the reference tools in both directions: `zstd -d` and `lz4 -d` read what
+the engine writes (an LZ4 block wrapped in a frame), and the engine reads what they write (committed fixtures in
+`engine/core/tests/data/codecs/`, README there). Rules the code follows: the output of `compress` is a pure function of
+input and level (integer decisions only, explicit little-endian, no dependence on the width of `size_t`, so a pack built on
+Windows equals one built on macOS); a decoder never trusts its input (every read and write is bounds-checked, memory is
+the caller's `expectedSize` plus one 128 KiB literal buffer, `decompress` refuses a size no block of that length could hold
+before it allocates, a window over 128 MiB or a dictionary is an error that says so); nothing is global, so every call is
+thread-safe. The tests round-trip many inputs at many levels, decode the reference fixtures, cut and flip bits of valid
+blocks and feed garbage (also run under ASan and UBSan while writing them).
+
 ### Game loop
 See `engine/runtime/include/fa/runtime/engine.h`. Fixed-step simulation
 (default 60 Hz) + variable render. Headless `Engine::step(n)` advances exactly
