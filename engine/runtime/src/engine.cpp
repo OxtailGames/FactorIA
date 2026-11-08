@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 
 #include "engine_impl.h"
@@ -223,6 +224,7 @@ void Engine::Impl::take_scene_props(bool keepProps) {
 
 bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error, bool keepProps) {
     const jobs::OwnerScope jobScope(&jobOwner);  // the jobs a scene load queues (asset loads) are this engine's
+    const LoadTrace::ReadingFor reading(traceOwner);  // a scene's reads are this engine's, whoever asked (fa/core/load_trace.h)
     std::string path = pathIn;
     if (!fs::is_absolute(path)) {
         auto n = fs::normalize_checked(path);
@@ -236,6 +238,7 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
         path = n.value();
     }
     refresh_from_disk();
+    if (loadTrace) loadTrace->scene_started(path);  // before the scene file is read: it is the first file of its scene
     hasPendingScene = false;
     take_scene_props(keepProps);
     implicitStartScene = false;  // from now on the scene was chosen (scene.load, a script, --scene, reload)
@@ -276,11 +279,13 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
 
 bool Engine::Impl::load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error) {
     const jobs::OwnerScope jobScope(&jobOwner);  // the jobs a scene load queues (asset loads) are this engine's
+    const LoadTrace::ReadingFor reading(traceOwner);
     hasPendingScene = false;
     take_scene_props(false);
     audio.on_scene_load();
     physics.reset();
     const std::string keptPath = world.scene_path();
+    if (loadTrace) loadTrace->scene_started(keptPath.empty() ? std::string(sourceName) : keptPath);
     LoadReport report = fa::load_scene(world, scene, sourceName);
     world.set_scene_path(keptPath);
     // The scene path (world + currentScene) is deliberately left alone.
@@ -308,6 +313,9 @@ void update_visuals(R& r, World& w, float dt) {
 
 void Engine::Impl::draw(double dt) {
     if (!renderer) return;
+    // Textures, fonts and meshes load when they are first drawn: a capture or a runner that draws directly reads for
+    // this engine too (fa/core/load_trace.h).
+    const LoadTrace::ReadingFor reading(traceOwner);
     apply_localization();  // entities created or keyed since the frame ended (a paused game, the editor) are drawn translated
     ui.layout(world, design_size(), measure());  // what scripts changed this frame is drawn in place
     renderer->begin_frame();
@@ -388,6 +396,7 @@ void Engine::Impl::poll_hot_reload(bool force) {
 
 void Engine::Impl::run_frame(double dt, int fixedSteps) {
     const jobs::OwnerScope jobScope(&jobOwner);  // the jobs a system or script of this frame queues are this engine's
+    const LoadTrace::ReadingFor reading(traceOwner);  // play.auto and the headless runner call this directly
     const bool profiled = !inFrame;  // a nested frame (a script stepping the game) belongs to the outer one
     if (profiled) Profiler::get().begin_frame();  // no-op unless the profiler is on (fa/core/profiler.h); measures only
     inFrame = true;
@@ -517,6 +526,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         jobs::end_frame(&jobOwner);  // with 0 workers the jobs nobody waited for run here; closes the job statistics
         Profiler::get().end_frame();
     }
+    if (profiled && loadTrace) loadTrace->frame_ended();
 }
 
 void Engine::Impl::end_of_frame(double dt, bool simulated) {
@@ -537,6 +547,7 @@ Engine::Engine() : impl_(std::make_unique<Impl>()) { impl_->self = this; }
 Engine::~Engine() { shutdown(); }
 
 bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::string* error) {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);  // what this engine reads is its load trace's (fa/core/load_trace.h)
     impl_->logSeqAtInit = log_last_seq();
     Impl& I = *impl_;
     // Only what THIS call started is undone: a second init of a running engine fails and leaves the pool running.
@@ -568,6 +579,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         dir = abs.generic_string();
         fs::set_project_root(abs);
     }
+    if (config.traceLoads) I.loadTrace = std::make_unique<LoadTrace>(I.traceOwner);  // reads are recorded relative to the root set above
     clear_vfx_cache();  // the effect documents are cached by project-relative path: another project (or root) has other files by that name
     auto proj = load_project(dir);
     if (!proj.ok()) return fail(proj.error().to_string());
@@ -814,6 +826,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
 
 void Engine::shutdown() {
     Impl& I = *impl_;
+    end_load_trace();  // also after a failed init
     if (!I.initialized) return;
     I.initialized = false;
     // This engine's jobs run to the end before the systems they may touch go away; its main-thread tasks still queued
@@ -839,7 +852,36 @@ void Engine::shutdown() {
     I.gpu.reset();
 }
 
+void Engine::begin_load_trace() {
+    end_load_trace();
+    impl_->loadTrace = std::make_unique<LoadTrace>(impl_->traceOwner);
+}
+
+LoadTrace::Owner Engine::load_trace_owner() const { return impl_->traceOwner; }
+
+Json Engine::loading_report() const { return impl_->loadTrace ? impl_->loadTrace->report() : Json(); }
+
+void Engine::end_load_trace() {
+    Impl& I = *impl_;
+    if (!I.loadTrace) return;
+    std::unique_ptr<LoadTrace> trace = std::move(I.loadTrace);
+    if (I.cfg.loadOrderSink) {
+        LoadOrder order = trace->order();
+        trace.reset();  // stop recording before the sink runs: what it reads is not the game's
+        // It also runs from ~Engine (shutdown), where an exception would end the process: a sink that throws loses
+        // this session's order, nothing else.
+        if (!order.empty()) {
+            try {
+                I.cfg.loadOrderSink(order);
+            } catch (const std::exception& e) {
+                FA_ERROR("engine", "The load order of this session was not recorded: {}", e.what());
+            }
+        }
+    }
+}
+
 void Engine::frame(double dt) {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
     Impl& I = *impl_;
     if (!I.initialized) return;
     dt = std::clamp(dt, 0.0, kMaxFrameDt);
@@ -865,22 +907,29 @@ void Engine::frame(double dt) {
 }
 
 void Engine::step(int frames) {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
     Impl& I = *impl_;
     if (!I.initialized) return;
     for (int i = 0; i < frames && !I.quit; ++i) I.run_frame(I.fixedDt, 1);
 }
 
-bool Engine::load_scene(std::string_view path, std::string* error) { return impl_->load_scene_impl(std::string(path), error); }
+bool Engine::load_scene(std::string_view path, std::string* error) {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
+    return impl_->load_scene_impl(std::string(path), error);
+}
 bool Engine::load_scene(std::string_view path, const Json& props, std::string* error) {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
     if (props.is_object()) impl_->nextProps = props;
     return impl_->load_scene_impl(std::string(path), error);
 }
 
 bool Engine::load_scene_json(const Json& scene, std::string_view sourceName, std::string* error) {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
     return impl_->load_scene_json_impl(scene, sourceName, error);
 }
 
 void Engine::render_now() {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
     Impl& I = *impl_;
     if (!I.renderer) return;
     if (I.renderStale) I.draw(I.lastRenderDt);
@@ -888,6 +937,7 @@ void Engine::render_now() {
 bool Engine::render_pending() const { return impl_->renderStale; }
 
 void Engine::reload_scene() {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
     Impl& I = *impl_;
     if (I.currentScene.empty()) return;
     std::string err;

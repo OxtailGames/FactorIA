@@ -10,6 +10,7 @@
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
 #include "fa/tooling/export_settings.h"
+#include "fa/tooling/load_order.h"
 #include "fa/tooling/shaders.h"
 
 namespace fa::cli {
@@ -87,6 +88,14 @@ Command make_run_command() {
         std::string dir = resolve_project_dir(ctx, 0);
         fs::set_project_root(dir);
         EngineConfig cfg = project_engine_config(dir, a.str("scene"), a.uinteger("seed", 1), date_flag(a));
+        // A run is a play session: the files it reads first, per scene, go into .factoria/cache/load-order.json, the order a
+        // release export packs game.pak in (fa/tooling/load_order.h).
+        cfg.traceLoads = true;
+        // A cold session: its order of a scene replaces an editor Play's (fa/tooling/load_order.h, "Which session wins").
+        // `dir` is a native string (the engine builds its root from it the same way), never UTF-8 on Windows.
+        cfg.loadOrderSink = [dir](const LoadOrder& order) {
+            record_load_order_logged(std::filesystem::path(dir), order, LoadOrderSource::Run);
+        };
         if (a.has("props")) {
             std::string text = a.str("props");
             std::string where = "--props";

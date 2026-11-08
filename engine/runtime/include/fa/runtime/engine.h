@@ -30,6 +30,7 @@
 
 #include "fa/audio/audio.h"
 #include "fa/core/command.h"
+#include "fa/core/load_trace.h"
 #include "fa/core/profiler.h"
 #include "fa/physics/physics.h"
 #include "fa/platform/app.h"
@@ -118,6 +119,17 @@ struct EngineConfig {
     // breakpoints and stepping, the stopped game inspected through the debugger's DebugClient). Null = a normal run, with
     // no cost. `factoria dap` and `script.trace` create it; the Engine hands it to its ScriptSystem before the scripts start.
     std::shared_ptr<ScriptDebugger> scriptDebugger;
+    // Loading trace (fa/core/load_trace.h): from init on, the engine notes which project files each scene reads first, how
+    // long each scene takes to its first frame and which assets decode slowest (Engine::loading_report). Tooling sets it
+    // (the editor's Play, `factoria run`, play.auto); an exported game never does, so a shipped player records nothing.
+    // The trace is this engine's (its owner is the Engine): only reads made inside the engine's entry points (init, frame,
+    // step, load_scene*, reload_scene, render_now), or on threads that carry its owner, are recorded; an editor panel or a
+    // tool reading files meanwhile is not.
+    bool traceLoads = false;
+    // Called with the first-use order of the trace when it ends (shutdown, or end_load_trace): the editor and `factoria`
+    // merge it into the project's .factoria/cache/load-order.json (fa/tooling/load_order.h), which a release export packs
+    // game.pak by. On the thread that ends the trace; it must not wait on disk there when that is a UI thread. Empty = kept nowhere.
+    std::function<void(const LoadOrder&)> loadOrderSink;
 };
 
 class Engine final : public ScriptHost {
@@ -262,6 +274,18 @@ public:
     // Appends the GPU milliseconds that came back since the last call; `supported` / `reason` say whether this backend times
     // the GPU and, when not, why. Results arrive a few frames late.
     void profile_gpu(std::vector<double>& msOut, bool* supported, std::string* reason);
+
+    // Loading trace (EngineConfig::traceLoads, fa/core/load_trace.h). begin_load_trace starts a new one (a play session of the
+    // editor starts here; a trace already running is ended first, its order handed to loadOrderSink); loading_report is the
+    // `loading` section of play.report (time to the first frame, each scene's load time, the slowest assets, the reads),
+    // null when no trace runs; end_load_trace hands the order to EngineConfig::loadOrderSink and stops. Measurement only:
+    // nothing reaches the simulation.
+    void begin_load_trace();
+    Json loading_report() const;
+    void end_load_trace();
+    // This engine's reader token (fa/core/load_trace.h): a host that drives the engine through calls outside its entry
+    // points (play.auto's bot hook) opens a LoadTrace::ReadingFor with it, so those reads are the game's too.
+    LoadTrace::Owner load_trace_owner() const;
 
     struct Impl;
     Impl& runtime_impl() { return *impl_; }  // internal (runners, commands)

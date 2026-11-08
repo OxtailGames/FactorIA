@@ -968,3 +968,53 @@ TEST_CASE("export settings: the macOS App Store fields are saved only when they 
     auto j2 = Json::parse(testing::read_all(stdfs::path(tmp.str()) / "factoria.json"));
     CHECK_FALSE(j2.contains("export"));
 }
+
+TEST_CASE("export settings: export.pack codecs and useLoadOrder are read, checked with their pointer, and kept by save") {
+    auto none = parse_export_settings(parse(R"({"name": "G"})"));
+    CHECK(none.settings.pack.codecs.empty());
+    CHECK(none.settings.pack.useLoadOrder);
+
+    auto good = parse_export_settings(parse(R"({"export": {"pack": {"codecs": {".JSON": "zstd", ".bin": "store", ".mesh": "lz4"},
+                                                                     "useLoadOrder": false}}})"));
+    CHECK(good.errors.empty());
+    CHECK(good.warnings.empty());
+    REQUIRE(good.settings.pack.codecs.size() == 3);
+    CHECK(good.settings.pack.codecs.at(".json") == Codec::Zstd);  // the extension is lowercased, as fs::extension gives it
+    CHECK(good.settings.pack.codecs.at(".bin") == Codec::Store);
+    CHECK(good.settings.pack.codecs.at(".mesh") == Codec::Lz4);
+    CHECK_FALSE(good.settings.pack.useLoadOrder);
+
+    auto bad = parse_export_settings(parse(R"({"export": {"pack": {"codecs": {"json": "zstd", ".a.b": "lz4", ".png": "zip",
+                                                                    ".ogg": 3}, "useLoadOrder": "yes", "useLoadOrdr": true}}})"));
+    CHECK(find_issue(bad.errors, "/export/pack/codecs/json") != nullptr);
+    CHECK(find_issue(bad.errors, "/export/pack/codecs/.a.b") != nullptr);
+    const ExportSettingsIssue* zip = find_issue(bad.errors, "/export/pack/codecs/.png");
+    REQUIRE(zip != nullptr);
+    CHECK(zip->message.find("zip") != std::string::npos);
+    CHECK(find_issue(bad.errors, "/export/pack/codecs/.ogg") != nullptr);
+    const ExportSettingsIssue* flag = find_issue(bad.errors, "/export/pack/useLoadOrder");
+    REQUIRE(flag != nullptr);
+    CHECK(flag->message.find("expected true or false") != std::string::npos);
+    CHECK(bad.settings.pack.codecs.empty());     // nothing invalid is taken
+    CHECK(bad.settings.pack.useLoadOrder);       // an invalid value keeps the default
+    const ExportSettingsIssue* typo = find_issue(bad.warnings, "/export/pack/useLoadOrdr");
+    REQUIRE(typo != nullptr);
+    CHECK(typo->hint.find("useLoadOrder") != std::string::npos);
+
+    // save_export_settings patches the fields the editor edits; export.pack is edited in factoria.json and stays as written.
+    testing::TempDir tmp;
+    testing::write_all(project_file(tmp), R"({
+  "name": "G",
+  "export": { "pack": { "codecs": { ".json": "zstd" }, "useLoadOrder": false } }
+}
+)");
+    auto s = load_export_settings(tmp.str());
+    REQUIRE(s.ok());
+    s->scriptBytecode = false;
+    REQUIRE(save_export_settings(tmp.str(), *s).ok());
+    auto back = load_export_settings(tmp.str());
+    REQUIRE(back.ok());
+    CHECK(back->pack.codecs.at(".json") == Codec::Zstd);
+    CHECK_FALSE(back->pack.useLoadOrder);
+    CHECK_FALSE(back->scriptBytecode);
+}

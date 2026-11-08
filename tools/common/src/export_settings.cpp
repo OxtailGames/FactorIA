@@ -741,6 +741,7 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
     std::vector<std::string> known(std::begin(kPlatformNames), std::end(kPlatformNames));
     known.push_back("scriptBytecode");
     known.push_back("exclude");
+    known.push_back("pack");
     r.unknown_keys(exp, "/export", known);
     if (auto b = exp.find("scriptBytecode"); b != exp.end() && !b->is_null()) {
         if (!b->is_boolean())
@@ -764,6 +765,42 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
                 std::string g = (*ex)[i].get<std::string>();
                 if (g.empty()) r.error(ptr, "the glob is empty", hint);
                 else if (r.check_path(ptr, g, false)) s.exclude.push_back(g);
+            }
+        }
+    }
+    if (const Json* o = r.object_member(exp, "/export", "pack", "{\"codecs\": {\".json\": \"zstd\"}, \"useLoadOrder\": true}")) {
+        r.unknown_keys(*o, "/export/pack", names_of({"codecs", "useLoadOrder"}));
+        if (auto b = o->find("useLoadOrder"); b != o->end() && !b->is_null()) {
+            if (!b->is_boolean())
+                r.error("/export/pack/useLoadOrder", "expected true or false, got " + describe_json_value(*b),
+                        "Write \"useLoadOrder\": false to pack the files by path, or remove the key (the default, true, packs them in "
+                        "the order play sessions first read them).");
+            else
+                s.pack.useLoadOrder = b->get<bool>();
+        }
+        if (const Json* c = r.object_member(*o, "/export/pack", "codecs", "{\".json\": \"zstd\", \".bin\": \"store\"}")) {
+            for (auto e = c->begin(); e != c->end(); ++e) {
+                const std::string ptr = "/export/pack/codecs/" + tooling_detail::escape_token(e.key());
+                const std::string& ext = e.key();
+                if (ext.size() < 2 || ext[0] != '.' || ext.find_first_of("/\\") != std::string::npos ||
+                    ext.find('.', 1) != std::string::npos) {
+                    r.error(ptr, "'" + ext + "' is not a file extension",
+                            "Write the extension with its dot and nothing before it, e.g. \".json\" (a scene.json counts as .json).");
+                    continue;
+                }
+                std::string lower = ext;
+                for (char& ch : lower) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                if (!e->is_string()) {
+                    r.error(ptr, "expected \"store\", \"lz4\" or \"zstd\", got " + describe_json_value(*e),
+                            "lz4 decodes fastest, zstd packs smallest, store keeps the bytes as they are.");
+                    continue;
+                }
+                auto codec = parse_codec(e->get<std::string>());
+                if (!codec.ok()) {
+                    r.error(ptr, codec.error().message, codec.error().hint);
+                    continue;
+                }
+                s.pack.codecs[lower] = codec.value();
             }
         }
     }

@@ -10,10 +10,13 @@
 // Writes are for tools and save games; game data on mobile and in a pack is read-only.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -86,10 +89,30 @@ std::string path_to_utf8(const std::filesystem::path& p);
 // calls only: show users the path itself.
 std::filesystem::path os_path(const std::filesystem::path& p);
 // std::filesystem::remove_all that also deletes files deeper than MAX_PATH: on Windows it always goes through the
-// \\?\ form of `dir`, since remove_all on a short folder path stops at its first long child. Same result and error.
+// \\?\ form of `dir`, since remove_all on a short folder path stops at its first long child, and a read-only file in it
+// (copy_file keeps the attribute) loses the attribute and is deleted too. Same result and error otherwise.
 // Under the Windows rules (below) a file inside that is open through ReadStream stays, the rest is deleted and `ec` is a
 // sharing violation, as remove_all does on Windows.
 std::uintmax_t remove_tree(const std::filesystem::path& dir, std::error_code& ec);
+// Whether Windows would refuse to delete `file` because something holds it. On Windows: an open that asks for delete
+// access and shares everything fails (a handle that did not allow deleting), or marking the file for deletion fails (an
+// exe or a library that is running, a mapped file), and keeps failing for about a second (a scanner that lets go sooner
+// does not count). The mark is taken back before the probe's handle closes, so the file stays; should Windows refuse to
+// take it back, the file is deleted when that handle closes: then `markLost` (when given) is set and the answer is true.
+// A file open with delete shared (a fa::PackReader that reads without mapping) is not held: a delete goes through. A
+// read-only file is probed too where Windows can ignore the attribute (Windows 10 1809 and later); before that it is not
+// held. Under Wine an exclusive open probes instead: any open handle holds the file. A file this process may not delete
+// is not held (remove_tree's error says so). Under the Windows rules emulation: a file open through ReadStream or read_bytes, or a
+// mapped fa::PackReader; elsewhere never (macOS and Linux delete open files).
+bool file_in_use(const std::filesystem::path& file, bool* markLost = nullptr);
+// The first file under `dir` (or `dir` itself when it is a file) for which file_in_use is true, in directory order; empty
+// when there is none. `which` (optional) picks what to look at by path relative to `dir`: for a folder, false skips all
+// of it; for a file, false skips the file. Call it before remove_tree when a half-deleted folder would be worse than an
+// error; it reads the folder and opens files, so never on a UI thread. It looks at `maxFiles` files at most (a
+// deterministic count, not a time: what lies past it is not looked at). `markLost`: as for file_in_use, for the file returned.
+std::filesystem::path find_file_in_use(const std::filesystem::path& dir,
+                                       const std::function<bool(const std::filesystem::path& rel, bool folder)>& which = {},
+                                       std::size_t maxFiles = 100000, bool* markLost = nullptr);
 
 // ---- Windows file rules ------------------------------------------------------------------------------------------
 // Some file bugs only happen on Windows, so only a Windows CI run found them. Two rules cause most of them:
@@ -105,9 +128,11 @@ std::uintmax_t remove_tree(const std::filesystem::path& dir, std::error_code& ec
 // `FA_FS_WINDOWS_RULES=0 ctest` turns the mode off for one run). set_windows_rules overrides both (tests).
 //
 // What it covers: files opened through ReadStream or fs::read_bytes / read_text (the registry only knows those: a file
-// opened with a bare std::ifstream, or by another process, is invisible to it); replace_file, remove_file, remove_tree and
-// write_bytes against them; modified_time. What it does not: files held open for writing or memory-mapped, other
-// processes, reserved names (CON, NUL), the 260-character limit, text/binary newline translation.
+// opened with a bare std::ifstream, or by another process, is invisible to it), and a game pack while a fa::PackReader has
+// it open (Windows refuses to replace an open file, mapped or not, and to delete a mapped one: an export over a running
+// game; an unmapped pack shares delete, so a delete of it goes through); replace_file, remove_file, remove_tree and
+// write_bytes against them; modified_time. What it does not: files held open for writing or
+// mapped by anything else, other processes, reserved names (CON, NUL), the 260-character limit, text/binary newline translation.
 bool windows_rules();             // true when file operations follow Windows rules: on Windows always, elsewhere when the mode is on
 void set_windows_rules(bool on);  // turns the emulation on or off for the rest of the process (tests); a no-op on Windows
 // The size of one step of a file's modification time under the Windows rules, in nanoseconds (15.625 ms = 1/64 s).
@@ -133,9 +158,9 @@ private:
     void unregister();
 };
 
-// True when `ec` says the file is held open by someone else: ERROR_ACCESS_DENIED (5), ERROR_SHARING_VIOLATION (32) or
-// ERROR_LOCK_VIOLATION (33) on Windows, the error the emulation returns elsewhere. Anything else is false (on POSIX, 5, 32
-// and 33 are other errors).
+// True when `ec` says the file is held open by someone else: ERROR_ACCESS_DENIED (5), ERROR_SHARING_VIOLATION (32),
+// ERROR_LOCK_VIOLATION (33) or ERROR_USER_MAPPED_FILE (1224) on Windows, the error the emulation returns elsewhere.
+// Anything else is false (on POSIX, 5, 32, 33 and 1224 are other errors).
 bool is_sharing_violation(const std::error_code& ec);
 // std::filesystem::rename(from, to) that replaces an existing `to`, and waits for readers: while a sharing violation says
 // `to` is open somewhere else (another thread polling it, an antivirus scan) it tries again for up to about a second, since
@@ -162,6 +187,36 @@ std::uint64_t disk_reads();
 
 Result<std::string> read_text(std::string_view path);
 Result<std::vector<std::uint8_t>> read_bytes(std::string_view path);
+
+// The bytes of a file without a copy where that is possible: a file of a memory-mapped game pack stored as it is (the
+// view points into the mapping and keeps the pack mapped while it lives, also after unmount_pack), a warm file (the view
+// shares the warm bytes), an APK asset on Android (AAsset_getBuffer; the asset stays open while the view lives). In every
+// other case (loose files on disk, a compressed file of a pack, a pack read without a mapping) the view owns a buffer
+// with the bytes, as read_bytes returns them. Read-only, immutable, and safe to pass to and read from any thread.
+class FileView {
+public:
+    FileView() = default;
+    explicit FileView(std::vector<std::uint8_t> bytes);  // owns the bytes
+    // Borrows `size` bytes at `data`, which stay valid while `owner` lives. `mapped` says they are not a copy.
+    FileView(std::shared_ptr<const void> owner, const std::uint8_t* data, std::size_t size, bool mapped);
+
+    std::span<const std::uint8_t> bytes() const { return {data_, size_}; }
+    const std::uint8_t* data() const { return data_; }
+    std::size_t size() const { return size_; }
+    bool empty() const { return size_ == 0; }
+    // True when the bytes were not copied for this view (a mapped pack, a warm file, an APK buffer).
+    bool mapped() const { return mapped_; }
+    std::vector<std::uint8_t> to_vector() const { return {data_, data_ + size_}; }
+    std::string_view text() const;  // the bytes as UTF-8 text, a UTF-8 BOM skipped
+
+private:
+    std::shared_ptr<const void> owner_;
+    const std::uint8_t* data_ = nullptr;
+    std::size_t size_ = 0;
+    bool mapped_ = false;
+};
+// Like read_bytes (same paths, same pack, same errors, counts in disk_reads), but answers a FileView.
+Result<FileView> read_view(std::string_view path);
 Result<void> write_text(std::string_view path, std::string_view text);  // creates parent dirs
 Result<void> write_bytes(std::string_view path, const void* data, std::size_t size);
 bool exists(std::string_view path);

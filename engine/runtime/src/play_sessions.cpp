@@ -78,6 +78,7 @@ Json play_session_json(const PlaySession& s) {
         if (s.autoInfo.is_object()) j["auto"] = s.autoInfo;
     }
     if (s.profile.is_object()) j["profile"] = s.profile;
+    if (s.loading.is_object()) j["loading"] = s.loading;
     j["inputFile"] = "input.json";
     j["inputFrames"] = s.input.contains("frames") ? s.input["frames"].size() : 0;
     return j;
@@ -242,7 +243,10 @@ void register_play_session_commands(Engine&, Engine::Impl& I) {
 
     I.commands.add({"play.report", "What happened while the game was played (by the user or by play.auto): perf, spikes, warnings/errors, the problem marks and screenshots.",
            "Call it when the user says they played the game and saw problems (slow, ugly UI, bugs), and after play.auto. Returns the session.json content "
-           "(perf: avg/p95/max frame ms and frames over 16.7/33 ms; profile: where the time went, per engine system, per script behaviour class (ms and calls per frame, slowest first), GPU ms or null + reason, memory; spikes: slowest frames with entity count and render stats; logs: "
+           "(perf: avg/p95/max frame ms and frames over 16.7/33 ms; profile: where the time went, per engine system, per script behaviour class (ms and calls per frame, slowest first), GPU ms or null + reason, memory; "
+           "loading: timeToFirstFrameMs, each scene's loadMs (from the start of its load to the end of the first frame after it), files and bytes, "
+           "slowestAssets (kind, path, bytes, readMs, decodeMs) and reads (count, bytes, fromPack, packStoredBytes): this machine's times, rounded, "
+           "to compare runs, never a pass or a fail; spikes: slowest frames with entity count and render stats; logs: "
            "warnings and errors; marks: frame, time, note and screenshot path, 1-based `n`; for a play.auto session (`source` \"auto\") also `kind` and `step` "
            "of each problem the bot found, `phases` (scenes and game.phase marks with their time and screenshot), `score`, `ended` (won, lost, timeout, stuck, broken, quit, aborted) with `endedWhy`, `endScreenshot`, `notes` and "
            "`auto` (seed, speed, bot, stuckSeconds)), `replay` (the input file, absolute path) "

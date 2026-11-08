@@ -916,6 +916,29 @@
           },
           "description": "Project-relative globs no export ships (folder, game.pak, web, android, ios): \"store/**\", \"levels/*.tmx\", \"notes\" (a folder). '*' matches inside one folder, '**' crosses folders, '?' one character. Added to the files and folders every export already leaves out (hidden files and folders whose name starts with a dot, build/, tests/, tools/, types/, README.md, the feedback file, AGENTS.md, CLAUDE.md). `factoria validate` warns about a glob that matches no file and fails when one matches the main scene. See docs/EXPORTING.md, \"What is shipped\"."
         },
+        "pack": {
+          "type": "object",
+          "description": "How a release build packs game.pak (factoria export --release for windows, macos, linux, and every web export): the codec of each file type and the order of the files. The pack is compressed in blocks of 256 KiB, each one decoded on its own, so a game reads only the blocks it needs. See docs/EXPORTING.md, \"The game pack\".",
+          "properties": {
+            "codecs": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "enum": [
+                  "store",
+                  "lz4",
+                  "zstd"
+                ]
+              },
+              "description": "File extension (lower case, with its dot: \".json\"; a .scene.json counts as .json) -> \"store\", \"lz4\" or \"zstd\", over the engine's default for that type: store for files that are compressed already (.png, .jpg, .webp, .ogg, .mp3, .qoa, .mp4, .ktx2 with supercompression, archives), zstd for fonts and text (.ttf, .otf, .txt, .md, .csv, .xml, .svg, shader sources), lz4 for everything else (JSON, scenes, scripts and their bytecode, meshes). lz4 decodes fastest, zstd packs smallest; a block that compression shrinks by less than 1/32 is stored as it is."
+            },
+            "useLoadOrder": {
+              "type": "boolean",
+              "default": true,
+              "description": "true (default): the files go into the pack in the order the game first read them in play sessions (the editor's Play, factoria run, play.auto record it per scene in .factoria/cache/load-order.json): the main scene's files first, then each scene's in the order the scenes first loaded, then the files no session read, by path. Reading a pack front to back is what disks and SSDs do fastest. false, or no session recorded yet: by path. The export says which order it used and how many files it covered."
+            }
+          }
+        },
         "windows": {
           "type": "object",
           "description": "Windows export settings (factoria export --platform windows).",

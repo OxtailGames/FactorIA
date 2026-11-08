@@ -4,10 +4,13 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <mutex>
+#include <string>
 #include <system_error>
 #include <thread>
 #include <unordered_map>
@@ -18,6 +21,7 @@
 #include <unistd.h>
 #endif
 
+#include "fa/core/load_trace.h"
 #include "fa/core/pack.h"
 #include "fa/core/strings.h"
 #include "fs_internal.h"
@@ -35,7 +39,7 @@ struct FsState {
     bool userDirSet = false;
     std::shared_ptr<const PackReader> pack;  // mount_pack
     struct Warm {
-        std::vector<std::uint8_t> bytes;
+        std::shared_ptr<const std::vector<std::uint8_t>> bytes;  // shared with the FileViews read_view gave out
         std::int64_t modified = 0;
     };
     std::map<std::string, Warm> warm;  // warm(): files read ahead of time, keyed by normalized path
@@ -81,10 +85,16 @@ inline bool emulating() {
 #endif
 }
 
-// The files open for reading through ReadStream, by registry key -> number of streams. Only used while emulating.
+// The files open for reading through ReadStream or a fa::PackReader, by registry key. Only used while emulating.
+struct Holders {
+    int all = 0;       // every open handle: a replace (MoveFileExW onto the file) fails while there is one
+    int noDelete = 0;  // the handles that do not let others delete the file (a std::ifstream, a mapped pack): a delete fails
+    std::uint64_t generation = 0;  // which file at that path the handles are open on (forget_deleted)
+};
 struct OpenFiles {
     std::mutex mutex;
-    std::unordered_map<std::string, int> counts;
+    std::unordered_map<std::string, Holders> counts;
+    std::uint64_t lastGeneration = 0;
 };
 OpenFiles& open_files() {
     static OpenFiles o;
@@ -116,19 +126,48 @@ const RulesCategory& rules_category() {
 }
 constexpr int kErrorSharingViolation = 32;  // ERROR_SHARING_VIOLATION
 
-// The error a Windows rename or delete of `p` gives while a ReadStream holds it, or of a folder with such a file inside it;
-// empty when nothing holds it or the rules are not emulated.
-std::error_code open_conflict(const stdfs::path& p) {
+enum class Change { Delete, Replace };
+// The error a Windows delete or replace of `p` gives while the process holds it open, or of a folder with such a file
+// inside it; empty when nothing holds it or the rules are not emulated. A delete fails only for a handle that did not
+// share delete (a std::ifstream, a mapped pack); MSVC's remove deletes a file open with FILE_SHARE_DELETE (an unmapped
+// pack) at once, with POSIX semantics. A replace (MoveFileExW onto the file) fails for any open handle.
+std::error_code open_conflict(const stdfs::path& p, Change change) {
     if (!emulating()) return {};
     OpenFiles& o = open_files();
     std::lock_guard<std::mutex> lock(o.mutex);
     if (o.counts.empty()) return {};
+    auto blocks = [change](const Holders& h) { return change == Change::Replace ? h.all > 0 : h.noDelete > 0; };
     const std::string key = registry_key(p);
-    if (o.counts.count(key)) return {kErrorSharingViolation, rules_category()};
+    if (auto it = o.counts.find(key); it != o.counts.end() && blocks(it->second)) return {kErrorSharingViolation, rules_category()};
     const std::string below = key + "/";
-    for (const auto& [openKey, n] : o.counts)
-        if (openKey.compare(0, below.size(), below) == 0) return {kErrorSharingViolation, rules_category()};
+    for (const auto& [openKey, h] : o.counts)
+        if (openKey.compare(0, below.size(), below) == 0 && blocks(h)) return {kErrorSharingViolation, rules_category()};
     return {};
+}
+
+// A delete that went through with handles open on the file (all of them shared delete: an unmapped pack) leaves those
+// handles on a file that has no name any more, as MSVC's remove does with POSIX semantics: the path is free for a new
+// file, which they do not hold. Forget them; their unregister finds another generation (or none) and does nothing.
+void forget_deleted(const stdfs::path& p) {
+    if (!emulating()) return;
+    OpenFiles& o = open_files();
+    std::lock_guard<std::mutex> lock(o.mutex);
+    if (o.counts.empty()) return;
+    const std::string key = registry_key(p);
+    const std::string below = key + "/";
+    for (auto it = o.counts.begin(); it != o.counts.end();) {
+        const bool under = it->first == key || it->first.compare(0, below.size(), below) == 0;
+        it = under && it->second.noDelete <= 0 ? o.counts.erase(it) : std::next(it);
+    }
+}
+
+// The registration of one more handle on `key` (the lock held): the token register_open_file returns.
+std::string add_holder(OpenFiles& o, const std::string& key, bool sharesDelete) {
+    Holders& h = o.counts[key];
+    if (h.all <= 0) h.generation = ++o.lastGeneration;
+    ++h.all;
+    if (!sharesDelete) ++h.noDelete;
+    return key + '\n' + std::to_string(h.generation);
 }
 
 void retry_pause(int attempt) { std::this_thread::sleep_for(std::chrono::milliseconds(attempt < 10 ? 1 : 10)); }
@@ -318,7 +357,7 @@ stdfs::path os_path(const stdfs::path& p) {
 }
 
 std::uintmax_t remove_tree(const stdfs::path& dir, std::error_code& ec) {
-    if (emulating() && open_conflict(dir)) {
+    if (emulating() && open_conflict(dir, Change::Delete)) {
         // Windows deletes what it can and leaves the open files (and the folders around them), then reports the failure.
         std::error_code lec;
         std::vector<stdfs::path> files, dirs;
@@ -327,22 +366,94 @@ std::uintmax_t remove_tree(const stdfs::path& dir, std::error_code& ec) {
         std::uintmax_t removed = 0;
         for (const stdfs::path& f : files) {
             std::error_code rec;
-            if (!open_conflict(f) && stdfs::remove(f, rec)) ++removed;
+            if (!open_conflict(f, Change::Delete) && stdfs::remove(f, rec)) {
+                ++removed;
+                forget_deleted(f);
+            }
         }
         for (auto it = dirs.rbegin(); it != dirs.rend(); ++it) {
             std::error_code rec;
-            if (!open_conflict(*it) && stdfs::remove(*it, rec)) ++removed;
+            if (!open_conflict(*it, Change::Delete) && stdfs::remove(*it, rec)) ++removed;
         }
-        ec = open_conflict(dir);
+        ec = open_conflict(dir, Change::Delete);
         return removed;
     }
 #ifdef _WIN32
     std::error_code aec;
     stdfs::path abs = stdfs::absolute(dir, aec).lexically_normal();
     if (!aec && !abs.has_filename() && abs.has_relative_path()) abs = abs.parent_path();  // a trailing separator
-    if (!aec) return stdfs::remove_all(extended_path(abs), ec);
+    if (!aec) {
+        const stdfs::path target = extended_path(abs);
+        std::uintmax_t removed = stdfs::remove_all(target, ec);
+        if (ec == std::errc::permission_denied) {
+            // A read-only file (copy_file keeps the attribute: a previous export of a read-only player) refuses a
+            // delete with ERROR_ACCESS_DENIED: drop the attribute of what is left and try once more.
+            std::error_code wec;
+            for (auto it = stdfs::recursive_directory_iterator(target, wec); !wec && it != stdfs::recursive_directory_iterator();
+                 it.increment(wec)) {
+                std::error_code pec;
+                if (!it->is_symlink(pec) && it->is_regular_file(pec))
+                    stdfs::permissions(it->path(), stdfs::perms::owner_write, stdfs::perm_options::add, pec);
+            }
+            ec.clear();
+            removed = stdfs::remove_all(target, ec);  // the first call's count is -1 on an error, like this one's
+        }
+        return removed;
+    }
 #endif
-    return stdfs::remove_all(dir, ec);
+    const std::uintmax_t removed = stdfs::remove_all(dir, ec);
+    if (!ec) forget_deleted(dir);  // the emulation: what was open with delete shared went with it
+    return removed;
+}
+
+bool file_in_use(const stdfs::path& file, bool* markLost) {
+    if (markLost) *markLost = false;
+    if (open_conflict(file, Change::Delete)) return true;  // the emulation
+#ifdef _WIN32
+    // A scanner or indexer that opened the file a moment ago lets go within milliseconds (as replace_file waits for):
+    // only a file still held after about a second is in use. A running game holds its files for as long as it runs.
+    for (int i = 0; i < 100; ++i) {
+        const detail::Held held = detail::held_open(file);
+        if (held == detail::Held::MarkLost) {
+            if (markLost) *markLost = true;
+            return true;
+        }
+        if (held == detail::Held::No) return false;
+        retry_pause(i);
+    }
+    return true;
+#else
+    return false;  // POSIX deletes and replaces open files
+#endif
+}
+
+stdfs::path find_file_in_use(const stdfs::path& dir, const std::function<bool(const stdfs::path&, bool)>& which,
+                             std::size_t maxFiles, bool* markLost) {
+    if (markLost) *markLost = false;
+#ifndef _WIN32
+    if (!emulating()) return {};  // POSIX deletes and replaces open files
+#endif
+    std::error_code ec;
+    const stdfs::path root = os_path(dir);
+    const auto status = stdfs::symlink_status(root, ec);
+    if (ec || !stdfs::exists(status)) return {};
+    if (!stdfs::is_directory(status)) return file_in_use(dir, markLost) ? dir : stdfs::path();
+    std::size_t looked = 0;
+    for (auto it = stdfs::recursive_directory_iterator(root, stdfs::directory_options::skip_permission_denied, ec);
+         !ec && it != stdfs::recursive_directory_iterator() && looked < maxFiles; it.increment(ec)) {
+        std::error_code tec;
+        if (it->is_symlink(tec)) continue;
+        const bool folder = it->is_directory(tec);
+        const stdfs::path rel = it->path().lexically_relative(root);
+        if (which && !which(rel, folder)) {
+            if (folder) it.disable_recursion_pending();
+            continue;
+        }
+        if (folder) continue;
+        ++looked;
+        if (file_in_use(it->path(), markLost)) return dir / rel;
+    }
+    return {};
 }
 
 // ---- Windows file rules: public part -----------------------------------------------------------------------------
@@ -366,12 +477,38 @@ bool is_sharing_violation(const std::error_code& ec) {
     if (!ec) return false;
     if (ec.category() == rules_category()) return true;
 #ifdef _WIN32
-    const int code = ec.value();  // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
-    return code == 5 || code == 32 || code == 33;
+    const int code = ec.value();  // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION, ERROR_USER_MAPPED_FILE
+    return code == 5 || code == 32 || code == 33 || code == 1224;
 #else
     return false;
 #endif
 }
+
+namespace detail {
+std::string register_open_file(const stdfs::path& file, bool sharesDelete) {
+    if (!emulating()) return {};
+    const std::string key = registry_key(file);
+    OpenFiles& o = open_files();
+    std::lock_guard<std::mutex> lock(o.mutex);
+    return add_holder(o, key, sharesDelete);
+}
+
+void unregister_open_file(const std::string& token, bool sharesDelete) {
+    if (token.empty()) return;
+    const std::size_t cut = token.rfind('\n');
+    if (cut == std::string::npos) return;
+    const std::string key = token.substr(0, cut);
+    const std::string generation = token.substr(cut + 1);
+    OpenFiles& o = open_files();
+    std::lock_guard<std::mutex> lock(o.mutex);
+    auto it = o.counts.find(key);
+    // Gone or another generation: the file was deleted under the handle (forget_deleted), which held nothing since.
+    if (it == o.counts.end() || std::to_string(it->second.generation) != generation) return;
+    --it->second.all;
+    if (!sharesDelete) --it->second.noDelete;
+    if (it->second.all <= 0) o.counts.erase(it);
+}
+}  // namespace detail
 
 ReadStream::ReadStream(const stdfs::path& file, std::ios_base::openmode mode) { open(file, mode); }
 
@@ -384,10 +521,11 @@ void ReadStream::open(const stdfs::path& file, std::ios_base::openmode mode) {
     close();
     // Registered before the open, so the file is never open and unknown to the registry at once.
     if (emulating()) {
-        registered_ = registry_key(file);
+        const std::string key = registry_key(file);
         OpenFiles& o = open_files();
         std::lock_guard<std::mutex> lock(o.mutex);
-        ++o.counts[registered_];
+        // A std::ifstream does not share delete (MSVC opens it with _SH_DENYNO: read and write only).
+        registered_ = add_holder(o, key, /*sharesDelete=*/false);
     }
     std::ifstream::open(file, mode);
     if (!std::ifstream::is_open()) unregister();
@@ -400,19 +538,14 @@ void ReadStream::close() {
 
 void ReadStream::unregister() {
     if (registered_.empty()) return;
-    OpenFiles& o = open_files();
-    {
-        std::lock_guard<std::mutex> lock(o.mutex);
-        auto it = o.counts.find(registered_);
-        if (it != o.counts.end() && --it->second <= 0) o.counts.erase(it);
-    }
+    detail::unregister_open_file(registered_, /*sharesDelete=*/false);
     registered_.clear();
 }
 
 void replace_file(const stdfs::path& from, const stdfs::path& to, std::error_code& ec) {
     auto attempt = [&] {
-        ec = open_conflict(from);
-        if (!ec) ec = open_conflict(to);
+        ec = open_conflict(from, Change::Replace);
+        if (!ec) ec = open_conflict(to, Change::Replace);
         if (!ec) stdfs::rename(from, to, ec);
     };
     std::error_code ignored;
@@ -430,8 +563,9 @@ void replace_file(const stdfs::path& from, const stdfs::path& to, std::error_cod
 bool remove_file(const stdfs::path& file, std::error_code& ec) {
     bool removed = false;
     auto attempt = [&] {
-        ec = open_conflict(file);
+        ec = open_conflict(file, Change::Delete);
         removed = ec ? false : stdfs::remove(file, ec);
+        if (removed) forget_deleted(file);
     };
     attempt();
     for (int i = 0; ec && is_sharing_violation(ec) && i < 100; ++i) {
@@ -484,7 +618,7 @@ Result<std::vector<std::uint8_t>> read_bytes(std::string_view path) {
         auto it = state().warm.find(n.value());
         if (it != state().warm.end()) {
             const std::int64_t warmModified = it->second.modified;
-            std::vector<std::uint8_t> copy = it->second.bytes;
+            std::vector<std::uint8_t> copy = *it->second.bytes;
             lock.unlock();
             // A file that changed on disk since it was read ahead is read again (hot reload, a tool that rewrote it).
             if (modified_time(n.value()) == warmModified) return copy;
@@ -515,8 +649,8 @@ Result<void> warm(std::string_view path, std::string* text, std::uint64_t* size)
         std::lock_guard<std::mutex> lock(state().mutex);
         auto it = state().warm.find(n.value());
         if (it != state().warm.end() && it->second.modified == modified) {
-            if (text) *text = text_of(it->second.bytes);
-            if (size) *size = it->second.bytes.size();
+            if (text) *text = text_of(*it->second.bytes);
+            if (size) *size = it->second.bytes->size();
             return {};
         }
     }
@@ -529,7 +663,7 @@ Result<void> warm(std::string_view path, std::string* text, std::uint64_t* size)
     if (text) *text = text_of(bytes.value());
     if (size) *size = bytes.value().size();
     std::lock_guard<std::mutex> lock(state().mutex);
-    state().warm[n.value()] = FsState::Warm{std::move(bytes.value()), modified};
+    state().warm[n.value()] = FsState::Warm{std::make_shared<const std::vector<std::uint8_t>>(std::move(bytes.value())), modified};
     return {};
 }
 
@@ -555,7 +689,7 @@ void unwarm_all() {
 std::uint64_t warm_bytes() {
     std::lock_guard<std::mutex> lock(state().mutex);
     std::uint64_t total = 0;
-    for (const auto& [path, w] : state().warm) total += w.bytes.size();
+    for (const auto& [path, w] : state().warm) total += w.bytes->size();
     return total;
 }
 
@@ -565,7 +699,30 @@ std::uint64_t disk_reads() {
 }
 
 namespace {
+Result<std::vector<std::uint8_t>> read_bytes_untraced(std::string_view path);
+
+// A project-relative file read for the load trace (fa/core/load_trace.h); absolute paths are tools' files, not the game's.
+void trace_read(const std::string& normalized, std::uint64_t bytes, std::int64_t startNs) {
+    if (is_absolute(normalized)) return;
+    std::uint64_t stored = bytes;
+    bool fromPack = false;
+    if (auto pack = pack_for(normalized)) {
+        fromPack = true;
+        const std::int64_t s = pack->stored_size_of(normalized);
+        stored = s >= 0 ? std::uint64_t(s) : bytes;
+    }
+    LoadTrace::file_read(normalized, bytes, stored, fromPack, LoadTrace::now_ns() - startNs);
+}
+
 Result<std::vector<std::uint8_t>> read_bytes_source(std::string_view path) {
+    if (!LoadTrace::any()) return read_bytes_untraced(path);
+    const std::int64_t start = LoadTrace::now_ns();
+    auto r = read_bytes_untraced(path);
+    if (r.ok()) trace_read(normalize(path), r.value().size(), start);
+    return r;
+}
+
+Result<std::vector<std::uint8_t>> read_bytes_untraced(std::string_view path) {
     auto n = normalize_checked(path);
     if (!n) return n.error();
     if (auto pack = pack_for(n.value())) {
@@ -599,6 +756,64 @@ Result<std::vector<std::uint8_t>> read_bytes_source(std::string_view path) {
     return data;
 }
 }  // namespace
+
+FileView::FileView(std::vector<std::uint8_t> bytes) {
+    auto owned = std::make_shared<const std::vector<std::uint8_t>>(std::move(bytes));
+    data_ = owned->data();
+    size_ = owned->size();
+    owner_ = std::move(owned);
+}
+
+FileView::FileView(std::shared_ptr<const void> owner, const std::uint8_t* data, std::size_t size, bool mapped)
+    : owner_(std::move(owner)), data_(data), size_(size), mapped_(mapped) {}
+
+std::string_view FileView::text() const {
+    const std::size_t skip = (size_ >= 3 && data_[0] == 0xEF && data_[1] == 0xBB && data_[2] == 0xBF) ? 3 : 0;  // UTF-8 BOM
+    return size_ == 0 ? std::string_view() : std::string_view(reinterpret_cast<const char*>(data_) + skip, size_ - skip);
+}
+
+Result<FileView> read_view(std::string_view path) {
+    auto n = normalize_checked(path);
+    if (!n) return n.error();
+    {
+        std::unique_lock<std::mutex> lock(state().mutex);
+        auto it = state().warm.find(n.value());
+        if (it != state().warm.end()) {
+            const std::int64_t warmModified = it->second.modified;
+            std::shared_ptr<const std::vector<std::uint8_t>> shared = it->second.bytes;
+            lock.unlock();
+            if (modified_time(n.value()) == warmModified) return FileView(shared, shared->data(), shared->size(), true);
+            lock.lock();
+            state().warm.erase(n.value());
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(state().mutex);
+        state().diskReads++;
+    }
+    const bool tracing = LoadTrace::any();
+    const std::int64_t start = tracing ? LoadTrace::now_ns() : 0;
+    if (auto pack = pack_for(n.value())) {
+        if (!pack->contains(n.value()) && !pack->is_directory(n.value())) return pack->not_found(path, n.value());
+        auto v = pack->view(n.value());
+        if (tracing && v.ok()) trace_read(n.value(), v.value().size(), start);
+        return v;
+    }
+#ifdef __ANDROID__
+    if (use_assets(n.value())) {
+        std::shared_ptr<const void> owner;
+        const std::uint8_t* data = nullptr;
+        std::size_t size = 0;
+        if (detail::android_view(n.value(), owner, data, size)) {
+            if (tracing) trace_read(n.value(), size, start);
+            return FileView(std::move(owner), data, size, true);
+        }
+    }
+#endif
+    auto bytes = read_bytes_source(path);  // traces itself
+    if (!bytes) return bytes.error();
+    return FileView(std::move(bytes.value()));
+}
 
 Result<std::string> read_text(std::string_view path) {
     auto bytes = read_bytes(path);
