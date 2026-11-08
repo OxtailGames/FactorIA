@@ -279,3 +279,22 @@ of the last frame, how busy each thread was, the threads waiting now (`waiting`)
 Cost: idle workers sleep and use no CPU. A job costs about one allocation and one lock, so the engine only splits work
 big enough to gain from it. Each worker has a stack and a few kilobytes of its own: on a phone, fewer workers save a
 little memory and battery.
+
+What runs on the workers: the drawing work of a frame once it is big (the sprites, tilemaps, particles, the 3D meshes'
+matrices, culling and shadows, the sorts and the vertex stream; docs/ARCHITECTURE.md, "Systems that run as jobs"
+lists each job with its threshold) and the poses of many animators. A game under every threshold (a few hundred
+sprites, under 2048 particles, under 256 meshes: most games) runs exactly as with 0 workers. In `perf.profile`'s
+`threads` these show as `render.gather_sprites`, `render.particles`, `render.mesh_cull`, `scene.animation_poses` and
+the like on the worker lanes.
+
+Choosing `jobThreads`:
+
+- Keep `"auto"` unless a measurement says otherwise. A game whose `threads` show no render or animation jobs on the
+  workers gains nothing from more of them; `0` then saves the workers' memory.
+- A crowded scene (thousands of sprites or particles, hundreds of meshes) gains on the CPU side of `render`. What the
+  workers cannot take is the submission to the GPU (one call per draw, on the main thread), so `drawCalls` still sets
+  the floor: batch first (shared textures and materials), then add threads.
+- `perf.measure`'s `cpuMs` is the CPU time of the whole process (every thread), so threads do not lower it: compare
+  `perf.profile`'s `frameMs` and `systems.render` (wall clock) with `FA_JOB_THREADS=0` and with the setting you want.
+- The picture and `game.state_hash` are the same with every setting; `"inline"` and 0 workers take the one-chunk path,
+  the cheapest when there is nobody to share the work with.

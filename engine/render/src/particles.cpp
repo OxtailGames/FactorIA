@@ -16,6 +16,7 @@
 #include "fa/scene/particles.h"
 #include "fa/scene/ui_rect.h"
 #include "frame.h"
+#include "render_jobs.h"
 
 namespace fa::render {
 
@@ -236,21 +237,54 @@ void flush_particle_bursts(World& world) {
     });
 }
 
+namespace {
+
+// The emitters are simulated and drawn as jobs (render_jobs.h) once the scene holds kParallelParticles live particles:
+// moving or drawing one costs ~50 ns, handing out a chunk a few microseconds. A chunk is a run of whole emitters of
+// about kParticleChunk particles (each emitter's sim is its own: ParticleSim owns its particles and its Rng), counting
+// kEmitterWeight for the emitter's own work (spawning, its trail).
+constexpr std::size_t kParallelParticles = 2048;
+constexpr std::size_t kParticleChunk = 1024;
+constexpr std::size_t kEmitterWeight = 16;
+
+struct StepItem {
+    Entity e;
+    ParticleEmitter* em = nullptr;
+    EmitterState* st = nullptr;
+    ParticleEnv env;
+};
+
+}  // namespace
+
 void update_particles(World& world, float dt) {
     auto& all = states();
     for (auto& [k, s] : all) s.seen = false;
 
+    // On this thread: the states (the map only grows here, and its elements never move), the shape mesh each emitter
+    // is born on (it may be loaded) and how many particles there are.
+    std::vector<StepItem> steps;
+    std::vector<std::size_t> weights;
     world.each<ParticleEmitter>([&](Entity e, ParticleEmitter& em) {
         if (!entity_active(world, e)) return;
         EmitterState& st = state_for(world, e, em);
         st.seen = true;
-        const ParticleEnv env = make_env(world, e, em, st);
-        st.sim.step(em, env, dt);
-        log_problems(world, e, st);
-        if (em.autoDestroy && !em.emitting && st.sim.everSpawned && st.sim.empty() && st.sim.emitterTrail.empty() &&
-            st.sim.pending_burst() == 0 && !world.pending_destroy(e))
-            world.destroy(e);
+        steps.push_back({e, &em, &st, make_env(world, e, em, st)});
+        weights.push_back(st.sim.particles.size() + kEmitterWeight);
     });
+    // The steps only read the World (a Tilemap to bounce on, the emitter a sub-emitter names) and write their own sim.
+    const auto ranges = rjobs::weighted_ranges(weights, kParticleChunk, kParallelParticles);
+    rjobs::run("render.particles", rjobs::split(ranges.size(), 1, 2), [&](const jobs::Chunk& c) {
+        for (std::size_t r = c.begin; r < c.end; ++r)
+            for (std::size_t i = ranges[r].first; i < ranges[r].second; ++i) steps[i].st->sim.step(*steps[i].em, steps[i].env, dt);
+    });
+    // Back on this thread, in the order of the emitters: what the sims had to say, and the emitters that are done.
+    for (StepItem& it : steps) {
+        EmitterState& st = *it.st;
+        log_problems(world, it.e, st);
+        if (it.em->autoDestroy && !it.em->emitting && st.sim.everSpawned && st.sim.empty() && st.sim.emitterTrail.empty() &&
+            st.sim.pending_burst() == 0 && !world.pending_destroy(it.e))
+            world.destroy(it.e);
+    }
 
     for (auto it = all.begin(); it != all.end();) {
         if (!it->second.seen) it = all.erase(it);
@@ -258,21 +292,28 @@ void update_particles(World& world, float dt) {
     }
 }
 
-void gather_particles(World& world, Frame& f) {
-    auto& all = states();
+namespace {
+
+// An emitter gather_particles draws, with what only the calling thread may look up (textures, the project palette).
+struct DrawItem {
+    Entity e;
+    const ParticleEmitter* em = nullptr;
+    EmitterState* st = nullptr;  // only the chunk drawing this emitter touches it (its palettes)
+    bool screen = false;
+    Rect clip;
+    std::vector<TextureAsset*> groupTex;  // the texture of each group (white for soft dots and pixel mode)
+};
+
+// Draws one emitter into `list`: a chunk's own list, so this only reads the World and the Frame.
+void draw_emitter(const World& world, const Frame& f, const DrawItem& item, const std::vector<Color>& stylePalette, QuadList& list) {
     static const std::vector<Color> kNoPalette;
-    // The project palette, read once per frame and only when an emitter in pixel mode without a palette of its own is drawn.
-    std::shared_ptr<const std::vector<Color>> frameStylePalette;
-    world.each<ParticleEmitter>([&](Entity e, ParticleEmitter& em) {
-        if (!entity_active(world, f, e)) return;
-        auto it = all.find(e.bits());
-        if (it == all.end()) return;
-        EmitterState& st = it->second;
-        const ParticleSim& sim = st.sim;
-        if (sim.empty() && sim.emitterTrail.empty()) return;
-        const bool screen = screen_space(em);
-        if (screen ? !f.wantScreen : !f.wantWorld) return;
-        if (!screen && !f.mask.draws(world, e)) return;  // Camera.showTags / hideTags
+    const Entity e = item.e;
+    const ParticleEmitter& em = *item.em;
+    EmitterState& st = *item.st;
+    const ParticleSim& sim = st.sim;
+    const bool screen = item.screen;
+    const Rect& clip = item.clip;
+    {
         Mat4 m = world.world_matrix(e);
         Vec3 anchor{};
         if (screen) {
@@ -281,9 +322,6 @@ void gather_particles(World& world, Frame& f) {
         }
 
         const Color tint = inherited_tint(world, f, e);
-        QuadList& list = screen ? f.screen : f.world;
-        Rect clip;
-        if (screen && !screen_clip(world, e, f, clip)) return;
         const float depth = f.cam.perspective && !screen ? length(m.translation() - f.cam.position) : 0.0f;
         // The sim's space -> where it is drawn (the +Y up simulation of a screen emitter is flipped onto the y-down screen).
         auto to_draw = [&](Vec3 q) {
@@ -374,7 +412,7 @@ void gather_particles(World& world, Frame& f) {
             // ---- the particles ----
             const bool pixel = c.pixelMode;
             const bool soft = c.texture.empty() && !pixel;
-            TextureAsset* tex = (c.texture.empty() || pixel) ? white : f.assets->texture(c.texture);
+            TextureAsset* tex = item.groupTex[std::size_t(g)];
             // The whole texture (inside its atlas when packed); the soft dot of a texture-less emitter spans -1..1.
             const Vec2 uvMin = soft ? Vec2{-1.0f, -1.0f} : tex->uv(0.0f, 0.0f);
             const Vec2 uvMax = soft ? Vec2{1.0f, 1.0f} : tex->uv(float(tex->width), float(tex->height));
@@ -386,8 +424,7 @@ void gather_particles(World& world, Frame& f) {
                 if (c.palette.is_array() && !c.palette.empty()) {
                     palettePtr = &own_palette(st, g, c.palette);
                 } else {
-                    if (!frameStylePalette) frameStylePalette = style_palette();
-                    palettePtr = frameStylePalette.get();
+                    palettePtr = &stylePalette;
                 }
             }
             const std::vector<Color>& palette = *palettePtr;
@@ -444,8 +481,66 @@ void gather_particles(World& world, Frame& f) {
             }
             list.end_item();
         }
+    }
+}
+
+}  // namespace
+
+void gather_particles(World& world, Frame& f) {
+    auto& all = states();
+    // On this thread: which emitters are drawn, the textures of their groups (a texture may be loaded) and, when an
+    // emitter in pixel mode without a palette of its own is drawn, the project palette (read once per frame).
+    std::vector<DrawItem> items;
+    std::vector<std::size_t> weights;
+    std::shared_ptr<const std::vector<Color>> frameStylePalette;
+    world.each<ParticleEmitter>([&](Entity e, ParticleEmitter& em) {
+        if (!entity_active(world, f, e)) return;
+        auto it = all.find(e.bits());
+        if (it == all.end()) return;
+        EmitterState& st = it->second;
+        const ParticleSim& sim = st.sim;
+        if (sim.empty() && sim.emitterTrail.empty()) return;
+        const bool screen = screen_space(em);
+        if (screen ? !f.wantScreen : !f.wantWorld) return;
+        if (!screen && !f.mask.draws(world, e)) return;  // Camera.showTags / hideTags
+        DrawItem item;
+        item.e = e;
+        item.em = &em;
+        item.st = &st;
+        item.screen = screen;
+        if (screen && !screen_clip(world, e, f, item.clip)) return;
+        item.groupTex.resize(std::size_t(sim.group_count()));
+        for (int g = 0; g < sim.group_count(); ++g) {
+            const ParticleEmitter& c = sim.group_emitter(g, em);
+            item.groupTex[std::size_t(g)] = f.assets->white();
+            if (sim.live(g) <= 0) continue;  // nothing of this group is drawn: nothing to look up
+            if (!c.texture.empty() && !c.pixelMode) item.groupTex[std::size_t(g)] = f.assets->texture(c.texture);
+            if (c.pixelMode && !(c.palette.is_array() && !c.palette.empty()) && !frameStylePalette) frameStylePalette = style_palette();
+        }
         f.stats->particles += int(sim.particles.size());
+        weights.push_back(sim.particles.size() + kEmitterWeight);
+        items.push_back(std::move(item));
     });
+    static const std::vector<Color> kNoStylePalette;
+    const std::vector<Color>& stylePalette = frameStylePalette ? *frameStylePalette : kNoStylePalette;
+
+    // The quads, a run of emitters per chunk into the chunk's own lists, joined in chunk order: the lists end up as if
+    // every emitter had been drawn into them one after the other.
+    const auto ranges = rjobs::weighted_ranges(weights, kParticleChunk, kParallelParticles);
+    if (ranges.size() <= 1) {
+        for (const DrawItem& item : items) draw_emitter(world, f, item, stylePalette, item.screen ? f.screen : f.world);
+        return;
+    }
+    std::vector<QuadList> worldParts(ranges.size()), screenParts(ranges.size());
+    rjobs::run("render.gather_particles", rjobs::split(ranges.size(), 1, 2), [&](const jobs::Chunk& c) {
+        for (std::size_t r = c.begin; r < c.end; ++r)
+            for (std::size_t i = ranges[r].first; i < ranges[r].second; ++i)
+                draw_emitter(world, f, items[i], stylePalette, items[i].screen ? screenParts[r] : worldParts[r]);
+    });
+    for (std::size_t r = 0; r < ranges.size(); ++r) {
+        f.world.append(worldParts[r]);
+        f.screen.append(screenParts[r]);
+    }
 }
 
 }  // namespace fa::render
