@@ -25,3 +25,8 @@ tools/shaders/licenses/*.txt text eol=lf
 # every checkout so that the hash and the embedded files are the same on every host. Twins are JSON.
 engine/render/shaders/*.glsl text eol=lf
 *.shader text eol=lf
+
+# Codec interop fixtures made by the reference zstd and lz4 tools (engine/core/tests/data/codecs/README.md): never touch their bytes.
+engine/core/tests/data/codecs/*.zst binary
+engine/core/tests/data/codecs/*.lz4 binary
+engine/core/tests/data/codecs/*.bin binary
