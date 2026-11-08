@@ -4504,7 +4504,7 @@ Not released yet (on main after 0.18.0).
 
 Stop a background load, or drop the files a finished one read ahead.
 
-A running load stops: what it decoded is thrown away, an async scene.load does not switch, and a script's handle rejects with "cancelled" in the next frame. A finished load's files read ahead are dropped now. Answers {id, cancelled}. Example: load.cancel {"id":1}
+A running load stops: what it decoded is thrown away, an async scene.load does not switch, and a script's handle rejects with "cancelled" in the next frame. A finished load's files read ahead are dropped now, and an async scene.load whose files were ready this frame does not switch at its end. Answers {id, cancelled}. Example: load.cancel {"id":1}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -11623,7 +11623,7 @@ declare module "factoria" {
      */
     readonly promise: Promise<{ files: number; bytes: number; uploadedBytes: number }>;
     /**
-     * Stops the job now: its promise rejects with "cancelled", what it decoded is thrown away and the files it read ahead are dropped. An async scene.load does not switch.
+     * Stops the job now: its promise rejects with "cancelled", what it decoded is thrown away and the files it read ahead are dropped. An async scene.load does not switch, also when its files were ready this frame and its promise resolved already (the switch happens at the end of the frame).
      * @since unreleased
      */
     cancel(): void;

@@ -933,6 +933,7 @@ void reserve_class_ids(JSRuntime* rt) {
 bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
     host = &h;
     host->drop_script_jobs(wfcJobIds);  // jobs of an earlier context: their handles are gone and nothing would step them
+    host->drop_script_background_loads();  // and its background loads: no update may reach a handle that is gone
     wfcJobIds.clear();
     ensure_builtin_components();
     rt = JS_NewRuntime();
@@ -1056,6 +1057,7 @@ void ScriptSystem::Impl::shutdown() {
     storage_drain();  // a setAsync write still running finishes before the process can end
     unregister_tools();
     if (host) host->drop_script_jobs(wfcJobIds);  // the JS handles that would cancel the tilemap.generate jobs die with the context
+    if (host) host->drop_script_background_loads();  // so do the handles of its background loads
     wfcJobIds.clear();
     if (host) host->commands().set_before_call({});
     if (host && observerId >= 0) host->world().remove_observer(observerId);

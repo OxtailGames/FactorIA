@@ -3529,7 +3529,7 @@ declare module "factoria" {
      */
     readonly promise: Promise<{ files: number; bytes: number; uploadedBytes: number }>;
     /**
-     * Stops the job now: its promise rejects with "cancelled", what it decoded is thrown away and the files it read ahead are dropped. An async scene.load does not switch.
+     * Stops the job now: its promise rejects with "cancelled", what it decoded is thrown away and the files it read ahead are dropped. An async scene.load does not switch, also when its files were ready this frame and its promise resolved already (the switch happens at the end of the frame).
      * @since unreleased
      */
     cancel(): void;

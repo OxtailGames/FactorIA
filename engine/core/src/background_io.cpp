@@ -94,9 +94,12 @@ bool run_read(Item& item) {
         item.file = std::move(f.value());
         return true;
     } catch (const std::bad_alloc&) {
-        settle(item, failure("out of memory while reading '" + item.file.path + "'", "Load fewer or smaller files at once."));
+        // Nothing was read yet, so the item has no path: name it by its ticket and its load's trace tag.
+        const std::string name = "background item " + std::to_string(item.id) + " (load-trace tag " + std::to_string(item.tag) + ")";
+        settle(item, failure("out of memory while reading " + name, "Load fewer or smaller files at once; load.status lists the loads that run."));
     } catch (const std::exception& e) {
-        settle(item, failure(std::string("the read failed: ") + e.what()));
+        settle(item, failure("background item " + std::to_string(item.id) + " (load-trace tag " + std::to_string(item.tag) +
+                             "): the read failed: " + e.what()));
     }
     return false;
 }

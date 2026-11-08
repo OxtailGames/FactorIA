@@ -158,6 +158,8 @@ Json eval(Engine& e, const std::string& code) {
 
 const std::vector<std::string> kModes = {"0", "1", "8", "inline"};
 
+bool running_done(const Json& status) { return status["state"] != "loading" && status["state"] != "scanning"; }
+
 struct LoadRun {
     std::vector<double> progress;  // load.status progress after each frame until the scene switched
     int frames = 0;
@@ -699,4 +701,126 @@ TEST_CASE("background load: a loader without a job pool gives the same frames as
     }
     fs::unwarm_all();
     fs::set_project_root(oldRoot);
+}
+
+TEST_CASE("background load: cancel() in the frame an async scene load's files were ready stops the switch") {
+    ScopedEnv env("FA_JOB_THREADS", nullptr);
+    TempProject p("samecancel");
+    for (const std::string& mode : kModes) {
+        CAPTURE(mode);
+        LoadOrder order;
+        EngineConfig c = p.config(mode);
+        c.traceLoads = true;
+        c.loadOrderSink = [&order](const LoadOrder& o) { order = o; };
+        {
+            Engine e;
+            std::string err;
+            REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+            e.step(1);
+            // The promise resolves inside the frame the files are ready, before the switch at its end.
+            eval(e, "globalThis.h = scene.load('scenes/level.scene.json', {n: 1}, {async: true}); globalThis.ready = -1;"
+                    "h.promise.then(() => { globalThis.ready = h.progress; h.cancel(); });");
+            int frames = 0;
+            while (eval(e, "globalThis.ready").get<double>() < 0 && frames < 500) {
+                e.step(1);
+                ++frames;
+            }
+            CHECK(eval(e, "globalThis.ready").get<double>() == 1.0);
+            e.step(3);
+            CHECK(e.world().scene_path() == "scenes/menu.scene.json");
+            CHECK(eval(e, "(() => { const q = game.sceneProps(); return !q || q.n === undefined; })()").get<bool>());
+            // A later scene load is not handed the cancelled load's props.
+            call(e, "scene.load", Json::object({{"path", "scenes/other.scene.json"}}));
+            e.step(1);
+            CHECK(e.world().scene_path() == "scenes/other.scene.json");
+            CHECK(eval(e, "(() => { const q = game.sceneProps(); return !q || q.n === undefined; })()").get<bool>());
+            e.shutdown();
+        }
+        CHECK_FALSE(scene_files(order, "scenes/level.scene.json"));  // the trace counts it as cancelled, not loaded
+        CHECK(fs::warm_bytes() == 0);
+    }
+}
+
+TEST_CASE("background load: a script's loads end with its JavaScript context; a command's stay") {
+    ScopedEnv env("FA_JOB_THREADS", nullptr);
+    TempProject p("context");
+    for (const std::string& mode : kModes) {
+        CAPTURE(mode);
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(p.config(mode), nullptr, &err), err);
+        e.step(1);
+        eval(e, "globalThis.h = scene.load('scenes/level.scene.json', null, {async: true});"
+                "globalThis.j = assets.preload(['sounds/hit.wav']);");
+        const int tool = call(e, "scene.preload", Json::object({{"path", "scenes/other.scene.json"}}))["loadId"].get<int>();
+        e.step(1);
+        const Json before = call(e, "load.status");
+        REQUIRE(before["jobs"].size() == 3);
+        e.drop_script_background_loads();  // what the script system does when it makes a new context
+        e.step(1);
+        int scripts = 0;
+        const Json after = call(e, "load.status");
+        for (const Json& job : after["jobs"]) {
+            if (job["origin"] == "script") {
+                ++scripts;
+                CHECK(job["state"] == "cancelled");
+            }
+        }
+        CHECK(scripts == 2);
+        int frames = 0;
+        while (!running_done(call(e, "load.status", Json::object({{"id", tool}}))) && frames < 200) {
+            e.step(1);
+            ++frames;
+        }
+        CHECK(call(e, "load.status", Json::object({{"id", tool}}))["state"] == "done");
+        e.step(20);
+        CHECK(e.world().scene_path() == "scenes/menu.scene.json");
+        e.shutdown();
+        CHECK(fs::warm_bytes() == 0);
+    }
+}
+
+TEST_CASE("background load: one engine's cancel keeps the files another engine read ahead") {
+    ScopedEnv env("FA_JOB_THREADS", nullptr);
+    TempProject p("sharedwarm");
+    Engine a, b;
+    std::string err;
+    REQUIRE_MESSAGE(a.init(p.config("2"), nullptr, &err), err);
+    REQUIRE_MESSAGE(b.init(p.config("2"), nullptr, &err), err);
+    a.step(1);
+    b.step(1);
+    auto wait_done = [](Engine& e, int id) {
+        int frames = 0;
+        while (!running_done(call(e, "load.status", Json::object({{"id", id}}))) && frames < 200) {
+            e.step(1);
+            ++frames;
+        }
+        CHECK(call(e, "load.status", Json::object({{"id", id}}))["state"] == "done");
+    };
+    const int ia = call(a, "scene.preload", Json::object({{"path", "scenes/level.scene.json"}}))["loadId"].get<int>();
+    wait_done(a, ia);
+    const std::uint64_t held = fs::warm_bytes();
+    REQUIRE(held > 0);
+    // B reads the same files ahead, then gives them back three ways: cancel, reset and shutdown.
+    const int ib = call(b, "scene.preload", Json::object({{"path", "scenes/level.scene.json"}}))["loadId"].get<int>();
+    wait_done(b, ib);
+    CHECK(fs::warm_bytes() == held);
+    CHECK(call(b, "load.cancel", Json::object({{"id", ib}}))["cancelled"].get<bool>());
+    CHECK(fs::warm_bytes() == held);
+    const int ib2 = call(b, "scene.preload", Json::object({{"path", "scenes/level.scene.json"}}))["loadId"].get<int>();
+    b.step(1);
+    CHECK(call(b, "load.cancel", Json::object({{"id", ib2}}))["cancelled"].get<bool>());
+    b.step(1);
+    CHECK(fs::warm_bytes() == held);
+    call(b, "scene.preload", Json::object({{"path", "scenes/level.scene.json"}}));
+    b.step(1);
+    b.shutdown();
+    CHECK(fs::warm_bytes() == held);
+    // A's load still reads nothing from disk.
+    const std::uint64_t reads = fs::disk_reads();
+    REQUIRE_MESSAGE(a.load_scene("scenes/level.scene.json", &err), err);
+    a.step(1);
+    CHECK(fs::disk_reads() == reads);
+    a.shutdown();
+    CHECK(fs::warm_bytes() == 0);
 }

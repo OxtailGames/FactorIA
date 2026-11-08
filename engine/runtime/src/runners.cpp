@@ -220,8 +220,9 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
         if (AppWindowControl* window = st->engine.runtime_impl().appWindow.get()) window->throttle();  // window.frameCap
         apply_safe_insets(*st);  // before the frame: layout and drawing read it
         if (!st->replay.empty()) {
-            // Frames without "loadUnits" take the fixed share of background loads, not what is ready (it would differ).
-            st->engine.runtime_impl().replaying = true;
+            // While the replay has frames, those without "loadUnits" take the fixed share of background loads, not what is
+            // ready (it would differ). Once it is over the game plays on with the timed budget, which never waits for a file.
+            st->engine.runtime_impl().replaying = st->replayFrame <= st->replayLast;
             if (auto it = st->replay.find(st->replayFrame); it != st->replay.end()) {
                 std::vector<std::string> problems;
                 st->engine.apply_input_entry(it->second, problems, st->replayFrame);

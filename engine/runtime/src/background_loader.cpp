@@ -20,7 +20,7 @@ namespace fa {
 struct BackgroundLoader::Shared {
     std::mutex mu;
     bool cancelled = false, started = false, done = false;
-    std::vector<std::string> warmed;  // files this item made warm (or found warm)
+    std::vector<std::string> warmed;  // files this item holds a reference to (warm_acquire), each once
     std::string readPath;             // the file the item read (a texture's twin, a sound's .qoa)
     std::uint64_t size = 0;
     bool readFailed = false;
@@ -60,6 +60,32 @@ struct BackgroundLoader::Shared {
 };
 
 namespace {
+
+// The references the loaders of every engine hold to warm files (background_loader.h): fs::unwarm runs when the last one
+// goes. A reference is taken BEFORE the file is warmed, so another loader's release in between cannot drop it. Never
+// destroyed: a loader may end after static destruction began.
+struct WarmRegistry {
+    std::mutex mu;
+    std::map<std::string, int> refs;
+};
+WarmRegistry& warm_registry() {
+    static WarmRegistry* r = new WarmRegistry();
+    return *r;
+}
+void warm_acquire(const std::string& path) {
+    WarmRegistry& r = warm_registry();
+    std::lock_guard<std::mutex> lock(r.mu);
+    ++r.refs[path];
+}
+void warm_release(const std::string& path) {
+    WarmRegistry& r = warm_registry();
+    std::lock_guard<std::mutex> lock(r.mu);
+    auto it = r.refs.find(path);
+    if (it == r.refs.end()) return;
+    if (--it->second > 0) return;
+    r.refs.erase(it);
+    fs::unwarm(path);  // the last reference of any engine's loader
+}
 
 // Load-trace tags of background loads: process-wide, so two engines never share one.
 std::atomic<std::uint64_t> g_nextTag{1};
@@ -149,7 +175,9 @@ ScanResult scan_files(const std::vector<std::string>& roots, bool isScene, Backg
         const std::string path = pending[i];
         std::string text;
         std::uint64_t size = 0;
+        warm_acquire(path);
         if (auto r = fs::warm(path, &text, &size); !r) {
+            warm_release(path);
             out.error = r.error().message;
             out.hint = r.error().hint;
             return out;
@@ -205,7 +233,9 @@ Result<IoFile> warm_read(BackgroundLoader::Shared& sh, const std::string& path, 
     std::string file = path;
     if (soundTwin && !fs::exists(file) && fs::exists(file + ".qoa")) file += ".qoa";
     std::uint64_t size = 0;
+    warm_acquire(file);
     if (auto w = fs::warm(file, nullptr, &size); !w) {
+        warm_release(file);
         sh.set_failed(w.error());
         return w.error();
     }
@@ -323,11 +353,21 @@ void BackgroundLoader::submit_units(Job& job, Renderer* renderer) {
         switch (u.kind) {
             case UnitKind::Render: {
                 Renderer::BackgroundWork w = renderer->background_work(path, u.renderKind);
-                read = [sh, inner = std::move(w.read)]() -> Result<IoFile> {
+                read = [sh, path, inner = std::move(w.read)]() -> Result<IoFile> {
                     if (!sh->begin()) return make_error("cancelled");
+                    warm_acquire(path);  // the renderer warms the file before it reads it (or its twin: moved below)
                     Result<IoFile> f = inner();
-                    if (f) sh->set_read(f.value().path, f.value().view.size());
-                    else sh->set_failed(f.error());
+                    if (f) {
+                        const std::string& actual = f.value().path;
+                        if (actual != path) {
+                            warm_acquire(actual);
+                            warm_release(path);
+                        }
+                        sh->set_read(actual, f.value().view.size());
+                    } else {
+                        warm_release(path);
+                        sh->set_failed(f.error());
+                    }
                     sh->finish();
                     return f;
                 };
@@ -372,16 +412,10 @@ bool BackgroundLoader::front_ready(const Job& job) const {
 }
 
 void BackgroundLoader::hold(Job& job, const std::string& path) {
-    if (job.warmed.insert(path).second) ++warmRefs_[path];
+    if (!job.warmed.insert(path).second) warm_release(path);  // the job holds this file already: one reference is enough
 }
 
-void BackgroundLoader::drop(const std::string& path) {
-    auto it = warmRefs_.find(path);
-    if (it == warmRefs_.end()) return;
-    if (--it->second > 0) return;
-    warmRefs_.erase(it);
-    fs::unwarm(path);
-}
+void BackgroundLoader::drop(const std::string& path) { warm_release(path); }
 
 void BackgroundLoader::take_scan(Job& job, Renderer* renderer, Audio* audio) {
     IoResult r = io_.take(job.scanTicket);
@@ -494,8 +528,7 @@ void BackgroundLoader::abandon(Job& job) {
             keep = sh->started && !sh->done;  // the IO thread or a decode is on it now
             if (sh->done) warmed = std::move(sh->warmed);
         }
-        for (const std::string& f : warmed)
-            if (!warmRefs_.count(f)) fs::unwarm(f);
+        for (const std::string& f : warmed) warm_release(f);
         if (keep) orphans_.push_back(sh);
         sh.reset();
     };
@@ -518,8 +551,7 @@ void BackgroundLoader::collect_orphans(bool all) {
             ++it;
             continue;
         }
-        for (const std::string& f : warmed)
-            if (!warmRefs_.count(f)) fs::unwarm(f);
+        for (const std::string& f : warmed) warm_release(f);
         it = orphans_.erase(it);
     }
 }
@@ -597,10 +629,19 @@ void BackgroundLoader::reset(LoadTrace* trace) {
     for (const Job& j : jobs_) ids.push_back(j.id);
     for (int id : ids) cancel(id, trace);
     pending_.clear();
+    for (const auto& entry : kept_)
+        for (const std::string& f : entry.second.files) drop(f);
     kept_.clear();
-    warmRefs_.clear();
     history_.clear();
-    fs::unwarm_all();
+}
+
+void BackgroundLoader::cancel_origin(Origin origin, LoadTrace* trace) {
+    std::vector<int> ids;
+    for (const Job& j : jobs_)
+        if (j.origin == origin) ids.push_back(j.id);
+    for (int id : ids) cancel(id, trace);
+    pending_.erase(std::remove_if(pending_.begin(), pending_.end(), [&](const Update& u) { return u.origin == origin; }),
+                   pending_.end());
 }
 
 void BackgroundLoader::stop(LoadTrace* trace) {
@@ -609,8 +650,8 @@ void BackgroundLoader::stop(LoadTrace* trace) {
     for (int id : ids) cancel(id, trace);
     pending_.clear();
     io_.cancel_all();  // the IO thread has let go of this engine's files
-    for (auto& [id, k] : kept_)
-        for (const std::string& f : k.files) drop(f);
+    for (const auto& entry : kept_)
+        for (const std::string& f : entry.second.files) drop(f);
     kept_.clear();
     // The reads have ended; a scan (a decode job) may still run: the destructor, after the engine waited for its jobs,
     // drops what it warmed.
@@ -682,7 +723,8 @@ BackgroundLoader::Frame BackgroundLoader::tick(Renderer* renderer, Audio* audio,
             Kept& k = kept_[job.id];  // the files still warm stay for the load that comes
             for (const std::string& f : job.warmed) k.files.insert(f);
             job.warmed.clear();
-            if (job.kind == Kind::SceneLoad) frame.scenes.push_back(SceneReady{job.id, job.roots.front(), job.props, job.tag});
+            if (job.kind == Kind::SceneLoad)
+                frame.scenes.push_back(SceneReady{job.id, job.roots.front(), job.props, job.tag, job.origin});
         }
         remember(job);
         it = jobs_.erase(it);

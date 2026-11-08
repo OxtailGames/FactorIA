@@ -1049,8 +1049,9 @@ loading", has the threads, the budgets and the cost).
 
 - `scene.load(path, props, { async: true })` loads the scene in the background and switches to it at the end of the frame
   its files are ready; the new scene starts as after a sync load (same world, same `game.sceneProps()`). A newer
-  `scene.load` or `scene.reload()` cancels it: the last request wins, and it never switches. The loading screen of the menu
-  kit (docs/MENUS.md) is built on it.
+  `scene.load` or `scene.reload()` cancels it: the last request wins, and it never switches. Its handle's `cancel()` stops
+  the switch too, also in the frame its files became ready (the switch happens at the end of that frame). The loading screen
+  of the menu kit (docs/MENUS.md) is built on it.
 - `scene.preload(path)` reads the scene file and what it points at (prefabs, materials, scripts and their imports,
   textures, models with their `.bin` and images, audio, fonts, and the files named in them) ahead: `scene.load` of that
   scene, and the renderer and audio on first use, then read nothing from the disk.
