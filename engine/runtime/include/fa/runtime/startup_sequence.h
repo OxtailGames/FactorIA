@@ -2,7 +2,7 @@
 //
 //   frame 1   present a clear frame (the window shows black instead of nothing), record WindowReady and FirstPresent
 //   frame 2   read the game: Engine::init (scenes, scripts, textures, shaders) - the slow part - then present a clear frame
-//   frames 3+ make the GPU pipelines the first scene draws with, one slice per frame, each frame presenting a clear frame
+//   frames 3+ make the GPU pipelines the first scene draws with, a slice (as many pipeline groups as fit in ~8 ms) per frame, each frame presenting a clear frame
 //   then      the game runs, one game frame per window frame
 //
 // The window system presents when a frame callback returns, so a frame cannot be shown from inside the init callback: that is why
@@ -21,7 +21,7 @@ public:
     struct Hooks {
         std::function<void()> present_clear;  // present one cleared frame (Renderer::present_clear)
         std::function<bool()> init;           // read the game (Engine::init); false = it could not start
-        std::function<int()> warm;            // one slice of GPU warm-up; returns the slices left (0 = done)
+        std::function<int()> warm;            // one slice of GPU warm-up (several groups); returns the groups left (0 = done)
     };
     enum class State { FirstFrame, Init, Warm, Running, Failed };
 

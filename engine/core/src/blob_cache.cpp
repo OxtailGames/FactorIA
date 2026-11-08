@@ -169,14 +169,14 @@ Result<void> BlobCache::store(std::string_view name, std::span<const std::uint8_
         out.close();
         if (!out) {
             std::error_code ignored;
-            stdfs::remove(fs::os_path(tmp), ignored);
+            fs::remove_file(fs::os_path(tmp), ignored);  // retries while an AV scanner or indexer still holds it (Windows)
             return make_error("Failed while writing " + fs::path_to_utf8(tmp), "Is the disk full?");
         }
     }
     fs::replace_file(fs::os_path(tmp), fs::os_path(target), ec);
     if (ec) {
         std::error_code ignored;
-        stdfs::remove(fs::os_path(tmp), ignored);
+        fs::remove_file(fs::os_path(tmp), ignored);
         return make_error("Cannot replace " + fs::path_to_utf8(target) + ": " + ec.message(),
                           "Another program may hold it open; the old file stays and the game runs without the new one.");
     }

@@ -352,9 +352,14 @@ A window host (`run_windowed` in `runtime/src/runners.cpp`: the player and a win
 2. *Frame 2.* `Engine::init` reads the game (scenes, scripts, textures, shaders). It adopts the context frame 1 opened
    (`EngineConfig::adoptGraphicsContext` -> `RendererDesc::adoptContext`: the renderer does not call `sg_setup` again, does
    not `sg_shutdown` it, and the runner calls `Renderer::close_context` at the end). A clear frame is presented again.
-3. *Frames 3+.* `Engine::warm_step` -> `Renderer::warm_step` makes the pipelines the first scene draws with, one group per
-   frame (blit; the 2D quad pipelines; the blend variants; the 3D mesh, sky, skinned and shadow ones when a `MeshRenderer`
-   exists), each frame presenting a clear frame. A frame that draws before the warm-up finished makes a missing pipeline
+3. *Frames 3+.* `Engine::warm_step` -> `Renderer::warm_step` makes pipelines in groups (blit; the 2D quad pipelines; the blend
+   variants; the 3D mesh, sky, skinned and shadow ones when a `MeshRenderer` exists), as many groups per window frame as fit in
+   about 8 ms of wall time (at least one; the time only decides how many frames the warm-up takes, never what it makes: on GL,
+   GLES and WebGL a pipeline links in the driver and costs milliseconds, on Metal microseconds), each frame presenting a clear
+   frame. The groups are fixed lists, not a scan of what the scene draws, so the warm-up also makes pipelines a game may
+   never use (Additive and Multiply sprites, the wire/lines variant, the mesh variants of a scene with one mesh). That is
+   cheap: a pipeline is a small state object (a few KB) made once, the driver's own cache makes a repeat cheap, and the
+   group is skipped for 3D when the scene has no `MeshRenderer`. A frame that draws before the warm-up finished makes a missing pipeline
    when it needs it, exactly as without the warm-up: pipelines are keyed through `Gpu::find_or_make`, so what is drawn never
    depends on the warm-up, and `state_hash`, recordings, replays and goldens are the same.
 4. *Then* one game frame per window frame; the first one clamps its `dt` to 1/60 s (the start took longer than the 100 ms the
@@ -369,7 +374,7 @@ GLSL) into the committed headers, not compiled code, and sokol_gfx accepts a com
 (`sg_shader_function.bytecode`). So only D3D11 has an engine cache: `make_shader` compiles each stage with `D3DCompile`
 (`d3dcompiler_47.dll` loaded with `LoadLibrary`), stores the DXBC and hands sokol the bytecode next time. The key is
 `d3d11|<engine version>|<flags>|src:<sha-256 of the source>` (DXBC is the same on every driver and card; the driver compiles
-it to machine code), the files are `<cache_dir>/shaders/shader-<program>-<hash>-<stage>.facache`. GL, GLES and Metal link or build from
+it to machine code), the files are `<cache_dir>/shaders/shader-<program>-<hash>-<stage>-<keyhash>.facache`, where `keyhash` is the first 8 hex characters of the hash of the whole key, so two engine versions or two games with a material of the same path keep separate files (the folder grows by one small file per shader per version; deleting it is safe). GL, GLES and Metal link or build from
 source inside the driver or the OS, which keep their own caches; web has no folder. `BlobCache` is generic: magic `FABC`,
 format version, key, payload size, SHA-256, payload; an unreadable file is reported as `Stale` (other key) or `Damaged`
 (other magic or version, short, too big, bad checksum), logged once under category `cache`, ignored and rebuilt. A store goes

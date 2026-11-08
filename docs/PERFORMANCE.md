@@ -210,8 +210,8 @@ What a player does between the click on its icon and a game you can play, in ord
    instead of nothing. Only the next frame reads the game (scenes, scripts, textures, audio headers). It is on by default
    and cannot be turned off; it applies to the player and to a windowed `factoria run`. The game cannot tell: its first
    frame is the same frame 0, and `state_hash`, recordings, replays and goldens are identical with or without it.
-2. **The GPU pipelines the first scene draws with are made in the background of the window**, one group per window frame
-   (each frame still shows the cleared frame), so the first game frame does not stall on them. A frame that needs a pipeline
+2. **The GPU pipelines the first scene draws with are made in the background of the window**, as many groups per window
+   frame as fit in about 8 ms (each frame still shows the cleared frame), so the first game frame does not stall on them. A frame that needs a pipeline
    the warm-up has not made yet makes it then, as before: the picture never depends on the warm-up.
 3. **The game runs.** Its first frame uses at most 1/60 s of game time even when the start took longer.
 
@@ -225,7 +225,13 @@ line `startup: first frame presented at ... ms, game ready at ... ms`):
 | `windowReadyMs`, `initMs`, `warmupMs` | Window and context ready; reading the game; making the first scene's pipelines. |
 | `startupCpuMs` | CPU time from reading the files to the first game frame. The `startupMs` of `perf.*`, what `maxStartupMs` budgets. |
 | `diskReadsAtFirstPresent`, `diskReadsAtFirstGameFrame` | Files read from disk by then. The first is 0 or the player's own few files: the game's files are read after the first frame. |
-| `gpu` | The renderer's part: `backend`, the shader `cache` mode and its counters (`hits`, `misses`, `stale`, `damaged`, `stored`), `pipelinesWarmed`, `warmMs`, `groupsLeft`. |
+| `gpu` | The renderer's part: `backend`, `cache` (the mode: `d3d11-dxbc` where the engine keeps a shader cache, `none` elsewhere), `programs` and `createMs` (shader programs made and the wall time that took), the cache counters `stages`, `cacheHits`, `cacheMisses`, `cacheStale`, `cacheDamaged`, `cacheStored`, `cacheStoreFailed` (present where the engine has a cache), `pipelinesWarmed`, `warmMs`, `groupsLeft`. |
+
+`loading.startup` is there for a session that starts its own engine (`factoria run`, `play.auto`, the player); a Play inside the
+editor has none, because the editor's engine started once with the editor and its start-up numbers say nothing about the session.
+`startupMs` and `startupCpuMs` are the CPU time of the WHOLE process between the two marks (all its threads, like
+`cpuMsAvg`), not of the game's thread alone: measured from a terminal (`factoria call perf.measure`, `perf.check`) the process
+is the game, but a number taken inside the editor would also count the editor's own threads (its UI, background loaders, the AI).
 
 Times are this machine's and rounded to 0.1 ms: compare two runs on one machine, never pass or fail on them (no test
 does; `startupMs` is a CPU time with a wide budget for that reason).
@@ -237,7 +243,7 @@ does; `startupMs` is a CPU time with a wide budget for that reason).
   ([EXPORTING.md](EXPORTING.md)).
 - Work in `onStart` of a script: generating a large map, building tables. Spread it over frames or generate it ahead of time
   into a file.
-- Many custom materials: each one is shader programs to build (`gpu.cache` says how many came from the cache).
+- Many custom materials: each one is shader programs to build (compare `gpu.cacheHits` with `gpu.cacheMisses`: on a first run everything is a miss, on later runs a hit).
 
 ### The shader cache and the backends
 

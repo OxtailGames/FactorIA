@@ -50,19 +50,25 @@ TEST_CASE("StartupSequence: the first frame is presented before the game is read
 
 TEST_CASE("StartupSequence: no file is read before the first present") {
     // The hooks stand for the host: present_clear notes how many files were read from disk when the window first showed.
-    const std::filesystem::path file = std::filesystem::temp_directory_path() / "fa_test_startup_sequence_read.txt";
+    // A folder of its own (fs::make_temp_dir: unique per process, so tests may run in parallel) and native paths throughout, so
+    // a Windows user name with accents works.
+    const std::filesystem::path dir = fs::make_temp_dir("fa_test_startup_sequence");
+    const std::filesystem::path file = dir / "game_file.txt";
     {
-        std::ofstream out(file, std::ios::binary);
+        std::ofstream out(fs::os_path(file), std::ios::binary);
+        REQUIRE(out.is_open());
         out << "a game file";
     }
     std::uint64_t readsAtPresent = ~std::uint64_t(0), readsAtInit = 0;
     int presents = 0;
+    bool readBack = false;
     StartupSequence::Hooks h;
     h.present_clear = [&] {
         if (presents++ == 0) readsAtPresent = fs::disk_reads();
     };
     h.init = [&] {
-        (void)fs::read_bytes(fs::path_to_utf8(file));  // Engine::init reads the game's files: each read counts in disk_reads
+        const auto bytes = fs::read_bytes(fs::path_to_utf8(file));  // Engine::init reads the game's files: each read counts in disk_reads
+        readBack = bytes.ok() && bytes.value().size() == 11;
         readsAtInit = fs::disk_reads();
         return true;
     };
@@ -70,10 +76,11 @@ TEST_CASE("StartupSequence: no file is read before the first present") {
     seq.on_frame();
     seq.on_frame();
     CHECK(readsAtPresent != ~std::uint64_t(0));
+    CHECK(readBack);  // the read really happened (a read that failed would not count)
     CHECK(readsAtInit > readsAtPresent);  // the file was read after the first present, not before
     CHECK(presents == 2);  // the first frame, and the frame init ran in
     std::error_code ec;
-    std::filesystem::remove(file, ec);
+    fs::remove_tree(dir, ec);
 }
 
 TEST_CASE("StartupSequence: a start that fails stops the sequence and never runs a game frame") {

@@ -41,7 +41,10 @@ const std::filesystem::path& user_dir();
 // Windows %LOCALAPPDATA%\FactorIA\Cache, Linux $XDG_CACHE_HOME/factoria or ~/.cache/factoria. The environment variable
 // FA_CACHE_DIR overrides it for a process (tests and CI point it at a scratch folder). Not created here: the writer creates it.
 void set_cache_dir(const std::filesystem::path& dir);
-const std::filesystem::path& cache_dir();
+// Returned by value: another thread may call set_cache_dir.
+std::filesystem::path cache_dir();
+// Forgets set_cache_dir: the next cache_dir() reads FA_CACHE_DIR and the platform default again (tests).
+void reset_cache_dir();
 
 // Tell the platform that the game wrote something in user_dir() (a save game). Does nothing on desktop and mobile, where
 // the folder is on disk. On the web the folder lives in browser memory: this schedules copying it to the browser's

@@ -869,7 +869,9 @@ LoadTrace::Owner Engine::load_trace_owner() const { return impl_->traceOwner; }
 Json Engine::loading_report() const {
     if (!impl_->loadTrace) return Json();
     Json report = impl_->loadTrace->report();
-    report["startup"] = startup_report();
+    // An editor engine started once, with the editor: its init numbers say nothing about a Play session, so there is no
+    // "startup" there (docs/PERFORMANCE.md, "Startup"). A player, `factoria run` and `play.auto` start with their session.
+    if (!impl_->cfg.editorMode) report["startup"] = startup_report();
     return report;
 }
 

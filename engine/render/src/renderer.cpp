@@ -963,9 +963,18 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         }
     }
     if (im.warmNext >= im.warmGroups.size()) return 0;
+    // As many groups as fit in about 8 ms of this window frame (at least one): where a pipeline costs a few ms (GL, GLES, WebGL
+    // link in the driver) a group per frame would add ~100 ms of black frames, where it costs microseconds (Metal) the whole
+    // warm-up fits in one frame. The budget decides only HOW MANY frames the warm-up takes, never what it makes: the groups
+    // run in the same order and every pipeline is keyed in Gpu, so pictures and game state do not depend on it. It is wall time
+    // of the window host, outside the simulation (no game frame runs meanwhile).
+    constexpr double kFrameBudgetMs = 8.0;
     const auto t0 = std::chrono::steady_clock::now();
     const std::size_t before = im.gpu.pipeline_count();
-    im.warmGroups[im.warmNext++]();
+    do {
+        im.warmGroups[im.warmNext++]();
+    } while (im.warmNext < im.warmGroups.size() &&
+             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() < kFrameBudgetMs);
     im.warmPipelines += im.gpu.pipeline_count() - before;
     im.warmMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     return int(im.warmGroups.size() - im.warmNext);
@@ -987,7 +996,6 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     impl_ = std::make_unique<Impl>();
     Impl& im = *impl_;
     im.desc = desc;
-    reset_shader_build_stats();
     im.adopted = desc.adoptContext && sg_isvalid();
     if (!im.adopted) {
         sg_desc sd = make_sg_desc(env);
