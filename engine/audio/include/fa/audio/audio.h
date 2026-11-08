@@ -117,6 +117,14 @@ public:
     // helpful error if the file is missing or unsupported. When the file is missing but `<clipPath>.qoa` exists (the
     // twin an export makes of a WAV) that is the clip.
     bool load(std::string_view clipPath);
+    // Background loading (scene.preload, assets.preload; docs/PERFORMANCE.md, "Background loading"): decode_clip reads and
+    // decodes a clip as load() does but on any thread and without touching the mixer (null + *error when it cannot);
+    // adopt_clip puts the result in the cache, unless the clip is loaded already (false: it was loaded on first use
+    // meanwhile, the decoded copy is dropped). `files`: the project files the decode read, reported to the load trace on the
+    // clip's first use. Both are thread-safe.
+    static std::shared_ptr<const void> decode_clip(std::string_view clipPath, std::string* error);
+    bool adopt_clip(std::string_view clipPath, std::shared_ptr<const void> decoded, std::vector<std::string> files);
+    bool clip_loaded(std::string_view clipPath) const;
     VoiceId play(std::string_view clipPath, const PlayParams& params = {});
     // A voice the game feeds with samples instead of a clip: the sound of a Video component. `sampleRate` is the rate of the
     // samples push_pcm gets (interleaved stereo float); the mixer resamples them. The play is logged under `path` (the video

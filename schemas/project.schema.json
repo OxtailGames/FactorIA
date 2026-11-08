@@ -310,6 +310,20 @@
               "maximum": 32
             }
           ]
+        },
+        "loadBudgetMs": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100,
+          "default": 4,
+          "description": "Background loading (scene.preload, assets.preload, scene.load with {async: true}; docs/PERFORMANCE.md, \"Background loading\"): how many milliseconds of a frame the main thread may spend taking finished files and uploading them to the GPU, in a game with a window. Default 4. Tests, headless runs, the editor and replays use a fixed number of files per frame instead, so they do not depend on the machine."
+        },
+        "uploadBudgetMB": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1024,
+          "default": 16,
+          "description": "Background loading: how many megabytes of textures and meshes a frame may upload to the GPU, in a game with a window (the frame stops taking files once it passed this; at least one file per frame). Default 16."
         }
       }
     },

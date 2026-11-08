@@ -138,6 +138,9 @@ struct TextureAsset {
     // Packed into an atlas by an export: the atlas holds this texture at (atlasX, atlasY) and image/view stay empty.
     TextureAsset* atlas = nullptr;
     int atlasX = 0, atlasY = 0;
+    // Loaded in the background (Assets::adopt_texture): the project files it read, reported to the load trace on its first
+    // use (LoadTrace::file_used), so the load order lists them where a load on first use would have read them.
+    std::vector<std::string> untraced;
 
     sg_view gpu_view() const { return atlas ? atlas->view : view; }
     // UV of pixel (x, y) of the original file (top-left origin): inside the atlas when the texture is packed.
@@ -176,6 +179,11 @@ struct TranscodedTexture {
 // RGBA8. `allowCompressed` false goes straight to RGBA8. The environment variable FA_TEXTURE_FORMAT (astc, bc7, etc2 or
 // rgba8) narrows the choice to that one format, to test a path on a GPU that would pick another.
 Result<TranscodedTexture> transcode_ktx2(const std::uint8_t* data, std::size_t size, bool allowCompressed);
+// The format transcode_ktx2 picks with compression allowed (asks the GPU: main thread), and the transcode to a format
+// chosen before (any thread: what a background decode job runs). A format that is not a block format, or a size that
+// is not a multiple of 4, gives RGBA8.
+sg_pixel_format ktx2_target_format();
+Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_t size, sg_pixel_format format);
 const char* pixel_format_name(sg_pixel_format format);  // "RGBA8", "BC7", "ASTC_4x4", "ETC2_RGBA8"
 
 struct SubMesh {
@@ -209,7 +217,45 @@ struct MeshAsset {
     std::vector<SubMesh> parts;
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};
     bool placeholder = false;
+    std::vector<std::string> untraced;  // as TextureAsset::untraced (its parts' textures are reported after it)
 };
+
+// A texture or a glTF model decoded off the main thread for background loading (Renderer::background_work): everything
+// but the GPU upload, which Assets::adopt_texture / adopt_mesh do on the main thread. Made by the same code a load on first
+// use runs, so both give the same asset.
+struct PreparedTexture {
+    std::string key;    // the cache key it is for: the texture's path, or the atlas an export packed it into
+    std::string file;   // the file read (a KTX2 twin when the export made one)
+    bool ktx2 = false;
+    Image image;        // !ktx2: the picture
+    std::vector<Image> chain;  // !ktx2: its mip chain (chain[0] unused, as mip_chain gives it)
+    TranscodedTexture transcoded;  // ktx2
+};
+struct PreparedTextureRef {  // one texture slot of a glTF material
+    enum class Kind { None, Path, Image, Missing } kind = Kind::None;
+    std::string path;   // Path: the project path of the image file
+    std::string name;   // Image: the embedded image's name; Missing: the failure's key ("" = no failure recorded)
+    Image image;        // Image
+    std::string error, hint;  // Missing
+};
+struct PreparedPart {
+    std::vector<MeshVertex> verts;
+    std::vector<std::uint32_t> idx;
+    SubMesh material;  // the material and bounds fields (no GPU handles, no texture pointers yet)
+    PreparedTextureRef base, metalRough, normal, occlusion, emissive;
+    std::vector<SkinVertex> skin;  // empty: not skinned
+    int skinIndex = -1;
+};
+struct PreparedMesh {
+    std::vector<PreparedPart> parts;
+    Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};
+    std::vector<std::string> warnings;  // logged when it is uploaded, on the main thread
+};
+// glTF bytes -> a prepared mesh (any thread; reads the model's buffers through fa::fs). False + `error` when unusable.
+bool decode_gltf(const std::string& path, const std::uint8_t* data, std::size_t size, PreparedMesh& out, std::string& error);
+// A texture file's bytes -> a prepared texture (any thread). `ktx2Format`: ktx2_target_format() of the main thread.
+Result<PreparedTexture> decode_texture_file(const std::string& key, const std::string& file, const std::uint8_t* data,
+                                            std::size_t size, sg_pixel_format ktx2Format);
 
 // Fonts ---------------------------------------------------------------------
 struct GlyphInfo {
@@ -464,6 +510,14 @@ public:
     bool failure_logged(const std::string& kind, const std::string& path) const;
     int texture_count() const { return int(textures_.size()); }
 
+    // Background loading (Renderer::adopt_background): puts a prepared asset in the cache with its GPU upload, unless it is
+    // there already (loaded on first use meanwhile: the prepared one is dropped). `files`: the project files its read and
+    // decode used, reported on first use. Returns the GPU bytes uploaded (0 when dropped).
+    std::uint64_t adopt_texture(PreparedTexture& p, std::vector<std::string> files);
+    std::uint64_t adopt_mesh(const std::string& key, PreparedMesh& p, std::vector<std::string> files);
+    bool has_texture(const std::string& key) const { return textures_.count(key) > 0; }
+    bool has_mesh(const std::string& key) const { return meshes_.count(key) > 0; }
+
     // Makes a texture from CPU pixels (RGBA8) with an optional mip chain.
     TextureAsset* make_texture(const std::string& name, const Image& img, bool mips);
 
@@ -487,7 +541,11 @@ private:
     TextureAsset* load_texture(const std::string& path);
     void destroy_texture(TextureAsset& t);
     void upload_texture(TextureAsset& t, const Image& img, bool mips);
+    void upload_rgba(TextureAsset& t, const Image& img, const std::vector<Image>& chain);
     bool upload_ktx2(TextureAsset& t, const std::vector<std::uint8_t>& file, std::string& error);
+    bool upload_transcoded(TextureAsset& t, const TranscodedTexture& tex);
+    void report_first_use(TextureAsset& t);
+    void report_first_use(MeshAsset& m);
     void use_placeholder(TextureAsset& t);
     MeshAsset* load_mesh(const std::string& name);
     void destroy_mesh(MeshAsset& m);
@@ -561,6 +619,10 @@ public:
     // The fonts every Text falls back to after its own font; the built-in DejaVu Sans stays last. Project paths, or
     // "builtin:pixel". Takes effect on the next layout.
     void set_fallback_fonts(std::vector<std::string> fonts);
+    // Background loading: a face loaded off the main thread (load_font_face) joins the cache, unless that font is there
+    // already. `files`: the project files it read, reported to the load trace on first use.
+    void adopt(std::unique_ptr<FontFace> face, std::vector<std::string> files);
+    bool has_face(const std::string& font) const;
     // Uploads the atlas if new glyphs were rasterized. Call after layout, before drawing.
     void sync();
     // Counts the times the glyph atlas was cleared or grown: quads laid out before a change hold UVs of the old atlas.

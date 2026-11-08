@@ -621,7 +621,10 @@ Result<std::vector<std::uint8_t>> read_bytes(std::string_view path) {
             std::vector<std::uint8_t> copy = *it->second.bytes;
             lock.unlock();
             // A file that changed on disk since it was read ahead is read again (hot reload, a tool that rewrote it).
-            if (modified_time(n.value()) == warmModified) return copy;
+            if (modified_time(n.value()) == warmModified) {
+                if (!is_absolute(n.value())) LoadTrace::file_used(n.value());  // read ahead, used now (fa/core/load_trace.h)
+                return copy;
+            }
             lock.lock();
             state().warm.erase(n.value());
         }
@@ -782,7 +785,10 @@ Result<FileView> read_view(std::string_view path) {
             const std::int64_t warmModified = it->second.modified;
             std::shared_ptr<const std::vector<std::uint8_t>> shared = it->second.bytes;
             lock.unlock();
-            if (modified_time(n.value()) == warmModified) return FileView(shared, shared->data(), shared->size(), true);
+            if (modified_time(n.value()) == warmModified) {
+                if (!is_absolute(n.value())) LoadTrace::file_used(n.value());  // read ahead, used now (fa/core/load_trace.h)
+                return FileView(shared, shared->data(), shared->size(), true);
+            }
             lock.lock();
             state().warm.erase(n.value());
         }

@@ -12,6 +12,7 @@
 #include "fa/core/strings.h"
 #include "fa/core/utf8.h"
 #include "font_internal.h"
+#include "fa/core/load_trace.h"
 #include "render_internal.h"
 #include "text_shaper.h"
 
@@ -163,13 +164,31 @@ FontFace* Fonts::variant_face(FontFace* regular, bool bold, bool italic, bool& b
 FontFace* Fonts::load(const std::string& fontIn) {
     const std::string font = fontIn.empty() ? "builtin" : fontIn;
     auto it = impl_->faces.find(font);
-    if (it != impl_->faces.end()) return it->second.get();
+    if (it != impl_->faces.end()) {
+        FontFace* f = it->second.get();
+        if (!f->untraced.empty() && LoadTrace::current_ahead_tag() == 0) {  // loaded in the background: first use now
+            for (const std::string& file : f->untraced) LoadTrace::file_used(file);
+            f->untraced.clear();
+        }
+        return f;
+    }
     std::unique_ptr<FontFace> f = load_font_face(font);
     f->id = impl_->nextId++;
     if (!f->ok) assets_.note_failure("font", font, f->error, f->hint);
     FontFace* raw = f.get();
     impl_->faces[font] = std::move(f);
     return raw;
+}
+
+bool Fonts::has_face(const std::string& font) const { return impl_->faces.count(font.empty() ? "builtin" : font) > 0; }
+
+void Fonts::adopt(std::unique_ptr<FontFace> f, std::vector<std::string> files) {
+    if (!f || impl_->faces.count(f->key)) return;  // loaded on first use meanwhile: that one stays
+    f->id = impl_->nextId++;
+    if (!f->ok) assets_.note_failure("font", f->key, f->error, f->hint);  // as a load on first use reports it
+    f->untraced = std::move(files);
+    const std::string key = f->key;
+    impl_->faces[key] = std::move(f);
 }
 
 FontFace* Fonts::face(const std::string& font) {

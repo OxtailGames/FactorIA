@@ -227,6 +227,66 @@ files it was missing. Recording costs one short lock and a set lookup per file r
 does); the file is written when the session ends, under the project's lock, and the editor writes it on a background
 thread so Stop never waits on the disk. An exported game records nothing.
 
+## Background loading
+
+`scene.load` reads, decodes and uploads a scene's files before the frame goes on, so a big level freezes the game for a
+moment. Three calls do that work in the background instead, while frames keep running:
+
+- `scene.load(path, props, { async: true })` (the command `scene.load {"path", "async": true}`) loads the scene in the
+  background and switches to it at the end of the frame its files are ready. The new scene starts exactly as after a sync
+  load: the same world, the same `game.sceneProps()`, the same files in the same first-use order.
+- `scene.preload(path)` (command `scene.preload {"path"}`) reads a scene's files ahead; a later `scene.load` of that scene
+  reads nothing from the disk.
+- `assets.preload(paths)` (command `assets.preload {"paths"}`) does the same for a list of files: textures, models (a
+  `.gltf` brings its `.bin` and images), fonts and sounds go into the engine's caches, any other file stays in memory.
+
+Each answers at once with a handle in scripts (`progress` 0..1 that never goes down, `done`, `files`/`total`, `bytes`,
+`uploadedBytes`, `error`, `cancelled`, `cancel()`, `promise`; docs/SCRIPTING.md) or a `loadId` for tools: `load.status
+{"id"}` gives `{state, progress, items {done, total}, bytes, uploadedBytes, error?, hint?}` and `load.cancel {"id"}` stops
+it. A missing file is an error at once, with "did you mean" and a hint; a file that cannot be read or decoded fails the
+load with its message (an async scene load then does not switch). A newer `scene.load` (sync or async) or `scene.reload`
+cancels an async scene load that is still loading: the last request wins.
+
+How the work is split:
+
+- **One IO thread** for the whole process reads the files (through `fa::fs`: a `game.pak`, an APK or a loose file alike)
+  and **jobs** of the job pool decode them: PNG and KTX2/Basis to pixels, glTF to vertices, a sound to samples, a font file to
+  a parsed face; the first item parses the scene's JSON to find the files it names. The **main thread** only takes what is finished and uploads it to the GPU or adopts it into the
+  audio cache. Without worker threads (`runtime.jobThreads` 0 or `"inline"`, the web build) there is no IO thread: the main
+  thread reads and decodes a share each frame.
+- The work is counted in **items**: the first reads the scene (or the listed files) and everything it names that is text
+  (prefabs, materials, scripts and their imports, `.gltf` files), then one item per binary file, models last. `progress`
+  is items done over items, exact from the second frame on.
+- **Per frame**, two budgets:
+  - **exact** (tests, headless runs, `play.auto`, the editor, replays): exactly 4 items per frame, waiting for each that
+    is not ready, so the frames a load takes and every `progress` value are the same on every machine and with any
+    number of worker threads;
+  - **timed** (a game with a window): only the items that are ready, in the same fixed order, until the frame has spent
+    `runtime.loadBudgetMs` milliseconds (default 4) or uploaded `runtime.uploadBudgetMB` megabytes to the GPU (default 16).
+    A frame never waits for a file. With worker threads it may take no item at all; without, it takes at least one. A
+    texture bigger than the upload budget still goes up whole, in one frame.
+
+```json
+"runtime": { "loadBudgetMs": 4, "uploadBudgetMB": 16 }
+```
+
+- **Replays**: a recording of a timed run keeps how many items each frame took (`"loadUnits"` in the frame's entry), and
+  its replay takes exactly those, so a session recorded in a window replays the same frames headless.
+- **Memory**: the files of a running load are held in memory until a cache took what they hold. Those still held when it
+  finishes (the scene file, scripts, prefabs, files no cache decodes) stay through the first scene load after it finished
+  and are dropped at the second (or by `cancel()`/`release()`/`load.cancel`), so a preload costs about one scene's files
+  beyond the one in use. `load.status {}` shows `warmBytes`, what is held now.
+- **Load trace**: the files a background load reads ahead count in `play.report`'s `reads` when they are read, and enter a
+  scene's first-use order (what `factoria export` packs `game.pak` by) only when the game first uses them, so an async load
+  records the same order as a sync one. An async scene load's entry in `loading.scenes` has `"async": true`, `readyMs`
+  (from the request to the frame the scene started) and `loadMs` from the request to the end of the scene's first frame; a
+  cancelled one says `"cancelled": true`.
+
+Cost: nothing while no background load runs (no thread, no work in the frame; frames, `game.state_hash` and `play.report`
+stay as they were). While one runs: the IO thread and the decode jobs on the worker threads, and on the main thread at most
+`loadBudgetMs` per frame (plus one item) in a window, or the 4 items in exact mode. A cancelled load throws away what it
+decoded; a decode already running finishes on its worker and is dropped.
+
 ## Finding what is slow: the profiler
 
 A budget says THAT the game got slower. The profiler says WHERE the time goes. It measures the CPU time of every engine
