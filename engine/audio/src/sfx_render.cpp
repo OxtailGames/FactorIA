@@ -7,6 +7,7 @@
 #include <numeric>
 
 #include "fa/audio/sfx.h"
+#include "fa/core/jobs.h"
 #include "sfx_macros.h"
 #include "sfx_math.h"
 
@@ -275,13 +276,15 @@ struct OscState {
     NoiseSource noise;
 };
 
-void render_layer(const SfxPatch& patch, const SfxLayer& layer, std::size_t index, std::uint64_t seed, double transpose, std::size_t startSample,
-                  double length, std::vector<double>& mix) {
+// One layer rendered on its own into a buffer of `total - startSample` samples (empty when it starts after the end); the caller adds
+// it to the mix at startSample. A layer reads only the patch and draws its noise from streams keyed by (seed, layer, oscillator),
+// so layers can be rendered in any order or at the same time.
+std::vector<double> render_layer(const SfxPatch& patch, const SfxLayer& layer, std::size_t index, std::uint64_t seed, double transpose,
+                                 std::size_t startSample, double length, std::size_t total) {
     const int rate = patch.sampleRate;
     const double dtBase = 1.0 / double(rate);
     const double gate = layer.length > 0.0 ? layer.length : std::max(0.001, length - layer.start);
-    const std::size_t total = mix.size();
-    if (startSample >= total) return;
+    if (startSample >= total) return {};
     const std::size_t room = total - startSample;
     std::vector<double> buf(room, 0.0);
     const std::size_t active = std::min(room, std::size_t(std::lround((gate + layer.amp.release + 0.002) * double(rate))));
@@ -362,7 +365,11 @@ void render_layer(const SfxPatch& patch, const SfxLayer& layer, std::size_t inde
         buf[n] = x * g;
     }
     apply_effects(buf, layer.effects, rate);
-    for (std::size_t i = 0; i < room; ++i) mix[startSample + i] += buf[i];
+    return buf;
+}
+
+void add_layer(const std::vector<double>& buf, std::size_t startSample, std::vector<double>& mix) {
+    for (std::size_t i = 0; i < buf.size(); ++i) mix[startSample + i] += buf[i];
 }
 
 // ---- loudness (BS.1770, the algorithm of measure_loudness with this file's math) --------------------------------------------
@@ -490,9 +497,32 @@ Result<SfxAudio> render_sfx(const SfxPatch& base, const SfxRenderOptions& option
     const double transpose = (options.freqHz > 0.0 ? options.freqHz / patch.root_hz() : 1.0) * macroTranspose;
 
     std::vector<double> mix(total, 0.0);
-    for (std::size_t i = 0; i < patch.layers.size(); ++i) {
-        const SfxLayer& layer = patch.layers[i];
-        render_layer(patch, layer, i, seed, transpose, std::size_t(std::lround(layer.start * double(rate))), length, mix);
+    auto start_of = [&](const SfxLayer& layer) { return std::size_t(std::lround(layer.start * double(rate))); };
+    // Layers are independent, so a long patch with several of them renders them as jobs and adds them in layer order (the same
+    // sums in the same order as one after the other: the samples are the same bits). A short patch, one layer, no running pool or
+    // buffers past kSfxJobBufferBytes render one after the other.
+    const std::size_t layerCount = patch.layers.size();
+    const bool parallel = layerCount >= 2 && total >= kSfxJobMinSamples && jobs::running() && !jobs::inline_mode() &&
+                          jobs::worker_count() > 0 &&
+                          double(layerCount) * double(total) * double(sizeof(double)) <= double(kSfxJobBufferBytes);
+    bool done = false;
+    if (parallel) {
+        std::vector<std::vector<double>> bufs(layerCount);
+        auto r = jobs::parallel_for("audio.sfx_layers", layerCount, 1, [&](const jobs::Chunk& c) {
+            for (std::size_t i = c.begin; i < c.end; ++i)
+                bufs[i] = render_layer(patch, patch.layers[i], i, seed, transpose, start_of(patch.layers[i]), length, total);
+        });
+        if (r.ok()) {
+            for (std::size_t i = 0; i < layerCount; ++i) add_layer(bufs[i], start_of(patch.layers[i]), mix);
+            done = true;
+        }
+    }
+    if (!done) {
+        std::fill(mix.begin(), mix.end(), 0.0);
+        for (std::size_t i = 0; i < layerCount; ++i) {
+            const SfxLayer& layer = patch.layers[i];
+            add_layer(render_layer(patch, layer, i, seed, transpose, start_of(layer), length, total), start_of(layer), mix);
+        }
     }
     if (patch.gain != 1.0)
         for (double& s : mix) s *= patch.gain;

@@ -207,6 +207,27 @@ struct PhysicsSettings {
     int subSteps = 4;
 };
 
+// How big a 2D step must be before Box2D's work is split over the job threads (docs/PERFORMANCE.md, "Physics on jobs"):
+// at least `awakeBodies` awake bodies or `contacts` contacts. Smaller steps run on the calling thread; the result is the
+// same either way. The defaults are what pays off; only tests change them (to run a small scene through the pool),
+// through ScopedPhysicsJobThresholds, which puts the old values back. The values are process-wide.
+struct PhysicsJobThresholds {
+    int awakeBodies = 1536;
+    int contacts = 4096;
+};
+PhysicsJobThresholds physics_job_thresholds();
+void set_physics_job_thresholds(const PhysicsJobThresholds& t);
+class ScopedPhysicsJobThresholds {
+public:
+    explicit ScopedPhysicsJobThresholds(const PhysicsJobThresholds& t) : old_(physics_job_thresholds()) { set_physics_job_thresholds(t); }
+    ~ScopedPhysicsJobThresholds() { set_physics_job_thresholds(old_); }
+    ScopedPhysicsJobThresholds(const ScopedPhysicsJobThresholds&) = delete;
+    ScopedPhysicsJobThresholds& operator=(const ScopedPhysicsJobThresholds&) = delete;
+
+private:
+    PhysicsJobThresholds old_;
+};
+
 // Options for raycast2d/raycast3d.
 //   * mask: layers the ray can hit (-1 = all).
 //   * ignore: entity whose colliders (and its descendants' colliders) are skipped; use the caster itself.
@@ -322,6 +343,11 @@ public:
     // A search that finds nothing is NOT an Error: it returns found = false with reason, message and hint. Errors are for
     // a query that cannot be answered (no NavMesh3D, an unknown mesh id, a radius bigger than the mesh was baked for).
     Result<NavPath> nav_find_path(World& world, Vec3 from, Vec3 to, const NavPathOptions& options = {});
+    // Many paths at once (nav.find_paths): the same answers, in request order, as nav_find_path called for each query in turn.
+    // With kNavBatchMinQueries or more queries the searches run as jobs (fa::jobs); the mesh of every query is chosen first on
+    // the calling thread, so a query that cannot be answered (no NavMesh3D, unknown mesh, radius too big) is an Error naming
+    // its index before any search runs.
+    Result<std::vector<NavPath>> nav_find_paths(World& world, const std::vector<NavPathQuery>& queries);
     // The walkable cells of every baked, enabled NavMesh3D (at most maxCells), for debug drawing. Bakes a mesh that has
     // none yet (autoBake) or whose static colliders changed.
     std::vector<NavCell> nav_cells(World& world, std::size_t maxCells = 200000);

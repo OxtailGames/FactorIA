@@ -14,6 +14,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/jobs.h"
+#include "fa/physics/physics.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/project.h"
 #include "fa/scene/components.h"
@@ -150,6 +151,80 @@ std::vector<std::string> run_hashes(const TempProject& p, const std::string& job
     e.shutdown();
     CHECK_FALSE(jobs::running());
     return hashes;
+}
+
+// A scene like a physics-heavy example: a 2D basin (Box2D) of 300 bodies and a 3D yard of 150, hinged pairs in both, a trigger, and
+// a static floor. Both are above the sizes at which a step goes to the job pool (docs/ARCHITECTURE.md, "Physics on jobs").
+void build_physics_scene(World& w) {
+    auto wall2 = [&](const char* id, Vec3 pos, Vec2 size) {
+        Entity e = w.create(id, id);
+        w.add<Transform>(e).position = pos;
+        w.add<Collider2D>(e).size = size;
+        w.add<RigidBody2D>(e).type = BodyType::Static;
+    };
+    wall2("floor2", {0, -20, 0}, {900, 40});
+    wall2("wallL2", {-450, 300, 0}, {40, 700});
+    wall2("wallR2", {450, 300, 0}, {40, 700});
+    for (int i = 0; i < 300; ++i) {
+        Entity e = w.create("b2_" + std::to_string(i), "b2_" + std::to_string(i));
+        w.add<Transform>(e).position = {-360.0f + 29.0f * float(i % 25) + (i / 25 % 2 ? 6.0f : 0.0f), 80.0f + 27.0f * float(i / 25), 0};
+        Collider2D& c = w.add<Collider2D>(e);
+        if (i % 2) { c.shape = ColliderShape::Circle; c.radius = 11.0f; }
+        else c.size = {22, 18};
+        w.add<RigidBody2D>(e);
+    }
+    for (int i = 0; i < 20; i += 2) {
+        Joint2D& j = w.add<Joint2D>(w.find("b2_" + std::to_string(i)));
+        j.connected = w.find("b2_" + std::to_string(i + 1));
+        j.anchor = {14, 0};
+        j.connectedAnchor = {-14, 0};
+    }
+    auto wall3 = [&](const char* id, Vec3 pos, Vec3 size) {
+        Entity e = w.create(id, id);
+        w.add<Transform>(e).position = pos;
+        w.add<Collider3D>(e).size = size;
+        w.add<RigidBody3D>(e).type = BodyType::Static;
+    };
+    wall3("floor3", {0, -0.5f, 2000}, {60, 1, 60});
+    wall3("wallN3", {0, 3, 1970}, {60, 6, 1});
+    wall3("wallS3", {0, 3, 2030}, {60, 6, 1});
+    wall3("wallE3", {30, 3, 2000}, {1, 6, 60});
+    wall3("wallW3", {-30, 3, 2000}, {1, 6, 60});
+    for (int i = 0; i < 150; ++i) {
+        Entity e = w.create("b3_" + std::to_string(i), "b3_" + std::to_string(i));
+        Transform& t = w.add<Transform>(e);
+        t.position = {-14.0f + 2.4f * float(i % 12), 1.0f + 1.3f * float(i / 48 * 3 + i / 12 % 3), 1986.0f + 2.4f * float(i / 12 % 12)};
+        t.rotation = {float((i * 29) % 90), float((i * 53) % 90), float((i * 11) % 90)};
+        Collider3D& c = w.add<Collider3D>(e);
+        if (i % 3 == 0) { c.shape = ColliderShape3D::Sphere; c.radius = 0.5f; }
+        else c.size = {0.9f, 0.7f, 0.8f};
+        w.add<RigidBody3D>(e).angularVelocity = {float(i % 5) * 20.0f, 10.0f, -float(i % 4) * 15.0f};
+    }
+}
+
+struct PhysicsRun {
+    std::vector<std::string> hashes;  // game.state_hash every 10th frame
+    int queued = 0;                   // jobs queued over the whole run
+};
+
+PhysicsRun run_physics(const TempProject& p, const std::string& jobThreads, int frames) {
+    const ScopedPhysicsJobThresholds lowered({256, 512});  // the 300-body basin runs through the pool
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p, jobThreads), nullptr, &err), err);
+    build_physics_scene(e.world());
+    PhysicsRun run;
+    for (int frame = 0; frame < frames; ++frame) {
+        e.step(1);
+        if (frame % 10 == 9) {
+            auto r = e.commands().call("game.state_hash", Json::object());
+            REQUIRE(r.ok);
+            run.hashes.push_back(r.result["hash"].get<std::string>());
+        }
+        run.queued += jobs::info().submittedLastFrame;  // (the engine closes the job frame at the end of each step)
+    }
+    e.shutdown();
+    return run;
 }
 
 }  // namespace
@@ -428,4 +503,19 @@ TEST_CASE("jobs engine: runtime.jobThreads round-trips through the project file"
     ProjectSettings unset;
     Json none = unset.to_json();
     CHECK_FALSE(none.contains("runtime"));
+}
+
+TEST_CASE("jobs engine: a physics-heavy scene gives the same state hash for hundreds of frames, inline and on 1, 3 and 8 threads") {
+    ScopedEnv env("FA_JOB_THREADS", nullptr);
+    TempProject p("physics");
+    const PhysicsRun base = run_physics(p, "inline", 200);
+    REQUIRE(base.hashes.size() == 20);
+    CHECK(base.hashes.front() != base.hashes.back());  // it moves
+    CHECK(base.queued == 0);                            // inline mode queues nothing
+    if (!jobs::threads_supported()) return;
+    for (const char* threads : {"1", "3", "8"}) {
+        const PhysicsRun run = run_physics(p, threads, 200);
+        CHECK(run.hashes == base.hashes);
+        CHECK(run.queued > 200);  // the physics steps really went to the pool
+    }
 }

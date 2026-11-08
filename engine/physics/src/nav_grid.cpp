@@ -112,24 +112,16 @@ void NavGrid::build(const NavParams& params, std::vector<NavEntry>& entries) {
     make_links();
     erode();
     make_regions();
-    g_.assign(spans_.size(), 0.0f);
-    parent_.assign(spans_.size(), -1);
-    parentLink_.assign(spans_.size(), -1);
-    stamp_.assign(spans_.size(), 0);
-    closed_.assign(spans_.size(), 0);
+    scratch_ = Scratch{};
+    scratch_.resize(spans_.size());
     edist_.assign(spans_.size(), 0.0f);
     edistStamp_.assign(spans_.size(), 0);
-    stampNow_ = 0;
     edistNow_ = 0;
 }
 
 void NavGrid::scratch_resize() {
     const std::size_t n = spans_.size() + dyn_.size();
-    g_.resize(n, 0.0f);
-    parent_.resize(n, -1);
-    parentLink_.resize(n, -1);
-    stamp_.resize(n, 0);
-    closed_.resize(n, 0);
+    scratch_.resize(n);
     edist_.resize(n, 0.0f);
     edistStamp_.resize(n, 0);
 }
@@ -358,7 +350,25 @@ int NavGrid::nearest_anywhere(Vec3 p, float* dist) const {
     return best;
 }
 
+void NavGrid::Scratch::resize(std::size_t n) {
+    g.resize(n, 0.0f);
+    parent.resize(n, -1);
+    parentLink.resize(n, -1);
+    stamp.resize(n, 0);
+    closed.resize(n, 0);
+}
+
+NavGrid::Scratch NavGrid::scratch() const {
+    Scratch s;
+    s.resize(std::size_t(total_count()));
+    return s;
+}
+
 std::vector<int> NavGrid::search(int start, int goal, int* closest, std::vector<int>* viaLink) const {
+    return search(start, goal, closest, viaLink, scratch_);
+}
+
+std::vector<int> NavGrid::search(int start, int goal, int* closest, std::vector<int>* viaLink, Scratch& sc) const {
     struct Item {
         float f, h, g;
         std::int32_t idx;
@@ -370,7 +380,7 @@ std::vector<int> NavGrid::search(int start, int goal, int* closest, std::vector<
             return a.idx > b.idx;
         }
     };
-    ++stampNow_;
+    ++sc.now;
     const Vec3 gc = center(goal);
     auto heuristic = [&](int s) {
         const Vec3 c = center(s);
@@ -378,10 +388,10 @@ std::vector<int> NavGrid::search(int start, int goal, int* closest, std::vector<
         return (dx + dz) + (kSqrt2 - 2.0f) * std::min(dx, dz);
     };
     std::priority_queue<Item, std::vector<Item>, Later> open;
-    g_[std::size_t(start)] = 0.0f;
-    parent_[std::size_t(start)] = -1;
-    parentLink_[std::size_t(start)] = -1;
-    stamp_[std::size_t(start)] = stampNow_;
+    sc.g[std::size_t(start)] = 0.0f;
+    sc.parent[std::size_t(start)] = -1;
+    sc.parentLink[std::size_t(start)] = -1;
+    sc.stamp[std::size_t(start)] = sc.now;
     open.push({heuristic(start), heuristic(start), 0.0f, start});
     int nearest = start;
     float nearestH = heuristic(start);
@@ -390,8 +400,8 @@ std::vector<int> NavGrid::search(int start, int goal, int* closest, std::vector<
         const Item it = open.top();
         open.pop();
         const std::size_t s = std::size_t(it.idx);
-        if (closed_[s] == stampNow_ || it.g > g_[s]) continue;
-        closed_[s] = stampNow_;
+        if (sc.closed[s] == sc.now || it.g > sc.g[s]) continue;
+        sc.closed[s] = sc.now;
         if (it.idx == goal) {
             reached = true;
             break;
@@ -402,16 +412,16 @@ std::vector<int> NavGrid::search(int start, int goal, int* closest, std::vector<
         }
         const Vec3 a = center(it.idx);
         auto relax = [&](int n, float stepLen, int via) {
-            if (n < 0 || !usable(n) || closed_[std::size_t(n)] == stampNow_) return;
+            if (n < 0 || !usable(n) || sc.closed[std::size_t(n)] == sc.now) return;
             const Vec3 b = center(n);
             const float dy = b.y - a.y;
             const float ng = it.g + std::sqrt(stepLen * stepLen + dy * dy);
             const std::size_t ni = std::size_t(n);
-            if (stamp_[ni] == stampNow_ && ng >= g_[ni]) return;
-            stamp_[ni] = stampNow_;
-            g_[ni] = ng;
-            parent_[ni] = it.idx;
-            parentLink_[ni] = via;
+            if (sc.stamp[ni] == sc.now && ng >= sc.g[ni]) return;
+            sc.stamp[ni] = sc.now;
+            sc.g[ni] = ng;
+            sc.parent[ni] = it.idx;
+            sc.parentLink[ni] = via;
             const float h = heuristic(n);
             open.push({ng + h, h, ng, n});
         };
@@ -435,11 +445,11 @@ std::vector<int> NavGrid::search(int start, int goal, int* closest, std::vector<
         if (closest) *closest = nearest;
         return chain;
     }
-    for (int s = goal; s >= 0; s = parent_[std::size_t(s)]) chain.push_back(s);
+    for (int s = goal; s >= 0; s = sc.parent[std::size_t(s)]) chain.push_back(s);
     std::reverse(chain.begin(), chain.end());
     if (viaLink) {
         viaLink->assign(chain.size(), -1);
-        for (std::size_t i = 1; i < chain.size(); ++i) (*viaLink)[i] = parentLink_[std::size_t(chain[i])];
+        for (std::size_t i = 1; i < chain.size(); ++i) (*viaLink)[i] = sc.parentLink[std::size_t(chain[i])];
     }
     return chain;
 }

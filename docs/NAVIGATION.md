@@ -74,6 +74,22 @@ in cells that were only cleared for a thinner one. Bake for the bigger agent: ad
 position) with the larger `agentRadius` and pass its id as `mesh`. With several meshes the query uses the first enabled one
 that contains `from` and is wide enough.
 
+### Many paths at once
+
+A crowd, a flock of guards or an AI planner that needs dozens of routes in one frame asks for them in one call:
+`nav.findPaths(queries, opts)` (command `nav.find_paths {"queries":[{"from":[0,0,0],"to":[10,0,5]},...],"radius":0.3}`).
+Each query is `{from, to, radius?, snap?, closest?, mesh?}`; the options in `opts` (or at the top level of the command) are the
+defaults of every query. The result has one entry per query **in the order you asked**, each exactly what `nav.findPath`
+gives for that query, and it is the same whatever `runtime.jobThreads` is (inline included): with 8 or more queries the
+searches run on the job threads (4 queries to a piece, a search never shares data with another), fewer run in order on the
+calling thread, because a job costs more than a short search. A query that cannot be answered (no baked NavMesh3D, an unknown
+`mesh`, a `radius` bigger than the mesh was baked for) fails the whole call with its number (`query 13 of 20`) before any search
+runs; a wrong argument names its JSON pointer (`/queries/3/from`). At most 10000 queries per call.
+
+`nav.findTilePaths(map, queries, opts)` (command `nav.find_tile_paths`) is the same for tile grids: one map, many `{from, to}`
+cells; the map is converted once (a grid from `nav.createGrid` is used as it is) and the result is a list of what
+`findTilePath` returns, in request order.
+
 ## 3. Moving obstacles
 
 A gate, a crate or a door that moves must not be baked into the ground. Mark its collider `navObstacle: true`: it is left

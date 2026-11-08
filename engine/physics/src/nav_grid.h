@@ -85,6 +85,16 @@ public:
     // `viaLink` (optional) gets, for every span of the chain, the id of the off-mesh link used to arrive there (-1 = a
     // normal step; the first span has -1).
     std::vector<int> search(int start, int goal, int* closest = nullptr, std::vector<int>* viaLink = nullptr) const;
+    // The same search with its own working memory, so several searches can run at once on one grid (nothing else is
+    // written; the grid must not change meanwhile). Make one with scratch() per thread or chunk.
+    struct Scratch {
+        std::vector<float> g;
+        std::vector<std::int32_t> parent, parentLink, stamp, closed;
+        std::int32_t now = 0;
+        void resize(std::size_t n);
+    };
+    Scratch scratch() const;  // sized for this grid
+    std::vector<int> search(int start, int goal, int* closest, std::vector<int>* viaLink, Scratch& scratch) const;
     // String pulling: keeps the spans that are corners of a straight walk over usable cells. A link is never cut: the
     // chain is pulled on each side of it. `cornerLink` (optional) gets, for every corner, the link id it was reached by.
     std::vector<int> pull(const std::vector<int>& chain, const std::vector<int>* viaLink = nullptr,
@@ -137,15 +147,12 @@ private:
     int dynLive_ = 0;
     std::vector<LinkEdge> links_edges_;       // sorted by `from`
     std::vector<std::int32_t> linkFirst_;     // per static span: first edge in links_edges_ (size spans + 1)
-    mutable std::vector<std::int32_t> parentLink_;
     std::vector<float> edist_;                // erosion scratch (by span), valid where edistStamp_ == edistNow_
     std::vector<std::int32_t> edistStamp_;
     std::int32_t edistNow_ = 0;
     std::vector<std::uint8_t> cellMark_;      // erosion scratch (by cell)
-    // Search scratch (a query is single-threaded), reset by a stamp instead of clearing.
-    mutable std::vector<float> g_;
-    mutable std::vector<std::int32_t> parent_, stamp_, closed_;
-    mutable std::int32_t stampNow_ = 0;
+    // Search scratch of the plain search() (one query at a time), reset by a stamp instead of clearing.
+    mutable Scratch scratch_;
 
     Span& sp(int s) { return std::size_t(s) < spans_.size() ? spans_[std::size_t(s)] : dyn_[std::size_t(s) - spans_.size()]; }
     const Span& sp(int s) const {
