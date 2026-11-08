@@ -9,6 +9,10 @@
 #include <set>
 
 #include "fa/core/fs.h"
+#include "font_internal.h"
+#include "fa/core/strings.h"
+#include "fa/core/load_trace.h"
+#include "fa/core/asset_manifest.h"
 #include "fa/core/log.h"
 #include "fa/core/profiler.h"
 #include "fa/platform/sokol_logging.h"
@@ -2603,6 +2607,132 @@ std::string Renderer::create_runtime_texture(const Image& img, std::string* erro
 
 bool Renderer::destroy_runtime_texture(const std::string& id) {
     return impl_ && impl_->assets && impl_->assets->destroy_runtime_texture(id);
+}
+
+// ---------------------------------------------------------------------------
+// Background loading (renderer.h, "Background loading")
+// ---------------------------------------------------------------------------
+namespace {
+
+bool is_background_texture_ext(const std::string& ext) {
+    static const char* const kExt[] = {".png", ".jpg", ".jpeg", ".bmp", ".tga", ".gif", ".ktx2"};
+    for (const char* e : kExt)
+        if (ext == e) return true;
+    return false;
+}
+
+IoResult background_failure(std::string message, std::string hint = {}) {
+    IoResult r;
+    r.error = std::move(message);
+    r.hint = std::move(hint);
+    return r;
+}
+
+// The file is made warm first (fs::warm): when its decode fails, the load on first use reads the same bytes from memory
+// (and reports the same error) instead of the disk; the background loader drops it again once the asset is adopted.
+Result<IoFile> background_read(const std::string& path) {
+    if (auto w = fs::warm(path); !w) return w.error();
+    auto view = fs::read_view(path);
+    if (!view) return view.error();
+    return IoFile{path, std::move(*view)};
+}
+
+}  // namespace
+
+Renderer::BackgroundKind Renderer::background_kind(std::string_view path) {
+    const std::string ext = to_lower(fs::extension(path));
+    if (is_background_texture_ext(ext)) return BackgroundKind::Texture;
+    if (ext == ".gltf" || ext == ".glb") return BackgroundKind::Model;
+    if (ext == ".ttf" || ext == ".otf") return BackgroundKind::Font;
+    return BackgroundKind::None;
+}
+
+bool Renderer::background_cached(std::string_view pathIn, BackgroundKind kind) const {
+    if (!impl_ || !impl_->assets) return true;  // nothing to prepare for: no renderer
+    const std::string path(pathIn);
+    switch (kind) {
+        case BackgroundKind::Texture: {
+            const assets::PackedTexture packed = assets::packed_texture(path);
+            return impl_->assets->has_texture(packed.atlas.empty() ? path : packed.atlas);
+        }
+        case BackgroundKind::Model: return impl_->assets->has_mesh(path);
+        case BackgroundKind::Font: return impl_->fonts->has_face(path);
+        case BackgroundKind::None: return true;
+    }
+    return true;
+}
+
+Renderer::BackgroundWork Renderer::background_work(std::string_view pathIn, BackgroundKind kind) const {
+    const std::string path(pathIn);
+    BackgroundWork w;
+    switch (kind) {
+        case BackgroundKind::Texture: {
+            const sg_pixel_format format = impl_ ? render::ktx2_target_format() : SG_PIXELFORMAT_RGBA8;
+            w.read = [path]() -> Result<IoFile> {
+                // As Assets::load_texture: an export packed it into an atlas (read the atlas), or made a KTX2 twin.
+                const assets::PackedTexture packed = assets::packed_texture(path);
+                const std::string key = packed.atlas.empty() ? path : packed.atlas;
+                const std::string twin = fs::extension(key) == kTextureTwinExtension ? key : key + kTextureTwinExtension;
+                return background_read(fs::exists(twin) ? twin : key);
+            };
+            w.decode = [path, format](IoFile& f) {
+                const assets::PackedTexture packed = assets::packed_texture(path);
+                const std::string key = packed.atlas.empty() ? path : packed.atlas;
+                auto p = render::decode_texture_file(key, f.path, f.view.data(), f.view.size(), format);
+                if (!p) return background_failure(p.error().message, p.error().hint);
+                IoResult r;
+                r.ok = true;
+                r.value = std::make_shared<PreparedTexture>(std::move(*p));
+                return r;
+            };
+            break;
+        }
+        case BackgroundKind::Model:
+            w.read = [path] { return background_read(path); };
+            w.decode = [path](IoFile& f) {
+                AssetLoadScope trace("mesh", path);  // the decode time (the read was the IO thread's); free without a trace
+                trace.set_bytes(f.view.size());
+                auto p = std::make_shared<PreparedMesh>();
+                std::string error;
+                if (!render::decode_gltf(path, f.view.data(), f.view.size(), *p, error)) return background_failure("mesh " + error);
+                IoResult r;
+                r.ok = true;
+                r.value = std::move(p);
+                return r;
+            };
+            break;
+        case BackgroundKind::Font:
+            w.read = [path]() -> Result<IoFile> { return IoFile{path, {}}; };  // the face reads its file itself
+            w.decode = [path](IoFile&) {
+                auto face = std::make_shared<std::unique_ptr<render::FontFace>>(render::load_font_face(path));
+                IoResult r;
+                r.ok = true;  // a face that failed is kept as one: a load on first use keeps it too (and reports it once)
+                r.bytes = (*face)->size;
+                r.value = std::move(face);
+                return r;
+            };
+            break;
+        case BackgroundKind::None: break;
+    }
+    return w;
+}
+
+std::uint64_t Renderer::adopt_background(std::string_view pathIn, BackgroundKind kind, IoResult& result) {
+    if (!impl_ || !impl_->assets || !result.ok || !result.value) return 0;
+    const std::string path(pathIn);
+    switch (kind) {
+        case BackgroundKind::Texture:
+            return impl_->assets->adopt_texture(*std::static_pointer_cast<PreparedTexture>(result.value), std::move(result.files));
+        case BackgroundKind::Model:
+            return impl_->assets->adopt_mesh(path, *std::static_pointer_cast<PreparedMesh>(result.value), std::move(result.files));
+        case BackgroundKind::Font: {  // the face moves into the cache (a FontFace is not copyable)
+            auto holder = std::static_pointer_cast<std::unique_ptr<render::FontFace>>(result.value);
+            impl_->fonts->adopt(std::move(*holder), std::move(result.files));
+            return 0;
+        }
+        case BackgroundKind::None: break;
+    }
+    return 0;
 }
 
 }  // namespace fa

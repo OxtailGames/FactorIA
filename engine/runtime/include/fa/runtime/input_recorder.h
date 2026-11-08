@@ -2,7 +2,7 @@
 //   {"frames": {"<n>": {"keys": {"Space": true}, "mouse": {"position": [x, y], "left": true},
 //                       "gamepad": [{"index": 0, "buttons": {"A": true}, "axes": {"LeftX": 0.5}}],
 //                       "touch": [{"id": 1, "position": [x, y], "down": true}], "back": true, "clipboard": "text",
-//                       "http": [{"result": {"status": 200, "headers": {}, "text": "..."}}]}},
+//                       "http": [{"result": {"status": 200, "headers": {}, "text": "..."}}], "loadUnits": 3}},
 //    "timing": [[dt, steps], ...], "date": "2026-10-23"}
 // Frame numbers are relative to the start of the recording; an entry is applied BEFORE that frame runs, which is what the
 // events received between two frames mean. Each frame's dt and fixed-step count go to "timing", so the replay runs the same
@@ -61,6 +61,10 @@ public:
     // text}} or {"error": code, "message", "hint"}. The replay queues them in the fake HTTP client, so the game's requests get
     // the same answers without a network. The Engine feeds them from PlatformServices' http log (frame = that of the request).
     void http(std::uint64_t frame, const Json& answer);
+    // How many background-load units `frame` took ("loadUnits" of the replay entry; docs/PERFORMANCE.md, "Background
+    // loading"): a game with a window takes what is ready, so the replay takes the same count and gets the same frames.
+    // The Engine records it on every frame a background load runs, 0 included.
+    void load_units(std::uint64_t frame, int units);
     // Everything held is let go (focus lost, Pause, Input::release_all): keys, mouse buttons, fingers, pads.
     void release_all(std::uint64_t frame);
     // After the engine ran up to frame `frameEnd` (exclusive): the last frame took `dt` and ran `steps` fixed steps.

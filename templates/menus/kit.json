@@ -68,7 +68,7 @@
     },
     {
       "name": "loading",
-      "description": "The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level.",
+      "description": "The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level, which it loads in the background (scene.load with {async: true}) while it shows the real progress.",
       "requires": [],
       "files": ["scenes/loading.scene.json", "scripts/loading.js"],
       "localeKeys": ["loading"]

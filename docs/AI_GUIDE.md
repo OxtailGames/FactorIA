@@ -990,6 +990,8 @@ export default class Goal extends Behaviour {
 
 A scene change drops every behaviour, timer and `world.on` listener of the old scene. Anything that must survive the change goes in `session` (section 9.15) or in `storage`.
 
+A big level freezes the game for the frame `scene.load` reads it in. Load it in the background instead and keep a loading screen running: `const job = scene.load("scenes/level2.scene.json", props, { async: true })` returns a handle at once (`job.progress` 0..1 for a bar, `job.done`, `job.cancel()`, `job.promise`) and switches at the end of the frame the files are ready; `scene.preload(path)` and `assets.preload(paths)` only read ahead. The menu kit's `scripts/loading.js` is the recipe (section 9.24). Tests and headless runs take 4 files per frame, so they see the same frames on every machine; a windowed game takes what is ready within `runtime.loadBudgetMs` / `uploadBudgetMB`. Cost: nothing while no load runs; while one runs, an IO thread and worker jobs, and at most `loadBudgetMs` (default 4 ms) of each frame on the main thread (PERFORMANCE.md, "Background loading").
+
 ### 9.12 One-shot particle effects
 
 A burst of sparks, a pickup pop or an explosion is a prefab with an emitter that does not emit continuously. The burst fires when the entity is created, even with `emitting: false`. `autoDestroy` removes the entity after the last particle dies. `"blend": "additive"` makes overlapping particles glow.
@@ -1602,7 +1604,7 @@ between runs. In short:
    panels, back with B / Escape).
 3. The main menu and credits: `scenes/menu.scene.json`, `scripts/main_menu.js`, `scripts/ui/credits.js`.
 4. Options: `prefabs/ui/options.prefab.json`, `scripts/ui/options.js`.
-5. The loading screen: `scenes/loading.scene.json`, `scripts/loading.js`.
+5. The loading screen: `scenes/loading.scene.json`, `scripts/loading.js` (it loads the first level in the background with `scene.load(path, null, { async: true })` and shows the real progress).
 6. Pause: `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js`, and one `pause_menu` entity in each level.
 7. A shop, only for a game with in-app purchases: `scripts/ui/shop.js`, the `shop` panel and `shop_button` of the menu
    scene, and `scripts/store_events.js` (pauses the game while the store overlay is open). It uses the `platform`
@@ -2247,6 +2249,7 @@ editor the user can start the same run from **Play > Let the AI play**; it appea
 - Use `RigidBody2D.bullet: true` only for fast, small bodies.
 - 3D physics handles spheres, capsules, convex hulls, static triangle meshes and (oriented) boxes, plus hinge/ball/fixed joints and a character controller. Fast bodies are swept against every solid collider. A `mesh` collider is static only; jointed bodies never sleep. Path finding over 3D ground (around walls, up ramps): a `NavMesh3D` component baked from the static colliders and `nav.findPath(from, to)` in scripts, see [NAVIGATION.md](NAVIGATION.md) (`docs_read {"name":"navigation"}`). 2D tile maps: `nav.findTilePath(map, from, to)` (A* over a Tilemap or your own cost grid) and `import { bt } from "factoria"` for behaviour trees, section 9.27.
 - Keep iteration runs short. 120 frames is 2 seconds of game time.
+- Load big levels in the background (`scene.load(path, props, { async: true })`, section 9.11): the frame never waits for a file in a windowed game, and each frame spends at most `runtime.loadBudgetMs` (default 4) and uploads at most `runtime.uploadBudgetMB` (default 16) to the GPU on it. It costs nothing while no load runs; while one runs, the files read ahead (about one scene's) stay in memory until the second scene load after it. `load.status` shows the progress and `warmBytes` (PERFORMANCE.md, "Background loading").
 - The engine spreads some of its own work over worker threads; `runtime.jobThreads` in factoria.json sets how many (`"auto"`, the default, a number 0..32 written without quotes, or `"inline"` to debug). Threads never change what the game computes: `game.state_hash` gives one hash of the whole state, the same at the same frame with any setting, and `jobs.info` says what runs (PERFORMANCE.md, "Job threads").
 - **Start-up.** A new project ships a `perf.json` with `"budgets": {"maxStartupMs": 5000}` (`perf.startup`): the most CPU milliseconds the game may take from reading its files to its first frame (`startupMs` in `perf.measure`; `factoria call perf.check` fails over it when `CI` is set and warns elsewhere). The player already shows a first (black) frame before it reads the game, and makes the first scene's GPU pipelines over the next frames, so you never wait for that; `play.report` `loading.startup` has `firstPresentMs` (how long the window stared at nothing) and `firstGameFrameMs` (until the game is playable) apart. Keep `startupMs` low by loading only the first screen in the start scene (the rest in a scene or prefab loaded later), shipping big PNGs as KTX2, and keeping heavy work out of `onStart` (spread it over frames or generate it ahead of time). Keep the budget wide (a few seconds) so it catches a game that became slow, not a busy machine; see [PERFORMANCE.md](PERFORMANCE.md#startup).
 

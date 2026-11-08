@@ -2479,6 +2479,18 @@ Answers the review sheet that assets.generate_image {count} made for `slot` (its
 | `note` | string | no | Why this one, in the person's words; kept in the sheet's manifest with the choice. |
 | `overwrite` | boolean | no | Replace a file that already exists at `slot` (the old file is kept in the sheet's drop folder for 7 days). Not needed when the generate call had overwrite:true. Default false. |
 
+### `assets.preload` (modifies state)
+
+Not released yet (on main after 0.18.0).
+
+Read a list of asset files in the background, ready for their first use.
+
+Starts a background load of the listed files: textures, models, fonts and sounds are decoded into the engine's caches (a .gltf brings its buffers and textures, a .prefab.json or .material.json what it names); any other file is read into memory. Answers at once with `loadId` and the status; it advances in the frames the game runs. A missing file is an error with "did you mean"; a folder is an error too. Example: assets.preload {"paths":["assets/boss.glb","sounds/boss_theme.ogg"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `paths` | array | yes | Project-relative files to read ahead. |
+
 ### `assets.preview_in_scene`
 
 Since 0.16.0.
@@ -4484,6 +4496,32 @@ The job system now: worker threads, mode, jobs run and queued last frame, how bu
 
 mode is "threads" (a pool of workers; 0 workers means jobs run on the main thread when it waits for them or at the end of the frame), "inline" (debugging: every job runs on the main thread when it is submitted) or "stopped". setting is the value the pool was started with and source where this engine's setting came from ("EngineConfig", "FA_JOB_THREADS", "factoria.json" for runtime.jobThreads, or "default" = "auto"; a second engine in the same process shares the first one's pool); autoWorkers is what "auto" gives on this machine. lastFrame and lanes (one per thread: main, worker 1..) count the last finished frame; busyMs and busyPct are wall time, rounded, and differ from run to run; with several engines in the process the first one to end a frame closes these frames. waiting counts the threads in a wait now; enginePending this engine's jobs not finished yet (each engine owns the jobs it queues, and shutdown waits for them). Threads never change what the game computes (game.state_hash checks it). Example: jobs.info {}
 
+## scene
+
+### `load.cancel` (modifies state)
+
+Not released yet (on main after 0.18.0).
+
+Stop a background load, or drop the files a finished one read ahead.
+
+A running load stops: what it decoded is thrown away, an async scene.load does not switch, and a script's handle rejects with "cancelled" in the next frame. A finished load's files read ahead are dropped now, and an async scene.load whose files were ready this frame does not switch at its end. Answers {id, cancelled}. Example: load.cancel {"id":1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | integer | yes | The loadId to stop. |
+
+### `load.status`
+
+Not released yet (on main after 0.18.0).
+
+Show the background loads: progress, items, bytes, errors.
+
+With `id`: that load (from scene.preload, assets.preload, scene.load {async:true}, or a script's handle). Without: {jobs, threaded, warmBytes}, the loads that run and the last 16 that ended. A load is {id, kind, paths, origin (script|tool), state (scanning|loading|done|failed|cancelled), progress (0..1, never goes down), items {done, total} (the scan counts as one), bytes, uploadedBytes, error?, hint?}. `threaded` is false when the job pool has no worker thread: the files are then read on the main thread, a share per frame. Example: load.status {"id":1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | integer | no | A loadId. Default: every running and recent load. |
+
 ## material
 
 ### `material.info`
@@ -5639,7 +5677,7 @@ The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js). The textSpeed part adds a dialogue "Text speed" row to the audio tab; addOptionsRow() of scripts/ui/options.js adds a row of the game to any tab.; textSpeed: A "Text speed" row in the options panel's audio tab (slow, normal, fast, instant), saved as settings.textSpeed in characters per second; the game's dialogue box reveals a line with Text.visibleCharacters = revealedCharacters(seconds) (scripts/settings.js). Without this part the options prefab has no such row (all parts by default).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; ageGate: The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience "mixed"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu, when added too, opens it once, before any ad; its tests/age_gate.test.js checks it.; analyticsConsent: The analytics question for a game whose factoria.json has an "analytics" section (docs/ANALYTICS.md): a short screen (prefabs/ui/analytics_consent.prefab.json, scripts/ui/analytics_consent.js) that asks once whether the game may count anonymous usage, and gives the answer to analytics.setConsent(). Nothing is sent before it. The main menu, when added too, opens it on its first run; the Options switch (options part) changes the answer later. tests/analytics_consent.test.js checks it.; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, the line that opens the age gate and the line that opens the analytics question are written only when the shop, ageGate and analyticsConsent parts are added too (all parts by default).; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; slots: Save slots (scripts/slots.js, scripts/ui/slot_screen.js, prefabs/ui/slots.prefab.json, prefabs/ui/slot_dialog.prefab.json, tests/slots.test.js): five named slots and an autosave in storage, each a record with a counter, name, chapter, play time, picture and the game's data, the cloud merge by counter, and the save / load screen with a dialog that names a save (the on-screen keyboard opens for a gamepad player). Needs core and keyboard. The game supplies what is saved and how a slot is loaded: docs/MENUS.md, "Save slots".; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own).; card: A choice card for events, stories and decisions (scripts/ui/card.js, prefabs/ui/card.prefab.json): a modal panel (Panel.modal) with a title, a wrapped body, choice buttons that each have a detail line, a choice greyed out with its reason, a result stage with Continue, and an option to hold the game clock (game.paused) while it is open. The mouse, the arrows and the pad reach only the card. tests/card.test.js checks it.; cameraRig: The strategy camera for a management or strategy game (scripts/camera_rig.js): put the script on the orthographic camera. Drag pan, keys, screen-edge pan, wheel zoom towards the cursor between zoomMin and zoomMax, and a limit from the bounds() of an entity; it ignores the wheel and drags over the UI. Adds the input actions camera_drag, camera_left, camera_right, camera_up, camera_down, camera_zoom_in and camera_zoom_out to factoria.json when the game has none of that name. tests/camera_rig.test.js checks it. |
+| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js). The textSpeed part adds a dialogue "Text speed" row to the audio tab; addOptionsRow() of scripts/ui/options.js adds a row of the game to any tab.; textSpeed: A "Text speed" row in the options panel's audio tab (slow, normal, fast, instant), saved as settings.textSpeed in characters per second; the game's dialogue box reveals a line with Text.visibleCharacters = revealedCharacters(seconds) (scripts/settings.js). Without this part the options prefab has no such row (all parts by default).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; ageGate: The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience "mixed"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu, when added too, opens it once, before any ad; its tests/age_gate.test.js checks it.; analyticsConsent: The analytics question for a game whose factoria.json has an "analytics" section (docs/ANALYTICS.md): a short screen (prefabs/ui/analytics_consent.prefab.json, scripts/ui/analytics_consent.js) that asks once whether the game may count anonymous usage, and gives the answer to analytics.setConsent(). Nothing is sent before it. The main menu, when added too, opens it on its first run; the Options switch (options part) changes the answer later. tests/analytics_consent.test.js checks it.; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, the line that opens the age gate and the line that opens the analytics question are written only when the shop, ageGate and analyticsConsent parts are added too (all parts by default).; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level, which it loads in the background (scene.load with {async: true}) while it shows the real progress.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; slots: Save slots (scripts/slots.js, scripts/ui/slot_screen.js, prefabs/ui/slots.prefab.json, prefabs/ui/slot_dialog.prefab.json, tests/slots.test.js): five named slots and an autosave in storage, each a record with a counter, name, chapter, play time, picture and the game's data, the cloud merge by counter, and the save / load screen with a dialog that names a save (the on-screen keyboard opens for a gamepad player). Needs core and keyboard. The game supplies what is saved and how a slot is loaded: docs/MENUS.md, "Save slots".; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own).; card: A choice card for events, stories and decisions (scripts/ui/card.js, prefabs/ui/card.prefab.json): a modal panel (Panel.modal) with a title, a wrapped body, choice buttons that each have a detail line, a choice greyed out with its reason, a result stage with Continue, and an option to hold the game clock (game.paused) while it is open. The mouse, the arrows and the pad reach only the card. tests/card.test.js checks it.; cameraRig: The strategy camera for a management or strategy game (scripts/camera_rig.js): put the script on the orthographic camera. Drag pan, keys, screen-edge pan, wheel zoom towards the cursor between zoomMin and zoomMax, and a limit from the bounds() of an entity; it ignores the wheel and drags over the UI. Adds the input actions camera_drag, camera_left, camera_right, camera_up, camera_down, camera_zoom_in and camera_zoom_out to factoria.json when the game has none of that name. tests/camera_rig.test.js checks it. |
 | `overwrite` | boolean | no | Replace a kit file the game has changed (a file that is the same is left alone). Without it that file is left as it is and listed in `skipped`. String keys the game has are never replaced. Default false. |
 
 ### `project.create` (modifies state)
@@ -6148,12 +6186,25 @@ Filters: name (substring, case-insensitive), tag (exact), component (name). limi
 
 Replace the running scene with a scene file.
 
-Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in `messages`. `props` (a JSON object) is handed to the new scene's scripts: game.sceneProps() returns it from their first start(). A reload (scene.reload, hot reload) keeps the props; a scene.load without props gives the scene none. Example: scene.load {"path":"scenes/level2.scene.json","props":{"difficulty":"hard"}}
+Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in `messages`. `props` (a JSON object) is handed to the new scene's scripts: game.sceneProps() returns it from their first start(). A reload (scene.reload, hot reload) keeps the props; a scene.load without props gives the scene none. `async`: true reads the scene's files in the background first (docs/PERFORMANCE.md, "Background loading") and answers at once with `loadId`; the switch happens at the end of the frame the files are ready, in the frames the game runs (load.status shows the progress, load.cancel stops it). A later scene.load replaces it. Example: scene.load {"path":"scenes/level2.scene.json","props":{"difficulty":"hard"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Project-relative scene path. |
 | `props` | object | no | Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {}). |
+| `async` | boolean | no | Read the scene's files in the background and switch once they are ready (answers {async, loadId} at once). Default false: load now (or at the end of the frame). Default false. |
+
+### `scene.preload` (modifies state)
+
+Not released yet (on main after 0.18.0).
+
+Read a scene's files in the background, so a later scene.load waits for nothing.
+
+Starts a background load of the scene file and everything it uses (prefabs, materials, scripts, models, textures, fonts, sounds): the IO thread reads them and jobs decode them while frames run; each frame the main thread uploads a share to the GPU (docs/PERFORMANCE.md, "Background loading"). Answers at once with `loadId` and the load's status; it advances in the frames the game runs (game.step, play.auto, a running window). The files stay ready until the second scene load after the preload finished (load.cancel drops them earlier). A missing scene is an error with "did you mean". Example: scene.preload {"path":"scenes/level2.scene.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project-relative scene path, e.g. scenes/level2.scene.json. |
 
 ### `scene.reload` (modifies state)
 
@@ -10115,14 +10166,18 @@ declare module "factoria" {
 
   export interface SceneAPI {
     /**
-     * Reads a scene's files into memory ahead of time, a little every frame, and returns a handle at once: scene.load(path) of a preloaded scene reads nothing from the disk, so a loading screen can draw (and animate) while the next level loads. Reads the scene file and what it points at: prefabs, materials, textures, models (a .gltf brings its .bin and images), audio and fonts. Per frame the work is cut in whole files: four files per frame in tests, headless runs and replays (so the frames it takes never depend on how fast the machine is), as many as fit in a few milliseconds (at least one) in a game with a window. A scene path that does not exist throws with a did-you-mean list. Example: const job = scene.preload("scenes/level2.scene.json"); in onUpdate: bar.width = 400 * job.progress; if (job.done) scene.load("scenes/level2.scene.json"); or job.promise.then(() => scene.load(...)).
+     * Reads a scene's files in the background and returns a handle at once: the IO thread reads them, jobs decode the images, models, fonts and sounds, and each frame uploads a share to the GPU, so a later scene.load(path) of that scene reads nothing from the disk and a loading screen keeps drawing (and animating). Reads the scene file and what it points at: prefabs, materials, scripts and their imports, textures, models (a .gltf brings its .bin and images), audio and fonts. Per frame the work is cut in whole files: four per frame in tests, headless runs, the editor and replays (so the frames it takes never depend on the machine), the files that are ready within runtime.loadBudgetMs and runtime.uploadBudgetMB in a game with a window (a frame never waits for a file). A scene path that does not exist throws with a did-you-mean list. Example: const job = scene.preload("scenes/level2.scene.json"); in onUpdate: bar.width = 400 * job.progress; if (job.done) scene.load("scenes/level2.scene.json"); or job.promise.then(() => scene.load(...)).
      * @since 0.3.0
      */
     preload(path: string): PreloadHandle;
     /**
-     * Deferred to the end of the frame. `props` (a plain JSON object) is what the new scene reads with game.sceneProps(), from its first onStart. A load without props gives the new scene {}; scene.reload() keeps the current props. Example: scene.load("scenes/level.scene.json", { level: 3 }).
+     * Deferred to the end of the frame. `props` (a plain JSON object) is what the new scene reads with game.sceneProps(), from its first onStart. A load without props gives the new scene {}; scene.reload() keeps the current props. A sync load cancels an async scene.load still loading (the last request wins). Example: scene.load("scenes/level.scene.json", { level: 3 }).
      */
-    load(path: string, props?: Json): void;
+    load(path: string, props?: Json | null, options?: { async?: false }): void;
+    /**
+     * With { async: true }: reads the scene's files in the background first (like scene.preload) and switches to the scene at the end of the frame they are all ready; the game, a loading screen included, keeps running meanwhile. Returns the load's handle at once: progress (0..1, never goes down), done, cancel(), promise. A newer scene.load or scene.reload cancels it (its promise rejects with "cancelled") and it never switches. The new scene starts like after a sync load: same world, same game.sceneProps(), same first-use file order. A scene that does not exist throws with a did-you-mean list; an unknown option throws with the closest one. Without options, or with { async: false }, it is the sync load above and returns undefined. Example: const h = scene.load("scenes/level2.scene.json", { level: 2 }, { async: true }); bar.width = 400 * h.progress;
+     */
+    load(path: string, props: Json | null | undefined, options: { async: true }): PreloadHandle;
     reload(): void;
     /**
      * The path of the running scene. A reload of the same scene leaves it equal: use `generation` to tell the two apart.
@@ -11617,42 +11672,62 @@ declare module "factoria" {
   }
 
   /**
-   * Progress of scene.preload / assets.preload. Values change between frames only, never in the middle of your code. The files stay in memory through the first two scene loads after the job finishes (a load reads none of them from the disk); release() frees them earlier.
+   * Progress of scene.preload / assets.preload / scene.load(path, props, { async: true }). Values change between frames only, never in the middle of your code. The files a finished job read ahead and that no cache took stay in memory through the first scene load after it finished and leave at the second; release() frees them earlier.
    * @since 0.3.0
    */
   export interface PreloadHandle {
     /**
-     * How much of the work is done, 0..1: whole files read over the files to read (the scene file counts as one). Never goes down, 1 when done.
+     * How much of the work is done, 0..1: items loaded over the items of the job (the scan of the scene counts as one). Never goes down, 1 when done without an error.
      * @since 0.3.0
      */
     readonly progress: number;
     /**
-     * True once every file is read, or the job failed (then error says why).
+     * True once everything is loaded, or the job failed (then error says why) or was cancelled (then cancelled is true).
      * @since 0.3.0
      */
     readonly done: boolean;
     /**
-     * Files read so far.
+     * Items loaded so far: the scan of the scene (or of the listed files) counts as one, then one per texture, model, font, sound or other file.
      * @since 0.3.0
      */
     readonly files: number;
+    /**
+     * Items of the job: 1 until the scan is done, then the real count. progress is files / total.
+     * @since unreleased
+     */
+    readonly total: number;
     /**
      * Bytes read so far.
      * @since 0.3.0
      */
     readonly bytes: number;
     /**
+     * Bytes uploaded to the GPU so far (textures and models; fonts upload their glyphs when first drawn; 0 without a GPU). In a game with a window a frame stops taking files once it uploaded runtime.uploadBudgetMB.
+     * @since unreleased
+     */
+    readonly uploadedBytes: number;
+    /**
      * Why the job failed (a file could not be read, the scene is not valid JSON), or an empty string.
      * @since 0.3.0
      */
     readonly error: string;
     /**
-     * Resolves with the totals when everything is read; rejects with an Error (message + hint) when the job fails or is released first.
+     * True when the job was cancelled: cancel(), release() before it finished, the load.cancel command, or a newer scene load replaced an async one.
+     * @since unreleased
+     */
+    readonly cancelled: boolean;
+    /**
+     * Resolves with the totals when everything is loaded; rejects with an Error (message + hint) when the job fails, is cancelled or is released first.
      * @since 0.3.0
      */
-    readonly promise: Promise<{ files: number; bytes: number }>;
+    readonly promise: Promise<{ files: number; bytes: number; uploadedBytes: number }>;
     /**
-     * Stops a job that is still running and drops the files nobody has read yet (they would be read from the disk again). Optional: the files leave memory by themselves after the second scene load that follows the job.
+     * Stops the job now: its promise rejects with "cancelled", what it decoded is thrown away and the files it read ahead are dropped. An async scene.load does not switch, also when its files were ready this frame and its promise resolved already (the switch happens at the end of the frame).
+     * @since unreleased
+     */
+    cancel(): void;
+    /**
+     * Gives the files read ahead back: stops a job still running (like cancel()), or drops a finished job's files now. Optional: they leave memory by themselves at the second scene load after the job finished.
      * @since 0.3.0
      */
     release(): void;
@@ -11663,7 +11738,7 @@ declare module "factoria" {
    */
   export interface AssetsAPI {
     /**
-     * Reads the files ahead of time like scene.preload does (models with their buffers and textures, images, audio, fonts, prefabs, materials), for assets a script will use later: the next read of each file, by the renderer or by audio, takes it from memory. A path that does not exist throws with a did-you-mean list; the list must not be empty. Example: assets.preload(["assets/boss.glb", "assets/boss_theme.ogg"]).promise.then(() => spawnBoss()).
+     * Reads the files in the background like scene.preload does (models with their buffers and textures, images, audio, fonts, prefabs, materials), for assets a script will use later: textures, models, fonts and sounds are decoded into the engine's caches, any other file is kept in memory, so the next use reads nothing from the disk. A path that does not exist throws with a did-you-mean list; the list must not be empty. Example: assets.preload(["assets/boss.glb", "assets/boss_theme.ogg"]).promise.then(() => spawnBoss()).
      * @since 0.3.0
      */
     preload(paths: string[]): PreloadHandle;

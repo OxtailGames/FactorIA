@@ -2037,14 +2037,18 @@ declare module "factoria" {
 
   export interface SceneAPI {
     /**
-     * Reads a scene's files into memory ahead of time, a little every frame, and returns a handle at once: scene.load(path) of a preloaded scene reads nothing from the disk, so a loading screen can draw (and animate) while the next level loads. Reads the scene file and what it points at: prefabs, materials, textures, models (a .gltf brings its .bin and images), audio and fonts. Per frame the work is cut in whole files: four files per frame in tests, headless runs and replays (so the frames it takes never depend on how fast the machine is), as many as fit in a few milliseconds (at least one) in a game with a window. A scene path that does not exist throws with a did-you-mean list. Example: const job = scene.preload("scenes/level2.scene.json"); in onUpdate: bar.width = 400 * job.progress; if (job.done) scene.load("scenes/level2.scene.json"); or job.promise.then(() => scene.load(...)).
+     * Reads a scene's files in the background and returns a handle at once: the IO thread reads them, jobs decode the images, models, fonts and sounds, and each frame uploads a share to the GPU, so a later scene.load(path) of that scene reads nothing from the disk and a loading screen keeps drawing (and animating). Reads the scene file and what it points at: prefabs, materials, scripts and their imports, textures, models (a .gltf brings its .bin and images), audio and fonts. Per frame the work is cut in whole files: four per frame in tests, headless runs, the editor and replays (so the frames it takes never depend on the machine), the files that are ready within runtime.loadBudgetMs and runtime.uploadBudgetMB in a game with a window (a frame never waits for a file). A scene path that does not exist throws with a did-you-mean list. Example: const job = scene.preload("scenes/level2.scene.json"); in onUpdate: bar.width = 400 * job.progress; if (job.done) scene.load("scenes/level2.scene.json"); or job.promise.then(() => scene.load(...)).
      * @since 0.3.0
      */
     preload(path: string): PreloadHandle;
     /**
-     * Deferred to the end of the frame. `props` (a plain JSON object) is what the new scene reads with game.sceneProps(), from its first onStart. A load without props gives the new scene {}; scene.reload() keeps the current props. Example: scene.load("scenes/level.scene.json", { level: 3 }).
+     * Deferred to the end of the frame. `props` (a plain JSON object) is what the new scene reads with game.sceneProps(), from its first onStart. A load without props gives the new scene {}; scene.reload() keeps the current props. A sync load cancels an async scene.load still loading (the last request wins). Example: scene.load("scenes/level.scene.json", { level: 3 }).
      */
-    load(path: string, props?: Json): void;
+    load(path: string, props?: Json | null, options?: { async?: false }): void;
+    /**
+     * With { async: true }: reads the scene's files in the background first (like scene.preload) and switches to the scene at the end of the frame they are all ready; the game, a loading screen included, keeps running meanwhile. Returns the load's handle at once: progress (0..1, never goes down), done, cancel(), promise. A newer scene.load or scene.reload cancels it (its promise rejects with "cancelled") and it never switches. The new scene starts like after a sync load: same world, same game.sceneProps(), same first-use file order. A scene that does not exist throws with a did-you-mean list; an unknown option throws with the closest one. Without options, or with { async: false }, it is the sync load above and returns undefined. Example: const h = scene.load("scenes/level2.scene.json", { level: 2 }, { async: true }); bar.width = 400 * h.progress;
+     */
+    load(path: string, props: Json | null | undefined, options: { async: true }): PreloadHandle;
     reload(): void;
     /**
      * The path of the running scene. A reload of the same scene leaves it equal: use `generation` to tell the two apart.
@@ -3539,42 +3543,62 @@ declare module "factoria" {
   }
 
   /**
-   * Progress of scene.preload / assets.preload. Values change between frames only, never in the middle of your code. The files stay in memory through the first two scene loads after the job finishes (a load reads none of them from the disk); release() frees them earlier.
+   * Progress of scene.preload / assets.preload / scene.load(path, props, { async: true }). Values change between frames only, never in the middle of your code. The files a finished job read ahead and that no cache took stay in memory through the first scene load after it finished and leave at the second; release() frees them earlier.
    * @since 0.3.0
    */
   export interface PreloadHandle {
     /**
-     * How much of the work is done, 0..1: whole files read over the files to read (the scene file counts as one). Never goes down, 1 when done.
+     * How much of the work is done, 0..1: items loaded over the items of the job (the scan of the scene counts as one). Never goes down, 1 when done without an error.
      * @since 0.3.0
      */
     readonly progress: number;
     /**
-     * True once every file is read, or the job failed (then error says why).
+     * True once everything is loaded, or the job failed (then error says why) or was cancelled (then cancelled is true).
      * @since 0.3.0
      */
     readonly done: boolean;
     /**
-     * Files read so far.
+     * Items loaded so far: the scan of the scene (or of the listed files) counts as one, then one per texture, model, font, sound or other file.
      * @since 0.3.0
      */
     readonly files: number;
+    /**
+     * Items of the job: 1 until the scan is done, then the real count. progress is files / total.
+     * @since unreleased
+     */
+    readonly total: number;
     /**
      * Bytes read so far.
      * @since 0.3.0
      */
     readonly bytes: number;
     /**
+     * Bytes uploaded to the GPU so far (textures and models; fonts upload their glyphs when first drawn; 0 without a GPU). In a game with a window a frame stops taking files once it uploaded runtime.uploadBudgetMB.
+     * @since unreleased
+     */
+    readonly uploadedBytes: number;
+    /**
      * Why the job failed (a file could not be read, the scene is not valid JSON), or an empty string.
      * @since 0.3.0
      */
     readonly error: string;
     /**
-     * Resolves with the totals when everything is read; rejects with an Error (message + hint) when the job fails or is released first.
+     * True when the job was cancelled: cancel(), release() before it finished, the load.cancel command, or a newer scene load replaced an async one.
+     * @since unreleased
+     */
+    readonly cancelled: boolean;
+    /**
+     * Resolves with the totals when everything is loaded; rejects with an Error (message + hint) when the job fails, is cancelled or is released first.
      * @since 0.3.0
      */
-    readonly promise: Promise<{ files: number; bytes: number }>;
+    readonly promise: Promise<{ files: number; bytes: number; uploadedBytes: number }>;
     /**
-     * Stops a job that is still running and drops the files nobody has read yet (they would be read from the disk again). Optional: the files leave memory by themselves after the second scene load that follows the job.
+     * Stops the job now: its promise rejects with "cancelled", what it decoded is thrown away and the files it read ahead are dropped. An async scene.load does not switch, also when its files were ready this frame and its promise resolved already (the switch happens at the end of the frame).
+     * @since unreleased
+     */
+    cancel(): void;
+    /**
+     * Gives the files read ahead back: stops a job still running (like cancel()), or drops a finished job's files now. Optional: they leave memory by themselves at the second scene load after the job finished.
      * @since 0.3.0
      */
     release(): void;
@@ -3585,7 +3609,7 @@ declare module "factoria" {
    */
   export interface AssetsAPI {
     /**
-     * Reads the files ahead of time like scene.preload does (models with their buffers and textures, images, audio, fonts, prefabs, materials), for assets a script will use later: the next read of each file, by the renderer or by audio, takes it from memory. A path that does not exist throws with a did-you-mean list; the list must not be empty. Example: assets.preload(["assets/boss.glb", "assets/boss_theme.ogg"]).promise.then(() => spawnBoss()).
+     * Reads the files in the background like scene.preload does (models with their buffers and textures, images, audio, fonts, prefabs, materials), for assets a script will use later: textures, models, fonts and sounds are decoded into the engine's caches, any other file is kept in memory, so the next use reads nothing from the disk. A path that does not exist throws with a did-you-mean list; the list must not be empty. Example: assets.preload(["assets/boss.glb", "assets/boss_theme.ogg"]).promise.then(() => spawnBoss()).
      * @since 0.3.0
      */
     preload(paths: string[]): PreloadHandle;
