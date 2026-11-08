@@ -374,6 +374,13 @@ std::string normalize(std::string_view path) {
 }
 
 std::filesystem::path path_from_utf8(std::string_view text) {
+#ifdef _WIN32
+    // Text that is not UTF-8 came from path::string() or generic_string(), which give the ANSI code page: read it the same
+    // way. MSVC's path(u8string) throws on it ("No mapping for the Unicode character..."), and many callers still pass that
+    // form. An ANSI name that is also valid UTF-8 needs two or more accented letters in a row that spell a UTF-8 sequence
+    // ("Ã©"): such a folder name is read as UTF-8.
+    if (!fa::is_valid_utf8(text)) return stdfs::path(std::string(text));
+#endif
     return stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size()));
 }
 
