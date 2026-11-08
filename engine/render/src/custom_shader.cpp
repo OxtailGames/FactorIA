@@ -8,6 +8,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "render_internal.h"
+#include "shader_cache.h"
 
 namespace fa {
 
@@ -174,7 +175,7 @@ Result<MaterialProgram> make_material_program(const std::string& label, const Js
     auto made = material_shader_desc(label, program, out);
     if (!made.ok()) return made.error();
     const std::string where = "the program '" + label + "'";
-    out.shader = sg_make_shader(&*made);
+    out.shader = make_shader(&*made, label.c_str());
     if (sg_query_shader_state(out.shader) != SG_RESOURCESTATE_VALID) {
         sg_destroy_shader(out.shader);
         return make_error("the graphics driver rejected " + where + " (backend " + backend_dialect(sg_query_backend()) + "; the sokol log lines above have the driver message)",

@@ -15,6 +15,7 @@ commands.
 | `peakMemoryMB` | Peak resident memory of the process. Windows: peak working set. Linux, Android, macOS: `ru_maxrss`. Web: the size of the wasm heap (it never shrinks). |
 | `drawCalls`, `entities` | Maximum over the run. |
 | `triangles`, `lights`, `textureMB` | What the renderer drew: triangles of the main pass, the lights (3D lights of the main pass plus Light2D lights, which a frame keeps at most 256 of, the ones in view first: see "2D lights"), and GPU texture memory in MB. Maximum over the run (`lights` is the largest `lights + lights2d` of a frame); 0 without a renderer. Otherwise the same numbers as `game.renderStats()` in a test. |
+| `startupMs` | CPU milliseconds from the moment the engine starts reading the game's files to the end of its first frame (scenes, scripts, textures, shader programs). The CPU time of the process, so a busy machine moves it less than the clock; the window and the first presented frame are not in it. See "Startup". |
 | `graphics` | The GPU used, `none` when there is no renderer (then `drawCalls` is 0). |
 
 `factoria call perf.measure` runs a project the same way (drawing every frame with the GPU renderer) and returns this as a
@@ -75,7 +76,8 @@ A limit is `max(baseline * (1 + ratio), baseline + slack)`; the slack keeps a ti
 | `memory` (ratio) | 0.10 | Peak memory | Repeated runs differ by about 1-2%. |
 | `drawCalls`, `entities` (ratio) | 0.10 | Max draw calls / entities | Deterministic for a fixed scene and input. |
 | `triangles`, `lights`, `textureMB` (ratio) | 0.10 | Triangles, lights (3D plus Light2D) and texture memory | Deterministic for a fixed scene. Only checked when the runner's baseline has the field: a baseline written before these fields existed keeps passing. |
-| `cpuSlackMs`, `memorySlackMB`, `textureSlackMB`, `countSlack` | 1, 8, 1, 2 | The slack of each kind of limit | |
+| `startup` (ratio) | 2.0 | `startupMs`, the CPU time to the first frame | Start-up reads files and makes GPU programs: it differs a lot between a cold and a warm disk and between drivers, so the ratio is wide. Only checked when the runner's baseline has the field. |
+| `cpuSlackMs`, `memorySlackMB`, `textureSlackMB`, `startupSlackMs`, `countSlack` | 1, 8, 1, 500, 2 | The slack of each kind of limit | |
 
 `cpuMsMax` is recorded but not checked: one slow frame is mostly the machine.
 
@@ -96,9 +98,14 @@ All three work on the project they run in (`--project DIR`) and are also MCP too
 - `factoria call perf.measure` just measures.
 - **Budgets for what a scene draws.** Besides the baseline, `perf.json` may hold absolute caps that fail whatever the
   baseline says, on any runner and also where there is no baseline yet:
-  `"budgets": { "maxTriangles": 200000, "maxLights": 8, "maxTextureMB": 120, "maxDrawCalls": 300, "maxEntities": 600 }`.
+  `"budgets": { "maxTriangles": 200000, "maxLights": 8, "maxTextureMB": 120, "maxDrawCalls": 300, "maxEntities": 600, "maxStartupMs": 5000 }`.
   `perf.check` takes the same object as its `budgets` argument (its keys win over the file's). A typo in a key is an
   error with a "did you mean". The failure names the cap: `maxTriangles 26 > budget 25`.
+- **`perf.startup`: the start-up budget.** `maxStartupMs` is the most CPU milliseconds the game may take from reading its
+  files to its first frame (`startupMs` of the sample). The three templates (`2d-empty`, `2d-platformer`, `3d-empty`) ship a
+  `perf.json` with `"maxStartupMs": 5000`: about a hundred times what they cost on a developer machine, so only a game that
+  became slow trips it, never a busy CI machine. It is a time, so it fails when `CI` is set and warns elsewhere (see above);
+  the message says what to do ("Startup").
 
 Peak memory is the whole process's, so run the check the same way each time; the engine's own tests use
 `factoria call --project <game> perf.check @args.json` (`factoria call` gives `perf.*` no GPU of its own; the engine the command starts inside has it).
@@ -192,6 +199,66 @@ expects `perf_budget_exceeded`. After a change that makes an example heavier on 
 with `factoria call perf.baseline` (see the file's `runners`) in the same PR.
 
 Not covered yet: the web and Android players report memory and time with the limits above but have no CI baseline.
+
+## Startup
+
+What a player does between the click on its icon and a game you can play, in order (design in
+[ARCHITECTURE.md](ARCHITECTURE.md#start-up-order-and-the-shader-cache)):
+
+1. **The first frame is presented before any game file is read.** The window and the graphics context come first; the very
+   first window frame shows a cleared frame (black, the letterbox colour) and returns, so the window is on screen at once
+   instead of nothing. Only the next frame reads the game (scenes, scripts, textures, audio headers). It is on by default
+   and cannot be turned off; it applies to the player and to a windowed `factoria run`. The game cannot tell: its first
+   frame is the same frame 0, and `state_hash`, recordings, replays and goldens are identical with or without it.
+2. **The GPU pipelines the first scene draws with are made in the background of the window**, one group per window frame
+   (each frame still shows the cleared frame), so the first game frame does not stall on them. A frame that needs a pipeline
+   the warm-up has not made yet makes it then, as before: the picture never depends on the warm-up.
+3. **The game runs.** Its first frame uses at most 1/60 s of game time even when the start took longer.
+
+The numbers, from the start of the process (`play.report` `loading.startup`, the headless report's `startup`, and one log
+line `startup: first frame presented at ... ms, game ready at ... ms`):
+
+| Field | Meaning |
+| --- | --- |
+| `firstPresentMs` | When the first frame (a cleared one) was presented. `null` with no window (a headless run, `perf.measure`, tests), where nothing is presented. |
+| `firstGameFrameMs` | When the first frame of the GAME was done. The two are separate on purpose: the first is how long the player stares at nothing, the second how long until the game is playable. |
+| `windowReadyMs`, `initMs`, `warmupMs` | Window and context ready; reading the game; making the first scene's pipelines. |
+| `startupCpuMs` | CPU time from reading the files to the first game frame. The `startupMs` of `perf.*`, what `maxStartupMs` budgets. |
+| `diskReadsAtFirstPresent`, `diskReadsAtFirstGameFrame` | Files read from disk by then. The first is 0 or the player's own few files: the game's files are read after the first frame. |
+| `gpu` | The renderer's part: `backend`, the shader `cache` mode and its counters (`hits`, `misses`, `stale`, `damaged`, `stored`), `pipelinesWarmed`, `warmMs`, `groupsLeft`. |
+
+Times are this machine's and rounded to 0.1 ms: compare two runs on one machine, never pass or fail on them (no test
+does; `startupMs` is a CPU time with a wide budget for that reason).
+
+**Keeping start-up low.** The usual causes, in the order to look at them:
+
+- The start scene instances or loads too much: put what is not on the first screen in a scene or prefab loaded later.
+- Big textures: `play.report` `loading.slowestAssets` lists them with the time to read and to decode; ship PNGs as KTX2
+  ([EXPORTING.md](EXPORTING.md)).
+- Work in `onStart` of a script: generating a large map, building tables. Spread it over frames or generate it ahead of time
+  into a file.
+- Many custom materials: each one is shader programs to build (`gpu.cache` says how many came from the cache).
+
+### The shader cache and the backends
+
+A shader program must be turned into the graphics card's machine code before it draws. Where the engine can keep part of that
+work between runs it does, in the per-user cache folder (`fs::cache_dir()`: macOS `~/Library/Caches/FactorIA`, Windows
+`%LOCALAPPDATA%\FactorIA\Cache`, Linux `$XDG_CACHE_HOME/factoria` or `~/.cache/factoria`, Android the app's `cache` folder, iOS
+`Library/Caches`; `FA_CACHE_DIR` overrides it; never the game folder). A cache file holds a header (magic, format version, a key,
+the payload size and its SHA-256) and the payload; a file with another key (another engine version, other source), a bad header or a
+bad checksum is ignored with one log line (category `cache`) and rebuilt, and a file is written to a temporary name and renamed
+over the old one, so a crash never leaves half a file. Deleting the folder is always safe.
+
+| Backend | Where | Engine disk cache | What it cannot do (documented elsewhere in these docs) |
+| --- | --- | --- | --- |
+| Direct3D 11 | Windows | Yes: the compiled bytecode (DXBC) of each stage, made with `d3dcompiler_47` (loaded at run time; without it sokol compiles as before). The first run compiles every program (about 0.3-1 s for the built-in ones); later runs hand the bytecode to the driver and load no compiler. | Nothing the others lack: it reports GPU times. |
+| OpenGL 4.3 core | Linux | No: sokol hands the driver GLSL source and the link happens inside the driver, with no way to give it a binary. The driver's own shader cache (Mesa, NVIDIA) does that. | A driver without GL 4.3 cannot start the renderer. It reports GPU times. |
+| Metal | macOS, iOS | No: the Metal library is built from source text by the OS, which caches it itself. | No GPU times through the graphics layer the engine uses (see "Finding what is slow"). |
+| OpenGL ES 3 | Android | No: as GL (the driver's cache); the player gives the cache folder to the engine for the day a backend there can use it. | No GPU times; at least the 256 vec4 uniforms of the minimum (64 joints per skin); textures may be ETC2 where nothing better exists. |
+| WebGL2 | Web | No, and it cannot have one: a page has no folder of its own to keep files in (the browser caches compiled shaders itself). | The same limits as GL ES 3, and textures stay PNG. |
+
+Whether a given feature works on every backend is documented where the feature is (for example [SHADERS.md](SHADERS.md)); a
+`renderer.supports(...)` query that scripts and tools can ask is planned (ROADMAP, M71 onward) and does not exist yet.
 
 ## Loading
 
