@@ -96,7 +96,7 @@ TEST_CASE("load order record: merges into the file under the project's lock and 
     testing::ScratchShareHome home;
     testing::TempDir dir;
     auto first = record_load_order(dir.path, order_of({{"scenes/main.scene.json", {"scenes/main.scene.json", "a.png"}}}));
-    REQUIRE_MESSAGE(first.ok(), first.error().message);
+    REQUIRE_MESSAGE(first.ok(), (first.ok() ? std::string() : first.error().message));
     CHECK(first.value().added == 2);
     const std::string written = file_text(dir.path);
     CHECK(written.find("factoria.loadorder/1") != std::string::npos);
@@ -123,7 +123,7 @@ TEST_CASE("load order record: a damaged file is replaced by this session's order
     testing::TempDir dir;
     testing::write_all(load_order_file(dir.path), "{ damaged");
     auto r = record_load_order(dir.path, order_of({{"s", {"a.png"}}}));
-    REQUIRE_MESSAGE(r.ok(), r.error().message);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().message));
     auto read = read_load_order(dir.path);
     REQUIRE(read.ok());
     REQUIRE(read.value().size() == 1);
@@ -154,7 +154,7 @@ TEST_CASE("load order record: a lock another program holds is reported and chang
     std::error_code ec;
     stdfs::remove(lockFile, ec);
     auto free = record_load_order(dir.path, order_of({{"s", {"b.png"}}}));
-    REQUIRE_MESSAGE(free.ok(), free.error().message);
+    REQUIRE_MESSAGE(free.ok(), (free.ok() ? std::string() : free.error().message));
     CHECK(free.value().added == 1);
 }
 

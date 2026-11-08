@@ -79,12 +79,6 @@ std::vector<std::uint8_t> noise_bytes(std::size_t n, std::uint32_t seed) {
     return out;
 }
 
-// True once the LZ4 and Zstandard codecs of M70.4a are in the build (until then fa::compress has only store).
-bool codecs_ready() {
-    const auto data = text_bytes(4096);
-    return compress(data, CompressOptions{Codec::Lz4, 0}).ok() && compress(data, CompressOptions{Codec::Zstd, 0}).ok();
-}
-
 // Sizes around the block size: none, one byte, one block less one, one block, one more, several blocks.
 const std::vector<std::uint64_t> kSizes = {0, 1, B - 1, B, B + 1, 3 * B + 5};
 
@@ -171,11 +165,7 @@ TEST_CASE("pack v2: store round trip across block boundaries, mapped and read") 
     }
 }
 
-TEST_CASE("pack v2: lz4 and zstd round trip across block boundaries (needs the M70.4a codecs)") {
-    if (!codecs_ready()) {
-        MESSAGE("skipped: fa::compress has no lz4 / zstd yet (M70.4a); this test runs once the codecs are merged");
-        return;
-    }
+TEST_CASE("pack v2: lz4 and zstd round trip across block boundaries") {
     Scratch s;
     PackWriter w;
     std::vector<std::pair<std::string, std::vector<std::uint8_t>>> files;
@@ -323,14 +313,50 @@ TEST_CASE("pack v2: a damaged pack is an error that names the file and the block
     }
 }
 
+TEST_CASE("pack v2: an index that claims more than a block can decode to is refused before anything is allocated") {
+    // A hand-made index with right checksums (a tampered pack): one lz4 block of a run of zeros, whose block size and file
+    // size are raised to 64 MiB. The reader must refuse it at open (a ~1 KiB lz4 block cannot give 64 MiB), not allocate
+    // 64 MiB on read and only then fail to decode.
+    Scratch s;
+    PackWriter w;
+    REQUIRE(w.add_bytes("a.bin", std::vector<std::uint8_t>(std::size_t(B), 0), Codec::Lz4).ok());
+    REQUIRE(w.write(s.pak()).ok());
+    std::string pak = read_file(s.pak());
+    auto u64 = [&](std::size_t at) {
+        std::uint64_t v = 0;
+        for (int i = 0; i < 8; ++i) v |= std::uint64_t(std::uint8_t(pak[at + std::size_t(i)])) << (8 * i);
+        return v;
+    };
+    auto put = [&](std::size_t at, std::uint64_t v, int n) {
+        for (int i = 0; i < n; ++i) pak[at + std::size_t(i)] = char((v >> (8 * i)) & 0xff);
+    };
+    const std::size_t indexOffset = std::size_t(u64(pak.size() - 24)), indexSize = std::size_t(u64(pak.size() - 16));
+    {
+        auto opened = PackReader::open(s.pak());
+        REQUIRE(opened.ok());
+        REQUIRE(opened.value()->codec_of("a.bin") == Codec::Lz4);
+        CHECK(opened.value()->stored_size_of("a.bin") < B / 64);
+    }
+    const std::uint64_t claimed = 64ull << 20;
+    put(indexOffset + 4, claimed, 4);                // block size
+    put(indexOffset + 12 + 2 + 5 + 1, claimed, 8);  // the size of a.bin (after u16 length, "a.bin", u8 codec)
+    put(indexOffset + indexSize - 4,
+        pack_checksum(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(pak.data()) + indexOffset, indexSize - 4)), 4);
+    const stdfs::path bad = s.dir / "bad.pak";
+    write_file(bad, pak);
+    auto r = PackReader::open(bad);
+    REQUIRE(!r.ok());
+    CHECK(r.error().message.find("block 1 of 'a.bin' has an impossible size") != std::string::npos);
+    CHECK(r.error().hint.find("Export the game again") != std::string::npos);
+}
+
 TEST_CASE("pack v2: many threads read one pack at once, mapped and read") {
     Scratch s;
     PackWriter w;
     std::vector<std::vector<std::uint8_t>> contents;
-    const bool compressed = codecs_ready();
     for (int i = 0; i < 16; ++i) {
         contents.push_back(i % 2 ? noise_bytes(std::size_t(B / 3 + std::uint64_t(i) * 7919), std::uint32_t(i)) : text_bytes(std::size_t(B + 1000 + i * 37), i));
-        REQUIRE(w.add_bytes("d/" + std::to_string(i) + ".json", contents.back(), compressed ? Codec::Lz4 : Codec::Store).ok());
+        REQUIRE(w.add_bytes("d/" + std::to_string(i) + ".json", contents.back(), Codec::Lz4).ok());
     }
     REQUIRE(w.write(s.pak()).ok());
     for (bool map : {true, false}) {
