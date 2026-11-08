@@ -176,18 +176,21 @@ pieces of work to: `submit(name, fn, deps)` returns a `Handle` to `wait` for, `G
 the start of the next frame). The Engine starts the pool in `init()` and stops it in `shutdown()`; the pool is
 reference counted, so a second engine in the same process (the editor) shares it, with the first one's setting, and
 the last `stop()` joins the workers. `start()` returns a `Result`: it is refused from a thread other than the one that
-started the pool (every engine runs on the main thread) and from inside a job; a second `Engine::init` fails without
-touching the pool.
+started the pool and from inside a job, so an `Engine::init` on another thread fails while the pool runs: create and
+run every engine on the main thread. A second `Engine::init` of the same engine fails without touching the pool.
 
 - **Owners**: each Engine has a `jobs::Owner`. The jobs and main-thread tasks queued while its `OwnerScope` is open
   (init, each frame, each scene load, each command call) or by one of its jobs belong to it. `Engine::shutdown` waits
   for its own jobs before its scripts and systems go away and drops its main-thread tasks still queued; a frame runs
   only its own engine's tasks (and the shared ones, posted with no owner), so the editor and a preview never run each
-  other's results. With several engines, the first one to end a frame closes the job statistics (`jobs.info`).
+  other's results. `Owner::wait` (shutdown) runs only its owner's queued jobs and what they depend on. With several
+  engines, the first one to end a frame closes the job statistics (`jobs.info`), until it closes or its engine stops
+  drawing frames (8 frames of the others without one of its own hand them over).
 
 - **How many threads**: `runtime.jobThreads` in factoria.json: `"auto"` (the default: hardware threads - 1, at most 8
-  on desktop and 4 on phones), a number 0..32, or `"inline"`. `FA_JOB_THREADS` overrides it and
-  `EngineConfig::jobThreads` overrides both. With 0 workers a job runs on the main thread when something waits for it,
+  on desktop and 4 on phones), an integer 0..32, or `"inline"`, exactly (lowercase, the count not in quotes).
+  `FA_JOB_THREADS` overrides it and `EngineConfig::jobThreads` overrides both; those two are text and accept any case,
+  spaces around and the count as digits. With 0 workers a job runs on the main thread when something waits for it,
   or at the end of the frame. `"inline"` runs every job at once on the thread that submits it, in submission order: use
   it to debug a job with a plain call stack. Before the pool starts (tools, tests) jobs also run inline. The web build
   has no threads (compiled without `-pthread`): every setting gives 0 workers there.
@@ -200,10 +203,11 @@ touching the pool.
   (engine/runtime/tests/jobs_engine_tests.cpp).
 - **Waiting**: `wait()` on the main thread (or in a job) runs only what the job needs: the job itself and its
   dependencies (and theirs) while they are still queued; while those run on other threads it sleeps. It never picks up
-  an unrelated job, and `parallel_for` runs only its own chunks on the calling thread, so a long background load never
-  lands in the middle of the main thread's frame. With 0 workers a wait still ends (it runs what it needs itself). A
-  wait that can never end returns an error instead of hanging: the job (or one it needs) is running on this thread
-  under the wait, or on another thread that waits, directly or through more waits, for a job running on this thread.
+  an unrelated job, and `parallel_for` runs only its own chunks on the calling thread (and never returns while one of
+  its chunks still runs elsewhere), so a long background load never lands in the middle of the main thread's frame.
+  With 0 workers a wait still ends (it runs what it needs itself). A wait that can never end returns an error instead
+  of hanging: the job (or one it needs) is running on this thread under the wait, or on another thread that waits,
+  directly or through more waits, for a job running on this thread.
   Only waits through `wait`, `Group`, `parallel_for` are seen: a job that blocks on its own mutex, condition variable or
   future can still hang. A job that throws is caught and logged with its name; `wait()` returns the error, and jobs
   that depend on it do not run and report it.

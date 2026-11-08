@@ -259,11 +259,14 @@ the `runtime` setting of factoria.json:
 
 - `"auto"` (the default): hardware threads - 1, at most 8 on desktop and 4 on phones (their slow cores count too, and
   the OS, the GPU driver and audio need room). The web build has no threads: 0 there.
-- A number 0..32 (a JSON number: `"4"` in quotes is refused with a hint): that many workers besides the main thread. `0` runs every job on the main thread, when something
-  waits for it or at the end of the frame: the cheapest setting for a game that is light anyway.
+- A number 0..32, written as a whole JSON number (`"4"` in quotes and `4.0` are refused with a hint): that many workers
+  besides the main thread. `0` runs every job on the main thread, when something waits for it or at the end of the
+  frame: the cheapest setting for a game that is light anyway.
 - `"inline"`: every job runs at once on the thread that submits it, in submission order. For debugging only: a job's
   crash then has the plain call stack of its caller.
-- The `FA_JOB_THREADS` environment variable (same values) overrides the file for one run:
+- The words are exact in the file: `"Inline"` or `" auto"` is refused with the spelling to use.
+- The `FA_JOB_THREADS` environment variable (the same values, in any case, spaces around them ignored) overrides the
+  file for one run:
   `FA_JOB_THREADS=0 factoria run`, `FA_JOB_THREADS=inline factoria test`. A bad value is reported at start and the
   file's setting is used; a bad value in the file stops the start with an error at `/runtime/jobThreads`.
 
