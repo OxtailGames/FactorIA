@@ -84,6 +84,7 @@ private:
 struct Engine::Impl {
     Engine* self = nullptr;
     EngineConfig cfg;
+    std::unique_ptr<LoadTrace> loadTrace;  // EngineConfig::traceLoads / Engine::begin_load_trace; null = not tracing
     std::uint64_t logSeqAtInit = 0;  // state() only reports logs emitted by THIS engine
     ProjectSettings project;
     bool initialized = false;

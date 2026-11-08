@@ -25,6 +25,7 @@
 #include "fa/audio/music_transport.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
+#include "fa/core/load_trace.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/core/video.h"
@@ -431,6 +432,7 @@ struct Audio::Impl {
 
     // ------------------------------------------------------------ decode
     std::shared_ptr<const Clip> decode(const std::string& path, std::string* err) {
+        AssetLoadScope trace("sound", path);  // the load trace's read and decode time (fa/core/load_trace.h); free without one
         auto file = read_audio_file(path);
         if (!file) {
             std::vector<std::string> cands;

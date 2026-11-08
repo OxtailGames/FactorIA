@@ -48,7 +48,10 @@ void Editor::session_frame(double dt, std::uint64_t frameBefore) {
 void Editor::session_end() {
     if (!run_.active) return;
     run_.active = false;
+    const Json loading = engine_->loading_report();
+    engine_->end_load_trace();  // hands the first-use order to the background writer (EngineConfig::loadOrderSink)
     PlaySession s = std::move(run_.session);
+    s.loading = loading;
     s.frames = engine_->frame_index() - run_.startFrame;
     if (s.frames == 0 && s.marks.empty()) return;  // nothing was played
     s.perf = compute_frame_stats(run_.frameMs);

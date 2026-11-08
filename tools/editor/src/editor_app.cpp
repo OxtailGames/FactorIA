@@ -25,6 +25,7 @@
 #include "sokol_glue.h"
 #include "ui_backend.h"
 #include "fa/tooling/feedback_fixed.h"
+#include "fa/tooling/load_order.h"
 #include "fa/tooling/serve_web.h"
 #include "fa/tooling/setup.h"
 #include "fa/tooling/shaders.h"
@@ -524,6 +525,8 @@ void Editor::on_cleanup() {
         textures_.clear();
         engine_->shutdown();
         engine_.reset();
+        // The last Play's first-use order lands before the process ends (the editor is closing: one lock wait at most).
+        wait_load_order_writes();
     } else if (gfxUp_) {
         ui::gfx_shutdown();
         gfxUp_ = false;
@@ -639,6 +642,9 @@ bool Editor::boot(const std::string& dirIn) {
         EngineConfig cfg;
         cfg.projectDir = dir;
         cfg.shaderCompiler = make_engine_shader_compiler(dir);
+        // What a Play reads first, per scene, goes into .factoria/cache/load-order.json for the release export's pack order,
+        // written on a background thread: Stop never waits for the project's lock or the disk (fa/tooling/load_order.h).
+        cfg.loadOrderSink = [dir](const LoadOrder& order) { record_load_order_async(std::filesystem::path(dir), order); };  // as the engine builds its root
         cfg.editorMode = true;
         cfg.hotReload = false;       // the editor reloads scenes and scripts itself
         cfg.hotReloadAssets = true;  // but materials, snippets and textures edited on disk show right away
@@ -1157,6 +1163,7 @@ void Editor::play() {
     if (ai_blocks_play()) return;
     if (play_ == PlayState::Edit) {
         playSnapshot_ = save_scene(world());
+        engine_->begin_load_trace();   // the session's loading section and first-use order start with the scene's load
         restore_scene(playSnapshot_);  // fresh instantiate: scripts and physics start clean
         reset_feel_choices();
         session_begin();
@@ -1180,6 +1187,7 @@ void Editor::step_once() {
     if (ai_blocks_play()) return;
     if (play_ == PlayState::Edit) {
         playSnapshot_ = save_scene(world());
+        engine_->begin_load_trace();
         restore_scene(playSnapshot_);
         reset_feel_choices();
         play_ = PlayState::Paused;
@@ -1195,6 +1203,7 @@ void Editor::stop() {
     if (!engine_ || play_ == PlayState::Edit) return;
     mark_finish(true);  // a note being typed is kept
     session_end();
+    engine_->end_load_trace();  // a no-op after session_end; the editor's own reads after Stop are never recorded
     engine_->set_paused(true);
     engine_->input().release_all();
     play_ = PlayState::Edit;

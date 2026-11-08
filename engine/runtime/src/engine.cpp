@@ -234,6 +234,7 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
         path = n.value();
     }
     refresh_from_disk();
+    if (loadTrace) loadTrace->scene_started(path);  // before the scene file is read: it is the first file of its scene
     hasPendingScene = false;
     take_scene_props(keepProps);
     implicitStartScene = false;  // from now on the scene was chosen (scene.load, a script, --scene, reload)
@@ -278,6 +279,7 @@ bool Engine::Impl::load_scene_json_impl(const Json& scene, std::string_view sour
     audio.on_scene_load();
     physics.reset();
     const std::string keptPath = world.scene_path();
+    if (loadTrace) loadTrace->scene_started(keptPath.empty() ? std::string(sourceName) : keptPath);
     LoadReport report = fa::load_scene(world, scene, sourceName);
     world.set_scene_path(keptPath);
     // The scene path (world + currentScene) is deliberately left alone.
@@ -506,6 +508,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     if (recorder.recording()) recorder.timing(frame, dt, fixedSteps, fixedDt);  // [dt, steps] of the frame that just ran
     inFrame = false;
     if (profiled) Profiler::get().end_frame();
+    if (profiled && loadTrace) loadTrace->frame_ended();
 }
 
 void Engine::Impl::end_of_frame(double dt, bool simulated) {
@@ -546,6 +549,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         dir = abs.generic_string();
         fs::set_project_root(abs);
     }
+    if (config.traceLoads) I.loadTrace = std::make_unique<LoadTrace>();  // reads are recorded relative to the root set above
     clear_vfx_cache();  // the effect documents are cached by project-relative path: another project (or root) has other files by that name
     auto proj = load_project(dir);
     if (!proj.ok()) return fail(proj.error().to_string());
@@ -763,6 +767,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
 
 void Engine::shutdown() {
     Impl& I = *impl_;
+    end_load_trace();  // also after a failed init
     if (!I.initialized) return;
     I.initialized = false;
     clear_vfx_cache();
@@ -777,6 +782,24 @@ void Engine::shutdown() {
     I.gpu.reset();
 }
 
+void Engine::begin_load_trace() {
+    end_load_trace();
+    impl_->loadTrace = std::make_unique<LoadTrace>();
+}
+
+Json Engine::loading_report() const { return impl_->loadTrace ? impl_->loadTrace->report() : Json(); }
+
+void Engine::end_load_trace() {
+    Impl& I = *impl_;
+    if (!I.loadTrace) return;
+    std::unique_ptr<LoadTrace> trace = std::move(I.loadTrace);
+    if (I.cfg.loadOrderSink) {
+        LoadOrder order = trace->order();
+        trace.reset();  // stop recording before the sink runs: what it reads is not the game's
+        if (!order.empty()) I.cfg.loadOrderSink(order);
+    }
+}
+
 void Engine::frame(double dt) {
     Impl& I = *impl_;
     if (!I.initialized) return;
@@ -786,6 +809,7 @@ void Engine::frame(double dt) {
         I.render(0.0);
         I.end_of_frame(dt, false);
         I.inFrame = false;
+        if (I.loadTrace) I.loadTrace->frame_ended();
         return;
     }
     I.accumulator += dt;

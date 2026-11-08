@@ -12,9 +12,11 @@
 #pragma once
 
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
+#include "fa/core/compress.h"
 #include "fa/core/json.h"
 #include "fa/core/types.h"
 
@@ -126,6 +128,19 @@ struct IosExportSettings {
     bool operator==(const IosExportSettings&) const = default;
 };
 
+// export.pack of factoria.json: how a --release export (desktop and web) builds game.pak (fa/core/pack.h,
+// docs/EXPORTING.md, "The game pack"). Edited in factoria.json only: save_export_settings leaves it as it is.
+struct PackExportSettings {
+    // File extension (lower case, with the dot: ".json") -> the codec its files are packed with, over the engine's
+    // default for that type (fa::pack_default_codec: store for PNG, Ogg and other compressed formats, zstd for fonts
+    // and text, lz4 for the rest). A compressed block that saves too little is stored as it is anyway.
+    std::map<std::string, Codec> codecs;
+    // True: the files go into the pack in the order the game first read them in play sessions (the editor's Play,
+    // `factoria run`, play.auto record it in .factoria/cache/load-order.json); false, or nothing recorded: by path.
+    bool useLoadOrder = true;
+    bool operator==(const PackExportSettings&) const = default;
+};
+
 // What `icon` and `export` of factoria.json say, with every default filled in. Fields that are "derived" when empty
 // (Android versionCode, iOS and macOS buildNumber) stay empty/0 so that saving does not freeze them; use the helpers below.
 struct ProjectExportSettings {
@@ -133,6 +148,7 @@ struct ProjectExportSettings {
     bool scriptBytecode = true;  // export.scriptBytecode: a --release desktop export compiles the .js files to QuickJS bytecode
                                  // inside the game pack (false: plain source in the pack). No other export reads it
     std::vector<std::string> exclude;  // export.exclude: project-relative globs ('*', '**', '?') no export ships
+    PackExportSettings pack;           // export.pack: the codecs and the file order of game.pak
     WindowsExportSettings windows;
     MacosExportSettings macos;
     LinuxExportSettings linux;

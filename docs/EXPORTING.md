@@ -481,6 +481,8 @@ darken) when it shrinks the image, and is bilinear when it enlarges it.
 | Windows | `msix.languages` | the project's `localization.languages`, else `["en-us"]` | Language tags the Store lists for the app. |
 | All | `export.exclude` (directly in `export`) | `[]` | Project-relative globs no export ships, see [What is shipped](#what-is-shipped-and-what-is-not). |
 | Desktop | `export.scriptBytecode` (directly in `export`, not per platform) | `true` | A `--release` export of Linux, Windows or macOS compiles the scripts to bytecode inside `game.pak`; `false` packs them as plain source. See [Scripts as bytecode](#scripts-as-bytecode). |
+| Desktop, Web | `export.pack.codecs` (directly in `export`) | `{}` (each type's default) | The codec of an extension inside `game.pak`: `{".json": "zstd", ".bin": "store"}`. Edited in `factoria.json` only. See [Compression and pack order](#compression-and-pack-order). |
+| Desktop, Web | `export.pack.useLoadOrder` | `true` | Writes `game.pak` in the order play sessions first read the files (`.factoria/cache/load-order.json`); `false` packs by path. |
 
 Wrong types or values are errors that name the JSON pointer and the fix
 (`factoria.json#/export/android/minSdk: minSdk (34) is higher than targetSdk (30) ...`). An unknown key inside
@@ -880,30 +882,85 @@ linux/windows:  my-game-windows/            my-game.exe  game.pak  FACTORIA_NOTI
 macOS:          My Game.app/Contents/       MacOS/my-game  Resources/game.pak  Info.plist ...
 ```
 
-Every file listed under [What is shipped](#what-is-shipped-and-what-is-not) goes into the pack as it is (textures, sounds and
-fonts are already compressed, so nothing is compressed twice), except the scripts, which can be compiled
-([below](#scripts-as-bytecode)). Nothing of the game is left loose: a game of thousands of small files is copied, zipped and
-installed as one file, and the player of the game cannot swap a texture or edit a script by opening a folder. (This is packaging,
-not protection: anyone who knows the format can read the pack, and the bytecode of a script can be decompiled.) The report has
-`pack` (`game.pak`) and `packed` (every path inside it); its `files` lists what is on disk.
+Every file listed under [What is shipped](#what-is-shipped-and-what-is-not) goes into the pack, compressed with the codec of
+its type ([below](#compression-and-pack-order)), and the scripts can be compiled ([below](#scripts-as-bytecode)). Nothing of the
+game is left loose: a game of thousands of small files is copied, zipped and installed as one file, and the player of the game
+cannot swap a texture or edit a script by opening a folder. (This is packaging, not protection: anyone who knows the format can
+read the pack, and the bytecode of a script can be decompiled.) The report has `pack` (`game.pak`), `packed` (every path inside
+it) and `packStats` (below); its `files` lists what is on disk.
 
 **How the player uses it.** It looks for `game/` next to the executable first (so a folder always wins, which makes it easy to
 try a changed file), then for `game.pak`; `factoria_player path/to/game.pak` runs a pack from anywhere. It mounts the pack into
 the virtual file system the whole engine reads through (`fa::fs::mount_pack`, [ARCHITECTURE.md](ARCHITECTURE.md)): `factoria.json`, scenes,
 prefabs, textures, sounds, fonts, scripts, `import`s and the window icon all come out of it, and a game that works from the folder
-works from the pack. Only the index (the list of paths with their offsets) is read at start; a file is read from disk when the
-game asks for it, and any number of threads can read at once, so a large pack starts as fast as a small one. While a pack is
-mounted, a project-relative path that is not in it is "File not found" with a "did you mean" taken from the pack, whatever lies
-on disk. Absolute paths and everything the game writes are not affected: save games go to the per-user data folder as always,
-and a file written with a project-relative path lands in the (absent) `game/` folder next to the pack.
+works from the pack. Only the index (the list of paths with their offsets) is read at start; a file is read when the game asks
+for it, and any number of threads can read at once, so a large pack starts as fast as a small one. On a 64-bit desktop
+the pack is memory-mapped once (`mmap`, `MapViewOfFile`): a read is a copy or a decode out of the mapping and the operating
+system pages the bytes in; a 32-bit build, the web player (whose pack is in browser memory) and `FA_PACK_MAP=0` read with
+positional reads instead, with the same results. While a pack is mounted, a project-relative path that is not in it is "File
+not found" with a "did you mean" taken from the pack, whatever lies on disk. Absolute paths and everything the game writes are
+not affected: save games go to the per-user data folder as always, and a file written with a project-relative path lands in
+the (absent) `game/` folder next to the pack.
 
-**Format** (version 1, integers little-endian; `fa/core/pack.h` is the reference and holds the `fa::PackWriter` and `fa::PackReader`):
-a 16-byte header (`FAPACK\r\n`, `u32` version, `u32` reserved), the files' bytes back to back, an index (`u32` count, then per file,
-sorted by path: `u16` path length, the UTF-8 path, `u64` offset, `u64` size) and a 24-byte footer (`u64` index offset, `u64` index
-size, `FAPKEND!`). The reader finds the index through the footer, so a pack that was cut short (an interrupted download, a full
-disk) is refused with a message that says to export again, never half-read, and the writer builds `game.pak.tmp` and renames it, so
-an export never leaves a half-written pack under the real name. A pack with another format version says which version it has and
-which this FactorIA reads.
+**Format** (version 2, integers little-endian; `fa/core/pack.h` is the reference: its top comment has every field, and it holds
+the `fa::PackWriter` and `fa::PackReader`): a 16-byte header (`FAPACK\r\n`, `u32` version, `u32` flags), the files' data, an
+index and a 24-byte footer (`u64` index offset, `u64` index size, `FAPKEND!`). Each file is cut into blocks of 256 KiB (decoded
+size), each block compressed on its own with the file's codec, so reading part of a big file decodes only the blocks that hold
+it. The index lists every file sorted by path (path, codec, size, offset, stored size, first block) and then every block
+(stored size, an XXH32 checksum), and ends with the checksum of the index itself. The reader checks the index when it opens
+the pack and each block when it reads it: a pack cut short (an interrupted download, a full disk) or damaged on the drive is
+refused with a message that names the file and the block and says to export again, never read as wrong bytes. Format 1 (the
+packs of FactorIA 0.18 and before: files stored as they are, no checksums) is still read; a pack of any other version says
+which version it has and which ones this FactorIA reads.
+
+The writer builds `game.pak.tmp` and renames it over `game.pak` once it is complete, so an export never leaves a half-written
+pack under the real name, and the same files and settings always give a byte-identical pack (on every platform). A pack is
+never changed in place: a game running from the old pack on macOS or Linux keeps its mapped bytes after the rename (writing
+into a mapped file would crash that game with `SIGBUS`). **On Windows a pack that a running game has mapped cannot be
+replaced**: the export fails with `Cannot replace ".../game.pak": it is in use (...)`, says to close the game, and leaves the old pack as it was; close the game and
+export again.
+
+#### Compression and pack order
+
+Each file type has a codec (`fa/core/compress.h`, FactorIA's own implementations of the two formats):
+
+| Codec | Files | Why |
+|---|---|---|
+| `store` | `.png` `.jpg` `.webp` `.gif` `.avif` `.basis`, `.ktx2` with supercompression, `.ogg` `.opus` `.mp3` `.qoa` `.flac` `.m4a` `.aac`, `.mp4` `.webm` `.mov`, `.woff` `.woff2`, archives (`.zip` `.gz` `.zst` `.lz4` `.7z` `.xz` `.bz2` `.pak`) | already compressed: a second pass saves nothing and costs load time |
+| `zstd` | fonts (`.ttf` `.otf` `.ttc` `.fnt`), `.txt` `.md` `.csv` `.tsv` `.xml` `.svg` `.html`, shaders (`.glsl` `.wgsl` `.hlsl` `.metal`), `.po` `.pot` `.yaml` `.yml` `.ini` | text read once that compresses well: zstd packs it smallest |
+| `lz4` | everything else: `factoria.json`, scenes, prefabs and other JSON, scripts and their bytecode, meshes, `.ktx2` without supercompression, `.wav`, any other data | read on the hot path of a load: lz4 decodes at GB/s |
+
+A block keeps its compressed form only when that saves at least 1/32 of its bytes, else it is stored as it is, so a file
+that does not compress costs nothing to decode. Choose another codec for an extension in `factoria.json`:
+
+```json
+"export": { "pack": { "codecs": { ".json": "zstd", ".bin": "store" }, "useLoadOrder": true } }
+```
+
+`export.pack.codecs` maps an extension (with its dot; `a.scene.json` counts as `.json`; any case) to `store`, `lz4` or `zstd`.
+`export.pack.useLoadOrder` (default `true`) writes the files in the order the game first read them. Every play session (the
+editor's Play, `factoria run`, `play.auto`) records, per scene, the project files first read while that scene was the current
+one, and merges them into `.factoria/cache/load-order.json` under the project's lock (a session whose lock is busy logs a
+`loadorder` warning and changes nothing; the next one records again). A shipped game records nothing. The export then writes
+the main scene's files first, then each other scene's in the order they were first played, and the files no session read
+after them by path: a scene's files lie next to each other and a load reads the drive mostly forward. The file is a cache;
+deleting it, or `"useLoadOrder": false`, packs by path. Both keys are edited in `factoria.json` only (the editor's export
+window leaves them as they are), and a wrong value is an error with its JSON pointer
+(`factoria.json#/export/pack/codecs/.png: ...`, with a "did you mean").
+
+The export prints what the pack holds:
+
+```
+Game pack: 41.2 MB for 63.0 MB of files (65%)
+  store  212 files, 38.1 MB
+  lz4  140 files, 9.4 MB -> 2.1 MB
+  zstd  6 files, 15.5 MB -> 1.0 MB
+Pack order: first use in play sessions for 301 of 358 files (the rest by path)
+```
+
+and the JSON report has the same in `packStats`: `bytes` (the pack), `fileBytes` (the files it holds), `codecs`
+(`[{codec, files, bytes, storedBytes}]`), `order` (`"firstUse"` or `"path"`) and `orderedFiles`. A block the codec could not
+compress is stored as it is, and the report has a warning that counts them (the game reads them fine).
 
 #### Scripts as bytecode
 
