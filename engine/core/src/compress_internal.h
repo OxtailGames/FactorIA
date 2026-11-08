@@ -97,7 +97,5 @@ void zstd_compress(std::span<const std::uint8_t> input, int level, bool checksum
 // out.size() bytes exactly; without it they may produce less (written gets the count) but never more.
 Result<void> zstd_decompress(std::span<const std::uint8_t> block, std::span<std::uint8_t> out, bool exact,
                              std::size_t* written = nullptr);
-// The content size recorded in the header of the first frame (not skippable): false when unknown or not a frame.
-bool zstd_frame_content_size(std::span<const std::uint8_t> block, std::uint64_t& size);
 
 }  // namespace fa::codec

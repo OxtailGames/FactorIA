@@ -55,7 +55,8 @@ inline constexpr int kAutoCapMobile = 4;    // "auto" on Android/iOS: big.LITTLE
                                             // 4 leaves room for the OS, the GPU driver and audio threads
 inline constexpr int kAutoCapWebThreads = 4;  // "auto" in a -pthread web build: each worker is a Web Worker
 inline constexpr int kMaxLanes = kMaxWorkers + 2;  // profiler lanes: main, every worker, "other" threads
-inline constexpr int kFrameOwnerHandOver = 8;  // end_frame: calls of other owners before the frames change hands
+// end_frame: how long the owner of the frames may stay silent before they change hands.
+inline constexpr int kFrameOwnerHandOverMs = 500;
 
 // ------------------------------------------------------------------------------------------------------------- settings
 // The `runtime.jobThreads` project setting and the FA_JOB_THREADS environment variable.
@@ -122,7 +123,7 @@ public:
 
     // Blocks until every job of this owner is done, the ones those jobs submit too. Meanwhile the waiting thread runs
     // only what the owner needs: its queued jobs and the queued jobs (of any owner) they depend on; otherwise it
-    // sleeps. So it ends with 0 workers too, and never runs another engine's work.
+    // sleeps. So it ends with 0 workers too, and never runs another engine's work its jobs do not need.
     // Called from inside a job (or from a wait that runs one) it returns an error at once: the job could be one of
     // this owner's.
     Result<void> wait();
@@ -267,9 +268,13 @@ int main_tasks_queued();  // every task queued now: the shared queue and every o
 // The engine calls this once at the end of each frame on the main thread. With 0 workers it runs the jobs nobody waited
 // for (queued before this call), then it closes the frame's statistics (jobs.info, the profiler's thread lanes). With
 // several engines (the editor and a preview) only one owner closes the frames: the first that calls end_frame, until
-// it closes (Owner::close), the pool stops, or kFrameOwnerHandOver calls of other owners come with none of its own in
-// between (its engine stopped drawing frames): then the owner calling takes over. The calls of the others return after
-// the 0-worker step. A null owner (tools and tests) always closes the frame.
+// it closes (Owner::close), the pool stops, or it has not called for kFrameOwnerHandOverMs (its engine stopped drawing
+// frames): then the next owner that calls takes over. Time, not a count of calls, so a secondary engine that runs many
+// frames per main frame does not take the frames from the main one (a steady clock, for this scheduling only: the
+// simulation never reads it). An owner that lost the frames (its engine stalled for that long: a window drag, a long
+// load) gets them back only once the new owner is silent for as long; until then only jobs.info and the profiler's
+// lanes show the other engine's frames. The calls of the others return after the 0-worker step. A null owner (tools
+// and tests) always closes the frame.
 void end_frame(const Owner* owner = nullptr);
 
 // --------------------------------------------------------------------------------------------------- what jobs.info says

@@ -172,48 +172,49 @@ private:
     std::vector<std::uint8_t>& out_;
 };
 
-// Levels 1 and 2: a hash table of the last position of every 4-byte hash, greedy matches.
+// Levels 1 and 2: a hash table of the last position of every 4-byte hash, greedy matches. Positions are indices
+// (a pointer advanced by `step` could point past the end of the input, which is undefined even if never read).
 void compress_fast(const std::uint8_t* src, std::size_t n, bool skip, Writer& w) {
-    const std::uint8_t* const iend = src + n;
-    const std::uint8_t* anchor = src;
+    std::size_t anchor = 0;
     if (n >= kMfLimit + 1) {
         constexpr unsigned kBits = 16;
         std::vector<std::uint32_t> table(std::size_t{1} << kBits, 0);
-        const std::uint8_t* const mfLimit = iend - kMfLimit;        // last position a match may start at
-        const std::uint8_t* const matchLimit = iend - kLastLiterals;  // a match ends at or before this
-        const std::uint8_t* ip = src;
-        table[hash4(load32(ip), kBits)] = 0;
+        const std::size_t mfLimit = n - kMfLimit;        // last position a match may start at
+        const std::size_t matchLimit = n - kLastLiterals;  // a match ends at or before this
+        std::size_t ip = 0;
+        table[hash4(load32(src), kBits)] = 0;
         ++ip;
         for (;;) {
             // Search for a match; a long run of misses speeds up (level 1) so incompressible data stays fast.
-            const std::uint8_t* ref;
+            std::size_t ref;
             std::uint32_t searchNb = 1u << 6;
             std::size_t step = 1;
             for (;;) {
-                const std::uint32_t seq = load32(ip);
+                const std::uint32_t seq = load32(src + ip);
                 const std::uint32_t h = hash4(seq, kBits);
-                ref = src + table[h];
-                table[h] = static_cast<std::uint32_t>(ip - src);
-                if (static_cast<std::size_t>(ip - ref) <= kMaxOffset && ref < ip && load32(ref) == seq) break;
+                ref = table[h];
+                table[h] = static_cast<std::uint32_t>(ip);
+                if (ref < ip && ip - ref <= kMaxOffset && load32(src + ref) == seq) break;
                 ip += step;
                 if (skip) step = searchNb++ >> 6;
                 if (ip > mfLimit) goto finish;
             }
             // Extend backwards over the literals pending, then forwards.
-            while (ip > anchor && ref > src && ip[-1] == ref[-1]) {
+            while (ip > anchor && ref > 0 && src[ip - 1] == src[ref - 1]) {
                 --ip;
                 --ref;
             }
-            const std::size_t matchLen = kMinMatch + count_equal(ip + kMinMatch, ref + kMinMatch, matchLimit);
-            w.sequence(anchor, static_cast<std::size_t>(ip - anchor), static_cast<std::size_t>(ip - ref), matchLen);
+            const std::size_t matchLen =
+                kMinMatch + count_equal(src + ip + kMinMatch, src + ref + kMinMatch, src + matchLimit);
+            w.sequence(src + anchor, ip - anchor, ip - ref, matchLen);
             ip += matchLen;
             anchor = ip;
             if (ip > mfLimit) break;
-            table[hash4(load32(ip - 2), kBits)] = static_cast<std::uint32_t>(ip - 2 - src);
+            table[hash4(load32(src + ip - 2), kBits)] = static_cast<std::uint32_t>(ip - 2);
         }
     }
 finish:
-    w.last_literals(anchor, static_cast<std::size_t>(iend - anchor));
+    w.last_literals(src + anchor, n - anchor);
 }
 
 struct HcParams {

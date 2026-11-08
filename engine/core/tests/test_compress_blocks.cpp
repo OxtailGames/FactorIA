@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <limits>
@@ -102,7 +105,7 @@ std::vector<Input> inputs(bool big) {
     }
     v.push_back({"text", text_bytes(60000 * scale, 2)});
     v.push_back({"records", record_bytes(40000 * scale, 3)});
-    v.push_back({"json", repo_file("examples/larkspur-lodge/scenes/ground.scene.json")});
+    v.push_back({"json", fixture("ground.json")});
     v.push_back({"binary (mpg)", repo_file("engine/core/tests/data/colors.mpg")});
     {
         // Matches that overlap their own output, long distances and a literal run past 15 and 255.
@@ -205,7 +208,7 @@ TEST_CASE("zstd: block size edges and a frame without a single segment") {
 }
 
 TEST_CASE("zstd: ratio is near the reference zstd -3 and a higher level gives a smaller frame") {
-    const Bytes json = repo_file("examples/larkspur-lodge/scenes/ground.scene.json");
+    const Bytes json = fixture("ground.json");
     const std::size_t l1 = must_compress(json, Codec::Zstd, 1).size();
     const std::size_t l3 = must_compress(json, Codec::Zstd, 3).size();
     const std::size_t l9 = must_compress(json, Codec::Zstd, 9).size();
@@ -230,7 +233,7 @@ TEST_CASE("zstd: levels outside the range are clamped") {
 }
 
 TEST_CASE("zstd: frames made by the reference tool decode (committed fixtures)") {
-    const Bytes json = repo_file("examples/larkspur-lodge/scenes/ground.scene.json");
+    const Bytes json = fixture("ground.json");
     for (const char* name : {"ground.l1.zst", "ground.l3.zst", "ground.l19.zst", "ground.l3.nocheck.zst",
                              "ground.l22.zst", "ground.stdin.zst", "ground.frames.zst"}) {
         const Bytes frame = fixture(name);
@@ -245,7 +248,7 @@ TEST_CASE("zstd: frames made by the reference tool decode (committed fixtures)")
 }
 
 TEST_CASE("zstd: the content checksum is written and checked") {
-    const Bytes json = repo_file("examples/larkspur-lodge/scenes/ground.scene.json");
+    const Bytes json = fixture("ground.json");
     Bytes frame;
     codec::zstd_compress(json, 3, true, frame);
     auto ok = decompress(Codec::Zstd, frame, json.size());
@@ -267,7 +270,7 @@ TEST_CASE("zstd: the content checksum is written and checked") {
 }
 
 TEST_CASE("zstd: a wrong expected size, a huge one, and refused frames are errors") {
-    const Bytes json = repo_file("examples/larkspur-lodge/scenes/ground.scene.json");
+    const Bytes json = fixture("ground.json");
     const Bytes frame = must_compress(json, Codec::Zstd, 3);
     CHECK_FALSE(decompress(Codec::Zstd, frame, json.size() - 1).ok());
     CHECK_FALSE(decompress(Codec::Zstd, frame, json.size() + 1).ok());
@@ -369,7 +372,7 @@ TEST_CASE("zstd: malformed headers and tables are errors that say why") {
 }
 
 TEST_CASE("zstd and lz4: truncation and bit flips are errors or other data, never a crash") {
-    const Bytes json = repo_file("examples/larkspur-lodge/scenes/ground.scene.json");
+    const Bytes json = fixture("ground.json");
     Bytes withSum;
     codec::zstd_compress(json, 3, true, withSum);
     struct Sample {
@@ -475,7 +478,7 @@ Bytes lz4_frame_data(const Bytes& f, std::size_t total) {
 }  // namespace
 
 TEST_CASE("lz4: blocks made by the reference tool decode (committed fixtures)") {
-    const Bytes json = repo_file("examples/larkspur-lodge/scenes/ground.scene.json");
+    const Bytes json = fixture("ground.json");
     for (const char* name : {"ground.l1.lz4", "ground.l9.lz4", "ground.l12.lz4"})
         CHECK_MESSAGE(lz4_frame_data(fixture(name), json.size()) == json, name);
     CHECK(lz4_frame_data(fixture("zeros300k.lz4"), 300000) == Bytes(300000, 0));
@@ -499,3 +502,45 @@ TEST_CASE("lz4: hand-made damaged blocks are errors") {
     REQUIRE_MESSAGE(r.ok(), err_text(r));
     CHECK(r.value()[0] == 'a');
 }
+
+#if !defined(_WIN32)
+// The `zstd` command line tool, when it is installed, reads the frames we write and we read what it writes. Without it
+// (CI images, Windows) this case does nothing: the committed fixtures above cover the same ground.
+TEST_CASE("zstd: round trip through the zstd command line tool when it is on the PATH") {
+    if (std::system("zstd --version > /dev/null 2>&1") != 0) return;
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "fa_test_zstd_cli";
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir);
+    auto write_bytes = [](const fs::path& path, const Bytes& data) {
+        std::ofstream f(path, std::ios::binary);
+        f.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+        return f.good();
+    };
+    const std::string raw = (dir / "raw.bin").string(), packed = (dir / "packed.zst").string();
+    const std::string back = (dir / "back.bin").string();
+    std::vector<Bytes> inputs = {fixture("ground.json"), text_bytes(70000, 5), random_bytes(3000, 6), Bytes(200000, 7)};
+    for (const Bytes& input : inputs) {
+        REQUIRE(write_bytes(raw, input));
+        // ours -> zstd -d
+        for (int level : {1, 3, 9, 19}) {
+            const Bytes frame = must_compress(input, Codec::Zstd, level);
+            REQUIRE(write_bytes(packed, frame));
+            const std::string cmd = "zstd -q -d -f -o \"" + back + "\" \"" + packed + "\" > /dev/null 2>&1";
+            CHECK_MESSAGE(std::system(cmd.c_str()) == 0, "zstd -d refused our level " << level << " frame");
+            CHECK_MESSAGE(read_file(back) == input, "zstd -d gave other bytes for our level " << level << " frame");
+        }
+        // zstd -> ours
+        for (int level : {1, 3, 19}) {
+            const std::string cmd = "zstd -q -" + std::to_string(level) + " -f -o \"" + packed + "\" \"" + raw +
+                                    "\" > /dev/null 2>&1";
+            REQUIRE(std::system(cmd.c_str()) == 0);
+            auto out = decompress(Codec::Zstd, read_file(packed), input.size());
+            REQUIRE_MESSAGE(out.ok(), err_text(out));
+            CHECK_MESSAGE(out.value() == input, "we read zstd -" << level << " wrongly");
+        }
+    }
+    fs::remove_all(dir, ec);
+}
+#endif
