@@ -74,6 +74,10 @@ struct RendererDesc {
     int designHeight = 720;
     int sampleCount = 1;       // MSAA of the game target (1 = off)
     bool headless = false;     // no swapchain; present() must not be called
+    // The graphics context was opened before the renderer by Renderer::open_context (the player does, so it can present its
+    // first frame before it reads any game file): init() uses it instead of calling sg_setup(), and shutdown() closes it.
+    // Ignored (a normal init) when no context is open.
+    bool adoptContext = false;
 };
 
 // What one drawn frame cost. With several cameras (Camera.viewport) every number adds up over the cameras: drawCalls, sprites,
@@ -138,10 +142,33 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    // Calls sg_setup() with `env`. Returns false + message on failure.
+    // Calls sg_setup() with `env` (unless desc.adoptContext and a context is open). Returns false + message on failure.
     bool init(const RendererDesc& desc, const GfxEnvironment& env, std::string* error);
     void shutdown();
     bool initialized() const;
+
+    // --- Start-up (docs/PERFORMANCE.md, "Startup"; docs/ARCHITECTURE.md "Start-up order") ----------------------------------
+    // A window player opens the graphics context FIRST (open_context), presents one cleared frame (present_clear) and only
+    // then starts the engine, which reads the game's files and makes the renderer (init with desc.adoptContext). Nothing here
+    // changes what a game draws: the first game frame is the same whether or not these ran.
+    // sg_setup() with the same limits init() uses. False + message when the device is not usable. False when a context is open.
+    static bool open_context(const GfxEnvironment& env, std::string* error);
+    static bool context_open();
+    // sg_shutdown() when a context is open and no renderer owns it (a start that failed before the renderer existed). A
+    // renderer that adopted the context closes it in shutdown().
+    static void close_context();
+    // One frame that clears the swapchain to black (the letterbox colour) and commits it. No renderer needed; also fine
+    // while one exists (the commit is noted). False when no context is open (nothing is drawn).
+    static bool present_clear(const GfxSwapchain& swapchain);
+    // Makes, a few at a time, the pipelines the first game frame would otherwise compile in the middle of drawing: the
+    // present blit and the sprite pipelines, plus the mesh, sky and shadow ones when `world` has a MeshRenderer. One call
+    // makes one group (about a frame's worth of driver work on Metal and D3D11). Returns how many groups are left (0 = done,
+    // and every later call returns 0 at once). A frame drawn before the groups are done makes any missing pipeline on the spot,
+    // exactly as before: pictures never depend on this. Not for a headless renderer (returns 0).
+    int warm_step(const GfxSwapchain& swapchain, World& world);
+    // {backend, cache, programs, createMs, cache counters (D3D11), pipelinesWarmed, warmMs, groupsLeft}: what the start-up
+    // spent on shader programs and pipelines (the `loading.startup.gpu` object of play.report).
+    Json startup_report() const;
 
     // Resize the game target (e.g. Expand scale mode, editor viewport).
     void set_target_size(int width, int height);

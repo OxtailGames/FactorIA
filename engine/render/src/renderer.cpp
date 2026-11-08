@@ -19,6 +19,7 @@
 #include "frame.h"
 #include "mesh_batch.h"
 #include "render_internal.h"
+#include "shader_cache.h"
 
 #include "shaders/blit.glsl.h"
 #include "shaders/light.glsl.h"
@@ -93,6 +94,13 @@ struct Renderer::Impl {
     int physW = 0, physH = 0;      // size of the GPU images
     Gpu gpu;
     GpuTimer gpuTimer;
+    // Renderer::warm_step: the groups of pipelines to make before the first game frame, built on the first call.
+    std::vector<std::function<void()>> warmGroups;
+    std::size_t warmNext = 0;
+    bool warmBuilt = false;
+    std::size_t warmPipelines = 0;
+    double warmMs = 0;
+    bool adopted = false;  // the graphics context was opened by open_context: this renderer closes it
     std::unique_ptr<Assets> assets;
     std::unique_ptr<Fonts> fonts;
     GradientRamps ramps;     // the baked colour rows of Shape2D gradients with stops or an easing (gradient_ramp.h)
@@ -855,16 +863,8 @@ const CameraInfo& Renderer::Impl::camera_for(Entity camera, const Vec2* screenPo
 // ---------------------------------------------------------------------------
 // Renderer
 // ---------------------------------------------------------------------------
-Renderer::Renderer() = default;
-Renderer::~Renderer() { shutdown(); }
-
-bool Renderer::initialized() const { return impl_ && impl_->initialized; }
-
-bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::string* error) {
-    if (initialized()) return true;
-    impl_ = std::make_unique<Impl>();
-    Impl& im = *impl_;
-    im.desc = desc;
+// The sokol_gfx setup both open_context() and init() use: one place for the pool sizes.
+sg_desc make_sg_desc(const GfxEnvironment& env) {
     sg_desc sd{};
     sd.environment = env.get();
     sd.logger.func = fa_sokol_log_func;
@@ -875,7 +875,124 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     sd.shader_pool_size = 256;  // 11 built-in shaders, up to 4 per custom material
     sd.pipeline_pool_size = 256;
     sd.uniform_buffer_size = 16 * 1024 * 1024;
+    return sd;
+}
+
+Renderer::Renderer() = default;
+Renderer::~Renderer() { shutdown(); }
+
+bool Renderer::initialized() const { return impl_ && impl_->initialized; }
+
+bool Renderer::open_context(const GfxEnvironment& env, std::string* error) {
+    if (sg_isvalid()) {
+        if (error) *error = "a graphics context is already open";
+        return false;
+    }
+    sg_desc sd = make_sg_desc(env);
     sg_setup(&sd);
+    if (!sg_isvalid()) {
+        if (error) *error = "sg_setup failed: the graphics device is not usable (see the 'sg' log lines).";
+        return false;
+    }
+    return true;
+}
+
+bool Renderer::context_open() { return sg_isvalid(); }
+
+void Renderer::close_context() {
+    if (sg_isvalid()) sg_shutdown();
+}
+
+bool Renderer::present_clear(const GfxSwapchain& swapchain) {
+    if (!sg_isvalid()) return false;
+    sg_pass pass{};
+    pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
+    pass.action.colors[0].clear_value = {0, 0, 0, 1};
+    pass.swapchain = swapchain.get();
+    pass.label = "present-clear";
+    sg_begin_pass(&pass);
+    sg_end_pass();
+    sg_commit();
+    return true;
+}
+
+int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
+    if (!initialized() || impl_->desc.headless) return 0;
+    Impl& im = *impl_;
+    if (!im.warmBuilt) {
+        im.warmBuilt = true;
+        Gpu* gpu = &im.gpu;
+        const sg_swapchain sc = swapchain.get();
+        const int scSamples = sc.sample_count > 0 ? sc.sample_count : 1;
+        // Group order = what the first frames of a game need first. Every pipeline is keyed deterministically in Gpu, so a
+        // frame that needs one before its group ran makes it itself, the same pipeline.
+        im.warmGroups.push_back([gpu, sc, scSamples] { gpu->blit_pipeline(sc.color_format, sc.depth_format, scSamples); });
+        im.warmGroups.push_back([gpu] {
+            gpu->quad_pipeline(false, false, BlendMode::Alpha);
+            gpu->quad_pipeline(false, false, BlendMode::Alpha, true);
+            gpu->quad_pipeline(false, false, BlendMode::Alpha, true, true);
+        });
+        im.warmGroups.push_back([gpu] {
+            gpu->quad_pipeline(false, false, BlendMode::Additive);
+            gpu->quad_pipeline(false, false, BlendMode::Multiply);
+            gpu->quad_pipeline(false, true, BlendMode::Alpha);
+        });
+        bool meshes = false;
+        world.each<MeshRenderer>([&](Entity, MeshRenderer&) { meshes = true; });
+        if (meshes) {
+            const bool shadows = gpu->shadows_supported();
+            im.warmGroups.push_back([gpu] {
+                gpu->mesh_pipeline(false, false);
+                gpu->mesh_pipeline(false, true);
+            });
+            im.warmGroups.push_back([gpu] {
+                gpu->mesh_pipeline(true, false);
+                gpu->mesh_pipeline(true, true);
+                gpu->quad_pipeline(true, false, BlendMode::Alpha);
+            });
+            im.warmGroups.push_back([gpu] {
+                gpu->sky_pipeline();
+                gpu->mesh_pipeline(false, false, true);
+            });
+            if (shadows) {
+                im.warmGroups.push_back([gpu] {
+                    gpu->shadow_pipeline(false);
+                    gpu->shadow_pipeline(true);
+                });
+            }
+        }
+    }
+    if (im.warmNext >= im.warmGroups.size()) return 0;
+    const auto t0 = std::chrono::steady_clock::now();
+    const std::size_t before = im.gpu.pipeline_count();
+    im.warmGroups[im.warmNext++]();
+    im.warmPipelines += im.gpu.pipeline_count() - before;
+    im.warmMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    return int(im.warmGroups.size() - im.warmNext);
+}
+
+Json Renderer::startup_report() const {
+    Json j = shader_build_stats().to_json(backend_name());
+    j["cache"] = shader_cache_mode();
+    if (impl_) {
+        j["pipelinesWarmed"] = int(impl_->warmPipelines);
+        j["warmMs"] = std::round(impl_->warmMs * 10.0) / 10.0;
+        j["groupsLeft"] = int(impl_->warmGroups.size() - std::min(impl_->warmNext, impl_->warmGroups.size()));
+    }
+    return j;
+}
+
+bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::string* error) {
+    if (initialized()) return true;
+    impl_ = std::make_unique<Impl>();
+    Impl& im = *impl_;
+    im.desc = desc;
+    reset_shader_build_stats();
+    im.adopted = desc.adoptContext && sg_isvalid();
+    if (!im.adopted) {
+        sg_desc sd = make_sg_desc(env);
+        sg_setup(&sd);
+    }
     if (!sg_isvalid()) {
         if (error) *error = "sg_setup failed: the graphics device is not usable (see the 'sg' log lines).";
         impl_.reset();
@@ -889,7 +1006,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     std::string gerr;
     if (!im.gpu.init(samples, &gerr)) {
         if (error) *error = gerr;
-        sg_shutdown();
+        if (!im.adopted) sg_shutdown();
         impl_.reset();
         return false;
     }
@@ -920,7 +1037,7 @@ void Renderer::shutdown() {
         for (sg_view* v : {&im.shadowColorAtt, &im.shadowDepthAtt, &im.shadowTexView}) if (v->id) sg_destroy_view(*v);
         for (sg_image* i : {&im.shadowColor, &im.shadowDepth}) if (i->id) sg_destroy_image(*i);
         im.gpu.shutdown();
-        sg_shutdown();
+        if (!im.adopted) sg_shutdown();  // an adopted context stays open for close_context(): the player may still present
     }
     impl_.reset();
 }

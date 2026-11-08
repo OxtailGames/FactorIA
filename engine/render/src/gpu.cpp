@@ -7,6 +7,8 @@
 #include "fa/core/log.h"
 #include "fa/platform/sokol_logging.h"
 
+#include "shader_cache.h"
+
 #include "shaders/bloom.glsl.h"
 #include "shaders/colorfilter.glsl.h"
 #include "shaders/blit.glsl.h"
@@ -77,14 +79,14 @@ bool Gpu::init(int sampleCount, std::string* error) {
         }
     }
 
-    quad_shader_ = sg_make_shader(quad_quad_shader_desc(backend));
-    quadPlainShader_ = sg_make_shader(quad_quad_plain_shader_desc(backend));
-    mesh_shader_ = sg_make_shader(mesh_mesh_shader_desc(backend));
-    sky_shader_ = sg_make_shader(sky_sky_shader_desc(backend));
-    shadow_shader_ = sg_make_shader(mesh_shadow_shader_desc(backend));
-    blit_shader_ = sg_make_shader(blit_blit_shader_desc(backend));
-    meshSkinShader_ = sg_make_shader(mesh_mesh_skin_shader_desc(backend));
-    shadowSkinShader_ = sg_make_shader(mesh_shadow_skin_shader_desc(backend));
+    quad_shader_ = make_shader(quad_quad_shader_desc(backend), "quad_quad");
+    quadPlainShader_ = make_shader(quad_quad_plain_shader_desc(backend), "quad_quad_plain");
+    mesh_shader_ = make_shader(mesh_mesh_shader_desc(backend), "mesh_mesh");
+    sky_shader_ = make_shader(sky_sky_shader_desc(backend), "sky_sky");
+    shadow_shader_ = make_shader(mesh_shadow_shader_desc(backend), "mesh_shadow");
+    blit_shader_ = make_shader(blit_blit_shader_desc(backend), "blit_blit");
+    meshSkinShader_ = make_shader(mesh_mesh_skin_shader_desc(backend), "mesh_mesh_skin");
+    shadowSkinShader_ = make_shader(mesh_shadow_skin_shader_desc(backend), "mesh_shadow_skin");
     for (sg_shader s : {quad_shader_, quadPlainShader_, mesh_shader_, sky_shader_, shadow_shader_, blit_shader_, meshSkinShader_, shadowSkinShader_}) {
         if (sg_query_shader_state(s) != SG_RESOURCESTATE_VALID) {
             if (error) {
@@ -322,10 +324,10 @@ sg_pipeline Gpu::blit_pipeline(sg_pixel_format colorFormat, sg_pixel_format dept
 bool Gpu::bloom_ready() {
     if (bloomState_ != 0) return bloomState_ > 0;
     sg_backend backend = sg_query_backend();
-    bloom_shaders_[int(BloomStage::Bright)] = sg_make_shader(bloom_bright_shader_desc(backend));
-    bloom_shaders_[int(BloomStage::Down)] = sg_make_shader(bloom_down_shader_desc(backend));
-    bloom_shaders_[int(BloomStage::Blur)] = sg_make_shader(bloom_blur_shader_desc(backend));
-    bloom_shaders_[int(BloomStage::Composite)] = sg_make_shader(bloom_composite_shader_desc(backend));
+    bloom_shaders_[int(BloomStage::Bright)] = make_shader(bloom_bright_shader_desc(backend), "bloom_bright");
+    bloom_shaders_[int(BloomStage::Down)] = make_shader(bloom_down_shader_desc(backend), "bloom_down");
+    bloom_shaders_[int(BloomStage::Blur)] = make_shader(bloom_blur_shader_desc(backend), "bloom_blur");
+    bloom_shaders_[int(BloomStage::Composite)] = make_shader(bloom_composite_shader_desc(backend), "bloom_composite");
     bool ok = true;
     for (sg_shader s : bloom_shaders_) ok = ok && sg_query_shader_state(s) == SG_RESOURCESTATE_VALID;
     if (!ok) {
@@ -373,7 +375,7 @@ sg_pipeline Gpu::bloom_pipeline(BloomStage stage, int sampleCount) {
 
 bool Gpu::colorfilter_ready() {
     if (colorfilterState_ != 0) return colorfilterState_ > 0;
-    colorfilter_shader_ = sg_make_shader(colorfilter_colorfilter_shader_desc(sg_query_backend()));
+    colorfilter_shader_ = make_shader(colorfilter_colorfilter_shader_desc(sg_query_backend()), "colorfilter_colorfilter");
     if (sg_query_shader_state(colorfilter_shader_) != SG_RESOURCESTATE_VALID) {
         sg_destroy_shader(colorfilter_shader_);
         colorfilter_shader_ = {};
@@ -409,7 +411,7 @@ bool Gpu::light_ready() {
         lightState_ = -1;
         return false;
     }
-    light_shader_ = sg_make_shader(light_light_shader_desc(sg_query_backend()));
+    light_shader_ = make_shader(light_light_shader_desc(sg_query_backend()), "light_light");
     if (sg_query_shader_state(light_shader_) != SG_RESOURCESTATE_VALID) {
         sg_destroy_shader(light_shader_);
         light_shader_ = {};

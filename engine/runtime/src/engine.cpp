@@ -527,6 +527,10 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         Profiler::get().end_frame();
     }
     if (profiled && loadTrace) loadTrace->frame_ended();
+    if (profiled && !firstGameFrameMarked) {  // the first frame the game ran, whoever drives it
+        firstGameFrameMarked = true;
+        startup.mark(StartupTimeline::Mark::FirstGameFrame);
+    }
 }
 
 void Engine::Impl::end_of_frame(double dt, bool simulated) {
@@ -550,6 +554,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     const LoadTrace::ReadingFor reading(impl_->traceOwner);  // what this engine reads is its load trace's (fa/core/load_trace.h)
     impl_->logSeqAtInit = log_last_seq();
     Impl& I = *impl_;
+    I.startup.mark(StartupTimeline::Mark::InitBegin);
     // Only what THIS call started is undone: a second init of a running engine fails and leaves the pool running.
     bool startedHere = false;
     std::optional<jobs::OwnerScope> jobScope;
@@ -674,6 +679,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         rd.designWidth = config.width > 0 ? config.width : I.project.width;
         rd.designHeight = config.height > 0 ? config.height : I.project.height;
         rd.headless = !I.windowed;
+        rd.adoptContext = I.windowed && config.adoptGraphicsContext;
         std::string gerr;
         bool ok = false;
         if (I.windowed) {
@@ -821,6 +827,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     I.nextProps.reset();  // a start scene that could not load takes none
     if (I.windowed && I.project.scaleMode == ScaleMode::Expand) { /* resize handler adapts the target */ }
     I.poll_hot_reload();  // seeds the watch snapshot when hot reload is active
+    I.startup.mark(StartupTimeline::Mark::InitEnd);
     return true;
 }
 
@@ -859,7 +866,28 @@ void Engine::begin_load_trace() {
 
 LoadTrace::Owner Engine::load_trace_owner() const { return impl_->traceOwner; }
 
-Json Engine::loading_report() const { return impl_->loadTrace ? impl_->loadTrace->report() : Json(); }
+Json Engine::loading_report() const {
+    if (!impl_->loadTrace) return Json();
+    Json report = impl_->loadTrace->report();
+    report["startup"] = startup_report();
+    return report;
+}
+
+StartupTimeline& Engine::startup_timeline() { return impl_->startup; }
+
+int Engine::warm_step(const GfxSwapchain& swapchain) {
+    Impl& I = *impl_;
+    if (!I.initialized) return 0;
+    const int left = I.windowed && I.renderer ? I.renderer->warm_step(swapchain, I.world) : 0;
+    if (left == 0) I.startup.mark(StartupTimeline::Mark::WarmEnd);
+    return left;
+}
+
+Json Engine::startup_report() const {
+    Json j = impl_->startup.to_json();
+    j["gpu"] = impl_->renderer && impl_->renderer->initialized() ? impl_->renderer->startup_report() : Json();
+    return j;
+}
 
 void Engine::end_load_trace() {
     Impl& I = *impl_;
