@@ -1527,6 +1527,68 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return r.value().to_json();
           });
 
+    I.commands.add({"nav.find_paths",
+           "Find many walkable paths on the baked NavMesh3D in one call (run in parallel on the job threads).",
+           "The batch form of nav.find_path for crowds and AI planners: `queries` is a list of {from, to, radius?, snap?, closest?, "
+           "mesh?}, and the top-level radius, snap, closest and mesh are the defaults of every query. Result: a list with one "
+           "entry per query IN THE ORDER YOU ASKED, each exactly what nav.find_path returns for it (found:true with points, or "
+           "found:false with reason, message and hint). The answers are the ones a loop of nav.find_path calls gives, and the same "
+           "whatever the job thread count (runtime.jobThreads, inline included); with 8 or more queries they are searched on "
+           "several threads, fewer are searched in order on the calling thread. A query that cannot be answered (no baked "
+           "NavMesh3D, unknown `mesh`, `radius` bigger than the mesh was baked for) fails the whole call with its index before any "
+           "search runs; a wrong argument names its JSON pointer (/queries/3/from). At most 10000 queries per call. Scripts: "
+           "nav.findPaths(queries, opts). Example: nav.find_paths "
+           "{\"queries\":[{\"from\":[0,0,0],\"to\":[10,0,5]},{\"from\":[2,0,2],\"to\":[-4,0,6]}]}",
+           parse_schema(R"({"type":"object","required":["queries"],"properties":{
+               "queries":{"type":"array","items":{"type":"object","required":["from","to"],"properties":{
+                   "from":{"type":"array","items":{"type":"number"},"description":"Start point [x,y,z] in meters."},
+                   "to":{"type":"array","items":{"type":"number"},"description":"Goal point [x,y,z] in meters."},
+                   "radius":{"type":"number","description":"Agent radius of this query (see nav.find_path)."},
+                   "snap":{"type":"number","description":"How far (meters) a start or goal is moved onto walkable ground."},
+                   "closest":{"type":"boolean","description":"Unreachable goal: return a path to the nearest reachable point."},
+                   "mesh":{"type":"string","description":"Id of the NavMesh3D entity to use."}}},"description":"The path queries, at most 10000."},
+               "radius":{"type":"number","description":"Default agent radius of every query."},
+               "snap":{"type":"number","description":"Default snap distance of every query."},
+               "closest":{"type":"boolean","description":"Default for every query."},
+               "mesh":{"type":"string","description":"Default NavMesh3D entity id of every query."}}})"),
+           true, "physics"},
+          [&I](const Json& a) {
+              auto queries = nav_parse_path_queries(a, "nav.find_paths");
+              if (!queries.ok()) throw CommandError("invalid_argument", queries.error().message, queries.error().hint);
+              auto r = I.physics.nav_find_paths(I.world, queries.value());
+              if (!r.ok()) throw CommandError("nav_error", r.error().message, r.error().hint);
+              Json out = Json::array();
+              for (const NavPath& p : r.value()) out.push_back(p.to_json());
+              return out;
+          });
+
+    I.commands.add({"nav.find_tile_paths",
+           "Find many tile paths on one Tilemap (or cost grid) in one call (run in parallel on the job threads).",
+           "The batch form of nav.find_tile_path: the map (`tilemap` or `grid`), `costs`, `diagonals`, `maxNodes`, `closest` and "
+           "`allowBlockedGoal` are given once and `queries` is a list of {from:[col,row], to:[col,row]}. The map is read once. "
+           "Result: a list with one entry per query IN THE ORDER YOU ASKED, each exactly what nav.find_tile_path returns for it. "
+           "Same answers whatever the job thread count; with 8 or more queries they are searched on several threads. Every "
+           "query is checked first: a bad cell is an error naming its JSON pointer (/queries/3/from) and nothing is searched. "
+           "At most 10000 queries per call. Scripts: nav.findTilePaths(map, queries, opts). Example: nav.find_tile_paths "
+           "{\"tilemap\":\"ground\",\"queries\":[{\"from\":[0,0],\"to\":[5,3]},{\"from\":[1,1],\"to\":[9,2]}]}",
+           parse_schema(R"({"type":"object","required":["queries"],"properties":{
+               "tilemap":{"type":"string","description":"Id of the entity with the Tilemap. Give this or `grid`."},
+               "grid":{"type":"object","description":"A plain grid: {width, height, cost: [width*height numbers, row-major, row 0 = top; null or negative = blocked], origin?: [x,y], cellSize?: number | [w,h]}."},
+               "queries":{"type":"array","items":{"type":"object","required":["from","to"],"properties":{
+                   "from":{"type":"array","items":{"type":"number"},"description":"Start cell [col,row]."},
+                   "to":{"type":"array","items":{"type":"number"},"description":"Goal cell [col,row]."}}},"description":"The path queries, at most 10000."},
+               "costs":{"type":"object","description":"Tilemap only: cost of entering a cell by tile index, {\"3\": 2.5, \"7\": null}."},
+               "diagonals":{"type":"boolean","description":"Allow 8-way steps (no corner cutting). Default false."},
+               "maxNodes":{"type":"integer","description":"Most cells each search expands before it gives up (too_far). Default 100000."},
+               "closest":{"type":"boolean","description":"Goal unreachable: return the path to the nearest reachable cell (complete=false)."},
+               "allowBlockedGoal":{"type":"boolean","description":"A blocked goal cell can still be entered (cost 1)."}}})"),
+           true, "physics"},
+          [&I](const Json& a) {
+              auto r = nav_tile_query_many(I.world, a);
+              if (!r.ok()) throw CommandError("nav_error", r.error().message, r.error().hint);
+              return r.value();
+          });
+
     I.commands.add({"nav.find_tile_path",
            "Find a path over the cells of a Tilemap (or a plain cost grid) with A*.",
            "Cells are (col, row), 0-based, row 0 = the top row. Pass `tilemap` (id of an entity with a Tilemap: tiles in "

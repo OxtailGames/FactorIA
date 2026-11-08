@@ -3547,6 +3547,73 @@
       }
       return out;
     },
+    // findPaths(queries, { radius, snap, closest, mesh }): many findPath queries in one call, searched in parallel on the job
+    // threads. queries = [{ from, to, radius?, snap?, closest?, mesh? }]; the options are the defaults of every query. Returns
+    // one result per query in the order you asked, each what findPath returns. Like findPath it never throws for "no route";
+    // a query that cannot be answered (no navmesh, unknown mesh, radius too big) throws, naming its index.
+    findPaths(queries, o) {
+      const label = "nav.findPaths(queries)";
+      if (!Array.isArray(queries)) throw new Error(`${label}: \`queries\` must be an array of { from, to }, but got ${inspect(queries)}`);
+      const args = { queries: queries.map((q, i) => {
+        if (!q || typeof q !== "object") throw new Error(`${label}: queries[${i}] must be { from, to }, but got ${inspect(q)}`);
+        const a = vecArr(q.from, 3, `${label} queries[${i}].from`), b = vecArr(q.to, 3, `${label} queries[${i}].to`);
+        const out = { from: [a[0], a[1], a[2] ?? 0], to: [b[0], b[1], b[2] ?? 0] };
+        for (const k of ["radius", "snap", "closest", "mesh"]) if (q[k] !== undefined) out[k] = q[k];
+        return out;
+      }) };
+      if (o) for (const k of ["radius", "snap", "closest", "mesh"]) if (o[k] !== undefined) args[k] = o[k];
+      const v = (p) => new Vec3(p[0], p[1], p[2]);
+      return N.navFindPaths(args).map((r) => {
+        const out = { found: r.found, points: r.found ? r.points.map(v) : [], length: r.length ?? 0,
+                      complete: r.found ? r.complete : false, mesh: r.mesh };
+        if (!r.found) {
+          out.reason = r.reason; out.message = r.message; out.hint = r.hint;
+          if (r.nearest) { out.nearest = v(r.nearest); out.nearestDistance = r.nearestDistance; }
+        }
+        return out;
+      });
+    },
+    // findTilePaths(map, queries, { costs, diagonals, maxNodes, closest, allowBlockedGoal }): many findTilePath queries on one
+    // map in one call, searched in parallel on the job threads. queries = [{ from, to }] (cells { col, row } or [col, row]);
+    // returns one result per query in the order you asked, each what findTilePath returns.
+    findTilePaths(map, queries, o) {
+      const label = "nav.findTilePaths(map, queries)";
+      if (!Array.isArray(queries)) throw new Error(`${label}: \`queries\` must be an array of { from, to } cells, but got ${inspect(queries)}`);
+      const cell = (c, what) => {
+        const a = Array.isArray(c) ? c : (c && typeof c === "object" && "col" in c && "row" in c) ? [c.col, c.row] : null;
+        if (!a || a.length !== 2 || !Number.isFinite(a[0]) || !Number.isFinite(a[1]))
+          throw new Error(`${label}: \`${what}\` must be a cell { col, row } or [col, row] (0-based, row 0 = top), but got ${inspect(c)}`);
+        return [a[0], a[1]];
+      };
+      const cells = queries.map((q, i) => {
+        if (!q || typeof q !== "object") throw new Error(`${label}: queries[${i}] must be { from, to }, but got ${inspect(q)}`);
+        return { from: cell(q.from, `queries[${i}].from`), to: cell(q.to, `queries[${i}].to`) };
+      });
+      if (map instanceof NavGrid) {
+        const flat = [];
+        for (const q of cells) flat.push(q.from[0], q.from[1], q.to[0], q.to[1]);
+        return N.navGridPaths(map.$h, flat, navTileOpts(o)).map(navPathResult);
+      }
+      const args = { queries: cells };
+      if (typeof map === "string") args.tilemap = map;
+      else if (map instanceof Entity) args.tilemap = map.id;
+      else if (map && typeof map === "object" && Array.isArray(map.cost)) {
+        const cost = new Array(map.cost.length);
+        for (let i = 0; i < cost.length; i++) { const c = map.cost[i]; cost[i] = (typeof c === "number" && c >= 0 && c !== Infinity) ? c : -1; }
+        args.grid = { width: map.width, height: map.height, cost };
+        if (map.origin !== undefined) args.grid.origin = vecArr(map.origin, 2, `${label} grid.origin`);
+        if (map.cellSize !== undefined) args.grid.cellSize = typeof map.cellSize === "number" ? map.cellSize : vecArr(map.cellSize, 2, `${label} grid.cellSize`);
+      } else throw new Error(`${label}: \`map\` must be an entity with a Tilemap (or its id), a grid made by nav.createGrid, or a grid { width, height, cost: number[] }, but got ${inspect(map)}`);
+      if (o) {
+        for (const k of ["diagonals", "maxNodes", "closest", "allowBlockedGoal"]) if (o[k] !== undefined) args[k] = o[k];
+        if (o.costs !== undefined) {
+          const costs = {};
+          for (const k of Object.keys(o.costs)) { const c = o.costs[k]; costs[k] = (typeof c === "number" && c >= 0 && c !== Infinity) ? c : null; }
+          args.costs = costs;
+        }
+      }
+      return N.navFindTilePaths(args).map(navPathResult);
+    },
     // findTilePath(map, from, to, { costs, diagonals, maxNodes, closest, allowBlockedGoal }): A* over the cells of a Tilemap
     // entity (or its id) or of a grid { width, height, cost, origin?, cellSize? } (docs/NAVIGATION.md, "Tile paths").
     // Cells are { col, row } or [col, row], row 0 = top. Result { found, complete, cells: {col,row}[], points: Vec2[], cost,

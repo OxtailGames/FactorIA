@@ -5213,6 +5213,22 @@ A* over the walkable grid, then string pulling: the result is few corner points 
 | `closest` | boolean | no | When the goal is unreachable, return a path to the reachable point nearest to it (complete=false). |
 | `mesh` | string | no | Id of the entity with the NavMesh3D to use. Default: the first enabled one that contains `from`. |
 
+### `nav.find_paths`
+
+Not released yet (on main after 0.18.0).
+
+Find many walkable paths on the baked NavMesh3D in one call (run in parallel on the job threads).
+
+The batch form of nav.find_path for crowds and AI planners: `queries` is a list of {from, to, radius?, snap?, closest?, mesh?}, and the top-level radius, snap, closest and mesh are the defaults of every query. Result: a list with one entry per query IN THE ORDER YOU ASKED, each exactly what nav.find_path returns for it (found:true with points, or found:false with reason, message and hint). The answers are the ones a loop of nav.find_path calls gives, and the same whatever the job thread count (runtime.jobThreads, inline included); with 8 or more queries they are searched on several threads, fewer are searched in order on the calling thread. A query that cannot be answered (no baked NavMesh3D, unknown `mesh`, `radius` bigger than the mesh was baked for) fails the whole call with its index before any search runs; a wrong argument names its JSON pointer (/queries/3/from). At most 10000 queries per call. Scripts: nav.findPaths(queries, opts). Example: nav.find_paths {"queries":[{"from":[0,0,0],"to":[10,0,5]},{"from":[2,0,2],"to":[-4,0,6]}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `queries` | array | yes | The path queries, at most 10000. |
+| `radius` | number | no | Default agent radius of every query. |
+| `snap` | number | no | Default snap distance of every query. |
+| `closest` | boolean | no | Default for every query. |
+| `mesh` | string | no | Default NavMesh3D entity id of every query. |
+
 ### `nav.find_tile_path`
 
 Since 0.3.0.
@@ -5230,6 +5246,25 @@ Cells are (col, row), 0-based, row 0 = the top row. Pass `tilemap` (id of an ent
 | `costs` | object | no | Tilemap only: cost of entering a cell by tile index, {"3": 2.5, "7": null}; null or negative blocks, a solid tile listed here is walkable. |
 | `diagonals` | boolean | no | Allow 8-way steps (no corner cutting). Default false. |
 | `maxNodes` | integer | no | Most cells the search expands before it gives up (too_far). Default 100000. |
+| `closest` | boolean | no | Goal unreachable: return the path to the nearest reachable cell (complete=false). |
+| `allowBlockedGoal` | boolean | no | A blocked goal cell can still be entered (cost 1). |
+
+### `nav.find_tile_paths`
+
+Not released yet (on main after 0.18.0).
+
+Find many tile paths on one Tilemap (or cost grid) in one call (run in parallel on the job threads).
+
+The batch form of nav.find_tile_path: the map (`tilemap` or `grid`), `costs`, `diagonals`, `maxNodes`, `closest` and `allowBlockedGoal` are given once and `queries` is a list of {from:[col,row], to:[col,row]}. The map is read once. Result: a list with one entry per query IN THE ORDER YOU ASKED, each exactly what nav.find_tile_path returns for it. Same answers whatever the job thread count; with 8 or more queries they are searched on several threads. Every query is checked first: a bad cell is an error naming its JSON pointer (/queries/3/from) and nothing is searched. At most 10000 queries per call. Scripts: nav.findTilePaths(map, queries, opts). Example: nav.find_tile_paths {"tilemap":"ground","queries":[{"from":[0,0],"to":[5,3]},{"from":[1,1],"to":[9,2]}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `tilemap` | string | no | Id of the entity with the Tilemap. Give this or `grid`. |
+| `grid` | object | no | A plain grid: {width, height, cost: [width*height numbers, row-major, row 0 = top; null or negative = blocked], origin?: [x,y], cellSize?: number \| [w,h]}. |
+| `queries` | array | yes | The path queries, at most 10000. |
+| `costs` | object | no | Tilemap only: cost of entering a cell by tile index, {"3": 2.5, "7": null}. |
+| `diagonals` | boolean | no | Allow 8-way steps (no corner cutting). Default false. |
+| `maxNodes` | integer | no | Most cells each search expands before it gives up (too_far). Default 100000. |
 | `closest` | boolean | no | Goal unreachable: return the path to the nearest reachable cell (complete=false). |
 | `allowBlockedGoal` | boolean | no | A blocked goal cell can still be entered (cost 1). |
 
@@ -9157,6 +9192,60 @@ declare module "factoria" {
   }
 
   /**
+   * One query of nav.findPaths: the same fields as nav.findPath's arguments, each overriding the default given in findPaths' opts.
+   * @since unreleased
+   */
+  export interface NavPathQuery {
+    /**
+     * Start point (the agent's feet), meters.
+     * @since unreleased
+     */
+    from: Vec3Like;
+    /**
+     * Goal point, meters.
+     * @since unreleased
+     */
+    to: Vec3Like;
+    /**
+     * Agent radius of this query (meters). Default: findPaths' opts.radius, else the NavMesh3D's agentRadius.
+     * @since unreleased
+     */
+    radius?: number;
+    /**
+     * How far (meters) a start or goal off the walkable cells is moved onto the nearest one.
+     * @since unreleased
+     */
+    snap?: number;
+    /**
+     * Goal unreachable: return a path to the reachable point nearest to it (complete = false).
+     * @since unreleased
+     */
+    closest?: boolean;
+    /**
+     * Id of the entity with the NavMesh3D to use.
+     * @since unreleased
+     */
+    mesh?: string;
+  }
+
+  /**
+   * One query of nav.findTilePaths.
+   * @since unreleased
+   */
+  export interface NavTileQuery {
+    /**
+     * Start cell (0-based, row 0 = top).
+     * @since unreleased
+     */
+    from: NavCell | readonly [number, number];
+    /**
+     * Goal cell.
+     * @since unreleased
+     */
+    to: NavCell | readonly [number, number];
+  }
+
+  /**
    * Options of nav.findPath.
    * @since 0.3.0
    */
@@ -9531,6 +9620,16 @@ declare module "factoria" {
      * @since 0.3.0
      */
     findTilePath(map: Entity | string | NavGrid | NavTileGrid | NavGrid, from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath;
+    /**
+     * Many findPath queries in one call, searched in parallel on the job threads (runtime.jobThreads): for a crowd or a planner that asks for dozens of routes in one frame. Returns one NavPath per query, IN THE ORDER YOU ASKED, each exactly what findPath gives for it, and the same whatever the thread count (8 or more queries use the threads, fewer run in order). opts holds the defaults of every query (radius, snap, closest, mesh). Never throws for 'no route'; throws an Error naming the query when one cannot be answered (no baked NavMesh3D, unknown mesh, radius bigger than the mesh was baked for) or when a query is not { from, to }. At most 10000 queries per call. Example: const paths = nav.findPaths(guards.map((g) => ({ from: g.position, to: player.position })), { radius: 0.3 }); paths.forEach((p, i) => { if (p.found) guards[i].target = p.points[1] ?? p.points[0]; });
+     * @since unreleased
+     */
+    findPaths(queries: readonly NavPathQuery[], opts?: NavPathOptions): NavPath[];
+    /**
+     * Many findTilePath queries on ONE map in one call, searched in parallel on the job threads; the map is read once (a Tilemap or a plain grid is converted once, not per query; a grid from nav.createGrid is used as it is). Returns one NavTilePath per query in the order you asked, each exactly what findTilePath gives, the same whatever the thread count (8 or more queries use the threads). opts apply to every query. Never throws for 'no route'; throws, naming the query, when the map or a cell is not what the call expects. At most 10000 queries per call. Example: const paths = nav.findTilePaths(grid, walkers.map((w) => ({ from: w.cell, to: market })), { diagonals: true });
+     * @since unreleased
+     */
+    findTilePaths(map: Entity | string | NavGrid | NavTileGrid, queries: readonly NavTileQuery[], opts?: NavTileOptions): NavTilePath[];
     /**
      * A counter of the changes to the Tilemap's tiles. Compare it with the value from when you searched to know a cached path is stale. It goes up on setTile / tilemap.set_tile and on any write that replaces `tiles` (a script assigning tilemap.tiles, scene.set_component, the editor); it starts at 0 on every scene load and each call costs one pass over the tiles.
      * @since 0.3.0

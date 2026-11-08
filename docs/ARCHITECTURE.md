@@ -250,6 +250,45 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
 - **What it reports**: `jobs.info` (workers, mode, the setting and where it came from, jobs run and queued last frame,
   how busy each thread was, threads waiting now, this engine's unfinished jobs) and, with the profiler on, a `threads` section per thread in `perf.profile` and
   `play.report` (docs/PERFORMANCE.md) and the Threads tab of the editor's Profiler panel.
+- **Physics, navigation and audio on jobs (M70.2b)**: the results are the same inline and with any number
+  of workers (tests hash a whole simulation with `inline`/1/2/8 threads; `game.state_hash` is the check for a game). All of
+  it is skipped when the work is small (a job costs a few microseconds), by a count of items, never by the clock, so
+  which path runs is the same on every machine.
+  - *2D physics* (`engine/physics/src/physics2d_tasks.cpp`): Box2D's task system (`enqueueTaskCallback`) runs on
+    `fa::jobs`. A step is "wide" when it has at least 1536 awake bodies or 4096 contacts (`physics_job_thresholds()`,
+    measured: below that the jobs cost more than they gain); only then its tasks (broad-phase pairs, contact update, constraint solver, finalize, sensors) are
+    queued; any other step, a step outside the main thread and the `inline` mode run them on the calling thread. The world
+    is always made with the fixed `B2JobTasks::kWorkers = 4`, so a task is cut into at most 4 pieces by item count and
+    minimum range only, never by the pool's size: more than 4 threads are not used by 2D physics. A wide step cuts every task into
+    the same pieces whatever runs them (a stopped pool, `inline`, no workers or a step off the main thread run the pieces one
+    after the other on the calling thread, each with its own worker index), because what each worker finds is merged in
+    worker order: Box2D picks the island to split next among the candidates of the workers, and when two have the same
+    sleep time the winner depends on how the task was cut. A step below the thresholds is one piece, as before. So a world
+    this big (1536 or more awake bodies or 4096 or more contacts) can settle differently than the engine did before M70
+    when islands tie; smaller worlds are unchanged. Box2D merges what its
+    pieces wrote in bit sets (OR), and its solver colours constraints so that no two pieces touch the same body, so the
+    merge order is fixed by the data, not by who finishes first. Joints, the sleeping rules, the callbacks into scripts and
+    the write-back to the components stay on the main thread.
+  - *3D physics* (`physics3d.cpp`): the pair loops are O(n^2) and sequential, because a contact changes the bodies the next
+    pair sees. Two read-only scans run as `parallel_for` jobs when `rows * bodies >= 16384` (about 128 bodies): the
+    rigid-body contact test that builds the manifolds before the solver, and the contact-event pass. A chunk only
+    reads positions and writes its own slots; the main thread then replays the slots in `(chunk, row, k)` order, which is
+    the order of the sequential loop. The iterative solver, the time-of-impact islands, waking, sleeping, joints and
+    character controllers stay sequential.
+  - *Navigation*: `nav.find_paths` and `nav.find_tile_paths` (and the script calls) answer many queries at once. With 8 or
+    more queries (`kNavBatchMinQueries`) they run as `parallel_for` with 4 queries per chunk; each chunk owns a
+    `NavGrid::Scratch` (its open list and visited marks; a search never writes the grid), writes only its own slots of the
+    result, so the answer list is in request order. The NavMesh is picked per query on the main thread first, so every
+    error (with its query number and JSON pointer) comes before any search starts. At most 10000 queries per call.
+    Single `nav.find_path` calls stay on the calling thread.
+  - *Audio*: `render_sfx` renders each layer of a patch as a job when the patch has at least 2 layers and at least 24000
+    samples (`kSfxJobMinSamples`; about half a second at 48 kHz) and the layer buffers fit in 64 MB; the layers are
+    summed in layer order afterwards, so the samples are identical. A noise oscillator draws from a stream keyed by
+    `(seed, layer, oscillator)` rather than `Chunk::rng()`, so the sound does not change with how layers are grouped.
+    The device callback never waits for a job and starts none; the mixer of live voices and `song_preview` stay on their
+    own thread.
+  - What this does not promise: the same results are checked on one machine across thread settings. Floating point can
+    still differ in the last digit between CPU architectures, as it did before jobs.
 
 #### Systems that run as jobs
 

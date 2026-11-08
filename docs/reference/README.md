@@ -417,7 +417,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 - [`nav.bake`](commands/physics.md#navbake): Bake the NavMesh3D walkable grid from the static 3D colliders and return its stats. _Since 0.3.0._
 - [`nav.find_path`](commands/physics.md#navfind_path): Find a walkable path between two 3D points on the baked NavMesh3D. _Since 0.3.0._
+- [`nav.find_paths`](commands/physics.md#navfind_paths): Find many walkable paths on the baked NavMesh3D in one call (run in parallel on the job threads). _Not released yet._
 - [`nav.find_tile_path`](commands/physics.md#navfind_tile_path): Find a path over the cells of a Tilemap (or a plain cost grid) with A*. _Since 0.3.0._
+- [`nav.find_tile_paths`](commands/physics.md#navfind_tile_paths): Find many tile paths on one Tilemap (or cost grid) in one call (run in parallel on the job threads). _Not released yet._
 - [`nav.flow_field`](commands/physics.md#navflow_field): Distance field over the cells of a Tilemap (or a plain cost grid) from one or more goal cells. _Since 0.3.0._
 - [`nav.info`](commands/physics.md#navinfo): List the NavMesh3D components with their bounds, agent size, bake state and stats. _Since 0.3.0._
 - [`physics.raycast`](commands/physics.md#physicsraycast): Cast a ray against colliders (2D segment or 3D ray) and return the first hit.

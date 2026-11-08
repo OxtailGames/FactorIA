@@ -12,6 +12,7 @@
 #include <format>
 #include <unordered_set>
 
+#include "fa/core/jobs.h"
 #include "fa/core/log.h"
 #include "fa/scene/mesh_geometry.h"
 
@@ -39,6 +40,10 @@ constexpr int kMaxToiEvents = 32;       // time-of-impact stops (and rest-of-the
 constexpr float kTouchSkin = 0.002f;    // a swept pair this deep at the start of the move is touching, not overlapping (m)
 constexpr float kTouchGain = 0.0005f;   // ...and counts as hit again once it sinks this much deeper (m)
 constexpr float kWarmRadius = 0.05f;    // a contact point inherits the impulses of the previous sub-step's one this close (m)
+// Pair scans on the job system (docs/ARCHITECTURE.md, "Physics on jobs"): the narrow phase of a big scene is computed by
+// chunks of kPairRowGrain-ish rows in parallel and replayed in row order, so the result is the one of the single-threaded scan.
+constexpr std::size_t kMinParallelPairs = 16384;  // rows * bodies below this: the scan runs on the calling thread
+constexpr std::size_t kPairChunkWork = 4096;      // pairs a chunk aims at (its rows = this / bodies, at least 1)
 constexpr float kSleepSpeed = 0.05f;    // a body is calm below this speed (m/s; its fastest point counts, spin included)
 constexpr float kTimeToSleep = 0.5f;    // ...and falls asleep, with the bodies it touches, after this long (s)
 
@@ -1030,19 +1035,38 @@ void Physics3D::step(World& world, float dt) {
     for (std::size_t i = 0; i < n; ++i) allIdx[i] = i;
     std::vector<char> inScope(n, 0);  // (read only while a stage is scoped to an island)
     const std::vector<std::size_t>* scope = &allIdx;
-    auto for_pairs = [&](auto&& fn) {
-        const bool scoped = scope != &allIdx;
-        for (std::size_t i : *scope) {
-            if (!scoped) {
-                for (std::size_t k = i + 1; k < n; ++k) fn(i, k);
-                continue;
-            }
-            for (std::size_t k = 0; k < n; ++k) {
-                if (k == i || (inScope[k] && k < i)) continue;  // (a pair of two members is visited from the lower one)
-                if (!inScope[k] && movable(bodies_[k])) continue;  // another island cannot touch this one this sub-step
-                fn(std::min(i, k), std::max(i, k));
-            }
+    auto for_row = [&](std::size_t i, auto&& fn) {  // the pairs of row i of for_pairs, in its order
+        if (scope == &allIdx) {
+            for (std::size_t k = i + 1; k < n; ++k) fn(i, k);
+            return;
         }
+        for (std::size_t k = 0; k < n; ++k) {
+            if (k == i || (inScope[k] && k < i)) continue;  // (a pair of two members is visited from the lower one)
+            if (!inScope[k] && movable(bodies_[k])) continue;  // another island cannot touch this one this sub-step
+            fn(std::min(i, k), std::max(i, k));
+        }
+    };
+    auto for_pairs = [&](auto&& fn) {
+        for (std::size_t i : *scope) for_row(i, fn);
+    };
+    // The rows (bodies of the scope) of a pair scan split into chunks that depend only on the body count, and run on the job
+    // threads when the scan is big enough: rowsFn(row index in `rows`, out) appends the records of that row; the parts come
+    // back in chunk order, rows in order, so replaying them is the sequential scan. Below the threshold (or without a
+    // running pool) it is one part on the calling thread. The scan must only read the bodies.
+    auto scan_rows = [&](std::size_t rows, auto&& rowFn, auto& parts) {
+        parts.clear();
+        const std::size_t grain = std::max<std::size_t>(1, kPairChunkWork / std::max<std::size_t>(n, 1));
+        if (rows * n >= kMinParallelPairs && jobs::running() && !jobs::inline_mode() && jobs::worker_count() > 0) {
+            parts.resize(jobs::chunk_count(rows, grain));
+            auto r = jobs::parallel_for("physics3d.pairs", rows, grain, [&](const jobs::Chunk& c) {
+                for (std::size_t ri = c.begin; ri < c.end; ++ri) rowFn(ri, parts[c.index]);
+            });
+            if (r.ok()) return;
+            FA_ERROR("physics", "3D pair scan on the job threads failed ({}); scanning on the calling thread", r.error().message);
+            parts.clear();
+        }
+        parts.emplace_back();
+        for (std::size_t ri = 0; ri < rows; ++ri) rowFn(ri, parts.back());
     };
 
     // A sleeping body (with its whole group) wakes as soon as something that moves comes within kRiderGap of it: an awake
@@ -1099,21 +1123,33 @@ void Physics3D::step(World& world, float dt) {
     auto resolve = [&](bool positional) {
         wake_touched();
         rigid.clear();
-        for_pairs([&](std::size_t i, std::size_t k) {
-                Body& a = bodies_[i];
-                Body& b = bodies_[k];
+        struct RigidHit { std::size_t i, k; Contact c; };
+        std::vector<std::vector<RigidHit>> hitParts;  // the manifolds first (read only, on the job threads when big) ...
+        scan_rows(scope->size(), [&](std::size_t ri, std::vector<RigidHit>& out) {
+            for_row((*scope)[ri], [&](std::size_t i, std::size_t k) {
+                const Body& a = bodies_[i];
+                const Body& b = bodies_[k];
                 if (!a.enabled || !a.hasShape || a.trigger || !b.enabled || !b.hasShape || b.trigger) return;
                 if (!a.rotDyn && !b.rotDyn) return;
                 if (!live_dyn(a) && !live_dyn(b)) return;
                 if (!filters_pass(a, b)) return;
                 Contact c = collide(a, b, 0.0f, true);
                 if (!c.hit || c.depth < 0.0f) return;
+                out.push_back({i, k, c});
+            });
+        }, hitParts);
+        for (std::vector<RigidHit>& part : hitParts)  // ... then each contact is built and warm started in scan order
+            for (RigidHit& hit : part) {
+                const std::size_t i = hit.i, k = hit.k;
+                Body& a = bodies_[i];
+                Body& b = bodies_[k];
+                const Contact& c = hit.c;
                 float& impact = impacts[{a.seq, b.seq}];
                 const int car = (carrier[k] == int(i) && a.type == BodyType::Kinematic)
                                     ? 1
                                     : ((carrier[i] == int(k) && b.type == BodyType::Kinematic) ? 2 : 0);
                 RigidContact rc;
-                if (!build_rigid_contact(a, b, i, k, c, h, car, impact, rc)) return;
+                if (!build_rigid_contact(a, b, i, k, c, h, car, impact, rc)) continue;
                 rc.key = {a.seq, b.seq};
                 if (positional) {  // warm start: re-apply what the same contact points carried in the previous sub-step
                     auto cached = warm_.find(rc.key);
@@ -1142,7 +1178,7 @@ void Physics3D::step(World& world, float dt) {
                     }
                 }
                 rigid.push_back(rc);
-        });
+            }
         const bool jointsOn = positional && prepare_joints(h);
         // Iterations: 2 when only the simple pairs are solved; else each constraint gets the budget of its bodies (8, or
         // more for a joint chain), so a group's result never depends on the other groups of the world.
@@ -1357,16 +1393,27 @@ void Physics3D::step(World& world, float dt) {
     std::vector<std::pair<std::size_t, std::size_t>> links;  // touching awake dynamic bodies: they sleep together
     std::vector<char> hold(n, 0);  // touches a moving kinematic body: must stay awake
     auto driving = [](const Body& b) { return b.type == BodyType::Kinematic && (b.vel != Vec3{} || b.angVel != Vec3{}); };
-    for (std::size_t i = 0; i < n; ++i) {
+    // The pair scan reads the bodies and `touching_` only (on the job threads when big); what it finds is replayed in
+    // pair order below, so `cur`, `begins`, `supported`, `links` and `hold` come out as the single-threaded scan makes them.
+    struct PairRec {
+        std::size_t i, k;
+        PairKey key;
+        bool keep;  // true: nothing moves, the pair keeps its old state; false: a contact (c) found now
+        bool was, trig;
+        PairState st;
+        Contact c;
+    };
+    std::vector<std::vector<PairRec>> pairParts;
+    scan_rows(n, [&](std::size_t i, std::vector<PairRec>& outRecs) {
         const Body& a = bodies_[i];
-        if (!a.enabled || !a.hasShape) continue;
+        if (!a.enabled || !a.hasShape) return;
         for (std::size_t k = i + 1; k < n; ++k) {
             const Body& b = bodies_[k];
             if (!b.enabled || !b.hasShape) continue;
             PairKey key{a.seq, b.seq};
             if ((a.asleep || !movable(a)) && (b.asleep || !movable(b))) {  // nothing moves: the pair keeps its state
                 auto old = touching_.find(key);
-                if (old != touching_.end()) cur.insert(*old);
+                if (old != touching_.end()) outRecs.push_back({i, k, key, true, true, old->second.trigger, old->second, Contact{}});
                 continue;
             }
             if (!filters_pass(a, b)) continue;
@@ -1377,18 +1424,28 @@ void Physics3D::step(World& world, float dt) {
             Contact c = collide(a, b, margin);
             bool now = trig ? (c.hit && c.depth > 0.0f) : c.hit;
             if (!now) continue;
-            if (!trig) {
-                if (b.type == BodyType::Dynamic && c.normal.y > 0.7f) supported[k] = 1;
-                if (a.type == BodyType::Dynamic && c.normal.y < -0.7f) supported[i] = 1;
+            outRecs.push_back({i, k, key, false, was, trig, PairState{a.e, b.e, trig}, c});
+        }
+    }, pairParts);
+    for (std::vector<PairRec>& part : pairParts)
+        for (PairRec& r : part) {
+            if (r.keep) {
+                cur.insert({r.key, r.st});
+                continue;
+            }
+            const std::size_t i = r.i, k = r.k;
+            const Body& a = bodies_[i];
+            const Body& b = bodies_[k];
+            if (!r.trig) {
+                if (b.type == BodyType::Dynamic && r.c.normal.y > 0.7f) supported[k] = 1;
+                if (a.type == BodyType::Dynamic && r.c.normal.y < -0.7f) supported[i] = 1;
                 if (live_dyn(a) && live_dyn(b)) links.push_back({i, k});
                 if (live_dyn(a) && driving(b)) hold[i] = 1;
                 if (live_dyn(b) && driving(a)) hold[k] = 1;
             }
-            PairState st{a.e, b.e, trig};
-            cur[key] = st;
-            if (!was) begins.push_back({key, st, c});
+            cur[r.key] = r.st;
+            if (!r.was) begins.push_back({r.key, r.st, r.c});
         }
-    }
     for (auto& [key, st] : touching_) {
         if (cur.count(key)) continue;
         if (!live(world, st.a) || !live(world, st.b)) continue;

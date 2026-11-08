@@ -132,6 +132,9 @@ Result<std::vector<NavBakeStats>> Physics::nav_bake(World& world, const std::str
 Result<NavPath> Physics::nav_find_path(World& world, Vec3 from, Vec3 to, const NavPathOptions& options) {
     return impl_->p3d.nav_find_path(world, from, to, options);
 }
+Result<std::vector<NavPath>> Physics::nav_find_paths(World& world, const std::vector<NavPathQuery>& queries) {
+    return impl_->p3d.nav_find_paths(world, queries);
+}
 std::vector<NavCell> Physics::nav_cells(World& world, std::size_t maxCells) { return impl_->p3d.nav_cells(world, maxCells); }
 std::vector<NavLinkDraw> Physics::nav_links(World& world) { return impl_->p3d.nav_links(world); }
 Json Physics::nav_info(World& world) { return impl_->p3d.nav_info(world); }

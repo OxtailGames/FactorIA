@@ -39,6 +39,25 @@ WorldPose world_pose(const World& world, Entity e);
 bool entity_or_ancestor_is(const World& world, Entity e, Entity ignore);
 
 // ------------------------------------------------------------------ 2D ----
+// Box2D's task system on fa::jobs (physics2d_tasks.cpp). Box2D splits a step into tasks (broad-phase pairs, contact
+// update, constraint solver, body finalize, sensors); this runs them as jobs when `wide` is set and the pool has
+// workers, and on the calling thread otherwise. The result is the same either way and for every thread count: Box2D
+// merges what its workers wrote in bit sets (OR) and its solver colours constraints so that a block never shares a
+// body with another, and the pieces are cut by item count only (kWorkers, minRange), never by the thread count.
+class B2JobTasks {
+public:
+    // The worker count the Box2D world is made with: the most pieces one task is cut into. Fixed (not the pool's
+    // size) so a world means the same on every machine; more threads than this are not used by physics.
+    static constexpr int kWorkers = 4;
+    // A step below physics_job_thresholds() (fa/physics/physics.h) runs on the calling thread: a job costs a few
+    // microseconds and the solver's worker tasks spin while they wait for each other, which a small step never earns
+    // back (docs/PERFORMANCE.md, "Physics on jobs").
+
+    bool wide = false;  // set by Physics2D::step before b2World_Step
+    static void* enqueue(b2TaskCallback* task, int itemCount, int minRange, void* taskContext, void* userContext);
+    static void finish(void* userTask, void* userContext);
+};
+
 class Physics2D {
 public:
     ~Physics2D();
@@ -155,6 +174,7 @@ private:
     PhysicsSettings settings_;
     bool inited_ = false;
     b2WorldId world_ = b2_nullWorldId;
+    B2JobTasks tasks_;  // the Box2D world holds a pointer to it: Physics2D is never moved
     b2BodyId ground_ = b2_nullBodyId;  // static body at the origin: the other end of a Joint2D with no `connected`
     const World* lastWorld_ = nullptr;
     std::unordered_map<std::uint64_t, JointRec> joints_;  // by the entity that owns the Joint2D
@@ -195,6 +215,7 @@ public:
     void nav_update(World& world, bool allowBake);
     Result<std::vector<NavBakeStats>> nav_bake(World& world, const std::string& mesh);
     Result<NavPath> nav_find_path(World& world, Vec3 from, Vec3 to, const NavPathOptions& options);
+    Result<std::vector<NavPath>> nav_find_paths(World& world, const std::vector<NavPathQuery>& queries);
     std::vector<NavCell> nav_cells(World& world, std::size_t maxCells);
     std::vector<NavLinkDraw> nav_links(World& world);
     Json nav_info(World& world);
@@ -466,6 +487,8 @@ private:
     std::map<std::uint64_t, NavState> navs_;  // by the NavMesh3D entity's bits
     std::vector<std::uint64_t> navOrder_;     // the same keys in the order the world listed the components
     static NavParams nav_params(const NavMesh3D& cfg, Vec3 position);
+    Result<const NavState*> nav_pick_mesh(World& world, Vec3 from, const NavPathOptions& options);
+    NavPath nav_search(const NavState& mesh, Vec3 from, Vec3 to, const NavPathOptions& options, NavGrid::Scratch* scratch) const;
     std::uint64_t nav_signature(const NavState& n) const;
     bool nav_bake_one(World& world, NavState& n, std::string& error);
     void nav_apply_obstacles(NavState& n);

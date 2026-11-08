@@ -332,3 +332,44 @@ Choosing `jobThreads`:
   `perf.profile`'s `frameMs` and `systems.render` (wall clock) with `FA_JOB_THREADS=0` and with the setting you want.
 - The picture and `game.state_hash` are the same with every setting; `"inline"` and 0 workers take the one-chunk path,
   the cheapest when there is nobody to share the work with.
+
+### Physics on jobs
+
+Physics, path searches and sound rendering use the job threads when the work is big enough, and always give the same result
+as without them (docs/ARCHITECTURE.md, "Physics, navigation and audio on jobs"). Nothing to switch on: a small game never
+queues a job. The sizes below are counts of items, the same on every machine (never a measured time):
+
+| Work | Runs on the job threads when | Not split further than |
+| --- | --- | --- |
+| 2D physics step (Box2D) | at least 1536 awake bodies or 4096 contacts | 4 pieces per task (the pool's size above 4 is not used) |
+| 3D physics, contact tests and events | bodies^2 >= about 16384 (128 bodies or more) | chunks of about 4096 body pairs |
+| `nav.findPaths` / `nav.findTilePaths` | 8 or more queries in one call | 4 queries per chunk |
+| `render_sfx` (and what uses it) | 2 or more layers and at least 24000 samples (half a second at 48 kHz) | one job per layer |
+
+Measured on an Apple M5 (10 cores) with a Release build, the machine busy with other builds, so read the numbers as
+orders of magnitude; the time of one step, `inline` against 1, 2 and 8 worker threads:
+
+| Scene | inline | 1 | 2 | 8 |
+| --- | --- | --- | --- | --- |
+| 2D, 420 bodies (below the threshold) | 0.38 ms | 0.41 ms | 0.40 ms | 0.47 ms |
+| 2D, 1000 bodies | 1.0 ms | 1.0 ms | 0.95 ms | 1.05 ms |
+| 2D, 4000 bodies | 5.3 ms | 4.6 ms | 4.0 ms | 3.9 ms |
+| 2D, 8000 bodies | 9.9 ms | 8.6 ms | 7.8 ms | 7.4 ms |
+| 3D, 100 bodies (below the threshold) | 0.9 ms | 0.9 ms | 0.9 ms | 0.9 ms |
+| 3D, 250 bodies | 4.9 ms | 3.6 ms | 3.2 ms | 3.0 ms |
+| 3D, 600 bodies | 23 ms | 17 ms | 15 ms | 12 ms |
+| `render_sfx`, 5 layers, 3 s | 13 ms | 9 ms | 8.6 ms | 9 ms |
+
+The 2D gain is modest because Box2D already makes a step cheap and part of it (the solver's order, the joints) is
+sequential; below about 1500 bodies the jobs cost as much as they save, which is why the threshold is there. The 3D gain is
+bigger because its pair loops dominate. The solver's iterations, the time-of-impact islands,
+sleeping, joints, character controllers and the device's audio callback stay on one thread. The example games all stay
+below these sizes: their draw calls, entities and per-frame time did not change (`perf.measure` with `FA_JOB_THREADS=inline`,
+`4` and `8` on the examples gave the same numbers within noise), so no example budget was tightened.
+
+Box2D's constraint solver runs its worker tasks as jobs that spin-wait on each other during the solve (they wait for the
+other pieces of each stage without sleeping). On a loaded machine, or with fewer cores than job threads, that spinning costs
+CPU time and can make a wide step slower than on one thread; the sizes in the table are what keeps small steps off it.
+
+`cpuMsAvg` of `perf.measure` is the CPU time of the whole process: work moved to another thread does not lower it, it
+lowers the wall time of the frame. Compare frames per second, or `jobs.info` (how busy each thread was), to see the gain.

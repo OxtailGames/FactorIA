@@ -8,6 +8,7 @@
 #include <limits>
 #include <queue>
 
+#include "fa/core/jobs.h"
 #include "fa/core/strings.h"
 #include "fa/physics/nav.h"
 #include "fa/scene/tilemap.h"
@@ -268,7 +269,8 @@ Result<std::pair<int, int>> cell_value(const Json& v, const char* who, const std
     if (!v.is_array() || v.size() != 2 || !v[0].is_number() || !v[1].is_number())
         return Error{std::format("{}: '{}' must be a cell [col, row] of two numbers, but got {}.", who, key, v.dump()),
                      "Cells are 0-based with row 0 at the top, e.g. \"" + key + "\":[3,2]."};
-    return std::make_pair(int(std::floor(v[0].get<double>())), int(std::floor(v[1].get<double>())));
+    auto whole = [](double d) { return int(std::floor(std::clamp(d, -1e9, 1e9))); };  // a huge number must not overflow int
+    return std::make_pair(whole(v[0].get<double>()), whole(v[1].get<double>()));
 }
 
 Result<std::pair<int, int>> cell_arg(const Json& a, const char* key) { return cell_value(a.value(key, Json()), "nav.findTilePath", key); }
@@ -337,9 +339,10 @@ Result<Json> nav_tile_query(World& world, const Json& args) {
     return nav_tile_run(grid, worldPoints ? &toWorld : nullptr, args, from.value(), to.value());
 }
 
-Result<Json> nav_tile_run(const NavTileGrid& grid, const Mat4* toWorld, const Json& args, std::pair<int, int> from,
-                          std::pair<int, int> to) {
-    // Checked before reading: Json::value throws on a wrong type, and a script passes whatever it was given.
+namespace {
+// diagonals / closest / allowBlockedGoal / maxNodes of a tile query, checked before reading (Json::value throws on a wrong
+// type, and a script passes whatever it was given).
+Result<NavTileOptions> tile_options(const Json& args) {
     for (const char* key : {"diagonals", "closest", "allowBlockedGoal"})
         if (args.contains(key) && !args[key].is_boolean())
             return Error{std::format("nav.findTilePath: `{}` must be true or false, but got {}.", key, args[key].dump()),
@@ -352,8 +355,10 @@ Result<Json> nav_tile_run(const NavTileGrid& grid, const Mat4* toWorld, const Js
     o.closest = args.value("closest", false);
     o.allowBlockedGoal = args.value("allowBlockedGoal", false);
     o.maxNodes = std::max(1, args.value("maxNodes", o.maxNodes));
-    const NavTilePath p = nav_find_tile_path(grid, from.first, from.second, to.first, to.second, o);
+    return o;
+}
 
+Json tile_path_json(const NavTileGrid& grid, const Mat4* toWorld, const NavTilePath& p) {
     Json out = Json::object();
     out["found"] = p.found;
     out["complete"] = p.found && p.complete;
@@ -379,6 +384,74 @@ Result<Json> nav_tile_run(const NavTileGrid& grid, const Mat4* toWorld, const Js
         out["hint"] = p.hint;
     }
     return out;
+}
+}  // namespace
+
+Result<Json> nav_tile_run(const NavTileGrid& grid, const Mat4* toWorld, const Json& args, std::pair<int, int> from,
+                          std::pair<int, int> to) {
+    auto o = tile_options(args);
+    if (!o.ok()) return o.error();
+    return tile_path_json(grid, toWorld, nav_find_tile_path(grid, from.first, from.second, to.first, to.second, o.value()));
+}
+
+Result<Json> nav_tile_run_many(const NavTileGrid& grid, const Mat4* toWorld, const Json& args,
+                               const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>& queries) {
+    auto o = tile_options(args);
+    if (!o.ok()) return o.error();
+    if (queries.size() > kNavMaxBatch)
+        return Error{std::format("nav.findTilePaths: {} queries in one call, the most is {}.", queries.size(), kNavMaxBatch),
+                     "Split the list into several calls."};
+    std::vector<Json> results(queries.size());
+    auto run = [&](std::size_t begin, std::size_t end) {
+        for (std::size_t i = begin; i < end; ++i) {
+            const auto& q = queries[i];
+            results[i] = tile_path_json(grid, toWorld, nav_find_tile_path(grid, q.first.first, q.first.second, q.second.first,
+                                                                          q.second.second, o.value()));
+        }
+    };
+    if (queries.size() < kNavBatchMinQueries || !jobs::running() || jobs::inline_mode() || jobs::worker_count() <= 0) {
+        run(0, queries.size());
+    } else {
+        // Each chunk writes only its own slots; the search keeps its working memory per thread (nav_find_tile_path).
+        auto done = jobs::parallel_for("nav.find_tile_paths", queries.size(), kNavBatchGrain,
+                                       [&](const jobs::Chunk& c) { run(c.begin, c.end); });
+        if (!done) return Error{"nav.findTilePaths: " + done.error().message, done.error().hint};
+    }
+    Json out = Json::array();
+    for (Json& r : results) out.push_back(std::move(r));
+    return out;
+}
+
+Result<Json> nav_tile_query_many(World& world, const Json& args) {
+    NavTileGrid grid;
+    Mat4 toWorld;
+    bool worldPoints = false;
+    auto map = nav_tile_map(world, args, "nav.findTilePaths", grid, toWorld, worldPoints);
+    if (!map.ok()) return map.error();
+    grid.minOpenCost = nav_tile_min_open_cost(grid);  // once for the whole list, not by every query
+    if (!args.contains("queries") || !args["queries"].is_array())
+        return Error{"nav.findTilePaths /queries: pass a list of {from: [col,row], to: [col,row]}.",
+                     "Example: {\"tilemap\":\"ground\",\"queries\":[{\"from\":[0,0],\"to\":[5,3]},{\"from\":[1,1],\"to\":[9,2]}]}."};
+    const Json& list = args["queries"];
+    if (list.size() > kNavMaxBatch)
+        return Error{std::format("nav.findTilePaths /queries: {} queries in one call, the most is {}.", list.size(), kNavMaxBatch),
+                     "Split the list into several calls."};
+    // Every query is checked before any search runs.
+    std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> pairs;
+    pairs.reserve(list.size());
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        const std::string at = "/queries/" + std::to_string(i);
+        const Json& q = list[i];
+        if (!q.is_object())
+            return Error{std::format("nav.findTilePaths {}: must be an object {{from, to}}, but got {}.", at, q.dump()),
+                         "Each query is {\"from\":[col,row],\"to\":[col,row]}."};
+        auto from = cell_value(q.value("from", Json()), "nav.findTilePaths", at + "/from");
+        if (!from.ok()) return from.error();
+        auto to = cell_value(q.value("to", Json()), "nav.findTilePaths", at + "/to");
+        if (!to.ok()) return to.error();
+        pairs.push_back({from.value(), to.value()});
+    }
+    return nav_tile_run_many(grid, worldPoints ? &toWorld : nullptr, args, pairs);
 }
 
 Result<Json> nav_flow_query(World& world, const Json& args) {
