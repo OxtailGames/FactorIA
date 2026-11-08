@@ -19,6 +19,7 @@
 #include "frame.h"
 #include "mesh_batch.h"
 #include "render_internal.h"
+#include "render_jobs.h"
 
 #include "shaders/blit.glsl.h"
 #include "shaders/light.glsl.h"
@@ -217,6 +218,11 @@ struct Renderer::Impl {
 };
 
 namespace {
+
+// The 3D gather of a camera (matrices, culling boxes, frustum and shadow tests) runs as jobs from this many
+// MeshRenderers on, kMeshGrain per chunk: an item costs ~1 us (a skinned one several), a chunk a few to hand out.
+constexpr std::size_t kParallelMeshes = 256;
+constexpr std::size_t kMeshGrain = 64;
 
 struct Viewport { float x, y, w, h, scale; };
 
@@ -1555,49 +1561,77 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     int shadowLight = -1;
     Vec3 lightDirForShadow{0, -1, 0};
     fr.anyFlash = world.feel().any_flash();
+    // The MeshRenderers this camera draws, in their order; the matrices, bounds and frustum tests run as jobs around the
+    // asset lookups, which stay on this thread (a mesh, texture or material may be loaded).
+    std::vector<MeshItem> meshes;
     if (fr.wantWorld) world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
         if (!entity_active(world, fr, e) || !fr.mask.draws(world, e)) return;  // Camera.showTags / hideTags
         MeshItem mi;
-        if (const auto flash = inherited_flash(world, fr, e)) mi.flash = *flash;  // feel.h: flashing items never share a draw
-        mi.model = world.drawn_matrix(e);
-        mi.dist = length(mi.model.translation() - fr.cam.position);
-        mi.mesh = assets->mesh(mr.lods.empty() ? mr.mesh : lod_mesh(mr, mi.dist));  // MeshRenderer::lods
         mi.mr = &mr;
+        mi.entity = e;
+        meshes.push_back(mi);
+    });
+    const rjobs::Split meshSplit = rjobs::split(meshes.size(), kMeshGrain, kParallelMeshes);
+    rjobs::run("render.mesh_matrices", meshSplit, [&](const jobs::Chunk& c) {
+        for (std::size_t i = c.begin; i < c.end; ++i) {
+            MeshItem& mi = meshes[i];
+            if (const auto flash = inherited_flash(world, fr, mi.entity)) mi.flash = *flash;  // feel.h: flashing items never share a draw
+            mi.model = world.drawn_matrix(mi.entity);
+            mi.dist = length(mi.model.translation() - fr.cam.position);
+        }
+    });
+    for (MeshItem& mi : meshes) {
+        const MeshRenderer& mr = *mi.mr;
+        mi.mesh = assets->mesh(mr.lods.empty() ? mr.mesh : lod_mesh(mr, mi.dist));  // MeshRenderer::lods
         mi.tex = mr.texture.empty() ? nullptr : assets->texture(mr.texture);
         mi.material = mr.material.empty() ? nullptr : assets->material(mr.material);
-        if (mi.material && mr.materialParams.is_object() && !mr.materialParams.empty())
-            mi.paramsHash = std::hash<std::string>{}(mr.materialParams.dump());
-        if (mr.materialColors.is_object() && !mr.materialColors.empty())
-            mi.colorsHash = std::hash<std::string>{}(mr.materialColors.dump());
         mi.normalTex = mr.normalMap.empty() ? nullptr : assets->texture(mr.normalMap);
-        mi.bmin = mi.mesh->bmin;
-        mi.bmax = mi.mesh->bmax;
-        // A skinned model with a computed pose is drawn deformed by the Animator's palette (before its first fixed step the
-        // palette is empty and the model shows in bind pose).
-        const Animator* anim = world.get<Animator>(e);
-        if (anim && !anim->palette.empty()) {
-            for (auto& p : mi.mesh->parts)
-                if (p.skinVb.id) mi.anim = anim;
-            if (mi.anim) {  // the box of every skinned part carried by the joints of its own skin, joined with the rest
-                bool first = true;
-                for (auto& p : mi.mesh->parts) {
-                    Vec3 lo = p.bmin, hi = p.bmax;
-                    if (p.skinVb.id) skinned_bounds(palette_of(*anim, p.skin), p.bmin, p.bmax, lo, hi);
-                    mi.bmin = first ? lo : min(mi.bmin, lo);
-                    mi.bmax = first ? hi : max(mi.bmax, hi);
-                    first = false;
+    }
+    // Per item: the hashes of its overrides, its culling box, the frustum test and whether it is blended (a char: each
+    // chunk writes its own items' slots).
+    std::vector<char> meshBlended(meshes.size(), 0);
+    rjobs::run("render.mesh_cull", meshSplit, [&](const jobs::Chunk& c) {
+        for (std::size_t i = c.begin; i < c.end; ++i) {
+            MeshItem& mi = meshes[i];
+            const MeshRenderer& mr = *mi.mr;
+            if (mi.material && mr.materialParams.is_object() && !mr.materialParams.empty())
+                mi.paramsHash = std::hash<std::string>{}(mr.materialParams.dump());
+            if (mr.materialColors.is_object() && !mr.materialColors.empty())
+                mi.colorsHash = std::hash<std::string>{}(mr.materialColors.dump());
+            mi.bmin = mi.mesh->bmin;
+            mi.bmax = mi.mesh->bmax;
+            // A skinned model with a computed pose is drawn deformed by the Animator's palette (before its first fixed step the
+            // palette is empty and the model shows in bind pose).
+            const Animator* anim = world.get<Animator>(mi.entity);
+            if (anim && !anim->palette.empty()) {
+                for (auto& p : mi.mesh->parts)
+                    if (p.skinVb.id) mi.anim = anim;
+                if (mi.anim) {  // the box of every skinned part carried by the joints of its own skin, joined with the rest
+                    bool first = true;
+                    for (auto& p : mi.mesh->parts) {
+                        Vec3 lo = p.bmin, hi = p.bmax;
+                        if (p.skinVb.id) skinned_bounds(palette_of(*anim, p.skin), p.bmin, p.bmax, lo, hi);
+                        mi.bmin = first ? lo : min(mi.bmin, lo);
+                        mi.bmax = first ? hi : max(mi.bmax, hi);
+                        first = false;
+                    }
                 }
             }
+            mi.visible = box_in_frustum(fr.cam.viewProj, z01, mi.bmin, mi.bmax, mi.model);
+            // The alphaMode of a material decides (blend = drawn far to near with the blended meshes; opaque and clip are not),
+            // whatever Color.a or the glTF material say.
+            bool anyBlend = mr.color.a < 0.999f;
+            for (auto& p : mi.mesh->parts) anyBlend = anyBlend || p.blended;
+            if (mi.material) anyBlend = mi.material->alphaMode == "blend";
+            meshBlended[i] = anyBlend ? 1 : 0;
         }
-        mi.visible = box_in_frustum(fr.cam.viewProj, z01, mi.bmin, mi.bmax, mi.model);
-        // The alphaMode of a material decides (blend = drawn far to near with the blended meshes; opaque and clip are not),
-        // whatever Color.a or the glTF material say.
-        bool anyBlend = mr.color.a < 0.999f;
-        for (auto& p : mi.mesh->parts) anyBlend = anyBlend || p.blended;
-        if (mi.material) anyBlend = mi.material->alphaMode == "blend";
-        (anyBlend ? blended : opaque).push_back(mi);
     });
-    std::stable_sort(blended.begin(), blended.end(), [](const MeshItem& a, const MeshItem& b) { return a.dist > b.dist; });
+    for (std::size_t i = 0; i < meshes.size(); ++i) (meshBlended[i] ? blended : opaque).push_back(meshes[i]);
+    // Far to near; a NaN distance (a NaN transform) counts as the farthest (order_float), so the order stays total.
+    const auto farther = [](const MeshItem& a, const MeshItem& b) {
+        return rjobs::order_float(a.dist) > rjobs::order_float(b.dist);
+    };
+    rjobs::stable_sort("render.sort_blended", blended, farther, kParallelMeshes * 4, kMeshGrain * 4);
     if (fr.wantWorld && !fr.cam.studio) world.each<Light>([&](Entity e, Light& l) {
         if (!entity_active(world, e)) return;
         Mat4 m = world.world_matrix(e);
@@ -1656,19 +1690,31 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     Mat4 lightVP;
     bool doShadows = false;
     if (haveShadowCaster) {
+        // The world box of each caster's parts as jobs, joined here in the order of the items.
         Vec3 bmin{1e30f, 1e30f, 1e30f}, bmax{-1e30f, -1e30f, -1e30f};
         bool any = false;
         for (auto* list : {&opaque, &blended}) {
-            for (auto& mi : *list) {
-                if (!mi.mr->castShadows) continue;
-                for (auto& p : mi.mesh->parts) {
-                    for (int c = 0; c < 8; ++c) {
-                        Vec3 corner{(c & 1) ? p.bmax.x : p.bmin.x, (c & 2) ? p.bmax.y : p.bmin.y, (c & 4) ? p.bmax.z : p.bmin.z};
-                        Vec3 w = mi.model.transform_point(corner);
-                        bmin = min(bmin, w); bmax = max(bmax, w);
-                        any = true;
+            struct Box { Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f}; bool any = false; };
+            std::vector<Box> boxes(list->size());
+            rjobs::run("render.shadow_bounds", rjobs::split(list->size(), kMeshGrain, kParallelMeshes), [&](const jobs::Chunk& ch) {
+                for (std::size_t i = ch.begin; i < ch.end; ++i) {
+                    const MeshItem& mi = (*list)[i];
+                    if (!mi.mr->castShadows) continue;
+                    Box& b = boxes[i];
+                    for (auto& p : mi.mesh->parts) {
+                        for (int c = 0; c < 8; ++c) {
+                            Vec3 corner{(c & 1) ? p.bmax.x : p.bmin.x, (c & 2) ? p.bmax.y : p.bmin.y, (c & 4) ? p.bmax.z : p.bmin.z};
+                            Vec3 w = mi.model.transform_point(corner);
+                            b.lo = min(b.lo, w); b.hi = max(b.hi, w);
+                            b.any = true;
+                        }
                     }
                 }
+            });
+            for (const Box& b : boxes) {
+                if (!b.any) continue;
+                bmin = min(bmin, b.lo); bmax = max(bmax, b.hi);
+                any = true;
             }
         }
         if (any && gpu.shadows_supported()) {
@@ -1687,10 +1733,16 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     // A mesh outside the camera frustum is not drawn in the main pass but can still cast a shadow into view, so it stays
     // in the shadow pass (when it is inside the light's volume); an item that does neither is dropped here.
     for (auto* list : {&opaque, &blended}) {
+        if (doShadows)
+            rjobs::run("render.shadow_cull", rjobs::split(list->size(), kMeshGrain, kParallelMeshes), [&](const jobs::Chunk& ch) {
+                for (std::size_t i = ch.begin; i < ch.end; ++i) {
+                    MeshItem& mi = (*list)[i];
+                    mi.casts = mi.mr->castShadows && box_in_frustum(lightVP, z01, mi.bmin, mi.bmax, mi.model);
+                }
+            });
         for (auto& mi : *list) {
             if (!mi.visible) ++stats.meshesCulled;
-            mi.casts = doShadows && mi.mr->castShadows &&
-                       box_in_frustum(lightVP, z01, mi.bmin, mi.bmax, mi.model);
+            if (!doShadows) mi.casts = false;
             if (mi.casts) ++stats.shadowCasters;
         }
         list->erase(std::remove_if(list->begin(), list->end(), [](const MeshItem& m) { return !m.visible && !m.casts; }),

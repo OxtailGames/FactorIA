@@ -375,13 +375,21 @@ public:
     // Sorts items (layer asc, secondary desc, seq asc) and appends the vertices in
     // draw order to `out`; returns merged batches referencing `out` (quad indices
     // relative to out's start + `baseQuad`).
+    // As jobs when the list is big (render_jobs.h): the sort, then the copy of the vertices; the same result either way.
     void flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batches);
     void clear() { raw.clear(); items.clear(); open_ = false; }
+    // Moves the items of `part` (a list a job filled, with no item open) after the items of this one, in their order:
+    // the result is what this list would hold had the same items been added to it directly. `part` is left empty.
+    void append(QuadList& part);
+    // Adds the quads of the item open in `part` (begun, not ended) to the item open here, after its own: how a job's
+    // share of one big item (a band of rows of a Tilemap) joins it.
+    void add_quads_of(const QuadList& part);
 
 private:
     bool open_ = false;
     QuadItem cur_;
     std::uint32_t seq_ = 0;
+    std::vector<std::size_t> offsets_;  // flatten's scratch when it copies as jobs, kept from frame to frame
 };
 
 // ---------------------------------------------------------------------------

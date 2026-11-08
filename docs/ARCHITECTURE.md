@@ -251,6 +251,45 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
   how busy each thread was, threads waiting now, this engine's unfinished jobs) and, with the profiler on, a `threads` section per thread in `perf.profile` and
   `play.report` (docs/PERFORMANCE.md) and the Threads tab of the editor's Profiler panel.
 
+#### Systems that run as jobs
+
+The per-frame work of these systems is split over the pool with the helpers of `engine/render/src/render_jobs.h`
+(`rjobs::split`, `rjobs::run`, `rjobs::weighted_ranges`, `rjobs::stable_sort`) or `jobs::parallel_for`. Each pass
+below its threshold, and every pass while the pool has no worker thread (stopped, `"inline"`, 0 workers), is one chunk
+on the calling thread: the reference path. The thresholds are counts of items, never times, so where the line falls
+does not depend on the machine:
+
+| Job name | What a chunk does | Runs as jobs from | Chunk |
+| --- | --- | --- | --- |
+| `render.gather_sprites` | the quads of its sprites (matrix, anchor, 9-slice, grid meshes, skinned meshes, flash, parallax repeat) | 512 sprites | 128 sprites |
+| `render.gather_tilemap` | the visible cells of a band of rows of one Tilemap | 16384 visible cells | ~4096 cells |
+| `render.particles` | steps its emitters (each `ParticleSim` owns its particles and its Rng) | 2048 particles | emitters of ~1024 particles |
+| `render.gather_particles` | the quads of its emitters (particles, trails) | 2048 particles | emitters of ~1024 particles |
+| `render.sort_quads`, `render.flatten_quads` | stable sort of the 2D items; copy of their vertices into the stream | 4096 items; 16384 vertices | 1024 items; 8192 vertices |
+| `render.mesh_matrices`, `render.mesh_cull` | a mesh's matrix, flash and distance; its bounds (skinned too), frustum test and blend flag | 256 meshes | 64 meshes |
+| `render.sort_blended`, `render.sort_meshes` | stable sorts of the blended meshes (back to front) and of the batches (by material) | 1024 items | 256 items |
+| `render.shadow_bounds`, `render.shadow_cull` | the shadow casters' bounds; the test against the light's volume | 256 casters | 64 casters |
+| `scene.animation_poses` | every clip channel sampled, the fade blended, the skinning palettes of its animators | 512 skeleton nodes | 2 animators |
+
+What stays on the main thread: everything that may load or create a GPU resource (`Assets::texture`, `mesh`,
+`material`, fonts), the animator sheets, the camera tag mask cache, the warnings that fire once, the statistics, and
+every sokol_gfx call (the passes build CPU data; the submission comes after them, on the main thread).
+
+The determinism rule, on top of the one for every job: chunk bounds depend only on item counts (and, for particles, on
+particle counts), each chunk writes its own `QuadList` or its own slot of a vector, and the parts are joined in chunk
+order (`QuadList::append` renumbers the items so their order is kept; `add_quads_of` joins the bands of one tilemap
+item). A stable sort has exactly one result, so the chunked sort (each chunk sorted, then pairwise `std::merge`) gives
+the order of `std::stable_sort`, as long as the comparison is a strict weak order: every float a render sort compares
+goes through `rjobs::order_float` (NaN, from a NaN transform or colour, sorts as +infinity). The 3D batches are
+ordered by asset names and entities, never by addresses, which differ from one process to the next. The frame is
+therefore byte-identical with any thread count. engine/render/tests/render_jobs_tests.cpp draws scenes far above every
+threshold (3000 sprites, a 400x200 tilemap, more than 2048 live particles, 820 meshes with shadows and skinned rigs;
+5000 sprites and 2400 meshes with NaN positions and colours) stopped, inline and with 1, 2 and 8 workers, compares
+the pictures and the statistics, and checks on the profiler that each pass was cut into the same chunks with every
+worker count (which thread ran a chunk depends on timing, so the test only reports it).
+engine/scene/tests/test_animation.cpp does the same for 300 animators, and the ctest `example_jobs_same_frames`
+compares example scenes drawn by two processes with `FA_JOB_THREADS=inline` and `8`.
+
 ### Coordinates & units
 Right-handed, +Y up, angles in degrees, colors 0..1. 2D world units = design
 pixels (a default 2D camera shows exactly the design resolution, origin at the

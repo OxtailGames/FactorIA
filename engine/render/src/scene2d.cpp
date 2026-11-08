@@ -10,6 +10,7 @@
 #include "fa/scene/ui_rect.h"
 #include "frame.h"
 #include "nine_slice.h"
+#include "render_jobs.h"
 
 namespace fa::render {
 
@@ -333,6 +334,196 @@ void update_animators(World& world, Frame& f, bool advance) {
     });
 }
 
+namespace {
+
+// A Sprite gather_2d draws, with what only the calling thread may look up: its textures (a texture may be loaded), the
+// pivot of its SpriteAnimator (the frame's sheet lookups) and its clip.
+struct SpritePrep {
+    Entity e;
+    const Sprite* s = nullptr;
+    TextureAsset* tex = nullptr;
+    TextureAsset* normal = nullptr;  // Sprite.normalMap when lit (null = flat)
+    Color color;                     // Sprite.color with the inherited Tint
+    Rect clip;
+    Vec2 pivot{0.5f, 0.5f};
+    bool screen = false, mirrored = false, lit = false;
+};
+
+// What drawing a Sprite had to report: gather_2d logs it afterwards, in the order of the sprites, so the warnings (each
+// once) are the same whichever thread drew which sprite.
+struct SpriteNotes {
+    std::string meshColorsProblem;  // vertexColors that do not fit the mesh
+    bool meshTooBig = false;        // meshColumns x meshRows over kMaxSpriteMeshCells
+    std::string skinProblem;        // build_skin_mesh's
+};
+
+// Sprites are drawn as jobs from this many on, kSpriteGrain per chunk: one costs ~0.3 us (a mesh or skinned one more),
+// handing out a chunk a few microseconds.
+constexpr std::size_t kParallelSprites = 512;
+constexpr std::size_t kSpriteGrain = 128;
+constexpr std::size_t kParallelTiles = 16384;  // Tilemap cells in view (see gather_2d)
+constexpr std::size_t kTileChunk = 4096;
+
+// Draws one prepared Sprite into `list` (a chunk's own list): reads the World and the Frame, writes `list` and `notes`.
+// `warnMesh`: the Sprite mesh warning has not been given yet (so a problem is worth noting).
+void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, bool warnMesh, QuadList& list, SpriteNotes& notes) {
+    const Sprite& s = *prep.s;
+    const Entity e = prep.e;
+    TextureAsset* tex = prep.tex;
+    const Color spriteColor = prep.color;
+    const bool screen = prep.screen, mirrored = prep.mirrored, lit = prep.lit;
+    Rect r = s.region;
+    if (r.w <= 0 || r.h <= 0) r = Rect{0, 0, float(tex->width), float(tex->height)};
+    Vec2 size = s.size;
+    if (size.x <= 0 || size.y <= 0) {
+        if (s.texture.empty()) size = {size.x > 0 ? size.x : 32.0f, size.y > 0 ? size.y : 32.0f};
+        else size = {size.x > 0 ? size.x : r.w, size.y > 0 ? size.y : r.h};
+    }
+    Mat4 m = draw_matrix(world, e, screen);
+    if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f, mirrored);
+    list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear, s.blend, prep.clip);
+    if (lit) list.set_lit(prep.normal);
+    if (const auto flash = inherited_flash(world, f, e)) list.set_flash(pack_color(*flash));
+    const bool nine = !s.texture.empty() && (s.slice.x > 0 || s.slice.y > 0 || s.slice.z > 0 || s.slice.w > 0);
+    const Vec2 spritePivot = prep.pivot;
+    const float pivotX = mirrored ? 1.0f - spritePivot.x : spritePivot.x;
+    const float bx0 = -pivotX * size.x, bx1 = (1 - pivotX) * size.x, by0 = -spritePivot.y * size.y, by1 = (1 - spritePivot.y) * size.y;
+    // A deformable sprite (meshColumns x meshRows cells, vertexOffsets) and the shear (skew). Both leave the pivot where it is.
+    int meshCols = 0, meshRows = 0;
+    std::vector<float> meshOffsets, meshColors;
+    if (sprite_mesh_grid(s, meshCols, meshRows)) {
+        meshOffsets = sprite_vertex_offsets(s, meshCols, meshRows);
+        meshColors = sprite_vertex_colors(s, meshCols, meshRows);
+        if (meshColors.empty() && warnMesh) notes.meshColorsProblem = sprite_vertex_colors_problem(s);
+    } else if (s.meshColumns > 0 && s.meshRows > 0 && warnMesh) {
+        notes.meshTooBig = true;
+    }
+    // A skinned sprite (SpriteSkin): the mesh is built from the bones on the CPU into the same vertex stream, so it batches like
+    // a mesh sprite. World space only; a screen-space sprite with a SpriteSkin draws as the plain mesh/quad.
+    SkinMesh skinMesh;
+    bool skinned = false;
+    if (!screen && world.has<SpriteSkin>(e)) {
+        skinned = build_skin_mesh(world, e, s, SkinBox{bx0, by0, bx1, by1}, skinMesh, &notes.skinProblem);
+        if (skinned) meshCols = 0;  // the skin replaces the plain mesh
+    }
+    const bool skewed = s.skew.x != 0.0f || s.skew.y != 0.0f;
+    const Mat4 shear = skewed ? sprite_shear_matrix(s.skew) : Mat4::identity();
+
+    // One copy of the sprite drawn with matrix `mm`.
+    auto draw = [&](const Mat4& placed) {
+        const Mat4 mm = skewed ? placed * shear : placed;
+        QuadEmitter em{list, mm, screen, pack_color(spriteColor), kModeTextured, 0};
+        if (lit) set_light_frame(em, mm, {s.flipX ? -1.0f : 1.0f, 0.0f}, {0.0f, s.flipY ? -1.0f : 1.0f});
+        if (skinned) {
+            // The cells of the deformed skin mesh: each vertex shows the fraction of the region it was cut from.
+            const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);
+            float u0 = lo.x, u1 = hi.x, v0 = lo.y, v1 = hi.y;
+            if (s.texture.empty()) { u0 = v0 = 0; u1 = v1 = 1; }
+            if (s.flipX) std::swap(u0, u1);
+            if (s.flipY) std::swap(v0, v1);
+            auto vert = [&](std::uint32_t i) {
+                const Vec2 pos = skinMesh.position[i], fr = skinMesh.uv[i];
+                const Vec3 p = em.xf(pos.x, pos.y);
+                return Vertex2D{p.x, p.y, p.z, u0 + (u1 - u0) * fr.x, v0 + (v1 - v0) * fr.y, em.color, em.mode, em.aux};
+            };
+            for (const auto& q : skinMesh.quads) list.quad(vert(q[0]), vert(q[1]), vert(q[2]), vert(q[3]));
+            return;
+        }
+        if (meshCols > 0) {
+            // A grid of cells: vertex (c, r) lies c / meshCols across and r / meshRows down the sprite box (row 0 = the top
+            // edge), moved by its offset; each cell is a quad that shows the matching part of the region.
+            const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);
+            float u0 = lo.x, u1 = hi.x, v0 = lo.y, v1 = hi.y;
+            if (s.texture.empty()) { u0 = v0 = 0; u1 = v1 = 1; }
+            if (s.flipX) std::swap(u0, u1);
+            if (s.flipY) std::swap(v0, v1);
+            const std::size_t stride = std::size_t(meshCols) + 1;
+            auto vert = [&](int c, int rw) {
+                const float fx = float(c) / float(meshCols), fy = float(rw) / float(meshRows);
+                float x = bx0 + (bx1 - bx0) * fx, y = by1 + (by0 - by1) * fy;
+                if (!meshOffsets.empty()) {
+                    const std::size_t k = (std::size_t(rw) * stride + std::size_t(c)) * 2;
+                    x += meshOffsets[k];
+                    y += meshOffsets[k + 1];
+                }
+                const Vec3 p = em.xf(x, y);
+                std::uint32_t col = em.color;
+                if (!meshColors.empty()) {
+                    const std::size_t k = (std::size_t(rw) * stride + std::size_t(c)) * 4;
+                    col = pack_color(spriteColor * Color{meshColors[k], meshColors[k + 1], meshColors[k + 2], meshColors[k + 3]});
+                }
+                return Vertex2D{p.x, p.y, p.z, u0 + (u1 - u0) * fx, v0 + (v1 - v0) * fy, col, em.mode, em.aux};
+            };
+            for (int rw = 0; rw < meshRows; ++rw)
+                for (int c = 0; c < meshCols; ++c)
+                    list.quad(vert(c, rw), vert(c, rw + 1), vert(c + 1, rw + 1), vert(c + 1, rw));
+            return;
+        }
+        if (nine) {
+            // 9-slice: the borders keep their texture size (1 pixel = 1 unit), the rest stretches. Geometry is laid out
+            // unflipped from the top row down, then mirrored about the sprite box for flipX / flipY.
+            float border[4], uvBorder[4];
+            nine_slice_fit(s.slice, r.w, r.h, size.x, size.y, border, uvBorder);
+            const float xs[4] = {bx0, bx0 + border[0], bx1 - border[2], bx1};
+            const float ys[4] = {by1, by1 - border[1], by0 + border[3], by0};
+            const float us[4] = {0, uvBorder[0], 1 - uvBorder[2], 1}, vs[4] = {0, uvBorder[1], 1 - uvBorder[3], 1};
+            auto mx = [&](float x) { return s.flipX ? bx0 + bx1 - x : x; };
+            auto my = [&](float y) { return s.flipY ? by0 + by1 - y : y; };
+            for (int j = 0; j < 3; ++j)
+                for (int i = 0; i < 3; ++i) {
+                    if (xs[i + 1] <= xs[i] || ys[j + 1] >= ys[j]) continue;  // an empty border
+                    const Vec2 lo = tex->uv(r.x + us[i] * r.w, r.y + vs[j] * r.h);  // inside the atlas when packed
+                    const Vec2 hi = tex->uv(r.x + us[i + 1] * r.w, r.y + vs[j + 1] * r.h);
+                    em.rect(mx(xs[i]), my(ys[j + 1]), mx(xs[i + 1]), my(ys[j]), lo.x, lo.y, hi.x, hi.y);
+                }
+            return;
+        }
+        const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);  // inside the atlas when packed
+        float u0 = lo.x, u1 = hi.x, v0 = lo.y, v1 = hi.y;
+        if (s.texture.empty()) { u0 = v0 = 0; u1 = v1 = 1; }
+        if (s.flipX) std::swap(u0, u1);
+        if (s.flipY) std::swap(v0, v1);
+        em.rect(bx0, by0, bx1, by1, u0, v0, u1, v1);
+    };
+
+    const Parallax* par = screen ? nullptr : world.get<Parallax>(e);
+    if (par && (par->repeatX || par->repeatY) && !f.cam.perspective) {
+        // A repeating background: copies every `step` world units along x and/or y, only those the camera can see.
+        float minX = 1e30f, maxX = -1e30f, minY = 1e30f, maxY = -1e30f;
+        for (int c = 0; c < 4; ++c) {
+            const Vec3 p = m.transform_point({(c & 1) ? bx1 : bx0, (c & 2) ? by1 : by0, 0.0f});
+            minX = std::min(minX, p.x); maxX = std::max(maxX, p.x);
+            minY = std::min(minY, p.y); maxY = std::max(maxY, p.y);
+        }
+        const Rect view = f.cam.visible;
+        auto range = [&](bool on, float requested, float lo, float hi, float viewLo, float viewHi, float& step, int& n0, int& n1) {
+            step = 0.0f; n0 = n1 = 0;
+            if (!on) return;
+            step = requested > 0.0f ? requested : hi - lo;
+            if (step < 1e-3f) { step = 0.0f; return; }
+            n0 = int(std::ceil((viewLo - hi) / step));
+            n1 = int(std::floor((viewHi - lo) / step));
+            n1 = std::min(n1, n0 + 63);  // at most 64 copies per axis
+        };
+        float stepX, stepY;
+        int x0, x1, y0, y1;
+        range(par->repeatX, par->repeatSize.x, minX, maxX, view.x, view.x + view.w, stepX, x0, x1);
+        range(par->repeatY, par->repeatSize.y, minY, maxY, view.y, view.y + view.h, stepY, y0, y1);
+        for (int iy = y0; iy <= y1; ++iy)
+            for (int ix = x0; ix <= x1; ++ix) {
+                Mat4 mm = m;
+                mm.at(3, 0) += float(ix) * stepX;
+                mm.at(3, 1) += float(iy) * stepY;
+                draw(mm);
+            }
+    } else {
+        draw(m);
+    }
+    list.end_item();
+}
+
+}  // namespace
+
 void gather_2d(World& world, Frame& f) {
     Assets& assets = *f.assets;
     auto pick = [&](RenderSpace sp) -> QuadList& { return sp == RenderSpace::Screen ? f.screen : f.world; };
@@ -349,186 +540,70 @@ void gather_2d(World& world, Frame& f) {
     if (!world.entities_with(&World::type_of<SpriteSkin>()).empty()) bind_pending_skins(world);
 
     // ---- sprites ----
+    // On this thread, in the order of the sprites: which are drawn and what they need looked up. The quads are then made
+    // as jobs into each chunk's own lists, joined in chunk order (QuadList::append keeps the draw order of a single list).
+    std::vector<SpritePrep> sprites;
     world.each<Sprite>([&](Entity e, Sprite& s) {
         if (!entity_active(world, f, e) || s.color.a <= 0.0f) return;
         if (s.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
         if (s.space == RenderSpace::World && !f.mask.draws(world, e)) return;  // Camera.showTags / hideTags
-        const Color spriteColor = s.color * inherited_tint(world, f, e);
-        if (spriteColor.a <= 0.0f) return;
-        TextureAsset* tex = assets.texture(s.texture);
-        Rect r = s.region;
-        if (r.w <= 0 || r.h <= 0) r = Rect{0, 0, float(tex->width), float(tex->height)};
-        Vec2 size = s.size;
-        if (size.x <= 0 || size.y <= 0) {
-            if (s.texture.empty()) size = {size.x > 0 ? size.x : 32.0f, size.y > 0 ? size.y : 32.0f};
-            else size = {size.x > 0 ? size.x : r.w, size.y > 0 ? size.y : r.h};
+        SpritePrep p;
+        p.color = s.color * inherited_tint(world, f, e);
+        if (p.color.a <= 0.0f) return;
+        p.e = e;
+        p.s = &s;
+        p.tex = assets.texture(s.texture);
+        p.screen = s.space == RenderSpace::Screen;
+        if (p.screen && !screen_clip(world, e, f, p.clip)) return;
+        p.mirrored = p.screen && ui_mirrored(world, e);
+        p.lit = s.lit && !p.screen;
+        if (p.lit && !s.normalMap.empty()) p.normal = assets.texture(s.normalMap);
+        p.pivot = s.pivot;
+        if (const SpriteAnimator* anim = world.get<SpriteAnimator>(e)) p.pivot = sprite_effective_pivot(s, *anim, animator_plan(f, *anim, s.texture));
+        sprites.push_back(p);
+    });
+    if (!sprites.empty()) {
+        const bool warnMesh = f.warnedSpriteMesh && !*f.warnedSpriteMesh;
+        std::vector<SpriteNotes> notes(sprites.size());
+        const rjobs::Split spriteSplit = rjobs::split(sprites.size(), kSpriteGrain, kParallelSprites);
+        if (spriteSplit.chunks <= 1) {
+            for (std::size_t i = 0; i < sprites.size(); ++i) emit_sprite(world, f, sprites[i], warnMesh, pick(sprites[i].s->space), notes[i]);
+        } else {
+            std::vector<QuadList> worldParts(spriteSplit.chunks), screenParts(spriteSplit.chunks);
+            rjobs::run("render.gather_sprites", spriteSplit, [&](const jobs::Chunk& c) {
+                for (std::size_t i = c.begin; i < c.end; ++i)
+                    emit_sprite(world, f, sprites[i], warnMesh, sprites[i].screen ? screenParts[c.index] : worldParts[c.index], notes[i]);
+            });
+            for (std::size_t k = 0; k < spriteSplit.chunks; ++k) {
+                f.world.append(worldParts[k]);
+                f.screen.append(screenParts[k]);
+            }
         }
-        bool screen = s.space == RenderSpace::Screen;
-        Mat4 m = draw_matrix(world, e, screen);
-        Rect clip;
-        if (screen && !screen_clip(world, e, f, clip)) return;
-        const bool mirrored = screen && ui_mirrored(world, e);
-        if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f, mirrored);
-        QuadList& list = pick(s.space);
-        list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear, s.blend, clip);
-        const bool lit = s.lit && !screen;
-        if (lit) list.set_lit(s.normalMap.empty() ? nullptr : assets.texture(s.normalMap));
-        if (const auto flash = inherited_flash(world, f, e)) list.set_flash(pack_color(*flash));
-        const bool nine = !s.texture.empty() && (s.slice.x > 0 || s.slice.y > 0 || s.slice.z > 0 || s.slice.w > 0);
-        Vec2 spritePivot = s.pivot;
-        if (const SpriteAnimator* anim = world.get<SpriteAnimator>(e)) spritePivot = sprite_effective_pivot(s, *anim, animator_plan(f, *anim, s.texture));
-        const float pivotX = mirrored ? 1.0f - spritePivot.x : spritePivot.x;
-        const float bx0 = -pivotX * size.x, bx1 = (1 - pivotX) * size.x, by0 = -spritePivot.y * size.y, by1 = (1 - spritePivot.y) * size.y;
-        // A deformable sprite (meshColumns x meshRows cells, vertexOffsets) and the shear (skew). Both leave the pivot where it is.
-        int meshCols = 0, meshRows = 0;
-        std::vector<float> meshOffsets, meshColors;
-        if (sprite_mesh_grid(s, meshCols, meshRows)) {
-            meshOffsets = sprite_vertex_offsets(s, meshCols, meshRows);
-            meshColors = sprite_vertex_colors(s, meshCols, meshRows);
-            if (meshColors.empty() && f.warnedSpriteMesh && !*f.warnedSpriteMesh) {
-                if (const std::string problem = sprite_vertex_colors_problem(s); !problem.empty()) {
+        for (std::size_t i = 0; i < sprites.size(); ++i) {
+            const SpriteNotes& n = notes[i];
+            const Entity e = sprites[i].e;
+            const Sprite& s = *sprites[i].s;
+            if (f.warnedSpriteMesh && !*f.warnedSpriteMesh) {
+                if (!n.meshColorsProblem.empty()) {
                     *f.warnedSpriteMesh = true;
-                    FA_WARN("render", "on '{}': {}. The colours are ignored.", world.info(e).name, problem);
+                    FA_WARN("render", "on '{}': {}. The colours are ignored.", world.info(e).name, n.meshColorsProblem);
+                } else if (n.meshTooBig) {
+                    *f.warnedSpriteMesh = true;
+                    FA_WARN("render", "Sprite meshColumns {} x meshRows {} on '{}' is more than {} cells (at most {} columns, {} rows): it is "
+                            "drawn as a plain quad. Use fewer cells; 16 x 1 bends a page, 8 x 8 a flag.",
+                            s.meshColumns, s.meshRows, world.info(e).name, kMaxSpriteMeshCells, kMaxSpriteMeshSide, kMaxSpriteMeshSide);
                 }
             }
-        } else if (s.meshColumns > 0 && s.meshRows > 0 && f.warnedSpriteMesh && !*f.warnedSpriteMesh) {
-            *f.warnedSpriteMesh = true;
-            FA_WARN("render", "Sprite meshColumns {} x meshRows {} on '{}' is more than {} cells (at most {} columns, {} rows): it is "
-                    "drawn as a plain quad. Use fewer cells; 16 x 1 bends a page, 8 x 8 a flag.",
-                    s.meshColumns, s.meshRows, world.info(e).name, kMaxSpriteMeshCells, kMaxSpriteMeshSide, kMaxSpriteMeshSide);
-        }
-        // A skinned sprite (SpriteSkin): the mesh is built from the bones on the CPU into the same vertex stream, so it batches like
-        // a mesh sprite. World space only; a screen-space sprite with a SpriteSkin draws as the plain mesh/quad.
-        SkinMesh skinMesh;
-        bool skinned = false;
-        if (!screen && world.has<SpriteSkin>(e)) {
-            std::string problem;
-            skinned = build_skin_mesh(world, e, s, SkinBox{bx0, by0, bx1, by1}, skinMesh, &problem);
-            if (!problem.empty()) {
+            if (!n.skinProblem.empty()) {
                 SpriteSkin* skin = world.get<SpriteSkin>(e);
                 if (skin && !skin->warned) {
                     skin->warned = true;
-                    FA_WARN("render", "{} (reported once)", problem);
+                    FA_WARN("render", "{} (reported once)", n.skinProblem);
                 }
             }
-            if (skinned) meshCols = 0;  // the skin replaces the plain mesh
         }
-        const bool skewed = s.skew.x != 0.0f || s.skew.y != 0.0f;
-        const Mat4 shear = skewed ? sprite_shear_matrix(s.skew) : Mat4::identity();
-
-        // One copy of the sprite drawn with matrix `mm`.
-        auto draw = [&](const Mat4& placed) {
-            const Mat4 mm = skewed ? placed * shear : placed;
-            QuadEmitter em{list, mm, screen, pack_color(spriteColor), kModeTextured, 0};
-            if (lit) set_light_frame(em, mm, {s.flipX ? -1.0f : 1.0f, 0.0f}, {0.0f, s.flipY ? -1.0f : 1.0f});
-            if (skinned) {
-                // The cells of the deformed skin mesh: each vertex shows the fraction of the region it was cut from.
-                const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);
-                float u0 = lo.x, u1 = hi.x, v0 = lo.y, v1 = hi.y;
-                if (s.texture.empty()) { u0 = v0 = 0; u1 = v1 = 1; }
-                if (s.flipX) std::swap(u0, u1);
-                if (s.flipY) std::swap(v0, v1);
-                auto vert = [&](std::uint32_t i) {
-                    const Vec2 pos = skinMesh.position[i], fr = skinMesh.uv[i];
-                    const Vec3 p = em.xf(pos.x, pos.y);
-                    return Vertex2D{p.x, p.y, p.z, u0 + (u1 - u0) * fr.x, v0 + (v1 - v0) * fr.y, em.color, em.mode, em.aux};
-                };
-                for (const auto& q : skinMesh.quads) list.quad(vert(q[0]), vert(q[1]), vert(q[2]), vert(q[3]));
-                return;
-            }
-            if (meshCols > 0) {
-                // A grid of cells: vertex (c, r) lies c / meshCols across and r / meshRows down the sprite box (row 0 = the top
-                // edge), moved by its offset; each cell is a quad that shows the matching part of the region.
-                const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);
-                float u0 = lo.x, u1 = hi.x, v0 = lo.y, v1 = hi.y;
-                if (s.texture.empty()) { u0 = v0 = 0; u1 = v1 = 1; }
-                if (s.flipX) std::swap(u0, u1);
-                if (s.flipY) std::swap(v0, v1);
-                const std::size_t stride = std::size_t(meshCols) + 1;
-                auto vert = [&](int c, int rw) {
-                    const float fx = float(c) / float(meshCols), fy = float(rw) / float(meshRows);
-                    float x = bx0 + (bx1 - bx0) * fx, y = by1 + (by0 - by1) * fy;
-                    if (!meshOffsets.empty()) {
-                        const std::size_t k = (std::size_t(rw) * stride + std::size_t(c)) * 2;
-                        x += meshOffsets[k];
-                        y += meshOffsets[k + 1];
-                    }
-                    const Vec3 p = em.xf(x, y);
-                    std::uint32_t col = em.color;
-                    if (!meshColors.empty()) {
-                        const std::size_t k = (std::size_t(rw) * stride + std::size_t(c)) * 4;
-                        col = pack_color(spriteColor * Color{meshColors[k], meshColors[k + 1], meshColors[k + 2], meshColors[k + 3]});
-                    }
-                    return Vertex2D{p.x, p.y, p.z, u0 + (u1 - u0) * fx, v0 + (v1 - v0) * fy, col, em.mode, em.aux};
-                };
-                for (int rw = 0; rw < meshRows; ++rw)
-                    for (int c = 0; c < meshCols; ++c)
-                        list.quad(vert(c, rw), vert(c, rw + 1), vert(c + 1, rw + 1), vert(c + 1, rw));
-                return;
-            }
-            if (nine) {
-                // 9-slice: the borders keep their texture size (1 pixel = 1 unit), the rest stretches. Geometry is laid out
-                // unflipped from the top row down, then mirrored about the sprite box for flipX / flipY.
-                float border[4], uvBorder[4];
-                nine_slice_fit(s.slice, r.w, r.h, size.x, size.y, border, uvBorder);
-                const float xs[4] = {bx0, bx0 + border[0], bx1 - border[2], bx1};
-                const float ys[4] = {by1, by1 - border[1], by0 + border[3], by0};
-                const float us[4] = {0, uvBorder[0], 1 - uvBorder[2], 1}, vs[4] = {0, uvBorder[1], 1 - uvBorder[3], 1};
-                auto mx = [&](float x) { return s.flipX ? bx0 + bx1 - x : x; };
-                auto my = [&](float y) { return s.flipY ? by0 + by1 - y : y; };
-                for (int j = 0; j < 3; ++j)
-                    for (int i = 0; i < 3; ++i) {
-                        if (xs[i + 1] <= xs[i] || ys[j + 1] >= ys[j]) continue;  // an empty border
-                        const Vec2 lo = tex->uv(r.x + us[i] * r.w, r.y + vs[j] * r.h);  // inside the atlas when packed
-                        const Vec2 hi = tex->uv(r.x + us[i + 1] * r.w, r.y + vs[j + 1] * r.h);
-                        em.rect(mx(xs[i]), my(ys[j + 1]), mx(xs[i + 1]), my(ys[j]), lo.x, lo.y, hi.x, hi.y);
-                    }
-                return;
-            }
-            const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);  // inside the atlas when packed
-            float u0 = lo.x, u1 = hi.x, v0 = lo.y, v1 = hi.y;
-            if (s.texture.empty()) { u0 = v0 = 0; u1 = v1 = 1; }
-            if (s.flipX) std::swap(u0, u1);
-            if (s.flipY) std::swap(v0, v1);
-            em.rect(bx0, by0, bx1, by1, u0, v0, u1, v1);
-        };
-
-        const Parallax* par = screen ? nullptr : world.get<Parallax>(e);
-        if (par && (par->repeatX || par->repeatY) && !f.cam.perspective) {
-            // A repeating background: copies every `step` world units along x and/or y, only those the camera can see.
-            float minX = 1e30f, maxX = -1e30f, minY = 1e30f, maxY = -1e30f;
-            for (int c = 0; c < 4; ++c) {
-                const Vec3 p = m.transform_point({(c & 1) ? bx1 : bx0, (c & 2) ? by1 : by0, 0.0f});
-                minX = std::min(minX, p.x); maxX = std::max(maxX, p.x);
-                minY = std::min(minY, p.y); maxY = std::max(maxY, p.y);
-            }
-            const Rect view = f.cam.visible;
-            auto range = [&](bool on, float requested, float lo, float hi, float viewLo, float viewHi, float& step, int& n0, int& n1) {
-                step = 0.0f; n0 = n1 = 0;
-                if (!on) return;
-                step = requested > 0.0f ? requested : hi - lo;
-                if (step < 1e-3f) { step = 0.0f; return; }
-                n0 = int(std::ceil((viewLo - hi) / step));
-                n1 = int(std::floor((viewHi - lo) / step));
-                n1 = std::min(n1, n0 + 63);  // at most 64 copies per axis
-            };
-            float stepX, stepY;
-            int x0, x1, y0, y1;
-            range(par->repeatX, par->repeatSize.x, minX, maxX, view.x, view.x + view.w, stepX, x0, x1);
-            range(par->repeatY, par->repeatSize.y, minY, maxY, view.y, view.y + view.h, stepY, y0, y1);
-            for (int iy = y0; iy <= y1; ++iy)
-                for (int ix = x0; ix <= x1; ++ix) {
-                    Mat4 mm = m;
-                    mm.at(3, 0) += float(ix) * stepX;
-                    mm.at(3, 1) += float(iy) * stepY;
-                    draw(mm);
-                }
-        } else {
-            draw(m);
-        }
-        list.end_item();
-        ++f.stats->sprites;
-    });
+        f.stats->sprites += int(sprites.size());
+    }
 
     // ---- shapes ----
     world.each<Shape2D>([&](Entity e, Shape2D& s) {
@@ -673,7 +748,6 @@ void gather_2d(World& world, Frame& f) {
         QuadList& list = f.world;
         list.begin_item(tm.layer, secondary_key(f, m, false), tex, SamplerKind::Nearest);
         if (tm.lit) list.set_lit(tm.normalMap.empty() ? nullptr : assets.texture(tm.normalMap));
-        QuadEmitter em{list, m, false, pack_color(tmColor), kModeTextured, 0};
         float texW = float(std::max(1, tex->width)), texH = float(std::max(1, tex->height));
         bool cull = !f.cam.perspective;
         Rect view = f.cam.visible;
@@ -703,45 +777,65 @@ void gather_2d(World& world, Frame& f) {
                 r0 = std::max(0, int(std::floor(minB)) - 1); r1 = std::min(h - 1, int(std::ceil(maxB)) + 1);
             }
         }
-        for (int r = r0; r <= r1; ++r) {
-            for (int c = c0; c <= c1; ++c) {
-                const int value = tilemap_tile_at(tm, grid, c, r);
-                if (value < 0) continue;
-                const int idx = tile_index(value), flags = tile_flags(value);
-                float x0, x1, y0, y1;
-                if (iso) {
-                    x0 = float(c - r) * isoHw - isoHw;
-                    x1 = x0 + tw;
-                    y1 = -float(c + r) * isoHh + tm.groundOffset;
-                    y0 = y1 - th;
-                } else {
-                    x0 = float(c) * tw; y1 = -float(r) * th; x1 = x0 + tw; y0 = y1 - th;
-                }
-                if (cull) {
-                    Vec3 a = em.xf(x0, y0), b = em.xf(x1, y1);
-                    Rect box{std::min(a.x, b.x), std::min(a.y, b.y), std::fabs(a.x - b.x), std::fabs(a.y - b.y)};
-                    if (!box.overlaps(view)) continue;
-                }
-                float px = float(tm.margin) + float(idx % cols) * (tw + float(tm.spacing));
-                float py = float(tm.margin) + float(idx / cols) * (th + float(tm.spacing));
-                if (tm.lit) {  // a turned tile turns its normals with it
-                    Vec2 right, up;
-                    tile_axes(flags, right, up);
-                    set_light_frame(em, m, right, up);
-                }
-                if (flags == 0) {
-                    em.rect(x0, y0, x1, y1, px / texW, py / texH, (px + tw) / texW, (py + th) / texH);
-                } else {
-                    // Corners top-left, bottom-left, bottom-right, top-right of the tile show these spots of its image.
-                    static const float kCorner[4][2] = {{0, 0}, {0, 1}, {1, 1}, {1, 0}};
-                    Vec2 uv[4];
-                    for (int k = 0; k < 4; ++k) {
-                        const Vec2 s = tile_source(flags, kCorner[k][0], kCorner[k][1]);
-                        uv[k] = {(px + s.x * tw) / texW, (py + s.y * th) / texH};
+        // The rows r0..r1, in order, into `out` (the list of this pass, or a chunk's own list whose quads join it).
+        auto emit_rows = [&](QuadList& out, int rowFrom, int rowTo) {
+            QuadEmitter em{out, m, false, pack_color(tmColor), kModeTextured, 0};
+            for (int r = rowFrom; r <= rowTo; ++r) {
+                for (int c = c0; c <= c1; ++c) {
+                    const int value = tilemap_tile_at(tm, grid, c, r);
+                    if (value < 0) continue;
+                    const int idx = tile_index(value), flags = tile_flags(value);
+                    float x0, x1, y0, y1;
+                    if (iso) {
+                        x0 = float(c - r) * isoHw - isoHw;
+                        x1 = x0 + tw;
+                        y1 = -float(c + r) * isoHh + tm.groundOffset;
+                        y0 = y1 - th;
+                    } else {
+                        x0 = float(c) * tw; y1 = -float(r) * th; x1 = x0 + tw; y0 = y1 - th;
                     }
-                    em.rect_uv(x0, y0, x1, y1, uv);
+                    if (cull) {
+                        Vec3 a = em.xf(x0, y0), b = em.xf(x1, y1);
+                        Rect box{std::min(a.x, b.x), std::min(a.y, b.y), std::fabs(a.x - b.x), std::fabs(a.y - b.y)};
+                        if (!box.overlaps(view)) continue;
+                    }
+                    float px = float(tm.margin) + float(idx % cols) * (tw + float(tm.spacing));
+                    float py = float(tm.margin) + float(idx / cols) * (th + float(tm.spacing));
+                    if (tm.lit) {  // a turned tile turns its normals with it
+                        Vec2 right, up;
+                        tile_axes(flags, right, up);
+                        set_light_frame(em, m, right, up);
+                    }
+                    if (flags == 0) {
+                        em.rect(x0, y0, x1, y1, px / texW, py / texH, (px + tw) / texW, (py + th) / texH);
+                    } else {
+                        // Corners top-left, bottom-left, bottom-right, top-right of the tile show these spots of its image.
+                        static const float kCorner[4][2] = {{0, 0}, {0, 1}, {1, 1}, {1, 0}};
+                        Vec2 uv[4];
+                        for (int k = 0; k < 4; ++k) {
+                            const Vec2 s = tile_source(flags, kCorner[k][0], kCorner[k][1]);
+                            uv[k] = {(px + s.x * tw) / texW, (py + s.y * th) / texH};
+                        }
+                        em.rect_uv(x0, y0, x1, y1, uv);
+                    }
                 }
             }
+        };
+        // A big map is cut into bands of rows drawn as jobs (render_jobs.h) once kParallelTiles cells are in view, each
+        // band about kTileChunk cells: a cell costs ~20 ns to cull and emit. The bands join the item in row order.
+        const std::size_t rows = r1 >= r0 ? std::size_t(r1 - r0 + 1) : 0, rowCells = c1 >= c0 ? std::size_t(c1 - c0 + 1) : 0;
+        const rjobs::Split rowSplit = rjobs::split(rows, std::max<std::size_t>(1, kTileChunk / std::max<std::size_t>(1, rowCells)),
+                                                rows * rowCells >= kParallelTiles ? 2 : rows + 1);
+        if (rowSplit.chunks <= 1) {
+            emit_rows(list, r0, r1);
+        } else {
+            std::vector<QuadList> bands(rowSplit.chunks);
+            rjobs::run("render.gather_tilemap", rowSplit, [&](const jobs::Chunk& ch) {
+                QuadList& band = bands[ch.index];
+                band.begin_item(tm.layer, 0.0f, tex, SamplerKind::Nearest);
+                emit_rows(band, r0 + int(ch.begin), r0 + int(ch.end) - 1);
+            });
+            for (const QuadList& band : bands) list.add_quads_of(band);
         }
         list.end_item();
     });
