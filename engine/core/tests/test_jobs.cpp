@@ -100,15 +100,29 @@ TEST_CASE("jobs: settings parse auto, inline and counts, and errors teach") {
     auto a = jobs::parse_settings(Json("auto"), "factoria.json /runtime/jobThreads");
     REQUIRE(a.ok());
     CHECK(a->mode == jobs::Settings::Mode::Auto);
-    auto i = jobs::parse_settings(Json("Inline"), "x");
+    auto i = jobs::parse_settings(Json("inline"), "x");
     REQUIRE(i.ok());
     CHECK(i->mode == jobs::Settings::Mode::Inline);
+    // A JSON value is exactly what the schema allows: lowercase words, integers.
+    auto upper = jobs::parse_settings(Json("Inline"), "factoria.json /runtime/jobThreads");
+    REQUIRE(!upper.ok());
+    CHECK(upper.error().message.find("write \"inline\"") != std::string::npos);
+    CHECK(!jobs::parse_settings(Json("AUTO"), "x").ok());
+    CHECK(!jobs::parse_settings(Json(" auto"), "x").ok());
+    auto decimal = jobs::parse_settings(Json(4.0), "x");
+    REQUIRE(!decimal.ok());
+    CHECK(decimal.error().message.find("not an integer") != std::string::npos);
+    CHECK(decimal.error().hint.find("\"jobThreads\": 4") != std::string::npos);
+    auto jsonTypo = jobs::parse_settings(Json("autto"), "x");
+    REQUIRE(!jsonTypo.ok());
+    CHECK(jsonTypo.error().message.find("Did you mean 'auto'") != std::string::npos);
+    // Text (FA_JOB_THREADS, EngineConfig) is lenient: any case, spaces around.
+    CHECK(jobs::parse_settings_text(" Inline ", "FA_JOB_THREADS")->mode == jobs::Settings::Mode::Inline);
     auto n = jobs::parse_settings(Json(3), "x");
     REQUIRE(n.ok());
     CHECK(n->mode == jobs::Settings::Mode::Count);
     CHECK(n->count == 3);
     CHECK(jobs::parse_settings(Json(0), "x")->count == 0);
-    CHECK(jobs::parse_settings(Json(2.0), "x")->count == 2);
     CHECK(jobs::parse_settings_text(" 5 ", "FA_JOB_THREADS")->count == 5);
     auto quoted = jobs::parse_settings(Json("4"), "factoria.json /runtime/jobThreads");  // the schema wants a number
     REQUIRE(!quoted.ok());
@@ -720,4 +734,122 @@ TEST_CASE("jobs: a start from another thread during a stop finds either the old 
             CHECK(other.load());
         }
     }
+}
+
+TEST_CASE("jobs: a helper chunk that waits for the job running parallel_for gets an error; the call waits for it") {
+    // J runs on the main thread (the worker is busy with B when the main thread's wait takes it); its parallel_for
+    // queues one helper, which the worker takes once B ends. The worker's chunk waits for J: J can only end after
+    // parallel_for returns, and that waits for this chunk. The chunk's wait must fail, and parallel_for must not return
+    // before the chunk has ended (fn and what it captures belong to J).
+    PoolScope pool(jobs::Settings::threads(1));
+    REQUIRE(jobs::worker_count() == 1);
+    std::atomic<bool> jStarted{false}, workerInChunk{false}, workerWaitReturned{false}, workerChunkDone{false};
+    std::atomic<bool> chunkDoneAtReturn{false}, pfOk{false}, mainRanJ{false}, workerRanB{false}, bStarted{false};
+    std::string workerError;  // written by the worker's chunk, read here only after J is done
+    jobs::Handle b = jobs::submit("test.busy", [&] {
+        workerRanB = jobs::is_worker_thread();
+        bStarted = true;
+        spin_until([&] { return jStarted.load(); });
+    });
+    REQUIRE(spin_until([&] { return bStarted.load(); }));  // the worker holds B: J stays queued below
+    jobs::Handle j;
+    std::atomic<bool> handleSet{false};
+    j = jobs::submit("test.j", [&] {
+        mainRanJ = jobs::is_main_thread();
+        spin_until([&] { return handleSet.load(); });
+        jStarted = true;
+        auto r = jobs::parallel_for("test.pf.loop", 2, 1, [&](const jobs::Chunk&) {
+            if (jobs::is_worker_thread()) {
+                workerInChunk = true;
+                auto w = jobs::wait(j);
+                workerError = w.ok() ? "" : w.error().message;
+                workerWaitReturned = true;
+                workerChunkDone = true;
+            } else {
+                // Holds this chunk until the worker is in its wait (or already out of it), so the call reaches its
+                // end while the worker's chunk may still be in that wait.
+                spin_until([&] { return workerInChunk.load(); });
+                spin_until([&] { return workerWaitReturned.load() || jobs::info().waiting >= 2; });
+            }
+        });
+        chunkDoneAtReturn = workerChunkDone.load();
+        pfOk = r.ok();
+    });
+    handleSet = true;
+    REQUIRE(jobs::wait(j).ok());  // runs J here: the worker is in B
+    REQUIRE(jobs::wait(b).ok());
+    CHECK(workerRanB.load());
+    REQUIRE(mainRanJ.load());
+    REQUIRE(workerInChunk.load());  // the worker ran a chunk: the loop was really there
+    CHECK(chunkDoneAtReturn.load());
+    CHECK(pfOk.load());
+    CHECK(workerError.find("can never end") != std::string::npos);
+}
+
+TEST_CASE("jobs: chunks of parallel_for run by the calling thread count as inside a job") {
+    for (const jobs::Settings& s : {jobs::Settings::threads(0), jobs::Settings::threads(2)}) {
+        CAPTURE(s.describe());
+        PoolScope pool(s);
+        jobs::Owner owner("test owner");
+        std::atomic<int> callerChunks{0}, startRefused{0}, waitRefused{0};
+        auto r = jobs::parallel_for("test.inside", 4, 1, [&](const jobs::Chunk&) {
+            if (jobs::is_worker_thread()) {  // holds its chunk until the caller has one of its own
+                spin_until([&] { return callerChunks.load() >= 1; });
+                return;
+            }
+            callerChunks.fetch_add(1);
+            auto st = jobs::start(jobs::Settings::threads(1));
+            if (!st.ok() && st.error().message.find("inside a job") != std::string::npos) startRefused.fetch_add(1);
+            if (st.ok()) jobs::stop();
+            auto w = owner.wait();
+            if (!w.ok() && w.error().message.find("inside a job") != std::string::npos) waitRefused.fetch_add(1);
+        });
+        REQUIRE(r.ok());
+        REQUIRE(callerChunks.load() >= 1);
+        CHECK(startRefused.load() == callerChunks.load());
+        CHECK(waitRefused.load() == callerChunks.load());
+        CHECK(jobs::worker_count() == jobs::resolve_workers(s));  // the refused start changed nothing
+    }
+}
+
+TEST_CASE("jobs: the frame statistics go to another owner after kFrameOwnerHandOver frames without their owner") {
+    PoolScope pool(jobs::Settings::threads(1));
+    jobs::Owner editor("editor"), preview("preview");
+    jobs::end_frame(&editor);  // the editor closes the frames, then stops ending them (it never closes either)
+    REQUIRE(jobs::wait(jobs::submit("test.frame", [] {})).ok());
+    for (int i = 1; i < jobs::kFrameOwnerHandOver; ++i) {
+        jobs::end_frame(&preview);
+        CHECK(jobs::info().submittedLastFrame == 0);  // still the editor's frame
+    }
+    jobs::end_frame(&preview);  // the kFrameOwnerHandOver-th: the preview takes over and closes this frame
+    CHECK(jobs::info().submittedLastFrame == 1);
+    REQUIRE(jobs::wait(jobs::submit("test.frame", [] {})).ok());
+    REQUIRE(jobs::wait(jobs::submit("test.frame", [] {})).ok());
+    jobs::end_frame(&editor);  // the editor now is the other one
+    CHECK(jobs::info().submittedLastFrame == 1);
+    jobs::end_frame(&preview);
+    CHECK(jobs::info().submittedLastFrame == 2);
+}
+
+TEST_CASE("jobs: an owner's wait runs only what that owner needs, not another owner's queued jobs") {
+    PoolScope pool(jobs::Settings::threads(0));  // nobody else runs queued jobs
+    jobs::Owner a("engine A"), b("engine B");
+    std::atomic<int> ranA{0}, ranB{0}, ranDep{0};
+    jobs::Handle dep;
+    {
+        jobs::OwnerScope scope(&b);
+        dep = jobs::submit("test.b.dep", [&] { ranDep.fetch_add(1); });  // engine B's, but engine A's job needs it
+        (void)jobs::submit("test.b.other", [&] { ranB.fetch_add(1); });
+    }
+    {
+        jobs::OwnerScope scope(&a);
+        (void)jobs::submit("test.a", [&] { ranA.fetch_add(1); }, {dep});
+    }
+    REQUIRE(a.wait().ok());
+    CHECK(ranA.load() == 1);
+    CHECK(ranDep.load() == 1);
+    CHECK(ranB.load() == 0);  // still queued for engine B
+    CHECK(b.pending() == 1);
+    REQUIRE(b.wait().ok());
+    CHECK(ranB.load() == 1);
 }

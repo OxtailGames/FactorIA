@@ -4,6 +4,8 @@
 
 #include <cmath>
 #include <cstring>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -40,15 +42,29 @@ Entity add_box(World& w, const char* id, Vec3 pos, Vec3 size, bool dynamic) {
 }
 
 // Messages of the "physics" log category while alive.
+// The sink runs on the thread that logs (a job worker too) and may run once after remove_log_sink: it writes a
+// shared, locked buffer; lines() is a copy.
 struct LogCatcher {
-    std::vector<std::string> lines;
+    struct Lines {
+        std::mutex mu;
+        std::vector<std::string> lines;
+    };
+    std::shared_ptr<Lines> shared = std::make_shared<Lines>();
     int id;
     LogCatcher() {
-        id = add_log_sink([this](const LogEntry& e) {
-            if (e.category == "physics" && e.level >= LogLevel::Warn) lines.push_back(e.message);
+        id = add_log_sink([l = shared](const LogEntry& e) {
+            if (e.category != "physics" || e.level < LogLevel::Warn) return;
+            std::lock_guard<std::mutex> lk(l->mu);
+            l->lines.push_back(e.message);
         });
     }
     ~LogCatcher() { remove_log_sink(id); }
+    LogCatcher(const LogCatcher&) = delete;
+    LogCatcher& operator=(const LogCatcher&) = delete;
+    std::vector<std::string> lines() const {
+        std::lock_guard<std::mutex> lk(shared->mu);
+        return shared->lines;
+    }
 };
 
 // A rope bridge like the Clockwork Courier's: `n` planks (1 m long, 0.6 m wide) hanging in a parabola between x0 and
@@ -109,13 +125,13 @@ TEST_CASE("3d start overlaps: a body started inside a static collider is reporte
     CHECK(found[0].message.find("'plank'") != std::string::npos);
     CHECK(found[0].message.find("'slab'") != std::string::npos);
     CHECK(found[0].message.find("0.15 m") != std::string::npos);
-    CHECK(log.lines.empty());  // asking does not log
+    CHECK(log.lines().empty());  // asking does not log
     s.run(120);
     int hits = 0;
-    for (const std::string& l : log.lines)
+    for (const std::string& l : log.lines())
         if (l.find("'plank'") != std::string::npos && l.find("'slab'") != std::string::npos) ++hits;
     CHECK(hits == 1);  // one warning over 120 steps
-    CHECK(log.lines.size() == 1);
+    CHECK(log.lines().size() == 1);
 }
 
 TEST_CASE("3d start overlaps: a body resting on the ground (a millimetre in) is not reported") {
@@ -124,7 +140,7 @@ TEST_CASE("3d start overlaps: a body resting on the ground (a millimetre in) is 
     add_box(s.world, "ground", {0, -0.5f, 0}, {20, 1, 20}, false);
     add_box(s.world, "crate", {0, 0.5f, 0}, {1, 1, 1}, true);
     s.run(60);
-    CHECK(log.lines.empty());
+    CHECK(log.lines().empty());
 }
 
 TEST_CASE("3d joints: a motor driven into a wall reads stalled; a free one and one at its limit do not") {

@@ -14,6 +14,7 @@
 #include <system_error>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -72,12 +73,30 @@ struct Frame {
     JobState* waitFor = nullptr;
 };
 
+// A thread's frames, innermost last. Trivially destructible on purpose: a static object destroyed at exit (an Engine)
+// may still use the job system after the main thread's thread_local objects with destructors are gone, so the storage
+// is freed by a separate thread_local (FrameReaper) and a later use only allocates again (and leaks that, once).
+struct FrameStack {
+    Frame* data = nullptr;
+    std::size_t count = 0;
+    std::size_t capacity = 0;
+
+    bool empty() const { return count == 0; }
+    std::size_t size() const { return count; }
+    const Frame& operator[](std::size_t i) const { return data[i]; }
+    void push_back(const Frame& f);  // Pool::mu
+    void pop_back() { --count; }     // Pool::mu
+};
+
 struct ThreadInfo {
     std::uint32_t gen = 0;
     int lane = -1;
     OwnerState* owner = nullptr;  // the current owner (OwnerScope, or the job running now)
-    std::vector<Frame> frames;    // Pool::mu (other threads read it to find waits that can never end); innermost last
+    FrameStack frames;            // Pool::mu (other threads read it to find waits that can never end)
+    bool reaperArmed = false;     // FrameReaper registered for this thread
+    bool reaped = false;          // FrameReaper ran (thread exit): storage allocated from now on is never freed
 };
+static_assert(std::is_trivially_destructible_v<ThreadInfo>, "tls must stay usable during static destruction");
 
 }  // namespace detail
 
@@ -107,9 +126,6 @@ struct alignas(64) LaneCounters {
     std::atomic<std::uint64_t> jobs{0};
     std::atomic<std::uint64_t> busyNs{0};
 };
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
 
 struct FrameStats {
     std::array<std::uint64_t, kMaxLanes> jobs{};
@@ -157,7 +173,11 @@ struct Pool {
     FrameStats last;
     Clock::time_point frameStart = Clock::now();
     const OwnerState* frameOwner = nullptr;  // the owner whose end_frame closes the frames (compared, never read)
+    int framesWithoutOwner = 0;  // end_frame calls of other owners since frameOwner's last one (hand-over at 8)
 };
+#if defined(_MSC_VER)
+#pragma warning(pop)  // C4324 covers LaneCounters and Pool, which holds them
+#endif
 
 // Never destroyed: a static destructor at exit must not join threads or free state a late job still reads.
 Pool& pool() {
@@ -166,6 +186,39 @@ Pool& pool() {
 }
 
 thread_local ThreadInfo tls;
+
+// Frees this thread's frame storage when the thread ends (see FrameStack).
+struct FrameReaper {
+    bool armed = false;
+    ~FrameReaper() {
+        if (!armed) return;
+        std::lock_guard<std::mutex> lk(pool().mu);
+        delete[] tls.frames.data;
+        tls.frames = detail::FrameStack{};
+        tls.reaped = true;
+    }
+};
+thread_local FrameReaper reaper;
+
+}  // namespace
+
+void detail::FrameStack::push_back(const Frame& f) {
+    if (count == capacity) {
+        const std::size_t grown = capacity ? capacity * 2 : 16;
+        Frame* bigger = new Frame[grown];
+        for (std::size_t i = 0; i < count; ++i) bigger[i] = data[i];
+        delete[] data;
+        if (!tls.reaperArmed && !tls.reaped) {
+            tls.reaperArmed = true;
+            reaper.armed = true;  // first use on this thread: registers the reaper's destructor
+        }  // storage allocated after the reaper ran (static destruction at exit) is never freed: once, at exit
+        data = bigger;
+        capacity = grown;
+    }
+    data[count++] = f;
+}
+
+namespace {
 
 std::uint64_t ns_since(Clock::time_point t0) {
     const auto d = Clock::now() - t0;
@@ -459,6 +512,30 @@ JobPtr find_needed_locked(Pool& p, const JobPtr& root) {
     return nullptr;
 }
 
+// The first queued job that `o` needs: one of its own, or one that a job of `o` depends on (through any chain of
+// dependents). Null when none. Pool::mu must be held.
+JobPtr find_owner_needs_locked(Pool& p, const OwnerState* o) {
+    std::vector<JobState*> todo;
+    for (const JobPtr& j : p.ready) {
+        if (!j->queued) continue;
+        if (j->owner.get() == o) return j;
+        const std::uint64_t mark = ++p.walk;
+        todo.assign(1, j.get());
+        j->mark = mark;
+        while (!todo.empty()) {
+            JobState* cur = todo.back();
+            todo.pop_back();
+            for (const JobPtr& d : cur->dependents) {
+                if (d->owner.get() == o) return j;
+                if (d->mark == mark) continue;
+                d->mark = mark;
+                todo.push_back(d.get());
+            }
+        }
+    }
+    return nullptr;
+}
+
 // True when `root` can only finish after the wait this thread is starting has ended: root, or a job it needs, runs on
 // this thread, or runs on another thread under a wait that (through more waits and dependencies) leads back here.
 // Pool::mu must be held; every frame of every thread changes only under it.
@@ -566,16 +643,25 @@ Result<Settings> parse_settings_text(std::string_view text, std::string_view whe
 }
 
 Result<Settings> parse_settings(const Json& v, std::string_view where) {
+    // Exactly what the project schema allows: the strings "auto" and "inline" (lowercase, no spaces) or an integer.
     if (v.is_string()) {
-        // The project schema allows only the two words as strings: a count is a JSON number.
         const std::string text = v.get<std::string>();
+        if (text == "auto") return Settings::automatic();
+        if (text == "inline") return Settings::inline_jobs();
         const std::string t(trim(text));
         const std::string_view digits = std::string_view(t).substr(!t.empty() && t[0] == '-' ? 1 : 0);
         if (!digits.empty() && std::all_of(digits.begin(), digits.end(), [](char c) { return c >= '0' && c <= '9'; }))
             return make_error(std::string(where) + ": the thread count is the string \"" + text +
                                   "\"; write it as a number",
                               "Use " + t + " without quotes (\"jobThreads\": " + t + "), \"auto\" or \"inline\".");
-        return parse_settings_text(text, where);
+        const std::string lower = to_lower(t);
+        if (lower == "auto" || lower == "inline")
+            return make_error(std::string(where) + ": \"" + text + "\" is not a job thread setting; write \"" + lower +
+                                  "\" (lowercase, no spaces)",
+                              range_hint());
+        return make_error(std::string(where) + ": unknown job thread setting \"" + text + "\". " +
+                              did_you_mean(lower, setting_words()),
+                          range_hint());
     }
     if (v.is_number_unsigned()) {
         const std::uint64_t u = v.get<std::uint64_t>();
@@ -585,10 +671,11 @@ Result<Settings> parse_settings(const Json& v, std::string_view where) {
     if (v.is_number_integer()) return count_setting(v.get<std::int64_t>(), where, std::to_string(v.get<std::int64_t>()));
     if (v.is_number_float()) {
         const double d = v.get<double>();
-        if (std::isfinite(d) && d == std::floor(d) && d >= 0 && d <= double(kMaxWorkers))
-            return Settings::threads(int(d));
-        return make_error(std::string(where) + ": expected a whole number of worker threads, got " + v.dump(),
-                          range_hint());
+        const bool whole = std::isfinite(d) && d == std::floor(d) && d >= 0 && d <= double(kMaxWorkers);
+        return make_error(std::string(where) + ": the thread count " + v.dump() + " is not an integer" +
+                              (whole ? "; write it without a decimal point" : ""),
+                          whole ? "Use " + std::to_string(int(d)) + " (\"jobThreads\": " + std::to_string(int(d)) + ")."
+                                : range_hint());
     }
     return make_error(std::string(where) + ": expected \"auto\", \"inline\" or a number of worker threads, got " +
                           std::string(v.type_name()) + " " + v.dump(),
@@ -677,6 +764,7 @@ void start_impl(const Settings& s, std::vector<std::pair<LogLevel, std::string>>
         p.last = FrameStats{};
         p.frameStart = Clock::now();
         p.frameOwner = nullptr;
+        p.framesWithoutOwner = 0;
         for (LaneCounters& l : p.lanes) {  // the first frame counts from here, not what ran inline before
             l.jobs.store(0, std::memory_order_relaxed);
             l.busyNs.store(0, std::memory_order_relaxed);
@@ -776,6 +864,7 @@ void stop() {
             {
                 std::lock_guard<std::mutex> st(p.statsMu);
                 p.frameOwner = nullptr;
+                p.framesWithoutOwner = 0;
             }
         }
     }
@@ -976,10 +1065,52 @@ Result<void> parallel_for(std::string_view name, std::size_t count, std::size_t 
     hs.reserve(helpers);
     for (std::size_t k = 0; k < helpers; ++k)
         hs.push_back(submit_job(make_job(name, [s] { run_chunks(*s); }, true), {}));
+    // The join: a job that is never queued and depends on the helpers. Its wait frame is on this thread while this
+    // thread runs its own chunks too, so a helper's chunk that waits for a job under this call (the job that runs
+    // this parallel_for) sees the loop and gets an error where it waits, instead of this call returning while that
+    // chunk still runs. It also makes the chunks run here count as inside a job (start(), Owner::wait refused).
+    auto join = std::make_shared<JobState>();
+    join->name = s->name;
+    join->internal = true;
+    bool wake = false;
+    {
+        std::lock_guard<std::mutex> lk(p.mu);
+        for (const Handle& h : hs)
+            if (const JobPtr& d = Access::state(h); d && !d->finished) join->deps.push_back(d);
+        tls.frames.push_back(Frame{nullptr, join.get()});
+        wake = p.waiters > 0;
+    }
+    if (wake) p.doneCv.notify_all();  // a helper's chunk already in a wait checks again: it may be a loop now
     run_chunks(*s);
-    // Only this call's helpers: one still queued is taken by this wait and finds no chunk left; one running on a
-    // worker is waited for. The helpers never fail (run_chunks catches).
-    for (const Handle& h : hs) (void)wait(h);
+    // Never returns while a helper runs: fn and what it captures belong to the caller. A helper still queued is taken
+    // here and finds no chunk left; one running on a worker is waited for. This wait looks for no loop: a loop
+    // through it is found by the helper's own wait (it sees the join frame), which then ends with an error.
+    bool helperFailed = false;
+    std::vector<JobPtr> release;
+    {
+        std::unique_lock<std::mutex> lk(p.mu);
+        ++p.waiters;
+        for (;;) {
+            if (JobPtr next = find_needed_locked(p, join)) {
+                take_locked(p, next.get());
+                lk.unlock();
+                run_job(next);
+                next.reset();  // the last reference may go here: not under the lock
+                lk.lock();
+                continue;
+            }
+            if (std::all_of(join->deps.begin(), join->deps.end(), [](const JobPtr& d) { return d->finished; })) break;
+            p.doneCv.wait(lk);
+        }
+        --p.waiters;
+        tls.frames.pop_back();  // the join's frame
+        for (const JobPtr& d : join->deps) helperFailed = helperFailed || d->failed;
+        release.swap(join->deps);
+    }
+    release.clear();
+    if (helperFailed && s->failures == 0)  // run_chunks catches every throw: a helper never fails today
+        return make_error("parallel_for '" + s->name + "': a helper job failed",
+                          "This is a job system bug: report it with the log.");
     if (s->failures == 0) return {};
     const Chunk c = chunk_at(count, grain, s->errIndex, seed);
     FA_ERROR("jobs", "parallel_for '{}': {} of {} chunk(s) failed; the first is chunk {} (items {}..{}): {}", s->name,
@@ -1020,8 +1151,10 @@ Result<void> Owner::wait() {
     std::unique_lock<std::mutex> lk(p.mu);
     ++p.waiters;
     while (state_->pending > 0) {
-        // Any queued job: one of its jobs may need a job of another owner, and with 0 workers nobody else runs it.
-        if (JobPtr next = pop_front_locked(p)) {
+        // Only what this owner needs: its own queued jobs and the queued jobs (of any owner) one of its jobs depends
+        // on, so it also ends with 0 workers. Anything else stays queued for its own engine.
+        if (JobPtr next = find_owner_needs_locked(p, state_.get())) {
+            take_locked(p, next.get());
             lk.unlock();
             run_job(next);
             next.reset();
@@ -1059,7 +1192,10 @@ void Owner::close() {
     p.mainQueued.fetch_sub(int(dropped.size()), std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> st(p.statsMu);
-        if (p.frameOwner == state_.get()) p.frameOwner = nullptr;
+        if (p.frameOwner == state_.get()) {
+            p.frameOwner = nullptr;
+            p.framesWithoutOwner = 0;
+        }
     }
     if (!dropped.empty())
         FA_DEBUG("jobs", "{}: {} main-thread task(s) still queued were dropped (first: '{}')", state_->name,
@@ -1147,8 +1283,15 @@ void end_frame(const Owner* owner) {
     std::lock_guard<std::mutex> st(p.statsMu);
     if (owner) {
         const OwnerState* o = Access::state(*owner).get();
-        if (!p.frameOwner) p.frameOwner = o;
-        else if (p.frameOwner != o) return;  // another engine closes the frames
+        if (p.frameOwner == o) {
+            p.framesWithoutOwner = 0;
+        } else if (p.frameOwner && ++p.framesWithoutOwner < kFrameOwnerHandOver) {
+            return;  // another engine closes the frames
+        } else {
+            // No owner yet, or the one that had it stopped ending frames without closing (a hidden view): this one.
+            p.frameOwner = o;
+            p.framesWithoutOwner = 0;
+        }
     }
     FrameStats f;
     for (std::size_t i = 0; i < std::size_t(kMaxLanes); ++i) {

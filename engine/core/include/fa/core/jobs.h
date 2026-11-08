@@ -55,6 +55,7 @@ inline constexpr int kAutoCapMobile = 4;    // "auto" on Android/iOS: big.LITTLE
                                             // 4 leaves room for the OS, the GPU driver and audio threads
 inline constexpr int kAutoCapWebThreads = 4;  // "auto" in a -pthread web build: each worker is a Web Worker
 inline constexpr int kMaxLanes = kMaxWorkers + 2;  // profiler lanes: main, every worker, "other" threads
+inline constexpr int kFrameOwnerHandOver = 8;  // end_frame: calls of other owners before the frames change hands
 
 // ------------------------------------------------------------------------------------------------------------- settings
 // The `runtime.jobThreads` project setting and the FA_JOB_THREADS environment variable.
@@ -71,11 +72,12 @@ struct Settings {
     friend bool operator==(const Settings&, const Settings&) = default;
 };
 
-// A JSON value (factoria.json runtime.jobThreads): the string "auto" or "inline", or a number 0..kMaxWorkers. A count
-// written as a string ("4") is refused with a hint to write the number, as the project schema says. `where` names the
-// value in the error ("factoria.json /runtime/jobThreads").
+// A JSON value (factoria.json runtime.jobThreads), exactly as the project schema says: the string "auto" or "inline"
+// (lowercase, no spaces) or an integer 0..kMaxWorkers. "Inline", " auto", "4" (a count in quotes) and 4.0 are refused,
+// each with a hint that says what to write. `where` names the value in the error ("factoria.json /runtime/jobThreads").
 Result<Settings> parse_settings(const Json& value, std::string_view where);
-// The same values as text (FA_JOB_THREADS, EngineConfig::jobThreads): "auto", "inline" or digits.
+// The same values as text (FA_JOB_THREADS, EngineConfig::jobThreads), more leniently: any case, spaces around, and
+// the count as digits ("4").
 Result<Settings> parse_settings_text(std::string_view text, std::string_view where);
 
 bool threads_supported();               // false in a web build without pthreads
@@ -87,9 +89,10 @@ int resolve_workers(const Settings& s);      // the worker count `s` gives here 
 // Reference counted: the first start() creates the workers and makes the calling thread the main thread; later calls
 // only count (the pool keeps its first settings) and must come from that same thread: start() from another thread
 // while the pool runs is refused with an error (every engine of a process runs on the main thread). start() and stop()
-// from inside a job are refused too. A start() that another thread calls while stop() is joining the workers waits for
-// the stop to end, then starts a new pool. The last stop() runs every queued job to the end, joins the workers and
-// drops the main-thread tasks still queued.
+// from inside a job (a chunk of parallel_for run by the calling thread too) are refused too. So an Engine::init on
+// another thread fails while the pool runs. A start() that another thread calls while stop() is joining the workers
+// waits for the stop to end, then starts a new pool. The last stop() runs every queued job to the end, joins the
+// workers and drops the main-thread tasks still queued.
 Result<void> start(const Settings& s);
 void stop();
 bool running();
@@ -117,8 +120,9 @@ public:
     const std::string& name() const;
     int pending() const;  // its jobs submitted and not finished yet
 
-    // Blocks until every job of this owner is done, the ones those jobs submit too. The waiting thread runs queued
-    // jobs meanwhile (any job: this is for shutdown, not for the middle of a frame), so it ends with 0 workers too.
+    // Blocks until every job of this owner is done, the ones those jobs submit too. Meanwhile the waiting thread runs
+    // only what the owner needs: its queued jobs and the queued jobs (of any owner) they depend on; otherwise it
+    // sleeps. So it ends with 0 workers too, and never runs another engine's work.
     // Called from inside a job (or from a wait that runs one) it returns an error at once: the job could be one of
     // this owner's.
     Result<void> wait();
@@ -217,7 +221,10 @@ Chunk chunk_at(std::size_t count, std::size_t grain, std::size_t index, std::uin
 // Runs fn once per chunk of `grain` items, on the workers and the calling thread, and returns when every chunk is done.
 // Every chunk runs even when one throws; the error returned is the one of the lowest chunk index that failed (the same
 // whatever the threads). fn must only write data of its own chunk. Nested calls (a parallel_for inside a job) work.
-// While it waits for the last chunks the calling thread runs only chunks of this call, never another job.
+// While it waits for the last chunks the calling thread runs only chunks of this call, never another job, and it never
+// returns while a chunk still runs on another thread. A chunk counts as inside a job on every thread (start(), stop()
+// and Owner::wait are refused). A chunk on a worker that waits for the job running this parallel_for gets the "can
+// never end" error from its wait.
 Result<void> parallel_for(std::string_view name, std::size_t count, std::size_t grain,
                           const std::function<void(const Chunk&)>& fn, std::uint64_t seed = 0);
 
@@ -260,8 +267,9 @@ int main_tasks_queued();  // every task queued now: the shared queue and every o
 // The engine calls this once at the end of each frame on the main thread. With 0 workers it runs the jobs nobody waited
 // for (queued before this call), then it closes the frame's statistics (jobs.info, the profiler's thread lanes). With
 // several engines (the editor and a preview) only one owner closes the frames: the first that calls end_frame, until
-// it closes (Owner::close) or the pool stops; the calls of the others return after the 0-worker step. A null owner
-// (tools and tests) always closes the frame.
+// it closes (Owner::close), the pool stops, or kFrameOwnerHandOver calls of other owners come with none of its own in
+// between (its engine stopped drawing frames): then the owner calling takes over. The calls of the others return after
+// the 0-worker step. A null owner (tools and tests) always closes the frame.
 void end_frame(const Owner* owner = nullptr);
 
 // --------------------------------------------------------------------------------------------------- what jobs.info says
