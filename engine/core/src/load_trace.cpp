@@ -18,6 +18,15 @@ std::vector<LoadTrace*>& traces() {
 }
 
 thread_local LoadTrace::Owner t_owner = LoadTrace::kNoOwner;
+thread_local std::uint64_t t_aheadTag = 0;                   // ReadingFor(owner, tag): reading ahead for that load
+thread_local std::vector<std::string>* t_collector = nullptr;  // FileCollector
+
+void collect(std::string_view path) {
+    if (!t_collector) return;
+    for (const std::string& f : *t_collector)
+        if (f == path) return;
+    t_collector->emplace_back(path);
+}
 std::atomic<LoadTrace::Owner> g_nextOwner{1};
 thread_local std::int64_t t_readNs = 0;
 thread_local std::uint64_t t_readBytes = 0;
@@ -37,8 +46,20 @@ std::int64_t LoadTrace::thread_read_ns() { return t_readNs; }
 LoadTrace::Owner LoadTrace::current_owner() { return t_owner; }
 LoadTrace::Owner LoadTrace::new_owner() { return g_nextOwner.fetch_add(1, std::memory_order_relaxed); }
 
-LoadTrace::ReadingFor::ReadingFor(Owner owner) : previous_(t_owner) { t_owner = owner; }
-LoadTrace::ReadingFor::~ReadingFor() { t_owner = previous_; }
+LoadTrace::ReadingFor::ReadingFor(Owner owner, std::uint64_t aheadTag) : previous_(t_owner), previousTag_(t_aheadTag) {
+    t_owner = owner;
+    t_aheadTag = aheadTag;
+}
+LoadTrace::ReadingFor::~ReadingFor() {
+    t_owner = previous_;
+    t_aheadTag = previousTag_;
+}
+std::uint64_t LoadTrace::current_ahead_tag() { return t_aheadTag; }
+
+LoadTrace::FileCollector::FileCollector(std::vector<std::string>* out) : previous_(t_collector) {
+    t_collector = any() ? out : nullptr;
+}
+LoadTrace::FileCollector::~FileCollector() { t_collector = previous_; }
 
 LoadTrace::LoadTrace(Owner owner) : owner_(owner), startNs_(now_ns()) {
     std::lock_guard<std::mutex> lock(traces_mutex());
@@ -57,9 +78,19 @@ void LoadTrace::file_read(std::string_view path, std::uint64_t bytes, std::uint6
     if (!any()) return;
     t_readNs += readNs;
     t_readBytes += bytes;
+    collect(path);
     std::lock_guard<std::mutex> lock(traces_mutex());
     for (LoadTrace* t : traces())
-        if (t->records(t_owner)) t->record_file(path, bytes, storedBytes, fromPack);
+        if (t->records(t_owner)) t->record_file(path, bytes, storedBytes, fromPack, t_aheadTag);
+}
+
+void LoadTrace::file_used(std::string_view path) {
+    if (!any()) return;
+    collect(path);
+    if (t_aheadTag != 0) return;  // reading ahead: the file is not used yet
+    std::lock_guard<std::mutex> lock(traces_mutex());
+    for (LoadTrace* t : traces())
+        if (t->records(t_owner)) t->record_use(path);
 }
 
 void LoadTrace::asset_loaded(std::string_view kind, std::string_view path, std::uint64_t bytes, std::int64_t totalNs, std::int64_t readNs) {
@@ -68,9 +99,42 @@ void LoadTrace::asset_loaded(std::string_view kind, std::string_view path, std::
         if (t->records(t_owner)) t->record_asset(kind, path, bytes, totalNs, readNs);
 }
 
-void LoadTrace::scene_started(std::string scene) {
+void LoadTrace::scene_requested(std::string scene, std::uint64_t tag) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (loads_.size() < kMaxScenes) loads_.push_back(SceneLoad{scene, now_ns(), -1, 0, 0});
+    if (tag == 0 || loads_.size() >= kMaxScenes) return;
+    SceneLoad l{std::move(scene), now_ns(), -1, 0, 0};
+    l.tag = tag;
+    l.started = false;
+    loads_.push_back(std::move(l));
+}
+
+void LoadTrace::load_cancelled(std::uint64_t tag) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (SceneLoad& l : loads_)
+        if (tag != 0 && l.tag == tag && !l.started) l.cancelled = true;
+}
+
+LoadTrace::SceneLoad* LoadTrace::open_load() {
+    for (auto it = loads_.rbegin(); it != loads_.rend(); ++it)
+        if (it->started) return it->endNs < 0 ? &*it : nullptr;
+    return nullptr;
+}
+
+void LoadTrace::scene_started(std::string scene, std::uint64_t tag) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    SceneLoad* requested = nullptr;
+    for (SceneLoad& l : loads_)
+        if (tag != 0 && l.tag == tag && !l.started && !l.cancelled) requested = &l;
+    if (requested) {
+        requested->started = true;
+        requested->readyNs = now_ns();
+        // Its entry moves to the end: the reads from now on are the started scene's (open_load()).
+        SceneLoad moved = std::move(*requested);
+        loads_.erase(loads_.begin() + (requested - loads_.data()));
+        loads_.push_back(std::move(moved));
+    } else if (loads_.size() < kMaxScenes) {
+        loads_.push_back(SceneLoad{scene, now_ns(), -1, 0, 0});
+    }
     // A scene loaded again keeps its place (scenes stay in first-loaded order); its new files are appended to it.
     auto it = std::find_if(order_.begin(), order_.end(), [&](const SceneFiles& s) { return s.scene == scene; });
     if (it == order_.end()) {
@@ -85,10 +149,10 @@ void LoadTrace::frame_ended() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (firstFrameNs_ < 0) firstFrameNs_ = now;
     for (SceneLoad& l : loads_)
-        if (l.endNs < 0) l.endNs = now;
+        if (l.endNs < 0 && l.started) l.endNs = now;
 }
 
-void LoadTrace::record_file(std::string_view path, std::uint64_t bytes, std::uint64_t storedBytes, bool fromPack) {
+void LoadTrace::record_file(std::string_view path, std::uint64_t bytes, std::uint64_t storedBytes, bool fromPack, std::uint64_t aheadTag) {
     std::lock_guard<std::mutex> lock(mutex_);
     ++reads_;
     bytes_ += bytes;
@@ -96,10 +160,27 @@ void LoadTrace::record_file(std::string_view path, std::uint64_t bytes, std::uin
         ++packReads_;
         packStored_ += storedBytes;
     }
-    if (!loads_.empty() && loads_.back().endNs < 0) {
-        loads_.back().files++;
-        loads_.back().bytes += bytes;
+    if (aheadTag != 0) {  // read ahead: counts in its background scene load (if it is one), enters the order when used
+        for (SceneLoad& l : loads_)
+            if (l.tag == aheadTag && !l.cancelled && (!l.started || l.endNs < 0)) {
+                l.files++;
+                l.bytes += bytes;
+            }
+        return;
     }
+    if (SceneLoad* l = open_load()) {
+        l->files++;
+        l->bytes += bytes;
+    }
+    record_use_locked(path);
+}
+
+void LoadTrace::record_use(std::string_view path) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    record_use_locked(path);
+}
+
+void LoadTrace::record_use_locked(std::string_view path) {
     if (seen_.size() >= kMaxFiles) return;
     std::string p(path);
     if (!seen_.insert(p).second) return;
@@ -133,11 +214,18 @@ Json LoadTrace::report() const {
     Json j = Json::object();
     j["timeToFirstFrameMs"] = firstFrameNs_ < 0 ? Json() : Json(round_ms(firstFrameNs_ - startNs_));
     Json scenes = Json::array();
-    for (const SceneLoad& l : loads_)
-        scenes.push_back(Json::object({{"scene", l.scene},
-                                       {"loadMs", l.endNs < 0 ? Json() : Json(round_ms(l.endNs - l.startNs))},
-                                       {"files", l.files},
-                                       {"bytes", l.bytes}}));
+    for (const SceneLoad& l : loads_) {
+        Json e = Json::object({{"scene", l.scene},
+                               {"loadMs", l.endNs < 0 ? Json() : Json(round_ms(l.endNs - l.startNs))},
+                               {"files", l.files},
+                               {"bytes", l.bytes}});
+        if (l.tag != 0) {  // a background load (scene.load {async: true})
+            e["async"] = true;
+            e["readyMs"] = l.readyNs < 0 ? Json() : Json(round_ms(l.readyNs - l.startNs));
+            if (l.cancelled) e["cancelled"] = true;
+        }
+        scenes.push_back(std::move(e));
+    }
     j["scenes"] = std::move(scenes);
     Json slow = Json::array();
     for (const Asset& a : slowest_)
@@ -145,7 +233,8 @@ Json LoadTrace::report() const {
     j["slowestAssets"] = std::move(slow);
     j["reads"] = Json::object({{"count", reads_}, {"bytes", bytes_}, {"fromPack", packReads_}, {"packStoredBytes", packStored_}});
     j["note"] = "Times are this machine's, rounded to 0.1 ms: compare runs on one machine, never pass or fail on them. A scene's "
-                "loadMs runs from the start of its load to the end of the first frame after it.";
+                "loadMs runs from the start of its load to the end of the first frame after it; for a background load "
+                "(async) from the request, and its readyMs to the frame the scene started.";
     return j;
 }
 

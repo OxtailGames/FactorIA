@@ -134,6 +134,12 @@ struct EngineConfig {
     // merge it into the project's .factoria/cache/load-order.json (fa/tooling/load_order.h), which a release export packs
     // game.pak by. On the thread that ends the trace; it must not wait on disk there when that is a UI thread. Empty = kept nowhere.
     std::function<void(const LoadOrder&)> loadOrderSink;
+    // Background loading (docs/PERFORMANCE.md, "Background loading") takes the TIMED budget of factoria.json
+    // (runtime.loadBudgetMs / uploadBudgetMB: only the files that are ready, a frame never waits) also without a window.
+    // Off (the default): tests, headless runs and the editor take a fixed number of files per frame, waiting for each, so
+    // the frames do not depend on the machine. A game with a window always uses the timed budget; a replay uses the units
+    // its recording kept.
+    bool timedLoads = false;
 };
 
 class Engine final : public ScriptHost {
@@ -246,6 +252,10 @@ public:
     std::string set_language(std::string_view language) override;
     double preload_time_budget_ms() const override;
     void drop_script_jobs(const std::vector<int>& jobs) override;
+    void drop_script_background_loads() override;
+    Result<int> background_load_start(int kind, const std::vector<std::string>& paths, const Json* props) override;
+    bool background_load_cancel(int id) override;
+    void background_loads_reset() override;
     void request_scene_change(std::string_view scenePath) override;
     void request_scene_change_with_props(std::string_view scenePath, const Json& props) override;
     void request_scene_reload(std::string_view scenePath) override;

@@ -203,8 +203,245 @@ SubMesh upload_submesh(const std::vector<MeshVertex>& v, const std::vector<std::
 }  // namespace
 
 // ---------------------------------------------------------------------------
-// glTF loader
+// glTF loader: decode_gltf (CPU, any thread) + MeshLoader::upload (GPU, main thread). A load on first use runs both at
+// once; background loading runs the first on a job and the second when the main thread adopts the result.
 // ---------------------------------------------------------------------------
+namespace {
+
+void generate_normals(std::vector<MeshVertex>& v, const std::vector<std::uint32_t>& idx) {
+    for (auto& x : v) x.nx = x.ny = x.nz = 0;
+    for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+        MeshVertex &a = v[idx[i]], &b = v[idx[i + 1]], &c = v[idx[i + 2]];
+        Vec3 n = cross(Vec3{b.px - a.px, b.py - a.py, b.pz - a.pz}, Vec3{c.px - a.px, c.py - a.py, c.pz - a.pz});
+        for (MeshVertex* m : {&a, &b, &c}) { m->nx += n.x; m->ny += n.y; m->nz += n.z; }
+    }
+    for (auto& x : v) {
+        Vec3 n = normalize(Vec3{x.nx, x.ny, x.nz});
+        if (length_sq(n) < 0.5f) n = {0, 1, 0};
+        x.nx = n.x; x.ny = n.y; x.nz = n.z;
+    }
+}
+
+bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& normalMat,
+                    std::vector<MeshVertex>& verts, std::vector<std::uint32_t>& idx) {
+    const cgltf_accessor *pos = nullptr, *nrm = nullptr, *uv = nullptr, *tng = nullptr, *col = nullptr;
+    for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
+        const cgltf_attribute& at = prim.attributes[a];
+        if (at.type == cgltf_attribute_type_position && at.index == 0) pos = at.data;
+        else if (at.type == cgltf_attribute_type_normal && at.index == 0) nrm = at.data;
+        else if (at.type == cgltf_attribute_type_texcoord && at.index == 0) uv = at.data;
+        else if (at.type == cgltf_attribute_type_tangent && at.index == 0 && at.data->type == cgltf_type_vec4) tng = at.data;
+        else if (at.type == cgltf_attribute_type_color && at.index == 0 && (at.data->type == cgltf_type_vec3 || at.data->type == cgltf_type_vec4))
+            col = at.data;  // COLOR_0: multiplies the base color (rgb or rgba, floats or normalized integers)
+    }
+    if (!pos) return false;
+    verts.resize(pos->count);
+    for (cgltf_size i = 0; i < pos->count; ++i) {
+        float p[3] = {0, 0, 0};
+        cgltf_accessor_read_float(pos, i, p, 3);
+        Vec3 wp = world.transform_point({p[0], p[1], p[2]});
+        MeshVertex& v = verts[i];
+        v.px = wp.x; v.py = wp.y; v.pz = wp.z;
+        float n[3] = {0, 1, 0};
+        if (nrm) cgltf_accessor_read_float(nrm, i, n, 3);
+        Vec3 wn = normalize(normalMat.transform_dir({n[0], n[1], n[2]}));
+        v.nx = wn.x; v.ny = wn.y; v.nz = wn.z;
+        float t[2] = {0, 0};
+        if (uv) cgltf_accessor_read_float(uv, i, t, 2);
+        v.u = t[0]; v.v = t[1];
+        float tn[4] = {1, 0, 0, 1};
+        if (tng) cgltf_accessor_read_float(tng, i, tn, 4);
+        Vec3 wt = normalize(world.transform_dir({tn[0], tn[1], tn[2]}));
+        v.tx = wt.x; v.ty = wt.y; v.tz = wt.z; v.tw = tn[3] < 0.0f ? -1.0f : 1.0f;
+        if (col) {
+            float c[4] = {1, 1, 1, 1};
+            cgltf_accessor_read_float(col, i, c, col->type == cgltf_type_vec3 ? 3 : 4);
+            v.color = pack_vertex_color(c[0], c[1], c[2], c[3]);
+        }
+    }
+    if (prim.indices) {
+        idx.resize(prim.indices->count);
+        for (cgltf_size i = 0; i < prim.indices->count; ++i) idx[i] = std::uint32_t(cgltf_accessor_read_index(prim.indices, i));
+    } else {
+        idx.resize(pos->count);
+        for (cgltf_size i = 0; i < pos->count; ++i) idx[i] = std::uint32_t(i);
+    }
+    // Negative-determinant node transforms mirror the mesh: flip winding to keep faces outward.
+    Vec3 c0{world.at(0, 0), world.at(0, 1), world.at(0, 2)};
+    Vec3 c1{world.at(1, 0), world.at(1, 1), world.at(1, 2)};
+    Vec3 c2{world.at(2, 0), world.at(2, 1), world.at(2, 2)};
+    const bool mirrored = dot(cross(c0, c1), c2) < 0.0f;
+    if (mirrored) {
+        for (std::size_t i = 0; i + 2 < idx.size(); i += 3) std::swap(idx[i + 1], idx[i + 2]);
+        for (auto& v : verts) v.tw = -v.tw;
+    }
+    if (!nrm) generate_normals(verts, idx);
+    if (!tng) generate_tangents(verts, idx);
+    return !idx.empty();
+}
+
+PreparedTextureRef image_ref(const cgltf_image& img, const std::string& dir) {
+    PreparedTextureRef r;
+    if (img.buffer_view) {
+        const auto* base = static_cast<const std::uint8_t*>(img.buffer_view->buffer->data);
+        auto decoded = decode_image(base + img.buffer_view->offset, img.buffer_view->size);
+        std::string name = std::format("<gltf-embedded:{}>", img.name ? img.name : "image");
+        if (!decoded) {
+            r.kind = PreparedTextureRef::Kind::Missing;
+            r.name = std::move(name);
+            r.error = decoded.error().message;
+            r.hint = decoded.error().hint;
+            return r;
+        }
+        r.kind = PreparedTextureRef::Kind::Image;
+        r.name = std::move(name);
+        r.image = std::move(*decoded);
+        return r;
+    }
+    if (img.uri) {
+        std::string uri = img.uri;
+        if (uri.rfind("data:", 0) == 0) {
+            auto comma = uri.find(',');
+            if (comma != std::string::npos) {
+                auto raw = base64_decode(std::string_view(uri).substr(comma + 1));
+                auto decoded = decode_image(raw.data(), raw.size());
+                if (decoded) {
+                    r.kind = PreparedTextureRef::Kind::Image;
+                    r.name = "<gltf-data-uri>";
+                    r.image = std::move(*decoded);
+                    return r;
+                }
+            }
+            r.kind = PreparedTextureRef::Kind::Missing;
+            return r;
+        }
+        std::vector<char> buf(uri.begin(), uri.end());
+        buf.push_back('\0');
+        cgltf_decode_uri(buf.data());
+        uri = buf.data();
+        r.kind = PreparedTextureRef::Kind::Path;
+        r.path = dir.empty() ? uri : fs::join(dir, uri);
+    }
+    return r;
+}
+
+void prepare_material(const cgltf_material* mat, const std::string& dir, PreparedPart& part) {
+    if (!mat) return;
+    SubMesh& sm = part.material;
+    if (mat->name) sm.materialName = mat->name;
+    sm.doubleSided = mat->double_sided;
+    sm.blended = mat->alpha_mode == cgltf_alpha_mode_blend;
+    if (mat->has_pbr_metallic_roughness) {
+        const auto& pbr = mat->pbr_metallic_roughness;
+        sm.baseColor = Color{pbr.base_color_factor[0], pbr.base_color_factor[1], pbr.base_color_factor[2], pbr.base_color_factor[3]};
+        const cgltf_texture* tex = pbr.base_color_texture.texture;
+        if (tex && tex->image) part.base = image_ref(*tex->image, dir);
+        sm.hasPbr = true;
+        sm.metallic = pbr.metallic_factor;
+        sm.roughness = pbr.roughness_factor;
+        const cgltf_texture* mr = pbr.metallic_roughness_texture.texture;
+        if (mr && mr->image) part.metalRough = image_ref(*mr->image, dir);
+    }
+    const cgltf_texture* nt = mat->normal_texture.texture;
+    if (nt && nt->image) {
+        part.normal = image_ref(*nt->image, dir);
+        sm.normalScale = mat->normal_texture.scale;
+    }
+    const cgltf_texture* ot = mat->occlusion_texture.texture;
+    if (ot && ot->image) {
+        part.occlusion = image_ref(*ot->image, dir);
+        sm.occlusionStrength = mat->occlusion_texture.scale;
+    }
+    const cgltf_texture* et = mat->emissive_texture.texture;
+    if (et && et->image) part.emissive = image_ref(*et->image, dir);
+    float strength = mat->has_emissive_strength ? mat->emissive_strength.emissive_strength : 1.0f;
+    sm.emissiveFactor = Color{mat->emissive_factor[0] * strength, mat->emissive_factor[1] * strength,
+                              mat->emissive_factor[2] * strength, 1.0f};
+}
+
+// Gives a part of a skinned glTF node its joints and weights (vertex buffer 2). Each part is drawn with the palette of its
+// own skin; a skin with more than kMaxSkinJoints joints is not drawn skinned, so the part stays in bind pose.
+void prepare_skin(const std::string& path, std::shared_ptr<const SkeletonAsset>& skeleton, int node, int primitive,
+                  PreparedPart& part, std::vector<std::string>& warnings) {
+    if (!skeleton) {
+        auto r = load_skeleton(path);
+        if (!r) return;
+        skeleton = *r;
+    }
+    const std::size_t vertexCount = part.verts.size();
+    for (const SkinVertices& sv : skeleton->skinVertices) {
+        if (sv.node != node || sv.primitive != primitive || sv.joints.size() != vertexCount) continue;
+        const std::size_t joints = skeleton->skins[std::size_t(sv.skin)].joints.size();
+        if (joints > std::size_t(kMaxSkinJoints)) {
+            warnings.push_back(std::format("{}: the skin has {} joints - drawn in bind pose, not animated. Skinning supports skins "
+                                           "with at most {} joints; re-export the model with fewer joints.", path, joints, kMaxSkinJoints));
+            return;
+        }
+        part.skin.resize(vertexCount);
+        for (std::size_t i = 0; i < vertexCount; ++i)
+            for (std::size_t k = 0; k < 4; ++k) {
+                part.skin[i].joints[k] = std::uint8_t(sv.joints[i][k]);
+                part.skin[i].weights[k] = sv.weights[i][k];
+            }
+        part.skinIndex = sv.skin;
+        return;
+    }
+}
+
+}  // namespace
+
+bool decode_gltf(const std::string& path, const std::uint8_t* bytes, std::size_t size, PreparedMesh& out, std::string& error) {
+    cgltf_options opts{};
+    gltf_use_fs(opts);
+    cgltf_data* data = nullptr;
+    cgltf_result r = cgltf_parse(&opts, bytes, size, &data);
+    if (r != cgltf_result_success) {
+        error = std::format("cgltf could not parse '{}' (error code {}). The file must be a valid glTF 2.0 (.gltf or .glb) file.", path, int(r));
+        return false;
+    }
+    struct Guard { cgltf_data* d; ~Guard() { cgltf_free(d); } } guard{data};
+    r = cgltf_load_buffers(&opts, data, path.c_str());
+    if (r != cgltf_result_success) {
+        error = std::format("cannot load the buffers referenced by '{}' (cgltf error {}). External .bin files must sit next to the .gltf and be inside the project.", path, int(r));
+        return false;
+    }
+    const std::string dir = fs::parent(path);
+    std::shared_ptr<const SkeletonAsset> skeleton;
+    out.bmin = {1e30f, 1e30f, 1e30f};
+    out.bmax = {-1e30f, -1e30f, -1e30f};
+    for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
+        const cgltf_node& node = data->nodes[ni];
+        if (!node.mesh) continue;
+        Mat4 world;
+        cgltf_node_transform_world(&node, world.m);
+        // glTF: the transform of a skinned mesh node is ignored (the joints place the mesh); it is drawn in bind pose.
+        // A rigid part keeps its node transform: the importer's rigid skin (skeleton.cpp) moves it with its animated node.
+        if (node.skin) world = Mat4::identity();
+        Mat4 normalMat = world.inverse().transposed();
+        for (cgltf_size pi = 0; pi < node.mesh->primitives_count; ++pi) {
+            const cgltf_primitive& prim = node.mesh->primitives[pi];
+            if (prim.type != cgltf_primitive_type_triangles) {
+                out.warnings.push_back(std::format("{}: mesh '{}' primitive {} uses a non-triangle mode; skipped", path,
+                                                   node.mesh->name ? node.mesh->name : "?", pi));
+                continue;
+            }
+            PreparedPart part;
+            if (!read_primitive(prim, world, normalMat, part.verts, part.idx)) continue;
+            compute_bounds(part.verts, part.material.bmin, part.material.bmax);
+            prepare_material(prim.material, dir, part);
+            prepare_skin(path, skeleton, int(ni), int(pi), part, out.warnings);
+            out.bmin = min(out.bmin, part.material.bmin);
+            out.bmax = max(out.bmax, part.material.bmax);
+            out.parts.push_back(std::move(part));
+        }
+    }
+    if (out.parts.empty()) {
+        error = std::format("'{}' contains no triangle meshes", path);
+        return false;
+    }
+    return true;
+}
+
 class MeshLoader {
 public:
     MeshLoader(Assets& assets) : assets_(assets) {}
@@ -216,229 +453,71 @@ public:
             error = bytes.error().message;
             return false;
         }
-        cgltf_options opts{};
-        gltf_use_fs(opts);
-        cgltf_data* data = nullptr;
-        cgltf_result r = cgltf_parse(&opts, bytes->data(), bytes->size(), &data);
-        if (r != cgltf_result_success) {
-            error = std::format("cgltf could not parse '{}' (error code {}). The file must be a valid glTF 2.0 (.gltf or .glb) file.", path, int(r));
-            return false;
-        }
-        struct Guard { cgltf_data* d; ~Guard() { cgltf_free(d); } } guard{data};
-        r = cgltf_load_buffers(&opts, data, path.c_str());
-        if (r != cgltf_result_success) {
-            error = std::format("cannot load the buffers referenced by '{}' (cgltf error {}). External .bin files must sit next to the .gltf and be inside the project.", path, int(r));
-            return false;
-        }
-        std::string dir = fs::parent(path);
-        out.bmin = {1e30f, 1e30f, 1e30f};
-        out.bmax = {-1e30f, -1e30f, -1e30f};
-        for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
-            const cgltf_node& node = data->nodes[ni];
-            if (!node.mesh) continue;
-            Mat4 world;
-            cgltf_node_transform_world(&node, world.m);
-            // glTF: the transform of a skinned mesh node is ignored (the joints place the mesh); it is drawn in bind pose.
-            // A rigid part keeps its node transform: the importer's rigid skin (skeleton.cpp) moves it with its animated node.
-            if (node.skin) world = Mat4::identity();
-            Mat4 normalMat = world.inverse().transposed();
-            for (cgltf_size pi = 0; pi < node.mesh->primitives_count; ++pi) {
-                const cgltf_primitive& prim = node.mesh->primitives[pi];
-                if (prim.type != cgltf_primitive_type_triangles) {
-                    FA_WARN("render", "{}: mesh '{}' primitive {} uses a non-triangle mode; skipped", path,
-                            node.mesh->name ? node.mesh->name : "?", pi);
-                    continue;
-                }
-                std::vector<MeshVertex> verts;
-                std::vector<std::uint32_t> idx;
-                if (!read_primitive(prim, world, normalMat, verts, idx)) continue;
-                SubMesh sm = upload_submesh(verts, idx, path.c_str());
-                apply_material(prim.material, dir, data, sm);
-                attach_skin(path, int(ni), int(pi), verts.size(), sm);
-                out.bmin = min(out.bmin, sm.bmin);
-                out.bmax = max(out.bmax, sm.bmax);
-                out.parts.push_back(sm);
-            }
-        }
-        if (out.parts.empty()) {
-            error = std::format("'{}' contains no triangle meshes", path);
-            return false;
-        }
+        PreparedMesh prepared;
+        if (!decode_gltf(path, bytes->data(), bytes->size(), prepared, error)) return false;
+        upload(path, prepared, out);
         return true;
     }
 
+    // Main thread: the GPU buffers and textures of a decoded model. Returns the GPU bytes it uploaded (its buffers and its
+    // embedded images; image files are textures of their own).
+    std::uint64_t upload(const std::string& path, PreparedMesh& p, MeshAsset& out) {
+        for (const std::string& w : p.warnings) FA_WARN("render", "{}", w);
+        std::uint64_t bytes = 0;
+        for (PreparedPart& part : p.parts) {
+            SubMesh sm = upload_submesh(part.verts, part.idx, path.c_str());
+            bytes += part.verts.size() * sizeof(MeshVertex) + part.idx.size() * sizeof(std::uint32_t);
+            const SubMesh& m = part.material;
+            sm.materialName = m.materialName;
+            sm.baseColor = m.baseColor;
+            sm.normalScale = m.normalScale;
+            sm.occlusionStrength = m.occlusionStrength;
+            sm.hasPbr = m.hasPbr;
+            sm.metallic = m.metallic;
+            sm.roughness = m.roughness;
+            sm.emissiveFactor = m.emissiveFactor;
+            sm.doubleSided = m.doubleSided;
+            sm.blended = m.blended;
+            // The order a load on first use looks them up in: base color, metallic-roughness, normal, occlusion, emissive.
+            sm.texture = texture(part.base);
+            sm.mrTex = texture(part.metalRough);
+            sm.normalTex = texture(part.normal);
+            sm.occlusionTex = texture(part.occlusion);
+            sm.emissiveTex = texture(part.emissive);
+            if (!part.skin.empty()) {
+                sg_buffer_desc bd{};
+                bd.data = {part.skin.data(), part.skin.size() * sizeof(SkinVertex)};
+                bd.label = "skin";
+                sm.skinVb = sg_make_buffer(&bd);
+                sm.skin = part.skinIndex;
+                bytes += part.skin.size() * sizeof(SkinVertex);
+            }
+            out.parts.push_back(sm);
+        }
+        out.bmin = p.bmin;
+        out.bmax = p.bmax;
+        return bytes + embeddedBytes_;
+    }
+
 private:
-    // Gives a part of a skinned glTF node its joints and weights (vertex buffer 2). Each part is drawn with the
-    // palette of its own skin; a skin with more than kMaxSkinJoints joints is not drawn skinned, so the part stays in bind pose.
-    void attach_skin(const std::string& path, int node, int primitive, std::size_t vertexCount, SubMesh& sm) {
-        if (!skeleton_) {
-            auto r = load_skeleton(path);
-            if (!r) return;
-            skeleton_ = *r;
-        }
-        for (const SkinVertices& sv : skeleton_->skinVertices) {
-            if (sv.node != node || sv.primitive != primitive || sv.joints.size() != vertexCount) continue;
-            const std::size_t joints = skeleton_->skins[std::size_t(sv.skin)].joints.size();
-            if (joints > std::size_t(kMaxSkinJoints)) {
-                FA_WARN("render", "{}: the skin has {} joints - drawn in bind pose, not animated. Skinning supports skins with at most "
-                                  "{} joints; re-export the model with fewer joints.", path, joints, kMaxSkinJoints);
-                return;
+    TextureAsset* texture(PreparedTextureRef& r) {
+        switch (r.kind) {
+            case PreparedTextureRef::Kind::None: return nullptr;
+            case PreparedTextureRef::Kind::Path: return assets_.texture(r.path);
+            case PreparedTextureRef::Kind::Image: {
+                TextureAsset* t = assets_.make_texture(r.name, r.image, true);
+                embeddedBytes_ += t->bytes;
+                return t;
             }
-            std::vector<SkinVertex> v(vertexCount);
-            for (std::size_t i = 0; i < vertexCount; ++i)
-                for (std::size_t k = 0; k < 4; ++k) {
-                    v[i].joints[k] = std::uint8_t(sv.joints[i][k]);
-                    v[i].weights[k] = sv.weights[i][k];
-                }
-            sg_buffer_desc bd{};
-            bd.data = {v.data(), v.size() * sizeof(SkinVertex)};
-            bd.label = "skin";
-            sm.skinVb = sg_make_buffer(&bd);
-            sm.skin = sv.skin;
-            return;
-        }
-    }
-
-    std::shared_ptr<const SkeletonAsset> skeleton_;
-
-    bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& normalMat,
-                        std::vector<MeshVertex>& verts, std::vector<std::uint32_t>& idx) {
-        const cgltf_accessor *pos = nullptr, *nrm = nullptr, *uv = nullptr, *tng = nullptr, *col = nullptr;
-        for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
-            const cgltf_attribute& at = prim.attributes[a];
-            if (at.type == cgltf_attribute_type_position && at.index == 0) pos = at.data;
-            else if (at.type == cgltf_attribute_type_normal && at.index == 0) nrm = at.data;
-            else if (at.type == cgltf_attribute_type_texcoord && at.index == 0) uv = at.data;
-            else if (at.type == cgltf_attribute_type_tangent && at.index == 0 && at.data->type == cgltf_type_vec4) tng = at.data;
-            else if (at.type == cgltf_attribute_type_color && at.index == 0 && (at.data->type == cgltf_type_vec3 || at.data->type == cgltf_type_vec4))
-                col = at.data;  // COLOR_0: multiplies the base color (rgb or rgba, floats or normalized integers)
-        }
-        if (!pos) return false;
-        verts.resize(pos->count);
-        for (cgltf_size i = 0; i < pos->count; ++i) {
-            float p[3] = {0, 0, 0};
-            cgltf_accessor_read_float(pos, i, p, 3);
-            Vec3 wp = world.transform_point({p[0], p[1], p[2]});
-            MeshVertex& v = verts[i];
-            v.px = wp.x; v.py = wp.y; v.pz = wp.z;
-            float n[3] = {0, 1, 0};
-            if (nrm) cgltf_accessor_read_float(nrm, i, n, 3);
-            Vec3 wn = normalize(normalMat.transform_dir({n[0], n[1], n[2]}));
-            v.nx = wn.x; v.ny = wn.y; v.nz = wn.z;
-            float t[2] = {0, 0};
-            if (uv) cgltf_accessor_read_float(uv, i, t, 2);
-            v.u = t[0]; v.v = t[1];
-            float tn[4] = {1, 0, 0, 1};
-            if (tng) cgltf_accessor_read_float(tng, i, tn, 4);
-            Vec3 wt = normalize(world.transform_dir({tn[0], tn[1], tn[2]}));
-            v.tx = wt.x; v.ty = wt.y; v.tz = wt.z; v.tw = tn[3] < 0.0f ? -1.0f : 1.0f;
-            if (col) {
-                float c[4] = {1, 1, 1, 1};
-                cgltf_accessor_read_float(col, i, c, col->type == cgltf_type_vec3 ? 3 : 4);
-                v.color = pack_vertex_color(c[0], c[1], c[2], c[3]);
-            }
-        }
-        if (prim.indices) {
-            idx.resize(prim.indices->count);
-            for (cgltf_size i = 0; i < prim.indices->count; ++i) idx[i] = std::uint32_t(cgltf_accessor_read_index(prim.indices, i));
-        } else {
-            idx.resize(pos->count);
-            for (cgltf_size i = 0; i < pos->count; ++i) idx[i] = std::uint32_t(i);
-        }
-        // Negative-determinant node transforms mirror the mesh: flip winding to keep faces outward.
-        Vec3 c0{world.at(0, 0), world.at(0, 1), world.at(0, 2)};
-        Vec3 c1{world.at(1, 0), world.at(1, 1), world.at(1, 2)};
-        Vec3 c2{world.at(2, 0), world.at(2, 1), world.at(2, 2)};
-        const bool mirrored = dot(cross(c0, c1), c2) < 0.0f;
-        if (mirrored) {
-            for (std::size_t i = 0; i + 2 < idx.size(); i += 3) std::swap(idx[i + 1], idx[i + 2]);
-            for (auto& v : verts) v.tw = -v.tw;
-        }
-        if (!nrm) generate_normals(verts, idx);
-        if (!tng) generate_tangents(verts, idx);
-        return !idx.empty();
-    }
-
-    static void generate_normals(std::vector<MeshVertex>& v, const std::vector<std::uint32_t>& idx) {
-        for (auto& x : v) x.nx = x.ny = x.nz = 0;
-        for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
-            MeshVertex &a = v[idx[i]], &b = v[idx[i + 1]], &c = v[idx[i + 2]];
-            Vec3 n = cross(Vec3{b.px - a.px, b.py - a.py, b.pz - a.pz}, Vec3{c.px - a.px, c.py - a.py, c.pz - a.pz});
-            for (MeshVertex* m : {&a, &b, &c}) { m->nx += n.x; m->ny += n.y; m->nz += n.z; }
-        }
-        for (auto& x : v) {
-            Vec3 n = normalize(Vec3{x.nx, x.ny, x.nz});
-            if (length_sq(n) < 0.5f) n = {0, 1, 0};
-            x.nx = n.x; x.ny = n.y; x.nz = n.z;
-        }
-    }
-
-    void apply_material(const cgltf_material* mat, const std::string& dir, const cgltf_data* data, SubMesh& sm) {
-        if (!mat) return;
-        if (mat->name) sm.materialName = mat->name;
-        sm.doubleSided = mat->double_sided;
-        sm.blended = mat->alpha_mode == cgltf_alpha_mode_blend;
-        if (mat->has_pbr_metallic_roughness) {
-            const auto& pbr = mat->pbr_metallic_roughness;
-            sm.baseColor = Color{pbr.base_color_factor[0], pbr.base_color_factor[1], pbr.base_color_factor[2], pbr.base_color_factor[3]};
-            const cgltf_texture* tex = pbr.base_color_texture.texture;
-            if (tex && tex->image) sm.texture = image_texture(*tex->image, dir, data);
-            sm.hasPbr = true;
-            sm.metallic = pbr.metallic_factor;
-            sm.roughness = pbr.roughness_factor;
-            const cgltf_texture* mr = pbr.metallic_roughness_texture.texture;
-            if (mr && mr->image) sm.mrTex = image_texture(*mr->image, dir, data);
-        }
-        const cgltf_texture* nt = mat->normal_texture.texture;
-        if (nt && nt->image) {
-            sm.normalTex = image_texture(*nt->image, dir, data);
-            sm.normalScale = mat->normal_texture.scale;
-        }
-        const cgltf_texture* ot = mat->occlusion_texture.texture;
-        if (ot && ot->image) {
-            sm.occlusionTex = image_texture(*ot->image, dir, data);
-            sm.occlusionStrength = mat->occlusion_texture.scale;
-        }
-        const cgltf_texture* et = mat->emissive_texture.texture;
-        if (et && et->image) sm.emissiveTex = image_texture(*et->image, dir, data);
-        float strength = mat->has_emissive_strength ? mat->emissive_strength.emissive_strength : 1.0f;
-        sm.emissiveFactor = Color{mat->emissive_factor[0] * strength, mat->emissive_factor[1] * strength,
-                                  mat->emissive_factor[2] * strength, 1.0f};
-    }
-
-    TextureAsset* image_texture(const cgltf_image& img, const std::string& dir, const cgltf_data* data) {
-        if (img.buffer_view) {
-            const auto* base = static_cast<const std::uint8_t*>(img.buffer_view->buffer->data);
-            auto decoded = decode_image(base + img.buffer_view->offset, img.buffer_view->size);
-            std::string name = std::format("<gltf-embedded:{}>", img.name ? img.name : "image");
-            if (!decoded) {
-                assets_.note_failure("texture", name, decoded.error().message, decoded.error().hint);
+            case PreparedTextureRef::Kind::Missing:
+                if (!r.name.empty()) assets_.note_failure("texture", r.name, r.error, r.hint);
                 return assets_.texture("<missing-embedded-image>");
-            }
-            return assets_.make_texture(name, *decoded, true);
         }
-        if (img.uri) {
-            std::string uri = img.uri;
-            if (uri.rfind("data:", 0) == 0) {
-                auto comma = uri.find(',');
-                if (comma != std::string::npos) {
-                    auto raw = base64_decode(std::string_view(uri).substr(comma + 1));
-                    auto decoded = decode_image(raw.data(), raw.size());
-                    if (decoded) return assets_.make_texture("<gltf-data-uri>", *decoded, true);
-                }
-                return assets_.texture("<missing-embedded-image>");
-            }
-            std::vector<char> buf(uri.begin(), uri.end());
-            buf.push_back('\0');
-            cgltf_decode_uri(buf.data());
-            uri = buf.data();
-            return assets_.texture(dir.empty() ? uri : fs::join(dir, uri));
-        }
-        (void)data;
         return nullptr;
     }
 
     Assets& assets_;
+    std::uint64_t embeddedBytes_ = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -533,12 +612,16 @@ void Assets::clear() {
 TextureAsset* Assets::white() { return white_.get(); }
 
 void Assets::upload_texture(TextureAsset& t, const Image& img, bool mips) {
-    const std::vector<Image> chain = mips ? mip_chain(img) : std::vector<Image>();
+    upload_rgba(t, img, mips ? mip_chain(img) : std::vector<Image>());
+}
+
+// RGBA8 pixels with their mip chain (empty: no mips; chain[0] is not read, mip_chain puts the base there).
+void Assets::upload_rgba(TextureAsset& t, const Image& img, const std::vector<Image>& chain) {
     sg_image_desc d{};
     d.width = img.width;
     d.height = img.height;
     d.pixel_format = SG_PIXELFORMAT_RGBA8;
-    d.num_mipmaps = mips ? int(chain.size()) : 1;
+    d.num_mipmaps = chain.empty() ? 1 : int(chain.size());
     d.data.mip_levels[0] = {img.rgba.data(), img.rgba.size()};
     t.bytes = img.rgba.size();
     for (std::size_t i = 1; i < chain.size(); ++i) {
@@ -556,6 +639,36 @@ void Assets::upload_texture(TextureAsset& t, const Image& img, bool mips) {
     t.format = SG_PIXELFORMAT_RGBA8;
 }
 
+// Uploads transcoded KTX2 levels; false (nothing kept) when the GPU rejects them.
+bool Assets::upload_transcoded(TextureAsset& t, const TranscodedTexture& tex) {
+    sg_image_desc d{};
+    d.width = tex.width;
+    d.height = tex.height;
+    d.pixel_format = tex.format;
+    d.num_mipmaps = int(tex.levels.size());
+    t.bytes = 0;
+    for (std::size_t i = 0; i < tex.levels.size(); ++i) {
+        d.data.mip_levels[i] = {tex.levels[i].data(), tex.levels[i].size()};
+        t.bytes += tex.levels[i].size();
+    }
+    d.label = t.path.c_str();
+    t.image = make_image(d);
+    if (sg_query_image_state(t.image) == SG_RESOURCESTATE_VALID) {
+        sg_view_desc vd{};
+        vd.texture.image = t.image;
+        vd.label = t.path.c_str();
+        t.view = sg_make_view(&vd);
+        t.width = tex.width;
+        t.height = tex.height;
+        t.format = tex.format;
+        return true;
+    }
+    sg_destroy_image(t.image);
+    t.image = {};
+    t.bytes = 0;
+    return false;
+}
+
 // Uploads a KTX2 file in the best format the GPU samples. Falls back to RGBA8 when the driver rejects a compressed one.
 bool Assets::upload_ktx2(TextureAsset& t, const std::vector<std::uint8_t>& file, std::string& error) {
     for (bool compressed : {true, false}) {
@@ -564,34 +677,73 @@ bool Assets::upload_ktx2(TextureAsset& t, const std::vector<std::uint8_t>& file,
             error = tex.error().message;
             return false;
         }
-        sg_image_desc d{};
-        d.width = tex->width;
-        d.height = tex->height;
-        d.pixel_format = tex->format;
-        d.num_mipmaps = int(tex->levels.size());
-        t.bytes = 0;
-        for (std::size_t i = 0; i < tex->levels.size(); ++i) {
-            d.data.mip_levels[i] = {tex->levels[i].data(), tex->levels[i].size()};
-            t.bytes += tex->levels[i].size();
-        }
-        d.label = t.path.c_str();
-        t.image = make_image(d);
-        if (sg_query_image_state(t.image) == SG_RESOURCESTATE_VALID) {
-            sg_view_desc vd{};
-            vd.texture.image = t.image;
-            vd.label = t.path.c_str();
-            t.view = sg_make_view(&vd);
-            t.width = tex->width;
-            t.height = tex->height;
-            t.format = tex->format;
-            return true;
-        }
-        sg_destroy_image(t.image);
-        t.image = {};
+        if (upload_transcoded(t, *tex)) return true;
         if (tex->format == SG_PIXELFORMAT_RGBA8) break;
     }
     error = "the GPU rejected the texture";
     return false;
+}
+
+Result<PreparedTexture> decode_texture_file(const std::string& key, const std::string& file, const std::uint8_t* data,
+                                            std::size_t size, sg_pixel_format ktx2Format) {
+    AssetLoadScope trace("texture", key);  // the decode time (the read was the IO thread's); free without a load trace
+    trace.set_bytes(size);
+    PreparedTexture p;
+    p.key = key;
+    p.file = file;
+    if (fs::extension(file) == kTextureTwinExtension) {
+        auto tex = transcode_ktx2_as(data, size, ktx2Format);
+        if (!tex) return tex.error();
+        p.ktx2 = true;
+        p.transcoded = std::move(*tex);
+        return p;
+    }
+    auto img = decode_image(data, size);
+    if (!img) return img.error();
+    p.chain = mip_chain(*img);
+    p.image = std::move(*img);
+    return p;
+}
+
+std::uint64_t Assets::adopt_texture(PreparedTexture& p, std::vector<std::string> files) {
+    if (p.key.empty() || textures_.count(p.key)) return 0;  // loaded on first use meanwhile: that one stays
+    auto t = std::make_unique<TextureAsset>();
+    t->path = p.key;
+    const bool ok = p.ktx2 ? upload_transcoded(*t, p.transcoded) : (upload_rgba(*t, p.image, p.chain), true);
+    if (!ok) return 0;  // the GPU rejected the compressed format: the load on first use falls back to RGBA8
+    t->untraced = std::move(files);
+    const std::uint64_t bytes = t->bytes;
+    textures_[p.key] = std::move(t);
+    return bytes;
+}
+
+std::uint64_t Assets::adopt_mesh(const std::string& key, PreparedMesh& p, std::vector<std::string> files) {
+    if (key.empty() || meshes_.count(key)) return 0;
+    auto m = std::make_unique<MeshAsset>();
+    m->key = key;
+    meshSources_[key] = key;
+    MeshLoader loader(*this);
+    const std::uint64_t bytes = loader.upload(key, p, *m);
+    m->untraced = std::move(files);
+    meshes_[key] = std::move(m);
+    return bytes;
+}
+
+// The first use of an asset loaded in the background: its files enter the load order now, where a load on first use would
+// have read them (fa/core/load_trace.h). Not while reading ahead (a model's upload looks its textures up).
+void Assets::report_first_use(TextureAsset& t) {
+    if (LoadTrace::current_ahead_tag() != 0) return;
+    for (const std::string& f : t.untraced) LoadTrace::file_used(f);
+    t.untraced.clear();
+}
+
+void Assets::report_first_use(MeshAsset& m) {
+    if (LoadTrace::current_ahead_tag() != 0) return;
+    for (const std::string& f : m.untraced) LoadTrace::file_used(f);
+    m.untraced.clear();
+    for (SubMesh& part : m.parts)
+        for (TextureAsset* t : {part.texture, part.mrTex, part.normalTex, part.occlusionTex, part.emissiveTex})
+            if (t && !t->untraced.empty()) report_first_use(*t);
 }
 
 void Assets::use_placeholder(TextureAsset& t) {
@@ -813,8 +965,21 @@ TextureAsset* Assets::texture(const std::string& path) {
     std::string key = fs::normalize(path);
     if (key.empty()) key = path;
     auto it = textures_.find(key);
-    if (it != textures_.end()) return it->second.get();
-    return load_texture(key);
+    if (it != textures_.end()) {
+        if (!it->second->untraced.empty()) report_first_use(*it->second);
+        return it->second.get();
+    }
+    if (LoadTrace::current_ahead_tag() == 0) return load_texture(key);
+    // Loaded while a background load adopts a model (its texture was not prepared on its own): the files it reads are
+    // reported at its first use, like those of a prepared texture.
+    std::vector<std::string> files;
+    TextureAsset* t = nullptr;
+    {
+        const LoadTrace::FileCollector collect(&files);
+        t = load_texture(key);
+    }
+    if (t && t != placeholderTex_.get() && !files.empty()) t->untraced = std::move(files);
+    return t;
 }
 
 bool Assets::has_loaded(const std::string& path) const {
@@ -885,7 +1050,10 @@ MeshAsset* Assets::mesh(const std::string& name) {
     if (MeshStore::is_id(name)) return procedural_mesh(name);
     std::string key = name.empty() ? std::string("cube") : name;
     auto it = meshes_.find(key);
-    if (it != meshes_.end()) return it->second.get();
+    if (it != meshes_.end()) {
+        if (!it->second->untraced.empty()) report_first_use(*it->second);
+        return it->second.get();
+    }
     return load_mesh(key);
 }
 

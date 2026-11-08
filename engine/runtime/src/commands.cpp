@@ -452,10 +452,14 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in "
            "`messages`. `props` (a JSON object) is handed to the new scene's scripts: game.sceneProps() returns it from their first "
            "start(). A reload (scene.reload, hot reload) keeps the props; a scene.load without props gives the scene none. "
+           "`async`: true reads the scene's files in the background first (docs/PERFORMANCE.md, \"Background loading\") and "
+           "answers at once with `loadId`; the switch happens at the end of the frame the files are ready, in the frames the "
+           "game runs (load.status shows the progress, load.cancel stops it). A later scene.load replaces it. "
            "Example: scene.load {\"path\":\"scenes/level2.scene.json\",\"props\":{\"difficulty\":\"hard\"}}",
            parse_schema(R"({"type":"object","required":["path"],"properties":{
                "path":{"type":"string","description":"Project-relative scene path."},
-               "props":{"type":"object","description":"Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {})."}}})"),
+               "props":{"type":"object","description":"Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {})."},
+               "async":{"type":"boolean","default":false,"description":"Read the scene's files in the background and switch once they are ready (answers {async, loadId} at once). Default false: load now (or at the end of the frame)."}}})"),
            false, "scene"},
           [&engine, &I](const Json& a) {
               std::string path = a["path"].get<std::string>();
@@ -465,6 +469,13 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                                      "Use project.info to list scenes.");
               }
               const bool hasProps = a.contains("props") && a["props"].is_object();
+              if (a.value("async", false)) {
+                  auto r = I.start_background_load(BackgroundLoader::Kind::SceneLoad, {path},
+                                                   hasProps ? std::optional<Json>(a["props"]) : std::nullopt,
+                                                   BackgroundLoader::Origin::Tool);
+                  if (!r.ok()) throw CommandError("not_found", r.error().message, r.error().hint);
+                  return Json::object({{"ok", true}, {"async", true}, {"path", path}, {"loadId", r.value()}});
+              }
               if (I.inFrame) {
                   if (hasProps) engine.request_scene_change_with_props(path, a["props"]);
                   else engine.request_scene_change(path);
@@ -526,6 +537,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     register_terrain_commands(engine, I);     // tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
     register_scene_file_commands(engine, I);  // prefab.save, scene.format
     register_play_session_commands(engine, I);  // play.sessions, play.report
+    register_background_load_commands(engine, I);  // scene.preload, assets.preload, load.status, load.cancel
     register_i18n_commands(engine, I);          // i18n.state, i18n.set_language
     register_ui_check_commands(engine, I);      // ui.check_layout
     register_shot_commands(engine, I);          // game.screenshot, render.inspect, render.pick

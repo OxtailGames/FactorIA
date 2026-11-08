@@ -152,8 +152,8 @@ folder: use `fs::`, or the file will be missing from a packed game. A pack (form
 memory-mapped once; elsewhere (32-bit, web, `FA_PACK_MAP=0`) it reads positionally (no shared file offset), so it is safe from
 any thread either way. `fs::read_view(path)` answers an `fs::FileView` instead of a vector: no copy for a file of a mapped
 pack stored as it is (the view keeps the pack mapped while it lives, also after `unmount_pack`), a warm file or an Android
-APK asset (`AAsset_getBuffer`), and an owned buffer otherwise; the background loader (M70.3) will use it, and today's loaders
-still read vectors. A play session's `fa::LoadTrace` (`core/load_trace.h`) hooks into these reads to record each scene's
+APK asset (`AAsset_getBuffer`), and an owned buffer otherwise; the background loader's texture, model and font reads use it,
+and the other loaders still read vectors. A play session's `fa::LoadTrace` (`core/load_trace.h`) hooks into these reads to record each scene's
 first-use order and the `loading` section of `play.report`; with no trace alive the hooks cost one atomic load. A trace
 belongs to its engine, not to a thread: `Engine` marks its entry points with `LoadTrace::ReadingFor(this)`, so two engines in
 one process (the editor's and an in-process `play.auto`) never record each other's reads, the editor's own reads (panels,
@@ -331,6 +331,45 @@ the pictures and the statistics, and checks on the profiler that each pass was c
 worker count (which thread ran a chunk depends on timing, so the test only reports it).
 engine/scene/tests/test_animation.cpp does the same for 300 animators, and the ctest `example_jobs_same_frames`
 compares example scenes drawn by two processes with `FA_JOB_THREADS=inline` and `8`.
+
+### Background loading
+`scene.preload`, `assets.preload` and `scene.load {async: true}` (docs/PERFORMANCE.md, "Background loading") read and decode
+files while frames run. The pieces and who owns what:
+
+- **`fa::IoQueue`** (`core/background_io.h`): each Engine owns one, made with its `jobs::Owner` and its `LoadTrace` owner. One
+  **IO thread for the whole process** serves every queue in turn (round robin, one file at a time), so two engines that load
+  at once both move on and never see each other's items. It starts with the first item of a threaded queue (the pool has at
+  least one worker) and ends with the last queue; a game that never loads in the background has no IO thread. An item is a
+  READ (on the IO thread, through `fa::fs`) then a DECODE (a job of the queue's owner). Its result waits until the main
+  thread `take()`s it; `take()` of an item the IO thread has not started does it at once on the calling thread, so it never
+  waits behind other files and never deadlocks, also with 0 workers. Without workers there is no IO thread and `take()`
+  does the read and the decode itself: the result is the same either way.
+- **`fa::BackgroundLoader`** (`runtime/src/background_loader.h`, main thread only): the jobs of one Engine. A job's first
+  item (the SCAN) reads the scene and the text files it names into `fs`'s warm set and lists the binary files; then one item
+  per binary file: the renderer decodes a texture, model or font off the main thread (`Renderer::background_*`) and the
+  main thread uploads it; audio decodes a sound (`Audio::decode_clip`) and the main thread adopts it. `tick()` runs once per
+  frame, before the scripts' platform callbacks, and takes items in a fixed order (round after round, one item of each job
+  in start order) within the frame's budget: exactly N items (tests, headless runs, the editor, replays: the same frames on
+  any machine and any pool), or the items that are ready within `loadBudgetMs`/`uploadBudgetMB` (a game with a window: a
+  prefix of the same order, whose length a recording keeps as `"loadUnits"`). An async scene load whose files are ready
+  becomes the frame's pending scene change (`apply_scene_change` at the end of the frame); a scene change asked meanwhile
+  cancels it.
+- **Lifetime**: a cancelled job's queued items become orphans the loader frees once the IO thread let go of them; a decode
+  still running finishes on its worker and is dropped. `Engine::shutdown` stops the loader (`cancel_all`: the IO thread lets
+  go of this engine's files), then waits for its jobs owner (the decodes still running), then destroys the loader; nothing
+  of a load outlives its engine.
+- **The warm set is the process's** (`fs::warm`, keyed by path), and the loaders of every engine count their references
+  to each file in one registry (`background_loader.cpp`): a reference per item that read the file (taken before it is
+  warmed), then one per job or finished load that holds it. `fs::unwarm` runs when the last reference goes, so two engines
+  that load the same file share one copy and one engine's cancel, finish or `background_loads_reset` (a script test file
+  starting afresh) never drops a file the other read ahead.
+- **Script loads die with their context**: `ScriptHost::drop_script_background_loads` (called with `drop_script_jobs` when
+  the JavaScript context is created or closed) cancels the loads a script started, an async scene load's pending switch
+  included, and drops their updates, so none reaches a handle that is gone. A cancel in the frame a load's files became
+  ready still stops its switch: the pending scene change keeps the load's id.
+- **Load trace**: reads run in `LoadTrace::ReadingFor(owner, tag)`, which counts them in the totals and the async load's
+  entry but enters a file into the first-use order only at `LoadTrace::file_used` (a warm file read through `fs`, or the
+  renderer and audio adopting a prepared asset on first use), so an async load records what a sync load records.
 
 ### Coordinates & units
 Right-handed, +Y up, angles in degrees, colors 0..1. 2D world units = design

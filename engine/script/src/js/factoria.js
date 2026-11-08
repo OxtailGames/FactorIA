@@ -1799,37 +1799,48 @@
     },
   };
 
-  // scene.preload / assets.preload: a handle for a job the engine advances a little every frame (script_system.cpp
-  // dispatch_platform -> preloadDeliver). The numbers only change between frames, so a script sees the same values in a test
-  // on any machine.
+  // scene.preload / assets.preload / scene.load(path, props, {async: true}): a handle for a background load the engine
+  // advances every frame (engine/runtime/src/background_loader.h; engine.cpp tick_background_loads -> preloadDeliver). The
+  // numbers only change between frames, and a test or headless run takes a fixed share per frame, so a script sees the same
+  // values on any machine.
   const preloadJobs = new Map();  // job id -> handle state
   class Preload {
     constructor(id, label) {
       this.$id = id;
       this.$label = label;
-      this.$progress = 0; this.$done = false; this.$files = 0; this.$bytes = 0; this.$error = "";
+      this.$progress = 0; this.$done = false; this.$files = 0; this.$total = 1; this.$bytes = 0; this.$uploaded = 0;
+      this.$error = ""; this.$cancelled = false;
       this.promise = new Promise((resolve, reject) => { this.$resolve = resolve; this.$reject = reject; });
       this.promise.catch(() => {});  // a script that only polls `done` is not reported for a failure it can read in `error`
     }
-    /** How much of the work is done, 0..1. Grows by whole files; 1 when `done`. */
+    /** How much of the work is done, 0..1. Never goes down; 1 once `done` without an error. */
     get progress() { return this.$progress; }
-    /** True once everything is read (or the job failed: see `error`). */
+    /** True once everything is loaded, or the job failed (see `error`) or was cancelled (see `cancelled`). */
     get done() { return this.$done; }
-    /** Files read so far (the scene counts as one). */
+    /** Items loaded so far: the scan of the scene (or the listed files) counts as one, then one per texture, model, font, sound or other file. */
     get files() { return this.$files; }
+    /** Items in the job (1 until the scan is done, then the real count). */
+    get total() { return this.$total; }
     /** Bytes read so far. */
     get bytes() { return this.$bytes; }
+    /** Bytes uploaded to the GPU so far (textures and models). */
+    get uploadedBytes() { return this.$uploaded; }
     /** Why the job failed, or "". */
     get error() { return this.$error; }
-    /** Gives the files that nobody has read yet back (and stops a job that is still running; its Promise rejects). */
-    release() {
+    /** True when the job was cancelled (cancel(), release(), or a newer scene load replaced an async one). */
+    get cancelled() { return this.$cancelled; }
+    /** Stops the job now: its Promise rejects with "cancelled" and the files it read ahead are dropped. An async scene load does not switch, also in the frame its files were ready. */
+    cancel() { this.$stop("cancelled"); }
+    /** Gives the files read ahead back: stops a job still running (like cancel()), or drops a finished job's files now. */
+    release() { this.$stop("released before it finished"); }
+    $stop(why) {
       N.preloadRelease(this.$id);
       preloadJobs.delete(this.$id);
-      if (!this.$done) { this.$done = true; this.$error = "released before it finished"; this.$reject(new Error(`${this.$label}: ${this.$error}`)); }
+      if (!this.$done) { this.$done = true; this.$cancelled = true; this.$error = why; this.$reject(new Error(`${this.$label}: ${why}`)); }
     }
   }
-  function preloadStart(kind, arg, label) {
-    const r = N.preloadStart(kind, arg);
+  function preloadStart(kind, arg, label, props) {
+    const r = N.preloadStart(kind, arg, props);
     if (r.mistake) {
       const e = new Error(r.mistake.message);
       e.hint = r.mistake.hint || "";
@@ -1843,19 +1854,26 @@
     for (const u of updates) {
       const h = preloadJobs.get(u.id);
       if (!h) continue;
-      h.$progress = u.total > 0 ? Math.min(1, u.done / u.total) : 1;
-      h.$files = u.done; h.$bytes = u.bytes;
+      h.$total = u.total;
+      h.$progress = Math.max(h.$progress, u.total > 0 ? Math.min(1, u.done / u.total) : 1);
+      h.$files = u.done; h.$bytes = u.bytes; h.$uploaded = u.uploadedBytes || 0;
       if (!u.finished) continue;
       preloadJobs.delete(u.id);
       h.$done = true;
-      if (u.error) {
+      if (u.cancelled) {
+        h.$cancelled = true;
+        h.$error = u.error || "cancelled";
+        const e = new Error(`${h.$label}: ${h.$error}` + (u.hint ? ` (hint: ${u.hint})` : ""));
+        e.hint = u.hint || "";
+        h.$reject(e);
+      } else if (u.error) {
         h.$error = u.error;
         const e = new Error(`${h.$label} failed: ${u.error}` + (u.hint ? ` (hint: ${u.hint})` : ""));
         e.hint = u.hint || "";
         h.$reject(e);
       } else {
         h.$progress = 1;
-        h.$resolve({ files: h.$files, bytes: h.$bytes });
+        h.$resolve({ files: h.$files, bytes: h.$bytes, uploadedBytes: h.$uploaded });
       }
     }
   }
@@ -2004,8 +2022,26 @@
       if (typeof path !== "string" || path === "") throw new Error(`scene.preload(path) expects a scene path such as "scenes/level1.scene.json", got ${inspect(path)}`);
       return preloadStart(0, path, `scene.preload(${JSON.stringify(path)})`);
     },
-    // load(path, props?): props is a plain object the new scene's scripts read with game.sceneProps() from their first start().
-    load(path, props) { N.requestScene(path, props); },
+    // load(path, props?, options?): props is a plain object the new scene's scripts read with game.sceneProps() from their
+    // first start(). options.async: true reads the scene's files in the background first and switches at the end of the
+    // frame they are ready (a frame never waits for a file); it returns the load's handle (progress, done, cancel(), promise).
+    load(path, props, options) {
+      if (options !== undefined && options !== null) {
+        if (typeof options !== "object" || Array.isArray(options)) throw new Error(`scene.load(path, props, options): \`options\` must be an object such as {async: true}, got ${inspect(options)}`);
+        for (const k of Object.keys(options)) {
+          if (k === "async") continue;
+          const sug = closest(k, ["async"]);
+          throw new Error(`scene.load: \`options.${k}\` is not an option.${sug ? ` Did you mean \`${sug}\`?` : ""} Allowed: async.`);
+        }
+        if (options.async !== undefined && typeof options.async !== "boolean") throw new Error(`scene.load: \`options.async\` must be true or false, got ${inspect(options.async)}`);
+        if (options.async) {
+          if (typeof path !== "string" || path === "") throw new Error(`scene.load(path, props, {async: true}) expects a scene path such as "scenes/level1.scene.json", got ${inspect(path)}`);
+          if (props !== undefined && props !== null && (typeof props !== "object" || Array.isArray(props))) throw new Error(`scene.load(path, props, {async: true}): \`props\` must be a plain object (or null), got ${inspect(props)}`);
+          return preloadStart(2, path, `scene.load(${JSON.stringify(path)}, {async: true})`, props === undefined || props === null ? undefined : plain(props));
+        }
+      }
+      N.requestScene(path, props);
+    },
     reload() { N.requestScene(""); },
     get current() { return N.scenePath(); },
     get generation() { return N.sceneGeneration(); },

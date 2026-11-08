@@ -17,6 +17,30 @@ Create a chain of Bone2D entities along points, under a parent.
 | `names` | array | no | One name per bone (points - 1). |
 | `prefix` | string | no | Name prefix when `names` is not given. Default "bone". |
 
+## `load.cancel` (modifies state)
+
+Not released yet (on main after 0.18.0).
+
+Stop a background load, or drop the files a finished one read ahead.
+
+A running load stops: what it decoded is thrown away, an async scene.load does not switch, and a script's handle rejects with "cancelled" in the next frame. A finished load's files read ahead are dropped now, and an async scene.load whose files were ready this frame does not switch at its end. Answers {id, cancelled}. Example: load.cancel {"id":1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | integer | yes | The loadId to stop. |
+
+## `load.status`
+
+Not released yet (on main after 0.18.0).
+
+Show the background loads: progress, items, bytes, errors.
+
+With `id`: that load (from scene.preload, assets.preload, scene.load {async:true}, or a script's handle). Without: {jobs, threaded, warmBytes}, the loads that run and the last 16 that ended. A load is {id, kind, paths, origin (script|tool), state (scanning|loading|done|failed|cancelled), progress (0..1, never goes down), items {done, total} (the scan counts as one), bytes, uploadedBytes, error?, hint?}. `threaded` is false when the job pool has no worker thread: the files are then read on the main thread, a share per frame. Example: load.status {"id":1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | integer | no | A loadId. Default: every running and recent load. |
+
 ## `prefab.save` (modifies state)
 
 Save an entity of the running world, with its children, as a prefab file.
@@ -116,12 +140,25 @@ Filters: name (substring, case-insensitive), tag (exact), component (name). limi
 
 Replace the running scene with a scene file.
 
-Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in `messages`. `props` (a JSON object) is handed to the new scene's scripts: game.sceneProps() returns it from their first start(). A reload (scene.reload, hot reload) keeps the props; a scene.load without props gives the scene none. Example: scene.load {"path":"scenes/level2.scene.json","props":{"difficulty":"hard"}}
+Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in `messages`. `props` (a JSON object) is handed to the new scene's scripts: game.sceneProps() returns it from their first start(). A reload (scene.reload, hot reload) keeps the props; a scene.load without props gives the scene none. `async`: true reads the scene's files in the background first (docs/PERFORMANCE.md, "Background loading") and answers at once with `loadId`; the switch happens at the end of the frame the files are ready, in the frames the game runs (load.status shows the progress, load.cancel stops it). A later scene.load replaces it. Example: scene.load {"path":"scenes/level2.scene.json","props":{"difficulty":"hard"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Project-relative scene path. |
 | `props` | object | no | Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {}). |
+| `async` | boolean | no | Read the scene's files in the background and switch once they are ready (answers {async, loadId} at once). Default false: load now (or at the end of the frame). Default false. |
+
+## `scene.preload` (modifies state)
+
+Not released yet (on main after 0.18.0).
+
+Read a scene's files in the background, so a later scene.load waits for nothing.
+
+Starts a background load of the scene file and everything it uses (prefabs, materials, scripts, models, textures, fonts, sounds): the IO thread reads them and jobs decode them while frames run; each frame the main thread uploads a share to the GPU (docs/PERFORMANCE.md, "Background loading"). Answers at once with `loadId` and the load's status; it advances in the frames the game runs (game.step, play.auto, a running window). The files stay ready until the second scene load after the preload finished (load.cancel drops them earlier). A missing scene is an error with "did you mean". Example: scene.preload {"path":"scenes/level2.scene.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project-relative scene path, e.g. scenes/level2.scene.json. |
 
 ## `scene.reload` (modifies state)
 

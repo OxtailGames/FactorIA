@@ -114,6 +114,10 @@ struct ProjectSettings {
     // environment variable and EngineConfig::jobThreads override it.
     jobs::Settings jobThreads;
     bool jobThreadsSet = false;
+    // "runtime": {"loadBudgetMs", "uploadBudgetMB"}: what a frame of a game with a window may spend on background loading
+    // (the main thread's share: taking finished files and uploading them; docs/PERFORMANCE.md, "Background loading").
+    double loadBudgetMs = 4.0;
+    double uploadBudgetMB = 16.0;
     Json raw;  // the whole file, for fields the engine does not model yet
 
     // The icon file the window of THIS platform shows: `export.<platform>.icon` of the file (windows | macos | linux |

@@ -7,11 +7,13 @@
 
 #include <stb_truetype.h>
 
+#include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/render/builtin_fonts.h"
 #include "fa/core/strings.h"
 #include "fa/core/utf8.h"
 #include "font_internal.h"
+#include "fa/core/load_trace.h"
 #include "render_internal.h"
 #include "text_shaper.h"
 
@@ -53,7 +55,7 @@ struct Fonts::Impl {
     // every frame); upgrade to an LRU when that shows in a profile.
     std::unordered_map<std::string, TextLayout> layouts;
     std::vector<std::string> fallbackKeys;  // Renderer::set_fallback_fonts
-    RichTextStyle style;                    // Renderer::set_rich_text_style; boldFonts keyed by FontFace::key ("builtin" for "")
+    RichTextStyle style;                    // Renderer::set_rich_text_style; boldFonts keyed by FontFace::key (face_key: "builtin" for "")
     std::unordered_set<std::string> warnedRich;  // markup problems already reported (capped)
     int atlasSize = 1024;
     unsigned atlasEpoch = 0;  // counts atlas resets: a layout made across one holds stale UVs
@@ -96,6 +98,17 @@ Fonts::Fonts(Gpu& gpu, Assets& assets) : gpu_(gpu), assets_(assets), impl_(std::
 
 Fonts::~Fonts() { clear(); }
 
+namespace {
+// The cache key of a font: "builtin" for "", a built-in name as it is, a font file by its normalized path, so
+// "./fonts/a.ttf", "fonts//a.ttf" and the path a background load adopted it with (Fonts::adopt) are one face.
+std::string face_key(const std::string& font) {
+    if (font.empty()) return "builtin";
+    if (font == "builtin" || font.rfind("builtin:", 0) == 0) return font;
+    std::string n = fs::normalize(font);
+    return n.empty() ? font : n;
+}
+}  // namespace
+
 void Fonts::clear() {
     if (atlasTex_.view.id) sg_destroy_view(atlasTex_.view);
     if (atlasTex_.image.id) sg_destroy_image(atlasTex_.image);
@@ -117,10 +130,9 @@ void Fonts::set_rich_style(const RichTextStyle& style) {
     if (style == impl_->style) return;
     impl_->style = style;
     for (auto* m : {&impl_->style.boldFonts, &impl_->style.italicFonts}) {
-        if (auto it = m->find(""); it != m->end()) {  // "" names the built-in font
-            (*m)["builtin"] = it->second;
-            m->erase(it);
-        }
+        std::map<std::string, std::string> keyed;  // keyed like the faces (face_key): "" names the built-in font
+        for (const auto& [regular, variant] : *m) keyed[face_key(regular)] = variant;
+        *m = std::move(keyed);
     }
     impl_->layouts.clear();
     impl_->warnedRich.clear();
@@ -161,15 +173,35 @@ FontFace* Fonts::variant_face(FontFace* regular, bool bold, bool italic, bool& b
 }
 
 FontFace* Fonts::load(const std::string& fontIn) {
-    const std::string font = fontIn.empty() ? "builtin" : fontIn;
+    const std::string font = face_key(fontIn);
     auto it = impl_->faces.find(font);
-    if (it != impl_->faces.end()) return it->second.get();
+    if (it != impl_->faces.end()) {
+        FontFace* f = it->second.get();
+        if (!f->untraced.empty() && LoadTrace::current_ahead_tag() == 0) {  // loaded in the background: first use now
+            for (const std::string& file : f->untraced) LoadTrace::file_used(file);
+            f->untraced.clear();
+        }
+        return f;
+    }
     std::unique_ptr<FontFace> f = load_font_face(font);
     f->id = impl_->nextId++;
     if (!f->ok) assets_.note_failure("font", font, f->error, f->hint);
     FontFace* raw = f.get();
     impl_->faces[font] = std::move(f);
     return raw;
+}
+
+bool Fonts::has_face(const std::string& font) const { return impl_->faces.count(face_key(font)) > 0; }
+
+void Fonts::adopt(std::unique_ptr<FontFace> f, std::vector<std::string> files) {
+    if (!f) return;
+    f->key = face_key(f->key);
+    if (impl_->faces.count(f->key)) return;  // loaded on first use meanwhile: that one stays
+    f->id = impl_->nextId++;
+    if (!f->ok) assets_.note_failure("font", f->key, f->error, f->hint);  // as a load on first use reports it
+    f->untraced = std::move(files);
+    const std::string key = f->key;
+    impl_->faces[key] = std::move(f);
 }
 
 FontFace* Fonts::face(const std::string& font) {
