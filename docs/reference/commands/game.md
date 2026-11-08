@@ -106,7 +106,7 @@ Filters: entities (ids), components (names to include), includeDefaults, maxEnti
 
 ## `game.state_hash`
 
-Not released yet (on main after 0.18.0).
+Since 0.19.0.
 
 One 64-bit hash of the whole simulation state: every entity, component and field, the clock and the random generator.
 

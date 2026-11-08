@@ -19,7 +19,7 @@ Create a chain of Bone2D entities along points, under a parent.
 
 ## `load.cancel` (modifies state)
 
-Not released yet (on main after 0.18.0).
+Since 0.19.0.
 
 Stop a background load, or drop the files a finished one read ahead.
 
@@ -31,7 +31,7 @@ A running load stops: what it decoded is thrown away, an async scene.load does n
 
 ## `load.status`
 
-Not released yet (on main after 0.18.0).
+Since 0.19.0.
 
 Show the background loads: progress, items, bytes, errors.
 
@@ -150,7 +150,7 @@ Loads immediately (outside a frame) or at the end of the current frame. Like sce
 
 ## `scene.preload` (modifies state)
 
-Not released yet (on main after 0.18.0).
+Since 0.19.0.
 
 Read a scene's files in the background, so a later scene.load waits for nothing.
 

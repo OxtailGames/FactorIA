@@ -177,7 +177,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.list`](commands/assets.md#assetslist): List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, vfx, other (by file name).
 - [`assets.pack_atlas`](commands/assets.md#assetspack_atlas-modifies-state): Pack a folder of images into one atlas PNG and write the frame table (rect and pivot per frame) that a Sprite's `region` reads. _Since 0.3.0._
 - [`assets.pick`](commands/assets.md#assetspick-modifies-state): Keep the candidate the person chose: it becomes the slot, the others are dropped. _Since 0.18.0._
-- [`assets.preload`](commands/assets.md#assetspreload-modifies-state): Read a list of asset files in the background, ready for their first use. _Not released yet._
+- [`assets.preload`](commands/assets.md#assetspreload-modifies-state): Read a list of asset files in the background, ready for their first use. _Since 0.19.0._
 - [`assets.preview_in_scene`](commands/assets.md#assetspreview_in_scene): See an asset inside a scene of the game: it is placed (a PNG as a Sprite, a .glb as a MeshRenderer) in a private run of the scene and captured at phone and desktop resolutions. _Since 0.16.0._
 - [`assets.preview_sheet`](commands/assets.md#assetspreview_sheet): Look at a sprite sheet the way the game plays it: a labelled grid of its frames (numbers, cell edges, pivot, optional onion skin) plus checks for empty, cut or jumping frames and a loop seam. _Since 0.6.0._
 - [`assets.provenance`](commands/assets.md#assetsprovenance): Show where assets came from: the provenance record of one file, or all of them. _Since 0.1.6._
@@ -386,7 +386,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`game.resume`](commands/game.md#gameresume-modifies-state): Resume the simulation after game.pause.
 - [`game.screenshot`](commands/game.md#gamescreenshot): Capture the game view as a PNG and show it: whole, a magnified region, or a filmstrip of frames.
 - [`game.state`](commands/game.md#gamestate): Dump the game state as JSON: entities, physics, script errors, recent warnings, render stats.
-- [`game.state_hash`](commands/game.md#gamestate_hash): One 64-bit hash of the whole simulation state: every entity, component and field, the clock and the random generator. _Not released yet._
+- [`game.state_hash`](commands/game.md#gamestate_hash): One 64-bit hash of the whole simulation state: every entity, component and field, the clock and the random generator. _Since 0.19.0._
 - [`game.step`](commands/game.md#gamestep-modifies-state): Advance the simulation by N fixed frames (deterministic) and return a state summary.
 - [`input.record`](commands/game.md#inputrecord-modifies-state): Record the input the game receives as an input replay (start / stop). _Since 0.3.0._
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
@@ -408,7 +408,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [jobs](commands/jobs.md)
 
-- [`jobs.info`](commands/jobs.md#jobsinfo): The job system now: worker threads, mode, jobs run and queued last frame, how busy each thread was. _Not released yet._
+- [`jobs.info`](commands/jobs.md#jobsinfo): The job system now: worker threads, mode, jobs run and queued last frame, how busy each thread was. _Since 0.19.0._
 
 ### [material](commands/material.md)
 
@@ -418,9 +418,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 - [`nav.bake`](commands/physics.md#navbake): Bake the NavMesh3D walkable grid from the static 3D colliders and return its stats. _Since 0.3.0._
 - [`nav.find_path`](commands/physics.md#navfind_path): Find a walkable path between two 3D points on the baked NavMesh3D. _Since 0.3.0._
-- [`nav.find_paths`](commands/physics.md#navfind_paths): Find many walkable paths on the baked NavMesh3D in one call (run in parallel on the job threads). _Not released yet._
+- [`nav.find_paths`](commands/physics.md#navfind_paths): Find many walkable paths on the baked NavMesh3D in one call (run in parallel on the job threads). _Since 0.19.0._
 - [`nav.find_tile_path`](commands/physics.md#navfind_tile_path): Find a path over the cells of a Tilemap (or a plain cost grid) with A*. _Since 0.3.0._
-- [`nav.find_tile_paths`](commands/physics.md#navfind_tile_paths): Find many tile paths on one Tilemap (or cost grid) in one call (run in parallel on the job threads). _Not released yet._
+- [`nav.find_tile_paths`](commands/physics.md#navfind_tile_paths): Find many tile paths on one Tilemap (or cost grid) in one call (run in parallel on the job threads). _Since 0.19.0._
 - [`nav.flow_field`](commands/physics.md#navflow_field): Distance field over the cells of a Tilemap (or a plain cost grid) from one or more goal cells. _Since 0.3.0._
 - [`nav.info`](commands/physics.md#navinfo): List the NavMesh3D components with their bounds, agent size, bake state and stats. _Since 0.3.0._
 - [`physics.raycast`](commands/physics.md#physicsraycast): Cast a ray against colliders (2D segment or 3D ray) and return the first hit.
@@ -499,8 +499,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 ### [scene](commands/scene.md)
 
 - [`bones.create`](commands/scene.md#bonescreate-modifies-state): Create a chain of Bone2D entities along points, under a parent. _Since 0.7.0._
-- [`load.cancel`](commands/scene.md#loadcancel-modifies-state): Stop a background load, or drop the files a finished one read ahead. _Not released yet._
-- [`load.status`](commands/scene.md#loadstatus): Show the background loads: progress, items, bytes, errors. _Not released yet._
+- [`load.cancel`](commands/scene.md#loadcancel-modifies-state): Stop a background load, or drop the files a finished one read ahead. _Since 0.19.0._
+- [`load.status`](commands/scene.md#loadstatus): Show the background loads: progress, items, bytes, errors. _Since 0.19.0._
 - [`prefab.save`](commands/scene.md#prefabsave-modifies-state): Save an entity of the running world, with its children, as a prefab file.
 - [`scene.ascii_edit`](commands/scene.md#sceneascii_edit-modifies-state): Edit the ASCII map of a level file (a scene.import_ascii args file) with operations instead of rewriting rows, then rebuild the level. _Since 0.2.0._
 - [`scene.destroy`](commands/scene.md#scenedestroy-modifies-state): Destroy an entity and its children.
@@ -509,7 +509,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`scene.import_ascii`](commands/scene.md#sceneimport_ascii-modifies-state): Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
 - [`scene.list_entities`](commands/scene.md#scenelist_entities): List entities (id, name, tags, components) with optional filters.
 - [`scene.load`](commands/scene.md#sceneload-modifies-state): Replace the running scene with a scene file.
-- [`scene.preload`](commands/scene.md#scenepreload-modifies-state): Read a scene's files in the background, so a later scene.load waits for nothing. _Not released yet._
+- [`scene.preload`](commands/scene.md#scenepreload-modifies-state): Read a scene's files in the background, so a later scene.load waits for nothing. _Since 0.19.0._
 - [`scene.reload`](commands/scene.md#scenereload-modifies-state): Reload the current scene from disk (discards runtime changes).
 - [`scene.remove_component`](commands/scene.md#sceneremove_component-modifies-state): Remove a component from an entity.
 - [`scene.save`](commands/scene.md#scenesave-modifies-state): Save the running world to a scene file (current scene path by default).

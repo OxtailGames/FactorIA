@@ -488,7 +488,7 @@ Answers the review sheet that assets.generate_image {count} made for `slot` (its
 
 ## `assets.preload` (modifies state)
 
-Not released yet (on main after 0.18.0).
+Since 0.19.0.
 
 Read a list of asset files in the background, ready for their first use.
 

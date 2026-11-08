@@ -1115,54 +1115,54 @@ declare module "factoria" {
 
   /**
    * One query of nav.findPaths: the same fields as nav.findPath's arguments, each overriding the default given in findPaths' opts.
-   * @since unreleased
+   * @since 0.19.0
    */
   export interface NavPathQuery {
     /**
      * Start point (the agent's feet), meters.
-     * @since unreleased
+     * @since 0.19.0
      */
     from: Vec3Like;
     /**
      * Goal point, meters.
-     * @since unreleased
+     * @since 0.19.0
      */
     to: Vec3Like;
     /**
      * Agent radius of this query (meters). Default: findPaths' opts.radius, else the NavMesh3D's agentRadius.
-     * @since unreleased
+     * @since 0.19.0
      */
     radius?: number;
     /**
      * How far (meters) a start or goal off the walkable cells is moved onto the nearest one.
-     * @since unreleased
+     * @since 0.19.0
      */
     snap?: number;
     /**
      * Goal unreachable: return a path to the reachable point nearest to it (complete = false).
-     * @since unreleased
+     * @since 0.19.0
      */
     closest?: boolean;
     /**
      * Id of the entity with the NavMesh3D to use.
-     * @since unreleased
+     * @since 0.19.0
      */
     mesh?: string;
   }
 
   /**
    * One query of nav.findTilePaths.
-   * @since unreleased
+   * @since 0.19.0
    */
   export interface NavTileQuery {
     /**
      * Start cell (0-based, row 0 = top).
-     * @since unreleased
+     * @since 0.19.0
      */
     from: NavCell | readonly [number, number];
     /**
      * Goal cell.
-     * @since unreleased
+     * @since 0.19.0
      */
     to: NavCell | readonly [number, number];
   }
@@ -1544,12 +1544,12 @@ declare module "factoria" {
     findTilePath(map: Entity | string | NavGrid | NavTileGrid | NavGrid, from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath;
     /**
      * Many findPath queries in one call, searched in parallel on the job threads (runtime.jobThreads): for a crowd or a planner that asks for dozens of routes in one frame. Returns one NavPath per query, IN THE ORDER YOU ASKED, each exactly what findPath gives for it, and the same whatever the thread count (8 or more queries use the threads, fewer run in order). opts holds the defaults of every query (radius, snap, closest, mesh). Never throws for 'no route'; throws an Error naming the query when one cannot be answered (no baked NavMesh3D, unknown mesh, radius bigger than the mesh was baked for) or when a query is not { from, to }. At most 10000 queries per call. Example: const paths = nav.findPaths(guards.map((g) => ({ from: g.position, to: player.position })), { radius: 0.3 }); paths.forEach((p, i) => { if (p.found) guards[i].target = p.points[1] ?? p.points[0]; });
-     * @since unreleased
+     * @since 0.19.0
      */
     findPaths(queries: readonly NavPathQuery[], opts?: NavPathOptions): NavPath[];
     /**
      * Many findTilePath queries on ONE map in one call, searched in parallel on the job threads; the map is read once (a Tilemap or a plain grid is converted once, not per query; a grid from nav.createGrid is used as it is). Returns one NavTilePath per query in the order you asked, each exactly what findTilePath gives, the same whatever the thread count (8 or more queries use the threads). opts apply to every query. Never throws for 'no route'; throws, naming the query, when the map or a cell is not what the call expects. At most 10000 queries per call. Example: const paths = nav.findTilePaths(grid, walkers.map((w) => ({ from: w.cell, to: market })), { diagonals: true });
-     * @since unreleased
+     * @since 0.19.0
      */
     findTilePaths(map: Entity | string | NavGrid | NavTileGrid, queries: readonly NavTileQuery[], opts?: NavTileOptions): NavTilePath[];
     /**
@@ -3564,7 +3564,7 @@ declare module "factoria" {
     readonly files: number;
     /**
      * Items of the job: 1 until the scan is done, then the real count. progress is files / total.
-     * @since unreleased
+     * @since 0.19.0
      */
     readonly total: number;
     /**
@@ -3574,7 +3574,7 @@ declare module "factoria" {
     readonly bytes: number;
     /**
      * Bytes uploaded to the GPU so far (textures and models; fonts upload their glyphs when first drawn; 0 without a GPU). In a game with a window a frame stops taking files once it uploaded runtime.uploadBudgetMB.
-     * @since unreleased
+     * @since 0.19.0
      */
     readonly uploadedBytes: number;
     /**
@@ -3584,7 +3584,7 @@ declare module "factoria" {
     readonly error: string;
     /**
      * True when the job was cancelled: cancel(), release() before it finished, the load.cancel command, or a newer scene load replaced an async one.
-     * @since unreleased
+     * @since 0.19.0
      */
     readonly cancelled: boolean;
     /**
@@ -3594,7 +3594,7 @@ declare module "factoria" {
     readonly promise: Promise<{ files: number; bytes: number; uploadedBytes: number }>;
     /**
      * Stops the job now: its promise rejects with "cancelled", what it decoded is thrown away and the files it read ahead are dropped. An async scene.load does not switch, also when its files were ready this frame and its promise resolved already (the switch happens at the end of the frame).
-     * @since unreleased
+     * @since 0.19.0
      */
     cancel(): void;
     /**
