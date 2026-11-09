@@ -354,8 +354,9 @@ struct Audio::Impl {
         std::stable_sort(mixOrder.begin(), mixOrder.end(),
                          [&](int a, int b) { return bus[std::size_t(a)].depth > bus[std::size_t(b)].depth; });
         // Everything the callback needs, made here (outside the callback, under the lock): the callback only writes into it.
-        busBuf.resize(bus.size());
-        duckGains.resize(bus.size());
+        // Only grown: a smaller table (set_buses rebuilds from the built-ins first) keeps the buffers it already has.
+        if (busBuf.size() < bus.size()) busBuf.resize(bus.size());
+        if (duckGains.size() < bus.size()) duckGains.resize(bus.size());
         for (std::vector<float>& b : busBuf) b.reserve(kScratchFrames * 2);
         for (std::vector<float>& g : duckGains) g.reserve(kScratchFrames);
         usedScratch.assign(bus.size(), 0);
@@ -1265,8 +1266,9 @@ Json Audio::active_voices() const {
 
 std::vector<VoiceId> Audio::take_ended_voices() {
     std::lock_guard<std::mutex> lk(impl_->mu);
-    std::vector<VoiceId> out;
-    out.swap(impl_->ended);
+    // Copy and clear, not swap: `ended` keeps the capacity build_mix_order reserved, so the callback never allocates for it.
+    std::vector<VoiceId> out(impl_->ended.begin(), impl_->ended.end());
+    impl_->ended.clear();
     return out;
 }
 

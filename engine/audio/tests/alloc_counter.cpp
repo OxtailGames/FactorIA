@@ -51,12 +51,19 @@ namespace audio_test {
 
 std::size_t AllocCounter::count() { return g_count; }
 
-AllocCounter::Scope::Scope() : previous_(g_counting) {
+AllocCounter::Scope::Scope() : previousCounting_(g_counting), previousCount_(g_count) {
     g_counting = true;
     g_count = 0;
 }
 
-AllocCounter::Scope::~Scope() { g_counting = previous_; }
+// An inner scope hands its allocations to the outer one when it ends.
+AllocCounter::Scope::~Scope() {
+    g_counting = previousCounting_;
+    g_count += previousCount_;
+}
+
+void* AllocCounter::allocate_for_test(std::size_t size) { return ::operator new(size); }
+void AllocCounter::release_for_test(void* p) { ::operator delete(p); }
 
 }  // namespace audio_test
 
