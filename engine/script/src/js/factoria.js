@@ -2105,7 +2105,7 @@
       return addListener("app." + event, () => (event === "dayChanged" ? fn(game.today()) : fn()), null);
     },
     // The device the game runs on, to pick a graphics preset: { formFactor: "desktop" | "phone" | "tablet", gpuBackend ("metal",
-    // "d3d11", "glcore", "gles3", or "headless" in headless runs and tests), memoryGB (physical memory), tier:
+    // "d3d11", "glcore", "gles3", "headless" in headless runs and tests, or "unknown" for a backend the engine does not know), memoryGB (physical memory), tier:
     // "low" | "medium" | "high" from the graphics backend and the memory, steamDeck: true on a Steam Deck, handheld: true on a Steam Deck,
     // a phone or a tablet }. Headless runs and tests always read
     // { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false } (tests change it with game.setDevice).

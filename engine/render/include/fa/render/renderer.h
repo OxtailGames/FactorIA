@@ -180,7 +180,8 @@ public:
     static constexpr float kMinRenderScale = 0.25f;
     static constexpr float kMaxRenderScale = 4.0f;
     void set_render_scale(float scale);
-    // The graphics backend in use: "metal", "d3d11", "glcore", "gles3" or "dummy" (what game.device.gpuBackend reports).
+    // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
+    // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();
     int target_width() const;
     int target_height() const;

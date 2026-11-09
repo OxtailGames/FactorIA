@@ -358,7 +358,7 @@ TEST_CASE("templates: every template's tests pass on the engine that factoria te
         fa::ScaffoldOptions opt;
         opt.writeTypings = false;  // types/factoria.d.ts is for editors; the tests do not read it
         auto made = fa::create_project(dir, name, opt);
-        REQUIRE_MESSAGE(made.ok(), made.error().to_string());
+        REQUIRE_MESSAGE(made.ok(), (made.ok() ? std::string() : made.error().to_string()));  // doctest -s builds the message on success too
         {
             fa::cli::SessionOptions so;
             so.gfx = fa::cli::Gfx::None;
@@ -399,7 +399,7 @@ TEST_CASE("play.auto: runs on a project made from each template and writes a ses
         fa::ScaffoldOptions opt;
         opt.writeTypings = false;
         auto made = fa::create_project(dir, name, opt);
-        REQUIRE_MESSAGE(made.ok(), made.error().to_string());
+        REQUIRE_MESSAGE(made.ok(), (made.ok() ? std::string() : made.error().to_string()));  // doctest -s builds the message on success too
         {
             fa::cli::SessionOptions so;
             so.gfx = fa::cli::Gfx::None;
