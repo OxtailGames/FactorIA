@@ -114,8 +114,8 @@ that takes twice the steps in a context twice as large costs four times as much.
 - **Effort.** `effort` (`low` to `max`, per role) is how much the model thinks, and thinking is output at $10 per million.
   The defaults are `medium` for the worker and `xhigh` for the orchestrator.
 - **Tool definitions.** Every step also carries the definitions of the tools the model may call. Offering every command in
-  full is about 870 KB, around 230k tokens, on every step before any conversation (the 372 commands the agent can call on the 0.19.0 engine,
-  measured 2026-11-09; the number grows with each version): that alone is far more than a short task reads. The built-in agent now sends the commands it needs most in full and lists the rest in one line each (see below).
+  full is about 870 KB, around 230k tokens, on every step before any conversation (measured on the 372 commands of the test registry of the 0.19.0 engine, 2026-11-09;
+  the agent reaches about 385 and the number grows with each version): that alone is far more than a short task reads. The built-in agent now sends the commands it needs most in full and lists the rest in one line each (see below).
   Claude Code defers tools by itself.
 - **Clear tasks.** "Add a coin counter on screen" costs less than "make it better": a vague task makes the AI read and try
   more before it acts. Point it at the files and the doc to use (`factoria docs read finishing`).
@@ -138,7 +138,7 @@ bytes, and tokens are bytes divided by 3.75 (an estimate, not a provider count):
 
 | First step of the task | System prompt | Tool definitions | Conversation | Total |
 |---|---|---|---|---|
-| Every command in full (372 tools) | 4.0 KB (1.1k tokens) | 847.3 KB (231.4k tokens) | 0.03 KB | **851.4 KB (232.5k tokens)** |
+| Every command in full (372 tools, the test registry) | 4.0 KB (1.1k tokens) | 847.3 KB (231.4k tokens) | 0.03 KB | **851.4 KB (232.5k tokens)** |
 | Core commands + catalog (41 tools, the catalog is about 37 KB of the system prompt) | 40.7 KB (11.1k tokens) | 59.0 KB (16.1k tokens) | 0.03 KB | **99.7 KB (27.2k tokens)** |
 
 That is 88% less on every step. Over the whole task, the catalog run takes six steps (one more: the describe) and sends

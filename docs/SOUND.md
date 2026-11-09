@@ -463,7 +463,7 @@ velocity, normalization). `assets.synth_sound` renders a preset with `options.se
 
 The mixer that fills the device's buffer (`Audio::Impl::mix_locked`, behind the lock the main thread also takes) allocates nothing
 while it mixes: the per-block flags of every bus, the bus buffers (4096 frames from the moment the bus table is built; a bigger
-device block grows them once, the first time), the ducking gains and the list of ended voices are made when the bus table is
+device block grows them once, the first time; some Android and web devices may ask for more than 4096 frames, and the first such block allocates once), the ducking gains and the list of ended voices are made when the bus table is
 (`build_mix_order`, called by `set_buses`), outside the callback, and the callback only writes into them. A new bus table is
 therefore ready before the next block. Two things still allocate on purpose: recording (`start_recording` appends every block
 to a vector; it is a diagnostic, not part of a shipped game) and the single log line of the first callback after a device starts.

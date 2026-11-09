@@ -55,7 +55,7 @@ TEST_CASE("command schemas: every command of the real registry is closed or expl
     opt.writeTypings = false;
     const std::string dir = (root / "game").string();
     auto made = create_project(dir, "2d-empty", opt);
-    REQUIRE_MESSAGE(made.ok(), made.error().to_string());
+    REQUIRE_MESSAGE(made.ok(), (made.ok() ? std::string() : made.error().to_string()));  // doctest -s builds the message on success too
     {
         cli::SessionOptions so;
         so.gfx = cli::Gfx::None;
