@@ -120,7 +120,8 @@ skills/      the engine's AI skills, baked into the binary
 schemas/     JSON schemas for the project, ENGINE_FEEDBACK and AI configuration
 examples/    example games made by AI agents, also used as integration tests
 feedback/    roadmap built from the examples' ENGINE_FEEDBACK.json files
-platforms/   packaging for Android (Gradle), iOS and the web, the store and ads backend plugins, the Windows installer and the AppImage files
+platforms/   packaging for Android (Gradle), iOS and the web, the store and ads backend plugins,
+             the Windows installer and the AppImage files
 ```
 
 ## Documentation

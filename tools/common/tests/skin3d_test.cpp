@@ -41,7 +41,7 @@ struct Person {
 
 SkeletonAsset skeleton_of(const std::string& bytes) {
     auto sk = parse_skeleton(std::vector<std::uint8_t>(bytes.begin(), bytes.end()), "person.rig.glb");
-    REQUIRE_MESSAGE(sk.ok(), sk.error().to_string());
+    REQUIRE_MESSAGE(sk.ok(), (sk.ok() ? std::string() : sk.error().to_string()));
     return std::move(*sk);
 }
 

@@ -4,11 +4,12 @@
 
 > La versión en inglés es la referencia: si esta traducción difiere de ella, prevalece la versión en inglés.
 
-> **Esta traducción va por detrás del texto inglés** ([GETTING_STARTED.md](../../GETTING_STARTED.md)): se hizo el
-> 2026-10-22 y no recoge lo posterior. Lo que falta aquí: los roles `artist` y `audio` y `factoria ai review` (los
+> **Esta traducción va por detrás del texto inglés** ([GETTING_STARTED.md](../../GETTING_STARTED.md)): no recoge
+> los cambios posteriores a su última revisión. Lo que falta aquí: los roles `artist` y `audio` y `factoria ai review` (los
 > críticos de arte y los revisores de juego), `factoria setup launcher` (la app que abre el editor), el aviso de
-> **Restart** del editor y el reinicio de `factoria mcp` cuando el motor se actualiza en disco, el estado de la firma
-> (Windows sin firmar; macOS firmado y notarizado desde la 0.1.4), NDK r27 o posterior para Android y los presets
+> **Restart** del editor y el reinicio de `factoria mcp` cuando el motor se actualiza en disco, que las
+> descargas de Windows aún no están firmadas (el flujo de publicación no tiene certificado de Windows; lo de macOS ya está
+> en este texto), NDK r27 o posterior para Android y los presets
 > `linux-sniper`, `web-debug` y `web-release`. Lee el texto inglés para esos puntos; esta traducción no se ha puesto al
 > día.
 

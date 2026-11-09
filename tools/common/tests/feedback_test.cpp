@@ -500,7 +500,7 @@ TEST_CASE("feedback file: two programs writing at once never lose an entry (an a
                                               "Thistle vortex ledger", "Opaline rudder cipher", "Saffron beacon strut",   "Umber quartz spindle"};
     {
         auto first = add_feedback_entry_to_file(path, make("Aardvark glyph pivot"), "Race");
-        REQUIRE_MESSAGE(first.ok(), first.error().message);
+        REQUIRE_MESSAGE(first.ok(), (first.ok() ? std::string() : first.error().message));
         REQUIRE(first->id == "FB-0001");
     }
     std::atomic<bool> adding{true};

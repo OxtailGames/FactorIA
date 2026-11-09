@@ -27,7 +27,7 @@ TEST_CASE("child_process: lines go in and come back") {
     const std::string exe = echo_child();
     if (exe.empty()) return;
     auto child = ChildProcess::start(ChildOptions{{exe}, "", {}, {}});
-    REQUIRE_MESSAGE(child.ok(), child.error().message);
+    REQUIRE_MESSAGE(child.ok(), (child.ok() ? std::string() : child.error().message));
     std::string line;
     REQUIRE((*child)->write("hello\n"));
     CHECK((*child)->read_line(line, 10) == ChildProcess::Read::Line);

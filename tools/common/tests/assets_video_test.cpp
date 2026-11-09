@@ -130,7 +130,7 @@ TEST_CASE("assets.import: an .mp4 is converted to an .mpg the engine decodes (od
     const std::string bytes = read_all(p.file("assets/video/clip.mpg"));
     auto data = std::make_shared<const std::vector<std::uint8_t>>(bytes.begin(), bytes.end());
     auto decoder = VideoDecoder::open(data, "clip.mpg");
-    REQUIRE_MESSAGE(decoder.ok(), decoder.error().to_string());
+    REQUIRE_MESSAGE(decoder.ok(), (decoder.ok() ? std::string() : decoder.error().to_string()));
     (*decoder)->advance(0.5);
     CHECK((*decoder)->time() == doctest::Approx(0.5));
     CHECK((*decoder)->info().hasAudio);

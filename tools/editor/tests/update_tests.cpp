@@ -116,7 +116,7 @@ TEST_CASE("install_update replaces the files and keeps the old ones until the ne
     };
     double progress = 0;
     auto r = install_update(info, install, [&](double p) { progress = p; }, download);
-    REQUIRE_MESSAGE(r, r.error().to_string());
+    REQUIRE_MESSAGE(bool(r), (r ? std::string() : r.error().to_string()));
     CHECK(asked == info.packageUrl);
     CHECK(progress == doctest::Approx(1.0));
     CHECK(slurp(install / exe) == "new factoria");
@@ -170,7 +170,7 @@ TEST_CASE("install_update installs the newest published release (FA_UPDATE_LIVE=
     auto list = parse_json(resp.body, rq.url);
     REQUIRE(list);
     auto info = parse_releases(*list, "0.0.1");
-    REQUIRE_MESSAGE(info, info.error().to_string());
+    REQUIRE_MESSAGE(bool(info), (info ? std::string() : info.error().to_string()));
     REQUIRE(info->available());
 
     stdfs::path install = stdfs::temp_directory_path() / "fa_update_live_test";
@@ -182,7 +182,7 @@ TEST_CASE("install_update installs the newest published release (FA_UPDATE_LIVE=
 #endif
     put(install / exe, "old factoria");
     auto r = install_update(*info, install);
-    REQUIRE_MESSAGE(r, r.error().to_string());
+    REQUIRE_MESSAGE(bool(r), (r ? std::string() : r.error().to_string()));
     CHECK(stdfs::exists(install / (exe + ".old")));
     CHECK(stdfs::is_directory(install / "mobile"));  // every package carries the prebuilt Android player
     ai::ProcessOptions po;

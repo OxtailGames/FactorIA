@@ -30,7 +30,7 @@ const char* kCatalog = R"({
 
 PlatformCatalog catalog(const char* text = kCatalog) {
     auto c = load_platform_catalog(Json::parse(text));
-    REQUIRE_MESSAGE(c.ok(), c.error().to_string());
+    REQUIRE_MESSAGE(c.ok(), (c.ok() ? std::string() : c.error().to_string()));
     return c.value();
 }
 
@@ -45,7 +45,7 @@ struct Game {
     // The answer of a request the fake answers at once.
     PlatformAnswer ask(const std::string& method, const Json& args = Json::object()) {
         auto r = ps.start(method, args);
-        REQUIRE_MESSAGE(r.ok(), r.error().to_string());
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
         REQUIRE(r->answer.has_value());
         return *r->answer;
     }
@@ -1240,7 +1240,7 @@ struct TwoBackends {
     }
     Json ask(const std::string& method, const Json& args = Json::object()) {
         auto r = ps.start(method, args);
-        REQUIRE_MESSAGE(r.ok(), r.error().to_string());
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
         REQUIRE(r->answer.has_value());
         REQUIRE_MESSAGE(r->answer->ok, r->answer->error.message);
         return r->answer->result;

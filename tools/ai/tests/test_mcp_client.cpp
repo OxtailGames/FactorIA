@@ -29,7 +29,7 @@ TEST_CASE("mcp http: initialize, tools/list (paged), headers, session id, tool c
         McpOptions options;
         options.transport = server.transport();
         auto client = McpClient::connect(http_server(), options);
-        REQUIRE_MESSAGE(client.ok(), client.error().to_string());
+        REQUIRE_MESSAGE(client.ok(), (client.ok() ? std::string() : client.error().to_string()));
         CHECK((*client)->server_description() == "Fake Scenario 1.2.0");
         REQUIRE((*client)->tools().size() == 3);  // two on page 0, one on page 1
         CHECK((*client)->tools()[0].name == "tool_0");
@@ -51,7 +51,7 @@ TEST_CASE("mcp http: initialize, tools/list (paged), headers, session id, tool c
         CHECK(Json::parse(server.requests[1].body)["method"] == "notifications/initialized");
 
         auto call = (*client)->call_tool("tool_0", Json::object({{"prompt", "a coin"}}));
-        REQUIRE_MESSAGE(call.ok(), call.error().to_string());
+        REQUIRE_MESSAGE(call.ok(), (call.ok() ? std::string() : call.error().to_string()));
         CHECK_FALSE(call->isError);
         CHECK(call->text == "called tool_0 with {\"prompt\":\"a coin\"}");
 
@@ -88,7 +88,7 @@ TEST_CASE("mcp http: the answer may be a Server-Sent Events stream") {
     McpOptions options;
     options.transport = server.transport();
     auto client = McpClient::connect(http_server(), options);
-    REQUIRE_MESSAGE(client.ok(), client.error().to_string());
+    REQUIRE_MESSAGE(client.ok(), (client.ok() ? std::string() : client.error().to_string()));
     CHECK((*client)->tools().size() == 2);
     auto call = (*client)->call_tool("tool_0", Json::object());
     REQUIRE(call.ok());
@@ -113,7 +113,7 @@ TEST_CASE("mcp http: a server without sessions works, a forgotten session starts
     REQUIRE(client.ok());
     server.forgetSessionOnce = true;
     auto call = (*client)->call_tool("tool_0", Json::object());
-    REQUIRE_MESSAGE(call.ok(), call.error().to_string());
+    REQUIRE_MESSAGE(call.ok(), (call.ok() ? std::string() : call.error().to_string()));
     CHECK(server.initializes == 2);
     CHECK(header_of(server.requests.back(), "Mcp-Session-Id") == "sess-1-2");
 }
@@ -272,7 +272,7 @@ TEST_CASE("mcp stdio: a local program is started, listed, called and ended with 
     ResolvedToolServer server = stdio_server(exe);
     server.env = {{"FA_MCP_TEST_VALUE", "from the server entry"}};
     auto client = McpClient::connect(server);
-    REQUIRE_MESSAGE(client.ok(), client.error().to_string());
+    REQUIRE_MESSAGE(client.ok(), (client.ok() ? std::string() : client.error().to_string()));
     CHECK((*client)->server_description() == "FakeStdio 0.1");
     CHECK((*client)->tools().size() == 7);
 
