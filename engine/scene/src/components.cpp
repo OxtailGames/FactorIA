@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <mutex>
 
+#include "fa/core/det_math.h"
 #include "fa/core/reflect.h"
 
 namespace fa {
@@ -2399,8 +2400,8 @@ float gradient_ease_apply(GradientEase ease, float t) {
         case 1: in = [](float x) { return x * x * x; }; break;
         case 2: in = [](float x) { float q = x * x; return q * q; }; break;
         case 3: in = [](float x) { float q = x * x; return q * q * x; }; break;
-        case 4: in = [](float x) { return 1.0f - std::cos(x * 1.57079632679f); }; break;
-        case 5: in = [](float x) { return x <= 0.0f ? 0.0f : std::pow(2.0f, 10.0f * x - 10.0f); }; break;
+        case 4: in = [](float x) { return 1.0f - det::cos(x * 1.57079632679f); }; break;
+        case 5: in = [](float x) { return x <= 0.0f ? 0.0f : det::pow(2.0f, 10.0f * x - 10.0f); }; break;
         case 6: in = [](float x) { return 1.0f - std::sqrt(std::max(0.0f, 1.0f - x * x)); }; break;
         default: return t;
     }

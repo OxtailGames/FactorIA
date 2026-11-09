@@ -51,7 +51,7 @@ void compute_normals(const std::vector<float>& pos, const std::vector<std::uint3
 void compute_tangents(const std::vector<float>& pos, const std::vector<float>& nrm, const std::vector<float>& uv,
                       const std::vector<std::uint32_t>& idx, std::vector<float>& out) {
     const std::size_t n = pos.size() / 3;
-    std::vector<Vec3> tan(n), bit(n);
+    std::vector<Vec3> tangent(n), bit(n);
     auto P = [&](std::uint32_t i) { return Vec3{pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]}; };
     for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
         const std::uint32_t ia = idx[i], ib = idx[i + 1], ic = idx[i + 2];
@@ -63,13 +63,13 @@ void compute_tangents(const std::vector<float>& pos, const std::vector<float>& n
         const float r = 1.0f / det;
         const Vec3 t = (e1 * dv2 - e2 * dv1) * r;
         const Vec3 bt = (e2 * du1 - e1 * du2) * r;
-        for (std::uint32_t k : {ia, ib, ic}) { tan[k] = tan[k] + t; bit[k] = bit[k] + bt; }
+        for (std::uint32_t k : {ia, ib, ic}) { tangent[k] = tangent[k] + t; bit[k] = bit[k] + bt; }
     }
     out.resize(n * 4);
     for (std::size_t i = 0; i < n; ++i) {
         const Vec3 nv = normalize(Vec3{nrm[i * 3], nrm[i * 3 + 1], nrm[i * 3 + 2]});
-        const float tl = length(tan[i]);
-        Vec3 t = tl > 0.0f ? tan[i] / tl : Vec3{};
+        const float tl = length(tangent[i]);
+        Vec3 t = tl > 0.0f ? tangent[i] / tl : Vec3{};
         t = t - nv * dot(nv, t);
         if (length(t) < 1e-3f) t = std::fabs(nv.y) < 0.9f ? cross(Vec3{0, 1, 0}, nv) : cross(Vec3{1, 0, 0}, nv);
         t = normalize(t);

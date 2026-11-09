@@ -54,3 +54,9 @@ if(TARGET fa_test_runtime AND FA_XVFB_RUN AND FA_PLATFORM STREQUAL "linux")
                 $<TARGET_FILE:fa_test_runtime> "-tc=windowed fullscreen*"
         WORKING_DIRECTORY ${FA_ROOT})
 endif()
+
+# The replay hashes of the scripts' math, 2D and 3D physics and nav (tests/det_probe_tests.cpp) on their own, so CI prints them:
+# `ctest -R det_probe_hashes -V`. The Android, iOS and web jobs run the same probe script and compare with the same expected file.
+if(TARGET fa_test_runtime)
+    add_test(NAME det_probe_hashes COMMAND fa_test_runtime "-tc=det probe*" WORKING_DIRECTORY ${FA_ROOT})
+endif()
