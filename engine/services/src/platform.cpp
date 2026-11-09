@@ -3,9 +3,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <deque>
+#include <format>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -596,6 +598,9 @@ struct PlatformSink::State {
         std::string method;
         Json args;  // as the backend got them
         std::uint64_t frame = 0;  // the engine frame of the request (for the http log)
+        double deadline = -1.0;   // on the clock: the engine answers "network" from here on; < 0 = none (the fake backend)
+        double seconds = 0.0;     // the time the request was given, for the message
+        int route = 0;            // who got it: 0 the store backend, 1 the ads backend, 2 the http backend
     };
     std::map<std::uint64_t, Pending> pending;
     // The http log (log_http): requests in the order they were made, each with its answer once it has one.
@@ -615,6 +620,45 @@ struct PlatformSink::State {
 
     bool warnedLate = false;
     std::set<std::string> warnedEvents;
+
+    PlatformServices::Clock clock;  // empty = std::chrono::steady_clock
+    std::map<std::string, double> timeoutOverrides;
+    std::uint64_t droppedEvents = 0, droppedAnswers = 0, timedOut = 0;
+    bool warnedEventOverflow = false, warnedAnswerOverflow = false;
+
+    double now() const {
+        if (clock) return clock();
+        return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
+
+    // Seconds `method` may stay unanswered (PlatformServices::request_timeout); the lock is held.
+    double timeout_for(const std::string& method, const Json& args) const {
+        const auto over = timeoutOverrides.find(method);
+        if (method == "http.fetch") {
+            double own = 15.0;  // prepare() always sets "timeout"; a request that skipped it gets the default
+            if (args.is_object())
+                if (auto it = args.find("timeout"); it != args.end() && it->is_number()) own = std::clamp(it->get<double>(), 0.0, 120.0);
+            return own + (over != timeoutOverrides.end() ? over->second : kPlatformHttpGraceSeconds);
+        }
+        if (over != timeoutOverrides.end()) return over->second;
+        for (const char* interactive : {"purchases.buy", "purchases.restore", "ads.showRewarded", "ads.privacyOptions", "player.signIn"})
+            if (method == interactive) return kPlatformInteractiveTimeoutSeconds;
+        return kPlatformDefaultTimeoutSeconds;
+    }
+
+    // Keeps the queue at its cap: the OLDEST entries go (counted; one warning per session).
+    template <class T>
+    void cap_queue(std::vector<T>& queue, std::size_t cap, std::uint64_t& dropped, bool& warned, const char* what) {
+        if (queue.size() <= cap) return;
+        const std::size_t extra = queue.size() - cap;
+        queue.erase(queue.begin(), queue.begin() + static_cast<std::ptrdiff_t>(extra));
+        dropped += extra;
+        if (!warned) {
+            warned = true;
+            FA_WARN("platform", "{} {} are waiting for the game and the limit is {}: the oldest are dropped (counted in platform.state()). "
+                    "Take them every frame; a script layer that is not running cannot receive them.", what, queue.size() + extra, cap);
+        }
+    }
 
     // The catalog id of a product as a backend wrote it: a store id, or already the catalog id.
     std::string product_id_from(const std::string& v) const {
@@ -698,7 +742,7 @@ struct PlatformSink::State {
         if (it == pending.end()) {  // answered twice, or nobody asked
             if (!warnedLate) {
                 warnedLate = true;
-                FA_WARN("platform", "backend '{}' answered request {} which is not pending (answered twice, or not asked): ignored", backendName, id);
+                FA_WARN("platform", "backend '{}' answered request {} which is not pending (answered twice, not asked, or after its deadline): ignored", backendName, id);
             }
             return;
         }
@@ -752,6 +796,7 @@ struct PlatformSink::State {
             return;
         }
         answers.push_back(std::move(a));
+        cap_queue(answers, kPlatformMaxQueuedAnswers, droppedAnswers, warnedAnswerOverflow, "answers of platform requests");
     }
 
     void emit(std::uint64_t gen, const std::string& event, Json data) {
@@ -772,6 +817,7 @@ struct PlatformSink::State {
             merge_player(data);
         }
         events.push_back({event, std::move(data)});
+        cap_queue(events, kPlatformMaxQueuedEvents, droppedEvents, warnedEventOverflow, "platform events");
     }
 };
 
@@ -1006,7 +1052,13 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
             return out;
         }
         if (offered) {
-            s.pending[out.id] = {method, prepared, s.frameClock ? *s.frameClock : 0};
+            // The deadline: none for the fake backend (its answers are scripted and counted in frames, and a test must not depend on the speed
+            // of the machine); the others get request_timeout() seconds from now.
+            PlatformBackend* target = viaAds ? adsBackend_.get() : viaHttp ? httpBackend_.get() : backend_.get();
+            const bool timed = dynamic_cast<FakeBackend*>(target) == nullptr;
+            const double seconds = s.timeout_for(method, prepared);
+            s.pending[out.id] = {method, prepared, s.frameClock ? *s.frameClock : 0, timed ? s.now() + seconds : -1.0, seconds,
+                                 viaAds ? 1 : viaHttp ? 2 : 0};
             if (s.logHttp && method == "http.fetch") s.httpLog.emplace_back(out.id, std::nullopt);
             s.startingId = out.id;
             s.startingThread = std::this_thread::get_id();
@@ -1054,6 +1106,68 @@ void PlatformServices::frame() {
     backend_->frame();
     if (adsBackend_) adsBackend_->frame();
     if (httpBackend_) httpBackend_->frame();
+
+    // Requests past their deadline: collected under the lock, answered and cancelled outside it (a backend's cancel() may call back).
+    struct Overdue {
+        std::uint64_t id;
+        int route;
+        std::string method, backend;
+        double seconds;
+    };
+    std::vector<Overdue> overdue;
+    std::uint64_t generation;
+    {
+        std::lock_guard<std::mutex> lock(state_->mutex);
+        generation = state_->generation;
+        const double now = state_->now();
+        for (const auto& [id, p] : state_->pending)
+            if (p.deadline >= 0.0 && now >= p.deadline)
+                overdue.push_back({id, p.route, p.method,
+                                   p.route == 1 ? state_->adsBackendName : p.route == 2 ? state_->httpBackendName : state_->backendName, p.seconds});
+    }
+    for (const Overdue& o : overdue) {
+        {
+            std::lock_guard<std::mutex> lock(state_->mutex);
+            if (!state_->pending.count(o.id)) continue;  // answered while we were not holding the lock
+            ++state_->timedOut;
+        }
+        std::string seconds = std::format("{:g}", o.seconds);
+        state_->complete(generation, o.id, false, Json(),
+                         {"network", "platform." + o.method + " got no answer from the " + in_quotes(o.backend) + " backend in " + seconds +
+                                         " s, so the engine gave up on it",
+                          "Offer a retry; an answer that arrives later is ignored. A store that needs longer than this is a bug of its backend."});
+        PlatformBackend* b = o.route == 1 ? adsBackend_.get() : o.route == 2 ? httpBackend_.get() : backend_.get();
+        if (b) b->cancel(o.id);
+    }
+}
+
+double PlatformServices::request_timeout(const std::string& method, const Json& args) const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    return state_->timeout_for(method, args);
+}
+
+void PlatformServices::set_request_timeout(const std::string& method, double seconds) {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    if (seconds > 0.0 && std::isfinite(seconds)) state_->timeoutOverrides[method] = seconds;
+    else state_->timeoutOverrides.erase(method);
+}
+
+void PlatformServices::set_clock(Clock clock) {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    state_->clock = std::move(clock);
+}
+
+std::uint64_t PlatformServices::dropped_events() const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    return state_->droppedEvents;
+}
+std::uint64_t PlatformServices::dropped_answers() const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    return state_->droppedAnswers;
+}
+std::uint64_t PlatformServices::timed_out() const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    return state_->timedOut;
 }
 
 std::vector<PlatformAnswer> PlatformServices::take_answers() {
@@ -1092,7 +1206,8 @@ Json PlatformServices::info() const {
                          {"release", state_->release}, {"services", services},
                          {"audience", state_->catalog.adsAudience},
                          {"underAge", state_->catalog.adsAudience == "children" ? Json(true) : state_->underAge ? Json(*state_->underAge) : Json(nullptr)},
-                         {"player", state_->player}, {"pending", state_->pending.size()}});
+                         {"player", state_->player}, {"pending", state_->pending.size()},
+                         {"droppedEvents", state_->droppedEvents}, {"timedOut", state_->timedOut}});
 }
 
 void PlatformServices::forget_under_age() {
@@ -1109,6 +1224,8 @@ void PlatformServices::reset_session() {
         state_->transactions.clear();
         state_->player = unknown_player();
         state_->underAge.reset();
+        state_->droppedEvents = state_->droppedAnswers = state_->timedOut = 0;
+        state_->warnedEventOverflow = state_->warnedAnswerOverflow = false;
     }
     if (FakeBackend* f = fake()) f->reset();
     refresh_backend();

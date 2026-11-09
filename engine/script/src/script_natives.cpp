@@ -765,6 +765,7 @@ NATIVE(setParent) {
     Entity p = ent_from(ctx, argc > 1 ? argv[1] : JS_NULL);
     if (!p.is_null() && !W.alive(p)) return throw_err(ctx, "setParent: the new parent entity was destroyed");
     if (p == e || (!p.is_null() && W.is_ancestor(e, p))) return throw_err(ctx, "setParent: an entity cannot be parented under itself or its own descendant");
+    if (auto ok = W.check_set_parent(e, p); !ok) return throw_err(ctx, "setParent: " + ok.error().to_string());
     int index = -1;
     if (argc > 3 && !JS_IsUndefined(argv[3]) && !JS_IsNull(argv[3])) {
         std::string bad = W.check_child_index(p, e, arg_num(ctx, argc, argv, 3, -1.0));

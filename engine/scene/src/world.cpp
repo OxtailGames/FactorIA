@@ -297,13 +297,16 @@ Result<void> World::set_id(Entity e, std::string_view newId) {
     if (!alive(e)) return make_error("Cannot rename the id of a dead entity", "Check world.alive(entity) first.");
     if (newId.empty()) return make_error("Entity id must not be empty", "Use a short unique string such as \"player\" or \"enemy_1\".");
     EntityInfo& inf = impl_->info(e);
+    if (impl_->pending_destroy(e))
+        return make_error("Cannot rename '" + inf.id + "': the entity is being destroyed (destroy() ran this frame and flush() has not yet)",
+                          "Its id is already free for a new entity; rename it before destroying it, or create the replacement with the id you want.");
     if (inf.id == newId) return {};
     if (auto it = impl_->ids.find(std::string(newId)); it != impl_->ids.end())
         return make_error("Entity id '" + std::string(newId) + "' is already used by another entity",
                           "Choose a different id, e.g. '" + std::string(newId) + "_2'.");
-    if (!impl_->pending_destroy(e)) impl_->unregister_id(e);
+    impl_->unregister_id(e);
     inf.id = std::string(newId);
-    if (!impl_->pending_destroy(e)) impl_->ids[inf.id] = e;
+    impl_->ids[inf.id] = e;
     return {};
 }
 
@@ -349,15 +352,30 @@ std::vector<Entity> World::entities_with(const TypeInfo* type) const {
 }
 
 // ------------------------------------------------------------- hierarchy --
+Result<void> World::check_set_parent(Entity child, Entity parent) const {
+    const Impl& d = *impl_;
+    if (!alive(child)) return make_error("Cannot move an entity that was destroyed", "Check world.alive(entity) first.");
+    if (!parent.is_null() && !alive(parent))
+        return make_error("The new parent entity is not alive", "Check world.alive(parent) first, or pass a null parent for the top level.");
+    if (d.pending_destroy(child))
+        return make_error("Cannot move '" + id_of(child) + "': it is being destroyed (destroy() ran this frame and flush() has not yet)",
+                          "Move it before destroying it, or leave it: its whole subtree goes away at the end of the frame. "
+                          "To keep the entity, do not destroy it.");
+    if (!parent.is_null() && d.pending_destroy(parent))
+        return make_error("Cannot make '" + id_of(child) + "' a child of '" + id_of(parent) + "': '" + id_of(parent) +
+                              "' is being destroyed (itself or one of its ancestors), so the child would be destroyed with it",
+                          "Pick a parent that is not being destroyed, or create the child after the frame's flush.");
+    if (parent == child || (!parent.is_null() && is_ancestor(child, parent)))
+        return make_error("Making '" + id_of(child) + "' a child of '" + id_of(parent) + "' would create a cycle",
+                          "Pick a parent that is not the entity or one of its descendants.");
+    return {};
+}
+
 void World::set_parent(Entity child, Entity parent, bool keepWorldTransform, int index) {
     Impl& d = *impl_;
     if (!alive(child)) return;
-    if (!parent.is_null() && !alive(parent)) {
-        FA_WARN("scene", "set_parent: parent entity is not alive; ignoring");
-        return;
-    }
-    if (parent == child || (!parent.is_null() && is_ancestor(child, parent))) {
-        FA_ERROR("scene", "set_parent: making '{}' a child of '{}' would create a cycle; ignoring", id_of(child), id_of(parent));
+    if (auto r = check_set_parent(child, parent); !r) {
+        FA_WARN("scene", "set_parent: {}; ignoring. {}", r.error().message, r.error().hint);
         return;
     }
     Mat4 oldWorld;
