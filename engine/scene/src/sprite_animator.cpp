@@ -25,8 +25,8 @@ struct TexDims {
 };
 
 // Sizes read from files stay until the file (or its .ktx2 twin) changes: stepping an animator must not read a picture every step.
-// The file's stat (time, size) is looked at once per "epoch" (one per frame: update_sprite_animators with dt 0 ends it), not per
-// fixed step. On a platform whose files have no time (an Android APK asset answers -1) the entry is cached all the same, keyed
+// The file's stat (time, size) is looked at once per "epoch" (one per frame: the end of update_sprite_animators with dt 0 ends it),
+// not per fixed step and not again in the settle pass. On a platform whose files have no time (an Android APK asset answers -1) the entry is cached all the same, keyed
 // by the file name and re-read only when the name starts or stops being a file.
 struct SizeEntry {
     std::int64_t mtime = -2, size = -2, twinMtime = -2;
@@ -287,7 +287,14 @@ Vec2 sprite_effective_pivot(const Sprite& s, const SpriteAnimator& a, const Spri
 }
 
 void update_sprite_animators(World& world, float dt) {
-    if (dt <= 0.0f) next_size_epoch();  // the settle pass ends a frame: file sizes are looked at again from the next one on
+    // The settle pass (dt 0) ends a frame: it answers from what the frame's steps looked at, and file sizes are looked at again from
+    // the next frame on. So a texture's file is looked at once per frame, however many fixed steps the frame has.
+    struct EndOfFrame {
+        bool on;
+        ~EndOfFrame() {
+            if (on) next_size_epoch();
+        }
+    } endOfFrame{dt <= 0.0f};
     // The sheet and the size of each texture are looked up once per texture per step.
     std::unordered_map<std::string, std::shared_ptr<const assets::Sheet>> sheets;
     std::unordered_map<std::string, TexDims> dims;

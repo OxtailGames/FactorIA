@@ -596,7 +596,7 @@
 
   // ============================================================================================== sprite animator
   // entity.spriteAnimator: plays the named clips of a sprite sheet (the `sheet` entry of the texture in assets.json). The
-  // SpriteAnimator component holds the state; the renderer steps it with the frame time.
+  // SpriteAnimator component holds the state; the fixed simulation step advances it.
   class SpriteAnimatorApi {
     constructor(h) { this.$h = h; }
     get component() { return viewOf(this.$h, typeOf("SpriteAnimator")); }

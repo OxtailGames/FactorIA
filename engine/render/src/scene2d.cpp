@@ -517,6 +517,8 @@ void gather_2d(World& world, Frame& f) {
     f.anyTint = !world.entities_with(&World::type_of<Tint>()).empty();
     f.anyFlash = world.feel().any_flash();
     if (f.wantWorld) {
+        // The layers are drawn shifted for THIS camera; the caller puts the first camera's offset back after its gathers (the rule
+        // of a run with no renderer, see Renderer::update).
         update_parallax(world, f.cam.position.xy());
         gather_lights(world, f);
     }

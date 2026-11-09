@@ -162,8 +162,8 @@ void Engine::Impl::apply_project_settings() {
         startupProblems.push_back(problem);
         richStyle = RichTextStyle{};
     }
-    cpuText.set_rich_text_style(richStyle);
     if (renderer) renderer->set_rich_text_style(richStyle);
+    else cpuText.set_rich_text_style(richStyle);  // the CPU measurer only works when there is no renderer
     // The hosts http.fetch may call. A section with errors counts as empty (every http.fetch then says no host is declared).
     auto network = load_network(project.raw.is_object() && project.raw.contains(kNetworkKey) ? project.raw[kNetworkKey] : Json());
     if (network.ok()) {
@@ -283,6 +283,9 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
     ui.reset();
     apply_localization();  // the first frame (and the first onStart) already read the current language
     world.particles().clear();  // emitters are kept by entity: the new scene's start from nothing, as on every Play (before the scripts, which may emit a burst)
+    // The cameras the first queries of the scripts (camera.worldToScreen in onStart, before any frame ends) answer with are the new
+    // scene's, not the previous scene's or none at all. A renderer has its own, refreshed where the frame is drawn.
+    if (!renderer) cpuCameras.refresh(world, camera_target());
     scripts.on_scene_loaded();
     if (loader) loader->scene_loaded();  // files read ahead for this load are dropped at the next one
     if (renderer) renderer->debug().clear();
@@ -397,10 +400,10 @@ void Engine::Impl::cancel_script_background_loads() {
 }
 
 namespace {
-// Renderer::update(World&, float) refreshes the cameras (queries) and the parallax offsets without drawing.
+// Renderer::update(World&) refreshes the cameras (queries) and the parallax offsets without drawing.
 template <class R>
-void update_visuals(R& r, World& w, float dt) {
-    if constexpr (requires { r.update(w, dt); }) r.update(w, dt);
+void update_visuals(R& r, World& w) {
+    if constexpr (requires { r.update(w); }) r.update(w);
 }
 }  // namespace
 
@@ -411,9 +414,9 @@ void Engine::Impl::settle_visuals() {
     world.particles().update(world, 0.0f);
 }
 
-void Engine::Impl::draw(double dt) {
+void Engine::Impl::draw(double dt, bool settled) {
     if (!renderer) return;
-    settle_visuals();  // also a picture drawn outside a frame (a screenshot right after a load) shows what the world holds now
+    if (!settled) settle_visuals();  // a picture drawn outside a frame (a screenshot right after a load) shows what the world holds now
     // Textures, fonts and meshes load when they are first drawn: a capture or a runner that draws directly reads for
     // this engine too (fa/core/load_trace.h).
     const LoadTrace::ReadingFor reading(traceOwner);
@@ -440,13 +443,13 @@ void Engine::Impl::render(double dt) {
     }
     ProfSystemScope prof(ProfSystem::Render);
     dt *= scripts.time_scale();
-    update_visuals(*renderer, world, float(dt));
+    update_visuals(*renderer, world);
     if (cfg.renderMode == RenderMode::OnDemand && !windowed) {
         renderStale = true;
         lastRenderDt = dt;
         return;
     }
-    draw(dt);
+    draw(dt, true);  // render() settled the visuals above
 }
 
 void Engine::Impl::poll_hot_reload(bool force) {
@@ -800,6 +803,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     I.world.feel().reducedEffectsSetting.reset();
     I.apply_project_settings();
     I.setup_localization();
+    // The fonts of the start language, for the CPU measurer of a run with no renderer (the renderer gets them below).
+    I.apply_fallback_fonts();
 
     // Graphics.
     if (config.graphics) {
@@ -829,6 +834,9 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             I.renderer.reset();
             if (I.gpu) I.gpu->shutdown();
             I.gpu.reset();
+            // The CPU measurer takes over; it was not kept in step while a renderer was.
+            I.cpuText.set_text_scale(I.self->text_scale());
+            I.cpuText.set_ui_scale(I.world.ui_scale());
         } else {
             if (config.shaderCompiler) I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
             I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
@@ -1550,14 +1558,17 @@ const TextMeasurer* Engine::text_measurer() const { return &impl_->cpuText; }
 const CameraSet* Engine::camera_set() const { return &impl_->cpuCameras; }
 void Engine::set_text_scale(float scale) {  // the callers (ui.textScale, ui.set_text_scale) check the range
     ScriptHost::set_text_scale(scale);
-    impl_->cpuText.set_text_scale(scale);
     if (impl_->renderer) impl_->renderer->set_text_scale(scale);
+    else impl_->cpuText.set_text_scale(scale);  // the CPU measurer only works when there is no renderer
 }
 void Engine::set_ui_scale(float scale) {  // the callers (ui.scale, ui.set_scale, the project default) check the range
     ScriptHost::set_ui_scale(scale);
-    impl_->cpuText.set_ui_scale(scale);
-    if (impl_->renderer) impl_->renderer->set_ui_scale(scale);
-    if (impl_->renderer) impl_->renderStale = true;
+    if (impl_->renderer) {
+        impl_->renderer->set_ui_scale(scale);
+        impl_->renderStale = true;
+    } else {
+        impl_->cpuText.set_ui_scale(scale);  // the CPU measurer only works when there is no renderer
+    }
 }
 bool Engine::default_ui_mirror_rtl() const { return impl_->project.uiMirrorRtl; }
 float Engine::default_ui_scale() const { return impl_->project.uiScale; }

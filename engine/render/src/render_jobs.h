@@ -52,11 +52,8 @@ inline Split split(std::size_t count, std::size_t grain, std::size_t minCount) {
 // Every item in one chunk, run on the calling thread.
 inline Split whole(std::size_t count) { return split(count, 0, 0); }
 
-// Chunks for items of very different sizes (emitters of 3 or 3000 particles): consecutive ranges [first, second) of
-// items whose weights add up to at least `target` (the last range may weigh less). They depend only on the weights.
-// One range with every item when the weights add up to less than `minTotal` or the pool has no worker thread.
-std::vector<std::pair<std::size_t, std::size_t>> weighted_ranges(const std::vector<std::size_t>& weights,
-                                                                 std::size_t target, std::size_t minTotal);
+// Chunks for items of very different sizes (emitters of 3 or 3000 particles): jobs::weighted_ranges (fa/core/jobs.h).
+using jobs::weighted_ranges;
 
 // Runs fn on every chunk of `s`: as jobs when there are several, at once on this thread when there is one. A chunk
 // that throws is logged by the job system with `name`; the frame goes on with what the other chunks wrote.
