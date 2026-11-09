@@ -124,7 +124,9 @@ TEST_CASE("A mobile export ships compressed textures and still matches the rende
     // 5. Both against the golden. The project's render is held to the render goldens' limits (and writes the golden under
     // FA_UPDATE_GOLDENS=1); the exported game's render, never written, to the looser limits above.
     const fa::test::GoldenResult projectResult = fa::test::expect_golden_file(fromProject, goldenPath, kProjectLimits);
-    if (projectResult.verdict != fa::test::GoldenVerdict::Missing) {
+    // Only when the project's own verdict is Match or Wrote: any other verdict already failed above, and the exported game
+    // would add a second failure derived from the same cause.
+    if (projectResult.ok()) {
         const fa::test::GoldenResult exportedResult = fa::test::compare_golden(fromExport, goldenPath, kExportedLimits, false);
         CHECK_MESSAGE(exportedResult.ok(), "exported game: " << exportedResult.message);
     }
