@@ -726,3 +726,50 @@ becomes the engine roadmap.
 - Game tests: `factoria test` runs `tests/*.test.js` headless.
 - Examples: each has `example_<name>_validate` and `example_<name>_test` ctest tests, and some also an autoplay and a
   perf budget (label `example`; they run in Release builds, see docs/BUILDING.md).
+- Determinism: the maths of the simulation and the replay hashes, below.
+
+### Determinism of the maths
+
+The simulation (everything that changes the state a game, a test or a replay can see) gives the same bits on every
+platform, so replays, `game.state_hash`, lockstep play and `factoria test` results do not depend on the machine. The rules:
+
+- **Build flags.** No floating-point contraction (`-ffp-contract=off`, `/fp:precise` on MSVC), so `a * b + c` is never
+  fused on arm64 or CPUs with FMA. `+ - * /`, `sqrt`, `floor`, `ceil`, `fmod`, `fabs`, `ldexp` are exact in IEEE 754 and
+  are used as they are.
+- **No C library transcendentals in the simulation.** `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `exp2`,
+  `expm1`, `log`, `log2`, `log10`, `log1p`, `pow`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `cbrt` and `hypot`
+  of glibc, Apple's libm, the MSVC CRT and musl (wasm) are each within an ulp of the exact result but round differently.
+  `fa/core/det_math.h` has them for `float` (`fa::det::exp(x)`, a frozen API: the float results never change) and for
+  `double` (`fa::det::f64::exp(x)`). Both are built only from `+ - * / sqrt` on doubles, and are tested for accuracy against
+  the C library (about 1 ulp, a few for `pow` of a large result) and against a table of bit patterns
+  (`engine/core/tests/test_det_math_f64.cpp`: a platform that rounds differently fails with the input that differs). The
+  float functions compute in double and round to float once.
+- **Game scripts.** QuickJS's `Math.*` calls the C library, so the engine builds QuickJS with a force-included header
+  (`engine/script/quickjs_det/quickjs_det_math.h`, `-include` / `/FI`, C sources only) that redirects those calls to
+  `fa::det::f64` through a C++ shim (`quickjs_det_shim.cpp`). There is one QuickJS in the process, so tests, script tools and
+  editor scripts get the same `Math`; none keeps the native one. `external/` is untouched. The test
+  `engine/script/tests/test_det_math_script.cpp` compares `Math.*` with `f64` bit for bit.
+- **The source scan.** `engine/core/tests/test_det_scan.cpp` reads the sources of the simulation and fails on `std::exp`,
+  `std::pow`, `std::sin`, `std::cos`, ... and on the unqualified and C forms (`pow(`, `sinf(`), ignoring comments and string
+  literals. The file set is explicit, at the top of the test: `kSimulationDirs` (directories, every `.cpp`/`.h` below them),
+  `kSimulationFiles` (single files, for simulation code that lives in a directory the scan does not read as a whole) and
+  `kExempt` (a file that really needs the C library, with the reason). To cover new simulation code (SpriteAnimator and the
+  particle step when they move into the engine's step, M91.1a): put its path (from the repository root, forward slashes) in
+  `kSimulationFiles` or its directory in `kSimulationDirs`, run the test, and replace each call it flags with `fa::det::`.
+  Rendering, audio, the editor, tools and tests are not scanned: what they compute is never read back by the simulation.
+- **Replay hashes.** A replay feeds the exact bits of every number to a hash and compares the first 16 hex digits with a
+  value COMMITTED in the repository, on every CI platform. A hash that differs on one platform is a determinism bug of
+  that platform; one that differs on all of them is a change of the simulation, and the new value is copied from the log
+  (the line `FA_DET_HASH` / `FA_PHYSICS_REPLAY_HASH` of `ctest -V`). The replays: physics 2D and 3D (`test_determinism.cpp`,
+  `physics_determinism`), particles and feel (`engine/scene/tests/test_det_replay.cpp`, `det_replay_hashes`), and the scripts'
+  `Math` in a seeded loop, 2D and 3D physics bodies and the nav bake and search driven by a script
+  (`tools/cli/tests/determinism_probe.js`, expected values in `tools/cli/tests/determinism_expected.txt`;
+  `engine/runtime/tests/det_probe_tests.cpp`, `det_probe_hashes`). The Linux, Windows and macOS jobs run all three.
+  The script probe also runs on the Android emulator (`scripts/android-smoke.sh`), the iOS simulator
+  (`scripts/ios-smoke.sh`) and in headless Chrome for the web export (`scripts/web-smoke.sh`); each prints the line and
+  `scripts/det-hash-check.sh` compares it with the expected file. The particle and feel replays are desktop only (a script
+  cannot reach them). New scenes for a replay go in `test_det_replay.cpp` or the probe.
+- **The watchdog.** A script callback cut by the watchdog (2 s of CPU time) skips the rest of its code at a point that depends
+  on the machine, so the run is invalid: `ScriptSystem::watchdog_cut_count()` / `watchdog_cuts()` expose the cuts,
+  `run_headless` reports `replayValid: false` and exits 1 (`HeadlessRunOptions::failOnWatchdogCut`, off only for
+  `script.trace`), and `factoria test` fails the test that ran with a cut (docs/SCRIPTING.md, "Runtime notes").

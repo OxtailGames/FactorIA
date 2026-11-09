@@ -368,6 +368,7 @@ Json run_trace(const Json& args, const std::string& projectDir) {
     HeadlessRunOptions ho;
     ho.frames = frames;
     ho.failOnScriptError = false;
+    ho.failOnWatchdogCut = false;  // the cut is in the report's problems, and the trace so far is what the caller asked for
     if (!input.empty()) ho.inputReplayPath = tooling_detail::project_path(projectDir, input);
     Json report;
     const int code = run_headless(cfg, ho, &report);

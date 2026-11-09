@@ -13,6 +13,7 @@
 #include <format>
 #include <unordered_map>
 
+#include "fa/core/det_math.h"
 #include "fa/scene/model_decimate.h"
 #include "fa/scene/model_sdf.h"
 
@@ -63,7 +64,7 @@ Result<ModelMesh> model_sdf_mesh(const ModelSdf& sdf, const ModelSdfMeshParams& 
     const double samplesD = gx * gy * gz;
     const double costD = samplesD * double(sdf.leaf_count());
     if (samplesD > double(kModelSdfMaxSamples) || costD > double(kModelSdfMaxCost)) {
-        const double byMemory = std::cbrt(samplesD / double(kModelSdfMaxSamples)), byCost = std::cbrt(costD / double(kModelSdfMaxCost));
+        const double byMemory = det::f64::cbrt(samplesD / double(kModelSdfMaxSamples)), byCost = det::f64::cbrt(costD / double(kModelSdfMaxCost));
         const double needed = double(h) * std::max(byMemory, byCost) * 1.02;
         return make_error(std::format("the sdf would sample {:.0f} x {:.0f} x {:.0f} = {:.0f} points ({} m cells over a box of {} x {} x {} m, {} shape(s)), more than the {} points or {} evaluations allowed",
                                       gx, gy, gz, samplesD, metres(h), metres(ext.x), metres(ext.y), metres(ext.z), sdf.leaf_count(), kModelSdfMaxSamples, kModelSdfMaxCost),
