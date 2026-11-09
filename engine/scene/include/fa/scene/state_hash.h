@@ -21,6 +21,9 @@ struct TypeInfo;
 struct StateHashOptions {
     bool includeRuntime = true;  // also hash fields that are not saved to scenes (velocities, timers, caches)
     bool perEntity = false;      // also return one hash per entity (find which entity differs)
+    // Not empty: hash only the components of these types (by name) and leave the clock and the random generator out, so two runs
+    // can be compared on just the sprite animators, say. An entity with none of them still counts (its id and parent).
+    std::vector<std::string> onlyComponents;
 };
 
 struct EntityHash {

@@ -46,7 +46,7 @@ namespace fa {
 
 // When Engine::step/frame draws the world.
 //   Always:   every frame is drawn (windowed play, the editor).
-//   OnDemand: every frame is SIMULATED (scripts, physics, audio, animators/particles via Renderer::update) but the
+//   OnDemand: every frame is SIMULATED (scripts, physics, audio, sprite animators and particles in the fixed step) but the
 //             world is only drawn when a picture is requested: Engine::screenshot() (and game.screenshot) draws the
 //             current state first, Engine::render_now() draws explicitly, and a headless `factoria run` draws its
 //             last frame. A screenshot at frame N is pixel-identical in both modes. Headless tests and

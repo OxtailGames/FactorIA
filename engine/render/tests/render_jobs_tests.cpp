@@ -323,7 +323,7 @@ void check_same_frames(Build build, int frames, bool animate, const std::vector<
 TEST_CASE("render jobs: a big 2D frame (sprites, meshes, skins, tilemap, particles) is the same with 0, 1, 2, 8 threads and inline") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    check_same_frames(build_2d, 4, false, {"render.gather_sprites", "render.gather_tilemap", "render.particles",
+    check_same_frames(build_2d, 4, false, {"render.gather_sprites", "render.gather_tilemap", "scene.particles",
                                           "render.gather_particles", "render.flatten_quads"});
     // The scene is far above every 2D threshold, so these frames were split into many chunks.
     World w;
