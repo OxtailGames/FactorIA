@@ -350,7 +350,7 @@ Direct3D 11, GL on Mesa llvmpipe). The render tests (`fa_test_render`) need a GP
   largest error of 1.0 and keeps the other two, so there only the mean and the share guard against a missing glyph or edge. The header says where each number
   comes from; raise a limit only with a measurement of a backend, written there.
 - **Measure on a backend:** `FA_GOLDEN_REPORT=1 fa_test_render` (or `fa_test_cli`) prints `GOLDEN <file> mean=... share=... max=...` for every
-  golden compared. Direct3D 11 (WARP) has not been measured yet; record its numbers in the header of `golden_check.h`.
+  golden compared. The numbers measured on Metal, llvmpipe and Direct3D 11 (WARP and hardware) are in the header of `golden_check.h`; add a new backend's there.
 - **A failing comparison** writes the picture it got next to the golden as `<name>.actual.png`, or in the temp folder when
   that folder cannot be written (a read-only checkout); the failure message gives the path. Those files are git-ignored;
   delete them when done.
