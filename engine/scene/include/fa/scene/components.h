@@ -182,7 +182,6 @@ struct SpriteAnimator {
     bool ended = false;               // runtime: a non-looping clip reached its end and sent clipEnded
     std::string playedClip;           // runtime: the clip `time` belongs to (a change of `clip` restarts the animation)
     std::int32_t eventStep = -1;      // runtime, not reflected: the last step of the pass whose frame events ran (-1 = none yet)
-    std::uint32_t advancedPass = 0;   // runtime, not reflected: the renderer's animation pass (Renderer::advance_animators) that last moved it
 };
 
 // ----------------------------------------------------------- 2D bones ---

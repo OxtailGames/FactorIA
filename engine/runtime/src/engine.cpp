@@ -23,7 +23,9 @@
 #include "fa/scene/animation.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/ik3d.h"
+#include "fa/scene/particle_store.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/sprite_animator.h"
 #include "fa/scene/vfx.h"
 #include "fa/scene/video.h"
 
@@ -268,7 +270,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
     bind_pending_skins(world);  // a SpriteSkin records the pose the scene was authored in, before any clip moves a bone
     ui.reset();
     apply_localization();  // the first frame (and the first onStart) already read the current language
-    if (renderer) renderer->reset_particles();  // emitters are kept by entity: the new scene's start from nothing, as on every Play (before the scripts, which may emit a burst)
+    world.particles().clear();  // emitters are kept by entity: the new scene's start from nothing, as on every Play (before the scripts, which may emit a burst)
     scripts.on_scene_loaded();
     if (loader) loader->scene_loaded();  // files read ahead for this load are dropped at the next one
     if (renderer) renderer->debug().clear();
@@ -383,16 +385,23 @@ void Engine::Impl::cancel_script_background_loads() {
 }
 
 namespace {
-// Renderer::update(World&, float) advances animators/particles without drawing. Called when the renderer has it
-// (older renderers simulate inside render_world, which then has to run every frame).
+// Renderer::update(World&, float) refreshes the cameras (queries) and the parallax offsets without drawing.
 template <class R>
 void update_visuals(R& r, World& w, float dt) {
     if constexpr (requires { r.update(w, dt); }) r.update(w, dt);
 }
 }  // namespace
 
+void Engine::Impl::settle_visuals() {
+    // A clip a script changed, a burst it asked for, an emitter it spawned: shown from the next draw on, whatever the next fixed step
+    // does. Time does not move (dt 0), so this fires no frame event and ages no particle; it is the same with and without a renderer.
+    update_sprite_animators(world, 0.0f);
+    world.particles().update(world, 0.0f);
+}
+
 void Engine::Impl::draw(double dt) {
     if (!renderer) return;
+    settle_visuals();  // also a picture drawn outside a frame (a screenshot right after a load) shows what the world holds now
     // Textures, fonts and meshes load when they are first drawn: a capture or a runner that draws directly reads for
     // this engine too (fa/core/load_trace.h).
     const LoadTrace::ReadingFor reading(traceOwner);
@@ -410,9 +419,10 @@ void Engine::Impl::draw(double dt) {
 }
 
 void Engine::Impl::render(double dt) {
+    settle_visuals();  // with or without a renderer: the world a frame ends with does not depend on drawing
     if (!renderer) return;
     ProfSystemScope prof(ProfSystem::Render);
-    dt *= scripts.time_scale();  // particles and sprite animators follow time.scale: frozen while paused
+    dt *= scripts.time_scale();
     update_visuals(*renderer, world, float(dt));
     if (cfg.renderMode == RenderMode::OnDemand && !windowed) {
         renderStale = true;
@@ -552,16 +562,21 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             update_vfx(world, float(fixedDt * scale), vfxHost);
         }
         {
+            // The SpriteAnimators (clip time, frame, frame events, clipEnded, Sprite.region) and the particles (emission, motion,
+            // deaths, autoDestroy) follow the game clock too. They live in fa_scene, not in the renderer: a game with no graphics
+            // (--no-graphics, no EGL) steps them exactly like one with a window. Before the events below are dispatched, so what
+            // a frame event or clipEnded sends reaches the scripts in this same step.
+            ProfSystemScope prof(ProfSystem::Animation);
+            update_sprite_animators(world, float(fixedDt * scale));
+            world.particles().update(world, float(fixedDt * scale));
+        }
+        {
             ProfSystemScope prof(ProfSystem::ScriptsEvents);
             scripts.dispatch_events();
         }
         world.advance_clock(fixedDt);
         ++fixedStep;
     }
-    // The sprite animators move on and run their frame events here, before the UI and the scripts of the frame: the game events,
-    // sounds and effects an event starts are handled in this same frame, not the next one (the renderer's own update would do it
-    // after all of them). They follow time.scale like particles.
-    if (renderer) renderer->advance_animators(world, float(dt * scripts.time_scale()));
     // The UI reads this frame's input and sends its events, which scripts get right away. Real time: it works at time.scale 0.
     {
         ProfSystemScope prof(ProfSystem::Ui);

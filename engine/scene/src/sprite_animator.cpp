@@ -2,12 +2,91 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <filesystem>
 #include <format>
+#include <mutex>
+#include <string>
+#include <unordered_map>
 
+#include "fa/core/fs.h"
+#include "fa/core/image.h"
+#include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/scene/feel.h"
 
 namespace fa {
+
+namespace {
+
+struct TexDims {
+    bool known = false;
+    int w = 1, h = 1;
+};
+
+// Sizes read from files stay until the file (or its .ktx2 twin) changes: stepping an animator must not read a picture every step.
+// The file's stat (time, size) is looked at once per "epoch" (one per frame: update_sprite_animators with dt 0 ends it), not per
+// fixed step. On a platform whose files have no time (an Android APK asset answers -1) the entry is cached all the same, keyed
+// by the file name and re-read only when the name starts or stops being a file.
+struct SizeEntry {
+    std::int64_t mtime = -2, size = -2, twinMtime = -2;
+    bool exists = false;
+    std::uint64_t epoch = 0;  // the epoch the stat above was taken in; 0 = never
+    TexDims dims;
+};
+struct SizeCache {
+    std::mutex mutex;
+    std::filesystem::path root;  // the project the entries belong to
+    std::uint64_t epoch = 1;
+    std::unordered_map<std::string, SizeEntry> entries;
+};
+SizeCache& size_cache() {
+    static SizeCache c;
+    return c;
+}
+
+// The size the renderer gives the texture of a Sprite, from files only. Unknown for the ids only the GPU knows.
+TexDims cpu_texture_dims(const std::string& texture) {
+    if (texture.empty()) return {true, 1, 1};  // the renderer's white pixel
+    if (texture.rfind("runtime:", 0) == 0 || texture.rfind("target:", 0) == 0) return {};
+    const std::string key = fs::normalize(texture);
+    auto read = [&]() -> TexDims {
+        auto r = texture_size(key);
+        return r ? TexDims{true, r->width, r->height} : TexDims{true, 32, 32};  // the renderer's missing-texture checker
+    };
+    SizeCache& c = size_cache();
+    std::lock_guard<std::mutex> lock(c.mutex);
+    if (c.root != fs::project_root()) {
+        c.entries.clear();
+        c.root = fs::project_root();
+    }
+    SizeEntry& e = c.entries[key];
+    if (e.epoch == c.epoch) return e.dims;  // already looked at in this frame
+    const std::int64_t mtime = fs::modified_time(key);
+    const std::int64_t size = mtime >= 0 ? fs::file_size(key) : -1;
+    const std::int64_t twin = fs::modified_time(key + kTextureTwinExtension);
+    const bool exists = mtime >= 0 || fs::exists(key);
+    // A rectangle of an atlas (or a name that is no file): answered from memory, so ask again whenever the epoch changes.
+    const bool fromMemory = mtime < 0 && twin < 0 && !exists;
+    if (e.epoch == 0 || fromMemory || e.mtime != mtime || e.size != size || e.twinMtime != twin || e.exists != exists) {
+        e.dims = read();
+        e.mtime = mtime;
+        e.size = size;
+        e.twinMtime = twin;
+        e.exists = exists;
+    }
+    e.epoch = c.epoch;
+    return e.dims;
+}
+
+// A frame ended (a dt 0 pass): the next lookup of each texture looks at its file again.
+void next_size_epoch() {
+    SizeCache& c = size_cache();
+    std::lock_guard<std::mutex> lock(c.mutex);
+    ++c.epoch;
+}
+
+}  // namespace
 
 std::string sprite_clip_error(std::string_view texture, std::string_view clip, const std::shared_ptr<const assets::Sheet>& sheet) {
     if (!sheet)
@@ -205,6 +284,34 @@ Rect sprite_frame_rect(const SpriteAnimPlan& plan, int frame, int texW, int texH
 Vec2 sprite_effective_pivot(const Sprite& s, const SpriteAnimator& a, const SpriteAnimPlan& plan) {
     if (a.sheetPivot && plan.pivot && s.pivot.x == 0.5f && s.pivot.y == 0.5f) return *plan.pivot;
     return s.pivot;
+}
+
+void update_sprite_animators(World& world, float dt) {
+    if (dt <= 0.0f) next_size_epoch();  // the settle pass ends a frame: file sizes are looked at again from the next one on
+    // The sheet and the size of each texture are looked up once per texture per step.
+    std::unordered_map<std::string, std::shared_ptr<const assets::Sheet>> sheets;
+    std::unordered_map<std::string, TexDims> dims;
+    world.each<SpriteAnimator, Sprite>([&](Entity e, SpriteAnimator& a, Sprite& s) {
+        if (!world.active_in_hierarchy(e) || world.pending_destroy(e)) return;
+        std::shared_ptr<const assets::Sheet> sheet;
+        if (!s.texture.empty()) {
+            auto it = sheets.find(s.texture);
+            if (it == sheets.end()) it = sheets.emplace(s.texture, assets::sheet(s.texture)).first;
+            sheet = it->second;
+        }
+        const SpriteAnimPlan plan = resolve_sprite_animator(a, s.texture, sheet);
+        if (!plan.error.empty() && world.warned_sprite_clips().insert(world.id_of(e) + "|" + a.clip).second)
+            FA_WARN("scene", "entity '{}': {}", world.id_of(e), plan.error);
+        const bool ended = sprite_animator_step(a, plan, dt);
+        // Frame events run before clipEnded; they only queue effects and game events, so nothing below changes the world while
+        // this loop walks it (a `spawn` instantiates its prefab in feel_update). Time that does not move (a paused game, the
+        // editor's edit mode) fires none: nothing would drain what they queue.
+        if (dt > 0.0f) sprite_animator_fire_events(world, e, a, plan);
+        if (ended) world.events().game.push_back(GameEvent{"clipEnded", Json::object({{"id", world.id_of(e)}, {"clip", a.clip}}), e});
+        auto dit = dims.find(s.texture);
+        if (dit == dims.end()) dit = dims.emplace(s.texture, cpu_texture_dims(s.texture)).first;
+        if (dit->second.known) s.region = sprite_frame_rect(plan, a.frame, dit->second.w, dit->second.h);
+    });
 }
 
 Result<void> sprite_animator_play(World& world, Entity e, std::string_view name, bool restart) {

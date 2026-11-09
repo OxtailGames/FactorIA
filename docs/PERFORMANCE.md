@@ -447,11 +447,11 @@ Cost: idle workers sleep and use no CPU. A job costs about one allocation and on
 big enough to gain from it. Each worker has a stack and a few kilobytes of its own: on a phone, fewer workers save a
 little memory and battery.
 
-What runs on the workers: the drawing work of a frame once it is big (the sprites, tilemaps, particles, the 3D meshes'
+What runs on the workers: the drawing work of a frame once it is big (the sprites, tilemaps, the quads of the particles, the 3D meshes'
 matrices, culling and shadows, the sorts and the vertex stream; docs/ARCHITECTURE.md, "Systems that run as jobs"
-lists each job with its threshold) and the poses of many animators. A game under every threshold (a few hundred
+lists each job with its threshold), the simulation of the particles and the poses of many animators. A game under every threshold (a few hundred
 sprites, under 2048 particles, under 256 meshes: most games) runs exactly as with 0 workers. In `perf.profile`'s
-`threads` these show as `render.gather_sprites`, `render.particles`, `render.mesh_cull`, `scene.animation_poses` and
+`threads` these show as `render.gather_sprites`, `scene.particles`, `render.mesh_cull`, `scene.animation_poses` and
 the like on the worker lanes.
 
 Choosing `jobThreads`:

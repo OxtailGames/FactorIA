@@ -65,7 +65,7 @@ Draws a textured (or solid color) quad. Use `region` to pick a frame from a spri
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `texture` | asset (texture) | `""` | Project-relative path of the image (e.g. "assets/hero.png"). Empty draws a solid quad of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). |
-| `region` | rect | `[0.0,0.0,0.0,0.0]` | Source rectangle [x, y, w, h] in texture pixels with the origin at the TOP-LEFT. A zero size means the whole texture. SpriteAnimator overwrites it every frame. |
+| `region` | rect | `[0.0,0.0,0.0,0.0]` | Source rectangle [x, y, w, h] in texture pixels with the origin at the TOP-LEFT. A zero size means the whole texture. SpriteAnimator overwrites it every simulation step. |
 | `size` | vec2 | `[0.0,0.0]` | Size [w, h] in world units. [0, 0] = use the region (or texture) size in pixels. |
 | `pivot` | vec2 | `[0.5,0.5]` | Anchor inside the sprite: [0, 0] bottom-left, [0.5, 0.5] center, [1, 1] top-right. |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Tint multiplied with the texture. Alpha makes it translucent. Accepts [r,g,b,a], "#rrggbb" or a name. |
@@ -130,7 +130,7 @@ A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their 
 
 ### SpriteAnimator
 
-Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
+Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every simulation step (so it advances in a run with no graphics, a replay and `factoria test`). Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -3547,13 +3547,14 @@ Since 0.19.0.
 
 One 64-bit hash of the whole simulation state: every entity, component and field, the clock and the random generator.
 
-Two runs that simulate the same thing give the same hash; any difference (a float off in its last bit, an extra entity, another random number drawn) changes it. Use it to check determinism: the same game with runtime.jobThreads 0, 1 or 8 (or FA_JOB_THREADS=inline) must give the same hash at the same frame, and so must a replay. Runtime-only fields (velocities, timers) are included unless includeRuntime is false. perEntity lists one hash per entity (creation order) to find which entity differs. Example: game.state_hash {"perEntity":true}
+Two runs that simulate the same thing give the same hash; any difference (a float off in its last bit, an extra entity, another random number drawn) changes it. Use it to check determinism: the same game with runtime.jobThreads 0, 1 or 8 (or FA_JOB_THREADS=inline) must give the same hash at the same frame, and so must a replay. Runtime-only fields (velocities, timers) are included unless includeRuntime is false. perEntity lists one hash per entity (creation order) to find which entity differs. components limits the hash to the named component types (and leaves the clock and the random generator out): compare two runs on, say, ["SpriteAnimator","Sprite"] only. Example: game.state_hash {"perEntity":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `perEntity` | boolean | no | Also list one hash per entity, in creation order (at most maxEntities). Default false. |
 | `includeRuntime` | boolean | no | Hash the fields that are not saved to scenes too (velocities, timers). Default true. |
 | `maxEntities` | integer | no | How many entities perEntity lists. Default 200. |
+| `components` | array | no | Hash only the components of these types (names as in the component list, e.g. ["Sprite","SpriteAnimator"]); the clock and the random generator are left out. Default: everything. |
 
 ### `game.step` (modifies state)
 
@@ -8537,7 +8538,7 @@ declare module "factoria" {
      */
     isTouching(direction: Vec3Like, tolerance?: number): boolean;
     /**
-     * Immediately spawns `count` particles at this entity's ParticleEmitter (works with emitting = false). No-op with a warning when there is no renderer (headless).
+     * Spawns `count` particles at this entity's ParticleEmitter (works with emitting = false). They are born in the next simulation step (or when the frame is drawn, if that comes first), also in a run without graphics. No-op when the entity has no ParticleEmitter.
      */
     emitBurst(count?: number): void;
     /**
@@ -11229,7 +11230,7 @@ declare module "factoria" {
    */
   export interface ParticlesAPI {
     /**
-     * Immediately spawns `count` particles at the entity's ParticleEmitter (works with emitting = false). No-op with a warning without a renderer.
+     * Spawns `count` particles at the entity's ParticleEmitter (works with emitting = false). The particles belong to the world, so it works in a run without graphics too; the burst is born in the next simulation step (or when the frame is drawn, if that comes first) at the emitter position. No-op when the entity has no ParticleEmitter.
      */
     burst(entity: Entity | string, count?: number): void;
   }
@@ -13828,7 +13829,7 @@ declare module "factoria" {
      */
     texture: string;
     /**
-     * Source rectangle [x, y, w, h] in texture pixels with the origin at the TOP-LEFT. A zero size means the whole texture. SpriteAnimator overwrites it every frame.
+     * Source rectangle [x, y, w, h] in texture pixels with the origin at the TOP-LEFT. A zero size means the whole texture. SpriteAnimator overwrites it every simulation step.
      */
     get region(): Rect;
     set region(value: RectLike);
@@ -14028,7 +14029,7 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
+   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every simulation step (so it advances in a run with no graphics, a replay and `factoria test`). Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
    * 
    * Category: 2D
    */
