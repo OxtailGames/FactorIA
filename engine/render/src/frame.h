@@ -127,9 +127,6 @@ int emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay,
 // file; this covers what only the GPU knows (a `runtime:` or `target:` texture) and what is drawn without a simulation step (a hidden
 // subject of a capture, a tool's own world). Idempotent: it never moves time or runs events.
 void apply_sprite_frames(World& world, Frame& f);
-// Writes Parallax.offset of every Parallax component for a camera at `camPos` (world xy). Called by Renderer::update and
-// at the start of gather_2d, so entity.bounds() is right in headless runs too.
-void update_parallax(World& world, Vec2 camPos);
 void gather_2d(World& world, Frame& f);
 // Gives the point lights of f.lights2d that ask for shadows (extra[1]) a row of f.shadowData when a Tilemap with
 // occludesLight is in the scene, at most kMaxShadowLights2D (the ones ranked first); sets extra[0] to the row and counts

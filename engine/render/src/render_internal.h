@@ -19,6 +19,7 @@
 #include "fa/core/math.h"
 #include "fa/core/video.h"
 #include "fa/render/renderer.h"
+#include "fa/scene/camera_geometry.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/world.h"
 
@@ -264,11 +265,6 @@ struct GlyphInfo {
     bool empty = false;           // whitespace or a missing character: no bitmap
 };
 
-struct FontMetrics {
-    float ascent = 0, descent = 0, lineGap = 0;  // pixels at the requested size (descent negative)
-    float lineHeight() const { return ascent - descent + lineGap; }
-};
-
 struct TextQuad {
     float x0, y0, x1, y1;  // local units, y UP, relative to the entity origin after pivot
     float u0, v0, u1, v1;
@@ -444,6 +440,7 @@ private:
 class Gpu;
 class Assets;
 class Fonts;
+class FontSet;
 
 // Camera.bloom* (flat fields on Camera), already clamped: see sanitize_bloom() in bloom.h. The defaults here are
 // the fallbacks for NaN values and equal the Camera component defaults.
@@ -455,22 +452,8 @@ struct BloomSettings {
     bool screenSpace = true;  // Camera.bloomScreenSpace: false = screen-space items are drawn after the bloom
 };
 
-struct CameraInfo {
-    Entity entity = kNullEntity;            // the Camera entity (null for the default camera of a world without one)
-    int depth = 0;                          // Camera.depth
-    // Camera.viewport after sanitizing: [x, y, w, h] as fractions of the target, top-left origin, +Y down. proj maps the
-    // view onto THIS rectangle (its aspect is the rectangle's), so ndc -1..1 is the viewport, not the whole target.
-    Rect viewport{0, 0, 1, 1};
-    bool fullViewport() const { return viewport.x == 0.0f && viewport.y == 0.0f && viewport.w == 1.0f && viewport.h == 1.0f; }
-    Mat4 view, proj, viewProj, invViewProj;
-    Vec3 position{0, 0, 0};
-    bool perspective = false;
-    bool fromEntity = false;
-    float fov = 60.0f;
-    float halfH = 360.0f, halfW = 640.0f;   // orthographic half extents (world units)
-    float pixelsPerUnit = 1.0f;             // ortho: target pixels per world unit
-    Rect visible{};                         // orthographic view rectangle in world units
-    Vec3 right{1, 0, 0}, up{0, 1, 0}, forward{0, 0, -1};
+// A camera as the renderer draws it: the geometry the simulation shares (fa/scene/camera_geometry.h) plus what only drawing needs.
+struct CameraInfo : CameraGeometry {
     Color clearColor{0.08f, 0.08f, 0.12f, 1};
     bool clear = true;
     bool studio = false;          // Camera.lighting == studio: the camera's own rig instead of the scene's lights, ambient, sky and fog
@@ -631,6 +614,9 @@ public:
     // already. `files`: the project files it read, reported to the load trace on first use.
     void adopt(std::unique_ptr<FontFace> face, std::vector<std::string> files);
     bool has_face(const std::string& font) const;
+    // The fonts and the GPU-free text layout this places glyphs on (font_set.h): Renderer::measure_text asks it for sizes
+    // without touching the atlas.
+    FontSet& set() const;
     // Uploads the atlas if new glyphs were rasterized. Call after layout, before drawing.
     void sync();
     // Counts the times the glyph atlas was cleared or grown: quads laid out before a change hold UVs of the old atlas.
@@ -641,17 +627,10 @@ public:
     Json report() const;
 
 private:
-    FontFace* load(const std::string& font);  // the face of that file even when it failed to load (ok == false)
     GlyphInfo glyph(FontFace* face, int px, std::uint32_t gid, bool synthBold = false);
-    // The face of `regular` for bold and/or italic text: the project's text.fonts entry, else the built-in family's own face
-    // (builtin:serif has bold, italic and bold italic), else null. boldDrawn: the face returned is a bold one.
-    FontFace* variant_face(FontFace* regular, bool bold, bool italic, bool& boldDrawn);
-    void warn_missing_glyphs(FontFace* f, const std::string& text, const std::vector<char32_t>& missing);
-    void warn_markup(const std::string& source, const MarkupText& m);
 
     struct Impl;
     Gpu& gpu_;
-    Assets& assets_;
     std::unique_ptr<Impl> impl_;
     TextureAsset atlasTex_;
 };
