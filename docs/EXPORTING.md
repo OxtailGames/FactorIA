@@ -2,18 +2,20 @@
 
 `factoria export` turns a game project into something you can ship. The same
 function is available to tools as `fa::export_project` (`fa/tooling/export.h`), to AIs as the command
-`project.export`, and in the editor as the **Export** button ([From the editor](#from-the-editor)).
+`project.export`, and in the editor as the **Export Game** item of the menu bar ([From the editor](#from-the-editor)).
 
 ```bash
 factoria export [project] --platform <linux|windows|macos|android|ios|web> [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]]
                 [--player PATH] [--engine-root DIR | --mobile-dir DIR] [--allow-player-mismatch] [--allow-missing-plugins]
+                [--single-file [--single-file-max-mb N]] [--json]
 ```
 
 `--format` is for Android (`apk` by default, `aab` for Google Play, `gradle` for only the project): see [Android](#android);
 for Linux, `appimage` also builds the game as one AppImage file: see [Linux: AppImage](#linux-appimage).
 `--release` on Linux, Windows and macOS puts the whole game in ONE file, `game.pak`, with the scripts compiled to bytecode: see
 [Release build](#release-build-gamepak). On Android it builds the release APK/AAB. `--platform web` writes a page, the web
-player and `game.pak`, plus a zip itch.io takes as an HTML5 game: see [Web](#web).
+player and `game.pak`, plus a zip itch.io takes as an HTML5 game; with `--single-file` it writes ONE html page instead: see
+[Web](#web).
 
 Before anything is written the project is validated: `factoria.json` must exist,
 `name` must be set, `mainScene` must exist and `id` must be a reverse-DNS
@@ -55,7 +57,8 @@ project_export {"platform":"android","dryRun":true}
 
 ## From the editor
 
-The editor's toolbar has an **Export** button (also File > Export Game...). It opens the **Export game** window: one
+The editor's menu bar has an **Export Game** item after Help (on macOS, the **Export** menu with **Export Game...**,
+Cmd+E; File > Export Game... does the same on every system). It opens the **Export game** window: one
 button per platform (Windows, macOS, Linux, Android, iOS, Web), each running this same export, never a separate one.
 
 - **Output folder**: the parent folder of the exports, `<project>/build/export` by default. Type a path (relative to
@@ -166,12 +169,14 @@ Every game of a platform ships the same prebuilt player (that is what lets a gam
 carries the whole engine: 2D and 3D, physics, audio, networking, UI. Code a game never calls costs disk space only: it is
 not run and allocates nothing. The linker drops the functions and data that nothing reaches: `-dead_strip` on macOS and iOS,
 `--gc-sections` on Linux (with every file compiled into its own sections), the NDK's default `--gc-sections` on Android,
-`/OPT:REF` with MSVC on Windows, and Emscripten's own removal on the web. Measured 2026-10-26 on the M29 engine:
+`/OPT:REF` with MSVC on Windows, and Emscripten's own removal on the web. These sizes are examples, not promises: they
+were measured on the dates and versions named here and grow with the engine (check the size of the `factoria_player` of
+your own download):
 
 | Player | Size |
 |---|---|
-| macOS arm64, Release, without symbols | 9.1 MB (10.2 MB before `-dead_strip`) |
-| Web, `factoria_player.wasm`, Emscripten 6.0.10 | 8.0 MB, 3.0 MB with gzip (6.8 MB and 2.7 MB in v0.2.0) |
+| macOS arm64, Release, without symbols (2026-10-26, M29 engine) | 9.1 MB (10.2 MB before `-dead_strip`) |
+| Web, `factoria_player.wasm`, Emscripten 6.0.10 (2026-10-26, M29 engine) | 8.0 MB, 3.0 MB with gzip (6.8 MB and 2.7 MB in v0.2.0) |
 | Windows x64 (v0.2.0) | 8.1 MB |
 | Linux x86_64 (v0.2.0, before `--gc-sections`) | 13 MB |
 
@@ -989,7 +994,7 @@ drive mostly forward. The file is a cache; deleting it, or `"useLoadOrder": fals
 window leaves them as they are), and a wrong value is an error with its JSON pointer
 (`factoria.json#/export/pack/codecs/.png: ...`, with a "did you mean").
 
-The export prints what the pack holds:
+The export prints what the pack holds (an example; the numbers are those of one game):
 
 ```
 Game pack: 41.2 MB for 63.0 MB of files (65%)
@@ -1055,8 +1060,9 @@ What each desktop export takes from [Platform settings](#platform-settings):
   the game lives in (it rewrites them to absolute paths and copies the file to `~/.local/share/applications`). The
   [AppImage](#linux-appimage) carries the same entry, with `Icon=<name>` and the game's version.
 
-Windows: the player of a release download carries FactorIA's signature once the release is signed
-([BUILDING.md](BUILDING.md), "Releasing"), and one built from source is not signed. Writing the game's icon and version
+Windows: the player of a release download would carry FactorIA's signature if the release were signed, but the
+Windows releases are not signed yet ([BUILDING.md](BUILDING.md), "Code signing"), and one built from source never is.
+Writing the game's icon and version
 information edits the exe, which invalidates a signature, so the export removes it (the certificate table at the end of
 the file) and says so in the report: an exe with the wrong signature is worse than an unsigned one. Only a player
 without the placeholders is copied byte for byte, signature included. SmartScreen may warn about an unsigned exe; sign
