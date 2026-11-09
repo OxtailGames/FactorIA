@@ -86,7 +86,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 
 # Next engine milestones
 
-**What comes next (2026-11-09):** M90, then M91, M92 and M93, then M94 and M95, and only then M71: M71 needs M95's
+**What comes next (2026-11-09):** M90 is done (0.20.0). Next M91, M92 and M93, then M94 and M95, and only then M71: M71 needs M95's
 frame graph and M75 needs M94.4, so the order of M70-M80 starts after them. M83-M89, M96, M97 and M98 fit in between as
 their "Order" lines say; M99 waits for the user's hardware and accounts. The reasons are in "M90-M99", at the end of
 this file. Update this paragraph when a milestone lands.
@@ -2377,7 +2377,7 @@ frame graph and render targets, M75 on M94's broadphase and heightfield. M96 bef
 small player). M97 at any time, alongside the others. M98's packages after M91, earlier where a game asks for one. M99
 when the user has the hardware and the accounts.
 
-## M90. Quick fixes the review found (M; 5 packages) — outside review, 2026-11-09
+## M90. Quick fixes the review found (M; 5 packages) — DONE (0.20.0)
 
 - M90.1 (M) Docs that break or contradict, each fixed against its source: recipe 9.27 (`this.map.tilemap.component`),
   `Math.random` (deterministic in game scripts; AI_GUIDE lists it as a cause of different runs), `Date` fixed only in
