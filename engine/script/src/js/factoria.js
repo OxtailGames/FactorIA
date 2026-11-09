@@ -4537,6 +4537,7 @@
       try { fa.call("platform.set_ad", { outcome: "watched", gdpr: "granted", tracking: "authorized" }); } catch (e) { /* a real backend: nothing to reset */ }
       const start = N.nowMs();
       const seq0 = N.logSeq();
+      const cuts0 = N.watchdogCuts();
       let passed = true, message = "";
       N.guardBegin(`test '${t.name}'`, 60.0);
       try {
@@ -4563,6 +4564,12 @@
           "\n  (an exception was thrown inside the test; check the game scripts too: `factoria` logs script errors)";
       }
       N.guardEnd();
+      if (N.watchdogCuts() !== cuts0) {
+        // A callback inside this test was cut by the watchdog: whatever the test saw depends on the machine's speed.
+        const cutText = N.watchdogCuts(cuts0);
+        passed = false;
+        message = (message ? message + "\n" : "") + `${cutText}. The test ran while a script callback was cut short, so its result cannot be trusted: fix the loop (a script that spins)`;
+      }
       results.push({ name: t.name, passed, message, ms: N.nowMs() - start, seq0, seq1: N.logSeq() });
     }
     N.resetInput();

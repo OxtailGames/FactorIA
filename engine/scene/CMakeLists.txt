@@ -41,3 +41,8 @@ else()
 endif()
 
 fa_add_tests(scene)
+
+# The particle and feel replay hashes on their own, so CI prints them: `ctest -R det_replay_hashes -V` (tests/test_det_replay.cpp).
+if(TARGET fa_test_scene)
+    add_test(NAME det_replay_hashes COMMAND fa_test_scene "-tc=det replay*" WORKING_DIRECTORY ${FA_ROOT})
+endif()

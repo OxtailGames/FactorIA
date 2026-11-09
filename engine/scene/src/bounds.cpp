@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "fa/core/det_math.h"
 #include "fa/core/utf8.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/tilemap.h"
@@ -36,8 +37,8 @@ VisualFootprint make(const char* component, RenderSpace space, std::int32_t laye
 
 Mat4 sprite_shear_matrix(Vec2 skew) {
     Mat4 m = Mat4::identity();
-    const float tx = std::tan(radians(std::clamp(std::isfinite(skew.x) ? skew.x : 0.0f, -80.0f, 80.0f)));
-    const float ty = std::tan(radians(std::clamp(std::isfinite(skew.y) ? skew.y : 0.0f, -80.0f, 80.0f)));
+    const float tx = det::tan(radians(std::clamp(std::isfinite(skew.x) ? skew.x : 0.0f, -80.0f, 80.0f)));
+    const float ty = det::tan(radians(std::clamp(std::isfinite(skew.y) ? skew.y : 0.0f, -80.0f, 80.0f)));
     m.at(1, 0) = tx;  // column 1 (the y axis) gets an x part
     m.at(0, 1) = ty;  // column 0 (the x axis) gets a y part
     return m;
@@ -45,8 +46,8 @@ Mat4 sprite_shear_matrix(Vec2 skew) {
 
 Vec2 sprite_shear_point(Vec2 p, Vec2 skew) {
     if (skew.x == 0.0f && skew.y == 0.0f) return p;
-    const float tx = std::tan(radians(std::clamp(std::isfinite(skew.x) ? skew.x : 0.0f, -80.0f, 80.0f)));
-    const float ty = std::tan(radians(std::clamp(std::isfinite(skew.y) ? skew.y : 0.0f, -80.0f, 80.0f)));
+    const float tx = det::tan(radians(std::clamp(std::isfinite(skew.x) ? skew.x : 0.0f, -80.0f, 80.0f)));
+    const float ty = det::tan(radians(std::clamp(std::isfinite(skew.y) ? skew.y : 0.0f, -80.0f, 80.0f)));
     return {p.x + p.y * tx, p.y + p.x * ty};
 }
 

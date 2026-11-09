@@ -1881,10 +1881,28 @@ test files with `factoria test <project> tests/saves.test.js "tests/ui*.test.js"
 - `Math.random()` is routed to the deterministic world RNG (`rng.*`; write `rng`). `Date` is NOT replaced in game
   scripts: `Date.now()` and `new Date()` read the real wall clock, so never use them in simulation (`game.today()`).
   Only `assets.animate_svg` modules (`.anim.js`) get a fixed `Date` (ASSETS.md).
+- `Math.sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `expm1`, `log`, `log2`, `log10`, `log1p`, `pow` (and
+  `**`), `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `cbrt` and `hypot` are the engine's deterministic functions
+  (`fa::det::f64`, built only from `+ - * / sqrt` on doubles): the same bits on Windows, Linux, macOS, Android, iOS and the
+  web, where the C library's last bit differs between them. They are accurate to about 1 ulp (`pow` loses up to about 1.5 ulp
+  per unit of `|y * ln(x)|` on large results), so a script sees the numbers it expects, `Math.pow(2, 10)` is exactly 1024 and the integer powers and roots that are
+  exact stay exact. `Math.sqrt`, `floor`, `ceil`, `round`, `trunc`, `abs`, `min`, `max`, `fround`, `imul` and `clz32` are exact
+  in IEEE 754 and unchanged. This applies to EVERY script the engine runs, because there is one JavaScript engine: game
+  scripts, tests, script tools (`tools/*.js`), `scripts/autoplay.js` hooks and editor scripts all get the same `Math`; no
+  script sees the C library's. A script needs nothing to opt in.
 - Callbacks using more than 2 s of CPU time are aborted ("script took too long") and the
   behaviour is disabled until its file is reloaded. A timer, tween or `world.on`
   listener stopped this way ends alone; the scripts after it run. Exceptions are recorded once
   per (file, line, message) with a hint; the behaviour keeps running.
+  **A cut callback makes the run invalid**, because the rest of the callback was skipped at a point that depends on how fast
+  the machine is, so no replay or hash taken from the run can be trusted. It is never silent: the engine logs an error
+  naming the script and the callback ("the script watchdog stopped 'onUpdate' of scripts/boss.js (limit 2 s of CPU time)"),
+  counts it, and then (1) `factoria run --headless` exits with code 1 whatever `--allow-script-errors` says and its report has
+  `"replayValid": false`, the cuts in `watchdogCuts` and a line in `problems`; (2) a test that ran while a callback was cut
+  (even if its own asserts passed) fails with the script and callback named; (3) `game.autoplay` / `play.auto` report
+  "INVALID RUN" in their notes and the cut in `scriptErrors`; (4) a windowed run with `--frames` exits with code 1. Fix
+  the loop that spins (the cause is almost always a `while` that never ends or a pathfinding call per frame), do not raise
+  the limit. `script.trace` is the one tool that keeps running after a cut, to show where the time goes.
 - `world.on(name, fn)` listeners get `(data, source)`; `this.on(name, fn)` is the
   same. All listeners/timers are dropped when a scene loads.
 - Unknown input actions, keys, components and fields throw errors with
