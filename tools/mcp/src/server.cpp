@@ -14,6 +14,7 @@
 #include <thread>
 
 #include "fa/core/fs.h"
+#include "fa/core/log.h"
 #include "fa/core/screenshot_files.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/api_export.h"
@@ -134,6 +135,38 @@ Json ok_response(const Json& id, Json result) {
     return Json::object({{"jsonrpc", "2.0"}, {"id", id}, {"result", std::move(result)}});
 }
 
+// `obj[key]` when it is a string, "" otherwise (a client's value of another type is never read as one: Json::value() would
+// throw).
+std::string string_field(const Json& obj, const char* key) {
+    if (!obj.is_object()) return {};
+    const auto it = obj.find(key);
+    return it != obj.end() && it->is_string() ? it->get<std::string>() : std::string();
+}
+
+// JSON-RPC 2.0: an id is a string, a number or null.
+bool valid_id(const Json& id) { return id.is_string() || id.is_number() || id.is_null(); }
+
+// Why `msg` is not a JSON-RPC 2.0 message this server can take, or "" when it is. Checked before any field is read, so a
+// value of the wrong type (a number for "jsonrpc", an object for "id", a string for "params") is an Invalid Request, never
+// an exception.
+std::string invalid_message_reason(const Json& msg) {
+    if (!msg.is_object()) return "a JSON-RPC message is an object (or a batch: an array of objects)";
+    if (const auto id = msg.find("id"); id != msg.end() && !valid_id(*id)) return "\"id\" must be a string or a number";
+    const auto rpc = msg.find("jsonrpc");
+    if (rpc == msg.end() || !rpc->is_string() || rpc->get<std::string>() != "2.0") return "expected \"jsonrpc\":\"2.0\"";
+    if (const auto m = msg.find("method"); m != msg.end() && !m->is_string()) return "\"method\" must be a string";
+    if (const auto p = msg.find("params"); p != msg.end() && !p->is_object() && !p->is_null())
+        return "\"params\" must be an object";
+    return {};
+}
+
+// The id an answer to `msg` carries: its own when it has a valid one, null otherwise.
+Json reply_id(const Json& msg) {
+    if (!msg.is_object()) return nullptr;
+    const auto id = msg.find("id");
+    return id != msg.end() && valid_id(*id) ? *id : Json(nullptr);
+}
+
 std::string humanize(const std::string& name) {
     std::string s = name;
     for (char& c : s) if (c == '.' || c == '_') c = ' ';
@@ -208,6 +241,13 @@ bool McpSession::cancel(const Json& id) {
     return range.first != range.second || queued.first != queued.second;
 }
 
+std::size_t McpSession::cancel_all() {
+    std::lock_guard<std::mutex> lock(mu_);
+    for (auto& [key, flag] : inFlight_) flag->store(true);
+    for (auto& [key, cancelled] : queued_) cancelled = true;
+    return inFlight_.size() + queued_.size();
+}
+
 std::size_t McpSession::requests_in_flight() const {
     std::lock_guard<std::mutex> lock(mu_);
     return inFlight_.size();
@@ -237,7 +277,7 @@ void McpServer::share_session(std::shared_ptr<McpSession> session) {
     if (h.protocolVersion.empty()) return;  // the client has not initialized yet: this server's initialize will
     protocol_ = std::move(h.protocolVersion);
     clientInfo_ = std::move(h.clientInfo);
-    clientName_ = clientInfo_.value("name", std::string());
+    clientName_ = string_field(clientInfo_, "name");
     clientCapabilities_ = std::move(h.clientCapabilities);
     initialized_ = true;
 }
@@ -247,7 +287,8 @@ void McpServer::set_result_cap(std::size_t bytes) { resultCap_ = std::max(bytes,
 bool McpServer::is_cancel_notification(std::string_view message) {
     if (message.find("notifications/cancelled") == std::string_view::npos) return false;  // cheap test first
     Json parsed = Json::parse(message.begin(), message.end(), nullptr, false);
-    return parsed.is_object() && !parsed.contains("id") && parsed.contains("method") && parsed["method"].is_string() &&
+    // A valid message only: an invalid one gets its Invalid Request answer in order, from the transport's loop.
+    return invalid_message_reason(parsed).empty() && !parsed.contains("id") && parsed.contains("method") &&
            parsed["method"].get<std::string>() == "notifications/cancelled";
 }
 
@@ -336,7 +377,7 @@ bool McpServer::restore_session(const Json& state) {
     if (!state.is_object() || !state.contains("protocolVersion") || !state["protocolVersion"].is_string()) return false;
     protocol_ = state["protocolVersion"].get<std::string>();
     clientInfo_ = state.contains("clientInfo") && state["clientInfo"].is_object() ? state["clientInfo"] : Json::object();
-    clientName_ = clientInfo_.value("name", std::string());
+    clientName_ = string_field(clientInfo_, "name");
     clientCapabilities_ =
         state.contains("clientCapabilities") && state["clientCapabilities"].is_object() ? state["clientCapabilities"] : Json::object();
     if (state.contains("logLevel") && state["logLevel"].is_string() && level_rank(state["logLevel"].get<std::string>()) >= 0)
@@ -511,12 +552,12 @@ Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel) {
 
 Json McpServer::handle_request(const std::string& method, const Json& params, const Json& id, const std::atomic<bool>* cancel) {
     if (method == "initialize") {
-        std::string requested = params.is_object() ? params.value("protocolVersion", std::string()) : std::string();
+        const std::string requested = string_field(params, "protocolVersion");
         const auto& sup = mcp_supported_protocols();
         protocol_ = std::find(sup.begin(), sup.end(), requested) != sup.end() ? requested : std::string(kMcpLatestProtocol);
         if (params.is_object() && params.contains("clientInfo") && params["clientInfo"].is_object()) {
             clientInfo_ = params["clientInfo"];
-            clientName_ = clientInfo_.value("name", std::string());
+            clientName_ = string_field(clientInfo_, "name");
         }
         clientCapabilities_ =
             params.is_object() && params.contains("capabilities") && params["capabilities"].is_object() ? params["capabilities"] : Json::object();
@@ -583,7 +624,7 @@ Json McpServer::handle_request(const std::string& method, const Json& params, co
         return ok_response(id, Json::object({{"description", description}, {"messages", messages}}));
     }
     if (method == "logging/setLevel") {
-        std::string level = params.is_object() ? params.value("level", std::string()) : std::string();
+        const std::string level = string_field(params, "level");
         if (level_rank(level) < 0)
             return error_response(id, kInvalidParams, "Invalid log level '" + level + "'.",
                                   Json::object({{"hint", "Use debug, info, notice, warning, error, critical, alert or emergency."}}));
@@ -593,21 +634,50 @@ Json McpServer::handle_request(const std::string& method, const Json& params, co
     return error_response(id, kMethodNotFound, "Method not found: " + method);
 }
 
+Json McpServer::runnable_request_id(const Json& msg) {
+    if (!invalid_message_reason(msg).empty()) return nullptr;
+    const auto id = msg.find("id");
+    const auto method = msg.find("method");
+    if (id == msg.end() || id->is_null() || method == msg.end() || method->get<std::string>() == "initialize") return nullptr;
+    return *id;
+}
+
 std::optional<Json> McpServer::handle_one(const Json& msg) {
-    if (!msg.is_object() || msg.value("jsonrpc", std::string()) != "2.0")
-        return error_response(msg.is_object() && msg.contains("id") ? msg["id"] : Json(nullptr), kInvalidRequest,
-                              "Invalid Request: expected a JSON-RPC 2.0 object with \"jsonrpc\":\"2.0\".");
+    // Nothing a client sends ends the server: an exception that gets this far (a bug, out of memory) answers the request
+    // with an Internal error, and a notification is dropped with a log line.
+    try {
+        return handle_valid_one(msg);
+    } catch (const std::exception& e) {
+        return internal_error(msg, e.what());
+    } catch (...) {
+        return internal_error(msg, "unknown exception");
+    }
+}
+
+std::optional<Json> McpServer::internal_error(const Json& msg, const std::string& what) {
+    const Json id = reply_id(msg);
+    const bool request = msg.is_object() && msg.contains("method") && msg.contains("id") && !id.is_null();
+    if (!request) {
+        ::fa::log(LogLevel::Warn, "mcp", "Dropped a message that failed: " + what);
+        return std::nullopt;
+    }
+    return error_response(id, kInternalError, "Internal error: " + what);
+}
+
+std::optional<Json> McpServer::handle_valid_one(const Json& msg) {
+    if (const std::string why = invalid_message_reason(msg); !why.empty())
+        return error_response(reply_id(msg), kInvalidRequest, "Invalid Request: " + why + ".",
+                              Json::object({{"hint", "Send one JSON-RPC 2.0 object per message: {\"jsonrpc\":\"2.0\", "
+                                                     "\"id\":1, \"method\":\"tools/list\", \"params\":{}}."}}));
     const bool hasId = msg.contains("id") && !msg["id"].is_null();
     if (!msg.contains("method")) return std::nullopt;  // a response to a server request, or garbage: ignore
-    if (!msg["method"].is_string())
-        return error_response(hasId ? msg["id"] : Json(nullptr), kInvalidRequest, "Invalid Request: \"method\" must be a string.");
     const std::string method = msg["method"].get<std::string>();
-    Json params = msg.contains("params") ? msg["params"] : Json::object();
+    Json params = msg.contains("params") && msg["params"].is_object() ? msg["params"] : Json::object();
     if (!hasId) {
         // Notification. notifications/cancelled stops the request it names (MCP "Cancellation"): its command is told,
         // and it gets no response. One for a request that is unknown or already answered is ignored, as the spec asks.
         // The others (notifications/initialized, roots/list_changed...) need nothing.
-        if (method == "notifications/cancelled" && params.is_object() && params.contains("requestId") &&
+        if (method == "notifications/cancelled" && params.contains("requestId") &&
             (params["requestId"].is_string() || params["requestId"].is_number()))
             session_->cancel(params["requestId"]);
         return std::nullopt;
@@ -627,6 +697,8 @@ std::optional<Json> McpServer::handle_one(const Json& msg) {
             response = handle_request(method, params, id, cancel.get());
         } catch (const std::exception& e) {
             response = error_response(id, kInternalError, std::string("Internal error: ") + e.what());
+        } catch (...) {
+            response = error_response(id, kInternalError, "Internal error: unknown exception");
         }
     }
     if (session_->end_request(id, cancel)) return std::nullopt;  // cancelled while it ran: no response at all

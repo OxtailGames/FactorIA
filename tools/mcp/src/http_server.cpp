@@ -4,9 +4,10 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
-#include <deque>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
+#include <exception>
 #include <future>
 #include <map>
 #include <mutex>
@@ -16,6 +17,7 @@
 #include <vector>
 
 #include "fa/core/json.h"
+#include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/net.h"
 
@@ -69,6 +71,23 @@ bool carries_request(const std::string& body) {
     return is_request(parsed);
 }
 
+// The answer when the handler throws (it should not: McpServer::handle_message does not): a JSON-RPC Internal error
+// for a request, carrying its id when the body is one request; nothing for notifications and responses (202).
+std::optional<std::string> handler_failure(const std::string& body, const std::string& what) {
+    ::fa::log(LogLevel::Error, "mcp", "The MCP endpoint's handler failed: " + what);
+    if (!carries_request(body)) return std::nullopt;
+    const Json parsed = Json::parse(body, nullptr, false);
+    Json id = nullptr;
+    if (parsed.is_object()) {
+        const auto it = parsed.find("id");
+        if (it != parsed.end() && (it->is_string() || it->is_number())) id = *it;
+    }
+    return Json::object({{"jsonrpc", "2.0"},
+                         {"id", id},
+                         {"error", Json::object({{"code", -32603}, {"message", "Internal error: " + what}})}})
+        .dump(-1, ' ', false, Json::error_handler_t::replace);
+}
+
 std::string random_token() {
     std::random_device rd;  // not simulation state: a secret for the endpoint's path
     char hex[33];
@@ -94,6 +113,7 @@ struct McpHttpServer::Impl {
     struct Connection {
         Socket socket = kNoSocket;
         bool idle = false;
+        bool evicted = false;  // closed by close_oldest_idle_locked: a request read after that is not handled
         std::chrono::steady_clock::time_point idleSince;
     };
     std::map<std::uint64_t, Connection> connections;
@@ -126,15 +146,18 @@ struct McpHttpServer::Impl {
             if (it->second.idle && (oldest == connections.end() || it->second.idleSince < oldest->second.idleSince)) oldest = it;
         if (oldest == connections.end()) return;
         oldest->second.idle = false;                  // closed once
+        oldest->second.evicted = true;                // a request its recv() already got is dropped, never run
         net::shutdown_socket(oldest->second.socket);  // its thread's recv() ends; the thread closes the socket
     }
 
     // A connection waits for its next request (`idle`) or got one. Returns false when it should end instead: it has
-    // answered a request, and the server is over maxConnections.
+    // answered a request and the server is over maxConnections, or it was closed for another client while it waited
+    // (evicted: what it read then is not handled; its client sees the connection close and can send it again).
     bool set_idle(std::uint64_t id, bool idle) {
         std::lock_guard<std::mutex> lock(mu);
         auto it = connections.find(id);
         if (it == connections.end()) return !idle;
+        if (it->second.evicted) return false;
         if (idle && active > options.maxConnections) return false;
         it->second.idle = idle;
         if (idle) it->second.idleSince = std::chrono::steady_clock::now();
@@ -164,14 +187,18 @@ struct McpHttpServer::Impl {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 continue;
             }
-            Socket c = net::accept_connection(listener);
-            reap();  // connections that ended while accept() waited: their threads go before a new one starts
+            // Non-blocking: a client that reset its connection between the poll and accept() leaves nothing to accept,
+            // and a blocking accept() would then wait for the next client (macOS, the BSDs) where stop() cannot wake it.
+            Socket c = kNoSocket;
+            const net::Accepted got = net::accept_pending(listener, c);
+            if (got == net::Accepted::Nothing) continue;
+            reap();  // connections that ended meanwhile: their threads go before a new one starts
             std::unique_lock<std::mutex> lock(mu);
             if (stopping) {
                 if (c != kNoSocket) close_socket(c);
                 return;
             }
-            if (c == kNoSocket) {  // e.g. out of file descriptors: try again shortly
+            if (got == net::Accepted::Failed) {  // e.g. out of file descriptors: try again shortly
                 lock.unlock();
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 continue;
@@ -212,7 +239,7 @@ struct McpHttpServer::Impl {
             const Received got = receive(c, buf);
             if (idle) {
                 idle = false;
-                set_idle(id, false);
+                if (!set_idle(id, false)) return false;  // evicted while it waited: the request is not run
             }
             if (got == Received::Failed && !buf.empty()) return reply(c, 408, "Request Timeout", "", false);  // half a request
             if (got != Received::Data) return false;
@@ -282,7 +309,14 @@ struct McpHttpServer::Impl {
             return true;
         };
         auto pending = std::async(std::launch::async, [&, call] {
-            std::optional<std::string> r = handler(body, notify);
+            std::optional<std::string> r;
+            try {
+                r = handler(body, notify);
+            } catch (const std::exception& e) {  // never rethrown by pending.get(): that would end the editor
+                r = handler_failure(body, e.what());
+            } catch (...) {
+                r = handler_failure(body, "unknown exception");
+            }
             std::lock_guard<std::mutex> lock(call->mu);
             call->response = std::move(r);
             call->done = true;
@@ -374,6 +408,11 @@ Result<std::string> McpHttpServer::start(StreamHandler handler, const McpHttpOpt
     if (!listener.ok()) return fail(listener.error().message);
     m.listener = listener->socket;
     m.port = listener->port;
+    if (!net::set_nonblocking(m.listener, true)) {
+        close_socket(m.listener);
+        m.listener = kNoSocket;
+        return fail("The listening socket cannot be made non-blocking.");
+    }
     m.handler = std::move(handler);
     m.options = options;
     m.options.maxConnections = std::max(1, options.maxConnections);

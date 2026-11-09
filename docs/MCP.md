@@ -46,8 +46,9 @@ that.)
   or keys, a long string its start (never in the middle of a UTF-8 character), and what is sent is always valid JSON. An
   object result gets a `_truncated: {"note": ...}` field (any other result is sent as `{"result": ..., "_truncated": ...}`)
   that says what was cut (`` `/entities` keeps the first 812 of 4000 items``) and how to get the rest: the paging
-  arguments the tool's own `inputSchema` declares when it has some (`offset`, `limit`, `startLine`, or a name of its own
-  with offset, limit, cursor or page in it, such as `pageToken`), else the arguments that ask for less (`filter`,
+  arguments the tool's own `inputSchema` declares when it has some (`offset`, `limit`, `startLine`, or a camelCase name of
+  its own that starts or ends with the word offset, limit, cursor or page and takes an integer or a string, such as
+  `pageToken` or `entityLimit`), else the arguments that ask for less (`filter`,
   `path`...), else to ask for a smaller part. A picture is not counted: the cap is for the JSON.
   A tool's `inputSchema` is closed: `tools/call` with an argument the tool does not declare fails with `invalid_arguments`
   (`/frame: unknown property 'frame'`, the hint offers the closest declared name and lists the accepted ones) and runs nothing, so
@@ -77,12 +78,20 @@ that.)
   its sub-agent) and the request gets no response, as the protocol says. A cancel for a request that is unknown or already
   answered is ignored. Over stdio the server reads its input all the time on a thread of its own, so a cancel reaches it at
   once: a request that runs stops, and one still waiting behind another (requests run one at a time) is skipped and never
-  runs; every other message waits for its turn. Over HTTP the cancel is a POST of its own (answered 202, and let in even
+  runs; every other message waits for its turn. When the client closes stdin (the protocol's way to shut a stdio server
+  down) the messages read before it are still handled, but a request still running or waiting 10 seconds later is
+  cancelled, so a long `ai_run` does not go on for a client that is gone. Over HTTP the cancel is a POST of its own (answered 202, and let in even
   when every connection is taken: the endpoint keeps a spare one) that reaches the call running on another connection of
   the same client; the cancelled call's POST gets no JSON-RPC response: its event stream ends empty, or a client that does
   not accept event streams gets `204 No Content`. In the editor, a command that an agent's call runs on the editor's main
   thread (a scene edit) is dropped if the cancel comes while it still waits for its turn there; one that already runs
   there finishes, and its result is not sent.
+- **Malformed messages**: nothing a client sends stops the server. Text that is not JSON gets a Parse error (`-32700`);
+  a message of the wrong shape (`"jsonrpc"` that is not the string `"2.0"`, a `method` that is not a string, an `id` that
+  is not a string or a number, `params` that are not an object, an item of a batch that is not an object) gets an
+  Invalid Request (`-32600`) that carries its id when it has a valid one (`null` otherwise); the messages around it are
+  answered as usual. A request that fails inside the server gets an Internal error (`-32603`); a notification that fails
+  is dropped and logged.
 - **Read-only mode**: `factoria mcp --read-only` serves only the commands that look and play (reading, `game_step`,
   `game_input`, `game_click`, `game_screenshot`, `scene_load`, UI scale checks, ...). The others are not listed and a call
   to one is refused. `ai_run`, `ai_review` and everything that edits the project are among the hidden ones. FactorIA starts

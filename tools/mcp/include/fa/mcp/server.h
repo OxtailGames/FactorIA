@@ -133,6 +133,8 @@ public:
     // notifications/cancelled: sets the flag of the request `id`, running or queued (expect_request); false when there is
     // no such request (unknown or already answered), which is ignored.
     bool cancel(const Json& id);
+    // The client is gone (stdio: stdin closed): cancels every request running or queued. Returns how many.
+    std::size_t cancel_all();
     std::size_t requests_in_flight() const;
     std::size_t requests_queued() const;
 
@@ -152,10 +154,19 @@ public:
     // request the client cancelled (notifications/cancelled) while it ran, which gets no response at all (MCP spec,
     // "Cancellation"). A message that only cancels (is_cancel_notification) may be handled on another thread while a
     // request runs: that is how a transport lets a client take back a long tools/call.
+    // Never throws: invalid JSON is a Parse error (-32700); a message of the wrong shape (a number for "jsonrpc" or
+    // "method", an object for "id", a string for "params", a non-object in a batch) an Invalid Request (-32600) carrying
+    // its id when it has a valid one; an exception while a request runs an Internal error (-32603), and a notification
+    // that fails is dropped with a log line.
     std::optional<std::string> handle_message(std::string_view message);
-    // True when `message` is one notifications/cancelled (not a batch): a transport that handles requests one at a time
+    // True when `message` is one valid notifications/cancelled (not a batch, not an Invalid Request): a transport that handles requests one at a time
     // hands it to handle_message() at once instead of queueing it behind the request it cancels.
     static bool is_cancel_notification(std::string_view message);
+    // The id of the request handle_message() runs for `msg` (and tracks in the session, McpSession::begin_request): a valid
+    // JSON-RPC 2.0 object with a string method other than initialize, a string or number id and object params (or none).
+    // Null for anything else (a notification, a response, an initialize, an invalid message). A transport that queues
+    // requests announces this id (McpSession::expect_request), so a cancel read while it waits finds it.
+    static Json runnable_request_id(const Json& msg);
 
     // Shares the handshake and the requests in flight with the other servers of the same client (see McpSession). A
     // session that already saw an initialize gives this server its protocol version, client info and capabilities.
@@ -222,7 +233,9 @@ public:
     Json tools_json() const;
 
 private:
-    std::optional<Json> handle_one(const Json& msg);
+    std::optional<Json> handle_one(const Json& msg);  // never throws
+    std::optional<Json> handle_valid_one(const Json& msg);
+    std::optional<Json> internal_error(const Json& msg, const std::string& what);
     Json handle_request(const std::string& method, const Json& params, const Json& id, const std::atomic<bool>* cancel);
     Json call_tool(const Json& params, const std::atomic<bool>* cancel);
     Json run_tool(const Json& params, const std::atomic<bool>* cancel);

@@ -52,7 +52,8 @@ struct McpHttpOptions {
 class McpHttpServer {
 public:
     // One JSON-RPC message in, the serialized reply out (nullopt = none), e.g. `McpServer(host).handle_message(m)`.
-    // Called on a thread of its own per request; several requests call it at the same time.
+    // Called on a thread of its own per request; several requests call it at the same time. One that throws ends nothing:
+    // the request gets a JSON-RPC Internal error (-32603) with its id, a notification 202, and the failure is logged.
     using Handler = std::function<std::optional<std::string>(std::string_view message)>;
 
     // Sends a server notification (one serialized JSON-RPC message) on the request being handled; false once the client

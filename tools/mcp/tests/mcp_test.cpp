@@ -1,18 +1,23 @@
 #include <doctest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
 #include <sstream>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include "fa/mcp/client_config.h"
 #include "fa/mcp/server.h"
+#include "fa/mcp/stdio.h"
 #include "fa/mcp/transport.h"
 #include "fa/tooling/feedback_share.h"
 #include "fa/tooling/tooling.h"
@@ -169,6 +174,100 @@ TEST_CASE("mcp: malformed input yields JSON-RPC errors") {
     CHECK(noVersion["error"]["code"] == -32600);
     Json emptyBatch = Json::parse(*f.server.handle_message("[]"));
     CHECK(emptyBatch["error"]["code"] == -32600);
+}
+
+TEST_CASE("mcp: a value of the wrong type is an Invalid Request, never an exception") {
+    Fixture f;
+    f.initialize();
+    auto answer = [&](const std::string& m) {
+        std::optional<std::string> r;
+        REQUIRE_NOTHROW(r = f.server.handle_message(m));
+        REQUIRE(r.has_value());
+        return Json::parse(*r);
+    };
+    // the id is kept when it is valid, null when it is not or there is none
+    Json r = answer(R"({"jsonrpc":2,"method":"notifications/cancelled","params":{"requestId":3}})");
+    CHECK(r["error"]["code"] == -32600);
+    CHECK(r["id"].is_null());
+    r = answer(R"({"jsonrpc":2,"id":5,"method":"ping"})");
+    CHECK(r["error"]["code"] == -32600);
+    CHECK(r["id"] == 5);
+    r = answer(R"({"jsonrpc":"2.0","id":6,"method":7})");
+    CHECK(r["error"]["code"] == -32600);
+    CHECK(r["error"]["message"].get<std::string>().find("\"method\" must be a string") != std::string::npos);
+    CHECK(r["id"] == 6);
+    r = answer(R"({"jsonrpc":"2.0","id":{"a":1},"method":"ping"})");
+    CHECK(r["error"]["code"] == -32600);
+    CHECK(r["id"].is_null());
+    r = answer(R"({"jsonrpc":"2.0","id":[1],"method":"ping"})");
+    CHECK(r["id"].is_null());
+    r = answer(R"({"jsonrpc":"2.0","id":8,"method":"tools/call","params":"test_echo_value"})");
+    CHECK(r["error"]["code"] == -32600);
+    CHECK(r["id"] == 8);
+    r = answer(R"({"jsonrpc":"2.0","id":9,"method":"ping","params":[1]})");
+    CHECK(r["error"]["code"] == -32600);
+    r = answer(R"({"jsonrpc":null,"id":10,"method":"ping"})");
+    CHECK(r["error"]["code"] == -32600);
+    // a batch answers each item: the invalid ones with an error, the others as usual
+    r = answer(R"([1,{"jsonrpc":2,"id":11,"method":"ping"},{"jsonrpc":"2.0","id":12,"method":"ping"}])");
+    REQUIRE(r.is_array());
+    REQUIRE(r.size() == 3);
+    CHECK(r[0]["error"]["code"] == -32600);
+    CHECK(r[1]["id"] == 11);
+    CHECK(r[1]["error"]["code"] == -32600);
+    CHECK(r[2]["id"] == 12);
+    CHECK(r[2]["result"].is_object());
+    // a field the server reads of the wrong type: treated as missing, or Invalid params
+    r = answer(R"({"jsonrpc":"2.0","id":13,"method":"initialize","params":{"protocolVersion":20250618,"clientInfo":{"name":5}}})");
+    CHECK(r["result"]["protocolVersion"] == kMcpLatestProtocol);
+    r = answer(R"({"jsonrpc":"2.0","id":14,"method":"logging/setLevel","params":{"level":3}})");
+    CHECK(r["error"]["code"] == -32602);
+    r = answer(R"({"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":42}})");
+    CHECK(r["error"]["code"] == -32602);
+    CHECK(f.server.session()->requests_in_flight() == 0);
+    // the next request works as usual
+    CHECK(result_json(f.call("test_echo_value", {{"value", 3}})["result"])["echo"] == 3);
+}
+
+TEST_CASE("mcp: over stdio malformed lines get errors, the valid ones around them are answered, and the server stays up") {
+    Fixture f;
+    std::istringstream in(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":1}}}\n"
+        "{\"jsonrpc\":2,\"method\":\"notifications/cancelled\",\"params\":{\"requestId\":3}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":5}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":{\"x\":1},\"method\":\"ping\"}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"ping\",\"params\":\"oops\"}\n"
+        "[1,{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"ping\"}]\n"
+        "{not json\n"
+        "{\"jsonrpc\":2,\"id\":6,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":2}}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":3}}}\n");
+    std::ostringstream out;
+    CHECK(run_stdio(f.server, in, out) == 0);
+    std::istringstream lines(out.str());
+    std::string line;
+    std::vector<Json> msgs;
+    while (std::getline(lines, line)) msgs.push_back(Json::parse(line));
+    REQUIRE(msgs.size() == 10);
+    CHECK(msgs[0]["result"]["protocolVersion"] == "2025-06-18");
+    CHECK(result_json(msgs[1]["result"])["echo"] == 1);
+    CHECK(msgs[2]["error"]["code"] == -32600);  // "jsonrpc": 2, no id
+    CHECK(msgs[2]["id"].is_null());
+    CHECK(msgs[3]["error"]["code"] == -32600);  // method 5
+    CHECK(msgs[3]["id"] == 3);
+    CHECK(msgs[4]["error"]["code"] == -32600);  // an object id
+    CHECK(msgs[4]["id"].is_null());
+    CHECK(msgs[5]["error"]["code"] == -32600);  // string params
+    CHECK(msgs[5]["id"] == 4);
+    REQUIRE(msgs[6].is_array());                // the batch
+    CHECK(msgs[6][0]["error"]["code"] == -32600);
+    CHECK(msgs[6][1]["id"] == 5);
+    CHECK(msgs[7]["error"]["code"] == -32700);  // not JSON
+    CHECK(msgs[8]["error"]["code"] == -32600);  // "jsonrpc": 2 with an id: the call does not run
+    CHECK(msgs[8]["id"] == 6);
+    CHECK(result_json(msgs[9]["result"])["echo"] == 3);
+    CHECK(f.server.session()->requests_queued() == 0);  // nothing invalid was announced as queued
+    CHECK(f.server.session()->requests_in_flight() == 0);
 }
 
 TEST_CASE("mcp: string ids and batches") {
@@ -613,6 +712,9 @@ void add_big_commands(CommandRegistry& registry) {
     own.name = "test.big_own_paging";
     own.inputSchema = Json::parse(R"({"type":"object","properties":{
         "pageToken":{"type":"string","description":"Where to go on."},"filter":{"type":"string","description":"Filter."},
+        "homepage":{"type":"string","description":"Not paging: the word is inside another one."},
+        "uvOffset":{"type":"array","items":{"type":"number"},"description":"Not paging: a vector."},
+        "rateLimit":{"type":"number","description":"Not paging: a number."},
         "entityLimit":{"type":"integer","description":"Entities."}}})");
     registry.add(own, registry.handler("test.big_list"));
     CommandInfo bare;
@@ -650,7 +752,8 @@ TEST_CASE("mcp: a result over the cap is cut whole-JSON and UTF-8 safe, with a n
         CHECK(note.find("`/items` keeps the first " + std::to_string(value["items"].size()) + " of 2000 items") != std::string::npos);
         CHECK(note.find("`offset` and `limit`") != std::string::npos);
 
-        // The command's own paging arguments, whatever they are called (pageToken, entityLimit), in its schema's order.
+        // The command's own paging arguments (camelCase pageToken, entityLimit), in its schema's order; homepage, a uvOffset
+        // vector and a rateLimit number are not paging.
         const Json own = result_json(f.call("test_big_own_paging")["result"]);
         CHECK(own["_truncated"]["note"].get<std::string>().find("`pageToken` and `entityLimit`: call it again") != std::string::npos);
 
@@ -773,6 +876,7 @@ TEST_CASE("mcp: a cancel for an unknown or finished request is ignored without a
     CHECK_FALSE(f.server.handle_message(R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":{"a":1}}})").has_value());
     CHECK_FALSE(McpServer::is_cancel_notification(R"({"jsonrpc":"2.0","id":1,"method":"notifications/cancelled"})"));
     CHECK_FALSE(McpServer::is_cancel_notification("[" + cancel_message(1) + "]"));
+    CHECK_FALSE(McpServer::is_cancel_notification(R"({"jsonrpc":2,"method":"notifications/cancelled","params":{"requestId":1}})"));
     // the next call works as usual
     CHECK(result_json(f.call("test_echo_value", {{"value", 5}})["result"])["echo"] == 5);
 }
@@ -859,6 +963,72 @@ TEST_CASE("mcp: over stdio a request cancelled while it waits for its turn never
     CHECK(result_json(msgs[1]["result"])["echo"] == 7);
     CHECK(f.server.session()->requests_queued() == 0);
     CHECK(f.server.session()->requests_in_flight() == 0);
+}
+
+namespace {
+
+// Hands out `lines`, then the end of the input once `eofWhen` is true (a timeout before that).
+class ScriptedReader final : public LineReader {
+public:
+    ScriptedReader(std::vector<std::string> lines, std::function<bool()> eofWhen)
+        : lines_(std::move(lines)), eofWhen_(std::move(eofWhen)) {}
+    Status next(std::string& line, std::chrono::milliseconds timeout) override {
+        if (at_ < lines_.size()) {
+            line = lines_[at_++];
+            return Status::Line;
+        }
+        if (eofWhen_()) return Status::Eof;
+        std::this_thread::sleep_for(std::min(timeout, std::chrono::milliseconds(5)));
+        return Status::Timeout;
+    }
+    bool holds_input() const override { return false; }
+
+private:
+    std::vector<std::string> lines_;
+    std::size_t at_ = 0;
+    std::function<bool()> eofWhen_;
+};
+
+}  // namespace
+
+TEST_CASE("mcp: over stdio the end of the input cancels a request still running after the grace") {
+    Fixture f;
+    Blocker blocker;
+    blocker.add_to(f.registry);
+    // The input ends while the blocking call runs, with another call queued behind it.
+    ScriptedReader reader(
+        {R"({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}})",
+         R"({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"test_block","arguments":{}}})",
+         R"({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"test_echo_value","arguments":{"value":1}}})"},
+        [&] { return blocker.started.load(); });
+    std::ostringstream out;
+    StdioLoopOptions options;
+    options.eofGrace = std::chrono::milliseconds(200);  // the blocker waits 60 s: only the cancel ends it sooner
+    CHECK(run_stdio_loop(f.server, reader, out, options) == StdioExit::Eof);
+    CHECK(blocker.sawCancel);
+    std::istringstream lines(out.str());
+    std::string line;
+    std::vector<Json> msgs;
+    while (std::getline(lines, line)) msgs.push_back(Json::parse(line));
+    REQUIRE(msgs.size() == 1);  // the initialize: the cancelled call and the one queued behind it get no answer
+    CHECK(msgs[0]["id"] == 1);
+    CHECK(f.server.session()->requests_queued() == 0);
+    CHECK(f.server.session()->requests_in_flight() == 0);
+}
+
+TEST_CASE("mcp: over stdio a loop that ends within the grace after the input ends cancels nothing") {
+    Fixture f;
+    std::istringstream in(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":1}}}\n");
+    std::ostringstream out;
+    CHECK(run_stdio(f.server, in, out) == 0);  // the default grace (10 s) is far above what two quick messages need
+    std::istringstream lines(out.str());
+    std::string line;
+    std::vector<Json> msgs;
+    while (std::getline(lines, line)) msgs.push_back(Json::parse(line));
+    REQUIRE(msgs.size() == 2);
+    CHECK(result_json(msgs[1]["result"])["echo"] == 1);
 }
 
 TEST_CASE("mcp: a session keeps a cancel for a queued request until it begins") {

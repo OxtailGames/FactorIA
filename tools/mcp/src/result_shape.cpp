@@ -4,6 +4,7 @@
 #include <array>
 #include <exception>
 #include <initializer_list>
+#include <string_view>
 
 namespace fa::mcp_detail {
 
@@ -204,7 +205,8 @@ std::string truncation_note(const ShapedResult& shaped, std::size_t cap, const s
 
 namespace {
 
-// Names of arguments that page through a result, and of arguments that narrow it. Matched exactly (camelCase JSON keys).
+// Names of arguments that page through a result, and of arguments that narrow it. Matched exactly (camelCase JSON keys);
+// paging_name() also takes the command's own camelCase names.
 constexpr std::array<const char*, 16> kPagingNames = {"offset", "limit", "cursor", "page", "pageSize", "perPage",
                                                        "startLine", "endLine", "maxLines", "maxBytes", "maxResults",
                                                        "maxItems", "maxEntries", "skip", "start", "max"};
@@ -212,33 +214,52 @@ constexpr std::array<const char*, 16> kNarrowingNames = {"filter", "query", "pat
                                                           "category", "kind", "heading", "section", "fields", "depth",
                                                           "maxDepth", "entity", "name"};
 
-std::string lower(std::string s) {
-    for (char& c : s)
-        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
-    return s;
-}
-
 template <std::size_t N>
 bool named(const std::string& key, const std::array<const char*, N>& names) {
     return std::find_if(names.begin(), names.end(), [&](const char* n) { return key == n; }) != names.end();
 }
 
-bool paging_name(const std::string& key) {
-    if (named(key, kPagingNames)) return true;
-    const std::string l = lower(key);
-    for (const char* part : {"offset", "limit", "cursor", "page"})
-        if (l.find(part) != std::string::npos) return true;
+// Whether the schema of a property declares one of `types` ("type": a string, or an array of them). `untyped`: the
+// answer when it declares none.
+bool typed_as(const Json& prop, std::initializer_list<const char*> types, bool untyped) {
+    const auto t = prop.is_object() ? prop.find("type") : prop.end();
+    if (!prop.is_object() || t == prop.end()) return untyped;
+    auto one = [&](const Json& v) {
+        return v.is_string() && std::any_of(types.begin(), types.end(), [&](const char* n) { return v.get<std::string>() == n; });
+    };
+    if (t->is_array()) return std::any_of(t->begin(), t->end(), one);
+    return one(*t);
+}
+
+// `part` (lower case) as the first or the last word of a camelCase `key`: pageToken, cursorId, nextCursor, entityLimit.
+// Never inside a word (homepage) and never the whole key (named() covers those).
+bool camel_word(const std::string& key, std::string_view part) {
+    const std::size_t n = part.size();
+    if (key.size() <= n) return false;
+    const auto upper = [](char c) { return c >= 'A' && c <= 'Z'; };
+    if (key.compare(0, n, part) == 0 && upper(key[n])) return true;
+    const std::size_t at = key.size() - n;
+    return upper(key[at]) && key[at] == static_cast<char>(part[0] - 'a' + 'A') && key.compare(at + 1, n - 1, part.substr(1)) == 0;
+}
+
+// An argument that pages through a result: one of kPagingNames (a count or a position: an integer, a number or a string,
+// or undeclared), or a camelCase name made with offset, limit, cursor or page whose schema says integer or string (so
+// a `uvOffset` vector or a `rateLimit` number is not one).
+bool paging_name(const std::string& key, const Json& prop) {
+    if (named(key, kPagingNames)) return typed_as(prop, {"integer", "number", "string"}, true);
+    for (std::string_view part : {"offset", "limit", "cursor", "page"})
+        if (camel_word(key, part)) return typed_as(prop, {"integer", "string"}, false);
     return false;
 }
 
-// The properties of `inputSchema` for which `pick` is true, in the schema's own order.
+// The properties of `inputSchema` for which `pick(name, schema)` is true, in the schema's own order.
 template <typename Pick>
 std::vector<std::string> properties_where(const Json& inputSchema, Pick pick) {
     std::vector<std::string> out;
     if (!inputSchema.is_object() || !inputSchema.contains("properties") || !inputSchema["properties"].is_object()) return out;
     const Json& props = inputSchema["properties"];
     for (auto it = props.begin(); it != props.end(); ++it)
-        if (pick(it.key())) out.push_back(it.key());
+        if (pick(it.key(), it.value())) out.push_back(it.key());
     return out;
 }
 
@@ -246,7 +267,9 @@ std::vector<std::string> properties_where(const Json& inputSchema, Pick pick) {
 
 std::vector<std::string> paging_arguments(const Json& inputSchema) { return properties_where(inputSchema, paging_name); }
 std::vector<std::string> narrowing_arguments(const Json& inputSchema) {
-    return properties_where(inputSchema, [](const std::string& key) { return !paging_name(key) && named(key, kNarrowingNames); });
+    return properties_where(inputSchema, [](const std::string& key, const Json& prop) {
+        return !paging_name(key, prop) && named(key, kNarrowingNames);
+    });
 }
 
 }  // namespace fa::mcp_detail

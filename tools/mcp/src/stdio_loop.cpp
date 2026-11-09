@@ -1,12 +1,14 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <exception>
 #include <istream>
 #include <mutex>
 #include <optional>
 #include <ostream>
 #include <thread>
 
+#include "fa/core/log.h"
 #include "fa/mcp/stdio.h"
 
 namespace fa {
@@ -58,15 +60,11 @@ std::unique_ptr<LineReader> make_stream_reader(std::istream& in) { return std::m
 
 namespace {
 
-// The id of a single request the server will begin (McpServer::handle_one: JSON-RPC 2.0, a string method other than
-// initialize, a string or number id); null for anything else (a notification, a response, a batch, garbage).
+// The id of a single request the server will begin (McpServer::runnable_request_id); null for anything else (a
+// notification, a response, a batch, garbage).
 Json queued_request_id(const std::string& line) {
     if (line.find("\"id\"") == std::string::npos) return nullptr;  // cheap test first: most notifications stop here
-    Json msg = Json::parse(line, nullptr, false);
-    if (!msg.is_object() || !msg.contains("jsonrpc") || msg["jsonrpc"] != "2.0") return nullptr;
-    if (!msg.contains("method") || !msg["method"].is_string() || msg["method"] == "initialize") return nullptr;
-    if (!msg.contains("id") || !(msg["id"].is_string() || msg["id"].is_number())) return nullptr;
-    return msg["id"];
+    return McpServer::runnable_request_id(Json::parse(line, nullptr, false));
 }
 
 // Reads the input on its own thread for the whole loop, so a notifications/cancelled reaches the server at once, whether
@@ -77,7 +75,10 @@ class Inbox {
 public:
     static constexpr std::chrono::milliseconds kRead{50};  // how often the thread looks at `stop_`
 
-    Inbox(McpServer& server, LineReader& reader) : server_(server), reader_(reader) { start(); }
+    Inbox(McpServer& server, LineReader& reader, std::chrono::milliseconds eofGrace)
+        : server_(server), reader_(reader), eofGrace_(eofGrace) {
+        start();
+    }
     ~Inbox() { stop(); }
     Inbox(const Inbox&) = delete;
     Inbox& operator=(const Inbox&) = delete;
@@ -92,6 +93,7 @@ public:
         {
             std::lock_guard<std::mutex> lock(mu_);
             stop_ = true;
+            cv_.notify_all();  // ends the wait after the end of the input
         }
         if (thread_.joinable()) thread_.join();
     }
@@ -122,28 +124,44 @@ private:
             const LineReader::Status status = reader_.next(line, kRead);
             if (status == LineReader::Status::Timeout) continue;
             if (status == LineReader::Status::Eof) {
-                std::lock_guard<std::mutex> lock(mu_);
-                eof_ = true;
-                cv_.notify_all();
+                end_of_input();
                 return;
             }
             if (!line.empty() && line.back() == '\r') line.pop_back();
             if (line.find_first_not_of(" \t") == std::string::npos) continue;
-            if (McpServer::is_cancel_notification(line)) {
-                server_.handle_message(line);  // only touches the session: thread-safe
-                continue;
+            try {
+                if (McpServer::is_cancel_notification(line)) {
+                    server_.handle_message(line);  // only touches the session: thread-safe; never throws
+                    continue;
+                }
+                // Announced before it is queued: a cancel read after this line finds it.
+                const Json id = queued_request_id(line);
+                if (!id.is_null()) server_.session()->expect_request(id);
+            } catch (const std::exception& e) {  // out of memory: the line still goes to the loop, which answers it
+                ::fa::log(LogLevel::Warn, "mcp", std::string("stdio reader: ") + e.what());
             }
-            // Announced before it is queued: a cancel read after this line finds it.
-            const Json id = queued_request_id(line);
-            if (!id.is_null()) server_.session()->expect_request(id);
             std::lock_guard<std::mutex> lock(mu_);
             lines_.push_back(std::move(line));
             cv_.notify_all();
         }
     }
 
+    // The client closed its end: MCP's stdio shutdown. The lines read before it are still handled, but a request still
+    // running (or waiting) `eofGrace_` later is cancelled, so a long tools/call (an ai_run) does not go on for minutes
+    // for a client that is gone. The loop's stop() ends the wait first when it finishes in time.
+    void end_of_input() {
+        std::unique_lock<std::mutex> lock(mu_);
+        eof_ = true;
+        cv_.notify_all();
+        if (cv_.wait_for(lock, eofGrace_, [this] { return stop_; })) return;
+        lock.unlock();
+        if (const std::size_t n = server_.session()->cancel_all(); n > 0)
+            ::fa::log(LogLevel::Info, "mcp", "stdin closed: cancelled " + std::to_string(n) + " request(s) still running or queued.");
+    }
+
     McpServer& server_;
     LineReader& reader_;
+    const std::chrono::milliseconds eofGrace_;
     mutable std::mutex mu_;
     std::condition_variable cv_;
     std::deque<std::string> lines_;
@@ -166,7 +184,7 @@ StdioExit run_stdio_loop(McpServer& server, LineReader& reader, std::ostream& ou
     auto poll = [&] {
         if (options.poll) options.poll();
     };
-    Inbox inbox(server, reader);
+    Inbox inbox(server, reader, options.eofGrace);
     // A restart loses nothing: no line waits in the inbox and, with the reading thread stopped, the reader holds no input
     // (what the client writes later stays in the pipe for the next process). Otherwise reading goes on.
     auto restart_now = [&] {

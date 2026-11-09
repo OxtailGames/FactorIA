@@ -293,11 +293,31 @@ TEST_CASE("claude-code agent: an MCP config another program holds open at the en
     const auto foreign = dir.path / ".factoria" / "ai" / "mcp-notes.json";
     std::ofstream(foreign) << "{}";
     std::filesystem::last_write_time(foreign, std::filesystem::file_time_type::clock::now() - std::chrono::hours(48));
+    // 0.19.0 named its run files without the prefix: a day-old one goes too, a young one stays, and names that only look
+    // alike (no provider and two numbers) are never touched.
+    const auto aiDir = dir.path / ".factoria" / "ai";
+    const auto oldMcp = aiDir / "mcp-claude-code-123456-0.json";
+    const auto oldSettings = aiDir / "settings-claude-code-123456-1.json";
+    const auto oldSkills = aiDir / "ext-skills-claude-code-123456-2";
+    const auto youngLegacy = aiDir / "settings-claude-code-999-3.json";
+    const auto lookalike = aiDir / "settings-1-2.json";
+    const auto userSettings = aiDir / "settings.json";
+    std::filesystem::create_directories(oldSkills / "skills");
+    std::ofstream(oldSkills / "skills" / "SKILL.md") << "x";
+    for (const auto& p : {oldMcp, oldSettings, youngLegacy, lookalike, userSettings}) std::ofstream(p) << "{}";
+    for (const auto& p : {oldMcp, oldSettings, oldSkills, lookalike, userSettings})
+        std::filesystem::last_write_time(p, std::filesystem::file_time_type::clock::now() - std::chrono::hours(48));
     req.onStart = nullptr;
     REQUIRE(CliAgent(cfg).run(req, nullptr, nullptr));
     CHECK_FALSE(std::filesystem::exists(left[0]));
     CHECK(std::filesystem::exists(young));
     CHECK(std::filesystem::exists(foreign));
+    CHECK_FALSE(std::filesystem::exists(oldMcp));
+    CHECK_FALSE(std::filesystem::exists(oldSettings));
+    CHECK_FALSE(std::filesystem::exists(oldSkills));
+    CHECK(std::filesystem::exists(youngLegacy));
+    CHECK(std::filesystem::exists(lookalike));
+    CHECK(std::filesystem::exists(userSettings));
 }
 
 TEST_CASE("claude-code agent: --disallowedTools carries the tools a role must not have, as one argument") {

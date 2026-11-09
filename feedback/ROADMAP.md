@@ -2389,10 +2389,13 @@ when the user has the hardware and the accounts.
   ARCHITECTURE, `setup launcher` in CLI.md, `--single-file` in EXPORTING's usage line, the missing presets in
   GETTING_STARTED, EXTENDING's command areas (from the registry), dated sizes and example versions marked as examples,
   and both Spanish translations marked as behind, with what they lack.
-- M90.2 (M) MCP: a result is sent once (`structuredContent` with a short text, or the text alone for a client without
-  it), with a size cap that truncates and names the paging arguments; `notifications/cancelled` cancels the request's
-  job; the HTTP server has a bounded pool, joins connections as they end, a receive timeout and a smaller body cap. The
-  CLI agent writes `mcp-<name>.json` per run like its other branch (unique name, `write_private_file`, deleted at exit).
+- M90.2 (M) MCP: a result is sent once, as the whole JSON in a text block on every protocol version (no
+  `structuredContent`, which some clients show instead of the text), with an 80 KiB cap that truncates and names the
+  tool's own paging arguments; `notifications/cancelled` cancels the request's job (over stdio a queued request is
+  skipped, and requests still running 10 s after stdin closes are cancelled); a malformed message gets a JSON-RPC error
+  and never ends the server; the HTTP server has a bounded pool with a spare slot that evicts the oldest idle
+  keep-alive connection, joins connections as they end, a receive timeout and a smaller body cap. The CLI agent writes
+  `fa-run-mcp-<name>-*.json` per run like its other branch (unique name, `write_private_file`, deleted at exit).
 - M90.3 (S) Honest goldens: a missing golden fails unless `FA_UPDATE_GOLDENS=1`; the share of pixels over a per-pixel
   threshold and the largest error are checked as well as the mean; `*.actual.png` untracked and ignored.
 - M90.4 (M) Small bugs: `World::destroy` then `set_parent`/`set_id` in the same frame (an entity being destroyed refuses

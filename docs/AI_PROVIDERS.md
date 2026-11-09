@@ -39,7 +39,8 @@ has its folder's permissions) and deleted when the run ends (also
 when the CLI fails, crashes or is stopped): a `factoria mcp --project <dir>` server, or the editor's endpoint when the
 editor started the CLI (see [below](#cli-agents-in-the-editor)). Two runs at the same time each have their own file. A file
 that cannot be deleted (on Windows, while another program holds it open) is reported in the log and removed by a later run
-once it is a day old.
+once it is a day old. That sweep removes only `fa-run-*` entries of that folder, and the names FactorIA 0.19.0 gave its
+run files there (`mcp-<provider>-<n>-<n>.json`, `settings-<provider>-<n>-<n>.json`, `ext-skills-<provider>-<n>-<n>`).
 
 ### B) ChatGPT subscription (Codex CLI)
 1. `npm i -g @openai/codex`
@@ -68,7 +69,8 @@ that hands a task to the worker, is answered as an event stream that carries `no
 and a heartbeat every 15 s), so the CLI does not give up on it after 5 minutes of silence. Only the token's path is served, so other programs on
 the machine cannot drive the editor. The endpoint serves at most 16 connections at once, plus a spare one so that a
 `notifications/cancelled` gets in even when all 16 are busy; while the spare is in use the keep-alive connection idle the
-longest is closed, so it frees again. A client that opens more waits until one ends (it is never answered 503). Replies
+longest is closed, so it frees again (a request that arrives on it just as it closes is not run: its client sees the connection close and can send it
+again on a new connection). A client that opens more waits until one ends (it is never answered 503). Replies
 say `Keep-Alive: timeout=5`, so a client lets an idle connection go after 5 s; a connection that sends nothing for 30 s
 is closed, a request that stops half way gets 408, and a request body over 8 MiB
 gets 413 with a JSON-RPC error that says to put a big file into the project another way or send it in smaller parts.
