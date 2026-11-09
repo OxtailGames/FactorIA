@@ -48,8 +48,9 @@ std::string truncation_note(const ShapedResult& shaped, std::size_t cap, const s
                             const std::vector<std::string>& narrowingArgs);
 
 // The arguments of `inputSchema` (a command's) that page through a result, and those that narrow it, in the schema's
-// order: a known name (offset, limit, cursor, startLine, filter, path...), or for paging a name that contains offset,
-// limit, cursor or page in any case (pageToken, entityLimit). An argument counts once, as paging first.
+// order: a known name (offset, limit, cursor, startLine, filter, path...), or for paging a camelCase name whose first or
+// last word is offset, limit, cursor or page (pageToken, nextCursor, entityLimit) declared as an integer or a string (not
+// homepage, a `uvOffset` vector or a `rateLimit` number). An argument counts once, as paging first.
 std::vector<std::string> paging_arguments(const Json& inputSchema);
 std::vector<std::string> narrowing_arguments(const Json& inputSchema);
 

@@ -1,6 +1,6 @@
 // The TCP socket layer the developer tools share (the editor's MCP endpoint in fa_mcp, the web server of
 // project.serve_web in fa/tooling/serve_web.h, and the tests that talk to them): the same Windows/POSIX differences
-// handled once. Blocking sockets, IPv4 only. The header includes no operating-system header.
+// handled once. Blocking sockets (a listener may poll: set_nonblocking, accept_pending), IPv4 only. The header includes no operating-system header.
 #pragma once
 
 #include <cstddef>
@@ -73,6 +73,14 @@ Socket accept_connection(Socket listener);
 // 1 = readable, 0 = the time ran out, -1 = an error (the socket was closed or shut down on some systems). A loop that
 // polls with it can see a stop flag without a connection to wake it.
 int wait_readable(Socket s, int timeoutMs);
+// Switches a socket between blocking (the default) and non-blocking mode; false when the call failed.
+bool set_nonblocking(Socket s, bool nonBlocking);
+enum class Accepted { Connection, Nothing, Failed };
+// accept() on a non-blocking listener (set_nonblocking), after wait_readable said it is readable: Connection (in `out`,
+// set back to blocking), Nothing when no connection waits after all (the client reset it in between, or another thread
+// took it: "would block", connection aborted or reset), Failed on another error (out of file descriptors, the listener
+// was closed).
+Accepted accept_pending(Socket listener, Socket& out);
 // A client connection to 127.0.0.1:<port>; kNoSocket when it fails. For waking an accept() and for tests.
 Socket connect_loopback(std::uint16_t port);
 

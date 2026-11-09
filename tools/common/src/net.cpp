@@ -13,6 +13,7 @@
 #include <bcrypt.h>
 #else
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -275,6 +276,44 @@ Socket accept_connection(Socket listener) {
     }
     if (c != kNoSocket) disable_sigpipe(c);
     return c;
+}
+
+bool set_nonblocking(Socket s, bool nonBlocking) {
+    if (s == kNoSocket) return false;
+#ifdef _WIN32
+    u_long mode = nonBlocking ? 1 : 0;
+    return ::ioctlsocket(native(s), FIONBIO, &mode) == 0;
+#else
+    const int flags = ::fcntl(native(s), F_GETFL, 0);
+    if (flags < 0) return false;
+    const int wanted = nonBlocking ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
+    return wanted == flags || ::fcntl(native(s), F_SETFL, wanted) == 0;
+#endif
+}
+
+Accepted accept_pending(Socket listener, Socket& out) {
+    out = kNoSocket;
+    for (;;) {
+        const Socket c = static_cast<Socket>(::accept(native(listener), nullptr, nullptr));
+        if (c != kNoSocket) {
+            // Windows and the BSDs (macOS) give the connection the listener's non-blocking mode: the server's reads wait.
+            set_nonblocking(c, false);
+            disable_sigpipe(c);
+            out = c;
+            return Accepted::Connection;
+        }
+#ifdef _WIN32
+        const int e = ::WSAGetLastError();
+        if (e == WSAEINTR) continue;
+        // Nothing waits (the client that made the listener readable reset its connection before accept()).
+        if (e == WSAEWOULDBLOCK || e == WSAECONNRESET) return Accepted::Nothing;
+#else
+        const int e = errno;
+        if (e == EINTR) continue;
+        if (e == EAGAIN || e == EWOULDBLOCK || e == ECONNABORTED || e == EPROTO || e == ECONNRESET) return Accepted::Nothing;
+#endif
+        return Accepted::Failed;
+    }
 }
 
 Socket connect_loopback(std::uint16_t port) {

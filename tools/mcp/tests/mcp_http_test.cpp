@@ -7,7 +7,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
+#include <stdexcept>
+#include <string>
 #include <thread>
 
 #include "fa/ai/cli_agent.h"
@@ -395,6 +398,50 @@ TEST_CASE("MCP over loopback HTTP: a body over the cap gets 413 with a JSON-RPC 
     RawClient ok(port_of(*started));
     REQUIRE(ok.send(RawClient::post(path_of(*started), kPing)));
     CHECK(ok.read_all().find("HTTP/1.1 200") == 0);
+    server.stop();
+}
+
+TEST_CASE("MCP over loopback HTTP: malformed messages get JSON-RPC errors and a handler that throws ends nothing") {
+    CommandRegistry registry;
+    McpHttpServer server;
+    auto started = server.start(
+        McpHttpServer::StreamHandler([&registry](std::string_view m, const McpHttpServer::Notify&) -> std::optional<std::string> {
+            if (m.find("\"boom\"") != std::string_view::npos) throw std::runtime_error("boom");  // a bug in a handler
+            SimpleMcpHost host(registry, ".");
+            return McpServer(host).handle_message(m);
+        }),
+        McpHttpOptions{});
+    REQUIRE(started);
+    // Each body on a connection of its own; the reply's JSON body, or "" when it has none.
+    auto post = [&](const std::string& body, std::string* head = nullptr) {
+        RawClient c(port_of(*started));
+        REQUIRE(c.send(RawClient::post(path_of(*started), body)));
+        const std::string reply = c.read_all();
+        const auto at = reply.find("\r\n\r\n");
+        if (head) *head = reply.substr(0, at);
+        return at == std::string::npos ? std::string() : reply.substr(at + 4);
+    };
+    auto error_code = [](const std::string& body) {
+        const Json j = Json::parse(body, nullptr, false);
+        return j.is_object() && j.contains("error") ? j["error"]["code"].get<int>() : 0;
+    };
+    CHECK(error_code(post(R"({"jsonrpc":2,"method":"notifications/cancelled","params":{"requestId":3}})")) == -32600);
+    CHECK(error_code(post(R"({"jsonrpc":"2.0","id":2,"method":5})")) == -32600);
+    CHECK(error_code(post(R"({"jsonrpc":"2.0","id":{"x":1},"method":"ping"})")) == -32600);
+    CHECK(error_code(post(R"({"jsonrpc":"2.0","id":3,"method":"ping","params":"oops"})")) == -32600);
+    CHECK(error_code(post("{not json")) == -32700);
+    const Json batch = Json::parse(post(R"([1,{"jsonrpc":"2.0","id":4,"method":"ping"}])"), nullptr, false);
+    REQUIRE(batch.is_array());
+    CHECK(batch.size() == 2);
+    // A handler that throws: the request gets an Internal error with its id, a notification 202, and the server goes on.
+    const Json failed = Json::parse(post(R"({"jsonrpc":"2.0","id":9,"method":"boom"})"), nullptr, false);
+    REQUIRE(failed.is_object());
+    CHECK(failed["id"] == 9);
+    CHECK(failed["error"]["code"] == -32603);
+    std::string head;
+    post(R"({"jsonrpc":"2.0","method":"boom"})", &head);
+    CHECK(head.find("HTTP/1.1 202") == 0);
+    CHECK(Json::parse(post(kPing))["result"].is_object());
     server.stop();
 }
 

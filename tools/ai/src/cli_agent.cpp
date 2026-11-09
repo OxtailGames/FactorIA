@@ -57,8 +57,40 @@ std::string run_file_tag() {
 // the first kMaxSweptEntries entries of the folder are looked at (a count, never a time).
 constexpr std::size_t kMaxSweptEntries = 4096;
 constexpr auto kStaleRunFileAge = std::chrono::hours(24);
-// Every file and folder a run writes in .factoria/ai starts with this, and the sweep looks at nothing else.
+// Every file and folder a run writes in .factoria/ai starts with this, and the sweep looks at nothing else (but the names
+// 0.19.0 used, legacy_run_file).
 constexpr const char* kRunFilePrefix = "fa-run-";
+
+// The run files of FactorIA 0.19.0, which had no prefix yet: mcp-<provider>-<stamp>-<n>.json (the MCP config with the
+// tool servers' keys), settings-<provider>-<stamp>-<n>.json (hook commands) and the folder ext-skills-<provider>-<stamp>-<n>.
+// Matched whole (a provider name, then two numbers), so a user's settings.json or mcp-notes.json never is.
+// LEGACY: remove this (and its test) in 0.22 or later, when no project keeps files of 0.19.0.
+bool legacy_run_file(const std::string& name) {
+    std::string_view rest = name;
+    auto take = [&rest](std::string_view prefix) {
+        if (rest.substr(0, prefix.size()) != prefix) return false;
+        rest.remove_prefix(prefix.size());
+        return true;
+    };
+    auto take_suffix = [&rest](std::string_view suffix) {
+        if (rest.size() < suffix.size() || rest.substr(rest.size() - suffix.size()) != suffix) return false;
+        rest.remove_suffix(suffix.size());
+        return true;
+    };
+    if (take("mcp-") || take("settings-")) {
+        if (!take_suffix(".json")) return false;
+    } else if (!take("ext-skills-")) {
+        return false;
+    }
+    auto take_number = [&rest] {  // "-<digits>" at the end
+        std::size_t k = rest.size();
+        while (k > 0 && rest[k - 1] >= '0' && rest[k - 1] <= '9') --k;
+        if (k == rest.size() || k == 0 || rest[k - 1] != '-') return false;
+        rest = rest.substr(0, k - 1);
+        return true;
+    };
+    return take_number() && take_number() && !rest.empty();
+}
 
 void sweep_stale_run_files(const fsys::path& aiDir) {
     std::error_code ec;
@@ -69,7 +101,8 @@ void sweep_stale_run_files(const fsys::path& aiDir) {
     for (std::size_t seen = 0; it != end && seen < kMaxSweptEntries; it.increment(ec), ++seen) {
         if (ec) break;
         const std::string name = fs::path_to_utf8(it->path().filename());
-        if (name.rfind(kRunFilePrefix, 0) != 0) continue;  // only what a run wrote: fa-run-mcp-*, fa-run-settings-*, ...
+        // only what a run wrote: fa-run-mcp-*, fa-run-settings-*, ..., and 0.19.0's names
+        if (name.rfind(kRunFilePrefix, 0) != 0 && !legacy_run_file(name)) continue;
         std::error_code tec;
         const auto when = it->last_write_time(tec);
         if (!tec && now - when > kStaleRunFileAge) stale.push_back(it->path());
