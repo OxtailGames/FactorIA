@@ -628,6 +628,7 @@ Plays a sound clip from the entity. Set playOnStart to start automatically, or s
 | `playing` | bool | `false` | Runtime state: true while a voice is playing. Set true to play, false to stop. Runtime-only (not saved). |
 | `spatial` | bool | `false` | true = pan and attenuate relative to the AudioListener; false = plain stereo (music, UI). |
 | `range` | float | `800.0` | Spatial only: distance in world units where the volume reaches 0. Range 0.0..1000000.0. |
+| `priority` | int | `128` | Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail. Range 0..255. (not released yet, on main after 0.20.0) |
 
 ### MusicPlayer
 
@@ -9102,6 +9103,11 @@ declare module "factoria" {
      */
     variants?: number;
     /**
+     * Voice stealing, 0..255 (default 128). When all 64 voices play, this sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise it does not play and play() returns 0. Raise it for dialogue and alarms, lower it for ambient detail. Throws for a value outside 0..255.
+     * @since unreleased
+     */
+    priority?: number;
+    /**
      * A subtitle for this sound, plain text. It shows on the Captions component while the sound plays and goes when the sound ends or is stopped (audio.stop, audio.stopAll). With no Captions entity it is only tracked (game.captions() in tests). Use captionKey for a text that follows the language.
      * @since 0.2.0
      */
@@ -15712,6 +15718,11 @@ declare module "factoria" {
      * Spatial only: distance in world units where the volume reaches 0.
      */
     range: number;
+    /**
+     * Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail.
+     * @since unreleased
+     */
+    priority: number;
   }
   /**
    * Plays a song document (*.song.json, docs/MUSIC.md) as adaptive music. `intensity` (0..1) brings the song's layers in and out with smooth fades; goToSection, stingers and crossfades to another song wait for the next beat, bar or section end (`quantize`); beats, bars and sections reach scripts as events (music.beat, music.bar, music.section ...). `mode` picks how the song sounds: live (rendered from the document when the player starts, the same bytes as music.preview) or stems (the files music.render wrote, for phones). The musical clock is the mixer's sample count, so a headless run gives the same beats on every machine. Script API: entity.music (docs/SCRIPTING.md); docs/MUSIC.md, "Playing a song in a game".
@@ -17937,7 +17948,7 @@ declare module "factoria" {
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
-    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
+    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number; priority?: number };
     MusicPlayer: { song?: string; mode?: "auto" | "live" | "stems"; volume?: number; bus?: string; intensity?: number; playOnStart?: boolean; loop?: boolean; startSection?: string; quantize?: "none" | "beat" | "bar" | "section"; layerQuantize?: "none" | "beat" | "bar" | "section"; layerFade?: number; layerRange?: number; transitionFade?: number; crossfadeBars?: number; playing?: boolean; ready?: boolean; section?: string; bar?: number; beat?: number; tempo?: number; activeMode?: string };
     AudioListener: { volume?: number; zoom?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; modal?: boolean; wheelPassThrough?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };

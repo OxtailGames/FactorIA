@@ -2,6 +2,13 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- **For game authors and AIs (M91.4):** voice stealing goes by priority, then loudness, never by age. When all 64 voices play, a new sound replaces the voice with the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise it does not play and `audio.play` returns 0 (it used to replace the oldest sound that did not loop and always play). New `priority` (0..255, default 128) in `audio.play(path, { priority })`, `AudioSource.priority` and `PlayParams::priority`; music is never replaced, a video's sound has 192. `stats()` (and `game.state` under `audio`) count `voicesStolen`, `voicesRejected`, `underruns`, `underrunFrames`, `commandsDropped` and `settingsDropped`. The music cache drops the songs nothing plays least recently played first. Everything else a game hears is unchanged. docs/SOUND.md, "Voice stealing".
+- **For engine code (M91.4):** the audio callback takes no lock: every `Audio` call sends commands through a bounded lock-free ring (2048, with a staging queue of 8192 on the game side that drops the oldest plays and settings, never stops) and the mixer hands back what it is done with through another (4096), so the game side frees everything. Streamed sounds and music decode on `fa::jobs` into rings; a dry ring plays silence and is counted, never waits. `MusicPlayer` state reaches the game through a triple buffer and an event ring; song loads run on jobs with a device. `Audio::service()` commits, refills and drains once per frame (the engine calls it while paused too). Tests hold the API mutex while the callback mixes, count the callback's allocations with commands of every kind, and hammer it from four threads (TSan-clean). docs/SOUND.md, "The audio callback".
+
 ## 0.20.0
 
 FactorIA 0.20.0 (M90) fixes what an outside review of the engine found. The MCP server speaks protocol 2025-06-18
