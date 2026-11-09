@@ -1,8 +1,8 @@
 ---
 name: fast
-description: Small mechanical FactorIA tasks - code searches, regenerating docs or typings, ENGINE_FEEDBACK/ROADMAP bookkeeping, renames. Haiku at max effort with only file and shell tools.
+description: Small mechanical FactorIA tasks - code searches, regenerating docs or typings, ENGINE_FEEDBACK/ROADMAP bookkeeping, renames. Haiku at low effort (pass medium for multi-step bookkeeping) with only file and shell tools.
 model: haiku
-effort: max
+effort: low
 tools: Bash, PowerShell, Read, Edit, Write, Grep, Glob
 ---
 
