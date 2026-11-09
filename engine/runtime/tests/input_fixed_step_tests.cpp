@@ -1,10 +1,12 @@
 // A press or a release reaches exactly one onFixedUpdate and exactly one onUpdate, however many fixed steps (0 to 5) the frame
 // that carries it runs (docs/SCRIPTING.md, "Which callback sees what"; fa/platform/input.h, "TWO VIEWS").
 #include <filesystem>
+#include <map>
 #include <string>
 
 #include "doctest.h"
 #include "fa/core/fs.h"
+#include "fa/core/json.h"
 #include "fa/runtime/engine.h"
 
 using namespace fa;
@@ -248,4 +250,100 @@ TEST_CASE("input per fixed step: a paused game keeps the press for the step afte
     const Seen v = seen(s.e, "key");
     CHECK(v.fixedPress == doctest::Approx(1.0));
     CHECK(v.updatePress == doctest::Approx(1.0));
+}
+
+TEST_CASE("input per fixed step: a tap that lands and lifts before any step is seen once by each callback") {
+    Session s;
+    Input& in = s.e.input();
+    in.on_touch_begin(4, {3, 4});
+    in.on_touch_end(4);  // the finger is gone before the frame runs
+    frame_with_steps(s.e, 3);
+    const Seen v = seen(s.e, "touch");
+    CHECK(v.fixedPress == doctest::Approx(1.0));
+    CHECK(v.updatePress == doctest::Approx(1.0));
+    frame_with_steps(s.e, 3);
+    CHECK(seen(s.e, "touch").fixedPress == doctest::Approx(1.0));
+    CHECK(seen(s.e, "touch").updatePress == doctest::Approx(1.0));
+
+    in.on_touch_begin(5, {3, 4});  // and in a frame with no step: the next step gets it
+    in.on_touch_end(5);
+    frame_with_steps(s.e, 0);
+    CHECK(seen(s.e, "touch").updatePress == doctest::Approx(2.0));
+    CHECK(seen(s.e, "touch").fixedPress == doctest::Approx(1.0));
+    frame_with_steps(s.e, 2);
+    CHECK(seen(s.e, "touch").fixedPress == doctest::Approx(2.0));
+    CHECK(seen(s.e, "touch").updatePress == doctest::Approx(2.0));
+}
+
+namespace {
+
+double position_of(const Json& state, const char* id, int axis) {
+    for (const Json& ent : state["entities"])
+        if (ent.value("id", "") == id) return ent["components"]["Transform"]["position"][std::size_t(axis)].get<double>();
+    FAIL("no entity " << id << " in the state");
+    return -1.0;
+}
+
+}  // namespace
+
+TEST_CASE("input per fixed step: a recording made with frames of any dt replays with the same counts") {
+    Session s;
+    Input& in = s.e.input();
+    s.e.start_input_recording();
+    // Frames of very different lengths (0 to 5 steps), with presses and releases between them.
+    struct Frame {
+        double dt;
+        int act;  // 0 nothing, 1 press everything, 2 release everything
+    };
+    const Frame frames[] = {{0.05, 1},   {0.002, 0},  {0.0167, 2}, {0.09, 1},  {0.001, 0},   {0.034, 2},
+                            {0.0005, 1}, {0.0005, 0}, {0.0005, 2}, {0.2, 1},   {0.0167, 0},  {0.0167, 2}};
+    int count = 0;
+    for (const Frame& f : frames) {
+        if (f.act == 1) {
+            in.on_key(Key::Space, true);
+            in.on_key(Key::J, true);
+            in.on_mouse_button(MouseButton::Left, true);
+            in.on_gamepad_button(0, GamepadButton::A, true);
+            in.on_touch_begin(1, {3, 4});
+        } else if (f.act == 2) {
+            release_everything(in);
+        }
+        s.e.frame(f.dt);
+        ++count;
+    }
+    const Json recorded = s.e.stop_input_recording();
+    REQUIRE(recorded["timing"].is_array());
+    CHECK(recorded["timing"].size() == std::size_t(count));
+    bool zero = false, several = false;
+    for (const Json& t : recorded["timing"]) {
+        zero = zero || t[1].get<int>() == 0;
+        several = several || t[1].get<int>() >= 3;
+    }
+    CHECK(zero);     // a frame with no step took part
+    CHECK(several);  // and a frame with many
+    std::map<std::string, Seen> live;
+    for (const Counter& c : kCounters) live[c.id] = seen(s.e, c.id);
+
+    // Replay it: every frame runs the recorded dt and number of steps. (One graphics context per process: the recording
+    // engine ends first.)
+    s.e.shutdown();
+    const stdfs::path replayPath = s.project.dir / "recorded.json";
+    REQUIRE(fs::write_text(replayPath.generic_string(), recorded.dump()).ok());
+    HeadlessRunOptions o;
+    o.frames = count;
+    o.inputReplayPath = replayPath.generic_string();
+    o.stateOutPath = (s.project.dir / "state.json").generic_string();
+    Json report;
+    REQUIRE(run_headless(s.project.config(), o, &report) == 0);
+    auto st = load_json_file(o.stateOutPath);
+    REQUIRE(st.ok());
+    for (const Counter& c : kCounters) {
+        const std::string id = c.id;
+        if (id == "wheel" || id == "delta" || id == "text") continue;  // not part of a recording
+        INFO(id);
+        CHECK(live[id].fixedPress > 0.0);
+        CHECK(position_of(st.value(), c.id, 0) == doctest::Approx(live[id].fixedPress));
+        CHECK(position_of(st.value(), c.id, 1) == doctest::Approx(live[id].updatePress));
+        CHECK(position_of(st.value(), c.id, 2) == doctest::Approx(live[id].fixedRelease));
+    }
 }

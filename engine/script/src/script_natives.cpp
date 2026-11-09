@@ -489,7 +489,9 @@ NATIVE(watchdogCuts) {
     const double since = arg_num(ctx, argc, argv, 0, -1);
     if (since < 0) return JS_NewFloat64(ctx, static_cast<double>(I->cutCount));
     std::string text;
-    const size_t first = since >= static_cast<double>(I->cuts.size()) ? I->cuts.size() : static_cast<size_t>(since);
+    // `since` counts cuts from the start (what cutCount said then); the list has dropped the oldest ones.
+    const double local = since - static_cast<double>(I->droppedCuts);
+    const size_t first = local <= 0.0 ? 0 : local >= static_cast<double>(I->cuts.size()) ? I->cuts.size() : static_cast<size_t>(local);
     for (size_t i = first; i < I->cuts.size(); ++i) text += (text.empty() ? "" : "; ") + I->cuts[i].to_string();
     return JS_NewString(ctx, text.c_str());
 }
@@ -2288,7 +2290,7 @@ NATIVE(inTouches) {
     SETUP;
     JSValue a = JS_NewArray(ctx);
     uint32_t i = 0;
-    for (const Touch& t : I->host->input().touches()) {
+    for (const Touch& t : I->host->input().touches_in_view()) {
         JSValue o = JS_NewObject(ctx);
         JS_SetPropertyStr(ctx, o, "id", JS_NewFloat64(ctx, static_cast<double>(t.id)));
         JS_SetPropertyStr(ctx, o, "position", array_of(ctx, {t.position.x, t.position.y}));
