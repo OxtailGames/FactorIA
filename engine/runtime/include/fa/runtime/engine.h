@@ -1,8 +1,10 @@
 // Engine: owns every subsystem and runs the game loop.
 //
 // One frame (Engine::frame):
-//   input.begin_frame (events were fed by the platform/injection)
-//   N x fixed step @ fixedHz:  scripts.fixed_update -> physics.step -> scripts.dispatch_events
+//   (events were fed by the platform/injection since the last frame; input.begin_frame at the END of a simulated frame)
+//   N x fixed step @ fixedHz:  scripts.fixed_update -> physics.step -> scripts.dispatch_events -> input.end_fixed_step
+//     (each step reads the input in an Input::FixedScope: a press or release reaches exactly one step, see "TWO VIEWS"
+//      in fa/platform/input.h; everything after the steps reads the frame's own view)
 //   ui.update (layout, focus, widget events) -> scripts.dispatch_events
 //   scripts.update(dt) -> animators/particles -> audio.update -> scripts.late_update
 //   physics.step and animators/particles are scaled by scripts.time_scale() (game.paused: frozen)

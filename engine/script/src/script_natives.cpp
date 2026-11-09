@@ -2276,7 +2276,7 @@ NATIVE(inTouches) {
         JSValue o = JS_NewObject(ctx);
         JS_SetPropertyStr(ctx, o, "id", JS_NewFloat64(ctx, static_cast<double>(t.id)));
         JS_SetPropertyStr(ctx, o, "position", array_of(ctx, {t.position.x, t.position.y}));
-        JS_SetPropertyStr(ctx, o, "pressed", JS_NewBool(ctx, t.pressedThisFrame));
+        JS_SetPropertyStr(ctx, o, "pressed", JS_NewBool(ctx, I->host->input().touch_pressed(t)));
         JS_SetPropertyUint32(ctx, a, i++, o);
     }
     return a;
