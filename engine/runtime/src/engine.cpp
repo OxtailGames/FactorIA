@@ -1052,6 +1052,7 @@ void Engine::frame(double dt) {
         I.inFrame = true;
         I.jobOwner.run_main_thread_tasks();  // a paused game still takes the results of its jobs (a load that finished)
         jobs::run_main_thread_tasks();
+        I.audio.service();  // the sounds a paused game (or the editor) still plays keep their streams decoded
         I.render(0.0);
         I.end_of_frame(dt, false);
         I.inFrame = false;

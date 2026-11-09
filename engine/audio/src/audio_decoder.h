@@ -63,41 +63,4 @@ private:
     bool loop_, done_ = false;
 };
 
-// A voice's window onto its clip's timeline (kMixRate stereo frames numbered from 0): a small buffer that slides
-// forward as the mixer consumes it, so a clip of any length keeps a fixed amount of decoded audio. Used on the audio
-// thread, under the mixer's lock; the buffers are allocated up front, never while mixing.
-class Stream {
-public:
-    explicit Stream(Resampler source);
-
-    // The frame at fractional position `pos` (interpolated with the next one); false once the clip has ended before it.
-    // `pos` never moves backwards.
-    bool at(double pos, float& l, float& r) {
-        const std::uint64_t i0 = std::uint64_t(pos);
-        const bool next = i0 + 1 < base_ + count_ || reach(i0);
-        if (i0 >= base_ + count_) return false;
-        const float* a = &window_[2 * std::size_t(i0 - base_)];
-        if (!next) {  // the last frame of the clip
-            l = a[0];
-            r = a[1];
-            return true;
-        }
-        const float t = float(pos - double(i0));
-        l = a[0] + (a[2] - a[0]) * t;
-        r = a[1] + (a[3] - a[1]) * t;
-        return true;
-    }
-
-    std::size_t resident_bytes() const { return window_.size() * sizeof(float) + source_.resident_bytes(); }
-
-private:
-    bool reach(std::uint64_t played);
-
-    Resampler source_;
-    std::vector<float> window_;  // kWindow stereo frames
-    std::uint64_t base_ = 0;     // timeline index of window_[0]
-    std::size_t count_ = 0;      // valid frames in window_
-    bool ended_ = false;
-};
-
 }  // namespace fa::audio_detail

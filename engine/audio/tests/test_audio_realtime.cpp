@@ -1,7 +1,8 @@
 // The mixer behind the audio callback allocates nothing once it is built: the per-block scratch (used / live / ducking flags,
-// bus buffers, ducking gains, the list of ended voices) is made when the bus table is, not in the callback. The null device
-// mixes with the same function the device callback calls (advance_null_device -> mix_locked), on the calling thread, so the
-// allocations of this thread while it runs are the callback's.
+// bus buffers, ducking gains) is made when the bus table is, on the game thread, and handed over in a command. The null
+// device applies the commands and mixes with the same functions the device callback calls (Mixer::apply_commands,
+// mix_block), on the calling thread, so the allocations of this thread while it runs are the callback's plus the game
+// side's, which must make none either while voices play and end. test_audio_threads.cpp counts the device callback alone.
 #include <doctest.h>
 
 #include <algorithm>

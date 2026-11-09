@@ -1154,6 +1154,7 @@ struct AudioSource {
     bool playing = false;             // runtime: true while a voice is playing; set true to play, false to stop
     bool spatial = false;             // pan/attenuate relative to the AudioListener
     float range = 800.0f;             // spatial: distance where volume reaches 0 (world units)
+    std::int32_t priority = 128;      // 0..255: voice stealing with every voice taken (higher wins; equal: the louder wins)
 };
 
 // How a song is played (MusicPlayer.mode): "live" synthesizes the song from its document when the player starts (the same render as

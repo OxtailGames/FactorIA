@@ -1216,6 +1216,10 @@
        "doc": "The clip has this many baked variants (2..64): play one of path_01 ... path_NN instead of `path` itself (\"assets/sfx/step.wav\" plays assets/sfx/step_03.wav), picked with the world RNG (seeded per run, so a replay hears the same takes) and never the one played last for that path. sfx.bake writes the variants of a sound patch that declares `variations`. Example: audio.play(\"assets/sfx/step.wav\", { variants: 6 })."
       },
       {
+       "sig": "priority?: number",
+       "doc": "Voice stealing, 0..255 (default 128). When all 64 voices play, this sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise it does not play and play() returns 0. Raise it for dialogue and alarms, lower it for ambient detail. Throws for a value outside 0..255."
+      },
+      {
        "sig": "caption?: string",
        "doc": "A subtitle for this sound, plain text. It shows on the Captions component while the sound plays and goes when the sound ends or is stopped (audio.stop, audio.stopAll). With no Captions entity it is only tracked (game.captions() in tests). Use captionKey for a text that follows the language."
       },
