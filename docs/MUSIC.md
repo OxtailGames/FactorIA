@@ -449,7 +449,7 @@ section pass. A request that arrives exactly on a boundary lands on it. A change
 **Stingers.** `playStinger({clip})` plays an audio clip so that it starts on the boundary's audio frame, on the player's bus (or `bus`).
 `playStinger({section})` plays a section of the song over the music with all its layers, then `tail` seconds of what rings after it.
 `duck` (0..1) dips the music for the length of the clip or section (`duckHold` to say otherwise), over `duckAttack` seconds down and `duckRelease` seconds back.
-A clip stinger is an ordinary voice: stopping the player does not stop it.
+A clip stinger is an ordinary voice: stopping the player does not stop it. It counts toward the 64 voices of the mixer with priority 192, above the default 128 of `audio.play` and `AudioSource`, so when all voices play it replaces a sound effect and is not replaced by one (docs/SOUND.md, "Voice stealing"); set `priority` 193..255 on an effect that must still win.
 
 **Crossfades between songs.** Setting `MusicPlayer.song` while it plays, or `crossfadeTo(song)`, waits for the boundary of the song that plays, then the old song fades
 out and the new one in over `crossfadeBars` bars **of the old song** (so the length follows its tempo); the new song starts at `section` or its beginning and keeps its own

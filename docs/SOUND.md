@@ -453,7 +453,7 @@ stopped one: its `onEnded` is called and `take_ended_voices` reports it; `stats(
 
 - **Priority**: 0..255, default 128: `audio.play(path, { priority })` in a script, `AudioSource.priority` in a scene, `PlayParams::priority`
   in C++. Raise it for dialogue, alarms and the sounds the player must hear; lower it for ambient detail. Music (`audio.music`,
-  `musicLayers`) has a priority above 255, so no sound ever replaces it; a video's sound has 192, a clip stinger 128.
+  `musicLayers`) has a priority above 255, so no sound ever replaces it; a video's sound and a `MusicPlayer`'s clip stinger have 192 (above the default effects, below what a game raises on purpose).
 - **Loudness**: the voice's own volume times its clip's normalization gain and the volumes and snapshot scales of its bus and
   the buses above it (the values the game set, not a measurement of the output). Music fading out to its end (`stopMusic`
   with a fade, a replaced track) counts as silent.
@@ -491,6 +491,15 @@ each memory ordering is explained where it is used:
   and the recorder are never dropped (they end or free something the game waits for). A dropped play ends its voice on the
   game side, so `onEnded` and `take_ended_voices` still report it. `stats()` counts `commandsDropped` (plays and voice settings)
   and `settingsDropped` (bus and music settings), and the log says it once.
+  - **A dropped setting is not lost.** The game keeps its own copy of every voice, bus and `MusicPlayer` setting (what a query
+    answers). When a command that set a voice's volume, pitch, pan or bus, or a bus's volume, effect, ducking or snapshot scale,
+    or a player's volume, loop, layers, intensity or bus is dropped, that voice, bus or player is marked, and once the staging
+    queue is down to half (4096) its current state is sent again, so the mixer ends up where the game believes it is. What does
+    not come back is an event that happened once: a dropped play (the voice ends), a section jump or a section stinger.
+  - **Repeated Keep commands merge.** While more than 1024 commands wait, a pause, a reset of the bus effects, a stop of every
+    sound or a retune of the playing music (`audio.music` again with the same track) replaces an earlier one still waiting (a
+    game that calls `setPaused` or `audio.music` every frame during a long stall does not pile them up); `stats()` counts them in `commandsCoalesced`. It is a count of waiting commands, not a time. Bus table
+    swaps do not merge (each is built from the one before), and a stop of one voice or a removal is never dropped or merged away: if more than 32768 commands that must stay are waiting, the log says so once and they are all kept.
 - **Returns, mixer to game.** A ring of 4096: the commands the mixer applied, which the game frees with what they carried back
   (an old bus table, a removed music transport, the last reference to a clip), and the voices that ended. The mixer applies a
   command only while the returns have room for everything it can give back, so nothing is lost there; a command that does not
@@ -529,8 +538,9 @@ lines are made when it is switched on. Tests:
 - `engine/audio/tests/test_audio_threads.cpp` drives the mixer as a device would (`AudioTestAccess`, `audio_testing.h`): the
   callback's allocations while commands of every kind arrive (zero), a callback that mixes while another thread holds the API
   mutex (it would hang if it took it), a stream starved into underruns that resumes, the rings on two threads, and four threads
-  playing, changing and stopping voices while the callback mixes. These tests and the rest of `fa_test_audio` report no race
-  when built with `-fsanitize=thread`.
+  playing, changing and stopping voices while the callback mixes, and a stalled device (settings dropped from the full queue are sent
+  again and the mixer converges; repeated Keep commands merge and no stop is lost). These tests were checked with
+  ThreadSanitizer (`-fsanitize=thread`) when they were written; no CI job runs it.
 - `engine/audio/tests/test_music.cpp` loads a song on a job and plays intensity changes, a section jump, a stinger and a
   crossfade with a device thread, with no allocation in the callback.
 
