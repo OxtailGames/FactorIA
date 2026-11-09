@@ -161,8 +161,8 @@ public:
     // [{name, summary, description, inputSchema, readOnly, category}, ...]
     Json describe() const;
 
-    // Called at the start of every outermost call() (not for calls made from inside a running handler, nor from a job worker thread; the nesting is tracked per thread), before the
-    // command is looked up, with the command name. The script system uses it to re-import project tools edited on disk,
+    // Called at the start of every outermost call() (not for calls made from inside a running handler, nor from a job
+    // worker thread; the nesting is tracked per thread), before the command is looked up, with the command name. The script system uses it to re-import project tools edited on disk,
     // which replaces commands: that is only safe while no handler is running. Empty = none.
     void set_before_call(std::function<void(std::string_view)> hook) { beforeCall_ = std::move(hook); }
 

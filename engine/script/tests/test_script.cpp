@@ -1968,6 +1968,25 @@ TEST_CASE("scripts place a child among its siblings and override a prefab's chil
     CHECK(m.find("Did you mean 'title'?") != std::string::npos);
 }
 
+TEST_CASE("scripts cannot spawn under a parent that is being destroyed, and setParent says why") {
+    TestHost h("spawn_pending_parent");
+    h.file("prefabs/panel.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"panel"}})");
+    h.file("scenes/main.scene.json", scene_with(Json::array({Json::parse(R"({"id":"p"})"), Json::parse(R"({"id":"q"})")})).dump());
+    REQUIRE(h.start());
+    REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
+    // find() stops returning a destroyed entity at once, so each script keeps its handle.
+    ev_ok(h, "globalThis.gone = world.find('p'); gone.destroy()");
+    const std::size_t count = ev_ok(h, "world.entities().length").get<std::size_t>();
+    std::string spawn = ev_err(h, "world.spawn({id:'late'}, {parent: gone})");
+    CHECK(spawn.find("being destroyed") != std::string::npos);
+    std::string prefab = ev_err(h, "world.spawnPrefab('prefabs/panel.prefab.json', {parent: gone})");
+    CHECK(prefab.find("being destroyed") != std::string::npos);
+    CHECK(ev_ok(h, "world.entities().length").get<std::size_t>() == count);  // nothing was created
+    CHECK(ev_ok(h, "world.find('late') === null").get<bool>());
+    CHECK(ev_err(h, "world.find('q').setParent(gone)").find("being destroyed") != std::string::npos);
+    ev_ok(h, "world.spawn({id:'fine'}, {parent: world.find('q')})");  // an unrelated parent is fine
+}
+
 TEST_CASE("camera: split screen cameras, at(), and conversions that take a camera (no renderer)") {
     TestHost h("splitcam");
     REQUIRE(h.start());

@@ -255,6 +255,8 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
   descendants: `{ Title: { components: { Text: { text: "You won" } } } }`; a key is a child's id, name or a path such
   as `"Panel/Title"`, a value holds `name`, `tags`, `active` and `components`. A child or field that does not exist
   throws with a "did you mean" (docs/MENUS.md, "A panel shared between scenes").
+  A `parent` that is being destroyed (`destroy()` ran this frame) makes both throw before they create anything: the
+  new entity would outlive its parent at the top level. Spawn it without that parent, or after the frame.
 - Destroyed entities (`entity.destroy()`, deferred to frame end) stop being returned by `find`/`findAll`/`findByTag`
   immediately and their id can be reused right away (`world.spawn({ id: "gem_1" })` right after destroying `gem_1`).
   They also leave physics immediately: from the call on, a destroyed entity has no collisions, no contact events and no
