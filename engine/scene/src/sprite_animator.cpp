@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <mutex>
@@ -24,13 +25,19 @@ struct TexDims {
 };
 
 // Sizes read from files stay until the file (or its .ktx2 twin) changes: stepping an animator must not read a picture every step.
+// The file's stat (time, size) is looked at once per "epoch" (one per frame: update_sprite_animators with dt 0 ends it), not per
+// fixed step. On a platform whose files have no time (an Android APK asset answers -1) the entry is cached all the same, keyed
+// by the file name and re-read only when the name starts or stops being a file.
 struct SizeEntry {
     std::int64_t mtime = -2, size = -2, twinMtime = -2;
+    bool exists = false;
+    std::uint64_t epoch = 0;  // the epoch the stat above was taken in; 0 = never
     TexDims dims;
 };
 struct SizeCache {
     std::mutex mutex;
     std::filesystem::path root;  // the project the entries belong to
+    std::uint64_t epoch = 1;
     std::unordered_map<std::string, SizeEntry> entries;
 };
 SizeCache& size_cache() {
@@ -43,14 +50,10 @@ TexDims cpu_texture_dims(const std::string& texture) {
     if (texture.empty()) return {true, 1, 1};  // the renderer's white pixel
     if (texture.rfind("runtime:", 0) == 0 || texture.rfind("target:", 0) == 0) return {};
     const std::string key = fs::normalize(texture);
-    const std::int64_t mtime = fs::modified_time(key);
-    const std::int64_t size = mtime >= 0 ? fs::file_size(key) : -1;
-    const std::int64_t twin = fs::modified_time(key + kTextureTwinExtension);
     auto read = [&]() -> TexDims {
         auto r = texture_size(key);
         return r ? TexDims{true, r->width, r->height} : TexDims{true, 32, 32};  // the renderer's missing-texture checker
     };
-    if (mtime < 0 && twin < 0) return read();  // a rectangle of an atlas, or no file: answered from memory
     SizeCache& c = size_cache();
     std::lock_guard<std::mutex> lock(c.mutex);
     if (c.root != fs::project_root()) {
@@ -58,13 +61,29 @@ TexDims cpu_texture_dims(const std::string& texture) {
         c.root = fs::project_root();
     }
     SizeEntry& e = c.entries[key];
-    if (e.mtime != mtime || e.size != size || e.twinMtime != twin) {
+    if (e.epoch == c.epoch) return e.dims;  // already looked at in this frame
+    const std::int64_t mtime = fs::modified_time(key);
+    const std::int64_t size = mtime >= 0 ? fs::file_size(key) : -1;
+    const std::int64_t twin = fs::modified_time(key + kTextureTwinExtension);
+    const bool exists = mtime >= 0 || fs::exists(key);
+    // A rectangle of an atlas (or a name that is no file): answered from memory, so ask again whenever the epoch changes.
+    const bool fromMemory = mtime < 0 && twin < 0 && !exists;
+    if (e.epoch == 0 || fromMemory || e.mtime != mtime || e.size != size || e.twinMtime != twin || e.exists != exists) {
         e.dims = read();
         e.mtime = mtime;
         e.size = size;
         e.twinMtime = twin;
+        e.exists = exists;
     }
+    e.epoch = c.epoch;
     return e.dims;
+}
+
+// A frame ended (a dt 0 pass): the next lookup of each texture looks at its file again.
+void next_size_epoch() {
+    SizeCache& c = size_cache();
+    std::lock_guard<std::mutex> lock(c.mutex);
+    ++c.epoch;
 }
 
 }  // namespace
@@ -268,6 +287,7 @@ Vec2 sprite_effective_pivot(const Sprite& s, const SpriteAnimator& a, const Spri
 }
 
 void update_sprite_animators(World& world, float dt) {
+    if (dt <= 0.0f) next_size_epoch();  // the settle pass ends a frame: file sizes are looked at again from the next one on
     // The sheet and the size of each texture are looked up once per texture per step.
     std::unordered_map<std::string, std::shared_ptr<const assets::Sheet>> sheets;
     std::unordered_map<std::string, TexDims> dims;

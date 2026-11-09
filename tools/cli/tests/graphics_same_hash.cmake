@@ -5,10 +5,15 @@
 # as with --no-graphics.
 # Runs every scene of every example game for the same 40 frames both ways (with graphics it draws two frames on the way, so the
 # renderer's own passes have run) and compares game.state_hash of the whole world; when it differs, the Sprite, SpriteAnimator and
-# ParticleEmitter components alone are compared too, so the message says whether the animators are what differs.
-#   cmake -DFACTORIA=<factoria> -DROOT=<repo> -P graphics_same_hash.cmake
+# ParticleEmitter components alone are compared first, so the message says whether the animators are what differs.
+#   cmake -DFACTORIA=<factoria> -DROOT=<repo> [-DEXAMPLE=<name>] -P graphics_same_hash.cmake
+# One example per run (CTest registers one test for each); without EXAMPLE every example is checked.
 set(components "\"Sprite\",\"SpriteAnimator\",\"ParticleEmitter\"")
-file(GLOB projects LIST_DIRECTORIES true ${ROOT}/examples/*)
+if(EXAMPLE)
+    set(projects ${ROOT}/examples/${EXAMPLE})
+else()
+    file(GLOB projects LIST_DIRECTORIES true ${ROOT}/examples/*)
+endif()
 set(checked 0)
 set(skipped "")
 set(failures "")
@@ -72,13 +77,17 @@ foreach(project ${projects})
         if(NOT partGfx STREQUAL partNone)
             list(APPEND failures "${ex}/${scene}: the Sprite/SpriteAnimator/ParticleEmitter hash after 40 frames is ${partGfx} with a renderer and ${partNone} with --no-graphics")
         elseif(NOT wholeGfx STREQUAL wholeNone)
-            list(APPEND failures "${ex}/${scene}: the hash of the whole world after 40 frames is ${wholeGfx} with a renderer and ${wholeNone} with --no-graphics (the animators agree: text sizes, cameras, parallax or particles; run game.state_hash {\"perEntity\":true} both ways to find the entity)")
+            list(APPEND failures "${ex}/${scene}: the hash of the whole world after 40 frames is ${wholeGfx} with a renderer and ${wholeNone} with --no-graphics, the animators and particles agree (text sizes, cameras, parallax or the live particles differ; run game.state_hash with perEntity both ways to find the entity)")
         endif()
         math(EXPR checked "${checked} + 1")
     endforeach()
 endforeach()
-if(checked EQUAL 0)
-    message(FATAL_ERROR "no example scene was checked (ROOT=${ROOT})")
+if(checked EQUAL 0 AND NOT failures)
+    if(EXAMPLE AND skipped)
+        message(STATUS "${EXAMPLE}: none of its scenes starts on its own (${skipped}); nothing to compare")
+        return()
+    endif()
+    message(FATAL_ERROR "no example scene was checked (ROOT=${ROOT}, EXAMPLE=${EXAMPLE})")
 endif()
 message(STATUS "${checked} example scenes checked, the whole world is the same with and without a renderer (skipped, they do not start on their own: ${skipped}).")
 if(failures)
