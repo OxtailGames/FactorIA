@@ -33,9 +33,13 @@ factoria ai doctor        # what is installed / which keys are visible (never pr
 FactorIA runs: `claude -p --output-format stream-json --input-format stream-json --verbose --model <model> --resume <session> --mcp-config <file> --allowedTools mcp__factoria --permission-mode acceptEdits`,
 with the message on standard input (one `stream-json` line, which can carry pictures),
 in the project directory. `--resume <session>` is left out for the first message of a conversation
-(see [Conversations](#conversations-and-resume)). The MCP config file is generated at
-`<project>/.factoria/ai/mcp-claude-code.json`: a `factoria mcp --project <dir>` server, or the editor's endpoint when the
-editor started the CLI (see [below](#cli-agents-in-the-editor)).
+(see [Conversations](#conversations-and-resume)). The MCP config file is written for each run as
+`<project>/.factoria/ai/mcp-claude-code-<unique>.json` (on Linux and macOS readable by your user only; on Windows it
+has its folder's permissions) and deleted when the run ends (also
+when the CLI fails, crashes or is stopped): a `factoria mcp --project <dir>` server, or the editor's endpoint when the
+editor started the CLI (see [below](#cli-agents-in-the-editor)). Two runs at the same time each have their own file. A file
+that cannot be deleted (on Windows, while another program holds it open) is reported in the log and removed by a later run
+once it is a day old.
 
 ### B) ChatGPT subscription (Codex CLI)
 1. `npm i -g @openai/codex`
@@ -61,7 +65,11 @@ The endpoint speaks MCP Streamable HTTP without a server stream or a session (a 
 reply as `application/json`, a notification gets 202, GET gets 405). A call that runs longer than 10 s, such as an `ai_run`
 that hands a task to the worker, is answered as an event stream that carries `notifications/progress` (what the sub-agent just did, at most one every 3 s,
 and a heartbeat every 15 s), so the CLI does not give up on it after 5 minutes of silence. Only the token's path is served, so other programs on
-the machine cannot drive the editor. **Codex** still starts its own `factoria mcp` (its argv names the command, not a
+the machine cannot drive the editor. The endpoint serves at most 16 connections at once; a client that opens more waits
+until one ends (it is never answered 503). A connection that sends nothing for 30 s is closed (replies say `Keep-Alive:
+timeout=20`, so the client stops reusing it first), a request that stops half way gets 408, and a request body over 8 MiB
+gets 413 with a JSON-RPC error that says to put a big file into the project another way or send it in smaller parts.
+A `notifications/cancelled` the CLI sends stops the call it names (see `docs/MCP.md`, "Cancellation"). **Codex** still starts its own `factoria mcp` (its argv names the command, not a
 config file): its scene edits happen in that process, not in the open scene.
 
 ### C) Any other CLI agent
@@ -77,8 +85,12 @@ config file): its scene edits happen in that process, not in the open scene.
 }
 ```
 Placeholders: `{prompt}` `{model}` `{project}` `{mcp_config}` (path of a generated
-MCP config JSON) `{session}` (the CLI's session id of the conversation, see below) plus `{project_json}` / `{factoria_json}`
-(JSON-quoted strings, used by the Codex template). A template without `{prompt}` gets the prompt on standard input: on Windows
+MCP config JSON, deleted when the run ends) `{session}` (the CLI's session id of the conversation, see below) plus `{project_json}` / `{factoria_json}`
+(JSON-quoted strings, used by the Codex template). They are expanded in one pass: a prompt that contains `{model}` keeps
+that text as it is. For the `claude-code` and `codex` providers a `{prompt}` element that is a positional argument (not the
+value of the flag before it; `-p {prompt}` counts as positional) is moved to the end after `--`, so a prompt that starts
+with `-` is never read as an option, and the flags FactorIA adds (`--disallowedTools`, `--plugin-dir`...) go before that
+`--`; a template that has its own `--` is left as written, and so is every `generic-cli` one. A template without `{prompt}` gets the prompt on standard input: on Windows
 prefer that, because CLIs installed with npm are `.cmd` files and `cmd.exe` cannot pass a multi-line argument
 (FactorIA refuses arguments with line breaks or `% & | < > ^` for them). If `{model}`, `{mcp_config}` or `{session}` is
 empty, that argument (and a bare flag right before it, like `--resume`) is dropped. Output lines are shown as text; JSON lines

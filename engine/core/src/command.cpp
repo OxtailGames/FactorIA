@@ -28,6 +28,7 @@ CommandResult fail(std::string code, std::string message, std::string hint = {})
 
 thread_local CommandProgressSink t_progress_sink;
 thread_local CommandCaller t_caller = CommandCaller::User;
+thread_local const std::atomic<bool>* t_cancel = nullptr;
 std::atomic<int> g_caller_floor{static_cast<int>(CommandCaller::User)};  // CommandCallerFloor: the process-wide minimum
 
 }  // namespace
@@ -71,6 +72,14 @@ const char* command_caller_name(CommandCaller caller) {
     return "the user";
 }
 
+CommandCancelScope::CommandCancelScope(const std::atomic<bool>* flag) : previous_(t_cancel) { t_cancel = flag; }
+
+CommandCancelScope::~CommandCancelScope() { t_cancel = previous_; }
+
+const std::atomic<bool>* command_cancel_flag() { return t_cancel; }
+
+bool command_cancelled() { return t_cancel && t_cancel->load(std::memory_order_relaxed); }
+
 bool command_progress_active() { return static_cast<bool>(t_progress_sink); }
 
 bool report_command_progress(std::string_view message) {
@@ -111,6 +120,9 @@ std::vector<const CommandInfo*> CommandRegistry::list(std::string_view category)
 }
 
 CommandResult CommandRegistry::call(std::string_view name, const Json& argsIn) const {
+    if (command_cancelled())
+        return fail("cancelled", "'" + std::string(name) + "' was not run: the request it belongs to was cancelled.",
+                    "Nothing to fix: whoever sent the request took it back (an MCP client's notifications/cancelled).");
     std::optional<jobs::OwnerScope> owner;  // jobs and main-thread tasks a handler queues belong to this registry
     if (jobOwner_) owner.emplace(jobOwner_);
     const std::shared_ptr<const CommandInterceptor> interceptor = interceptor_;  // one pointer test when there is none

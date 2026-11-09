@@ -2,8 +2,12 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <thread>
 
 #include "asset_commands.h"
 #include "fa/ai/image_provider.h"
@@ -47,11 +51,47 @@ SessionResult run_agent_session(CommandRegistry& registry, const AiConfig& cfg, 
         if (!what.empty()) report_command_progress(info.role + (e.depth > 0 ? " > " : ": ") + what);
     });
     if (opts.providerFactory) session.set_provider_factory(opts.providerFactory);
-    session.set_cancel_flag(opts.cancel);
-    session.set_cancel_cause(opts.cancelCause);
+    // Two ways to be cancelled: the host's flag (the editor's Stop) and the request's (an MCP client's
+    // notifications/cancelled, installed by the MCP server: fa/core/command.h). The session watches one flag, so with both a
+    // thread sets a merged one when either is set.
+    const CancelFlag* request = command_cancel_flag();
+    CancelFlag merged{false};
+    std::mutex mergeMu;
+    std::condition_variable mergeCv;
+    bool mergeDone = false;
+    std::thread merger;
+    const CancelFlag* flag = opts.cancel;
+    if (request && opts.cancel) {
+        flag = &merged;
+        merger = std::thread([&] {
+            std::unique_lock<std::mutex> lock(mergeMu);
+            while (!mergeDone) {
+                if (request->load() || opts.cancel->load()) {
+                    merged.store(true);
+                    return;
+                }
+                mergeCv.wait_for(lock, std::chrono::milliseconds(50));
+            }
+        });
+    } else if (request) {
+        flag = request;
+    }
+    session.set_cancel_flag(flag);
+    session.set_cancel_cause([&opts, request]() -> std::string {
+        if (request && request->load()) return "client_cancelled";
+        return opts.cancelCause ? opts.cancelCause() : std::string();
+    });
     report_command_progress(info.role + ": starting");
     if (opts.onRunStart) opts.onRunStart(info);
     SessionResult r = session.run(info.task);
+    if (merger.joinable()) {
+        {
+            std::lock_guard<std::mutex> lock(mergeMu);
+            mergeDone = true;
+        }
+        mergeCv.notify_all();
+        merger.join();
+    }
     if (opts.onRunEnd) opts.onRunEnd(info, r.ok, r.finalText, r.ok ? std::string() : r.error);
     return r;
 }

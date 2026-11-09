@@ -2,6 +2,14 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- **For AIs using MCP (M90.2):** a tool result is sent once. A client on protocol 2025-06-18 or later gets an object result as `structuredContent` with a one-line text summary of its fields; an older client, a result that is not an object and a result with a picture get the JSON as text (and the picture as an image block), as before. A result over 128 KiB of JSON is cut down before it is sent: arrays and objects keep their first items or keys, long strings their start (never inside a UTF-8 character), the JSON stays valid, and a `_truncated.note` says what was cut and names the command's paging arguments (`offset`, `limit`...) or, for a command that does not page, the arguments that ask for less. `notifications/cancelled` now stops the request it names (a compound command or an `ai_run` sub-agent stops at its next step) and that request gets no response; a cancel for an unknown or finished request is ignored. docs/MCP.md.
+- **For AIs using MCP (M90.2):** the editor's MCP endpoint serves at most 16 connections at once (more wait their turn, never a 503) and joins each connection's thread when it ends; a connection silent for 30 s is closed (408 for a half-sent request), and a body over 8 MiB gets 413 with a JSON-RPC error that says what to do instead. docs/AI_PROVIDERS.md, "CLI agents in the editor".
+- **For AIs and users of CLI agents (M90.2):** the MCP config a Claude Code run gets is a file of its own (`.factoria/ai/mcp-claude-code-<unique>.json`, private on Linux and macOS), deleted when the run ends, also after a crash or a cancel, so two runs at once no longer share one; a file Windows keeps open is reported and swept by a later run. Argv placeholders are expanded in one pass (a prompt that contains `{model}` keeps it), and a `{prompt}` argument of a custom `claude-code` or `codex` template goes after `--`, so a prompt that starts with `-` is not read as an option. FactorIA's own MCP client (the `mcpServers` of ai.json) reads `structuredContent` first and cuts a long text result without breaking a UTF-8 character. docs/AI_PROVIDERS.md.
+
 ## 0.19.0
 
 FactorIA 0.19.0 (M70) puts the engine's work on threads and loads games faster. A job system runs the big pieces of a

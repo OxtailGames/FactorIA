@@ -647,8 +647,8 @@ std::unique_ptr<AiRun> Editor::ai_new_run(const AiChat& chat) {
     AiRun& run = *owned;
     // StreamHandler: a long ai.run call reports progress (what the worker does) as MCP notifications on its own request, so
     // Claude Code, which aborts a call that stays silent for 300 s, keeps waiting for as long as the worker really works.
-    auto started = run.mcp.start([r = &run, dir = projectDir_](std::string_view message,
-                                                               const McpHttpServer::Notify& emit) -> std::optional<std::string> {
+    auto started = run.mcp.start([r = &run, dir = projectDir_, session = run.mcpSession](
+                                     std::string_view message, const McpHttpServer::Notify& emit) -> std::optional<std::string> {
         std::shared_ptr<CommandRegistry> proxy;
         {
             std::lock_guard<std::mutex> lock(r->mu);
@@ -656,7 +656,8 @@ std::unique_ptr<AiRun> Editor::ai_new_run(const AiChat& chat) {
         }
         if (!proxy) return std::nullopt;  // not reached: the URL is handed out after the run's proxy exists
         SimpleMcpHost host(*proxy, dir);
-        McpServer server(host);  // stateless: one server per message
+        McpServer server(host);  // one server per message, sharing the run's session (handshake, cancellation)
+        server.share_session(session);
         server.set_notification_sink([&emit](const std::string& n) { emit(n); });
         return server.handle_message(message);
     });

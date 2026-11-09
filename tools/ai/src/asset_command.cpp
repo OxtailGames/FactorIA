@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <format>
+#include <iterator>
 
 #include "asset_providers.h"
 #include "fa/core/fs.h"
@@ -11,6 +12,7 @@
 #include "fa/core/image.h"
 #include "fa/core/process.h"
 #include "fa/core/strings.h"
+#include "util.h"
 
 namespace fa::ai {
 
@@ -53,21 +55,18 @@ Result<AssetResult> command_asset(const ProviderConfig& cfg, const AssetRequest&
             if (auto w = fs::write_bytes(file.generic_string(), reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size()); !w) return w.error();
         }
     }
-    const std::pair<const char*, std::string> subs[] = {{"{input}", inputFile.string()},
-                                                         {"{mask}", maskFile.string()},{"{prompt}", prompt},
-                                                         {"{output}", output.string()},
-                                                         {"{width}", std::to_string(req.width)},
-                                                         {"{height}", std::to_string(req.height)},
-                                                         {"{seconds}", std::format("{}", req.seconds)},
-                                                         {"{kind}", media_kind_name(req.kind)},
-                                                         {"{model}", req.model},
-                                                         {"{seed}", std::to_string(seed)}};
+    const std::string inputText = inputFile.string(), maskText = maskFile.string(), outputText = output.string();
+    const std::string width = std::to_string(req.width), height = std::to_string(req.height);
+    const std::string seconds = std::format("{}", req.seconds), seedText = std::to_string(seed);
+    const std::string kindText = media_kind_name(req.kind);
+    // One pass: a prompt that contains "{output}" stays as the user wrote it.
+    const util::Placeholder subs[] = {{"{input}", inputText},   {"{mask}", maskText},     {"{prompt}", prompt},
+                                      {"{output}", outputText}, {"{width}", width},       {"{height}", height},
+                                      {"{seconds}", seconds},   {"{kind}", kindText},     {"{model}", req.model},
+                                      {"{seed}", seedText}};
     ProcessOptions po;
     po.argv.push_back(cfg.command);
-    for (std::string arg : cfg.argv) {
-        for (const auto& [key, value] : subs) arg = fa::replace_all(std::move(arg), key, value);
-        po.argv.push_back(std::move(arg));
-    }
+    for (const std::string& arg : cfg.argv) po.argv.push_back(util::expand_placeholders(arg, subs, std::size(subs)));
     po.env = cfg.env;
     po.unsetEnv = cfg.unsetEnv;
     po.timeoutSeconds = cfg.timeoutSeconds;

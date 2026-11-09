@@ -1,5 +1,6 @@
 #include <doctest.h>
 
+#include <atomic>
 #include <thread>
 #include <vector>
 
@@ -395,4 +396,33 @@ TEST_CASE("close_object_schemas: properties get closed, $defs too, objects witho
     CHECK_FALSE(s["properties"]["c"].contains("additionalProperties"));
     CHECK(s["properties"]["default"]["default"] == Json::parse(R"({"properties":{"k":1}})"));  // data, not a schema
     CHECK(close_object_schemas(Json::object({{"type", "string"}})) == Json::object({{"type", "string"}}));
+}
+
+TEST_CASE("command: a CommandCancelScope cancels the calls of its thread once its flag is set, and only those") {
+    CommandRegistry reg = make_registry();
+    CHECK_FALSE(command_cancelled());
+    CHECK(command_cancel_flag() == nullptr);
+    std::atomic<bool> flag{false};
+    {
+        CommandCancelScope scope(&flag);
+        CHECK(command_cancel_flag() == &flag);
+        CHECK(reg.call("math.add", Json::object({{"a", 1}, {"b", 2}})).ok);  // not set yet: runs
+        flag = true;
+        CHECK(command_cancelled());
+        const CommandResult refused = reg.call("math.add", Json::object({{"a", 1}, {"b", 2}}));
+        CHECK_FALSE(refused.ok);
+        CHECK(refused.error["code"] == "cancelled");
+        CHECK(refused.error["message"].get<std::string>().find("math.add") != std::string::npos);
+        // another thread has no scope: its calls run
+        bool otherOk = false;
+        std::thread([&] { otherOk = reg.call("math.add", Json::object({{"a", 1}, {"b", 2}})).ok; }).join();
+        CHECK(otherOk);
+        {
+            CommandCancelScope inner(nullptr);  // an inner scope replaces the flag while it lives
+            CHECK_FALSE(command_cancelled());
+        }
+        CHECK(command_cancelled());
+    }
+    CHECK_FALSE(command_cancelled());  // the scope ended
+    CHECK(reg.call("math.add", Json::object({{"a", 1}, {"b", 2}})).ok);
 }

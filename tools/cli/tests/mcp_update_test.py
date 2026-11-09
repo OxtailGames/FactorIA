@@ -98,6 +98,10 @@ class Server:
         if r is None or "result" not in r:
             return None, ""
         texts = [c.get("text", "") for c in r["result"].get("content", [])]
+        sc = r["result"].get("structuredContent")
+        if isinstance(sc, dict):  # the result itself; the first text block only sums it up
+            sc = {k: v for k, v in sc.items() if k != "_factoriaNotice"}
+            texts = [json.dumps(sc, separators=(",", ":"))] + texts[1:]
         return r, "\n".join(texts)
 
     def close(self):

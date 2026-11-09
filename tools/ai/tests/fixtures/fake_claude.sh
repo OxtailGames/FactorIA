@@ -7,11 +7,14 @@
 # mcp_run_detach (calls the tool ai_run {"task":"Make a coin","role":"worker"} in the background and ends its turn at once,
 # like an orchestrator whose ai_run call was cut off; a prompt that says a worker "finished after your turn ended" -- the
 # editor's continuation -- gets a plain answer instead). FAKE_SLEEP=<seconds> keeps it silent that long after its init line.
-# A CLAUDE_CODE_AUTO_COMPACT_WINDOW is recorded as "compact-window:<n>".
+# A CLAUDE_CODE_AUTO_COMPACT_WINDOW is recorded as "compact-window:<n>". The file after --mcp-config is copied to
+# $FAKE_ARGV_FILE.mcpconfig (the run deletes its own when it ends).
 # fake_claude.cmd is the same script for Windows.
 if [ -n "$FAKE_ARGV_FILE" ]; then
   for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_ARGV_FILE"; done
   if [ -n "$CLAUDE_CODE_AUTO_COMPACT_WINDOW" ]; then printf 'compact-window:%s\n' "$CLAUDE_CODE_AUTO_COMPACT_WINDOW" >> "$FAKE_ARGV_FILE"; fi
+  prev=""
+  for a in "$@"; do if [ "$prev" = "--mcp-config" ] && [ -f "$a" ]; then cp "$a" "$FAKE_ARGV_FILE.mcpconfig"; fi; prev="$a"; done
 fi
 stdin=$(cat)
 if [ -n "$FAKE_ARGV_FILE" ] && [ -n "$stdin" ]; then printf 'stdin:%s\n' "$stdin" >> "$FAKE_ARGV_FILE"; fi
