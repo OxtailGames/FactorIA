@@ -95,7 +95,7 @@ public:
     std::vector<Entity> find_all_by_name(std::string_view name) const;
     std::vector<Entity> find_by_tag(std::string_view tag) const;
     bool has_tag(Entity e, std::string_view tag) const;
-    // Renames the stable id (fails if taken). Updates lookup tables.
+    // Renames the stable id (fails if taken, or if the entity is being destroyed: its id is already free). Updates lookup tables.
     Result<void> set_id(Entity e, std::string_view newId);
 
     // ------------------------------------------------------- typed components
@@ -133,7 +133,12 @@ public:
     // `index` is the place among the new parent's children (0 = first, after removing `child` from its old place when the
     // parent does not change); negative or past the end = last (clamped, never an error here: commands and scripts check
     // the range first). It is ignored for a null parent: top-level entities stay in creation order.
+    // An entity being destroyed (destroy() ran, flush() has not; itself or an ancestor) is not moved and takes no new child:
+    // its subtree is already unregistered and goes away at the flush. A refused move logs a warning and changes nothing;
+    // call check_set_parent first to get the teaching error.
     void set_parent(Entity child, Entity parent, bool keepWorldTransform = false, int index = -1);
+    // The error set_parent would refuse with (child dead, parent dead, child or parent being destroyed, a cycle), or ok.
+    Result<void> check_set_parent(Entity child, Entity parent) const;
     // "" when `index` is a valid place for `moving` (or a new entity: kNullEntity) among `parent`'s children, else a sentence
     // that says what is wrong and the valid range. Valid: 0 .. number of other children; a null parent takes no index.
     std::string check_child_index(Entity parent, Entity moving, double index) const;
