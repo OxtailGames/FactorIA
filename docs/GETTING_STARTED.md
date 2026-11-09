@@ -38,7 +38,7 @@ built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC need
    - **Zip or tar.gz:** unpack the package into a folder of your choice, for example `C:\FactorIA` or `~/FactorIA`.
    - **AppImage:** `chmod +x FactorIA-linux-x64.AppImage`. It runs where the tar.gz does.
 2. Open the editor:
-   - **Windows:** Start menu > **FactorIA Editor** (installer), or double-click `FactorIA-Editor.exe`. Windows
+   - **Windows:** Start menu > **FactorIA Editor** (installer), or double-click `FactorIA-Editor.exe`.
      The Windows downloads are not code-signed yet (the release workflow has no Windows certificate), so
      SmartScreen may show "Windows protected your PC". Click **More info**, then **Run anyway**.
    - **macOS:** open Terminal in the folder and run `./factoria editor`. Releases after 0.1.3 are signed and notarized

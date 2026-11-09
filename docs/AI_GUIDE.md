@@ -1533,7 +1533,7 @@ assets_animate_svg {"path":"assets/art/coin_spin.png","source":"art/coin_spin.an
   one call per sheet: look, then decide); with no provider, tell the user.
 - **Write `progress`-driven frames.** `progress` is `frame / frames` for a looping clip, so the last frame leads into the first;
   do not use `t` for a loop unless the period divides the clip. `rng()` changes every frame (flicker); `rngFor("key")` is the same
-  on every frame (what must stay put). In an `assets_bake_sheet` module (and only there) `Math.random` is a seeded
+  on every frame (what must stay put). In an `assets_animate_svg` module (and only there) `Math.random` is a seeded
   stream and `Date` a fixed day; in a game script `Date` is the real clock.
 - **Look and fix.** The result has the sheet as an image, the layout and warnings (a frame that draws nothing, shapes on the
   cell edge, a loop that jumps). An error names `art/coin_spin.anim.js:LINE:COL` and the frame; the module sees only the
