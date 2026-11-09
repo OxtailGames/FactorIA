@@ -219,7 +219,11 @@ void ScriptSystem::Impl::record_cut(const std::string& label, const std::string&
         log(LogLevel::Error, "script",
             c.to_string() + ": the rest of the callback did not run, so this run is not valid (a replay of it would differ "
                            "on a faster or slower machine). Fix the loop or make the work cheaper");
-    if (cuts.size() < kMaxCuts) cuts.push_back(std::move(c));
+    if (cuts.size() >= kMaxCuts) {
+        cuts.erase(cuts.begin());
+        ++droppedCuts;
+    }
+    cuts.push_back(std::move(c));
 }
 
 bool ScriptSystem::Impl::debug_session_ended() const { return debugger && debugger->impl().interrupt_requested(); }

@@ -55,8 +55,9 @@ if(TARGET fa_test_runtime AND FA_XVFB_RUN AND FA_PLATFORM STREQUAL "linux")
         WORKING_DIRECTORY ${FA_ROOT})
 endif()
 
-# The replay hashes of the scripts' math, 2D and 3D physics and nav (tests/det_probe_tests.cpp) on their own, so CI prints them:
-# `ctest -R det_probe_hashes -V`. The Android, iOS and web jobs run the same probe script and compare with the same expected file.
+# The replay hashes of the scripts' math, 2D and 3D physics and nav (tests/det_probe_tests.cpp) run ONLY here, so CI prints them:
+# `ctest -R det_probe_hashes -V`. The case is marked doctest::skip() so the `runtime` test does not run it a second time;
+# --no-skip runs it. The Android, iOS and web jobs run the same probe script and compare with the same expected file.
 if(TARGET fa_test_runtime)
-    add_test(NAME det_probe_hashes COMMAND fa_test_runtime "-tc=det probe*" WORKING_DIRECTORY ${FA_ROOT})
+    add_test(NAME det_probe_hashes COMMAND fa_test_runtime --no-skip "-tc=det probe*" WORKING_DIRECTORY ${FA_ROOT})
 endif()

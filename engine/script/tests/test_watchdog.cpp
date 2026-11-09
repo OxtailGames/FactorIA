@@ -244,3 +244,46 @@ test("a test that does not touch the spinning behaviour", () => {
     CHECK(rep.cases[0].message.find("cannot be trusted") != std::string::npos);
     CHECK(h.scripts.watchdog_cut_count() >= 1);
 }
+
+// M91.P: the list keeps the latest 100 cuts, but `since` of the test harness counts cuts from the start. A test after more
+// than 100 cuts must still be failed, and its message must name the script (the old list kept the first 100 and its index was
+// the global count, so the cuts after the 100th were never shown and `since` pointed past the end).
+TEST_CASE("watchdog: more cuts than the list holds still fail the test that ran them and name the script") {
+    TestHost h("watchdog_many_cuts");
+    h.file("scripts/spin.js", R"(
+import { Behaviour } from "factoria";
+export default class Spin extends Behaviour {
+  onUpdate() { while (true) {} }
+}
+)");
+    constexpr int kSpinners = 120;  // more than the 100 the list keeps
+    Json entities = Json::array();
+    for (int i = 0; i < kSpinners; ++i) entities.push_back(script_entity("spin" + std::to_string(i), "scripts/spin.js"));
+    h.file("scenes/main.scene.json", watchdog_scene(entities).dump());
+    h.file("tests/spin.test.js", R"(
+import { test, expect, game } from "factoria:test";
+
+test("a test that does not step", () => {
+  expect(2 + 2).toBe(4);
+});
+
+test("a test that steps a frame while 120 behaviours spin", () => {
+  game.step(1);
+});
+)");
+    REQUIRE(h.start());
+    h.scripts.set_callback_limit(0.003);
+    h.load_scene_now("scenes/main.scene.json");
+    h.step_frames(1);  // the first cuts happen outside any test
+    const std::uint64_t before = h.scripts.watchdog_cut_count();
+    CHECK(before >= 101);
+    CHECK(h.scripts.watchdog_cuts().size() == 100);
+    TestReport rep = h.scripts.run_tests({"tests/spin.test.js"});
+    MESSAGE(rep.summary());
+    REQUIRE(rep.cases.size() == 2);
+    CHECK(rep.cases[0].passed);  // no cut happened during it
+    CHECK_FALSE(rep.cases[1].passed);
+    CHECK(rep.cases[1].message.find("the script watchdog stopped 'onUpdate' of scripts/spin.js") != std::string::npos);
+    CHECK(h.scripts.watchdog_cut_count() > before);
+    CHECK(h.scripts.watchdog_cuts().size() == 100);
+}

@@ -143,8 +143,16 @@ stick values are the state at the time of the call. Consequences:
   (`pressed` and `released` are both true there). A press that ends before any step runs is not lost.
 - `input.consume(action)` hides the press from `pressed` for the callbacks that have not seen it yet; a fixed step that
   already took the press is not affected, and a later press is never hidden by it.
-- Time at `time.scale` 0 and a paused game: the paused game runs no step and keeps the press for the step after it
-  resumes. A step at `time.scale` 0 is a step: it takes the edges.
+- A tap that lands and lifts between two fixed steps still shows once in `input.touches[].pressed` (position where it
+  lifted) in the next `onFixedUpdate`, and once in the next `onUpdate`; the next call after that no longer lists it.
+- Input that arrives while a fixed step runs (a script injecting a key in `onFixedUpdate`, a test) is seen by the NEXT
+  step, not lost with the one that is closing; behaviours that run later in the same step may see it too.
+- `game.paused = true` (`time.scale` 0): the steps still run, as steps of time 0, but `onFixedUpdate` is not called, and
+  each step takes the edges like any other: a press made while the game is paused (a pause menu answered by the UI, a
+  `runWhilePaused` behaviour reading it in `onUpdate`) is NOT seen by the first `onFixedUpdate` after the game resumes.
+  The engine's own pause (`Engine::set_paused`, what the editor uses outside play, and the `game.pause` command) is
+  different: `frame(dt)` only redraws, no step runs and no edge is taken, so a press made meanwhile is kept for the
+  first step and the first update after it resumes.
 - `game.step(n)` in a test runs one fixed step and one frame `n` times, so each `game.press`/`tap`/`touchStart` is seen by
   one `onFixedUpdate` and one `onUpdate` of the next `game.step`.
 - Recorded input (`input.record`) and replays are not affected: the recording keeps each event and the frame timing
@@ -1887,9 +1895,13 @@ test files with `factoria test <project> tests/saves.test.js "tests/ui*.test.js"
 - `Math.sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `expm1`, `log`, `log2`, `log10`, `log1p`, `pow` (and
   `**`), `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `cbrt` and `hypot` are the engine's deterministic functions
   (`fa::det::f64`, built only from `+ - * / sqrt` on doubles): the same bits on Windows, Linux, macOS, Android, iOS and the
-  web, where the C library's last bit differs between them. They are accurate to about 1 ulp (`pow` loses up to about 1.5 ulp
-  per unit of `|y * ln(x)|` on large results), so a script sees the numbers it expects, `Math.pow(2, 10)` is exactly 1024 and the integer powers and roots that are
-  exact stay exact. `Math.sqrt`, `floor`, `ceil`, `round`, `trunc`, `abs`, `min`, `max`, `fround`, `imul` and `clz32` are exact
+  web, where the C library's last bit differs between them. They are accurate to a few units in the last place of the exact result:
+  `exp`, `log`, `log2`, `log10`, `cosh`, `cbrt` and `hypot` within 2 ulp, `sin` and `cos` within 3 (up to 1.6e6 radians),
+  `tan`, `atan`, `atan2`, `asin`, `acos` and the other hyperbolics within 6, and `pow` loses up to about 1.5 ulp per unit of
+  `|y * ln(x)|` on large results. A script sees the numbers it expects: `Math.pow(2, 10)` is exactly 1024, the integer
+  powers and roots that are exact stay exact, and `10 ** n` is the double nearest to 10^n for every `n` from -307 to 308,
+  so `Math.floor(Math.log10(1e25))` is 25. Do not compare the result of a transcendental with `===` against a number you
+  computed another way: allow a small tolerance. `Math.sqrt`, `floor`, `ceil`, `round`, `trunc`, `abs`, `min`, `max`, `fround`, `imul` and `clz32` are exact
   in IEEE 754 and unchanged. This applies to EVERY script the engine runs, because there is one JavaScript engine: game
   scripts, tests, script tools (`tools/*.js`), `scripts/autoplay.js` hooks and editor scripts all get the same `Math`; no
   script sees the C library's. A script needs nothing to opt in.
@@ -1899,7 +1911,7 @@ test files with `factoria test <project> tests/saves.test.js "tests/ui*.test.js"
   per (file, line, message) with a hint; the behaviour keeps running.
   **A cut callback makes the run invalid**, because the rest of the callback was skipped at a point that depends on how fast
   the machine is, so no replay or hash taken from the run can be trusted. It is never silent: the engine logs an error
-  naming the script and the callback ("the script watchdog stopped 'onUpdate' of scripts/boss.js (limit 2 s of CPU time)"),
+  naming the script and the callback ("the script watchdog stopped 'onUpdate' of scripts/boss.js (> 2 s of CPU time)"),
   counts it, and then (1) `factoria run --headless` exits with code 1 whatever `--allow-script-errors` says and its report has
   `"replayValid": false`, the cuts in `watchdogCuts` and a line in `problems`; (2) a test that ran while a callback was cut
   (even if its own asserts passed) fails with the script and callback named; (3) `game.autoplay` / `play.auto` report

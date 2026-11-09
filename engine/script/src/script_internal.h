@@ -117,7 +117,10 @@ struct ScriptSystem::Impl {
     // ---- watchdog cuts (ScriptSystem::watchdog_cuts): every consumer of `timedOut` that is not a debugger terminate calls
     // record_cut, so a cut is never only a line in the log that a duplicate or a quiet call can drop.
     std::uint64_t cutCount = 0;
-    std::vector<ScriptWatchdogCut> cuts;  // the first kMaxCuts
+    // The latest kMaxCuts cuts. cuts[i] is cut number droppedCuts + i (counted from 0, as cutCount counts): when a new cut
+    // finds the list full the oldest is dropped, so an index taken from cutCount at some point still finds the cuts after it.
+    std::vector<ScriptWatchdogCut> cuts;
+    std::uint64_t droppedCuts = 0;
     static constexpr std::size_t kMaxCuts = 100;
     // `label` is "path#method" (a behaviour), or a free text ("eval", "test 'x'"); `file` names the script when the label
     // has none (a test file, a module being loaded).
