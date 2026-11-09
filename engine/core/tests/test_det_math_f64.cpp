@@ -54,6 +54,11 @@ struct Lcg {
     double log_range(double lo, double hi) { return std::exp(range(std::log(lo), std::log(hi))); }
 };
 
+// The references are the C library of the machine running the test (glibc, Apple's libm, the MSVC CRT, bionic, musl), whose
+// own error varies by up to about one ulp: every bound against it gets this much on top. Determinism is not checked here but
+// by the table of bit patterns below, which is exact.
+constexpr double kLibmSlack = 1.0;
+
 template <class F, class G>
 void check_sweep(const char* what, double lo, double hi, double maxUlps, F mine, G ref, bool logScale = false) {
     Lcg rng;
@@ -64,7 +69,7 @@ void check_sweep(const char* what, double lo, double hi, double maxUlps, F mine,
         if (e > worst) { worst = e; at = x; }
     }
     INFO(what << " [" << lo << ", " << hi << "] worst " << worst << " ulp at " << at);
-    CHECK(worst <= maxUlps);
+    CHECK(worst <= maxUlps + kLibmSlack);
 }
 
 #define SWEEP(fn, lo, hi, maxUlps) \
@@ -118,9 +123,9 @@ TEST_CASE("det math f64: accuracy against the C library over many inputs") {
         worstAtan2 = std::fmax(worstAtan2, ulps(fa::det::f64::atan2(a, b), std::atan2(a, b)));
         worstHypot = std::fmax(worstHypot, ulps(fa::det::f64::hypot(a * 1e3, b * 1e3), std::hypot(a * 1e3, b * 1e3)));
     }
-    CHECK(worstPow <= 2);
-    CHECK(worstAtan2 <= 8);
-    CHECK(worstHypot <= 2);
+    CHECK(worstPow <= 2 + kLibmSlack);
+    CHECK(worstAtan2 <= 8 + kLibmSlack);
+    CHECK(worstHypot <= 2 + kLibmSlack);
     CHECK(fa::det::f64::pow(7.3, 2.5) == doctest::Approx(std::pow(7.3, 2.5)).epsilon(1e-14));
     CHECK(fa::det::f64::hypot(1e200, 1e200) == doctest::Approx(1.4142135623730951e200).epsilon(1e-14));
     CHECK(fa::det::f64::hypot(1e-200, 1e-200) == doctest::Approx(1.4142135623730951e-200).epsilon(1e-14));
@@ -153,14 +158,14 @@ TEST_CASE("det math f64: special values follow C99 / IEEE 754 (and the sign of z
         for (double y : specials) {
             INFO("pow(" << x << ", " << y << ")");
             const double p = dm::pow(x, y), q = std::pow(x, y);
-            if (std::isfinite(q) && q != 0.0) CHECK(ulps(p, q) <= 4);  // 0.5^-0.5 and the like: not exact, but close
+            if (std::isfinite(q) && q != 0.0) CHECK(ulps(p, q) <= 4 + kLibmSlack);  // 0.5^-0.5 and the like: not exact, but close
             else CHECK(same(p, q));
             if (!std::isnan(q)) CHECK(std::signbit(p) == std::signbit(q));
             INFO("atan2(" << x << ", " << y << ")");
             const double a = dm::atan2(x, y), b = std::atan2(x, y);
             if (std::isnan(b)) CHECK(std::isnan(a));
             else {
-                CHECK(ulps(a, b) <= 2);
+                CHECK(ulps(a, b) <= 2 + kLibmSlack);
                 CHECK(std::signbit(a) == std::signbit(b));
             }
         }
