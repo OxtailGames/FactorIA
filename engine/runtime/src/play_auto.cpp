@@ -770,6 +770,14 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     }
     if (droppedPhases > 0) note(std::format("{} more phase(s) were not listed: a session lists the first {}.", droppedPhases, kPlayAutoMaxPhases));
     if (hookFailures > 0) note(std::format("The hook threw in {} step(s) (nothing was pressed in them); see scriptErrors.", hookFailures));
+    if (engine.scripts().watchdog_cut_count() > 0) {
+        // The script watchdog cut a callback: the input.json of this session does not replay to the same run.
+        const auto& cuts = engine.scripts().watchdog_cuts();
+        const std::string first = cuts.empty() ? std::string() : cuts.front().to_string();
+        note(std::format("INVALID RUN: the script watchdog stopped {} callback(s) ({}), so the input replay of this session may not play "
+                         "back to the same run. Fix the slow script and play again.", engine.scripts().watchdog_cut_count(), first));
+        scriptErrorsExtra.push_back(first);
+    }
     if (!replayProblems.empty()) note("The bot named an input the engine did not take: " + replayProblems.front());
 
     Json scriptErrors = Json::array();

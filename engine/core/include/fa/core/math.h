@@ -37,7 +37,7 @@ inline float sign(float v) { return v > 0.0f ? 1.0f : (v < 0.0f ? -1.0f : 0.0f);
 inline bool approx_equal(float a, float b, float eps = 1e-4f) { return std::fabs(a - b) <= eps; }
 // Frame-rate independent exponential smoothing: move `current` toward `target`.
 inline float damp(float current, float target, float smoothing, float dt) {
-    return lerp(current, target, 1.0f - std::exp(-smoothing * dt));
+    return lerp(current, target, 1.0f - det::exp(-smoothing * dt));
 }
 inline float move_towards(float current, float target, float maxDelta) {
     if (std::fabs(target - current) <= maxDelta) return target;
@@ -397,7 +397,7 @@ struct Mat4 {
     static Mat4 trs(Vec3 t, Vec3 eulerDeg, Vec3 s) { return translate(t) * rotate_euler_deg(eulerDeg) * scale(s); }
 
     static Mat4 perspective(float fovYDeg, float aspect, float zNear, float zFar, bool zeroToOne) {
-        float f = 1.0f / std::tan(radians(fovYDeg) * 0.5f);
+        float f = 1.0f / det::tan(radians(fovYDeg) * 0.5f);
         Mat4 r;
         r.m[0] = f / aspect; r.m[5] = f; r.m[15] = 0.0f; r.at(2, 3) = -1.0f;
         if (zeroToOne) {

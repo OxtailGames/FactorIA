@@ -194,6 +194,34 @@ std::string ScriptSystem::Impl::limit_text(double seconds) const {
                         : std::format("> {:g} s of CPU time", seconds);
 }
 
+std::string ScriptWatchdogCut::to_string() const {
+    std::string s = "the script watchdog stopped ";
+    if (!script.empty() && callback != script) s += "'" + callback + "' of " + script;
+    else s += "'" + callback + "'";
+    return s + " (" + limit + ")";
+}
+
+void ScriptSystem::Impl::record_cut(const std::string& label, const std::string& file, const std::string& limit) {
+    ScriptWatchdogCut c;
+    const size_t hash = label.find('#');
+    if (hash != std::string::npos) {
+        c.script = label.substr(0, hash);
+        c.callback = label.substr(hash + 1);
+    } else {
+        c.script = file;
+        c.callback = label;
+    }
+    c.limit = limit;
+    ++cutCount;
+    // Always logged (record_error drops a repeat and a quiet call): a run with a cut is not the run the player or the
+    // replay would have, and the user has to see which script did it.
+    if (cutCount <= 50)
+        log(LogLevel::Error, "script",
+            c.to_string() + ": the rest of the callback did not run, so this run is not valid (a replay of it would differ "
+                           "on a faster or slower machine). Fix the loop or make the work cheaper");
+    if (cuts.size() < kMaxCuts) cuts.push_back(std::move(c));
+}
+
 bool ScriptSystem::Impl::debug_session_ended() const { return debugger && debugger->impl().interrupt_requested(); }
 
 bool ScriptSystem::Impl::check_interrupt() {
@@ -240,6 +268,7 @@ void ScriptSystem::Impl::run_jobs() {
             if (timedOut) {  // a JS guard inside the job ran out (an async world.on listener)
                 timedOut = false;
                 JS_FreeValue(ctx, JS_GetException(ctx));
+                record_cut(timedOutLabel, "", limit_text(timedOutSeconds));
                 ScriptError e;
                 e.message = std::format("script took too long ({}) in {}", limit_text(timedOutSeconds), timedOutLabel);
                 record_error(std::move(e), "promise job");
@@ -491,6 +520,7 @@ JSValue ScriptSystem::Impl::call(const std::string& label, const std::string& en
             ScriptError e;
             // A JS guard inside this call ran out first (a timer callback, a world.on listener): name that one.
             const bool inner = timedOutDepth > depth && !timedOutLabel.empty();
+            record_cut(inner ? timedOutLabel : label, "", limit_text(inner ? timedOutSeconds : limit));
             e.message = std::format("script took too long ({}) in {}", limit_text(inner ? timedOutSeconds : limit),
                                     inner ? timedOutLabel : label);
             e.file = label;
@@ -852,6 +882,7 @@ Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, Scrip
         JS_FreeValue(ctx, exc);
         if (timedOut) {
             timedOut = false;
+            if (!debug_session_ended()) record_cut("loading " + path, path, limit_text(10.0));
             e.message = debug_session_ended() ? "loading " + path + " was stopped because the debug session ended"
                                               : "script took too long (" + limit_text(10.0) + ") while loading " + path;
             e.file = path;
