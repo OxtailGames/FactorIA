@@ -113,7 +113,6 @@ Result<std::string> read_doc(std::string_view nameOrPath) {
         }
         names.push_back(d.name);
     }
-    if (want == "components") return export_components_markdown();
     if (want == "licenses" || want == "license" || want == "notices" || want == "third-party-notices")
         return third_party_notices(NoticeScope::All);
     if (want == "schemas" || want == "schema") {
@@ -121,7 +120,6 @@ Result<std::string> read_doc(std::string_view nameOrPath) {
         for (const auto& p : bundled_list("schemas/")) all += "## " + p + "\n\n```json\n" + bundled_read(p).value_or("") + "\n```\n\n";
         return all;
     }
-    names.push_back("components");
     names.push_back("licenses");
     return make_error("No document named '" + q + "'. " + did_you_mean(want, names), "Use docs.list to see all documents.");
 }
@@ -213,7 +211,6 @@ void register_docs_commands(CommandRegistry& registry) {
             Json arr = Json::array();
             for (const auto& d : list_docs())
                 arr.push_back(Json::object({{"name", d.name}, {"title", d.title}, {"path", d.path}, {"bytes", d.bytes}}));
-            arr.push_back(Json::object({{"name", "components"}, {"title", "Components reference (generated)"}, {"path", ""}, {"bytes", 0}}));
             arr.push_back(Json::object({{"name", "licenses"}, {"title", "License notices: FactorIA and the third-party code inside it (generated)"}, {"path", ""}, {"bytes", 0}}));
             return Json::object({{"docs", arr}});
         });

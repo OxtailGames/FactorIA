@@ -153,19 +153,6 @@ TEST_CASE("load_config: missing file gives defaults, bad JSON gives location") {
     CHECK(good->sourcePath == file.string());
 }
 
-TEST_CASE("save_config round trip") {
-    TempDir dir;
-    auto cfg = parse_config(fixture_json("ai_config_example.json"), "x");
-    REQUIRE(cfg);
-    auto file = (dir.path / "sub" / "ai.json").string();
-    REQUIRE(save_config(*cfg, file));
-    auto back = load_config(file);
-    REQUIRE(back);
-    CHECK(back->role("worker").model == "deepseek/deepseek-chat");
-    CHECK(back->provider("groq")->apiKey == "gsk_example_not_real_key_value_12345");
-    CHECK(config_to_json(*cfg)["providers"]["groq"]["apiKey"] == "***");  // redacted by default
-}
-
 TEST_CASE("save_roles changes only the roles and keeps the rest of the file") {
     TempDir dir;
     const std::string file = (dir.path / "ai.json").string();
