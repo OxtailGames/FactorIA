@@ -2,6 +2,12 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- **For engine developers (M90.5):** the audio callback allocates nothing while it mixes: the per-block flags of the buses (`used`, `live`, `ducking`), the bus buffers and the ducking gains are scratch made when the bus table is built (`set_buses`), not in the callback; a test counts the heap allocations of the mixing thread (`engine/audio/tests/test_audio_realtime.cpp`). The callback still takes the mixer's lock. docs/SOUND.md, "The audio callback".
+
 ## 0.19.0
 
 FactorIA 0.19.0 (M70) puts the engine's work on threads and loads games faster. A job system runs the big pieces of a

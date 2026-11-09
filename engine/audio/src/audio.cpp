@@ -51,6 +51,9 @@ constexpr int kRate = audio_detail::kMixRate;
 constexpr std::size_t kMaxVoices = 64;
 constexpr std::size_t kMaxRecordFrames = std::size_t(kRate) * 600;  // 10 minutes
 constexpr int kBlock = 512;
+// Frames the mixer's scratch buffers hold from the moment the bus table is built (a device callback is 256..2048 frames in
+// practice): a bigger callback grows them once, the first time, and the next ones reuse them.
+constexpr std::size_t kScratchFrames = 4096;
 constexpr std::size_t kMaxPlayLog = 4096;
 
 // The bus table: 0..2 are the built-in buses, kMasterBus the master (its "buffer" is the output), and the project's buses
@@ -258,6 +261,9 @@ struct Audio::Impl {
     std::vector<int> mixOrder;               // the buses but the master, deepest first: a bus is summed into its parent
     std::vector<std::vector<float>> busBuf;  // the sum of each bus's voices and child buses, before its parent
     std::vector<std::vector<float>> duckGains;  // the ducking gain of each bus for the block being mixed
+    // Per-bus flags of mix_locked, one entry per bus. They live here, sized by build_mix_order, so the audio callback
+    // allocates nothing (docs/SOUND.md, "The audio callback").
+    std::vector<char> usedScratch, liveScratch, duckingScratch;
     std::vector<VoiceId> ended;              // voices with notify that ended (take_ended_voices)
     AudioSnapshots snapshots;
     std::string snapshotName;
@@ -347,8 +353,16 @@ struct Audio::Impl {
         }
         std::stable_sort(mixOrder.begin(), mixOrder.end(),
                          [&](int a, int b) { return bus[std::size_t(a)].depth > bus[std::size_t(b)].depth; });
+        // Everything the callback needs, made here (outside the callback, under the lock): the callback only writes into it.
         busBuf.resize(bus.size());
         duckGains.resize(bus.size());
+        for (std::vector<float>& b : busBuf) b.reserve(kScratchFrames * 2);
+        for (std::vector<float>& g : duckGains) g.reserve(kScratchFrames);
+        usedScratch.assign(bus.size(), 0);
+        liveScratch.assign(bus.size(), 0);
+        duckingScratch.assign(bus.size(), 0);
+        ended.reserve(kMaxEnded);
+        tmp.reserve(kScratchFrames * 2);
     }
 
     // The index of a bus by name (master included); -1 for an unknown name. Caller holds mu.
@@ -790,7 +804,8 @@ struct Audio::Impl {
         const std::size_t n = std::size_t(frames) * 2;
         std::memset(out, 0, sizeof(float) * n);
         const double rateRatio = double(kRate) / double(deviceRate);
-        std::vector<char> used(bus.size(), 0);
+        std::vector<char>& used = usedScratch;
+        std::fill(used.begin(), used.end(), char(0));
         for (std::size_t b = 0; b < bus.size(); ++b) {
             busBuf[b].resize(n);
             std::memset(busBuf[b].data(), 0, sizeof(float) * n);
@@ -874,7 +889,10 @@ struct Audio::Impl {
             // The buses go deepest first, a whole depth at a time: effects and volume of each, then the ducking (which reads
             // the buses of that depth, or deeper, before any ducking; a bus nearer the master than the one that ducks is read as
             // its own voices and the buses under it, before its effects), then each bus is summed into its parent.
-            std::vector<char> live(bus.size(), 0), ducking(bus.size(), 0);
+            std::vector<char>& live = liveScratch;
+            std::vector<char>& ducking = duckingScratch;
+            std::fill(live.begin(), live.end(), char(0));
+            std::fill(ducking.begin(), ducking.end(), char(0));
             bool anyLive = false;
             for (std::size_t from = 0; from < mixOrder.size();) {
                 std::size_t to = from;
