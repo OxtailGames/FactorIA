@@ -11,8 +11,12 @@
 // implements all of it from a registry + project directory.
 #pragma once
 
+#include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <functional>
+#include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -94,14 +98,74 @@ bool is_user_only_command(std::string_view commandName);
 
 inline constexpr const char* kMcpLatestProtocol = "2025-11-25";
 const std::vector<std::string>& mcp_supported_protocols();
+// True for the protocol versions whose tool results carry `structuredContent` (2025-06-18 and later).
+bool mcp_protocol_has_structured_content(std::string_view protocolVersion);
+
+// The largest tool result the server sends, in bytes of JSON (the default of McpServer::set_result_cap). A client puts the
+// result into its model's context (Claude Code refuses one over about 25k tokens), so a larger one is cut down first.
+inline constexpr std::size_t kMcpResultCap = 128 * 1024;
+
+// What the McpServers answering one client share: the handshake (the protocol version initialize negotiated) and the
+// requests in flight, which notifications/cancelled reaches. A transport that makes one server per message (the editor's
+// per-run HTTP endpoint, where requests run at the same time on their own threads) gives each of them the same session;
+// a server that is not given one has its own. Thread-safe.
+class McpSession {
+public:
+    // The handshake of the client's initialize; empty protocol until there was one.
+    struct Handshake {
+        std::string protocolVersion;
+        Json clientInfo = Json::object();
+        Json clientCapabilities = Json::object();
+    };
+    void set_handshake(Handshake h);
+    Handshake handshake() const;
+
+    // A request starts: its cancel flag, set by cancel() while it runs. Several requests with the same id (a client's
+    // mistake) are all cancelled together.
+    std::shared_ptr<std::atomic<bool>> begin_request(const Json& id);
+    // The request ended: forgets it and says whether it was cancelled (then no response may be sent). The decision is
+    // taken under the same lock as cancel(), so a cancel that comes after it finds nothing and is ignored.
+    bool end_request(const Json& id, const std::shared_ptr<std::atomic<bool>>& flag);
+    // notifications/cancelled: sets the flag of the request `id`; false when no such request is running (unknown or
+    // already answered), which is ignored.
+    bool cancel(const Json& id);
+    std::size_t requests_in_flight() const;
+
+private:
+    mutable std::mutex mu_;
+    Handshake handshake_;
+    std::multimap<std::string, std::shared_ptr<std::atomic<bool>>> inFlight_;  // id.dump() -> flag
+};
 
 class McpServer {
 public:
     explicit McpServer(McpHost& host);
 
     // Handles one incoming JSON-RPC message (request, notification, response or batch).
-    // Returns the serialized response (single line, no newline), or nullopt when none is due.
+    // Returns the serialized response (single line, no newline), or nullopt when none is due: a notification, or a
+    // request the client cancelled (notifications/cancelled) while it ran, which gets no response at all (MCP spec,
+    // "Cancellation"). A message that only cancels (is_cancel_notification) may be handled on another thread while a
+    // request runs: that is how a transport lets a client take back a long tools/call.
     std::optional<std::string> handle_message(std::string_view message);
+    // True when `message` is one notifications/cancelled (not a batch): a transport that handles requests one at a time
+    // hands it to handle_message() at once instead of queueing it behind the request it cancels.
+    static bool is_cancel_notification(std::string_view message);
+
+    // Shares the handshake and the requests in flight with the other servers of the same client (see McpSession). A
+    // session that already saw an initialize gives this server its protocol version, client info and capabilities.
+    void share_session(std::shared_ptr<McpSession> session);
+    const std::shared_ptr<McpSession>& session() const { return session_; }
+
+    // A tool result is sent once. A client that negotiated 2025-06-18 or later gets an object result as
+    // `structuredContent` plus one short text block that names its fields; an older client, a result that is not an
+    // object, or one with a picture (`$image`) gets the whole JSON as text instead (and the picture as an image block).
+    // Tool results larger than `bytes` of JSON are cut down (kMcpResultCap by default; at least 8 KiB, a smaller value
+    // counts as 8 KiB). The heaviest part goes first: an array or an object keeps its first items or keys, a long string
+    // its start (never inside a UTF-8 sequence). An object result gets a `_truncated` field ({"note": ...}) that says what
+    // was cut and which paging arguments of the command fetch the rest (or which arguments ask for less); any other result
+    // is sent as {"result": <the cut result>, "_truncated": {...}}. What is sent is always valid JSON. A picture is sent
+    // whole: the cap counts the JSON only.
+    void set_result_cap(std::size_t bytes);
 
     // Receives server-initiated messages. Without a sink they are queued (see drain_outgoing).
     using Sink = std::function<void(const std::string& message)>;
@@ -153,9 +217,9 @@ public:
 
 private:
     std::optional<Json> handle_one(const Json& msg);
-    Json handle_request(const std::string& method, const Json& params, const Json& id);
-    Json call_tool(const Json& params);
-    Json run_tool(const Json& params);
+    Json handle_request(const std::string& method, const Json& params, const Json& id, const std::atomic<bool>* cancel);
+    Json call_tool(const Json& params, const std::atomic<bool>* cancel);
+    Json run_tool(const Json& params, const std::atomic<bool>* cancel, bool& structured);
     void emit(const Json& message);
 
     McpHost& host_;
@@ -171,6 +235,8 @@ private:
     CommandFilter filter_;
     std::chrono::milliseconds progressThrottle_{3000};
     std::chrono::milliseconds progressHeartbeat_{15000};
+    std::size_t resultCap_ = kMcpResultCap;
+    std::shared_ptr<McpSession> session_ = std::make_shared<McpSession>();
     std::vector<std::string> queued_;
     std::mutex outMutex_;
 };

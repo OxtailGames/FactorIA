@@ -700,8 +700,8 @@ TEST_CASE("the run's settings file and skills plugin exist while the CLI runs, h
     REQUIRE(CliAgent(claude).run(withSkills, nullptr, nullptr));
     CHECK(has(read_file(seen), "gdd"));
     CHECK(has(read_file(seen), kSkillsPluginName));
-    // only the shared, keyless MCP config stays (as for every Claude Code run)
-    for (const auto& entry : fsys::directory_iterator(proj.path / ".factoria" / "ai")) CHECK(entry.path().filename() == "mcp-claude-code.json");
+    // nothing of the runs stays: the MCP configs, the settings and the plugin are all deleted when a run ends
+    for (const auto& entry : fsys::directory_iterator(proj.path / ".factoria" / "ai")) FAIL_CHECK("left behind: " << entry.path().filename().string());
 }
 
 TEST_CASE("codex run: the skills sit in the project's .agents/skills while it runs, git-ignored, and are removed when it ends") {

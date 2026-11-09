@@ -32,14 +32,23 @@ that.)
 - **Tools**: every registered command. `scene.list_entities` becomes `scene_list_entities` (characters
   other than letters, digits, `_`, `-` become `_`; at most 64 characters). The description is the
   command's summary + details; `readOnlyHint` / `destructiveHint` come from the command's `readOnly`
-  flag. Results are pretty JSON text plus `structuredContent` for objects. A result with an
-  `"$image": {"path"|"base64", "mimeType"}` key also carries an image block, so screenshots are visible. When
+  flag. A result is sent once. A client that negotiated protocol 2025-06-18 or later gets an object result as
+  `structuredContent` plus one short text block that names its fields (`Result (in structuredContent): count 3, items [3
+  items].`); an older client, or a result that is not an object, gets the whole JSON as text instead. A result with an
+  `"$image": {"path"|"base64", "mimeType"}` key is always sent as JSON text plus an image block, so screenshots are visible. When
   the image has `"temporary": true` (a `game_screenshot` without `path`) the server deletes the file after it has read
   it: the reply names no path (it says "Attached to this reply as an image; the temporary file was deleted. Pass `path`
   to keep a screenshot.") and the disk does not fill up over a long session. A client that cannot show images asks for
   `path`, and then the file stays. The engine also removes old engine-named shots (`frame_*.png` in
   `.factoria/screenshots/`) when a project opens: those older than 3 days, then the oldest beyond the newest 200.
   Failures are `isError` results: `code: message` and `hint: ...`.
+  **Size cap**: a result over 128 KiB of JSON is cut down before it is sent, since a client puts it into its model's context
+  (Claude Code refuses one over about 25k tokens). The heaviest part goes first: an array or an object keeps its first items
+  or keys, a long string its start (never in the middle of a UTF-8 character), and what is sent is always valid JSON. An
+  object result gets a `_truncated: {"note": ...}` field (any other result is sent as `{"result": ..., "_truncated": ...}`)
+  that says what was cut (`` `/entities` keeps the first 812 of 4000 items``) and how to get the rest: the command's paging
+  arguments when it has some (`offset`, `limit`, `startLine`...), else the arguments that ask for less (`filter`, `path`...),
+  else to ask for a smaller part. The note is also in the text block. A picture is not counted: the cap is for the JSON.
   A tool's `inputSchema` is closed: `tools/call` with an argument the tool does not declare fails with `invalid_arguments`
   (`/frame: unknown property 'frame'`, the hint offers the closest declared name and lists the accepted ones) and runs nothing, so
   an ignored typo cannot look like a success. An object that takes open-ended keys says `additionalProperties: true` in its
@@ -63,6 +72,12 @@ that.)
   treats a progress notification as a sign of life (it resets its 5 minute idle timeout); it does not show the message, so
   the editor's AI panel and `factoria ai run` get their live view from other paths (see `docs/EDITOR.md`).
   A command written in C++ reports progress with `CommandContext::progress` (`engine/core/include/fa/core/command.h`).
+- **Cancellation**: `notifications/cancelled {requestId}` takes back a request that is still running. The command stops
+  at its next step (a compound command or an agent stops before its next command, with code `cancelled`; `ai_run` stops
+  its sub-agent) and the request gets no response, as the protocol says. A cancel for a request that is unknown or already
+  answered is ignored. Over stdio the server reads on while a request runs (from 200 ms into it), so the cancel reaches it then;
+  every other message waits for its turn. Over HTTP the cancel is a POST of its own (answered 202) that reaches the call running on
+  another connection of the same client.
 - **Read-only mode**: `factoria mcp --read-only` serves only the commands that look and play (reading, `game_step`,
   `game_input`, `game_click`, `game_screenshot`, `scene_load`, UI scale checks, ...). The others are not listed and a call
   to one is refused. `ai_run`, `ai_review` and everything that edits the project are among the hidden ones. FactorIA starts

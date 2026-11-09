@@ -10,9 +10,18 @@
 // GET and DELETE get 405: there is no server stream and no session. Only 127.0.0.1 is bound and only the path
 // holding a random token is served (404 elsewhere), so other programs and web pages on the machine cannot drive the
 // engine.
+//
+// Bounded: at most McpHttpOptions::maxConnections connections are served at once, each on a thread of its own. A
+// connection beyond that is not refused: it waits in the listen backlog until one ends (its request is then served),
+// so a client that opens many connections gets slower answers, never a 503. A connection's thread is joined when the
+// next connection is accepted, or at stop(), so there are never more threads than maxConnections. A connection that
+// sends nothing for `receiveTimeout` is closed (an idle keep-alive one too: replies say `Keep-Alive: timeout=` with
+// less, so the client stops reusing it first), and a body over `maxBody` gets 413 with a JSON-RPC error that says what
+// to do instead.
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -22,6 +31,18 @@
 #include "fa/core/types.h"
 
 namespace fa {
+
+struct McpHttpOptions {
+    // A call still running after this is answered as an event stream (see above).
+    std::chrono::milliseconds streamAfter{std::chrono::seconds(10)};
+    // Connections served at the same time; more wait until one ends.
+    int maxConnections = 16;
+    // A connection that sends nothing for this long (between requests, or in the middle of one) is closed; a send that
+    // cannot go out for this long gives the connection up too.
+    std::chrono::milliseconds receiveTimeout{std::chrono::seconds(30)};
+    // The largest request body. A tool call that carries more (a big file as base64) gets 413.
+    std::size_t maxBody = 8 * 1024 * 1024;
+};
 
 class McpHttpServer {
 public:
@@ -45,10 +66,13 @@ public:
     // Listens on 127.0.0.1 (a free port) and returns the endpoint, "http://127.0.0.1:<port>/mcp/<token>".
     Result<std::string> start(Handler handler, std::chrono::milliseconds streamAfter = std::chrono::seconds(10));
     Result<std::string> start(StreamHandler handler, std::chrono::milliseconds streamAfter = std::chrono::seconds(10));
+    Result<std::string> start(StreamHandler handler, const McpHttpOptions& options);
     // Closes the listener and every connection, then waits for their threads: a handler that is still running must
-    // return first (make it fail fast before calling stop()).
+    // return first (make it fail fast before calling stop()). Not to be called from a handler.
     void stop();
     const std::string& url() const;  // "" when not running
+    // Threads of connections that were not joined yet: never more than maxConnections (tests).
+    std::size_t connection_threads() const;
 
 private:
     struct Impl;

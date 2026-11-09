@@ -1,9 +1,12 @@
 #include <doctest.h>
 
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <chrono>
+#include <functional>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <thread>
@@ -13,7 +16,9 @@
 #include "fa/mcp/transport.h"
 #include "fa/tooling/feedback_share.h"
 #include "fa/tooling/tooling.h"
+#include "fa/core/command.h"
 #include "fa/core/fs.h"
+#include "fa/core/strings.h"
 
 using namespace fa;
 namespace stdfs = std::filesystem;
@@ -112,6 +117,12 @@ struct Fixture {
     }
 };
 
+// The result a tools/call sent: structuredContent when there is one, else the JSON of its first text block.
+Json result_json(const Json& res) {
+    if (res.contains("structuredContent")) return res["structuredContent"];
+    return Json::parse(res["content"][0]["text"].get<std::string>());
+}
+
 }  // namespace
 
 TEST_CASE("mcp: initialize negotiates protocol versions") {
@@ -204,20 +215,55 @@ TEST_CASE("mcp: tools/list maps command names and describes tools") {
     CHECK(mcp_tool_name(std::string(100, 'x')).size() == 64);
 }
 
-TEST_CASE("mcp: tools/call success returns text and structuredContent") {
+TEST_CASE("mcp: a tool result is sent once: structuredContent and a summary, or the JSON as text for older clients") {
+    for (const char* version : {"2025-11-25", "2025-06-18"}) {
+        Fixture f;
+        f.initialize(version);
+        const Json res = f.call("test_echo_value", {{"value", 7}})["result"];
+        CHECK(res["isError"] == false);
+        CHECK(res["structuredContent"] == Json::object({{"echo", 7}}));
+        REQUIRE(res["content"].size() == 1);
+        CHECK(res["content"][0]["type"] == "text");
+        // a short line that names the fields, not the JSON a second time
+        CHECK(res["content"][0]["text"] == "Result (in structuredContent): echo 7.");
+    }
+    for (const char* version : {"2025-03-26", "2024-11-05"}) {
+        Fixture f;
+        f.initialize(version);
+        const Json res = f.call("test_echo_value", {{"value", 7}})["result"];
+        CHECK_FALSE(res.contains("structuredContent"));  // the protocol has no such field
+        REQUIRE(res["content"].size() == 1);
+        CHECK(Json::parse(res["content"][0]["text"].get<std::string>()) == Json::object({{"echo", 7}}));
+    }
+    // A result that is not an object: text only, whatever the protocol.
     Fixture f;
-    Json r = f.call("test_echo_value", {{"value", 7}});
-    const Json& res = r["result"];
-    CHECK(res["isError"] == false);
-    REQUIRE(res["content"].size() == 1);
-    CHECK(res["content"][0]["type"] == "text");
-    Json parsed = Json::parse(res["content"][0]["text"].get<std::string>());
-    CHECK(parsed["echo"] == 7);
-    CHECK(res["structuredContent"]["echo"] == 7);
-    // Non-object results: text only.
     Json arr = f.call("test_array_result")["result"];
     CHECK_FALSE(arr.contains("structuredContent"));
     CHECK(arr["isError"] == false);
+    CHECK(Json::parse(arr["content"][0]["text"].get<std::string>()) == Json::array({1, 2, 3}));
+}
+
+TEST_CASE("mcp: summarize the fields of a structured result in one short line") {
+    Fixture f;
+    CommandInfo i;
+    i.name = "test.many_fields";
+    i.summary = "Returns many fields.";
+    f.registry.add(i, [](const Json&) {
+        Json r = Json::object({{"name", "Coin"}, {"items", Json::array({1, 2})}, {"pos", Json::object({{"x", 1}})},
+                               {"long", std::string(500, 'a')}});
+        for (int k = 0; k < 20; ++k) r["k" + std::to_string(k)] = k;
+        return r;
+    });
+    const std::string text = f.call("test_many_fields")["result"]["content"][0]["text"].get<std::string>();
+    CHECK(text.find("name \"Coin\"") != std::string::npos);
+    CHECK(text.find("items [2 items]") != std::string::npos);
+    CHECK(text.find("pos {1 key}") != std::string::npos);
+    CHECK(text.find("(500 bytes)") != std::string::npos);
+    CHECK(text.find("more fields") != std::string::npos);
+    CHECK(text.size() < 1200);
+    i.name = "test.empty_object";
+    f.registry.add(i, [](const Json&) { return Json::object(); });
+    CHECK(f.call("test_empty_object")["result"]["content"][0]["text"] == "Done: the result is an empty object (in structuredContent).");
 }
 
 TEST_CASE("mcp: an unknown argument is an error that teaches; the transport key _meta is not an argument") {
@@ -324,7 +370,8 @@ TEST_CASE("mcp: $image results add an image content block") {
     REQUIRE(byPath["content"].size() == 2);
     CHECK(byPath["content"][1]["data"] == "iVBORw0KGgo=");
     CHECK(byPath["content"][0]["text"].get<std::string>().find("shot.png") != std::string::npos);
-    CHECK(byPath["structuredContent"]["frame"] == 5);
+    CHECK_FALSE(byPath.contains("structuredContent"));  // a picture goes with the JSON as text (clients drop it otherwise)
+    CHECK(result_json(byPath)["frame"] == 5);
     // missing file => text only, with an explanation
     Json missing = f.call("test_shot", {{"path", "nope.png"}})["result"];
     CHECK(missing["content"].size() == 1);
@@ -533,7 +580,8 @@ TEST_CASE("mcp: stdio transport is newline-delimited and writes only protocol me
     REQUIRE(msgs.size() == 3);
     CHECK(msgs[0]["result"]["protocolVersion"] == "2025-03-26");
     CHECK(msgs[1]["error"]["code"] == -32700);
-    CHECK(msgs[2]["result"]["structuredContent"]["echo"] == 1);
+    CHECK_FALSE(msgs[2]["result"].contains("structuredContent"));  // 2025-03-26: the result is the text
+    CHECK(result_json(msgs[2]["result"])["echo"] == 1);
     // Multi-line text in results must stay on one line (escaped).
     CHECK(out.str().find("\\n") != std::string::npos);
 }
@@ -556,8 +604,8 @@ TEST_CASE("mcp: a temporary screenshot is attached and then its file is deleted;
     const std::string text = res["content"][0]["text"].get<std::string>();
     CHECK(text.find("frame_9.png") == std::string::npos);
     CHECK(text.find("deleted") != std::string::npos);
-    CHECK(res["structuredContent"]["$image"]["temporary"] == true);
-    CHECK_FALSE(res["structuredContent"]["$image"].contains("path"));
+    CHECK(result_json(res)["$image"]["temporary"] == true);
+    CHECK_FALSE(result_json(res)["$image"].contains("path"));
     // a file the user named is not temporary: it stays and its path is still in the reply
     Json kept = f.call("test_temp_shot", {{"name", "hall.png"}, {"temporary", false}})["result"];
     REQUIRE(kept["content"].size() == 2);
@@ -567,4 +615,235 @@ TEST_CASE("mcp: a temporary screenshot is attached and then its file is deleted;
     Json odd = f.call("test_temp_shot", {{"name", "hall2.png"}})["result"];
     REQUIRE(odd["content"].size() == 2);
     CHECK(stdfs::exists(shots / "hall2.png"));
+}
+
+// ---- Result size cap -------------------------------------------------------------------------------------------------
+
+namespace {
+
+// "x" then `n` two-byte characters: a cut at an even byte count falls inside one.
+std::string accented(std::size_t n) {
+    std::string s = "x";
+    for (std::size_t k = 0; k < n; ++k) s += "\xC3\xA9";
+    return s;
+}
+
+void add_big_commands(CommandRegistry& registry) {
+    CommandInfo paged;
+    paged.name = "test.big_list";
+    paged.summary = "A long list that pages.";
+    paged.inputSchema = Json::parse(R"({"type":"object","properties":{
+        "offset":{"type":"integer","description":"First item."},"limit":{"type":"integer","description":"Items."}}})");
+    registry.add(paged, [](const Json&) {
+        Json items = Json::array();
+        for (int k = 0; k < 2000; ++k) items.push_back(Json::object({{"id", k}, {"name", accented(20)}}));
+        return Json::object({{"total", 2000}, {"items", items}});
+    });
+    CommandInfo narrow;
+    narrow.name = "test.big_text";
+    narrow.summary = "One long string; no paging, a filter.";
+    narrow.inputSchema = Json::parse(R"({"type":"object","properties":{"filter":{"type":"string","description":"Filter."}}})");
+    registry.add(narrow, [](const Json&) { return Json::object({{"text", accented(40000)}}); });
+    CommandInfo bare;
+    bare.name = "test.big_array";
+    bare.summary = "A long array result (not an object), no arguments.";
+    registry.add(bare, [](const Json&) {
+        Json items = Json::array();
+        for (int k = 0; k < 5000; ++k) items.push_back(k);
+        return items;
+    });
+}
+
+}  // namespace
+
+TEST_CASE("mcp: a result over the cap is cut whole-JSON and UTF-8 safe, with a note that names the paging arguments") {
+    constexpr std::size_t kCap = 16 * 1024;
+    for (const char* version : {"2025-11-25", "2025-03-26"}) {
+        INFO("protocol " << version);
+        Fixture f;
+        add_big_commands(f.registry);
+        f.initialize(version);
+        f.server.set_result_cap(kCap);
+        const bool structured = std::string(version) >= "2025-06-18";
+
+        const Json list = f.call("test_big_list")["result"];
+        CHECK(list["isError"] == false);
+        const Json value = result_json(list);  // parses: valid JSON
+        CHECK(value.dump().size() <= kCap);
+        CHECK(value["total"] == 2000);  // small fields stay
+        REQUIRE(value["items"].is_array());
+        CHECK(value["items"].size() > 10);
+        CHECK(value["items"].size() < 2000);
+        CHECK(value["items"][0]["name"] == accented(20));  // whole items, the first ones
+        const std::string note = value["_truncated"]["note"].get<std::string>();
+        CHECK(note.find("[truncated]") == 0);
+        CHECK(note.find("`/items` keeps the first " + std::to_string(value["items"].size()) + " of 2000 items") != std::string::npos);
+        CHECK(note.find("`offset` and `limit`") != std::string::npos);
+        if (structured) CHECK(list["content"][0]["text"].get<std::string>().find("[truncated]") != std::string::npos);
+
+        const Json text = result_json(f.call("test_big_text")["result"]);
+        const std::string kept = text["text"].get<std::string>();
+        CHECK(is_valid_utf8(kept));  // never cut inside a character
+        CHECK(kept.size() < 80001);
+        CHECK(kept.size() > 1000);
+        CHECK(text["_truncated"]["note"].get<std::string>().find("does not page: ask for less with `filter`") != std::string::npos);
+
+        // A result that is not an object is wrapped: {"result": the cut result, "_truncated": ...}
+        const Json arr = result_json(f.call("test_big_array")["result"]);
+        REQUIRE(arr["result"].is_array());
+        CHECK(arr["result"].size() < 5000);
+        CHECK(arr["result"][0] == 0);
+        CHECK(arr["_truncated"]["note"].get<std::string>().find("ask for a smaller part") != std::string::npos);
+
+        // Under the cap nothing changes.
+        CHECK(result_json(f.call("test_echo_value", {{"value", 3}})["result"]) == Json::object({{"echo", 3}}));
+    }
+}
+
+TEST_CASE("mcp: set_result_cap never goes below 8 KiB; the default is kMcpResultCap") {
+    Fixture f;
+    CommandInfo i;
+    i.name = "test.sized";
+    i.summary = "Returns a string of the given size.";
+    i.inputSchema = Json::parse(R"({"type":"object","properties":{"bytes":{"type":"integer"}},"required":["bytes"]})");
+    f.registry.add(i, [](const Json& a) { return Json::object({{"s", std::string(a["bytes"].get<std::size_t>(), 'a')}}); });
+    // 100 KiB fits the default cap of 128 KiB
+    CHECK_FALSE(result_json(f.call("test_sized", {{"bytes", 100 * 1024}})["result"]).contains("_truncated"));
+    f.server.set_result_cap(10);  // counts as 8 KiB: room for the note and some of the result
+    CHECK_FALSE(result_json(f.call("test_sized", {{"bytes", 2000}})["result"]).contains("_truncated"));
+    const Json cut = result_json(f.call("test_sized", {{"bytes", 12000}})["result"]);
+    REQUIRE(cut.contains("_truncated"));
+    CHECK(cut.dump().size() <= 8 * 1024);
+    CHECK(cut["s"].get<std::string>().size() > 1000);
+}
+
+// ---- Cancellation ----------------------------------------------------------------------------------------------------
+
+namespace {
+
+// test.block runs until its request is cancelled (or 60 s pass: a safety net far above any wait in these tests) and
+// says whether it saw the cancel. `started` tells the test when it runs.
+struct Blocker {
+    std::atomic<bool> started{false};
+    std::atomic<bool> sawCancel{false};
+    std::atomic<bool> nestedRefused{false};
+    void add_to(CommandRegistry& registry) {
+        CommandInfo i;
+        i.name = "test.block";
+        i.summary = "Runs until cancelled.";
+        registry.add(i, [this, &registry](const Json&) {
+            started = true;
+            const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+            while (!command_cancelled() && std::chrono::steady_clock::now() < end)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            sawCancel = command_cancelled();
+            // a command it calls now is refused: a compound command or an agent stops at its next step
+            const CommandResult nested = registry.call("test.echo_value", Json::object({{"value", 1}}));
+            nestedRefused = !nested.ok && nested.error["code"] == "cancelled";
+            return Json::object({{"finished", true}});
+        });
+    }
+};
+
+bool wait_until(const std::function<bool()>& done) {  // 30 s: far above what a loaded machine needs
+    const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!done()) {
+        if (std::chrono::steady_clock::now() > end) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return true;
+}
+
+std::string cancel_message(const Json& requestId) {
+    return Json::object({{"jsonrpc", "2.0"}, {"method", "notifications/cancelled"},
+                         {"params", Json::object({{"requestId", requestId}, {"reason", "the user pressed Esc"}})}})
+        .dump();
+}
+
+}  // namespace
+
+TEST_CASE("mcp: notifications/cancelled stops the running request, which then gets no response") {
+    Fixture f;
+    Blocker blocker;
+    blocker.add_to(f.registry);
+    f.initialize();
+    std::optional<std::string> response = std::string("not set");
+    std::thread caller([&] {
+        response = f.server.handle_message(R"({"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"test_block","arguments":{}}})");
+    });
+    REQUIRE(wait_until([&] { return blocker.started.load(); }));
+    CHECK(f.server.session()->requests_in_flight() == 1);
+    CHECK(McpServer::is_cancel_notification(cancel_message("call-1")));
+    CHECK_FALSE(f.server.handle_message(cancel_message("call-1")).has_value());  // a notification: no answer either
+    caller.join();
+    CHECK(blocker.sawCancel);
+    CHECK(blocker.nestedRefused);
+    CHECK_FALSE(response.has_value());  // MCP: a cancelled request gets no response
+    CHECK(f.server.session()->requests_in_flight() == 0);
+    // The server goes on: the same id again is a new request, answered.
+    CHECK(f.call("test_echo_value", {{"value", 2}})["result"]["isError"] == false);
+}
+
+TEST_CASE("mcp: a cancel for an unknown or finished request is ignored without an error") {
+    Fixture f;
+    f.initialize();
+    CHECK_FALSE(f.server.handle_message(cancel_message(999)).has_value());     // never sent
+    const Json done = f.call("test_echo_value", {{"value", 4}});              // answered: id 2
+    CHECK_FALSE(f.server.handle_message(cancel_message(done["id"])).has_value());  // too late: nothing to stop
+    CHECK(f.server.session()->requests_in_flight() == 0);
+    // malformed cancels are notifications too: no answer, nothing breaks
+    CHECK_FALSE(f.server.handle_message(R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{}})").has_value());
+    CHECK_FALSE(f.server.handle_message(R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":{"a":1}}})").has_value());
+    CHECK_FALSE(McpServer::is_cancel_notification(R"({"jsonrpc":"2.0","id":1,"method":"notifications/cancelled"})"));
+    CHECK_FALSE(McpServer::is_cancel_notification("[" + cancel_message(1) + "]"));
+    // the next call works as usual
+    CHECK(result_json(f.call("test_echo_value", {{"value", 5}})["result"])["echo"] == 5);
+}
+
+TEST_CASE("mcp: servers that share a session see one handshake and cancel each other's requests") {
+    TempDir tmp;
+    CommandRegistry registry;
+    Blocker blocker;
+    blocker.add_to(registry);
+    SimpleMcpHost host(registry, tmp.path.string());
+    auto session = std::make_shared<McpSession>();
+    McpServer first(host);
+    first.share_session(session);
+    REQUIRE(first.handle_message(R"({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-03-26"}})"));
+    McpServer second(host);
+    second.share_session(session);  // made after the initialize: takes its protocol
+    CHECK(second.protocol_version() == "2025-03-26");
+    std::optional<std::string> response = std::string("not set");
+    std::thread caller([&] {
+        response = first.handle_message(R"({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"test_block","arguments":{}}})");
+    });
+    REQUIRE(wait_until([&] { return blocker.started.load(); }));
+    CHECK_FALSE(second.handle_message(cancel_message(7)).has_value());  // another server of the same client
+    caller.join();
+    CHECK_FALSE(response.has_value());
+    CHECK(blocker.sawCancel);
+}
+
+TEST_CASE("mcp: over stdio a cancel is read while the request runs; the other lines keep their order") {
+    Fixture f;
+    Blocker blocker;
+    blocker.add_to(f.registry);
+    std::istringstream in(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_block\",\"arguments\":{}}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\"}\n" +
+        cancel_message(2) + "\n" +
+        "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":6}}}\n");
+    std::ostringstream out;
+    CHECK(run_stdio(f.server, in, out) == 0);
+    std::istringstream lines(out.str());
+    std::string line;
+    std::vector<Json> msgs;
+    while (std::getline(lines, line)) msgs.push_back(Json::parse(line));
+    CHECK(blocker.sawCancel);
+    REQUIRE(msgs.size() == 3);  // initialize, ping, the echo: nothing for the cancelled call
+    CHECK(msgs[0]["id"] == 1);
+    CHECK(msgs[1]["id"] == 3);
+    CHECK(msgs[2]["id"] == 4);
+    CHECK(msgs[2]["result"]["structuredContent"]["echo"] == 6);
 }

@@ -50,7 +50,10 @@ struct StdioLoopOptions {
 enum class StdioExit { Eof, Restart };
 
 // Reads messages from `reader`, answers on `out` (flushed per message; notifications of the server and of other threads
-// share the writer). Returns at the end of the input, or when `restart_due` says so; the notification sink is cleared on return.
+// share the writer). Messages are handled one at a time on the calling thread; while one runs for longer than 200 ms a
+// watcher thread reads on, hands a notifications/cancelled to the server at once (the running request stops and gets no
+// answer) and keeps every other line for its turn. Returns at the end of the input, or when `restart_due` says so; the
+// notification sink is cleared on return.
 StdioExit run_stdio_loop(McpServer& server, LineReader& reader, std::ostream& out, const StdioLoopOptions& options = {});
 
 }  // namespace fa
