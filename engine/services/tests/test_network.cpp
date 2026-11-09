@@ -17,7 +17,7 @@ bool has(const std::string& text, const char* part) { return text.find(part) != 
 
 NetworkPolicy policy(const char* hostsJson) {
     auto n = load_network(Json::parse(std::string("{\"hosts\":") + hostsJson + "}"));
-    REQUIRE_MESSAGE(n.ok(), n.error().to_string());
+    REQUIRE_MESSAGE(n.ok(), (n.ok() ? std::string() : n.error().to_string()));
     return n.value();
 }
 
@@ -36,7 +36,7 @@ struct Game {
     }
     PlatformAnswer answer(const Json& args) {
         auto r = ps.start("http.fetch", args);
-        REQUIRE_MESSAGE(r.ok(), r.error().to_string());
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
         REQUIRE(r->answer.has_value());
         return *r->answer;
     }
@@ -125,7 +125,7 @@ TEST_CASE("network: every problem of the section says where it is and how to fix
 TEST_CASE("network: URLs are taken apart and checked against the policy") {
     NetworkPolicy p = policy(R"(["api.example.com","*.cdn.example.com","localhost","127.0.0.1"])");
     auto ok = check_http_url("HTTPS://API.Example.com/a/b?x=1#frag", p);
-    REQUIRE_MESSAGE(ok.ok(), ok.error().to_string());
+    REQUIRE_MESSAGE(ok.ok(), (ok.ok() ? std::string() : ok.error().to_string()));
     CHECK(ok->scheme == "https");
     CHECK(ok->host == "api.example.com");
     CHECK(ok->url == "https://api.example.com/a/b?x=1");  // lower-case host, no fragment
@@ -190,7 +190,7 @@ TEST_CASE("http.fetch: what the backend receives is shaped") {
     ps.set_backend(std::make_unique<FakeBackend>());
     ps.set_http_backend(std::move(client));
     auto r = ps.start("http.fetch", Json::parse(R"({"url":"HTTPS://Api.Example.com","method":"post","body":"{}","headers":{"Content-Type":"application/json"},"timeout":30})"));
-    REQUIRE_MESSAGE(r.ok(), r.error().to_string());
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
     REQUIRE(c->requests.size() == 1);
     const Json& got = c->requests[0];
     CHECK(got["url"] == "https://api.example.com/");

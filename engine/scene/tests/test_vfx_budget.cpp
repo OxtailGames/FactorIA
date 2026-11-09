@@ -13,7 +13,7 @@ std::shared_ptr<const VfxDoc> doc_of(const std::string& text, const char* path =
     auto j = parse_json(text, "test");
     REQUIRE(j.ok());
     auto d = parse_vfx(j.value(), path);
-    REQUIRE_MESSAGE(d.ok(), d.error().message);
+    REQUIRE_MESSAGE(d.ok(), (d.ok() ? std::string() : d.error().message));
     return d.value();
 }
 

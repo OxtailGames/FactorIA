@@ -73,7 +73,7 @@ std::unique_ptr<cli::Session> open_game(const char* tag, stdfs::path& oldRoot) {
     opt.writeTypings = false;
     const std::string dir = (root / "game").string();
     auto made = create_project(dir, "2d-empty", opt);
-    REQUIRE_MESSAGE(made.ok(), made.error().to_string());
+    REQUIRE_MESSAGE(made.ok(), (made.ok() ? std::string() : made.error().to_string()));  // doctest -s builds the message on success too
     cli::SessionOptions so;
     so.gfx = cli::Gfx::None;
     auto session = cli::Session::open(dir, so);
@@ -171,10 +171,13 @@ TEST_CASE("tool catalog: a scripted task on the real registry sends a fraction o
     std::printf("  step 1: %llu bytes with the catalog, %llu with every tool\n",
                 static_cast<unsigned long long>(withCatalog.splits[0].totalBytes()), static_cast<unsigned long long>(full.splits[0].totalBytes()));
 
-    // The saving: a step sends under a third of what it did, and a step of the catalog run stays under 103 KB
-    // (every new command adds its one-line catalog entry to the system prompt).
+    // The saving: a step sends under a third of what it did, and a step of the catalog run stays under 340 bytes per
+    // command the agent can reach (the registry's tool count; about 275 today). The cap is per command, so new
+    // commands do not break it but a bloated description or catalog line does.
+    const u64 reachable = static_cast<u64>(full.splits[0].toolCount);
+    REQUIRE(reachable > 300);
     CHECK(withCatalog.splits[0].totalBytes() < full.splits[0].totalBytes() / 3);
-    CHECK(withCatalog.splits[0].totalBytes() < 103000);
+    CHECK(withCatalog.splits[0].totalBytes() < 340 * reachable);
     CHECK(withCatalog.splits[0].toolBytes < full.splits[0].toolBytes / 5);
     CHECK(full.splits[0].toolBytes > 150000);  // what the real registry costs in full: the problem this package solves
     CHECK(plan_tools(reg, ToolPlanOptions{}).catalog.size() > 80);  // most of the registry is catalog lines

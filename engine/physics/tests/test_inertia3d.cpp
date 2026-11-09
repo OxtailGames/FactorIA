@@ -12,7 +12,7 @@ using namespace fa::detail;
 namespace {
 std::shared_ptr<ShapeData> hull_of(const char* mesh) {
     auto g = load_mesh_geometry(mesh);
-    REQUIRE_MESSAGE(g.ok(), g.error().to_string());
+    REQUIRE_MESSAGE(g.ok(), (g.ok() ? std::string() : g.error().to_string()));
     return make_shape_data(*g, true, false);
 }
 }  // namespace

@@ -527,10 +527,10 @@ The models come from the `artCritic` and `reviewer` roles (or from the orchestra
 
 ### Tool groups and the catalog
 
-Every command is a tool the model could use, but sending the definitions of all of them (summary, description and input
-schema: the 372 commands the agent can call weigh about 870 KB on the 0.19.0 engine, counted on 2026-11-09, and the
-number grows with each version)
-on every step costs more than 200k tokens before the model reads a word. The built-in agent
+Every command is a tool the model could use, but sending the definitions of all of them on every step (summary, description
+and input schema) costs more than 200k tokens before the model reads a word: the 372 commands of the test registry weigh
+about 870 KB on the 0.19.0 engine (counted on 2026-11-09), and the agent reaches about 385 (every command but the `ai.*` ones
+that would start another agent), a little more. Both numbers grow with each version. The built-in agent
 offers instead:
 
 * the **core commands** in full (the list above; `is_core_tool` in `tools/ai/include/fa/ai/tool_catalog.h`),

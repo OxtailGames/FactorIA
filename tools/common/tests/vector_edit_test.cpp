@@ -30,7 +30,7 @@ Json edit(const AssetsProject& p, const std::string& cmd, const std::string& svg
 
 VecNodePath nodes_of(const std::string& d) {
     auto r = vector_nodes_from_d(d);
-    REQUIRE_MESSAGE(r.ok(), r.error().message);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().message));
     return r.value();
 }
 
@@ -141,7 +141,7 @@ TEST_CASE("vector nodes: nearest point on a path") {
 TEST_CASE("vector nodes: the operations of vector.nodes") {
     VecNodePath p = nodes_of("M0 0 L10 0 L10 10 L0 10 Z");
     auto r = vector_nodes_apply(p, Json::parse(R"X([{"op":"move","node":1,"to":[20,0]},{"op":"insert","segment":1,"t":0.5},{"op":"convert","node":2,"to":"smooth"}])X"));
-    REQUIRE_MESSAGE(r.ok(), r.error().message);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().message));
     CHECK(p[0].nodes.size() == 5);
     CHECK(near(p[0].nodes[1].p, 20, 0));
     auto bad = vector_nodes_apply(p, Json::parse(R"X([{"op":"move","node":1,"to":[1,1]},{"op":"mvoe","node":0}])X"));
@@ -153,7 +153,7 @@ TEST_CASE("vector nodes: the operations of vector.nodes") {
 TEST_CASE("vector scene: items, ids, bounds and hit tests") {
     const std::string svg = svg_of(R"X(<g id="a" transform="translate(10 10)"><rect id="r" x="0" y="0" width="30" height="20" fill="#f00"/><circle id="c" cx="60" cy="40" r="10" fill="none" stroke="#000" stroke-width="4"/></g><path d="M70 70 L90 70 L90 90 Z" data-locked="true"/>)X");
     auto sc = vector_scene(svg);
-    REQUIRE_MESSAGE(sc.ok(), sc.error().message);
+    REQUIRE_MESSAGE(sc.ok(), (sc.ok() ? std::string() : sc.error().message));
     const VecScene& s = sc.value();
     REQUIRE(s.items.size() == 4);
     CHECK(s.unnamed == 1);
@@ -189,7 +189,7 @@ TEST_CASE("vector scene: rasterizing a region of the drawing") {
     const std::string svg = svg_of(R"X(<rect x="50" y="50" width="50" height="50" fill="#ff0000"/>)X");
     const VecRect region{50, 50, 100, 100};
     auto img = vector_rasterize(svg, &region, 25, 25);
-    REQUIRE_MESSAGE(img.ok(), img.error().message);
+    REQUIRE_MESSAGE(img.ok(), (img.ok() ? std::string() : img.error().message));
     CHECK(img.value().width == 25);
     const Image& im = img.value();
     CHECK(im.rgba[(12 * 25 + 12) * 4 + 0] > 200);
