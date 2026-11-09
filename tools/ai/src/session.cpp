@@ -240,6 +240,7 @@ std::string cancel_cause_text(const std::string& cause) {
         {"editor_closing", "the editor was closing"},
         {"editor_restart", "the editor was restarting"},
         {"run_ended", "the run had already ended"},
+        {"client_cancelled", "the MCP client cancelled the request (notifications/cancelled)"},
     };
     auto it = words.find(cause);
     return it != words.end() ? it->second : cause;

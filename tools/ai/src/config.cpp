@@ -378,6 +378,8 @@ std::vector<std::string> default_cli_argv(ProviderKind kind) {
             // cmd.exe cannot pass a multi-line argument). In -p mode Claude Code asks before every MCP tool, so the
             // engine's own tools are allowed up front. `--input-format stream-json` makes stdin one JSON message, which can
             // carry images; `--resume {session}` continues the chat's session (the argument disappears for the first message).
+            // Both built-in CLIs end their options at "--" (with_end_of_options puts one before the {prompt} of a user
+            // template); these templates pass no prompt argument, so nothing in a prompt is ever read as an option.
             return {"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose", "--model",
                     "{model}", "--resume", "{session}", "--mcp-config", "{mcp_config}", "--allowedTools", "mcp__factoria",
                     "--permission-mode", "acceptEdits"};
@@ -1078,19 +1080,6 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
                                                                     {"perDay", cfg.limits.maxAssetCostPerDayUsd}})},
                                   {"askAboveUsd", cfg.limits.askAboveUsd}});
     return out;
-}
-
-Result<void> save_config(const AiConfig& cfg, std::string_view path) {
-    fsys::path p(path);
-    std::error_code ec;
-    if (p.has_parent_path()) fsys::create_directories(p.parent_path(), ec);
-    std::ofstream f(p, std::ios::binary | std::ios::trunc);
-    if (!f) return make_error("Cannot write AI config '" + std::string(path) + "'", "Check the directory exists and is writable.");
-    f << dump_json(config_to_json(cfg, false));
-#ifndef _WIN32
-    fsys::permissions(p, fsys::perms::owner_read | fsys::perms::owner_write, ec);
-#endif
-    return {};
 }
 
 Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::string_view path) {

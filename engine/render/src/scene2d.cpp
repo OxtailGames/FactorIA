@@ -112,7 +112,7 @@ void sdf_shape(QuadEmitter& em, const Shape2D& s, float cx, float cy, float hw, 
     }
 }
 
-constexpr int kMaxPolygonTips = 64;                      // Shape2D.sides / .points limit
+constexpr int kMaxPolygonTips = kShape2DMaxTips;         // Shape2D.sides / .points limit (the one the field range uses)
 constexpr int kMaxPolygonVerts = 2 * kMaxPolygonTips;    // a star has a tip and a notch per point
 
 // A closed polygon (any winding, local units) drawn filled, as a triangle fan from `centre` (which must see every vertex:
@@ -714,7 +714,7 @@ void gather_2d(World& world, Frame& f) {
                 // Vertices on the ellipse inscribed in the size box, counter-clockwise, the first one pointing up. A star
                 // alternates tips (full radius) and notches (`innerRadius` of it).
                 const bool star = s.shape == ShapeType::Star;
-                const int n = std::clamp(star ? s.points : s.sides, 3, kMaxPolygonTips) * (star ? 2 : 1);
+                const int n = std::clamp(star ? s.points : s.sides, kShape2DMinTips, kMaxPolygonTips) * (star ? 2 : 1);
                 const float notch = std::clamp(s.innerRadius, 0.0f, 1.0f), cx = bx0 + hw, cy = by0 + hh;
                 Vec2 pts[kMaxPolygonVerts];
                 for (int i = 0; i < n; ++i) {

@@ -15,6 +15,7 @@
 #include "recent_projects.h"
 #include "editor_internal.h"
 #include "fa/core/build_info.h"
+#include "fa/core/command.h"
 #include "fa/core/crash.h"
 #include "fa/core/fs.h"
 #include "imgui_internal.h"
@@ -132,6 +133,9 @@ CommandResult MainThreadQueue::call(const std::string& name, const Json& args, c
     auto promise = std::make_shared<std::promise<CommandResult>>();
     auto abandoned = std::make_shared<std::atomic<bool>>(false);
     std::future<CommandResult> fut = promise->get_future();
+    // The calling request's own cancel (an MCP client's notifications/cancelled, fa/core/command.h) stops the wait too: a
+    // job the main thread has not started is then skipped; one it already runs finishes there.
+    const std::atomic<bool>* request = command_cancel_flag();
     auto fail = [&](const char* why) {
         abandoned->store(true);  // the main thread skips the job if it has not started it
         CommandResult r;
@@ -152,7 +156,7 @@ CommandResult MainThreadQueue::call(const std::string& name, const Json& args, c
             std::lock_guard<std::mutex> lock(mu_);
             closed = closed_;
         }
-        if (closed || (cancel && cancel->load())) return fail("cancelled");
+        if (closed || (cancel && cancel->load()) || (request && request->load())) return fail("cancelled");
     }
 }
 

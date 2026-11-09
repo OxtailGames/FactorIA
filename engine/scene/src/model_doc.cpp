@@ -110,8 +110,8 @@ std::vector<ModelOpInfo> build_ops() {
     ops.push_back(prim("torus", "A ring (a doughnut) lying flat in the XZ plane, centred on its origin, its hole along Y.",
                        {number("radius", "Radius of the ring: from the centre to the middle of the tube, in metres.", 0.5, kMinSize, kMaxSize),
                         number("tube", "Radius of the tube, in metres. At most `radius`.", 0.15, kMinSize, kMaxSize),
-                        integer("segments", "Steps around the ring.", 32, 3, 256),
-                        integer("sides", "Sides around the tube.", 16, 3, 128)}));
+                        integer("segments", "Steps around the ring.", 32, kTorusMinSegments, kTorusMaxSegments),
+                        integer("sides", "Sides around the tube.", 16, kTorusMinSides, kTorusMaxSides)}));
     ops.push_back(prim("grid", "A flat rectangle in the XZ plane facing +Y, centred on its origin: a floor, a water surface, a cloth to bend. One-sided.",
                        {number("width", "Size along X in metres.", 1, kMinSize, kMaxSize),
                         number("depth", "Size along Z in metres.", 1, kMinSize, kMaxSize),

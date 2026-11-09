@@ -141,7 +141,7 @@ field, and `factoria validate` reports it too; rename the field (`tradeOn`).
 | `set(name, fields)` | patches fields (adds if missing) |
 | `has(name)`, `remove(name)` | |
 | `destroy()` | deferred to end of frame (children too); leaves physics at once and is not drawn from then on, not even in the frame it is called in (see below) |
-| `parent`, `children`, `setParent(e, keepWorld?, index?)` | hierarchy; `index` puts it at a place among the new parent's other children (0 = first, up to the number of those others = last; omitted = last), also within the same parent. A negative, fractional or too large index, or an index without a parent, throws. Layout containers follow this order |
+| `parent`, `children`, `setParent(e, keepWorld?, index?)` | hierarchy; `index` puts it at a place among the new parent's other children (0 = first, up to the number of those others = last; omitted = last), also within the same parent. A negative, fractional or too large index, an index without a parent, a cycle, an entity being destroyed this frame (`destroy()` ran) or a parent being destroyed throws. Layout containers follow this order |
 | `hasTag(t)`, `addTag(t)`, `removeTag(t)` | tags |
 | `behaviour` | the script instance attached to it (or `null`) |
 | `send(method, ...args)` | calls `behaviour[method](...args)` if it exists |
@@ -255,6 +255,8 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
   descendants: `{ Title: { components: { Text: { text: "You won" } } } }`; a key is a child's id, name or a path such
   as `"Panel/Title"`, a value holds `name`, `tags`, `active` and `components`. A child or field that does not exist
   throws with a "did you mean" (docs/MENUS.md, "A panel shared between scenes").
+  A `parent` that is being destroyed (`destroy()` ran this frame) makes both throw before they create anything: the
+  new entity would outlive its parent at the top level. Spawn it without that parent, or after the frame.
 - Destroyed entities (`entity.destroy()`, deferred to frame end) stop being returned by `find`/`findAll`/`findByTag`
   immediately and their id can be reused right away (`world.spawn({ id: "gem_1" })` right after destroying `gem_1`).
   They also leave physics immediately: from the call on, a destroyed entity has no collisions, no contact events and no
@@ -467,7 +469,7 @@ editor's game view), so check `window.available` first or offer the option only 
 
 ### game.device: pick a quality preset
 `game.device` is `{ formFactor: "desktop" | "phone" | "tablet", gpuBackend, memoryGB, tier: "low" | "medium" | "high", steamDeck, handheld }`.
-`gpuBackend` is `"metal"`, `"d3d11"`, `"glcore"`, `"gles3"`, `"wgpu"` or `"vulkan"`; `memoryGB` is the machine's physical
+`gpuBackend` is `"metal"`, `"d3d11"`, `"glcore"`, or `"gles3"`; `memoryGB` is the machine's physical
 memory; `tier` comes from the backend and the memory (under 3.5 GB is `"low"`, under 7.5 GB `"medium"`, 5.5 on a phone
 or tablet; unknown memory, as on the web, is `"medium"`). A phone and a tablet differ by the short side of the screen
 (600 logical pixels). **Headless runs, tests and the editor always read** `{ formFactor: "desktop", gpuBackend:
@@ -1845,8 +1847,9 @@ of `platform.*` (the fake store) are served inside the call, unless `game.platfo
 test files with `factoria test <project> tests/saves.test.js "tests/ui*.test.js"` (MCP `project_test` takes `files`).
 
 ## Runtime notes
-- `Math.random()` is routed to the deterministic world RNG (`rng.*`); never use
-  wall-clock time in simulation.
+- `Math.random()` is routed to the deterministic world RNG (`rng.*`; write `rng`). `Date` is NOT replaced in game
+  scripts: `Date.now()` and `new Date()` read the real wall clock, so never use them in simulation (`game.today()`).
+  Only `assets.animate_svg` modules (`.anim.js`) get a fixed `Date` (ASSETS.md).
 - Callbacks using more than 2 s of CPU time are aborted ("script took too long") and the
   behaviour is disabled until its file is reloaded. A timer, tween or `world.on`
   listener stopped this way ends alone; the scripts after it run. Exceptions are recorded once

@@ -16,6 +16,7 @@
 #include "fa/core/log.h"
 #include "fa/scene/mesh_geometry.h"
 
+#include "inertia3d.h"
 #include "physics_internal.h"
 
 namespace fa::detail {
@@ -622,9 +623,20 @@ void Physics3D::sync(World& world) {
                 }
                 axes_of(b.orient, ownAx);
                 r = ownAx;
-                const float m = b.mass, hx2 = b.half.x * b.half.x, hy2 = b.half.y * b.half.y, hz2 = b.half.z * b.half.z;
-                if (kind != Body::Kind::Sphere) b.invI = {3.0f / (m * (hy2 + hz2)), 3.0f / (m * (hx2 + hz2)), 3.0f / (m * (hx2 + hy2))};
-                else b.invI = Vec3{2.5f / (m * b.radius * b.radius)};  // solid sphere: I = 2/5 m r^2
+                // The solid's own moments about its three axes. A capsule is a cylinder plus two hemispheres, a convex hull
+                // is integrated over its tetrahedra (about the model origin, products of inertia ignored). A box, a sphere
+                // (2/5 m r^2) and a hull whose model is missing or flat keep the closed forms below.
+                Vec3 shaped;
+                if (kind == Body::Kind::Capsule) {
+                    shaped = detail::capsule_inertia(b.mass, b.radius, b.segHalf);
+                    b.invI = {1.0f / shaped.x, 1.0f / shaped.y, 1.0f / shaped.z};
+                } else if (kind == Body::Kind::Convex && b.data && detail::hull_inertia(b.mass, *b.data, b.gscale, shaped)) {
+                    b.invI = {1.0f / shaped.x, 1.0f / shaped.y, 1.0f / shaped.z};
+                } else {
+                    const float m = b.mass, hx2 = b.half.x * b.half.x, hy2 = b.half.y * b.half.y, hz2 = b.half.z * b.half.z;
+                    if (kind != Body::Kind::Sphere) b.invI = {3.0f / (m * (hy2 + hz2)), 3.0f / (m * (hx2 + hz2)), 3.0f / (m * (hx2 + hy2))};
+                    else b.invI = Vec3{2.5f / (m * b.radius * b.radius)};  // solid sphere: I = 2/5 m r^2
+                }
             }
             b.rotDyn = wantRot;
             const bool turned = is_turned(r);

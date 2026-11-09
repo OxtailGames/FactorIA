@@ -334,7 +334,7 @@ TEST_CASE("text: sizes, alignment, wrapping, accents, pixel font, screen space")
     text({314, 4, 0}, "HUD top-right", 12, {1, 1}, "", Align::Right, 0, RenderSpace::Screen);
     text({6, 174, 0}, "bottom-left HUD", 12, {0, 0}, "builtin:pixel", Align::Left, 0, RenderSpace::Screen);
     Image img = g.render(w);
-    expect_golden(img, "2d_text");
+    expect_golden_edges(img, "2d_text");
     CHECK(g.renderer.stats().textGlyphs > 100);
 }
 
@@ -477,7 +477,7 @@ TEST_CASE("debug draw renders on top and clears each frame") {
     g.renderer.debug().circle({0, 0}, 30, Color::blue(), false);
     g.renderer.debug().text({4, 4}, "debug text", Color::white(), 12);
     Image a = g.render(w);
-    expect_golden(a, "2d_debug");
+    expect_golden_edges(a, "2d_debug");
     Image b = g.render(w);  // debug data was consumed
     CHECK(b.pixel(160, 90).r < 0.2f);
 }

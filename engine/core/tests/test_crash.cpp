@@ -77,7 +77,7 @@ bool run_child(const stdfs::path& dir, const std::string& mode, ProcessResult& o
     po.argv = {child, dir.string(), mode};
     po.timeoutSeconds = 120;
     auto r = run_process(po);
-    REQUIRE_MESSAGE(r.ok(), r.error().to_string());
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
     out = *r;
     return true;
 }

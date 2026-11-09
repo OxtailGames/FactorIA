@@ -2,8 +2,10 @@
 #pragma once
 
 #include <cctype>
+#include <cstddef>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "fa/core/json.h"
 
@@ -44,5 +46,41 @@ inline std::string lower(std::string s) {
     return s;
 }
 inline bool contains(std::string_view s, std::string_view needle) { return s.find(needle) != std::string_view::npos; }
+
+// A placeholder of a command-line template ("{prompt}") and what it stands for.
+struct Placeholder {
+    std::string_view key;
+    std::string_view value;
+};
+// Replaces the placeholders of `subs` in `text` in one pass, left to right: a value that was put in is never searched again,
+// so a prompt or a path that contains "{model}" stays as written. Text that matches no key is kept. `found` (optional) is
+// set to whether each key occurred, in the order of `subs`.
+inline std::string expand_placeholders(std::string_view text, const Placeholder* subs, std::size_t count,
+                                       std::vector<bool>* found = nullptr) {
+    if (found) found->assign(count, false);
+    std::string out;
+    out.reserve(text.size());
+    std::size_t i = 0;
+    while (i < text.size()) {
+        const std::size_t open = text.find('{', i);
+        if (open == std::string_view::npos) break;
+        out.append(text.substr(i, open - i));
+        std::size_t matched = count;
+        for (std::size_t k = 0; k < count; ++k)
+            if (!subs[k].key.empty() && text.substr(open, subs[k].key.size()) == subs[k].key &&
+                (matched == count || subs[k].key.size() > subs[matched].key.size()))
+                matched = k;  // the longest key that matches here
+        if (matched == count) {
+            out += '{';
+            i = open + 1;
+            continue;
+        }
+        out.append(subs[matched].value);
+        if (found) (*found)[matched] = true;
+        i = open + subs[matched].key.size();
+    }
+    if (i < text.size()) out.append(text.substr(i));
+    return out;
+}
 
 }  // namespace fa::ai::util

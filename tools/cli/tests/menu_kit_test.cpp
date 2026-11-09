@@ -45,7 +45,7 @@ std::string new_game(const char* tag) {
     opt.writeTypings = false;
     const std::string dir = (root / "game").string();
     auto made = fa::create_project(dir, "2d-empty", opt);
-    REQUIRE_MESSAGE(made.ok(), made.error().to_string());
+    REQUIRE_MESSAGE(made.ok(), (made.ok() ? std::string() : made.error().to_string()));  // doctest -s builds the message on success too
     return dir;
 }
 
@@ -55,7 +55,7 @@ fa::Json add(const std::string& dir, std::vector<std::string> parts = {}, bool o
     o.parts = std::move(parts);
     o.overwrite = overwrite;
     auto r = fa::add_menu_kit(o);
-    REQUIRE_MESSAGE(r.ok(), r.error().to_string());
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));  // doctest -s builds the message on success too
     return *r;
 }
 

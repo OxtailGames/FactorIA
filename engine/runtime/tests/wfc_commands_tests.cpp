@@ -77,7 +77,9 @@ struct Session {
     }
 };
 
-std::string error_text(const CommandResult& r) { return r.error.value("code", std::string()) + ": " + r.error.value("message", std::string()) + " | " + r.error.value("hint", std::string()); }
+std::string error_text(const CommandResult& r) {
+    if (r.ok) return std::string();  // doctest -s builds the message on success too
+    return r.error.value("code", std::string()) + ": " + r.error.value("message", std::string()) + " | " + r.error.value("hint", std::string()); }
 bool contains(const std::string& s, const std::string& n) { return s.find(n) != std::string::npos; }
 
 Json ascii_call(const std::string& extra) { return Json::parse(std::string(R"({"sample":)") + kRows + R"(,"legend":{"#":0},)" + extra + "}"); }

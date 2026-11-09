@@ -2,8 +2,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <optional>
+#include <thread>
 
 #include "asset_commands.h"
 #include "fa/ai/image_provider.h"
@@ -39,6 +44,48 @@ SessionResult run_agent_session(CommandRegistry& registry, const AiConfig& cfg, 
                                 const AiCommandOptions& opts) {
     so.mcpUrl = opts.mcpUrl;
     if (opts.onRunProcess) so.onProcessStart = [&opts, info](long long pid, const std::string&) { opts.onRunProcess(info, pid); };
+    // Two ways to be cancelled: the host's flag (the editor's Stop) and the request's (an MCP client's
+    // notifications/cancelled, installed by the MCP server: fa/core/command.h). The session watches one flag, so with both a
+    // thread sets a merged one when either is set.
+    const CancelFlag* request = command_cancel_flag();
+    // Sets `merged` once either flag is set, until it is destroyed; the destructor stops and joins the thread on every way
+    // out of this function (a callback or the session may throw). Declared before the session, so it outlives it.
+    struct Merger {
+        CancelFlag merged{false};
+        std::mutex mu;
+        std::condition_variable cv;
+        bool done = false;
+        std::thread thread;
+        Merger(const CancelFlag* a, const CancelFlag* b)
+            : thread([this, a, b] {
+                  std::unique_lock<std::mutex> lock(mu);
+                  while (!done) {
+                      if (a->load() || b->load()) {
+                          merged.store(true);
+                          return;
+                      }
+                      cv.wait_for(lock, std::chrono::milliseconds(50));
+                  }
+              }) {}
+        ~Merger() {
+            {
+                std::lock_guard<std::mutex> lock(mu);
+                done = true;
+            }
+            cv.notify_all();
+            thread.join();
+        }
+        Merger(const Merger&) = delete;
+        Merger& operator=(const Merger&) = delete;
+    };
+    std::optional<Merger> merger;
+    const CancelFlag* flag = opts.cancel;
+    if (request && opts.cancel) {
+        merger.emplace(request, opts.cancel);
+        flag = &merger->merged;
+    } else if (request) {
+        flag = request;
+    }
     AgentSession session(registry, cfg, so);
     session.set_event_handler([&opts, info](const AgentEvent& e) {
         if (opts.onEvent) opts.onEvent(e);
@@ -47,11 +94,15 @@ SessionResult run_agent_session(CommandRegistry& registry, const AiConfig& cfg, 
         if (!what.empty()) report_command_progress(info.role + (e.depth > 0 ? " > " : ": ") + what);
     });
     if (opts.providerFactory) session.set_provider_factory(opts.providerFactory);
-    session.set_cancel_flag(opts.cancel);
-    session.set_cancel_cause(opts.cancelCause);
+    session.set_cancel_flag(flag);
+    session.set_cancel_cause([&opts, request]() -> std::string {
+        if (request && request->load()) return "client_cancelled";
+        return opts.cancelCause ? opts.cancelCause() : std::string();
+    });
     report_command_progress(info.role + ": starting");
     if (opts.onRunStart) opts.onRunStart(info);
     SessionResult r = session.run(info.task);
+    merger.reset();  // the session no longer reads the merged flag
     if (opts.onRunEnd) opts.onRunEnd(info, r.ok, r.finalText, r.ok ? std::string() : r.error);
     return r;
 }

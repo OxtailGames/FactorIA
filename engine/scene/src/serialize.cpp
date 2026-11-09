@@ -405,6 +405,13 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
               "Example: {\"id\": \"player\", \"components\": {\"Sprite\": {}}}.");
         return kNullEntity;
     }
+    // Before anything is created: a parent that is being destroyed (destroy() ran, flush() has not) would leave the new entity
+    // alive at the top level when the parent goes (World::set_parent refuses it).
+    if (!parent.is_null() && world_.alive(parent) && world_.pending_destroy(parent)) {
+        error(ptr, "cannot create an entity under '" + world_.id_of(parent) + "': it is being destroyed (destroy() ran this frame and flush() has not yet)",
+              "Pick a parent that is not being destroyed, or create the entity at the top level (no parent), or after the frame's flush.");
+        return kNullEntity;
+    }
     Json expanded;
     const Json* jp = &jIn;
     std::string savedNote = note_;

@@ -230,6 +230,9 @@ TEST_CASE("docs: commands") {
     auto list = reg.call("docs.list");
     REQUIRE(list.ok);
     CHECK(list.result["docs"].size() >= 2);
+    int components = 0;
+    for (const auto& d : list.result["docs"]) components += d["name"] == "components" ? 1 : 0;
+    CHECK(components == 1);  // listed once, by the bundled page
     auto read = reg.call("docs.read", {{"name", "architecture"}, {"maxLines", 5}});
     REQUIRE(read.ok);
     CHECK(read.result["truncated"] == true);
@@ -247,6 +250,10 @@ TEST_CASE("api export: markdown for components and commands") {
     std::string comps = export_components_markdown();
     CHECK(comps.find("# Components reference") != std::string::npos);
     CHECK(comps.find("Sprite") != std::string::npos);
+    CHECK(comps.find("enum: orthographic \\| perspective") != std::string::npos);  // the bar is escaped once...
+    CHECK(comps.find("\\\\|") == std::string::npos);                                // ...never twice
+    CHECK(comps.find("Range 3..64.") != std::string::npos);                          // Shape2D.sides: an int range has no ".0"
+    CHECK(comps.find("3.0..64.0") == std::string::npos);
     CommandRegistry reg;
     register_docs_commands(reg);
     std::string md = export_commands_markdown(reg);

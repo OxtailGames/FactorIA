@@ -29,6 +29,7 @@
 #include "fa/core/json.h"
 #include "fa/core/process.h"
 #include "fa/mcp/http_server.h"
+#include "fa/mcp/server.h"
 
 namespace fa::editor {
 
@@ -78,6 +79,9 @@ public:
     // ---- owned by the main thread
     std::thread thread;
     McpHttpServer mcp;           // this run's endpoint for a CLI agent (Claude Code): it serves `proxy`
+    // What the endpoint's servers (one per message) share: the client's handshake and the requests in flight, so a
+    // notifications/cancelled stops the tools/call it names. Thread-safe; set before `mcp` starts.
+    std::shared_ptr<McpSession> mcpSession = std::make_shared<McpSession>();
     std::string provider;        // the orchestrator's provider (the plan limits belong to it)
     std::string role;            // the role this run plays ("" = orchestrator); a review runs artCritic or reviewer
     std::string extraSystem;     // extra system prompt of the run (a reviewer's persona)

@@ -24,6 +24,10 @@ struct SchemaError {
 };
 
 std::vector<SchemaError> validate_json(const Json& schema, const Json& value);
+// Every `pattern` of the schema (at any depth) that is not a valid ECMAScript regex, with the pointer of the pattern. Empty
+// when all compile. Compiled patterns are cached for the process (thread-safe), so validate_json compiles each pattern
+// once, not once per value; this call compiles them ahead, so a bad pattern is reported when the schema is loaded.
+std::vector<SchemaError> check_schema_patterns(const Json& schema);
 // Returns `schema` with every object schema that declares "properties" but no "additionalProperties" closed
 // ("additionalProperties": false), at the root and in nested schemas (properties, items, anyOf/oneOf, $defs, an
 // additionalProperties schema). A schema that says "additionalProperties": true (or gives a schema) stays open: that is

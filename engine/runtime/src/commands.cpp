@@ -375,7 +375,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "where: 0 = first; it counts the new parent's other children, so moving within the same parent works (index 0 on the "
            "last child makes it first); an index below 0 or above the number of other children is refused, and `index` needs a "
            "parent (top-level order is creation order). Scene files keep the order. A parent that is the "
-           "entity itself or one of its children is refused (a cycle). Example: scene.set_parent {\"id\":\"coin_3\",\"parent\":\"chest\"}",
+           "entity itself or one of its children is refused (a cycle), and so is an entity being destroyed this frame or a new parent being destroyed. Example: scene.set_parent {\"id\":\"coin_3\",\"parent\":\"chest\"}",
            parse_schema(R"({"type":"object","required":["id"],"properties":{
                "id":{"type":"string","description":"Entity id (or name) to move."},
                "parent":{"type":["string","null"],"description":"New parent's id (or name); null or empty = top level."},
@@ -397,6 +397,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                                          "Cannot make '" + I.world.id_of(e) + "' a child of '" + I.world.id_of(parent) +
                                              "': that would put an entity inside itself (a cycle).",
                                          "Pick a parent that is not the entity or one of its children, or move the other entity first.");
+              if (auto ok = I.world.check_set_parent(e, parent); !ok)
+                  throw CommandError("invalid_argument", ok.error().message, ok.error().hint);
               int index = -1;
               if (a.contains("index") && !a["index"].is_null()) {
                   if (!a["index"].is_number()) throw CommandError("invalid_argument", "'index' must be a whole number.", "Example: \"index\": 0 puts the entity first.");

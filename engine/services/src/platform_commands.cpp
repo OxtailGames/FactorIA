@@ -33,7 +33,7 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
         {"platform.state",
          "Show which platform backend runs, its services, the player, the declared ids and, for the fake backend, everything it holds.",
          "Returns {backend, why, adsBackend, adsWhy, httpBackend, httpWhy, networkHosts, audience, underAge, services, player: {id, name, signedIn}, catalog: {achievements, stats, leaderboards, products, placements} (the "
-         "ids factoria.json \"platform\" declares), pending (requests waiting for an answer), fake?} where `fake` (only when the "
+         "ids factoria.json \"platform\" declares), pending (requests waiting for an answer), droppedEvents (events the full queue lost, oldest first), timedOut (requests the engine gave up on: docs/PLATFORM.md, \"Deadlines\"), fake?} where `fake` (only when the "
          "backend is the fake) is {signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value}, "
          "leaderboards: {id: best} (a daily or weekly board: \"id@periodKey\"), cloud: {key: text}, cloudModified: {key: unix seconds}, cloudClock, remotePlay: [session], owned: [productId], unfinished: [{transactionId, productId, receipt}], "
          "presence: {text, data}, ads: {outcome, gdpr, tracking, shown, rewarded}, scripted: {method: answers queued}, held, calls: [{seq, frame, method, args, ok, result | error, "

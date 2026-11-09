@@ -342,7 +342,6 @@ Json savers_to_json(const Savers& savers);
 // Writes only limits.maxAssetCostUsd (perRun, perDay) and limits.askAboveUsd into the config file at `path` (created when missing),
 // keeping everything else in it; 0 per-run/per-day limits and the default askAboveUsd remove their keys. Owner-only permissions.
 Result<void> save_asset_limits(const Limits& limits, std::string_view path);
-Result<void> save_config(const AiConfig& cfg, std::string_view path);  // writes user-editable JSON (no defaults noise)
 // Writes only "roles" into the config file at `path` (created when missing) and keeps everything else in it: providers,
 // limits, a role's maxTokens. An empty model or effort (or maxContextTokens 0) removes that key, so the role's default
 // applies. A file that is not a JSON object is left alone (error).

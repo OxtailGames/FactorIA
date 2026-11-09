@@ -701,8 +701,8 @@ void register_builtin_components(TypeRegistry& r) {
                "screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps "
                "HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes "
                "nothing. Default false.")
-        .field("sides", &Shape2D::sides, "polygon only: number of sides (3 = triangle, 6 = hexagon, 8 = octagon).").range(3, 64)
-        .field("points", &Shape2D::points, "star only: number of tips (5 = the classic star).").range(3, 64)
+        .field("sides", &Shape2D::sides, "polygon only: number of sides (3 = triangle, 6 = hexagon, 8 = octagon).").range(kShape2DMinTips, kShape2DMaxTips)
+        .field("points", &Shape2D::points, "star only: number of tips (5 = the classic star).").range(kShape2DMinTips, kShape2DMaxTips)
         .field("innerRadius", &Shape2D::innerRadius,
                "star only: radius of the notches between the tips as a fraction of the outer radius. 0.5 = classic star, "
                "near 1 = a fat spiky polygon, near 0 = thin needles.").range(0, 1)

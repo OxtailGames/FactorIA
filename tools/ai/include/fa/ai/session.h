@@ -150,7 +150,8 @@ std::string build_system_prompt(const PromptContext& ctx);
 
 // Why a run was cancelled, as the host names it (set with the cancel flag, see AgentSession::set_cancel_cause): user_stop,
 // stuck_stop (the Stop of the stuck warning), watchdog_process_gone, activity_check_process_gone, project_closed,
-// editor_closing, editor_restart, run_ended. An unknown key is shown as it is; "" gives plain "cancelled".
+// editor_closing, editor_restart, run_ended, client_cancelled (an MCP client's notifications/cancelled stopped the ai.run or
+// ai.review call). An unknown key is shown as it is; "" gives plain "cancelled".
 std::string cancel_cause_text(const std::string& cause);
 // "cancelled" or "cancelled: <cause text>": what a cancelled run's error says.
 std::string cancelled_message(const std::string& cause);

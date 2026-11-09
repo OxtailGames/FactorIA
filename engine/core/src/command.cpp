@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 #include "fa/core/jobs.h"
 #include "fa/core/json_schema.h"
@@ -27,7 +28,10 @@ CommandResult fail(std::string code, std::string message, std::string hint = {})
 }
 
 thread_local CommandProgressSink t_progress_sink;
+// The registries this thread is inside a call() of, outermost first (see call_inner).
+thread_local std::vector<const CommandRegistry*> t_active_calls;
 thread_local CommandCaller t_caller = CommandCaller::User;
+thread_local const std::atomic<bool>* t_cancel = nullptr;
 std::atomic<int> g_caller_floor{static_cast<int>(CommandCaller::User)};  // CommandCallerFloor: the process-wide minimum
 
 }  // namespace
@@ -71,6 +75,14 @@ const char* command_caller_name(CommandCaller caller) {
     return "the user";
 }
 
+CommandCancelScope::CommandCancelScope(const std::atomic<bool>* flag) : previous_(t_cancel) { t_cancel = flag; }
+
+CommandCancelScope::~CommandCancelScope() { t_cancel = previous_; }
+
+const std::atomic<bool>* command_cancel_flag() { return t_cancel; }
+
+bool command_cancelled() { return t_cancel && t_cancel->load(std::memory_order_relaxed); }
+
 bool command_progress_active() { return static_cast<bool>(t_progress_sink); }
 
 bool report_command_progress(std::string_view message) {
@@ -83,6 +95,10 @@ void CommandRegistry::add(CommandInfo info, CommandHandler handler) {
     // Closed by default: an argument the schema does not declare is an error, not something silently ignored. What
     // describe() and MCP show is the normalised schema, so clients see exactly what call() enforces.
     info.inputSchema = close_object_schemas(std::move(info.inputSchema));
+    // Compiles the schema's `pattern`s now (the validator keeps them): a bad regex is reported when the command is added,
+    // not on every call.
+    for (const SchemaError& e : check_schema_patterns(info.inputSchema))
+        FA_ERROR("command", "{}: inputSchema{}: {} ({})", name, e.pointer, e.message, e.hint);
     commands_[name] = Entry{std::move(info), std::move(handler)};
 }
 
@@ -111,6 +127,9 @@ std::vector<const CommandInfo*> CommandRegistry::list(std::string_view category)
 }
 
 CommandResult CommandRegistry::call(std::string_view name, const Json& argsIn) const {
+    if (command_cancelled())
+        return fail("cancelled", "'" + std::string(name) + "' was not run: the request it belongs to was cancelled.",
+                    "Nothing to fix: whoever sent the request took it back (an MCP client's notifications/cancelled).");
     std::optional<jobs::OwnerScope> owner;  // jobs and main-thread tasks a handler queues belong to this registry
     if (jobOwner_) owner.emplace(jobOwner_);
     const std::shared_ptr<const CommandInterceptor> interceptor = interceptor_;  // one pointer test when there is none
@@ -128,16 +147,21 @@ CommandResult CommandRegistry::call(std::string_view name, const Json& argsIn) c
 }
 
 CommandResult CommandRegistry::call_inner(std::string_view name, const Json& argsIn) const {
+    // The depth of nested call()s is per thread (a command can run on a job thread while the main thread runs another)
+    // and per registry (a handler may call into a second registry, whose own outermost call still runs its hook).
     struct DepthGuard {
-        int& d;
-        explicit DepthGuard(int& v) : d(v) { ++d; }
-        ~DepthGuard() { --d; }
+        const CommandRegistry* r;
+        explicit DepthGuard(const CommandRegistry* reg) : r(reg) { t_active_calls.push_back(r); }
+        ~DepthGuard() { t_active_calls.pop_back(); }
     };
-    if (beforeCall_ && callDepth_ == 0) {
-        DepthGuard g(callDepth_);
+    const bool outermost = std::find(t_active_calls.begin(), t_active_calls.end(), this) == t_active_calls.end();
+    // The hook reloads the commands, which is only safe on the engine's own thread between commands: a command that
+    // runs on a job worker never triggers it.
+    if (beforeCall_ && outermost && !jobs::is_worker_thread()) {
+        DepthGuard g(this);
         beforeCall_(name);
     }
-    DepthGuard depth(callDepth_);
+    DepthGuard depth(this);
     auto it = commands_.find(name);
     if (it == commands_.end()) {
         std::vector<std::string> names;

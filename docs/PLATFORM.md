@@ -322,8 +322,37 @@ the sessions is the order of the pads.
 | `notSignedIn` | The player is not signed in. Every call but `signIn()` needs it. |
 | `notAllowed` | Purchases are disabled or restricted (parental controls). |
 | `unknownId` | The store does not know the id the catalog maps to, or `purchases.finish()` got a transaction this game was not told about. |
-| `network` | The store could not be reached. Offer a retry. |
+| `network` | The store could not be reached, or did not answer before the engine's deadline (below). Offer a retry. |
 | `failed` | Anything else; the message says what. |
+
+**Deadlines.** A request whose backend never answers does not hang the game: the engine answers it itself with the
+error `network` (message: `platform.<method> got no answer from the "<backend>" backend in <N> s, so the engine gave up
+on it`) and tells the backend it may stop (`PlatformBackend::cancel`); an answer that arrives later is ignored, with one
+exception below. The time is **30 s** for most methods; **300 s** for the ones that wait for the player
+(`purchases.buy`, `purchases.restore`, `ads.showRewarded`, `ads.privacyOptions`, `player.signIn`); **600 s** for
+`ads.consent`, `ads.available` and `ads.setUnderAge`, because the ads plugins wait for the consent form the player fills in
+(120 s, and for as long as the player is busy with it) and then up to 30 s for an ad to load; and for `http.fetch` the
+request's own `timeout` (default 15 s, at most 120 s) plus 5 s. A host can change one method's time with
+`PlatformServices::set_request_timeout` (for `http.fetch` it replaces the 5 s of grace). The deadline is IO, not
+simulation: it reads a monotonic clock once per frame (`PlatformServices::frame`), so the frame in which the error
+arrives depends on the wall clock, never the simulation's state. The fake backend has no deadline (its answers are
+scripted and counted in frames, so a test gives the same result on a slow machine); `platform.state()` shows `timedOut`,
+the number of requests the engine gave up on.
+
+**A purchase that goes through after its deadline is not lost.** The store may take the money after the game was told
+`network` (a slow sheet, a bad connection that recovers). The engine remembers the last 64 `purchases.buy` and
+`purchases.restore` requests it gave up on; if one of them is answered with a success later, the purchase reaches the game
+as a `purchase` event (a `buy` that answers `purchased`, or each entry of a `restore`, with `status: "purchased"`), its
+transaction is recorded so `purchases.finish(transactionId)` accepts it, and the log gets a warning. The game that already
+showed "try again" must therefore grant what arrives in `platform.on("purchase", ...)`, as for any purchase that did not
+come from a `buy()` call, and a retried `buy()` of a consumable can charge twice only if the store itself lets it. A late
+failure or cancellation changes nothing.
+
+**Queues.** The events a backend sends (`purchase`, `overlay`, `player`, `remotePlay`) wait for the game until the start of
+the next frame. If more than 1024 pile up (a script layer that is not running), the **oldest** are dropped, counted in
+`platform.state().droppedEvents` and reported by one warning in the log, but a `purchase` event is dropped only when
+nothing else is left to drop (the overlay, player and remotePlay events go first, oldest first). The answers of requests
+have a cap of 4096: the oldest are dropped.
 
 Achievements, stats and presence are best effort: end those calls with `.catch(() => {})`. Purchases are not: show the
 player what happened (`e.hint`) and grant nothing.
