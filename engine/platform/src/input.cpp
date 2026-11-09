@@ -232,38 +232,49 @@ std::string make_gamepad_id(std::uint16_t vendor, std::uint16_t product, std::st
 // ---------------------------------------------------------------------------
 // Frame lifecycle + event feed
 // ---------------------------------------------------------------------------
-void Input::begin_frame() {
-    prevKeys_ = keys_;
-    prevMouse_ = mouse_buttons_;
-    keyPressedEdge_.fill(false);
-    keyReleasedEdge_.fill(false);
-    mousePressedEdge_.fill(false);
-    mouseReleasedEdge_.fill(false);
-    prevTouchDown_ = touchDown_;
-    touchPressedEdge_ = touchReleasedEdge_ = false;
-    for (auto& t : touches_) t.pressedThisFrame = false;
+// What a layer remembers: the state as of its last advance (the "previous" the edges and action edges compare with), the
+// edges since then, the frame deltas and the reads a UI handler took away. Advancing makes the current state the previous
+// one and forgets the rest.
+void Input::advance(size_t layer) {
+    Layer& l = layers_[layer];
+    l.prevKeys = keys_;
+    l.prevMouse = mouse_buttons_;
+    l.keyPressed.fill(false);
+    l.keyReleased.fill(false);
+    l.mousePressed.fill(false);
+    l.mouseReleased.fill(false);
+    l.prevTouchDown = touchDown_;
+    l.touchPressed = l.touchReleased = false;
+    for (auto& t : touches_) (layer == kFixedLayer ? t.pressedThisStep : t.pressedThisFrame) = false;
     for (Pad& pad : pads_) {
-        pad.prevButtons = pad.buttons;
-        pad.prevAxes = pad.axes;
-        pad.pressedEdge.fill(false);
-        pad.releasedEdge.fill(false);
+        PadEdges& e = pad.edges[layer];
+        e.prevButtons = pad.buttons;
+        e.prevAxes = pad.axes;
+        e.pressed.fill(false);
+        e.released.fill(false);
     }
-    prevOverrides_ = overrides_;
-    overridePressedEdge_.clear();
-    overrideReleasedEdge_.clear();
-    mouseDelta_ = {};
-    wheel_ = 0.0f;
-    text_.clear();
-    backEdge_ = false;
-    pasteEdge_ = false;
-    consumedActions_.clear();
-    consumedBindings_.clear();
+    l.prevOverrides = overrides_;
+    l.overridePressed.clear();
+    l.overrideReleased.clear();
+    l.mouseDelta = {};
+    l.wheel = 0.0f;
+    l.text.clear();
+    l.back = false;
+    l.paste = false;
+    l.consumedActions.clear();
+    l.consumedBindings.clear();
 }
 
+void Input::begin_frame() { advance(kFrameLayer); }
+
+void Input::end_fixed_step() { advance(kFixedLayer); }
+
 void Input::discard_idle_motion() {
-    mouseDelta_ = {};
-    wheel_ = 0.0f;
-    text_.clear();
+    for (Layer& l : layers_) {  // nothing runs a fixed step while the game is paused: what piled up there is as stale
+        l.mouseDelta = {};
+        l.wheel = 0.0f;
+        l.text.clear();
+    }
 }
 
 void Input::vibrate(float seconds) {
@@ -275,25 +286,26 @@ void Input::on_key(Key key, bool down) {
     size_t i = size_t(key);
     if (key == Key::Unknown || i >= size_t(Key::Count)) return;
     if (down && !keys_[i]) {
-        keyPressedEdge_[i] = true;
+        for (Layer& l : layers_) l.keyPressed[i] = true;
         lastDevice_ = InputDevice::Keyboard;
         mark_modifiers_used();
         if (is_modifier_key(i)) modKeyUsed_[i] = false;
     }
-    if (!down && keys_[i]) keyReleasedEdge_[i] = true;
+    if (!down && keys_[i])
+        for (Layer& l : layers_) l.keyReleased[i] = true;
     keys_[i] = down;
 }
 
 void Input::on_mouse_move(Vec2 designPos) {
     if (InputObserver* o = tap()) o->observe_mouse_move(designPos);
     if (designPos != mouse_) lastDevice_ = InputDevice::Mouse;
-    mouseDelta_ += designPos - mouse_;
+    for (Layer& l : layers_) l.mouseDelta += designPos - mouse_;
     mouse_ = designPos;
 }
 
 void Input::on_mouse_delta(Vec2 delta) {
     if (delta != Vec2{}) lastDevice_ = InputDevice::Mouse;
-    mouseDelta_ += delta;
+    for (Layer& l : layers_) l.mouseDelta += delta;
 }
 
 void Input::on_mouse_button(MouseButton b, bool down) {
@@ -301,17 +313,18 @@ void Input::on_mouse_button(MouseButton b, bool down) {
     size_t i = size_t(b);
     if (i >= size_t(MouseButton::Count)) return;
     if (down && !mouse_buttons_[i]) {
-        mousePressedEdge_[i] = true;
+        for (Layer& l : layers_) l.mousePressed[i] = true;
         lastDevice_ = InputDevice::Mouse;
         mark_modifiers_used();
     }
-    if (!down && mouse_buttons_[i]) mouseReleasedEdge_[i] = true;
+    if (!down && mouse_buttons_[i])
+        for (Layer& l : layers_) l.mouseReleased[i] = true;
     mouse_buttons_[i] = down;
 }
 
 void Input::on_mouse_wheel(float dy) {
     if (dy != 0.0f) lastDevice_ = InputDevice::Mouse;
-    wheel_ += dy;
+    for (Layer& l : layers_) l.wheel += dy;
 }
 
 // The first finger also drives the mouse (position + left button) until it lifts, so mouse-based UI and scripts work on
@@ -334,8 +347,9 @@ void Input::on_touch_begin(std::uint64_t id, Vec2 designPos) {
             return;
         }
     }
-    touches_.push_back(Touch{id, designPos, true});
-    if (!touchDown_) touchPressedEdge_ = true;
+    touches_.push_back(Touch{id, designPos, true, true});
+    if (!touchDown_)
+        for (Layer& l : layers_) l.touchPressed = true;
     touchDown_ = true;
     if (!primaryTouchDown_) {
         primaryTouchDown_ = true;
@@ -383,7 +397,7 @@ void Input::on_touch_end(std::uint64_t id) {
     touches_.erase(it);
     if (touches_.empty() && touchDown_) {
         touchDown_ = false;
-        touchReleasedEdge_ = true;
+        for (Layer& l : layers_) l.touchReleased = true;
     }
     if (primaryTouchDown_ && primaryTouchId_ == id) {
         primaryTouchDown_ = false;
@@ -430,8 +444,10 @@ void Input::update_touch_pad() {
         pad.axes[x + 1] = c.value.y;
     }
     for (size_t i = 0; i < buttons.size(); ++i) {
-        if (buttons[i] && !pad.buttons[i]) pad.pressedEdge[i] = true;
-        if (!buttons[i] && pad.buttons[i]) pad.releasedEdge[i] = true;
+        if (buttons[i] && !pad.buttons[i])
+            for (PadEdges& e : pad.edges) e.pressed[i] = true;
+        if (!buttons[i] && pad.buttons[i])
+            for (PadEdges& e : pad.edges) e.released[i] = true;
     }
     pad.buttons = buttons;
 }
@@ -459,14 +475,16 @@ bool Input::modifier_released(std::uint8_t bit) const {
 bool Input::command_chord_down() const {
     return key_down(Key::LeftControl) || key_down(Key::RightControl) || key_down(Key::LeftSuper) || key_down(Key::RightSuper);
 }
-bool Input::paste_pressed() const { return pasteEdge_ || (!pasteFromEvents_ && key_pressed(Key::V) && command_chord_down()); }
+bool Input::paste_pressed() const { return L().paste || (!pasteFromEvents_ && key_pressed(Key::V) && command_chord_down()); }
 bool Input::copy_pressed() const { return key_pressed(Key::C) && command_chord_down(); }
 
-void Input::on_text(std::uint32_t codepoint) { text_.push_back(char32_t(codepoint)); }
+void Input::on_text(std::uint32_t codepoint) {
+    for (Layer& l : layers_) l.text.push_back(char32_t(codepoint));
+}
 
 std::string Input::text_utf8() const {
     std::string utf8;
-    for (char32_t c : text_) utf8_append(utf8, c);
+    for (char32_t c : L().text) utf8_append(utf8, c);
     return utf8;
 }
 
@@ -508,7 +526,8 @@ void Input::release_pad(int index) {
     Pad& pad = pads_[size_t(index)];
     pad.connected = false;
     for (size_t i = 0; i < pad.buttons.size(); ++i) {
-        if (pad.buttons[i]) pad.releasedEdge[i] = true;
+        if (pad.buttons[i])
+            for (PadEdges& e : pad.edges) e.released[i] = true;
         pad.buttons[i] = false;
     }
     pad.axes.fill(0.0f);
@@ -546,10 +565,11 @@ void Input::on_gamepad_button(int index, GamepadButton button, bool down) {
     mark_connected(index);
     size_t i = size_t(button);
     if (down && !pad.buttons[i]) {
-        pad.pressedEdge[i] = true;
+        for (PadEdges& e : pad.edges) e.pressed[i] = true;
         lastDevice_ = InputDevice::Gamepad;
     }
-    if (!down && pad.buttons[i]) pad.releasedEdge[i] = true;
+    if (!down && pad.buttons[i])
+        for (PadEdges& e : pad.edges) e.released[i] = true;
     pad.buttons[i] = down;
 }
 
@@ -579,11 +599,14 @@ GamepadType Input::gamepad_type(int index) const {
 void Input::reset_options() {
     reset_bindings();
     for (PlayerState& player : players_) player = PlayerState{};  // no devices, no rebinds (the schemes are the project's)
-    mouse_ = mouseDelta_ = {};  // the pointer of a fresh process: where an earlier click or test left it must not decide what is hovered
-    wheel_ = 0.0f;
+    mouse_ = {};  // the pointer of a fresh process: where an earlier click or test left it must not decide what is hovered
+    for (Layer& l : layers_) {
+        l.mouseDelta = {};
+        l.wheel = 0.0f;
+        l.back = false;
+    }
     mouseVisible_ = true;
     mouseLocked_ = keyboardShown_ = platformKeyboard_ = false;
-    backEdge_ = false;
     vibrations_.clear();
     lastDevice_ = InputDevice::Keyboard;
     for (Pad& pad : pads_) {
@@ -599,15 +622,18 @@ void Input::release_all() {
     if (InputObserver* o = tap()) o->observe_release_all();
     ObserverMute mute(*this);
     for (size_t i = 0; i < keys_.size(); ++i) {
-        if (keys_[i]) keyReleasedEdge_[i] = true;
+        if (keys_[i])
+            for (Layer& l : layers_) l.keyReleased[i] = true;
         keys_[i] = false;
     }
     modKeyUsed_.fill(true);  // the focus loss is not a modifier tap
     for (size_t i = 0; i < mouse_buttons_.size(); ++i) {
-        if (mouse_buttons_[i]) mouseReleasedEdge_[i] = true;
+        if (mouse_buttons_[i])
+            for (Layer& l : layers_) l.mouseReleased[i] = true;
         mouse_buttons_[i] = false;
     }
-    if (touchDown_) touchReleasedEdge_ = true;
+    if (touchDown_)
+        for (Layer& l : layers_) l.touchReleased = true;
     touches_.clear();
     touchDown_ = false;
     primaryTouchDown_ = false;  // its mouse button was released above
@@ -623,22 +649,22 @@ void Input::release_all() {
 // Raw queries
 // ---------------------------------------------------------------------------
 bool Input::key_down(Key k) const { return size_t(k) < keys_.size() && keys_[size_t(k)]; }
-bool Input::key_pressed(Key k) const { return size_t(k) < keys_.size() && keyPressedEdge_[size_t(k)]; }
-bool Input::key_released(Key k) const { return size_t(k) < keys_.size() && keyReleasedEdge_[size_t(k)]; }
+bool Input::key_pressed(Key k) const { return size_t(k) < keys_.size() && L().keyPressed[size_t(k)]; }
+bool Input::key_released(Key k) const { return size_t(k) < keys_.size() && L().keyReleased[size_t(k)]; }
 bool Input::mouse_down(MouseButton b) const { return size_t(b) < mouse_buttons_.size() && mouse_buttons_[size_t(b)]; }
-bool Input::mouse_pressed(MouseButton b) const { return size_t(b) < mouse_buttons_.size() && mousePressedEdge_[size_t(b)]; }
-bool Input::mouse_released(MouseButton b) const { return size_t(b) < mouse_buttons_.size() && mouseReleasedEdge_[size_t(b)]; }
+bool Input::mouse_pressed(MouseButton b) const { return size_t(b) < mouse_buttons_.size() && L().mousePressed[size_t(b)]; }
+bool Input::mouse_released(MouseButton b) const { return size_t(b) < mouse_buttons_.size() && L().mouseReleased[size_t(b)]; }
 
 bool Input::gamepad_connected(int index) const { return index >= 0 && index < kMaxGamepads && pads_[size_t(index)].connected; }
 bool Input::gamepad_down(int index, GamepadButton b) const {
     return gamepad_connected(index) && size_t(b) < size_t(GamepadButton::Count) && pads_[size_t(index)].buttons[size_t(b)];
 }
 bool Input::gamepad_pressed(int index, GamepadButton b) const {
-    return gamepad_connected(index) && size_t(b) < size_t(GamepadButton::Count) && pads_[size_t(index)].pressedEdge[size_t(b)];
+    return gamepad_connected(index) && size_t(b) < size_t(GamepadButton::Count) && pads_[size_t(index)].edges[active_].pressed[size_t(b)];
 }
 bool Input::gamepad_released(int index, GamepadButton b) const {
     return index >= 0 && index < kMaxGamepads && size_t(b) < size_t(GamepadButton::Count) &&
-           pads_[size_t(index)].releasedEdge[size_t(b)];  // also on the frame the pad was unplugged
+           pads_[size_t(index)].edges[active_].released[size_t(b)];  // also on the frame the pad was unplugged
 }
 float Input::gamepad_raw_axis(int index, GamepadAxis a) const {
     return gamepad_connected(index) && size_t(a) < size_t(GamepadAxis::Count) ? pads_[size_t(index)].axes[size_t(a)] : 0.0f;
@@ -650,7 +676,7 @@ void Input::set_gamepad_deadzone(float deadzone) { deadzone_ = std::clamp(deadzo
 
 // Sticks: radial deadzone on the (x, y) pair, the rest rescaled to 0..1 along the same direction. Triggers: linear.
 float Input::pad_axis(const Pad& pad, GamepadAxis a, bool previous) const {
-    const auto& ax = previous ? pad.prevAxes : pad.axes;
+    const auto& ax = previous ? pad.edges[active_].prevAxes : pad.axes;
     const float dz = deadzone_;
     if (a == GamepadAxis::LeftTrigger || a == GamepadAxis::RightTrigger) {
         float t = ax[size_t(a)];
@@ -682,7 +708,7 @@ std::vector<std::string> all_binding_names() {
 
 std::uint8_t Input::mods_held(bool previous, const View& view) const {
     if (!view.keyboard) return 0;
-    const auto& keys = previous ? prevKeys_ : keys_;
+    const auto& keys = previous ? L().prevKeys : keys_;
     auto down = [&](Key k) { return keys[size_t(k)] && (!view.keySet || (*view.keySet)[size_t(k)]); };
     std::uint8_t held = 0;
     for (std::uint8_t bit : kModifierOrder) {
@@ -750,20 +776,20 @@ float Input::binding_raw(const Binding& b, bool previous, const View& view) cons
         case Binding::Kind::Key:
             if (!view.keyboard || (view.keySet && !(*view.keySet)[size_t(b.key)])) return 0.0f;
             if (b.mods & ~mods_held(previous, view)) return 0.0f;
-            return (previous ? prevKeys_ : keys_)[size_t(b.key)] ? 1.0f : 0.0f;
+            return (previous ? L().prevKeys : keys_)[size_t(b.key)] ? 1.0f : 0.0f;
         case Binding::Kind::Mod:
             if (b.mods & ~mods_held(previous, view)) return 0.0f;
             return (mods_held(previous, view) & b.modBit) ? 1.0f : 0.0f;
         case Binding::Kind::Mouse:
             if (!view.pointer || (b.mods & ~mods_held(previous, view))) return 0.0f;
-            return (previous ? prevMouse_ : mouse_buttons_)[size_t(b.mouse)] ? 1.0f : 0.0f;
+            return (previous ? L().prevMouse : mouse_buttons_)[size_t(b.mouse)] ? 1.0f : 0.0f;
         case Binding::Kind::Touch:
             if (!view.pointer || (b.mods & ~mods_held(previous, view))) return 0.0f;
-            return (previous ? prevTouchDown_ : touchDown_) ? 1.0f : 0.0f;
+            return (previous ? L().prevTouchDown : touchDown_) ? 1.0f : 0.0f;
         case Binding::Kind::PadButton: {
             float v = 0.0f;
             pads([&](const Pad& pad) {
-                if ((previous ? pad.prevButtons : pad.buttons)[size_t(b.button)]) v = 1.0f;
+                if ((previous ? pad.edges[active_].prevButtons : pad.buttons)[size_t(b.button)]) v = 1.0f;
             });
             return v;
         }
@@ -800,7 +826,7 @@ bool Input::main_edge(const Binding& b, const View& view, bool released) const {
             return key(l) || key(r);
         }
         case Binding::Kind::Mouse: return view.pointer && (released ? mouse_released(b.mouse) : mouse_pressed(b.mouse));
-        case Binding::Kind::Touch: return view.pointer && (released ? touchReleasedEdge_ : touchPressedEdge_);
+        case Binding::Kind::Touch: return view.pointer && (released ? L().touchReleased : L().touchPressed);
         default: return false;
     }
 }
@@ -817,7 +843,7 @@ bool Input::edge_in(const std::vector<Binding>& list, const View& view, bool rel
     for (const Binding& b : list) {
         switch (b.kind) {
             case Binding::Kind::PadButton:  // the touch pad too, for the global view
-                pads([&](const Pad& pad) { edge = edge || (released ? pad.releasedEdge : pad.pressedEdge)[size_t(b.button)]; });
+                pads([&](const Pad& pad) { edge = edge || (released ? pad.edges[active_].released : pad.edges[active_].pressed)[size_t(b.button)]; });
                 break;
             // An analog value has no event, only a level: it is a press when it is up now and was not at frame start (the
             // caller checks the second half); a release is "was down and is not now", which was_down_in covers.
@@ -1097,7 +1123,7 @@ std::string Input::chord_prefix(const View& view) const {
         const auto [l, r] = modifier_keys(bit);
         for (Key k : {l, r})
             if (view.keyboard && (!view.keySet || (*view.keySet)[size_t(k)]) &&
-                (keys_[size_t(k)] || prevKeys_[size_t(k)] || keyPressedEdge_[size_t(k)] || keyReleasedEdge_[size_t(k)]))
+                (keys_[size_t(k)] || L().prevKeys[size_t(k)] || L().keyPressed[size_t(k)] || L().keyReleased[size_t(k)]))
                 mods |= bit;
     }
     return modifier_prefix(mods);
@@ -1107,7 +1133,7 @@ std::string Input::chord_prefix(const View& view) const {
 std::string Input::lone_modifier_release(const View& view) const {
     if (!view.keyboard) return "";
     for (size_t i = 1; i < size_t(Key::Count); ++i)
-        if (is_modifier_key(i) && keyReleasedEdge_[i] && !modKeyUsed_[i] && (!view.keySet || (*view.keySet)[i]))
+        if (is_modifier_key(i) && L().keyReleased[i] && !modKeyUsed_[i] && (!view.keySet || (*view.keySet)[i]))
             return key_name(Key(i));
     return "";
 }
@@ -1116,14 +1142,14 @@ std::string Input::last_pressed() const {
     View all;
     all.anyPad = all.pointer = all.keyboard = true;
     for (size_t i = 1; i < size_t(Key::Count); ++i)
-        if (keyPressedEdge_[i] && !is_modifier_key(i)) return chord_prefix(all) + key_name(Key(i));
-    if (touchPressedEdge_) return chord_prefix(all) + "Touch";
+        if (L().keyPressed[i] && !is_modifier_key(i)) return chord_prefix(all) + key_name(Key(i));
+    if (L().touchPressed) return chord_prefix(all) + "Touch";
     for (size_t i = 0; i < size_t(MouseButton::Count); ++i)
-        if (mousePressedEdge_[i]) return chord_prefix(all) + kMouseNames[i];
+        if (L().mousePressed[i]) return chord_prefix(all) + kMouseNames[i];
     if (std::string lone = lone_modifier_release(all); !lone.empty()) return lone;
     for (const Pad& pad : pads_)
         for (size_t i = 0; i < size_t(GamepadButton::Count); ++i)
-            if (pad.pressedEdge[i]) return std::string("Gamepad") + kPadButtonNames[i];
+            if (pad.edges[active_].pressed[i]) return std::string("Gamepad") + kPadButtonNames[i];
     for (const auto& p : pad_binding_names()) {
         if (!p.isAxis) continue;
         for (const Pad& pad : pads_)
@@ -1210,7 +1236,7 @@ bool Input::binding_typed(const Binding& b) const {
 }
 
 bool Input::binding_consumed(const Binding& b) const {
-    for (const Binding& c : consumedBindings_) {
+    for (const Binding& c : L().consumedBindings) {
         if (c.kind != b.kind) continue;
         switch (b.kind) {
             case Binding::Kind::PadButton:
@@ -1237,12 +1263,21 @@ std::vector<Input::Binding> Input::readable(const std::vector<Binding>& list, bo
 void Input::consume_action(std::string_view action) {
     auto it = actions_.find(std::string(action));
     if (it == actions_.end()) return;
-    consumedActions_.emplace_back(action);
-    // Only the bindings that went down this frame: a key that is merely held must not silence another action.
+    // Both views: a press the UI handled is not given to the fixed step that has not run yet either. A view with no press of
+    // this action waiting (the step already took it) is left alone: a LATER press must not be silenced.
     View all;
     all.anyPad = all.pointer = all.keyboard = true;
-    for (const Binding& b : it->second)
-        if (edge_in({b}, all, false)) consumedBindings_.push_back(b);
+    const size_t shown = active_;
+    for (size_t v = 0; v < layers_.size(); ++v) {
+        active_ = v;
+        if (v != shown && !action_pressed(action)) continue;
+        Layer& l = layers_[v];
+        l.consumedActions.emplace_back(action);
+        // Only the bindings that went down: a key that is merely held must not silence another action.
+        for (const Binding& b : it->second)
+            if (edge_in({b}, all, false)) l.consumedBindings.push_back(b);
+    }
+    active_ = shown;
 }
 
 float Input::action_value(std::string_view action) const {
@@ -1260,14 +1295,15 @@ bool Input::action_down(std::string_view action) const { return action_value(act
 
 bool Input::action_pressed(std::string_view action) const {
     std::string name(action);
-    if (std::find(consumedActions_.begin(), consumedActions_.end(), name) != consumedActions_.end()) return false;
-    bool wasDown = prevOverrides_.count(name) != 0;
-    bool edge = overridePressedEdge_.count(name) != 0;
+    const Layer& view = L();
+    if (std::find(view.consumedActions.begin(), view.consumedActions.end(), name) != view.consumedActions.end()) return false;
+    bool wasDown = view.prevOverrides.count(name) != 0;
+    bool edge = view.overridePressed.count(name) != 0;
     auto it = actions_.find(name);
     if (it != actions_.end()) {
         View all;
         all.anyPad = all.pointer = all.keyboard = true;
-        const bool plain = !text_input_mode() && consumedBindings_.empty();  // the common frame: no copy
+        const bool plain = !text_input_mode() && view.consumedBindings.empty();  // the common frame: no copy
         const std::vector<Binding> filtered = plain ? std::vector<Binding>() : readable(it->second, true);
         const std::vector<Binding>& list = plain ? it->second : filtered;
         wasDown = wasDown || was_down_in(list, all);
@@ -1279,8 +1315,8 @@ bool Input::action_pressed(std::string_view action) const {
 bool Input::action_released(std::string_view action) const {
     std::string name(action);
     if (action_down(action)) return false;
-    bool wasDown = prevOverrides_.count(name) != 0;
-    bool edge = overrideReleasedEdge_.count(name) != 0;
+    bool wasDown = L().prevOverrides.count(name) != 0;
+    bool edge = L().overrideReleased.count(name) != 0;
     auto it = actions_.find(name);
     if (it != actions_.end()) {
         View all;
@@ -1308,16 +1344,18 @@ void Input::set_action_override(std::string_view action, bool down) {
     std::string name(action);
     bool was = overrides_.count(name) != 0;
     if (down) {
-        if (!was) overridePressedEdge_[name] = true;
+        if (!was)
+            for (Layer& l : layers_) l.overridePressed[name] = true;
         overrides_[name] = true;
     } else if (was) {
         overrides_.erase(name);
-        overrideReleasedEdge_[name] = true;
+        for (Layer& l : layers_) l.overrideReleased[name] = true;
     }
 }
 
 void Input::clear_action_overrides() {
-    for (const auto& [name, v] : overrides_) overrideReleasedEdge_[name] = true;
+    for (const auto& [name, v] : overrides_)
+        for (Layer& l : layers_) l.overrideReleased[name] = true;
     overrides_.clear();
 }
 
@@ -1330,11 +1368,11 @@ Json Input::snapshot() const {
     Json buttons = Json::array();
     for (int i = 0; i < 3; ++i)
         if (mouse_buttons_[i]) buttons.push_back(kMouseNames[i]);
-    j["mouse"] = {{"position", to_json(mouse_)}, {"delta", to_json(mouseDelta_)}, {"wheel", wheel_},
+    j["mouse"] = {{"position", to_json(mouse_)}, {"delta", to_json(L().mouseDelta)}, {"wheel", L().wheel},
                   {"buttonsDown", buttons}};
     Json touches = Json::array();
     for (const auto& t : touches_)
-        touches.push_back({{"id", t.id}, {"position", to_json(t.position)}, {"pressedThisFrame", t.pressedThisFrame}});
+        touches.push_back({{"id", t.id}, {"position", to_json(t.position)}, {"pressedThisFrame", touch_pressed(t)}});
     j["touches"] = touches;
     Json actionsDown = Json::array();
     for (const auto& name : action_names())
@@ -1353,7 +1391,7 @@ Json Input::snapshot() const {
         pads.push_back({{"index", i}, {"buttonsDown", down}, {"axes", axes}});
     }
     if (!pads.empty()) j["gamepads"] = pads;
-    if (!text_.empty()) j["text"] = text_utf8();
+    if (!L().text.empty()) j["text"] = text_utf8();
     Json players = Json::array();  // only players with a device, so a game without players dumps what it always did
     for (int p = 0; p < kMaxPlayers; ++p) {
         const PlayerDevice& d = players_[size_t(p)].device;
@@ -1791,14 +1829,14 @@ std::string Input::player_last_pressed(int player) const {
     const View view = player_view(player);
     if (view.keyboard) {
         for (size_t i = 1; i < size_t(Key::Count); ++i)
-            if (keyPressedEdge_[i] && !is_modifier_key(i) && (!view.keySet || (*view.keySet)[i]))
+            if (L().keyPressed[i] && !is_modifier_key(i) && (!view.keySet || (*view.keySet)[i]))
                 return chord_prefix(view) + key_name(Key(i));
         if (std::string lone = lone_modifier_release(view); !lone.empty()) return lone;
     }
     if (view.pad >= 0 && view.pad < kMaxGamepads) {
         const Pad& pad = pads_[size_t(view.pad)];
         for (size_t i = 0; i < size_t(GamepadButton::Count); ++i)
-            if (pad.pressedEdge[i]) return std::string("Gamepad") + kPadButtonNames[i];
+            if (pad.edges[active_].pressed[i]) return std::string("Gamepad") + kPadButtonNames[i];
         for (const auto& p : pad_binding_names()) {
             if (!p.isAxis) continue;
             if (float(p.sign) * pad_axis(pad, p.axis, false) >= kActionDownThreshold &&
