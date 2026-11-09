@@ -13,6 +13,8 @@ constexpr const char* kAutoplayModule = "scripts/autoplay.js";
 }
 
 std::uint64_t ScriptSystem::error_events() const { return impl_->errorEvents; }
+std::uint64_t ScriptSystem::watchdog_cut_count() const { return impl_->cutCount; }
+const std::vector<ScriptWatchdogCut>& ScriptSystem::watchdog_cuts() const { return impl_->cuts; }
 
 std::string ScriptSystem::autoplay_begin(bool useHook, bool* hookFound) {
     Impl& I = *impl_;

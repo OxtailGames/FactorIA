@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <vector>
 
+#include "fa/core/det_math.h"
 #include "fa/core/math.h"
 #include "fa/scene/world.h"
 
@@ -34,13 +35,13 @@ struct OrthoView {
     // The conversions map to what the player SEES, so the shake (offset and roll) is in them; the entities' own positions stay the
     // true ones. A world point under a screen point is therefore where the scene says it is, shake or not.
     Vec2 to_screen(Vec3 p) const {
-        const float c = std::cos(roll), s = std::sin(roll);
+        const float c = det::cos(roll), s = det::sin(roll);
         const float dx = p.x - position.x, dy = p.y - position.y;
         // the view's axes are the world's turned by `roll`: view = R(-roll) * delta
         return {center.x + (dx * c + dy * s) * scale, center.y - (dy * c - dx * s) * scale};
     }
     Vec3 to_world(Vec2 s, float z = 0.0f) const {
-        const float c = std::cos(roll), sn = std::sin(roll);
+        const float c = det::cos(roll), sn = det::sin(roll);
         const float vx = (s.x - center.x) / scale, vy = -(s.y - center.y) / scale;
         return {position.x + vx * c - vy * sn, position.y + vx * sn + vy * c, z};
     }
