@@ -33,3 +33,6 @@ ai.local.json
 /.claude/settings.local.json
 /.claude/mods/*/.claude-plugin/types/
 /core
+
+# golden images a failed comparison writes next to the committed one (docs/BUILDING.md, "Golden images")
+*.actual.png

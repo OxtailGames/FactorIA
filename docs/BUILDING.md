@@ -329,6 +329,29 @@ cmake --build build/my-build -j 2
   never returns) is still stopped by a hard cap of 8 times the limit on the wall clock. The messages say which one ran out:
   `(> 60 s of CPU time)` or `(> 480 s on the clock)`.
 
+## Golden images
+
+Rendering tests compare a headless picture with a committed PNG: `engine/render/tests/golden/*.png` (`expect_golden`), and
+`tools/cli/tests/golden/` for the menus and the mobile-export tests. There is one file per picture for every backend (Metal,
+Direct3D 11, GL on Mesa llvmpipe); a host with no GPU skips these tests with a message instead of comparing.
+
+- **A missing golden fails the test.** The message names the file and says how to create it. A test never writes its own
+  reference: that compared the picture with itself and passed. To make or change a golden, run the test with
+  `FA_UPDATE_GOLDENS=1` (the old spelling `FA_UPDATE_GOLDEN=1` still works), look at the PNG it wrote, and commit it with
+  the change that explains it. In that mode the test passes after writing, so a run that updates also hides a regression:
+  review `git diff --stat` of the golden folders. On a Mac, Linux and Windows the pictures differ a little (below), so
+  update a golden only for a change you meant, and run the test on the other hosts' CI afterwards.
+- **Three limits, all of which must hold** (`engine/core/tests/golden_check.h`): the mean absolute error over all channels
+  (0.004), the share of pixels with a channel more than 4/255 off (8 %) and the largest single-channel error (0.6). The mean
+  alone lets one wrong region pass on a big picture: a missing sprite or a black glyph changes under 1 % of the pixels. Goldens with text,
+  thin lines or nearest-sampled edges (single pixels flip between ink and background from one GPU to the next) use
+  `expect_golden_edges`, which allows a largest error of 1.0 and keeps the other two. The header says where each number
+  comes from; raise a limit only with a measurement of a backend, written there.
+- **Measure on a backend:** `FA_GOLDEN_REPORT=1 fa_test_render` prints `GOLDEN <file> mean=... share=... max=...` for every
+  golden compared.
+- **A failing comparison** writes the picture it got next to the golden as `<name>.actual.png`. Those files are
+  git-ignored; delete them when done.
+
 ## Headless and GPU notes
 
 FactorIA renders into an offscreen target, so the tests can run without a window.

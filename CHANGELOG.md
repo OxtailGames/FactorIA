@@ -2,6 +2,12 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- **For engine developers (M90.3):** golden images are honest. A golden that does not exist now FAILS its test (it used to be written and the test passed); `FA_UPDATE_GOLDENS=1` writes goldens (`FA_UPDATE_GOLDEN=1` still works). A picture must pass three limits, not the mean error alone: the mean (0.004), the share of pixels more than 4/255 off (8 %) and the largest single-channel error (0.6, or 1.0 for goldens with text and thin edges, `expect_golden_edges`); the numbers come from measurements on Metal and llvmpipe (`FA_GOLDEN_REPORT=1` prints them). The render, menus and mobile-export goldens share one helper, `engine/core/tests/golden_check.h`, tested in `engine/core/tests/test_golden.cpp`. `*.actual.png` files are git-ignored (the one that was committed is removed). docs/BUILDING.md, "Golden images".
+
 ## 0.19.0
 
 FactorIA 0.19.0 (M70) puts the engine's work on threads and loads games faster. A job system runs the big pieces of a

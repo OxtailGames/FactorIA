@@ -682,6 +682,10 @@ becomes the engine roadmap.
 ## Testing
 
 - C++ unit tests: doctest, one `fa_test_<module>` per module (`ctest`).
-- Rendering: headless golden images (`tests/golden/*.png`, tolerance-based).
+- Rendering: headless golden images (`engine/render/tests/golden/*.png`, plus the menus and export goldens in
+  `tools/cli/tests/golden/`). One golden serves every backend (Metal, D3D11, GL on llvmpipe). A picture matches when its
+  mean error, the share of pixels more than 4/255 off and its largest error are all within the limits of
+  `engine/core/tests/golden_check.h`. A golden that does not exist FAILS the test; `FA_UPDATE_GOLDENS=1` writes it
+  (docs/BUILDING.md, "Golden images").
 - Game tests: `factoria test` runs `tests/*.test.js` headless.
 - Examples are smoke-tested headless in CI on every platform that can.

@@ -647,7 +647,7 @@ throw CommandError("not_found", "Entity 'enemy_9' not found.", "Use scene.list_e
 - C++ tests are doctest cases in `engine/<module>/tests/test_*.cpp`. `fa_add_tests(<module>)` builds them into `fa_test_<module>`. Run one module with `cmake --build --preset linux-debug --target fa_test_<module>` and `ctest --preset linux-debug -R <module> --output-on-failure`.
 - Tests that need a GPU carry the `gpu` label (`fa_add_tests(... LABELS gpu)`). Hosts without a GPU skip them with `ctest --preset linux-debug -LE gpu`.
 - Game-level behaviour goes in `tests/*.test.js` and runs with `factoria test`.
-- Rendering tests compare headless golden images in `engine/render/tests/golden/*.png` with a tolerance.
+- Rendering tests compare headless golden images in `engine/render/tests/golden/*.png` (`expect_golden(img, "name")`) against limits on the mean error, the share of differing pixels and the largest error. A missing golden fails the test; `FA_UPDATE_GOLDENS=1` writes it (docs/BUILDING.md, "Golden images").
 - Determinism: fixed seed, fixed steps, no timing assertions.
 - A bug fix starts with a failing test.
 
