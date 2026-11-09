@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <mutex>
@@ -63,6 +64,7 @@ using audio_detail::Clip;
 using audio_detail::Cmd;
 using audio_detail::CmdKind;
 using audio_detail::kFirstProjectBus;
+using audio_detail::kSyncAllBuses;
 using audio_detail::kMasterBus;
 using audio_detail::kMaxPlayers;
 using audio_detail::kMaxVoices;
@@ -81,6 +83,7 @@ using audio_detail::PcmRing;
 using audio_detail::Ret;
 using audio_detail::SampleRing;
 using audio_detail::StreamRing;
+using audio_detail::SyncTarget;
 
 constexpr std::size_t kMaxRecordFrames = std::size_t(kRate) * 600;  // 10 minutes
 constexpr std::size_t kMaxPlayLog = 4096;
@@ -91,8 +94,18 @@ constexpr float kMaxBusVolume = 4.0f;
 // Past this many the oldest play or voice setting is dropped, then the oldest bus or music setting; stops and other Keep
 // commands are never dropped (audio_mixer.h, CmdKind). Counted in stats() as commandsDropped / settingsDropped.
 constexpr std::size_t kMaxStaged = 8192;
+// While more than this many commands wait, a Keep command replaces an earlier one of the same kind that it makes useless
+// (a second retune of the music, pause, effects reset or stop of everything), so a long stall does not pile those up. A count,
+// not a time: which commands reach the mixer never depends on the speed of the machine.
+constexpr std::size_t kCoalesceFrom = 1024;
+// Past this many staged commands, none of them droppable, the queue is only Keep commands that matter (distinct stops, bus
+// tables, music starts): they stay, and the game is told once.
+constexpr std::size_t kKeepWarnAt = kMaxStaged * 4;
+// A dropped setting is sent again once the queue is down to this many commands.
+constexpr std::size_t kResyncBelow = kMaxStaged / 2;
 constexpr int kMusicPriority = 256;   // play_music and its layers: above every priority a game can give (0..255)
 constexpr int kVideoPriority = 192;   // a Video's sound
+constexpr int kStingerPriority = 192; // a MusicPlayer's clip stinger: above the effects, so a full mixer does not drop it
 constexpr std::size_t kRecordRingFloats = std::size_t(1) << 20;  // about 12 s of 44.1 kHz stereo between two drains
 
 // A voice as the game side knows it: what it asked for. The mixer has its own copy (MixVoice) and says when it ended.
@@ -219,6 +232,7 @@ struct MusicRt {
     float volume = -1.0f, intensity = -1.0f;
     bool loop = true, playing = false, stopIssued = false, first = true;
     float layerFade = -1.0f, layerRange = -1.0f;
+    bool resendLoop = false;                  // a dropped set_loop: send it again whatever the component says
     struct Entry {                            // how the source that arrives enters the transport
         bool set = false, hard = false;
         std::string section;
@@ -259,8 +273,13 @@ struct Audio::Impl {
     std::deque<Cmd*> staged;          // sent with a device and not in the mixer's ring yet (kMaxStaged)
     std::vector<VoiceId> pendingEnds; // voices the mixer ended (or plays that never reached it): process_ends() forgets them
     std::uint64_t commandsDropped = 0, settingsDropped = 0, voicesStolen = 0, voicesRejected = 0;
-    bool dropWarned = false;
-    std::set<std::string> rejectWarned;  // clips whose play a full mixer refused (warned once each; at most 256 names)
+    std::uint64_t commandsCoalesced = 0;
+    bool dropWarned = false, keepWarned = false;
+    // Settings a drop left out of step with the mixer: resync_dropped() sends their current state again.
+    std::set<VoiceId> resyncVoices;
+    std::set<std::uint32_t> resyncBuses;
+    bool resyncMusic = false;
+    std::set<std::string> rejectWarned; // clips whose play a full mixer refused (warned once each; at most 256 names)
 
     bool inited = false;
     bool device = false;       // a device's callback mixes (on another thread, or on the web's main thread between frames)
@@ -333,6 +352,7 @@ struct Audio::Impl {
     void music_trim(const std::string& keepKey);
     void music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& rt);
     void music_update(World& world);
+    void music_resync();
     void music_resolve(MusicRt& rt);
     void music_orphan(MusicRt* rt);
     void music_events(World* world, MusicRt& rt);
@@ -409,13 +429,24 @@ struct Audio::Impl {
             drain_returns();
             return seq;
         }
+        // A long stall: a Keep command that the new one makes useless is taken back instead of waiting with it.
+        if (c->coalesceKey != 0 && staged.size() >= kCoalesceFrom) {
+            for (auto it = staged.rbegin(); it != staged.rend(); ++it) {
+                if ((*it)->coalesceKey != c->coalesceKey) continue;
+                delete *it;
+                staged.erase(std::next(it).base());
+                ++commandsCoalesced;
+                break;
+            }
+        }
         staged.push_back(c);
         if (staged.size() > kMaxStaged) drop_one();
         return seq;
     }
 
     // The staging queue is full: the oldest play or voice setting goes, else the oldest bus or music setting. Keep commands
-    // (stops, removals, starts of music, table swaps, the recorder) are never dropped.
+    // (stops, removals, starts of music, table swaps, the recorder) are never dropped. What a dropped setting set is marked
+    // (resync_dropped() sends it again); a dropped play ends its voice.
     void drop_one() {
         auto oldest = [&](CmdKind k) {
             return std::find_if(staged.begin(), staged.end(), [&](const Cmd* c) { return c->kind == k; });
@@ -423,10 +454,30 @@ struct Audio::Impl {
         auto it = oldest(CmdKind::Droppable);
         const bool lossy = it == staged.end();
         if (lossy) it = oldest(CmdKind::Lossy);
-        if (it == staged.end()) return;
+        if (it == staged.end()) {
+            if (staged.size() > kKeepWarnAt && !keepWarned) {
+                keepWarned = true;
+                FA_WARN("audio", "the audio device takes no commands (its callback stalls): {} stops, removals and other commands "
+                                 "that must reach it are waiting, and they are all kept (more memory until the device resumes)",
+                        staged.size());
+            }
+            return;
+        }
         Cmd* c = *it;
         staged.erase(it);
         if (c->play) pendingEnds.push_back(c->play);  // the voice never starts: it ends on the game side
+        switch (c->sync) {
+            case SyncTarget::Voice: resyncVoices.insert(c->syncId); break;
+            case SyncTarget::Bus:
+                if (c->syncId == kSyncAllBuses) {
+                    for (std::size_t b = 0; b < bus.size(); ++b) resyncBuses.insert(std::uint32_t(b));
+                } else {
+                    resyncBuses.insert(c->syncId);
+                }
+                break;
+            case SyncTarget::Music: resyncMusic = true; break;
+            case SyncTarget::None: break;
+        }
         delete c;
         if (lossy) ++settingsDropped;
         else ++commandsDropped;
@@ -437,10 +488,27 @@ struct Audio::Impl {
         }
     }
 
+    // The commands a stall dropped left voices and buses out of step with their mirror (the game thinks the volume is 0.3,
+    // the mixer still has the one before): once the queue has emptied they are sent again from the mirror, in one call of
+    // their own. Music players do the same in music_update (resyncMusic).
+    void resync_dropped() {
+        if (staged.size() > kResyncBelow || (resyncVoices.empty() && resyncBuses.empty())) return;
+        curBatch = ++batchSeq;
+        std::set<VoiceId> vs;
+        vs.swap(resyncVoices);
+        std::set<std::uint32_t> bs;
+        bs.swap(resyncBuses);
+        for (VoiceId id : vs)
+            if (GameVoice* gv = live_voice(id)) send_voice_state(id, *gv);
+        for (std::uint32_t b : bs)
+            if (b < bus.size()) send_bus_state(int(b));
+    }
+
     // Hands the staged commands to the mixer, whole calls at a time while they fit (a call bigger than the ring goes in
     // parts, each when the ring is empty), then takes back what the mixer is done with.
     void flush() {
         if (device) {
+            resync_dropped();
             bool any = false;
             while (!staged.empty()) {
                 const std::uint64_t b = staged.front()->batch;
@@ -557,9 +625,12 @@ struct Audio::Impl {
     // swap is a command too, in the same order).
     template <class F>
     void bus_cmd(int b, CmdKind kind, F fn) {
-        send(make(kind, [b, fn](Mixer& m, Cmd& c) {
-            if (b >= 0 && std::size_t(b) < m.table->bus.size()) fn(m, m.table->bus[std::size_t(b)].rt, c);
-        }));
+        Cmd* c = make(kind, [b, fn](Mixer& m, Cmd& cmd) {
+            if (b >= 0 && std::size_t(b) < m.table->bus.size()) fn(m, m.table->bus[std::size_t(b)].rt, cmd);
+        });
+        c->sync = SyncTarget::Bus;
+        c->syncId = std::uint32_t(b);
+        send(c);
     }
     // The bus gets the reverb it needs the first time one is switched on (made here: the mixer allocates nothing).
     void give_reverb(int b) {
@@ -771,13 +842,49 @@ struct Audio::Impl {
 
     // A voice's volume, pitch and pan (an AudioSource every frame).
     void send_params(VoiceId id, float volume, float pitch, float pan) {
-        send(make(CmdKind::Droppable, [id, volume, pitch, pan](Mixer& m, Cmd&) {
+        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan](Mixer& m, Cmd&) {
             if (MixVoice* v = m.find_voice(id)) {
                 v->volume = volume;
                 v->pitch = pitch;
                 v->pan = pan;
             }
-        }));
+        });
+        c->sync = SyncTarget::Voice;
+        c->syncId = id;
+        send(c);
+    }
+
+    // Everything the mirror knows of a voice's settings, at once and without a ramp (a dropped setting is sent again).
+    void send_voice_state(VoiceId id, const GameVoice& gv) {
+        const float volume = gv.volume, pitch = gv.pitch, pan = gv.pan;
+        const int b = gv.bus;
+        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan, b](Mixer& m, Cmd&) {
+            MixVoice* v = m.find_voice(id);
+            if (!v) return;
+            m.start_volume_ramp(*v, volume, 0.0f);
+            v->pitch = pitch;
+            v->pan = pan;
+            if (b >= 0 && std::size_t(b) < m.table->bus.size() && b != kMasterBus) v->bus = b;
+        });
+        c->sync = SyncTarget::Voice;
+        c->syncId = id;
+        send(c);
+    }
+
+    // The same for a bus: its volume, snapshot scale, low-pass, reverb and ducking as the mirror has them.
+    void send_bus_state(int b) {
+        const GameBus& g = bus[std::size_t(b)];
+        const float vol = g.vol, snap = g.snap, lp = g.lpHz, rv = g.reverb, amount = g.duck.amount, attack = g.duck.attack,
+                    release = g.duck.release;
+        const int by = g.duckBy;
+        bus_cmd(b, CmdKind::Lossy, [vol, snap, lp, rv, by, amount, attack, release](Mixer& m, BusRuntime& rt, Cmd&) {
+            rt.vol.set(vol, m.ramp_frames(0.0f, true));
+            rt.snap.set(snap, m.ramp_frames(0.0f, true));
+            m.set_lowpass(rt, lp, 0.0f);
+            std::unique_ptr<audio_detail::Reverb> none;  // the reverb came with give_reverb()
+            m.set_reverb(rt, rv, 0.0f, none);
+            m.set_duck(rt, by, amount, attack, release);
+        });
     }
 
     // A live (non-stopped) voice of the mirror, or null.
@@ -1045,8 +1152,17 @@ struct Audio::Impl {
     void chan_cmd(MusicRt& rt, CmdKind kind, F fn) {
         if (!rt.ch) return;
         MusicChannel* ch = rt.ch.get();
-        const std::uint64_t seq = send(make(kind, [ch, fn](Mixer&, Cmd&) { fn(ch->tr); }));
+        Cmd* c = make(kind, [ch, fn](Mixer&, Cmd&) { fn(ch->tr); });
+        if (kind == CmdKind::Lossy) c->sync = SyncTarget::Music;
+        const std::uint64_t seq = send(c);
         if (kind == CmdKind::Keep) rt.lastSeq = seq;
+    }
+    void send_channel_bus(MusicChannel* ch, int b) {
+        Cmd* c = make(CmdKind::Lossy, [ch, b](Mixer& m, Cmd&) {
+            if (b >= 0 && std::size_t(b) < m.table->bus.size()) ch->bus = b;
+        });
+        c->sync = SyncTarget::Music;
+        send(c);
     }
     // Starts `src` on the player (a crossfade when the transport plays and `hard` is false), after checking what the
     // transport would refuse. The source stays held until the mixer's state shows nothing reads it.
@@ -1275,10 +1391,13 @@ void Audio::set_voice_bus(VoiceId voice, std::string_view bus) {
         b = BusSfx;
     }
     v->bus = b;
-    im.send(Impl::make(CmdKind::Droppable, [voice, b](Mixer& m, Cmd&) {
+    Cmd* c = Impl::make(CmdKind::Droppable, [voice, b](Mixer& m, Cmd&) {
         MixVoice* mv = m.find_voice(voice);
         if (mv && std::size_t(b) < m.table->bus.size()) mv->bus = b;
-    }));
+    });
+    c->sync = SyncTarget::Voice;
+    c->syncId = voice;
+    im.send(c);
 }
 
 void Audio::stop(VoiceId voice) {
@@ -1292,7 +1411,9 @@ void Audio::stop_all() {
     im.ended.clear();
     for (auto& [id, v] : im.voices) v.stopped = true;
     // A play still staged reaches the mixer before this and is ended by it.
-    im.send(Impl::make(CmdKind::Keep, [](Mixer& m, Cmd&) { m.end_all_voices(); }));
+    Cmd* c = Impl::make(CmdKind::Keep, [](Mixer& m, Cmd&) { m.end_all_voices(); });
+    c->coalesceKey = audio_detail::coalesce_key(audio_detail::CoalesceKind::StopAll);  // a later one ends what this one would
+    im.send(c);
     im.musicVoice = 0;
     im.musicPath.clear();
     im.musicPersist = false;
@@ -1338,9 +1459,12 @@ void Audio::set_voice_volume(VoiceId voice, float volume, float fadeSeconds, boo
     if (!v) return;
     const float target = std::max(volume, 0.0f);
     v->volume = target;
-    im.send(Impl::make(CmdKind::Droppable, [voice, target, fadeSeconds](Mixer& m, Cmd&) {
+    Cmd* c = Impl::make(CmdKind::Droppable, [voice, target, fadeSeconds](Mixer& m, Cmd&) {
         if (MixVoice* mv = m.find_voice(voice)) m.start_volume_ramp(*mv, target, fadeSeconds);
-    }));
+    });
+    c->sync = SyncTarget::Voice;
+    c->syncId = voice;
+    im.send(c);
     if (!log) return;
     AudioEvent ev;
     ev.kind = "setVoiceVolume";
@@ -1643,7 +1767,7 @@ Result<void> Audio::apply_snapshot(std::string_view name, float fadeSeconds) {
         fx.duck = by >= 0 ? *want.duck : DuckSettings{};
         wants.push_back({want.volume, want.lowpass, want.reverb, by, fx.duck.amount, fx.duck.attack, fx.duck.release});
     }
-    im.send(Impl::make(CmdKind::Lossy, [busWants = std::move(wants), fade](Mixer& m, Cmd&) {
+    Cmd* snapCmd = Impl::make(CmdKind::Lossy, [busWants = std::move(wants), fade](Mixer& m, Cmd&) {
         const std::size_t n = std::min(busWants.size(), m.table->bus.size());
         for (std::size_t b = 0; b < n; ++b) {
             BusRuntime& rt = m.table->bus[b].rt;
@@ -1654,7 +1778,10 @@ Result<void> Audio::apply_snapshot(std::string_view name, float fadeSeconds) {
             m.set_reverb(rt, w.reverb, fade, none);
             m.set_duck(rt, w.duckBy, w.amount, w.attack, w.release);
         }
-    }));
+    });
+    snapCmd->sync = SyncTarget::Bus;
+    snapCmd->syncId = kSyncAllBuses;
+    im.send(snapCmd);
     im.snapshotName = std::string(name);
     return {};
 }
@@ -1669,7 +1796,7 @@ void Audio::reset_bus_effects() {
         fx.duckBy = -1;
         fx.duck = DuckSettings{};
     }
-    im.send(Impl::make(CmdKind::Keep, [](Mixer& m, Cmd&) {
+    Cmd* c = Impl::make(CmdKind::Keep, [](Mixer& m, Cmd&) {
         std::unique_ptr<audio_detail::Reverb> none;
         for (audio_detail::MixBus& mb : m.table->bus) {
             BusRuntime& fx = mb.rt;
@@ -1680,7 +1807,9 @@ void Audio::reset_bus_effects() {
             fx.duckGain = 1.0f;
             fx.duckEnv = 0.0f;
         }
-    }));
+    });
+    c->coalesceKey = audio_detail::coalesce_key(audio_detail::CoalesceKind::ResetFx);
+    im.send(c);
     im.snapshotName.clear();
 }
 
@@ -1702,13 +1831,15 @@ void Audio::play_music(std::string_view clipPath, float volume, float fadeSecond
         const float vol = std::max(volume, 0.0f), fade = std::max(fadeSeconds, 0.0f);
         im.live_voice(id)->volume = vol;
         im.musicPersist = persist;
-        im.send(Impl::make(CmdKind::Keep, [id, vol, fade](Mixer& m, Cmd&) {
+        Cmd* c = Impl::make(CmdKind::Keep, [id, vol, fade](Mixer& m, Cmd&) {
             MixVoice* v = m.find_voice(id);
             if (!v) return;
             v->volume = vol;
             v->volFrames = 0;
             if (v->fadeTarget < 1.0f) m.start_fade(*v, 1.0f, fade, false);
-        }));
+        });
+        c->coalesceKey = audio_detail::coalesce_key(audio_detail::CoalesceKind::Retune, id);  // the last retune wins
+        im.send(c);
         return;
     }
     GameVoice gv;
@@ -1807,9 +1938,12 @@ bool Audio::set_layer(std::string_view name, float level, float fadeSeconds) {
             const float target = std::max(im.layerVolume * l.level, 0.0f);
             v->volume = target;
             const VoiceId id = l.voice;
-            im.send(Impl::make(CmdKind::Lossy, [id, target, fadeSeconds](Mixer& m, Cmd&) {
+            Cmd* c = Impl::make(CmdKind::Lossy, [id, target, fadeSeconds](Mixer& m, Cmd&) {
                 if (MixVoice* mv = m.find_voice(id)) m.start_volume_ramp(*mv, target, fadeSeconds);
-            }));
+            });
+            c->sync = SyncTarget::Voice;
+            c->syncId = id;
+            im.send(c);
         }
         return true;
     }
@@ -1836,7 +1970,9 @@ void Audio::stop_music(float fadeSeconds) {
 void Audio::set_paused(bool paused) {
     Impl::Call call(*impl_);
     impl_->paused = paused;
-    impl_->send(Impl::make(CmdKind::Keep, [paused](Mixer& m, Cmd&) { m.paused = paused; }));
+    Cmd* c = Impl::make(CmdKind::Keep, [paused](Mixer& m, Cmd&) { m.paused = paused; });
+    c->coalesceKey = audio_detail::coalesce_key(audio_detail::CoalesceKind::Paused);
+    impl_->send(c);
 }
 
 bool Audio::paused() const {
@@ -2003,6 +2139,7 @@ Json Audio::stats() const {
     j["underrunFrames"] = im.mixer.underrunFrames.load(std::memory_order_relaxed);
     j["commandsDropped"] = im.commandsDropped;
     j["settingsDropped"] = im.settingsDropped;
+    j["commandsCoalesced"] = im.commandsCoalesced;
     j["voicesStolen"] = im.voicesStolen;
     j["voicesRejected"] = im.voicesRejected;
     return j;
@@ -2038,8 +2175,15 @@ void Audio::reload_clip(std::string_view pathIn) {
                     MixVoice& v = m.voices[i];
                     if (v.clip != from || v.stream || v.pcm) continue;
                     v.clip = to;
+                    // Where the new clip's loop (or its end) is: the loop end can lie before the position the voice had, and
+                    // the clip can be shorter than the old one. A looping voice wraps into the loop, any other ends.
                     const double frames = double(to->frames);
-                    if (v.pos >= frames) v.pos = v.loop && frames > 0.0 ? std::fmod(v.pos, frames) : frames;
+                    const double end = to->loopEnd > 0 ? std::min(double(to->loopEnd), frames) : frames;
+                    const double start = std::min(double(to->loopStart), end);
+                    if (v.pos >= end) {
+                        if (v.loop && end - start >= 1.0) v.pos = start + std::fmod(v.pos - start, end - start);
+                        else if (v.pos >= frames) v.pos = frames;
+                    }
                 }
             });
             c->keep = old;  // the mixer may read the old clip until this command has run
@@ -2206,7 +2350,9 @@ void Audio::Impl::music_poll() {
         }
         if (l.source) {
             if (!l.note.empty()) FA_WARN("audio", "song '{}' plays live instead of from its stems: {}", l.path, l.note);
-            musicCache[l.key] = CachedSong{l.source, ++musicUse};
+            // A move: the load (which its job's closure may keep alive a while longer) must not hold the song, or the cache
+            // could not evict it while that lasts (music_trim counts the holders).
+            musicCache[l.key] = CachedSong{std::move(l.source), ++musicUse};
             music_trim(l.key);
         } else {
             musicErrors[l.key] = l.error;
@@ -2404,9 +2550,7 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
         rt.bus = b;
         if (rt.ch) {
             MusicChannel* ch = rt.ch.get();
-            send(make(CmdKind::Lossy, [ch, b](Mixer& m, Cmd&) {
-                if (b >= 0 && std::size_t(b) < m.table->bus.size()) ch->bus = b;
-            }));
+            send_channel_bus(ch, b);
         }
     }
 
@@ -2509,10 +2653,11 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
         chan_cmd(rt, CmdKind::Lossy, [vol, fade](MusicTransport& tr) { tr.set_volume(vol, fade); });
         rt.volume = vol;
     }
-    if (mp.loop != rt.loop && rt.ch) {
+    if ((mp.loop != rt.loop || rt.resendLoop) && rt.ch) {
         const bool loop = mp.loop;
         chan_cmd(rt, CmdKind::Lossy, [loop](MusicTransport& tr) { tr.set_loop(loop); });
         rt.loop = mp.loop;
+        rt.resendLoop = false;
     }
     if ((mp.layerFade != rt.layerFade || mp.layerRange != rt.layerRange) && rt.ch) {
         const float fade = std::max(mp.layerFade, 0.0f), range = std::max(mp.layerRange, 0.0f);
@@ -2537,8 +2682,25 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
     music_events(&world, rt);
 }
 
+// A music setting was dropped (the device stalled): once the queue has emptied every player sends its settings again, the
+// ones music_drive compares with what it last sent (volume, loop, layers, intensity) and its bus.
+void Audio::Impl::music_resync() {
+    if (!resyncMusic || staged.size() > kResyncBelow) return;
+    resyncMusic = false;
+    for (auto& [bits, rt] : musicEnts) {
+        if (!rt->ch) continue;
+        rt->volume = -1.0f;
+        rt->layerFade = -1.0f;
+        rt->layerRange = -1.0f;
+        rt->intensity = -1.0f;
+        rt->resendLoop = true;
+        send_channel_bus(rt->ch.get(), rt->bus);
+    }
+}
+
 void Audio::Impl::music_update(World& world) {
     music_poll();
+    music_resync();
     // Players whose entity (or component) is gone, or that belong to another world, play on as orphans.
     {
         std::vector<MusicRt*> gone;
@@ -2768,7 +2930,8 @@ Result<void> Audio::music_play_stinger(World& world, Entity e, const MusicStinge
     PlayParams p;
     p.volume = volume;
     p.bus = spec.bus.empty() ? rt.busName : spec.bus;
-    gv.priority = std::clamp(p.priority, 0, 255);
+    p.priority = kStingerPriority;
+    gv.priority = kStingerPriority;
     const float length = float(double(clip->frames) / double(kRate));
     const float hold = spec.duckHold < 0.0f ? length : spec.duckHold;
     MixVoice mv;
@@ -3140,6 +3303,23 @@ void AudioTestAccess::set_stream_service(Audio& audio, bool on) {
 void AudioTestAccess::pump(Audio& audio) {
     Audio::Impl::Call call(*audio.impl_);
     audio.impl_->pump();
+}
+
+std::size_t AudioTestAccess::mirror_voices(Audio& audio) {
+    Audio::Impl::Call call(*audio.impl_);
+    audio.impl_->sync_in();
+    return audio.impl_->voices.size();
+}
+
+double AudioTestAccess::voice_position(Audio& audio, VoiceId voice) {
+    Audio::Impl::Call call(*audio.impl_);
+    const MixVoice* v = audio.impl_->mixer.find_voice(voice);
+    return v ? v->pos : -1.0;
+}
+
+std::size_t AudioTestAccess::staged_commands(Audio& audio) {
+    Audio::Impl::Call call(*audio.impl_);
+    return audio.impl_->staged.size();
 }
 
 std::vector<std::pair<std::string, std::size_t>> AudioTestAccess::music_cache(Audio& audio) {
