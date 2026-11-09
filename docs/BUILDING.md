@@ -256,8 +256,9 @@ cmake --build --preset web-release         # build/web-release/player/factoria_p
 or `factoria setup webplayer`, which finds or fetches the SDK and runs the two presets (the export prefers this folder).
 
 The result is the two files `platforms/web/shell.html` loads (`factoria export --platform web` copies them next to the page
-and the game's `game.pak`; docs/EXPORTING.md). A release build is about 8 MB of wasm (about 3 MB gzipped, which is what
-a web server sends) and 150 KB of JS. To try a game by hand, put `factoria_player.js`, `factoria_player.wasm`, a `game.pak`
+and the game's `game.pak`; docs/EXPORTING.md). A release build was about 8 MB of wasm (about 3 MB gzipped, which is what
+a web server sends) and 150 KB of JS when this was measured (2026-10-26; the sizes table in EXPORTING.md, "Size of the
+player", is dated too). To try a game by hand, put `factoria_player.js`, `factoria_player.wasm`, a `game.pak`
 and the page (`shell.html` with `{{title}}`, `{{wasmBytes}}` and `{{pakBytes}}` filled in, and `{{favicon}}` replaced by `data:,`, saved as `index.html`) in one
 folder, serve it (`python -m http.server`; no special headers, the player uses no threads) and open it in a browser. To
 check it headless, with a software WebGL2: `node platforms/web/smoke.mjs <folder>` (Node 22+, Chrome, Chromium or Edge; it
@@ -405,9 +406,14 @@ set `FA_INSTALLER_VERSION` and `FA_INSTALLER_SOURCE` and run `ISCC /O<dir> platf
 
 ### Code signing
 
-Both are optional and off until the repository secrets exist (Settings > Secrets and variables > Actions): without them
-the signing steps print a notice (`::notice`) and the packages come out unsigned, as before. `scripts/sign-windows.sh`
-and `scripts/sign-macos.sh` do the work and can be read for the exact commands.
+Both are optional and each one is on only while its repository secrets exist (Settings > Secrets and variables >
+Actions): without them the signing step prints a notice (`::notice`) and the packages come out unsigned.
+`scripts/sign-windows.sh` and `scripts/sign-macos.sh` do the work and can be read for the exact commands.
+
+State on 2026-11-09 (`gh secret list`, and the logs of the v0.19.0 release run): the five Apple secrets below are set
+(since 2026-10-16), so the macOS `factoria`, `factoria_player` and `sokol-shdc` are signed and notarized in every
+release from 0.1.4 on; the two Windows secrets are NOT set, so the Windows executables, the zip and the installer are
+unsigned and SmartScreen warns. Linux packages are not signed. The release log says which of the two happened.
 
 **Windows** (signtool, SHA-256, timestamped with DigiCert's server; signs `factoria.exe`, `FactorIA-Editor.exe`,
 `factoria_player.exe` before they go into the zip and the installer, then `FactorIA-windows-x64-setup.exe`; the
@@ -454,8 +460,9 @@ the editor are not quarantined and never show the prompt.
   once the certificate has reputation.
 - macOS: Gatekeeper accepts the executables without the "cannot be opened" dialog (so no right-click > Open, **Open
   Anyway** or `xattr`).
-- When the first signed release is out, drop the SmartScreen and Gatekeeper workarounds from `README.md`, `docs/GETTING_STARTED.md`
-  (and their `i18n` translations).
+- Gatekeeper: `README.md` and `docs/GETTING_STARTED.md` keep the quarantine workaround only for 0.1.3 and earlier,
+  which stay on the Releases page unsigned. SmartScreen: when the first Windows release is signed, drop its warning
+  from `README.md` and `docs/GETTING_STARTED.md` (and the translation of the latter).
 - Games exported from the download copy the signed `factoria_player` (see [EXPORTING.md](EXPORTING.md)).
 
 Pull requests from forks never receive the secrets. A pull request from a branch of this repository does, and the

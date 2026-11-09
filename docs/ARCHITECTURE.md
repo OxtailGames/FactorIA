@@ -55,11 +55,18 @@ tools/             developer tools (desktop only)
   editor/          fa_editor   Dear ImGui editor with AI assistant panel
   cli/             factoria    the single developer binary
   vscode/          the VS Code extension of the script debugger (plain JS, no build step): embedded in fa_tooling and installed by `factoria setup vscode`; it starts `factoria dap` (docs/DEBUGGING.md)
+  shaders/         compile_shaders.sh: regenerates the engine's shader headers with sokol-shdc
+  feedback-server/ the Cloudflare Worker behind feedback sharing (JavaScript, its own npm tooling; docs/design/FEEDBACK_SHARING.md)
+  ci/              docker/: the image of the local Linux CI job (scripts/ci-local.sh)
 templates/         project templates used by `factoria new`
+skills/            the engine's AI skills (one SKILL.md per folder), baked into the binary (docs/SKILLS.md)
 schemas/           JSON Schemas (project, feedback, AI config); scene schema is generated
-docs/              documentation in English (embedded into the binary); translations in docs/i18n/<lang>/
-examples/          sample games (also used as integration tests)
-platforms/         android/ (Gradle) and ios/ packaging; windows/ (installer script) and linux/ (AppImage files) for the downloads
+docs/              documentation in English (embedded into the binary); translations in docs/i18n/<lang>/ (some are behind the English text: each says so at its top)
+examples/          sample games (also used as integration tests: the `example_*` ctest tests, run in Release builds)
+platforms/         android/ (Gradle), ios/, web/ and plugins/ (the store and ads backend plugins) packaging; windows/ (installer script) and linux/ (AppImage files) for the downloads
+cmake/             CMake functions, platform selection and toolchain files
+scripts/           build, test, CI and packaging scripts for each operating system (docs/BUILDING.md)
+feedback/          ROADMAP.md, ROADMAP_DONE.md and the feedback collected from the examples
 external/          vendored third-party code (do not edit)
 ```
 
@@ -632,9 +639,11 @@ without a GPU), Metal (macOS), D3D11 with WARP fallback (Windows). Used by
   attached; in the editor, Claude Code attaches the editor's own MCP endpoint,
   so it edits the open scene). API keys live in the user config (`~/.factoria/ai.json`) or env
   vars — never in projects.
-- **Roles**: `orchestrator` plans and delegates, `worker` implements, `fast`
-  handles small mechanical tasks. Defaults: Claude Opus 5.5 (effort `xhigh`),
-  Claude Sonnet 5.5 (`medium`), Claude Haiku 5.5 (`max`); configurable per role.
+- **Roles** (seven; the table is in [AI_PROVIDERS.md](AI_PROVIDERS.md#roles)): `orchestrator` plans and delegates,
+  `worker` implements, `fast` handles small mechanical tasks, `artist` makes the art, `audio` makes sound and music, and
+  `artCritic` and `reviewer` are read-only critics of the art and of the game. Defaults: Claude Opus 5.5 (`orchestrator`
+  `xhigh`; `artist`, `artCritic` and `reviewer` `high`), Claude Sonnet 5.5 (`worker` and `audio`, `medium`), Claude
+  Haiku 5.5 (`fast`, `max`); configurable per role.
 
 ## ENGINE_FEEDBACK.json (the improvement loop)
 
@@ -682,6 +691,8 @@ becomes the engine roadmap.
 ## Testing
 
 - C++ unit tests: doctest, one `fa_test_<module>` per module (`ctest`).
-- Rendering: headless golden images (`tests/golden/*.png`, tolerance-based).
+- Rendering: headless golden images (`engine/render/tests/golden/*.png`, plus three pictures in
+  `tools/cli/tests/golden/`), compared with a tolerance.
 - Game tests: `factoria test` runs `tests/*.test.js` headless.
-- Examples are smoke-tested headless in CI on every platform that can.
+- Examples: each has `example_<name>_validate` and `example_<name>_test` ctest tests, and some also an autoplay and a
+  perf budget (label `example`; they run in Release builds, see docs/BUILDING.md).
