@@ -140,7 +140,8 @@ const char* input_device_name(InputDevice d);  // "keyboard", "mouse", "gamepad"
 struct Touch {
     std::uint64_t id = 0;
     Vec2 position;  // design-resolution pixels
-    bool pressedThisFrame = false;
+    bool pressedThisFrame = false;  // landed since the last begin_frame() (what the frame's readers see)
+    bool pressedThisStep = false;   // landed since the last fixed step took its input (what a fixed step sees)
 };
 
 // Told about every event the feed below receives, BEFORE it changes the state: what the input recorder (fa/runtime/input_recorder.h)
@@ -170,7 +171,30 @@ public:
     // next begin_frame(). Call it ONCE PER FRAME AFTER the game has consumed the
     // input (end of the frame), so events arriving before the next frame's
     // update are not wiped. fa::run_app() does NOT call it for you.
+    //
+    // TWO VIEWS of the same input, each with its own edges and deltas (the held state is shared): the FRAME view, which
+    // everything reads by default and begin_frame() advances once per frame, and the FIXED-STEP view, which the engine
+    // selects around each fixed simulation step with a FixedScope. A frame runs 0 to 5 fixed steps, so edges cleared once
+    // per frame would be seen by no step or by several; the fixed-step view keeps every edge (and delta, text, Back,
+    // paste) until a step takes it: end_fixed_step() closes the step, and the next one starts from nothing new. A press
+    // is therefore seen by exactly one fixed step and by exactly one frame. Every event of the feed below lands in both.
     void begin_frame();
+    // Closes one fixed step: edges, deltas and the "previous" state of the fixed-step view start again from now. Call it
+    // once per step, after everything that reads input in the step.
+    void end_fixed_step();
+    // While alive, every read (key_pressed, action_pressed, mouse_delta, touches...) answers for the fixed-step view. Nests.
+    class FixedScope {
+    public:
+        explicit FixedScope(Input& in) : in_(in), prev_(in.active_) { in_.active_ = kFixedLayer; }
+        ~FixedScope() { in_.active_ = prev_; }
+        FixedScope(const FixedScope&) = delete;
+        FixedScope& operator=(const FixedScope&) = delete;
+
+    private:
+        Input& in_;
+        size_t prev_;
+    };
+    bool in_fixed_step() const { return active_ == kFixedLayer; }
     // A frame that does NOT simulate (a paused game redrawn by the editor): drops only what has no meaning later (mouse
     // delta, wheel, typed text) and keeps every edge (pressed/released of keys, buttons, actions, pads, touches, Back, paste),
     // so what arrived or was injected in between is seen once by the next simulated frame.
@@ -195,14 +219,16 @@ public:
     // The player asked to paste (an edge until the next begin_frame()). A key press of V while Ctrl (or Cmd) is held asks by
     // itself; a platform where the browser decides when a paste happens (the web) turns that off with
     // set_paste_from_events(true) and calls on_paste() from its paste event instead.
-    void on_paste() { pasteEdge_ = true; }
+    void on_paste() {
+        for (Layer& l : layers_) l.paste = true;
+    }
     void set_paste_from_events(bool fromEvents) { pasteFromEvents_ = fromEvents; }
     // The system Back button or gesture (Android). An edge: back_pressed() is true until the next begin_frame(). Scripts
     // get it as input.onBack; when none of their handlers consumes it, the runtime asks the game to quit (what Back did
     // before there was an event). Tests and replays call it too.
     void on_back() {
         if (InputObserver* o = tap()) o->observe_back();
-        backEdge_ = true;
+        for (Layer& l : layers_) l.back = true;
     }
     // Gamepads (index 0..kMaxGamepads-1; out-of-range indices are ignored). A button or axis event also marks the pad
     // connected. Disconnecting releases its buttons (with release edges) and zeroes its axes. Axis values are clamped
@@ -250,17 +276,22 @@ public:
     bool mouse_pressed(MouseButton b) const;
     bool mouse_released(MouseButton b) const;
     Vec2 mouse_position() const { return mouse_; }
-    Vec2 mouse_delta() const { return mouseDelta_; }
-    float mouse_wheel() const { return wheel_; }
-    // The UI used this frame's wheel (it scrolled a ScrollList): mouse_wheel() reads 0 from now on, until the next frame.
-    void consume_mouse_wheel() { wheel_ = 0.0f; }
+    Vec2 mouse_delta() const { return L().mouseDelta; }
+    float mouse_wheel() const { return L().wheel; }
+    // The UI used this frame's wheel (it scrolled a ScrollList): mouse_wheel() reads 0 from now on, until the next frame,
+    // and a fixed step does not get it either.
+    void consume_mouse_wheel() {
+        for (Layer& l : layers_) l.wheel = 0.0f;
+    }
     const std::vector<Touch>& touches() const { return touches_; }
-    const std::u32string& text_input() const { return text_; }  // typed characters this frame
+    // Whether `t` landed this frame (a frame read) or since the last fixed step (inside a FixedScope).
+    bool touch_pressed(const Touch& t) const { return active_ == kFixedLayer ? t.pressedThisStep : t.pressedThisFrame; }
+    const std::u32string& text_input() const { return L().text; }  // typed characters this frame
     std::string text_utf8() const;  // the same, as UTF-8
     bool paste_pressed() const;  // Ctrl+V / Cmd+V (or a paste event) went down this frame
     bool copy_pressed() const;   // Ctrl+C / Cmd+C went down this frame
     bool command_chord_down() const;  // Ctrl or Cmd (either side) is held
-    bool back_pressed() const { return backEdge_; }  // Back arrived since the last begin_frame()
+    bool back_pressed() const { return L().back; }  // Back arrived since the last begin_frame()
 
     // -------- gamepad queries (index outside 0..kMaxGamepads-1: not connected, nothing down, axes 0)
     bool gamepad_connected(int index) const;
@@ -494,13 +525,18 @@ private:
         GamepadAxis axis = GamepadAxis::LeftX;  // PadAxis: the axis and the direction (+1/-1) that counts
         int sign = 1;
     };
+    struct PadEdges {  // what one view remembers of a pad: its state at the last advance and the edges since
+        std::array<bool, size_t(GamepadButton::Count)> prevButtons{}, pressed{}, released{};
+        std::array<float, size_t(GamepadAxis::Count)> prevAxes{};
+    };
     struct Pad {
         bool connected = false;
         GamepadType type = GamepadType::Generic;
         GamepadInfo info;
         bool announced = false;  // a "connected" event went out and no "disconnected" one since
-        std::array<bool, size_t(GamepadButton::Count)> buttons{}, prevButtons{}, pressedEdge{}, releasedEdge{};
-        std::array<float, size_t(GamepadAxis::Count)> axes{}, prevAxes{};
+        std::array<bool, size_t(GamepadButton::Count)> buttons{};
+        std::array<float, size_t(GamepadAxis::Count)> axes{};
+        PadEdges edges[2];  // per view (kFrameLayer, kFixedLayer)
     };
     static bool parse_binding(std::string_view name, Binding& out);
     static bool parse_single_binding(std::string_view name, Binding& out);  // no modifiers
@@ -559,30 +595,44 @@ private:
     TouchControl* touch_control_of(std::uint64_t finger);  // the control holding `finger`, nullptr when none
     void update_touch_pad();                               // the touch pad's buttons and axes from the held controls
 
+    // One view's memory (see begin_frame()): the previous state, the edges since, the deltas and what a reader consumed.
+    // Everything else (what is held now, positions, bindings) is shared by both views.
+    using KeyArray = std::array<bool, size_t(Key::Count)>;
+    using MouseArray = std::array<bool, size_t(MouseButton::Count)>;
+    struct Layer {
+        KeyArray prevKeys{};
+        KeyArray keyPressed{};   // went down at least once since the last advance
+        KeyArray keyReleased{};  // went up at least once since the last advance
+        MouseArray prevMouse{}, mousePressed{}, mouseReleased{};
+        bool prevTouchDown = false, touchPressed = false, touchReleased = false;
+        std::unordered_map<std::string, bool> prevOverrides, overridePressed, overrideReleased;
+        Vec2 mouseDelta{};
+        float wheel = 0.0f;
+        std::u32string text;
+        bool back = false, paste = false;
+        std::vector<std::string> consumedActions;  // consume_action() since the last advance
+        std::vector<Binding> consumedBindings;     // their pressed bindings: another action on the same input is consumed too
+    };
+    static constexpr size_t kFrameLayer = 0, kFixedLayer = 1;
+    void advance(size_t layer);
+    const Layer& L() const { return layers_[active_]; }
+    Layer& L() { return layers_[active_]; }
+    std::array<Layer, 2> layers_;
+    size_t active_ = kFrameLayer;  // the view reads answer for (FixedScope selects kFixedLayer)
+
     std::array<bool, size_t(Key::Count)> keys_{};
-    std::array<bool, size_t(Key::Count)> prevKeys_{};
-    std::array<bool, size_t(Key::Count)> keyPressedEdge_{};   // went down at least once since begin_frame
-    std::array<bool, size_t(Key::Count)> keyReleasedEdge_{};  // went up at least once since begin_frame
     std::array<bool, size_t(Key::Count)> modKeyUsed_{};  // a held modifier key that something else was pressed with
     std::array<bool, size_t(MouseButton::Count)> mouse_buttons_{};
-    std::array<bool, size_t(MouseButton::Count)> prevMouse_{};
-    std::array<bool, size_t(MouseButton::Count)> mousePressedEdge_{};
-    std::array<bool, size_t(MouseButton::Count)> mouseReleasedEdge_{};
-    Vec2 mouse_{}, mouseDelta_{};
-    float wheel_ = 0.0f;
+    Vec2 mouse_{};
     bool uiTextInput_ = false, scriptTextInput_ = false;
-    std::vector<std::string> consumedActions_;  // consume_action() of this frame
-    std::vector<Binding> consumedBindings_;     // their pressed bindings: another action on the same input is consumed too
     bool binding_consumed(const Binding& b) const;
     bool binding_typed(const Binding& b) const;  // a printable key that text input mode takes
     // The bindings of a list that can be read now: not the typed ones and, for a press, not the consumed ones.
     std::vector<Binding> readable(const std::vector<Binding>& list, bool forPress) const;
     std::vector<Touch> touches_;
-    bool touchDown_ = false, prevTouchDown_ = false;
-    bool touchPressedEdge_ = false, touchReleasedEdge_ = false;
+    bool touchDown_ = false;
     bool primaryTouchDown_ = false;  // the first finger is down and mirrored onto the mouse
     std::uint64_t primaryTouchId_ = 0;
-    std::u32string text_;
     // The numbered pads, then the touch pad (pads_[kMaxGamepads]): the bindings loop over all of them, the numbered
     // queries stop before it.
     std::array<Pad, kMaxGamepads + 1> pads_;
@@ -592,8 +642,6 @@ private:
     float deadzone_ = 0.2f;
     InputDevice lastDevice_ = InputDevice::Keyboard;
     bool mouseVisible_ = true, mouseLocked_ = false, keyboardShown_ = false, platformKeyboard_ = false;
-    bool backEdge_ = false;
-    bool pasteEdge_ = false;
     bool pasteFromEvents_ = false;  // paste comes from on_paste() only, not from the V key
     std::vector<float> vibrations_;
     Json projectActions_;  // what the last set_actions() was given (reset_bindings)
@@ -604,8 +652,7 @@ private:
     std::unordered_map<std::string, std::vector<Binding>> actions_;
     // Action overrides: only `true` entries are stored (setting false erases and
     // hands control back to the bindings).
-    std::unordered_map<std::string, bool> overrides_, prevOverrides_;
-    std::unordered_map<std::string, bool> overridePressedEdge_, overrideReleasedEdge_;
+    std::unordered_map<std::string, bool> overrides_;
 };
 
 }  // namespace fa

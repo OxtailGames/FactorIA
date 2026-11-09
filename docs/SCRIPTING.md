@@ -121,6 +121,36 @@ A class **field** with the name of a `Behaviour` member (`on`, `after`, `every`,
 instance: `on = false;` makes `this.on("x", fn)` fail. The first behaviour of the class created logs ONE warning naming the
 field, and `factoria validate` reports it too; rename the field (`tradeOn`).
 
+### Which callback sees what (input)
+
+A frame runs 0 to 5 fixed steps (a slow frame runs several, a fast one none), so a press must not be tied to the frame
+that carries it. The engine keeps two views of the input, and a press, a release, a mouse click, a touch start, a
+gamepad button edge, the wheel, the mouse motion, typed text and Back are seen **exactly once by `onFixedUpdate` and
+exactly once by `onUpdate`**, whatever the number of steps in the frame:
+
+| Callback | Reads | An edge (`pressed`, `released`, `mouse.wheel`, `mouse.delta`, `text`, `touch.pressed`) is seen |
+|---|---|---|
+| `onFixedUpdate` | the fixed-step view | by the first fixed step that runs after it happened; not by the later steps of the same frame. A frame with 0 steps keeps it for the next frame's first step. |
+| `onUpdate`, `onLateUpdate`, `ui.on(...)` handlers, `after`/`every` timers, `input.onBack` | the frame view | by the frame that carries it, once; not by the next frame. |
+| `onCollision*`, `onTrigger*`, `onEvent` | the view of the step (or of the frame, for an event sent after the steps) that delivers them | like `onFixedUpdate` for what physics and animation send in a step, like `onUpdate` for the rest |
+
+Holds are the same in both views: `down`, `value`, `axis`, `vector`, `keyDown`, `mouse.down`, `touches` positions and
+stick values are the state at the time of the call. Consequences:
+
+- Put one-shot input (a jump, a shot, a menu choice) in either callback and it fires once. In `onFixedUpdate` it fires
+  at 30 FPS and at 144 FPS alike, and never twice in a frame of 5 steps. Movement from held input needs no care.
+- A press and its release that both happen between two fixed steps are both seen by the next step, in that order
+  (`pressed` and `released` are both true there). A press that ends before any step runs is not lost.
+- `input.consume(action)` hides the press from `pressed` for the callbacks that have not seen it yet; a fixed step that
+  already took the press is not affected, and a later press is never hidden by it.
+- Time at `time.scale` 0 and a paused game: the paused game runs no step and keeps the press for the step after it
+  resumes. A step at `time.scale` 0 is a step: it takes the edges.
+- `game.step(n)` in a test runs one fixed step and one frame `n` times, so each `game.press`/`tap`/`touchStart` is seen by
+  one `onFixedUpdate` and one `onUpdate` of the next `game.step`.
+- Recorded input (`input.record`) and replays are not affected: the recording keeps each event and the frame timing
+  (`dt` and the number of fixed steps), and a replay feeds the same events at the same frames, so it reproduces the same
+  fixed steps. The format did not change.
+
 ### Behaviour members
 - `this.entity` — the owning `Entity`; `this.world` — the world.
 - `this.after(seconds, fn)` / `this.every(seconds, fn)` — timers, cancelled

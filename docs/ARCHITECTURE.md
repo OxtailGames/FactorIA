@@ -207,6 +207,16 @@ See `engine/runtime/include/fa/runtime/engine.h`. Fixed-step simulation
 (default 60 Hz) + variable render. Headless `Engine::step(n)` advances exactly
 `n` fixed frames — deterministic given seed + input.
 
+Input has two views (`engine/platform/include/fa/platform/input.h`, "TWO VIEWS"): the frame's (UI, `onUpdate`,
+`onLateUpdate`, timers, Back) and the fixed step's (`onFixedUpdate` and what a step dispatches). Holds are shared; an edge
+(press, release, wheel, mouse motion, text, Back, paste) is kept for each view until it has been read: a frame closes
+the first with `begin_frame()`, and every fixed step closes the second with `end_fixed_step()` (`Engine::run_frame` opens
+an `Input::FixedScope` per step). So an edge reaches exactly one step whether the frame ran 0, 1 or 5, and one that
+arrives in a frame with no step waits for the next. Every writer (`on_key`, `on_mouse_*`, `on_touch_*`, replays,
+`game.input`) marks both views, so the recorder and replays need no change (`timing` still records `[dt, steps]`).
+A paused engine only redraws and keeps the edges (`discard_idle_motion` drops wheel, motion and text, not presses). A new
+system that runs inside a fixed step and reads input needs nothing: it answers for the step's view.
+
 ### Jobs and threads
 See `engine/core/include/fa/core/jobs.h`. One process-wide pool of worker threads (`fa::jobs`) that engine code hands
 pieces of work to: `submit(name, fn, deps)` returns a `Handle` to `wait` for, `Group` waits for several,

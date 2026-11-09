@@ -384,7 +384,7 @@ A behaviour is an ES module whose default export extends `Behaviour`. All method
 | `onStart()` | Once, the first time the entity is active, before its first update. `props` are already applied. |
 | `onEnable()`, `onDisable()` | Every time the entity (or an ancestor) becomes active / inactive, before the frame is drawn. The first `onEnable` follows `onStart`. A panel refreshes its texts in `onEnable`. |
 | `onUpdate(dt)` | Every frame. `dt` is in seconds, scaled by `time.scale`. While `time.scale` is 0 (`game.paused`) only behaviours with the class field `runWhilePaused = true` get it, with the real `dt` (pause menus). |
-| `onFixedUpdate(dt)` | Every fixed step, before physics. Use it for movement that physics must see. |
+| `onFixedUpdate(dt)` | Every fixed step, before physics. Use it for movement that physics must see. A frame runs 0 to 5 steps, but a press or release (`input.pressed`, `keyPressed`, `mouse.pressed`, `released`, `touches[].pressed`, gamepad edges) reaches exactly ONE `onFixedUpdate` (the first step after it happened; one that arrives in a frame with no step waits for the next) and exactly ONE `onUpdate`, so read one-shot input in either hook. Details in `docs_read {"name":"scripting"}`, "Which callback sees what (input)". |
 | `onLateUpdate(dt)` | After all updates. Use it for cameras that follow targets. |
 | `onDestroy()` | Before the entity is removed. |
 | `onCollisionEnter(other, info)`, `onCollisionExit(other)` | Solid contacts. `info` is `{point, normal, impulse}`. |
