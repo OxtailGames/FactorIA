@@ -30,6 +30,7 @@
 #include "fa/scene/sprite_animator.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/localize.h"
+#include "fa/scene/particle_store.h"
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "fa/scene/serialize.h"
@@ -990,17 +991,10 @@ NATIVE(spriteAnimCall) {
 NATIVE(particlesBurst) {
     SETUP;
     ENTITY(e, 0);
-    int count = static_cast<int>(arg_num(ctx, argc, argv, 1, 10));
-    Renderer* r = I->host->renderer();
-    if (!r || !r->initialized()) {
-        static bool warned = false;
-        if (!warned) {
-            warned = true;
-            fa::log(LogLevel::Warn, "script", "particles.burst: no renderer in this run (headless); skipped");
-        }
-        return JS_UNDEFINED;
-    }
-    r->emit_burst(e, count);
+    const double requested = arg_num(ctx, argc, argv, 1, 10);
+    const int count = std::isfinite(requested) ? static_cast<int>(std::clamp(requested, 0.0, 1.0e6)) : 0;
+    // The particles belong to the world, not to the renderer: a run with no graphics queues the burst like any other.
+    W.particles().queue_burst(W, e, count);
     return JS_UNDEFINED;
 }
 

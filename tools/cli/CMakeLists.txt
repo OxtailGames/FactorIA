@@ -189,6 +189,14 @@ if(FA_BUILD_TESTS)
         WORKING_DIRECTORY ${FA_ROOT})
     set_tests_properties(example_jobs_same_frames PROPERTIES LABELS "gpu;example" TIMEOUT ${fa_example_timeout}
         DISABLED ${fa_examples_disabled})
+    # The simulation does not depend on the renderer: every scene of every example gives the same world hash after the same
+    # frames with a GPU renderer that draws and with --no-graphics (sprite animators and particles advance in the fixed step).
+    add_test(NAME example_graphics_same_hash
+        COMMAND ${CMAKE_COMMAND} -DFACTORIA=$<TARGET_FILE:factoria> -DROOT=${FA_ROOT}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/graphics_same_hash.cmake
+        WORKING_DIRECTORY ${FA_ROOT})
+    set_tests_properties(example_graphics_same_hash PROPERTIES LABELS "gpu;example" TIMEOUT 900
+        DISABLED ${fa_examples_disabled})
     # The menu kit of docs/MENUS.md as a project, checked the same way and driven with a gamepad only.
     set(fx ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/menus)
     add_test(NAME fixture_menus_validate COMMAND factoria validate ${fx} WORKING_DIRECTORY ${FA_ROOT})

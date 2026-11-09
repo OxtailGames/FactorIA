@@ -598,7 +598,7 @@ TEST_CASE("bloomScreenSpace=false: screen-space particles stay crisp, world part
     // The same emitter in world space (world (-110, 0) is the same pixel) is bloomed whatever the flag says.
     s.world.get<Transform>(e)->position = {-110, 0, 0};
     p.space = RenderSpace::World;
-    g.renderer.clear_asset_cache();  // the particle born in screen space would stay in screen coordinates
+    s.world.particles().clear();  // the particle born in screen space would stay in screen coordinates
     s.bloom(false);
     Image worldOff = g.render(s.world);
     s.bloom(true);

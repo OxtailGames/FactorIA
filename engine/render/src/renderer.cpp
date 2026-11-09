@@ -136,7 +136,6 @@ struct Renderer::Impl {
     bool warnedCameras = false;       // the "more cameras than the limit" warning, once per scene
     bool warnedLights2d = false;      // the "more Light2D in view than the budget" warning, once per scene
     bool warnedShadows2d = false;     // the "more shadow casters than the budget" warning, once per scene
-    std::set<std::string> warnedSpriteClip;  // a SpriteAnimator.clip the sheet does not have, once per entity and scene
     bool warnedSpriteMesh = false;    // the "too many mesh cells" warning, once per scene
     bool warnedGradientStops = false; // the "malformed gradientStops" warning, once per scene
     std::string lights2dScene;        // the scene path warnedLights2d and warnedShadows2d belong to
@@ -158,8 +157,6 @@ struct Renderer::Impl {
     std::uint64_t shadowRowsKey[kShadowRowsRing]{};
     int shadowRowsCurrent = 0;
     bool updated = false;  // update() ran since the last draw
-    std::uint32_t animPass = 0;       // the number of the current advance_animators() pass (SpriteAnimator::advancedPass)
-    bool animatorsAdvanced = false;   // advance_animators() ran since the last update()
     ScaleMode scaleMode = ScaleMode::Fit;
     std::vector<Vertex2D> stream;
 
@@ -1047,7 +1044,6 @@ void Renderer::shutdown() {
     if (!impl_) return;
     Impl& im = *impl_;
     if (im.initialized) {
-        clear_particles();
         im.fonts.reset();
         im.ramps.destroy();
         im.assets.reset();
@@ -1121,7 +1117,6 @@ void Renderer::set_shader_compiler(ShaderCompiler compiler) {
 std::string Renderer::shader_dialect() const { return initialized() ? backend_dialect(sg_query_backend()) : std::string(); }
 void Renderer::clear_asset_cache() {
     if (!impl_ || !impl_->assets) return;
-    clear_particles();
     impl_->fonts->clear();
     impl_->assets->clear();
 }
@@ -1239,48 +1234,17 @@ Vec2 Renderer::design_to_framebuffer(Vec2 d, int fbW, int fbH, ScaleMode mode) c
 // ---------------------------------------------------------------------------
 // render_world
 // ---------------------------------------------------------------------------
-void Renderer::reset_particles() { clear_particles(); }
 render::Gpu* render::renderer_gpu(Renderer& r) { return r.impl_ ? &r.impl_->gpu : nullptr; }
 
 void Renderer::update(World& world, float dt) {
+    (void)dt;  // the animators and the particles move in the simulation step (fa::update_sprite_animators, World::particles())
     if (!initialized()) return;
     Impl& im = *impl_;
-    Frame fr;
-    fr.dt = dt;
-    fr.assets = im.assets.get();
-    fr.fonts = im.fonts.get();
-    fr.textScale = im.textScale;
-    fr.uiScale = ui_scale_clamped(world.ui_scale());
-    fr.warnedSpriteClip = &im.warnedSpriteClip;
-    fr.animPass = im.animatorsAdvanced ? im.animPass : 0;  // 0 = no early pass: every animator moves here
-    im.animatorsAdvanced = false;
-    update_animators(world, fr, true);
-    update_particles(world, dt);
     // Camera queries (world_to_screen, screen_to_world, screen_ray, camera_at) must not depend on drawing:
     // the runtime skips drawing in headless/test runs, so refresh the camera here as well.
     im.lastCams = im.collect_cameras(world);
     update_parallax(world, im.lastCams.front().position.xy());  // entity.bounds() of a parallax layer follows the camera in headless runs too
     im.updated = true;
-}
-
-void Renderer::advance_animators(World& world, float dt) {
-    if (!initialized()) return;
-    Impl& im = *impl_;
-    Frame fr;
-    fr.dt = dt;
-    fr.assets = im.assets.get();
-    fr.fonts = im.fonts.get();
-    fr.warnedSpriteClip = &im.warnedSpriteClip;
-    if (++im.animPass == 0) ++im.animPass;  // 0 means "none"
-    fr.animPass = im.animPass;
-    fr.animEarly = true;
-    update_animators(world, fr, true);
-    im.animatorsAdvanced = true;
-}
-
-void Renderer::emit_burst(Entity e, int count) {
-    if (!initialized() || !e) return;
-    queue_particle_burst(e.bits(), count);
 }
 
 void Renderer::set_scale_mode(ScaleMode mode) {
@@ -1363,7 +1327,6 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
     fr.warnedLights2d = &warnedLights2d;
     fr.warnedShadows2d = &warnedShadows2d;
     fr.warnedSpriteMesh = &warnedSpriteMesh;
-    fr.warnedSpriteClip = &warnedSpriteClip;
     fr.warnedGradientStops = &warnedGradientStops;
     fr.shadowCache = &shadowCache;
     fr.ramps = &ramps;
@@ -1395,7 +1358,6 @@ void Renderer::Impl::render(World& world, float dt) {
         warnedLights2d = false;
         warnedShadows2d = false;
         warnedSpriteMesh = false;
-        warnedSpriteClip.clear();
         warnedGradientStops = false;
         warnedCameras = false;
     }
@@ -1410,7 +1372,6 @@ void Renderer::Impl::render(World& world, float dt) {
         specs.push_back({lastCams.front(), false, true});
     }
 
-    flush_particle_bursts(world);
     // The MeshRenderers that show a render target (texture, normalMap or a texture parameter of the material): who shows what is
     // known from the meshes in view of each camera, below. Nothing is scanned when no camera renders into a target.
     struct MeshRef { Entity e; std::vector<int> targets; };
@@ -1450,7 +1411,7 @@ void Renderer::Impl::render(World& world, float dt) {
         fr.wantWorld = specs[i].world;
         fr.wantScreen = specs[i].screen;
         setup(fr);
-        update_animators(world, fr, false);
+        apply_sprite_frames(world, fr);
         gather_2d(world, fr);
         if (fr.wantScreen) gather_ui(world, fr);
         gather_particles(world, fr);
@@ -1470,7 +1431,7 @@ void Renderer::Impl::render(World& world, float dt) {
         fr.targetW = tc.w;
         fr.targetH = tc.h;
         fr.renderScale = 1.0f;
-        update_animators(world, fr, false);
+        apply_sprite_frames(world, fr);
         gather_2d(world, fr);
         if (fr.cam.studio) {
             fr.lights2d.clear();
@@ -1496,7 +1457,7 @@ void Renderer::Impl::render(World& world, float dt) {
             fr.targetW = rq.pxW;
             fr.targetH = rq.pxH;
             fr.renderScale = rq.size.x > 0.0f ? float(rq.pxW) / rq.size.x : 1.0f;
-            update_animators(world, fr, false);
+            apply_sprite_frames(world, fr);
             gather_2d(world, fr);
             if (fr.cam.studio) {  // the scene's 2D lights do not reach a studio camera: lit sprites show at full brightness
                 fr.lights2d.clear();
@@ -2555,7 +2516,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
         fr.targetW = w;
         fr.targetH = h;
         fr.renderScale = spec.scale;
-        update_animators(world, fr, false);
+        apply_sprite_frames(world, fr);
         gather_2d(world, fr);
         gather_particles(world, fr);
         if (im.fonts->atlas_epoch() == atlasEpoch) break;  // else the atlas was remade halfway: gather again

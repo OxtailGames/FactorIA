@@ -1,6 +1,7 @@
 // SpriteAnimator logic without a GPU: which clip of the texture's sheet entry plays, how time walks its frames, which
-// rectangle of the texture a frame is, and the pivot the sheet gives the sprite. The renderer (update_animators) steps the
-// animators with the frame time and applies the region; scripts call sprite_animator_play (entity.spriteAnimator).
+// rectangle of the texture a frame is, and the pivot the sheet gives the sprite. The runtime steps the animators in the fixed
+// simulation step (update_sprite_animators, no GPU needed) and the renderer only draws the frame they chose; scripts call
+// sprite_animator_play (entity.spriteAnimator).
 //
 // Resolution order: the numeric fields of the component override the clip's values when they differ from their defaults
 // (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true; `loop: false` is the only value of loop that overrides);
@@ -42,6 +43,15 @@ std::string sprite_clip_error(std::string_view texture, std::string_view clip, c
 // after the start. n is clamped for a clip that does not loop.
 int sprite_anim_steps(const SpriteAnimPlan& plan);      // frames in one pass, pingpong included (first..last..first without repeating the ends)
 int sprite_anim_frame(const SpriteAnimPlan& plan, int step);  // the grid index at a step of the pass
+
+// One step of `dt` seconds of every active SpriteAnimator of `world`: clip changes, time, `frame`, the frame events
+// (SpriteAnimator::events, only when dt > 0), the game event `clipEnded` of a clip that reached its end, and the Sprite.region of
+// the frame (the pixel rectangle of the frame in the texture). The sheet comes from assets::sheet and the texture's size from
+// its file (texture_size, cached by file time and size), never from a GPU texture, so a game with no renderer animates the same
+// as one with it. A texture with no readable file counts 32x32 (the renderer's missing-texture checker), no texture 1x1; a
+// `runtime:` or `target:` texture has no size on the CPU: its region is left to the renderer. dt = 0 only settles (a script
+// changed the clip). An unknown `clip` is warned once per entity and clip (World::warned_sprite_clips).
+void update_sprite_animators(World& world, float dt);
 
 // Moves `a` on by `dt` seconds against `plan`: a change of clip restarts, time advances, `frame` is set. Returns true when a
 // clip that does not loop reached its end during this step (once: `ended` is set, `playing` becomes false and the animation
