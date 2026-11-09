@@ -189,14 +189,20 @@ if(FA_BUILD_TESTS)
         WORKING_DIRECTORY ${FA_ROOT})
     set_tests_properties(example_jobs_same_frames PROPERTIES LABELS "gpu;example" TIMEOUT ${fa_example_timeout}
         DISABLED ${fa_examples_disabled})
-    # The simulation does not depend on the renderer: every scene of every example gives the same world hash after the same
-    # frames with a GPU renderer that draws and with --no-graphics (sprite animators and particles advance in the fixed step).
-    add_test(NAME example_graphics_same_hash
-        COMMAND ${CMAKE_COMMAND} -DFACTORIA=$<TARGET_FILE:factoria> -DROOT=${FA_ROOT}
-                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/graphics_same_hash.cmake
-        WORKING_DIRECTORY ${FA_ROOT})
-    set_tests_properties(example_graphics_same_hash PROPERTIES LABELS "gpu;example" TIMEOUT 900
-        DISABLED ${fa_examples_disabled})
+    # The simulation does not depend on the renderer: every scene of an example gives the same sprite animator, sprite and
+    # particle state after the same frames with a GPU renderer that draws and with --no-graphics (they advance in the fixed
+    # step). One test per example, so a loaded CI VM does not need one huge timeout for all of them.
+    foreach(ex ${FA_EXAMPLE_PROJECTS})
+        if(EXISTS ${ex}/factoria.json)
+            get_filename_component(ex_name ${ex} NAME)
+            add_test(NAME example_${ex_name}_graphics_same_hash
+                COMMAND ${CMAKE_COMMAND} -DFACTORIA=$<TARGET_FILE:factoria> -DROOT=${FA_ROOT} -DEXAMPLE=${ex_name}
+                        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/graphics_same_hash.cmake
+                WORKING_DIRECTORY ${FA_ROOT})
+            set_tests_properties(example_${ex_name}_graphics_same_hash PROPERTIES LABELS "gpu;example"
+                TIMEOUT ${fa_example_timeout} DISABLED ${fa_examples_disabled})
+        endif()
+    endforeach()
     # The menu kit of docs/MENUS.md as a project, checked the same way and driven with a gamepad only.
     set(fx ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/menus)
     add_test(NAME fixture_menus_validate COMMAND factoria validate ${fx} WORKING_DIRECTORY ${FA_ROOT})

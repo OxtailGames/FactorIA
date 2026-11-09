@@ -82,3 +82,25 @@ TEST_CASE("particle store: the same emitter in two worlds draws the same random 
     CHECK(a.particles().find(plain) == nullptr);
     CHECK(a.particles().find(ea)->sim.particles.size() == 10);
 }
+
+TEST_CASE("particle store: a settle pass (dt 0) keeps the motion an emitter made between two fixed steps") {
+    World w;
+    const Entity e = add_emitter(w, "trail", 0);
+    ParticleEmitter* em = w.get<ParticleEmitter>(e);
+    REQUIRE(em);
+    em->worldSpace = true;
+    em->inheritVelocity = 1.0f;
+    em->speed = 0;
+    Transform* t = w.get<Transform>(e);
+    REQUIRE(t);
+    w.particles().update(w, 1.0f / 60.0f);  // the emitter is seen at x = 0
+    t->position.x += 6.0f;                  // a script or a tween moves it during the next step ...
+    w.particles().update(w, 0.0f);          // ... and the end-of-frame settle pass must not forget where it was
+    w.particles().queue_burst(w, e, 1);
+    w.particles().update(w, 1.0f / 60.0f);
+    const ParticleEmitterState* st = w.particles().find(e);
+    REQUIRE(st);
+    REQUIRE(st->sim.particles.size() == 1);
+    // 6 units in 1/60 s: the particle inherits 360 units/s (a settle pass that took the place as seen would make it 0).
+    CHECK(st->sim.particles[0].vel.x == doctest::Approx(360.0f).epsilon(0.05));
+}
