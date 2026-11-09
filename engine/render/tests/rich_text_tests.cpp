@@ -20,8 +20,8 @@ constexpr float kLineEps = 0.01f;
 const TextStyle kMarkup{true, false};
 const TextStyle kBold{false, true};
 
-// The project style of these tests: two colours and two icons (a red and a blue square of a 16 x 8 texture, the second one
-// twice as wide as high), written into the test project once.
+// The project style of these tests: two colours and two icons, cut from one 24 x 8 texture written into the test project once: a
+// red square (8 x 8) and a blue rectangle (16 x 8, twice as wide as high).
 RichTextStyle test_style() {
     static const bool written = [] {
         Image img;

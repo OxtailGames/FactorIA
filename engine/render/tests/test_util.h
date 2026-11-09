@@ -53,7 +53,7 @@ struct Gfx {
     // simulate() and then the renderer's own update (cameras, parallax).
     void update(World& world, float dt) {
         simulate(world, dt);
-        renderer.update(world, dt);
+        renderer.update(world);
     }
 
     // simulate(dt) and draw: the picture of a frame of `dt` seconds.

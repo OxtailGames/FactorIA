@@ -4635,7 +4635,7 @@
     {
      "kind": "interface",
      "name": "SpriteAnimatorAPI",
-     "doc": "Plays the named clips of a sprite sheet on an entity with a Sprite and a SpriteAnimator (entity.spriteAnimator). The clips are those of the `sheet` entry of the sprite's texture in assets.json (assets.animate_svg, assets.bake_sheet, assets.slice_sheet and the Aseprite import write it). The renderer steps the animation with the frame time, so it runs with a renderer (a headless run has one when a GPU is found). Example: `fx.spriteAnimator.play(\"pop\"); fx.spriteAnimator.on(\"clipEnded\", () => fx.destroy());`.",
+     "doc": "Plays the named clips of a sprite sheet on an entity with a Sprite and a SpriteAnimator (entity.spriteAnimator). The clips are those of the `sheet` entry of the sprite's texture in assets.json (assets.animate_svg, assets.bake_sheet, assets.slice_sheet and the Aseprite import write it). The animation is stepped in the fixed simulation step, with or without a renderer, so a run with no graphics plays the same frames as one that draws. Example: `fx.spriteAnimator.play(\"pop\"); fx.spriteAnimator.on(\"clipEnded\", () => fx.destroy());`.",
      "members": [
       {
        "sig": "play(clip: string, restart?: boolean): void",

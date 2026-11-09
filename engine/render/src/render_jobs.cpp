@@ -46,27 +46,4 @@ void run(std::string_view name, const Split& s, const std::function<void(const j
     if (auto r = jobs::parallel_for(name, s.count, s.grain, fn); !r) report_failure(name, r.error().message);
 }
 
-std::vector<std::pair<std::size_t, std::size_t>> weighted_ranges(const std::vector<std::size_t>& weights,
-                                                                 std::size_t target, std::size_t minTotal) {
-    std::vector<std::pair<std::size_t, std::size_t>> out;
-    if (weights.empty()) return out;
-    std::size_t total = 0;
-    for (std::size_t w : weights) total += w;
-    if (total < minTotal || jobs::worker_count() == 0) {
-        out.emplace_back(0, weights.size());
-        return out;
-    }
-    std::size_t first = 0, sum = 0;
-    for (std::size_t i = 0; i < weights.size(); ++i) {
-        sum += weights[i];
-        if (sum >= target) {
-            out.emplace_back(first, i + 1);
-            first = i + 1;
-            sum = 0;
-        }
-    }
-    if (first < weights.size()) out.emplace_back(first, weights.size());
-    return out;
-}
-
 }  // namespace fa::render::rjobs

@@ -313,7 +313,8 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
 #### Systems that run as jobs
 
 The per-frame work of these systems is split over the pool with the helpers of `engine/render/src/render_jobs.h`
-(`rjobs::split`, `rjobs::run`, `rjobs::weighted_ranges`, `rjobs::stable_sort`) or `jobs::parallel_for`. Each pass
+(`rjobs::split`, `rjobs::run`, `rjobs::stable_sort`) or `jobs::parallel_for` / `jobs::weighted_ranges` (`fa/core/jobs.h`, shared
+with the particle step of `fa_scene`). Each pass
 below its threshold, and every pass while the pool has no worker thread (stopped, `"inline"`, 0 workers), is one chunk
 on the calling thread: the reference path. The thresholds are counts of items, never times, so where the line falls
 does not depend on the machine:
@@ -563,7 +564,8 @@ Skeletal animation is GPU-free and lives in `fa_scene`, so simulation and tests 
   `emitBurst`. Both run in the fixed step right after `update_vfx`, with `fixedDt * time.scale`, and again with `dt` 0 before a
   picture is drawn (`Engine::Impl::settle_visuals`: a clip a script changed this frame, or a burst, shows in this frame's
   picture and never advances time). A `SpriteAnimator` reads the size of its sheet from the image file or the packed atlas
-  (`texture_size`, cached by file name and looked at again once per frame, so a platform whose files have no modification time,
+  (`texture_size`, cached by file name and looked at again once per frame: the end of the `dt` 0 pass starts the next epoch, so the
+  steps of a frame and its settle pass look at a file once; so a platform whose files have no modification time,
   like an Android APK asset, reads each picture once), never from a GPU texture, so a run with `graphics=false` and one that draws
   give the same `Sprite.region`; the renderer only repeats the region for a texture that exists on the GPU alone
   (`runtime:`, `target:`). The particle state is a `ParticleStore` owned by the `World` and keyed by entity: two worlds (the
@@ -578,16 +580,22 @@ Skeletal animation is GPU-free and lives in `fa_scene`, so simulation and tests 
   one warning. The cameras are `fa/scene/camera_geometry.h`: `camera_geometry` builds the view, projection and viewport of a
   `Camera` for a render target size, `CameraSet` keeps the cameras of the last frame (`refresh`, the renderer's snapshot: queries
   before the first `render()` see the default camera) and answers `world_to_screen`, `screen_to_world`, `screen_ray` and
-  `camera_at`; `update_parallax` writes `Parallax.offset` from it. The renderer builds its `CameraInfo` from the same function and
+  `camera_at`; `update_parallax` writes `Parallax.offset` from it. The offset the world keeps is always the one for the FIRST
+  camera (with a renderer too: while it draws, each camera, render target or `CameraView` shifts the layers for itself, and the
+  first camera's offset is put back when the gathers are done). A scene load refreshes the `CameraSet`, and the script natives
+  fall back to the live orthographic maths while it has no camera. The renderer builds its `CameraInfo` from the same function and
   `Engine::render()` without a renderer refreshes the `CameraSet` from the design size, so `input.mouse.world`,
   `camera.worldToScreen` and Parallax give the same floats either way (the queries always use the OpenGL depth range, whatever the
-  backend). `world_state_hash` includes the live particles (`ParticleStore`: positions, ages, the emitter clocks).
+  backend). `world_state_hash` includes the live particles (`ParticleStore`: positions, ages, the emitter clocks, random sequences and
+  emission accumulators).
   The ctests `example_<name>_graphics_same_hash` (one per example) compare `game.state_hash` of the WHOLE world of every scene
   after 40 frames with a renderer that draws and with `--no-graphics` (first the Sprite, SpriteAnimator and ParticleEmitter
   components alone, so a failure says whether the animators differ), and
   engine/runtime/tests/sim_without_renderer_tests.cpp does it frame by frame for a small project with a moving camera, a Parallax
   layer, a fitted panel and wrapped Japanese text. engine/render/tests/text_measure_tests.cpp compares `TextMeasurer` with the
-  renderer (Latin, CJK, Arabic, the missing-glyph fallback, wrapping, rich text, the text and interface scales) with `==`.
+  renderer (Latin, CJK, Arabic, the missing-glyph fallback, wrapping, rich text, the text and interface scales) with `==`, and
+  one test with no renderer at all checks fixed sizes of the bundled font (4% tolerance) so it also runs where there is no GPU. The
+  `TextMeasurer` is kept in step with the project settings only while there is no renderer.
 Game-maker docs: [ANIMATION.md](ANIMATION.md).
 
 ### UI
