@@ -41,11 +41,13 @@ struct GoldenLimits {
 //    pixels more than 4/255 off (2d_captions on llvmpipe; 3.7 % for 3d_pbr_normalmap_ibl), largest error up to 0.19 on
 //    the 3D goldens. So 0.004 mean (the bound the goldens always had), 8 % of the pixels (about 2x the worst measured:
 //    a wrong region of a twelfth of the picture still fails) and 0.6 for the largest error (3x the worst 3D case).
-//  - Direct3D 11 (the CI windows job runs fa_test_render and fa_test_cli on WARP) has NOT been measured against the share and
-//    maximum gates: they were chosen on Metal and llvmpipe. Measure it on the Windows PC with
-//    `FACTORIA_D3D11_WARP=1 FA_GOLDEN_REPORT=1 fa_test_render` (and fa_test_cli) and record the worst mean, share and max
-//    per golden HERE (D3D11 WARP: not yet measured), raising a limit only with those numbers. The mean bound is what its CI
-//    job always had and these limits do not loosen it.
+//  - Direct3D 11 on Windows (Debug MSVC; fa_test_render 295/295 and the 3 fa_test_cli golden cases pass with these limits):
+//    WARP (FACTORIA_D3D11_WARP=1, the CI runner's adapter): worst share 3.5 % (3d_pbr_normalmap_ibl, mean 0.0015, max 0.19;
+//    3d_mixed 1.4 %), worst mean 0.0021 (2d_debug); a largest error above 0.6 only on edge-limit goldens: 2d_debug 1.0,
+//    2d_captions 0.91, 2d_widgets 0.85, 2d_parallax 0.81 (0.07 % of the pixels), 3d_material_cutout 0.78 (0.06 %). CLI:
+//    export_2d_platformer project mean 0.000002, exported game mean 0.00034 / share 1.1 % / max 0.098; menus_ar mean 0.0008 /
+//    share 0.43 % / max 0.49; menus_text200 exact. Hardware (AMD RX 6950 XT): every 3D golden exact except 3d_mixed (share
+//    1.4 %, max 0.078); the 2D and UI goldens as on WARP.
 //  - Goldens with text, thin lines or nearest-sampled texture edges have single pixels that flip between ink and background
 //    from one GPU to the next (largest error 0.78 to 1.0 on Metal and llvmpipe, in under 0.3 % of the pixels): they pass
 //    golden_edge_limits(), which lets the largest error be 1.0 and keeps the mean and the share.
