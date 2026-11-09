@@ -46,6 +46,8 @@ class Input;
 class Audio;
 class Physics;
 class Renderer;
+class TextMeasurer;
+class CameraSet;
 class UiSystem;
 class Clipboard;
 class PlatformServices;
@@ -90,6 +92,12 @@ public:
     virtual Audio& audio() = 0;
     virtual Physics& physics() = 0;
     virtual Renderer* renderer() = 0;  // nullptr when running without graphics
+    // Measures text on the CPU with the renderer's fonts and shaping (fa/render/text_measure.h) for a run without graphics. nullptr: the
+    // host cannot (a test host), and measuring falls back to approx_text_size.
+    virtual const TextMeasurer* text_measurer() const { return nullptr; }
+    // The cameras of a run without graphics (fa/scene/camera_geometry.h), which answer camera.worldToScreen, screenToWorld, screenRay
+    // and at exactly like the renderer's. nullptr: the host has none (a test host), and the natives use the live orthographic maths.
+    virtual const CameraSet* camera_set() const { return nullptr; }
     virtual UiSystem* ui() { return nullptr; }  // the game UI (ui.focus, ui.focused, ui.hovered); nullptr without one
     virtual CommandRegistry& commands() = 0;
     virtual Json project_settings() const = 0;

@@ -262,9 +262,9 @@ one wrapped, aligned, measured text (`maxWidth`, `align`, `autoShrink` and `maxT
 - **What it costs.** All the glyphs of a Text, whatever their colours and weights, are one batch and one draw call (they
   share the glyph atlas). Icons are pictures from a texture, which the glyph atlas cannot hold: each texture that a text
   draws icons from adds one more batch, however many icons it has.
-- **Measuring.** `ui.measureText(text, { markup: true, bold: true, ... })` measures with the same layout. Without a
-  renderer (no graphics device), tags are still skipped and an icon counts as two characters (0.6 em each) of a line 1.2
-  em tall.
+- **Measuring.** `ui.measureText(text, { markup: true, bold: true, ... })` measures with the same layout. A run without
+  graphics measures the same: tags are skipped and an icon is as tall as the line and as wide as its picture's shape
+  allows (square when the project has no such icon), in every run.
 - **Localized text.** The tags travel in the string table: translators keep them and move them around the words. Put
   `markup: true` on the Text that shows the key.
 
@@ -296,9 +296,11 @@ it has a size in meters, it looks smaller far away and it follows the entity's r
 
 `ui.measureText(text, { fontSize, font, maxWidth, space, maxTextScale, autoShrink, minFontSize, maxHeight, markup, bold })` returns
 `{ width, height, fontSize }` of exactly the layout that is drawn (`fontSize` is the size it is laid out at, in pixels), shaped and wrapped, with the fallback fonts. `space` is `"screen"` (the default: a HUD label, a widget label) or
-`"world"`; it matters only for the text size option below. It is exact in tests, `factoria call` and headless runs
-(they draw with an offscreen renderer); only when no graphics device can be created does it approximate 0.6 ×
-`fontSize` per character and warn once. A wrapped text is as wide as its widest line (at most `maxWidth`, and less for a short label, with a renderer and headless alike) and as tall as its lines. A `Text` with `align` center or right still lays its lines out inside the `maxWidth` box (the pivot is that box's), while its measured size, `ui.rectOf` and `ui.overflowed` use the widest line; widget labels are aligned inside their widest line.
+`"world"`; it matters only for the text size option below. It gives the same numbers with and without a
+renderer (tests, `factoria call`, `--no-graphics`, `graphics=false`): without a GPU the text is shaped on the CPU with the same fonts and
+the same code (`fa::TextMeasurer`, `fa/render/text_measure.h`; the renderer lays out through the same `FontSet`), so a layout, a `Panel` with
+`fit` sized from `ui.measureText`, and a simulation hash do not depend on whether a window is open. Only if the built-in font itself cannot
+be loaded does it approximate 0.6 × `fontSize` per character and warn once. A wrapped text is as wide as its widest line (at most `maxWidth`, and less for a short label, with a renderer and headless alike) and as tall as its lines. A `Text` with `align` center or right still lays its lines out inside the `maxWidth` box (the pivot is that box's), while its measured size, `ui.rectOf` and `ui.overflowed` use the widest line; widget labels are aligned inside their widest line.
 
 ## Text size (`ui.textScale`)
 

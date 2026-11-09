@@ -1,4 +1,6 @@
 #include "fa/render/renderer.h"
+#include "fa/scene/camera_geometry.h"
+#include "fa/scene/camera_query.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/lod.h"
 
@@ -22,6 +24,7 @@
 #include "shaders/colorfilter.glsl.h"
 #include "frame.h"
 #include "mesh_batch.h"
+#include "font_set.h"
 #include "render_internal.h"
 #include "render_jobs.h"
 #include "shader_cache.h"
@@ -733,119 +736,42 @@ void Renderer::Impl::create_shadow_targets() {
     shadowTexView = sg_make_view(&v);
 }
 
-// The viewport a camera is drawn with: a valid Camera.viewport as it is, an invalid one (a script can set any value live; the
-// scene loader refuses it in a file) clamped into the screen, or the whole screen when it has no size. Logs the problem once.
-static Rect sanitize_viewport(const Rect& v, std::string& warned) {
-    const std::string problem = camera_viewport_problem(v);
-    if (problem.empty()) {
-        const float x = std::clamp(v.x, 0.0f, 1.0f), y = std::clamp(v.y, 0.0f, 1.0f);
-        return Rect{x, y, std::min(v.w, 1.0f - x), std::min(v.h, 1.0f - y)};
-    }
-    if (warned != problem) {
-        warned = problem;
-        FA_WARN("render", "{}: the camera is drawn with the nearest valid rectangle. Hint: viewport is [x, y, width, height] as "
-                "fractions of the screen with [0, 0] the top-left corner, e.g. [0, 0, 0.5, 1] for the left half", problem);
-    }
-    if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.w) || !std::isfinite(v.h) || v.w <= 0.0f || v.h <= 0.0f)
-        return Rect{0, 0, 1, 1};
-    const float x = std::clamp(v.x, 0.0f, 0.999f), y = std::clamp(v.y, 0.0f, 0.999f);
-    return Rect{x, y, std::min(v.w, 1.0f - x), std::min(v.h, 1.0f - y)};
-}
-
 CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* viewSize, bool renderTarget) {
+    CameraTarget target;
+    target.width = targetW;
+    target.height = targetH;
+    target.designWidth = desc.designWidth;
+    target.designHeight = desc.designHeight;
+    target.expand = scaleMode == ScaleMode::Expand;
+    target.zeroToOne = gpu.depth_zero_to_one();
     CameraInfo ci;
-    const bool z01 = gpu.depth_zero_to_one();
+    static_cast<CameraGeometry&>(ci) = camera_geometry(world, best, target, warnedViewport, viewSize, renderTarget);
     Camera cam;  // defaults when no camera exists
-    Mat4 camWorld;
     if (best) {
         cam = *world.get<Camera>(best);
-        camWorld = world.drawn_matrix(best);
-        ci.fromEntity = true;
-        ci.entity = best;
-        ci.depth = cam.depth;
-        ci.viewport = sanitize_viewport(cam.viewport, warnedViewport);
-        if (cam.viewportSpace == ViewportSpace::Design && !viewSize) {
-            // The fractions count the design resolution from the top-left corner: the same pixels in fractions of the target.
-            const float sx = float(desc.designWidth) / float(std::max(1, targetW)), sy = float(desc.designHeight) / float(std::max(1, targetH));
-            const float x = std::min(ci.viewport.x * sx, 1.0f), y = std::min(ci.viewport.y * sy, 1.0f);
-            ci.viewport = Rect{x, y, std::min(ci.viewport.w * sx, 1.0f - x), std::min(ci.viewport.h * sy, 1.0f - y)};
-        }
         ci.studio = cam.lighting == CameraLighting::Studio;
         ci.studioIntensity = std::isfinite(cam.studioIntensity) ? std::clamp(cam.studioIntensity, 0.0f, 8.0f) : 1.0f;
     }
-    // A CameraView's camera fills its image whatever its Camera.viewport says, and always clears it.
-    if (viewSize) ci.viewport = Rect{0, 0, 1, 1};
-    // The view is drawn into the viewport: its aspect and its height in design pixels are the rectangle's.
-    const float viewW = viewSize ? viewSize->x : float(targetW) * ci.viewport.w, viewH = viewSize ? viewSize->y : float(targetH) * ci.viewport.h;
-    const float aspect = viewW / std::max(viewH, 1.0f);
-    // Remove scale from the camera's world matrix: view = R^T * T^-1.
-    Vec3 t = camWorld.translation();
-    Vec3 x = normalize(Vec3{camWorld.at(0, 0), camWorld.at(0, 1), camWorld.at(0, 2)});
-    Vec3 y = normalize(Vec3{camWorld.at(1, 0), camWorld.at(1, 1), camWorld.at(1, 2)});
-    Vec3 z = normalize(Vec3{camWorld.at(2, 0), camWorld.at(2, 1), camWorld.at(2, 2)});
-    Mat4 view;
-    view.at(0, 0) = x.x; view.at(1, 0) = x.y; view.at(2, 0) = x.z;
-    view.at(0, 1) = y.x; view.at(1, 1) = y.y; view.at(2, 1) = y.z;
-    view.at(0, 2) = z.x; view.at(1, 2) = z.y; view.at(2, 2) = z.z;
-    view.at(3, 0) = -dot(x, t); view.at(3, 1) = -dot(y, t); view.at(3, 2) = -dot(z, t);
-    ci.view = view;
-    ci.position = t;
-    ci.right = x; ci.up = y; ci.forward = -z;
     ci.clearColor = cam.clearColor;
     ci.clear = cam.clear || viewSize != nullptr;
     ci.colorFilter = std::clamp(int(cam.colorFilter), 0, 5);
     ci.bloom = sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius, cam.bloomScreenSpace);
-    if (cam.projection == Projection::Perspective) {
-        ci.perspective = true;
-        ci.fov = cam.fov;
-        ci.proj = Mat4::perspective(cam.fov, aspect, std::max(1e-3f, cam.nearPlane), std::max(cam.farPlane, cam.nearPlane + 0.01f), z01);
-        ci.pixelsPerUnit = 1.0f;
-    } else {
-        float halfH = cam.orthoSize > 0 ? cam.orthoSize : viewH * 0.5f;
-        float halfW = halfH * aspect;
-        if (scaleMode == ScaleMode::Expand && cam.orthoSize > 0 && !renderTarget) {
-            // Expand: the design height (landscape-ish targets) or design width (taller targets) stays fixed;
-            // the other axis grows with the window aspect.
-            float designAspect = float(desc.designWidth) / float(std::max(1, desc.designHeight));
-            if (aspect < designAspect) {
-                halfW = cam.orthoSize * designAspect;
-                halfH = halfW / aspect;
-            }
-        }
-        ci.halfH = halfH; ci.halfW = halfW;
-        ci.pixelsPerUnit = viewH / (2.0f * halfH);
-        ci.proj = Mat4::ortho(-halfW, halfW, -halfH, halfH, -1000.0f, 1000.0f, z01);
-        ci.visible = Rect{t.x - halfW, t.y - halfH, halfW * 2, halfH * 2};
-        // Rotated 2D cameras: use a conservative (circumscribed) rectangle for culling.
-        float rad = std::sqrt(halfW * halfW + halfH * halfH);
-        if (std::fabs(x.y) > 1e-3f) ci.visible = Rect{t.x - rad, t.y - rad, rad * 2, rad * 2};
-    }
-    ci.viewProj = ci.proj * ci.view;
-    ci.invViewProj = ci.viewProj.inverse();
     return ci;
 }
 
 // Every active camera with primary = true, ascending Camera.depth (equal depths keep the order of creation); a world without
 // one gets a default camera.
 std::vector<CameraInfo> Renderer::Impl::collect_cameras(World& world) {
-    struct Found { Entity e; int depth; };
-    std::vector<Found> found;
-    world.each<Camera>([&](Entity e, Camera& c) {
-        if (c.primary && c.renderTarget.empty() && entity_active(world, e)) found.push_back({e, c.depth});
-    });
-    std::stable_sort(found.begin(), found.end(), [](const Found& a, const Found& b) { return a.depth < b.depth; });
-    constexpr std::size_t kMaxCameras = 8;
-    if (found.size() > kMaxCameras) {
-        if (!warnedCameras) {
-            warnedCameras = true;
-            FA_WARN("render", "{} cameras are active (primary) but a frame draws at most {}: the ones with the highest depth are "
-                    "left out. Hint: set primary to false on the cameras you do not need, e.g. when a split screen ends",
-                    found.size(), kMaxCameras);
-        }
-        found.resize(kMaxCameras);
+    std::size_t total = 0;
+    const std::vector<Entity> found = rendering_cameras(world, &total);
+    if (total > found.size() && !warnedCameras) {
+        warnedCameras = true;
+        FA_WARN("render", "{} cameras are active (primary) but a frame draws at most {}: the ones with the highest depth are "
+                "left out. Hint: set primary to false on the cameras you do not need, e.g. when a split screen ends",
+                total, found.size());
     }
     std::vector<CameraInfo> out;
-    for (const Found& f : found) out.push_back(build_camera(world, f.e));
+    for (const Entity e : found) out.push_back(build_camera(world, e));
     if (out.empty()) out.push_back(build_camera(world, kNullEntity));
     return out;
 }
@@ -854,18 +780,8 @@ std::vector<CameraInfo> Renderer::Impl::collect_cameras(World& world) {
 // viewport contains the point; else the first. `lastCams` is never empty after the first update().
 const CameraInfo& Renderer::Impl::camera_for(Entity camera, const Vec2* screenPoint) const {
     static const CameraInfo kNone{};
-    if (lastCams.empty()) return kNone;
-    if (camera)
-        for (const CameraInfo& c : lastCams)
-            if (c.entity == camera) return c;
-    if (screenPoint && lastCams.size() > 1 && targetW > 0 && targetH > 0) {
-        const float nx = screenPoint->x / float(targetW), ny = screenPoint->y / float(targetH);
-        for (std::size_t i = lastCams.size(); i-- > 0;) {
-            const Rect& v = lastCams[i].viewport;
-            if (nx >= v.x && nx < v.x + v.w && ny >= v.y && ny < v.y + v.h) return lastCams[i];
-        }
-    }
-    return lastCams.front();
+    const CameraInfo* c = pick_camera(lastCams, camera, screenPoint, Vec2{float(targetW), float(targetH)});
+    return c ? *c : kNone;
 }
 
 // ---------------------------------------------------------------------------
@@ -1148,37 +1064,22 @@ Json Renderer::asset_report() const {
 // ---- camera helpers ----
 Vec2 Renderer::world_to_screen(Vec3 p, Entity camera) const {
     if (!impl_) return {};
-    const CameraInfo& cam = impl_->camera_for(camera, nullptr);
-    Vec4 c = cam.viewProj * Vec4{p, 1.0f};
-    float w = std::fabs(c.w) > 1e-8f ? c.w : 1e-8f;
-    float nx = c.x / w, ny = c.y / w;
-    const Rect& v = cam.viewport;  // ndc -1..1 spans the viewport, not the whole target
-    return {(v.x + (nx * 0.5f + 0.5f) * v.w) * float(impl_->targetW), (v.y + (1.0f - (ny * 0.5f + 0.5f)) * v.h) * float(impl_->targetH)};
+    return impl_->camera_for(camera, nullptr).world_to_screen(p, Vec2{float(impl_->targetW), float(impl_->targetH)});
 }
 
 void Renderer::screen_ray(Vec2 s, Vec3& origin, Vec3& dir, Entity camera) const {
     origin = {}; dir = kForward;
     if (!impl_) return;
-    const CameraInfo& c = impl_->camera_for(camera, &s);
-    const Rect& v = c.viewport;
-    float nx = ((s.x / float(impl_->targetW) - v.x) / v.w) * 2.0f - 1.0f;
-    float ny = 1.0f - ((s.y / float(impl_->targetH) - v.y) / v.h) * 2.0f;
-    float nearZ = impl_->gpu.depth_zero_to_one() ? 0.0f : -1.0f;
-    Vec3 a = c.invViewProj.transform_point({nx, ny, nearZ});
-    Vec3 b = c.invViewProj.transform_point({nx, ny, 1.0f});
-    origin = a;
-    dir = normalize(b - a);
-    if (c.perspective) origin = c.position;
+    impl_->camera_for(camera, &s).screen_ray(s, Vec2{float(impl_->targetW), float(impl_->targetH)}, origin, dir);
 }
 
 Vec3 Renderer::screen_to_world(Vec2 s, float depth, Entity camera) const {
-    Vec3 o, d;
-    screen_ray(s, o, d, camera);
-    if (!impl_) return o;
-    if (impl_->camera_for(camera, &s).perspective) return o + d * depth;
-    if (std::fabs(d.z) < 1e-6f) return {o.x, o.y, depth};
-    float t = (depth - o.z) / d.z;
-    return o + d * t;
+    if (!impl_) {
+        Vec3 o, d;
+        screen_ray(s, o, d, camera);
+        return o;
+    }
+    return impl_->camera_for(camera, &s).screen_to_world(s, Vec2{float(impl_->targetW), float(impl_->targetH)}, depth);
 }
 
 std::vector<Entity> Renderer::cameras() const {
@@ -1251,38 +1152,17 @@ void Renderer::set_scale_mode(ScaleMode mode) {
     if (impl_) impl_->scaleMode = mode;
 }
 
+// The measuring of a run with no renderer is the same code (fa/render/text_measure.h, font_set.h): shaping and sizes come from the
+// GPU-free FontSet, so a text is the same size drawn or not. Measuring does not rasterize glyphs into the atlas.
 Vec2 Renderer::measure_text(std::string_view text, float fontSize, std::string_view font, float maxWidth, RenderSpace space,
                             TextStyle style) const {
-    if (!initialized() || text.empty() || fontSize <= 0.0f) return {0, 0};
-    Text t;
-    t.markup = style.markup;
-    t.bold = style.bold;
-    t.wordBreak = style.wordBreak;
-    t.text = std::string(text);
-    t.font = std::string(font);
-    t.fontSize = fontSize;
-    t.maxWidth = maxWidth;
-    // The very layout of Text drawing at entity scale 1 (and of UI labels in screen space). Screen-space text is drawn at the
-    // interface scale (ui.scale), rasterized k times as large, so it is measured at that raster size too (the result is in
-    // UI units, not multiplied by k).
-    const bool screen = space == RenderSpace::Screen;
-    return impl_->fonts->layout(t, screen ? fontSize * impl_->textScale : fontSize, screen ? impl_->uiScale : 1.0f).size;
+    if (!initialized()) return {0, 0};
+    return render::measure_plain_text(impl_->fonts->set(), text, fontSize, font, maxWidth, space, style, impl_->textScale, impl_->uiScale);
 }
 
 Vec2 Renderer::measure_text(const Text& text) const {
-    if (!initialized() || text.text.empty() || text.fontSize <= 0.0f) return {0, 0};
-    const bool screen = text.space == RenderSpace::Screen;
-    const TextExtent extent = [this, screen](const std::string& s, const std::string& font, float px, float wrap, TextStyle style) {
-        Text t;
-        t.text = s;
-        t.font = font;
-        t.maxWidth = wrap;
-        t.markup = style.markup;
-        t.bold = style.bold;
-        t.wordBreak = style.wordBreak;
-        return impl_->fonts->layout(t, px, screen ? impl_->uiScale : 1.0f).size;  // px is final: no text scale
-    };
-    return fit_text(text_fit_spec(text), text.text, text.font, textScale_, extent).size;
+    if (!initialized()) return {0, 0};
+    return render::measure_text_component(impl_->fonts->set(), text, textScale_, impl_->uiScale);
 }
 
 void Renderer::set_fallback_fonts(std::vector<std::string> fonts) {

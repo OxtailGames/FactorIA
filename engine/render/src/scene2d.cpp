@@ -5,6 +5,7 @@
 #include "fa/core/log.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/bounds.h"
+#include "fa/scene/camera_geometry.h"
 #include "fa/scene/text_fit.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/ui_rect.h"
@@ -207,10 +208,6 @@ Vec2 tile_source(int flags, float px, float py) {
 }
 
 }  // namespace
-
-void update_parallax(World& world, Vec2 camPos) {
-    world.each<Parallax>([&](Entity, Parallax& p) { p.offset = {camPos.x * (1.0f - p.factor.x), camPos.y * (1.0f - p.factor.y)}; });
-}
 
 namespace {
 
