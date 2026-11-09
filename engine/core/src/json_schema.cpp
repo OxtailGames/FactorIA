@@ -286,7 +286,18 @@ void validate_at(Ctx& ctx, const Json& schemaIn, const Json& value, const std::s
         if (auto it = schema.find("pattern"); it != schema.end() && it->is_string()) {
             const std::string& pattern = it->get_ref<const std::string&>();
             if (auto re = compiled_pattern(pattern)) {
-                if (!std::regex_search(s, *re))
+                // std::regex_search can throw regex_error (error_complexity / error_stack) on a long value; validation runs
+                // outside the handler's try and on job threads, so it must never escape.
+                bool matches = false, tooComplex = false;
+                try {
+                    matches = std::regex_search(s, *re);
+                } catch (const std::regex_error&) {
+                    tooComplex = true;
+                }
+                if (tooComplex)
+                    add(errors, ptr, "string " + describe_json_value(value) + " is too long or too complex to check against the pattern " + it->dump(),
+                        "Use a shorter value (" + std::to_string(s.size()) + " characters here), or simplify the pattern in the schema.");
+                else if (!matches)
                     add(errors, ptr, "string " + describe_json_value(value) + " does not match the pattern " + it->dump(),
                         "Use a value matching /" + pattern + "/.");
             } else {
@@ -338,26 +349,38 @@ void defaults_at(const Json& root, const Json& schemaIn, Json& value, int depth)
 }  // namespace
 
 std::vector<SchemaError> check_schema_patterns(const Json& schema) {
+    struct Node {
+        const Json* json;
+        std::string ptr;
+        bool names;  // an object whose keys are names of properties or definitions (each value is a schema), not keywords
+    };
     std::vector<SchemaError> errors;
-    std::vector<std::pair<const Json*, std::string>> todo{{&schema, ""}};
+    std::vector<Node> todo{{&schema, "", false}};
     // Walk every nested object and array of the schema, so a pattern in a property, in items, in $defs or in a branch is
-    // found; a property that is itself named "pattern" holds a schema (an object), not a string, and is skipped as a regex.
+    // found. The keywords that hold data (default, enum, const, examples) are skipped, but only as keywords: in
+    // "properties" a property may well be called "default" and then holds a schema.
     while (!todo.empty()) {
-        auto [node, ptr] = todo.back();
+        Node n = std::move(todo.back());
         todo.pop_back();
-        if (node->is_object()) {
-            for (auto it = node->begin(); it != node->end(); ++it) {
-                std::string childPtr = ptr + "/" + escape_token(it.key());
-                if (it.key() == "pattern" && it->is_string()) {
+        if (n.json->is_object()) {
+            for (auto it = n.json->begin(); it != n.json->end(); ++it) {
+                std::string childPtr = n.ptr + "/" + escape_token(it.key());
+                if (n.names) {
+                    todo.push_back({&*it, std::move(childPtr), false});
+                    continue;
+                }
+                const std::string& key = it.key();
+                if (key == "pattern" && it->is_string()) {
                     if (!compiled_pattern(it->get_ref<const std::string&>()))
                         errors.push_back({childPtr, "invalid pattern " + it->dump() + " (not an ECMAScript regular expression)",
                                           "Fix the regular expression in the schema; every string checked against it would be rejected."});
-                } else if (it.key() != "default" && it.key() != "enum" && it.key() != "const" && it.key() != "examples") {
-                    todo.emplace_back(&*it, std::move(childPtr));  // values (default, enum...) are data, not schemas
+                } else if (key != "default" && key != "enum" && key != "const" && key != "examples") {
+                    const bool nameMap = it->is_object() && (key == "properties" || key == "$defs" || key == "definitions" || key == "patternProperties");
+                    todo.push_back({&*it, std::move(childPtr), nameMap});
                 }
             }
-        } else if (node->is_array()) {
-            for (std::size_t i = 0; i < node->size(); ++i) todo.emplace_back(&(*node)[i], ptr + "/" + std::to_string(i));
+        } else if (n.json->is_array()) {
+            for (std::size_t i = 0; i < n.json->size(); ++i) todo.push_back({&(*n.json)[i], n.ptr + "/" + std::to_string(i), false});
         }
     }
     return errors;

@@ -1,5 +1,6 @@
 #include <doctest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <thread>
 #include <vector>
@@ -164,4 +165,14 @@ TEST_CASE("schema: an invalid pattern is a teaching error, in the validation and
     CHECK(check_schema_patterns(Json::parse(R"({"type":"string","pattern":"^[a-z]+$"})")).empty());
     // A property that is named "pattern" is a schema, not a regex.
     CHECK(check_schema_patterns(Json::parse(R"({"properties":{"pattern":{"type":"string"}}})")).empty());
+    // A property named like a data keyword ("default", "enum"...) holds a schema and is checked; the keyword itself is data.
+    auto named = check_schema_patterns(Json::parse(R"({"type":"object","properties":{
+        "default":{"type":"string","pattern":"(open"},
+        "enum":{"type":"string","pattern":"[z-a]"}}})"));
+    REQUIRE(named.size() == 2);
+    std::vector<std::string> pointers{named[0].pointer, named[1].pointer};
+    std::sort(pointers.begin(), pointers.end());
+    CHECK(pointers[0] == "/properties/default/pattern");
+    CHECK(pointers[1] == "/properties/enum/pattern");
+    CHECK(check_schema_patterns(Json::parse(R"({"type":"object","default":{"pattern":"(open"},"enum":[{"pattern":"("}]})")).empty());
 }

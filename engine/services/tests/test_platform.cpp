@@ -1740,3 +1740,141 @@ TEST_CASE("platform events: an event queue under the cap loses nothing") {
     CHECK(ps.dropped_events() == 0);
     CHECK(ps.take_events().size() == 50);
 }
+
+TEST_CASE("platform deadlines: the ads consent flow gets a deadline above what the plugins wait for") {
+    PlatformServices ps;
+    ps.set_catalog(catalog());
+    // The plugins wait up to 120 s for the consent form (longer while the player is busy with it), then 30 s for an ad to load.
+    for (const char* m : {"ads.consent", "ads.available", "ads.setUnderAge"}) {
+        CHECK(ps.request_timeout(m) == doctest::Approx(kPlatformAdsFlowTimeoutSeconds));
+        CHECK(ps.request_timeout(m) > 120.0 + 30.0);
+    }
+    CHECK(ps.request_timeout("ads.showRewarded") == doctest::Approx(kPlatformInteractiveTimeoutSeconds));
+}
+
+TEST_CASE("platform deadlines: a purchase that succeeds after its deadline reaches the game as a purchase event") {
+    PlatformServices ps;
+    ps.set_catalog(catalog());
+    auto rec = std::make_unique<Recorder>();
+    Recorder* backend = rec.get();
+    ps.set_backend(std::move(rec));
+    double now = 0.0;
+    ps.set_clock([&] { return now; });
+
+    auto buy = ps.start("purchases.buy", Json::parse(R"({"id":"gems_100"})"));
+    REQUIRE(buy.ok());
+    now = kPlatformInteractiveTimeoutSeconds;
+    ps.frame();
+    auto answers = ps.take_answers();
+    REQUIRE(answers.size() == 1);
+    CHECK(answers[0].error.code == "network");
+    CHECK(has(answers[0].error.hint, "purchase"));  // the hint says a purchase that went through still arrives
+    CHECK(backend->cancelled == std::vector<std::uint64_t>{buy->id});
+
+    // The store took the money after all.
+    backend->kept.complete(buy->id, Json::object({{"status", "purchased"}, {"transactionId", "tx-9"}, {"receipt", "r"}}));
+    CHECK(ps.take_answers().empty());  // the game already has its answer
+    auto events = ps.take_events();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].name == "purchase");
+    CHECK(events[0].data["status"] == "purchased");
+    CHECK(events[0].data["productId"] == "gems_100");
+    CHECK(events[0].data["transactionId"] == "tx-9");
+    // Its transaction is recorded: finish() is accepted, not "unknownId".
+    auto fin = ps.start("purchases.finish", Json::parse(R"({"transactionId":"tx-9"})"));
+    REQUIRE(fin.ok());
+    CHECK_FALSE((fin->answer.has_value() && !fin->answer->ok));
+    // A second answer for the same request is the usual "answered twice": ignored.
+    backend->kept.complete(buy->id, Json::object({{"status", "purchased"}, {"transactionId", "tx-10"}}));
+    CHECK(ps.take_events().empty());
+}
+
+TEST_CASE("platform deadlines: a late restore, a late failure and a late cancellation") {
+    PlatformServices ps;
+    ps.set_catalog(catalog());
+    auto rec = std::make_unique<Recorder>();
+    Recorder* backend = rec.get();
+    ps.set_backend(std::move(rec));
+    double now = 0.0;
+    ps.set_clock([&] { return now; });
+
+    auto restore = ps.start("purchases.restore", Json::object());
+    auto cancelled = ps.start("purchases.buy", Json::parse(R"({"id":"gems_100"})"));
+    auto failed = ps.start("purchases.buy", Json::parse(R"({"id":"remove_ads"})"));
+    auto stat = ps.start("stats.get", Json::parse(R"({"id":"wins"})"));  // not a purchase: nothing to deliver
+    REQUIRE(restore.ok());
+    REQUIRE(cancelled.ok());
+    REQUIRE(failed.ok());
+    REQUIRE(stat.ok());
+    now = kPlatformInteractiveTimeoutSeconds;
+    ps.frame();
+    CHECK(ps.take_answers().size() == 4);
+
+    backend->kept.complete(restore->id, Json::parse(R"([{"productId":"remove_ads","transactionId":"tx-r1","receipt":"x"}])"));
+    backend->kept.complete(cancelled->id, Json::object({{"status", "cancelled"}}));
+    backend->kept.fail(failed->id, {"failed", "the sheet closed", ""});
+    backend->kept.complete(stat->id, Json::object({{"id", "wins"}, {"value", 1}}));
+    auto events = ps.take_events();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].name == "purchase");
+    CHECK(events[0].data["productId"] == "remove_ads");
+    CHECK(events[0].data["status"] == "purchased");
+    CHECK(ps.take_answers().empty());
+}
+
+TEST_CASE("platform deadlines: only the last kPlatformMaxWatchedPurchases requests given up on can still deliver") {
+    PlatformServices ps;
+    ps.set_catalog(catalog());
+    auto rec = std::make_unique<Recorder>();
+    Recorder* backend = rec.get();
+    ps.set_backend(std::move(rec));
+    double now = 0.0;
+    ps.set_clock([&] { return now; });
+    std::vector<std::uint64_t> ids;
+    const int count = int(kPlatformMaxWatchedPurchases) + 5;
+    for (int i = 0; i < count; ++i) {
+        auto b = ps.start("purchases.buy", Json::parse(R"({"id":"gems_100"})"));
+        REQUIRE(b.ok());
+        ids.push_back(b->id);
+    }
+    now = kPlatformInteractiveTimeoutSeconds;
+    ps.frame();
+    CHECK(int(ps.take_answers().size()) == count);
+    for (std::uint64_t id : ids) backend->kept.complete(id, Json::object({{"status", "purchased"}, {"transactionId", "tx-" + std::to_string(id)}}));
+    CHECK(ps.take_events().size() == kPlatformMaxWatchedPurchases);  // the oldest five are forgotten
+}
+
+TEST_CASE("platform events: a full queue drops overlay and player events before any purchase") {
+    PlatformServices ps;
+    auto rec = std::make_unique<Recorder>();
+    Recorder* backend = rec.get();
+    ps.set_backend(std::move(rec));
+    backend->kept.emit("purchase", Json::object({{"status", "purchased"}, {"productId", "a"}, {"transactionId", "t1"}}));
+    for (int i = 0; i < int(kPlatformMaxQueuedEvents) + 50; ++i) backend->kept.emit("overlay", Json::object({{"open", true}, {"n", i}}));
+    backend->kept.emit("purchase", Json::object({{"status", "purchased"}, {"productId", "b"}, {"transactionId", "t2"}}));
+    CHECK(ps.dropped_events() == 52);  // 1 + 1074 + 1 events, 1024 kept
+    auto events = ps.take_events();
+    REQUIRE(events.size() == kPlatformMaxQueuedEvents);
+    CHECK(events.front().name == "purchase");
+    CHECK(events.front().data["transactionId"] == "t1");
+    CHECK(events.back().name == "purchase");
+    CHECK(events.back().data["transactionId"] == "t2");
+    int overlays = 0;
+    for (const auto& e : events) overlays += e.name == "overlay" ? 1 : 0;
+    CHECK(overlays == int(kPlatformMaxQueuedEvents) - 2);
+}
+
+TEST_CASE("platform events: when only purchases are left, the oldest purchase goes") {
+    PlatformServices ps;
+    auto rec = std::make_unique<Recorder>();
+    Recorder* backend = rec.get();
+    ps.set_backend(std::move(rec));
+    const int total = int(kPlatformMaxQueuedEvents) + 7;
+    for (int i = 0; i < total; ++i)
+        backend->kept.emit("purchase", Json::object({{"status", "purchased"}, {"productId", "a"}, {"transactionId", "t" + std::to_string(i)}}));
+    CHECK(ps.dropped_events() == 7);
+    auto events = ps.take_events();
+    REQUIRE(events.size() == kPlatformMaxQueuedEvents);
+    CHECK(events.front().data["transactionId"] == "t7");
+    CHECK(events.back().data["transactionId"] == "t" + std::to_string(total - 1));
+}

@@ -1,6 +1,8 @@
 #include <doctest.h>
 
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -435,10 +437,18 @@ TEST_CASE("command: the before-call hook runs for the outermost call of a thread
 }
 
 TEST_CASE("command: calls on several threads at once keep their own depth") {
+    constexpr int kThreads = 4;
+    constexpr int kCalls = 25;
     CommandRegistry reg;
     std::atomic<int> hooks{0};
     std::atomic<int> insideHandlers{0};
     std::atomic<int> maxInside{0};
+    // A rendezvous inside the handler: every thread waits for all the others, so the calls overlap in every round
+    // whatever the speed of the machine. Each thread makes exactly kCalls calls, so nobody waits for a partner that is gone.
+    std::mutex rvMutex;
+    std::condition_variable rvCv;
+    int arrived = 0;
+    long generation = 0;
     reg.set_before_call([&](std::string_view) { ++hooks; });
     CommandInfo inner;
     inner.name = "t.inner";
@@ -446,17 +456,24 @@ TEST_CASE("command: calls on several threads at once keep their own depth") {
     CommandInfo outer;
     outer.name = "t.outer";
     reg.add(outer, [&](const Json&) {
-        int now = ++insideHandlers;
+        const int now = ++insideHandlers;
         int seen = maxInside.load();
         while (now > seen && !maxInside.compare_exchange_weak(seen, now)) {}
-        // Wait (a bounded spin) until another thread is inside a handler too, so the depths really overlap.
-        for (int i = 0; i < 2000000 && insideHandlers.load() < 2; ++i) std::this_thread::yield();
+        {
+            std::unique_lock<std::mutex> lock(rvMutex);
+            const long myGeneration = generation;
+            if (++arrived == kThreads) {
+                arrived = 0;
+                ++generation;
+                rvCv.notify_all();
+            } else {
+                rvCv.wait(lock, [&] { return generation != myGeneration; });
+            }
+        }
         reg.call("t.inner");
         --insideHandlers;
         return Json::object();
     });
-    constexpr int kThreads = 4;
-    constexpr int kCalls = 25;
     std::atomic<int> failures{0};
     std::vector<std::thread> threads;
     for (int t = 0; t < kThreads; ++t)
@@ -466,5 +483,6 @@ TEST_CASE("command: calls on several threads at once keep their own depth") {
         });
     for (auto& th : threads) th.join();
     CHECK(failures == 0);
-    CHECK(hooks == kThreads * kCalls);  // every outermost call ran the hook once; no nested call did
+    CHECK(maxInside.load() == kThreads);  // the rendezvous guarantees all four handlers were open at the same time
+    CHECK(hooks == kThreads * kCalls);    // every outermost call ran the hook once; no nested call did
 }

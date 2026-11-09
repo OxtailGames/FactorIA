@@ -190,11 +190,18 @@ struct PlatformEvent {
 };
 
 // How long a request may stay unanswered before the engine answers it itself (docs/PLATFORM.md, "Deadlines"): the answer is
-// the error "network" ("no answer from the <backend> backend in <N> s"), and a late answer from the backend is ignored.
+// the error "network" ("no answer from the <backend> backend in <N> s"), and a late answer from the backend is ignored, except a
+// late SUCCESSFUL purchases.buy / purchases.restore: money was taken, so it reaches the game as a `purchase` event instead.
 inline constexpr double kPlatformDefaultTimeoutSeconds = 30.0;      // every method that does not wait for the player
 inline constexpr double kPlatformInteractiveTimeoutSeconds = 300.0;  // purchases.buy / .restore, ads.showRewarded / .privacyOptions, player.signIn
+// ads.consent / ads.available / ads.setUnderAge: the ads plugins wait for the consent flow (a form the player fills in) up to 120 s, for
+// as long as the player is busy with it, and then up to 30 s for an ad to load; the engine's deadline must stay above that.
+inline constexpr double kPlatformAdsFlowTimeoutSeconds = 600.0;
+// How many purchases.buy / .restore requests the engine gave up on are remembered, to deliver a late successful answer as an event.
+inline constexpr std::size_t kPlatformMaxWatchedPurchases = 64;
 inline constexpr double kPlatformHttpGraceSeconds = 5.0;  // http.fetch: its own `timeout` argument (default 15 s) plus this
-// The most events kept for the game between two take_events() calls: past it the OLDEST are dropped (counted, one warning).
+// The most events kept for the game between two take_events() calls: past it the OLDEST are dropped (counted, one warning), the
+// overlay, player and remotePlay events before any `purchase` (a purchase is money: it goes only when nothing else is left to drop).
 inline constexpr std::size_t kPlatformMaxQueuedEvents = 1024;
 // The most answers kept for the game between two take_answers() calls: the oldest are dropped past it (the games' promises for them stay
 // pending); one request needs a pending slot, so this only happens when a game starts thousands of requests in one frame and never
@@ -236,7 +243,8 @@ public:
     virtual void request(std::uint64_t id, const std::string& method, const Json& args, const PlatformSink& sink) = 0;
     virtual void frame() {}  // once per engine frame, on the game thread, before scripts run
     // The engine gave up on request `id` (its deadline passed, PlatformServices::request_timeout): stop working on it if you can. Its answer, if
-    // it still comes, is ignored. Called on the game thread; the default does nothing.
+    // it still comes, is ignored (a successful purchases.buy / .restore becomes a `purchase` event). Called on the game thread; the
+    // default does nothing. A backend that keeps per-request state must release it here.
     virtual void cancel(std::uint64_t id) { (void)id; }
 };
 

@@ -25,6 +25,8 @@ struct Waiting {
     PlatformSink sink;  // dead once the engine is gone: the answer then does nothing
     std::uint64_t id = 0;
     std::string plugin, method;
+    const void* owner = nullptr;  // the adapter that made the request (cancel() looks for its own)
+    bool cancelled = false;       // the engine gave up on it (cancel()); kept only for a purchase, whose late answer is still wanted
 };
 
 std::map<std::uintptr_t, Waiting>& waiting() {
@@ -88,7 +90,7 @@ public:
         {
             std::lock_guard<std::mutex> lock(g_mutex);
             token = ++g_nextToken;
-            waiting()[token] = {sink, id, spec_.plugin, method};
+            waiting()[token] = {sink, id, spec_.plugin, method, this, false};
         }
         FaRequest* req = reinterpret_cast<FaRequest*>(token);
         const std::string text = args.dump();
@@ -103,6 +105,30 @@ public:
 
     void frame() override {
         if (spec_.frame) spec_.frame(spec_.user);
+    }
+
+    // The engine's deadline for request `id` passed. A plugin that never answers must not leave its entry here for ever, so it is
+    // dropped (a later resolve() is then the usual "not waiting" warning). A purchase is kept: if the store did complete it, the
+    // late answer reaches the game as a `purchase` event (PlatformServices), and the entries of purchases given up on are bounded.
+    void cancel(std::uint64_t id) override {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        auto& m = waiting();
+        for (auto it = m.begin(); it != m.end(); ++it) {
+            if (it->second.owner != this || it->second.id != id) continue;
+            if (it->second.method == "purchases.buy" || it->second.method == "purchases.restore") it->second.cancelled = true;
+            else m.erase(it);
+            break;
+        }
+        std::size_t keptCancelled = 0;
+        for (const auto& [token, w] : m) keptCancelled += w.cancelled ? 1 : 0;
+        for (auto it = m.begin(); it != m.end() && keptCancelled > kPlatformMaxWatchedPurchases;) {  // oldest first (tokens only grow)
+            if (it->second.cancelled) {
+                it = m.erase(it);
+                --keptCancelled;
+            } else {
+                ++it;
+            }
+        }
     }
 
 private:
