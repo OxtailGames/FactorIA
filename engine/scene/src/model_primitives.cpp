@@ -261,7 +261,7 @@ ModelMesh model_capsule(const ModelCapsuleParams& p) {
 
 ModelMesh model_torus(const ModelTorusParams& p) {
     Builder b;
-    const int sides = clamp_int(p.sides, 3, 256);
+    const int sides = clamp_int(p.sides, kTorusMinSides, kTorusMaxSides);
     const float tube = std::max(p.tube, 1e-5f), ring = std::max(p.radius, tube);
     Strip s;
     for (int i = 0; i <= sides; ++i) {
@@ -270,7 +270,7 @@ ModelMesh model_torus(const ModelTorusParams& p) {
         else sc(360.0f * float(i) / float(sides), sn, cs);
         s.push_back({ring + tube * cs, tube * sn, cs, sn, float(i) / float(sides)});
     }
-    lathe(b, {s}, clamp_int(p.segments, 3, 512), 1);
+    lathe(b, {s}, clamp_int(p.segments, kTorusMinSegments, kTorusMaxSegments), 1);
     return std::move(b.m);
 }
 

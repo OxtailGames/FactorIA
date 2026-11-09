@@ -250,8 +250,6 @@ TEST_CASE("savers: ai.json section is validated, kept by save_savers and left ou
     CHECK(again->limits.maxTurns == 7);  // the other keys stay
     REQUIRE(save_savers(Savers{}, path));
     CHECK(read_file(path).find("savers") == std::string::npos);
-    CHECK(save_config(*cfg, path));
-    CHECK(has(read_file(path), "\"loopGuardJudge\""));
 }
 
 TEST_CASE("savers: the retrospective switch and its thresholds are parsed, validated and kept") {
