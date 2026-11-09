@@ -16,6 +16,7 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -234,6 +235,33 @@ Result<Listener> listen_tcp(bool allInterfaces, int backlog) {
     l.socket = s;
     l.port = ntohs(addr.sin_port);
     return l;
+}
+
+int wait_readable(Socket s, int timeoutMs) {
+    if (s == kNoSocket) return -1;
+    timeoutMs = std::max(0, timeoutMs);
+#ifdef _WIN32
+    fd_set readable;
+    FD_ZERO(&readable);
+    FD_SET(native(s), &readable);
+    timeval tv;
+    tv.tv_sec = static_cast<long>(timeoutMs / 1000);
+    tv.tv_usec = static_cast<long>((timeoutMs % 1000) * 1000);
+    const int n = ::select(0, &readable, nullptr, nullptr, &tv);  // the first argument is ignored on Windows
+    if (n == SOCKET_ERROR) return -1;
+    return n > 0 ? 1 : 0;
+#else
+    pollfd p{};
+    p.fd = native(s);
+    p.events = POLLIN;
+    for (;;) {
+        const int n = ::poll(&p, 1, timeoutMs);
+        if (n < 0 && errno == EINTR) continue;  // a signal: the wait is short, start it again
+        if (n < 0) return -1;
+        if (n == 0) return 0;
+        return (p.revents & (POLLIN | POLLHUP | POLLERR)) != 0 ? 1 : -1;
+    }
+#endif
 }
 
 Socket accept_connection(Socket listener) {

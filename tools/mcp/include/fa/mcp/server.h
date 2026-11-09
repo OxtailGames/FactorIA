@@ -98,12 +98,11 @@ bool is_user_only_command(std::string_view commandName);
 
 inline constexpr const char* kMcpLatestProtocol = "2025-11-25";
 const std::vector<std::string>& mcp_supported_protocols();
-// True for the protocol versions whose tool results carry `structuredContent` (2025-06-18 and later).
-bool mcp_protocol_has_structured_content(std::string_view protocolVersion);
 
 // The largest tool result the server sends, in bytes of JSON (the default of McpServer::set_result_cap). A client puts the
-// result into its model's context (Claude Code refuses one over about 25k tokens), so a larger one is cut down first.
-inline constexpr std::size_t kMcpResultCap = 128 * 1024;
+// result into its model's context (Claude Code refuses one over about 25k tokens; JSON is about 3 bytes a token), so a
+// larger one is cut down first.
+inline constexpr std::size_t kMcpResultCap = 80 * 1024;
 
 // What the McpServers answering one client share: the handshake (the protocol version initialize negotiated) and the
 // requests in flight, which notifications/cancelled reaches. A transport that makes one server per message (the editor's
@@ -120,21 +119,28 @@ public:
     void set_handshake(Handshake h);
     Handshake handshake() const;
 
-    // A request starts: its cancel flag, set by cancel() while it runs. Several requests with the same id (a client's
-    // mistake) are all cancelled together.
+    // A transport that queues requests (stdio: one runs at a time) announces one it has read and not started yet, so that
+    // a notifications/cancelled that arrives while it waits is kept: begin_request() then starts it cancelled, and the
+    // server skips it (no response). Only for an id the server will begin (a string or number id, not initialize); each
+    // call is consumed by one begin_request() with that id.
+    void expect_request(const Json& id);
+    // A request starts: its cancel flag, set by cancel() while it runs (already set when it was cancelled while queued,
+    // see expect_request). Several requests with the same id (a client's mistake) are all cancelled together.
     std::shared_ptr<std::atomic<bool>> begin_request(const Json& id);
     // The request ended: forgets it and says whether it was cancelled (then no response may be sent). The decision is
     // taken under the same lock as cancel(), so a cancel that comes after it finds nothing and is ignored.
     bool end_request(const Json& id, const std::shared_ptr<std::atomic<bool>>& flag);
-    // notifications/cancelled: sets the flag of the request `id`; false when no such request is running (unknown or
-    // already answered), which is ignored.
+    // notifications/cancelled: sets the flag of the request `id`, running or queued (expect_request); false when there is
+    // no such request (unknown or already answered), which is ignored.
     bool cancel(const Json& id);
     std::size_t requests_in_flight() const;
+    std::size_t requests_queued() const;
 
 private:
     mutable std::mutex mu_;
     Handshake handshake_;
     std::multimap<std::string, std::shared_ptr<std::atomic<bool>>> inFlight_;  // id.dump() -> flag
+    std::multimap<std::string, bool> queued_;  // id.dump() -> cancelled while queued
 };
 
 class McpServer {
@@ -156,9 +162,9 @@ public:
     void share_session(std::shared_ptr<McpSession> session);
     const std::shared_ptr<McpSession>& session() const { return session_; }
 
-    // A tool result is sent once. A client that negotiated 2025-06-18 or later gets an object result as
-    // `structuredContent` plus one short text block that names its fields; an older client, a result that is not an
-    // object, or one with a picture (`$image`) gets the whole JSON as text instead (and the picture as an image block).
+    // A tool result is sent once, as JSON text in `content` (pretty when it fits the cap), whatever the protocol: no
+    // `structuredContent`, so a client that reads only `content` misses nothing. A result with a picture (`$image`) gets an
+    // image block after the text.
     // Tool results larger than `bytes` of JSON are cut down (kMcpResultCap by default; at least 8 KiB, a smaller value
     // counts as 8 KiB). The heaviest part goes first: an array or an object keeps its first items or keys, a long string
     // its start (never inside a UTF-8 sequence). An object result gets a `_truncated` field ({"note": ...}) that says what
@@ -219,7 +225,7 @@ private:
     std::optional<Json> handle_one(const Json& msg);
     Json handle_request(const std::string& method, const Json& params, const Json& id, const std::atomic<bool>* cancel);
     Json call_tool(const Json& params, const std::atomic<bool>* cancel);
-    Json run_tool(const Json& params, const std::atomic<bool>* cancel, bool& structured);
+    Json run_tool(const Json& params, const std::atomic<bool>* cancel);
     void emit(const Json& message);
 
     McpHost& host_;

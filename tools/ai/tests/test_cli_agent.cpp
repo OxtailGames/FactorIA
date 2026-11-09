@@ -118,7 +118,7 @@ TEST_CASE("claude-code agent: stream-json events, usage, MCP config, argv") {
     REQUIRE(at != std::string::npos);
     const std::string mcpPath = argv.substr(at + 13, argv.find('\n', at + 13) - (at + 13));
     const std::string mcpName = std::filesystem::path(mcpPath).filename().string();
-    CHECK(mcpName.rfind("mcp-claude-code-", 0) == 0);
+    CHECK(mcpName.rfind("fa-run-mcp-claude-code-", 0) == 0);
     CHECK(std::filesystem::path(mcpPath).parent_path() == dir.path / ".factoria" / "ai");
     CHECK_FALSE(std::filesystem::exists(mcpPath));
     Json mcp = Json::parse(read_file(argvFile + ".mcpconfig"));
@@ -169,6 +169,24 @@ TEST_CASE("CliAgent: a prompt that is \"--\" is not taken for the template's end
     CHECK(read_file(argvFile) == "--print\n--append-system-prompt\n--\n--disallowedTools\nTask\n");  // flags after the value
 }
 
+TEST_CASE("CliAgent: a flag whose value is \"--\" keeps it; the added flags go before the \"--\" that ends the options") {
+    TempDir dir, scratch;
+    std::string argvFile = (scratch.path / "argv.txt").string();
+    ProviderConfig cfg = claude_cfg();
+    cfg.env["FAKE_ARGV_FILE"] = argvFile;
+    cfg.argv = {"--sep", "--", "-p", "{prompt}"};  // "--" is the value of --sep, not the end of the options
+    CliRunRequest req{"-rf everything", "sonnet", dir.str()};
+    req.disallowedTools = {"Task"};
+    auto r = CliAgent(cfg).run(req, nullptr, nullptr);
+    REQUIRE(r);
+    CHECK(read_file(argvFile) == "--sep\n--\n-p\n--disallowedTools\nTask\n--\n-rf everything\n");
+    // the same with a prompt that is "--" too
+    std::filesystem::remove(argvFile);  // the fake CLI appends
+    req.prompt = "--";
+    REQUIRE(CliAgent(cfg).run(req, nullptr, nullptr));
+    CHECK(read_file(argvFile) == "--sep\n--\n-p\n--disallowedTools\nTask\n--\n--\n");
+}
+
 TEST_CASE("with_end_of_options: Claude Code and Codex get \"--\" before a positional {prompt}; other templates stay as written") {
     using V = std::vector<std::string>;
     CHECK(with_end_of_options(ProviderKind::ClaudeCode, {"-p", "{prompt}", "--model", "{model}"}) ==
@@ -178,6 +196,9 @@ TEST_CASE("with_end_of_options: Claude Code and Codex get \"--\" before a positi
     // the value of a flag, a template that already ends its options, a prompt inside an element, stdin, a generic CLI
     CHECK(with_end_of_options(ProviderKind::Codex, {"exec", "--ask", "{prompt}"}) == V{"exec", "--ask", "{prompt}"});
     CHECK(with_end_of_options(ProviderKind::ClaudeCode, {"-p", "--", "{prompt}"}) == V{"-p", "--", "{prompt}"});
+    // a "--" that is not right before {prompt} may be a flag's value: the prompt still gets its own "--"
+    CHECK(with_end_of_options(ProviderKind::ClaudeCode, {"--sep", "--", "-p", "{prompt}"}) ==
+          V{"--sep", "--", "-p", "--", "{prompt}"});
     CHECK(with_end_of_options(ProviderKind::ClaudeCode, {"--prompt={prompt}"}) == V{"--prompt={prompt}"});
     CHECK(with_end_of_options(ProviderKind::ClaudeCode, {"-p", "--model", "{model}"}) == V{"-p", "--model", "{model}"});
     CHECK(with_end_of_options(ProviderKind::GenericCli, {"sh", "{prompt}"}) == V{"sh", "{prompt}"});
@@ -220,7 +241,7 @@ TEST_CASE("claude-code agent: the MCP config is a private file of each run, dele
     std::vector<std::string> seen;
     CliRunRequest req{"x", "", dir.str()};
     req.onStart = [&](long long) {
-        for (const auto& p : run_files(dir.path, "mcp-claude-code-")) {
+        for (const auto& p : run_files(dir.path, "fa-run-mcp-claude-code-")) {
             seen.push_back(p.filename().string());
             CHECK((std::filesystem::status(p).permissions() & std::filesystem::perms::group_all) == std::filesystem::perms::none);
             CHECK((std::filesystem::status(p).permissions() & std::filesystem::perms::others_all) == std::filesystem::perms::none);
@@ -230,18 +251,18 @@ TEST_CASE("claude-code agent: the MCP config is a private file of each run, dele
     REQUIRE(CliAgent(cfg).run(req, nullptr, nullptr));
     REQUIRE(seen.size() == 2);
     CHECK(seen[0] != seen[1]);  // a name of its own each run: runs of other chats may run at the same time
-    CHECK(run_files(dir.path, "mcp-").empty());
+    CHECK(run_files(dir.path, "fa-run-mcp-").empty());
     // a CLI that crashes, and a run that is cancelled, leave nothing either
     cfg.env["FAKE_MODE"] = "crash";
     auto crashed = CliAgent(cfg).run(req, nullptr, nullptr);
     CHECK((!crashed || !crashed->ok));
-    CHECK(run_files(dir.path, "mcp-").empty());
+    CHECK(run_files(dir.path, "fa-run-mcp-").empty());
     cfg.env["FAKE_MODE"] = "slow";
     CancelFlag cancel{true};
     auto cancelled = CliAgent(cfg).run(req, nullptr, &cancel);
     REQUIRE(cancelled);
     CHECK(cancelled->cancelled);
-    CHECK(run_files(dir.path, "mcp-").empty());
+    CHECK(run_files(dir.path, "fa-run-mcp-").empty());
 }
 
 TEST_CASE("claude-code agent: an MCP config another program holds open at the end is reported, kept, and swept a day later") {
@@ -253,25 +274,30 @@ TEST_CASE("claude-code agent: an MCP config another program holds open at the en
     std::optional<fs::ReadStream> holder;
     CliRunRequest req{"x", "", dir.str()};
     req.onStart = [&](long long) {
-        const auto files = run_files(dir.path, "mcp-claude-code-");
+        const auto files = run_files(dir.path, "fa-run-mcp-claude-code-");
         CHECK(files.size() == 1);
         if (!files.empty()) holder.emplace(files[0]);
     };
     auto r = CliAgent(cfg).run(req, nullptr, nullptr);
     REQUIRE(r);
     CHECK(r->ok);  // the run itself went fine
-    auto left = run_files(dir.path, "mcp-claude-code-");
+    auto left = run_files(dir.path, "fa-run-mcp-claude-code-");
     REQUIRE(left.size() == 1);  // still held: it stays (the log says so)
     holder.reset();
     fs::set_windows_rules(wasOn);
     // A later run sweeps it once it is a day old; a younger one (another run's) stays.
     std::filesystem::last_write_time(left[0], std::filesystem::file_time_type::clock::now() - std::chrono::hours(25));
-    const auto young = dir.path / ".factoria" / "ai" / "mcp-other-1-2-3.json";
+    const auto young = dir.path / ".factoria" / "ai" / "fa-run-mcp-other-1-2-3.json";
     std::ofstream(young) << "{}";
+    // A day-old file that is not a run's (no fa-run- prefix) is never touched.
+    const auto foreign = dir.path / ".factoria" / "ai" / "mcp-notes.json";
+    std::ofstream(foreign) << "{}";
+    std::filesystem::last_write_time(foreign, std::filesystem::file_time_type::clock::now() - std::chrono::hours(48));
     req.onStart = nullptr;
     REQUIRE(CliAgent(cfg).run(req, nullptr, nullptr));
     CHECK_FALSE(std::filesystem::exists(left[0]));
     CHECK(std::filesystem::exists(young));
+    CHECK(std::filesystem::exists(foreign));
 }
 
 TEST_CASE("claude-code agent: --disallowedTools carries the tools a role must not have, as one argument") {

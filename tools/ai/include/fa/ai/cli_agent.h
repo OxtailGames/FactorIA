@@ -94,8 +94,8 @@ std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, c
 // A prompt passed on the command line must not be read as an option ("-rf ..." or "--help"): for Claude Code and Codex,
 // whose CLIs end their options at "--", a template whose element "{prompt}" is a positional argument (the first element,
 // after a word that is not a flag, or after Claude Code's -p/--print) gets it moved to the end, after "--". A template that
-// already has "--", one whose {prompt} follows another flag (it may be that flag's value) and every generic CLI (which may
-// not know "--") are returned as they are. The built-in templates send the prompt on standard input and have no {prompt}.
+// already has "--" right before {prompt}, one whose {prompt} follows another flag (it may be that flag's value) and every
+// generic CLI (which may not know "--") are returned as they are; a "--" elsewhere may be a flag's value and does not count. The built-in templates send the prompt on standard input and have no {prompt}.
 std::vector<std::string> with_end_of_options(ProviderKind kind, std::vector<std::string> tmpl);
 
 // The permission rules for the sites in `domains`, as Claude Code names them: `WebFetch(domain:host)` and the same for the host

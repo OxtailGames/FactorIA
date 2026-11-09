@@ -34,7 +34,7 @@ FactorIA runs: `claude -p --output-format stream-json --input-format stream-json
 with the message on standard input (one `stream-json` line, which can carry pictures),
 in the project directory. `--resume <session>` is left out for the first message of a conversation
 (see [Conversations](#conversations-and-resume)). The MCP config file is written for each run as
-`<project>/.factoria/ai/mcp-claude-code-<unique>.json` (on Linux and macOS readable by your user only; on Windows it
+`<project>/.factoria/ai/fa-run-mcp-claude-code-<unique>.json` (on Linux and macOS readable by your user only; on Windows it
 has its folder's permissions) and deleted when the run ends (also
 when the CLI fails, crashes or is stopped): a `factoria mcp --project <dir>` server, or the editor's endpoint when the
 editor started the CLI (see [below](#cli-agents-in-the-editor)). Two runs at the same time each have their own file. A file
@@ -62,12 +62,15 @@ command between frames. So:
 * `ai_run` (delegation) runs the worker, fast, artist or audio role inside the editor too; a CLI sub-agent gets the same endpoint.
 
 The endpoint speaks MCP Streamable HTTP without a server stream or a session (a POST with one JSON-RPC message gets its
-reply as `application/json`, a notification gets 202, GET gets 405). A call that runs longer than 10 s, such as an `ai_run`
+reply as `application/json`, a notification gets 202, a request the client cancelled gets no response (an empty event
+stream, or 204 for a client that takes no event streams), GET gets 405). A call that runs longer than 10 s, such as an `ai_run`
 that hands a task to the worker, is answered as an event stream that carries `notifications/progress` (what the sub-agent just did, at most one every 3 s,
 and a heartbeat every 15 s), so the CLI does not give up on it after 5 minutes of silence. Only the token's path is served, so other programs on
-the machine cannot drive the editor. The endpoint serves at most 16 connections at once; a client that opens more waits
-until one ends (it is never answered 503). A connection that sends nothing for 30 s is closed (replies say `Keep-Alive:
-timeout=20`, so the client stops reusing it first), a request that stops half way gets 408, and a request body over 8 MiB
+the machine cannot drive the editor. The endpoint serves at most 16 connections at once, plus a spare one so that a
+`notifications/cancelled` gets in even when all 16 are busy; while the spare is in use the keep-alive connection idle the
+longest is closed, so it frees again. A client that opens more waits until one ends (it is never answered 503). Replies
+say `Keep-Alive: timeout=5`, so a client lets an idle connection go after 5 s; a connection that sends nothing for 30 s
+is closed, a request that stops half way gets 408, and a request body over 8 MiB
 gets 413 with a JSON-RPC error that says to put a big file into the project another way or send it in smaller parts.
 A `notifications/cancelled` the CLI sends stops the call it names (see `docs/MCP.md`, "Cancellation"). **Codex** still starts its own `factoria mcp` (its argv names the command, not a
 config file): its scene edits happen in that process, not in the open scene.
@@ -1145,7 +1148,7 @@ The entry name is its key (`[A-Za-z0-9_-]`, up to 40 characters, unique among th
 
 | Provider | How the extensions are used |
 |---|---|
-| `claude-code` | One `--plugin-dir <folder>` per plugin; the skills go in a plugin FactorIA writes for the run (`factoria-extensions`, a copy of the skill folders under `<project>/.factoria/ai/ext-skills-*`); the hooks of the entries are merged into a private `--settings` file (`<project>/.factoria/ai/settings-*.json`, readable only by you). Both are removed when the run ends. `--setting-sources` is also passed when `inheritUserPlugins` is `false` (`project,local`) or when the project's own `.claude/settings*.json` runs a program or widens what the AI may do (see below) and the project is not trusted (`user`; an empty value with both), see [below](#trusting-a-projects-extensions). If your own `argv` uses `{plugin_dirs}` or `{settings}` those place the folders and the file and FactorIA adds no flag for them; an `argv` that already has `--settings` or `--setting-sources` is not given a second one. |
+| `claude-code` | One `--plugin-dir <folder>` per plugin; the skills go in a plugin FactorIA writes for the run (`factoria-extensions`, a copy of the skill folders under `<project>/.factoria/ai/fa-run-ext-skills-*`); the hooks of the entries are merged into a private `--settings` file (`<project>/.factoria/ai/fa-run-settings-*.json`, readable only by you). Both are removed when the run ends. `--setting-sources` is also passed when `inheritUserPlugins` is `false` (`project,local`) or when the project's own `.claude/settings*.json` runs a program or widens what the AI may do (see below) and the project is not trusted (`user`; an empty value with both), see [below](#trusting-a-projects-extensions). If your own `argv` uses `{plugin_dirs}` or `{settings}` those place the folders and the file and FactorIA adds no flag for them; an `argv` that already has `--settings` or `--setting-sources` is not given a second one. |
 | `codex` | Skills only. Codex reads Agent Skills from `.agents/skills` of the folder it starts in, so FactorIA copies the skills of the run to `<project>/.agents/skills/factoria-r<tag>-<name>/` (and writes `.agents/skills/.gitignore` with `factoria-*/` when there is none) and removes them when the run ends; folders of your own there are not touched. Codex has no plugin folder or hooks file for FactorIA to fill: a plugin or hooks entry for a Codex role is skipped, and the run says so (an Info line in the chat and the CLI output). Codex also keeps the `# Skills` lines in the prompt and `skills_read`, so a Codex version that does not scan `.agents/skills` still reads the skills. Not tested against a real Codex here (no Codex was available): `codex` must be a version with Agent Skills. |
 | `generic-cli` | Plugins when the `argv` has the `{plugin_dirs}` placeholder, hooks when it has `{settings}` (the path of the private settings file). `{plugin_dirs}` after a flag (`"--plugin-dir", "{plugin_dirs}"`) repeats that flag once per folder; with no folder, the placeholder and its flag are dropped. A skill folder is not passed (no flag is known for it); the skills reach it as prompt lines and `skills_read`. What cannot be passed is listed in the run output with the placeholder to add. |
 | `anthropic`, `openai-compatible` | **Skills and hooks**: FactorIA's own loop runs the seven events of Claude Code's hooks (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `SessionEnd`) for handlers of type `command` and `js`, with the same JSON on stdin and the same decisions on stdout, so one hook script serves Claude Code and these providers ([HOOKS.md](HOOKS.md)). Handlers of type `http`, `prompt` and `agent` are Claude Code's and are skipped. Skills reach them as one line each in the system prompt, read with `skills_read` ([Skills](#skills-for-every-provider)). Plugins are not used by these providers, and `ai.extensions` and the run say so for each one listed. |

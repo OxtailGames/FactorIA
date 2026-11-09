@@ -108,7 +108,7 @@ TEST_CASE("MCP over loopback HTTP: JSON replies, 202 for notifications, 405 for 
     CHECK(call.status == 200);
     REQUIRE(ep.spawned.size() == 1);
     CHECK(ep.spawned[0] == "A");
-    CHECK(Json::parse(call.body)["result"]["structuredContent"]["id"] == "A");
+    CHECK(Json::parse(Json::parse(call.body)["result"]["content"][0]["text"].get<std::string>())["id"] == "A");
 
     CHECK(send(ep.url, "", "GET").status == 405);  // no server stream: the client goes on without one
     CHECK(send(ep.url.substr(0, ep.url.rfind('/') + 1) + "not-the-token", "{}").status == 404);
@@ -226,6 +226,21 @@ struct RawClient {
         s = net::kNoSocket;
     }
     bool send(const std::string& data) const { return net::send_all(s, data); }
+    // One response with a Content-Length body (the connection may stay open); "" when it ends first.
+    std::string read_response() const {
+        std::string out;
+        char chunk[4096];
+        for (;;) {
+            if (const auto head = out.find("\r\n\r\n"); head != std::string::npos) {
+                const auto at = out.find("Content-Length: ");
+                const std::size_t length = at == std::string::npos ? 0 : std::stoul(out.substr(at + 16));
+                if (out.size() >= head + 4 + length) return out;
+            }
+            const auto n = net::recv_some(s, chunk, sizeof chunk);
+            if (n <= 0) return "";
+            out.append(chunk, static_cast<std::size_t>(n));
+        }
+    }
     // Everything until the server closes the connection (or the 30 s timeout).
     std::string read_all() const {
         std::string out;
@@ -246,7 +261,7 @@ constexpr const char* kPing = R"({"jsonrpc":"2.0","id":1,"method":"ping"})";
 
 }  // namespace
 
-TEST_CASE("MCP over loopback HTTP: beyond maxConnections a connection waits for a free slot; ended threads are joined") {
+TEST_CASE("MCP over loopback HTTP: beyond maxConnections and the spare a connection waits for a free slot; ended threads are joined") {
     CommandRegistry registry;
     McpHttpServer server;
     McpHttpOptions options;
@@ -263,25 +278,59 @@ TEST_CASE("MCP over loopback HTTP: beyond maxConnections a connection waits for 
     {
         RawClient first(port);  // takes the only slot and says nothing
         REQUIRE(first.s != net::kNoSocket);
-        RawClient second(port);  // connected (the backlog), not served yet
-        REQUIRE(second.s != net::kNoSocket);
-        REQUIRE(second.send(RawClient::post(path, kPing)));
-        // the first one is served: its ping is answered while the second still waits
+        RawClient spare(port);  // takes the spare slot and says nothing
+        REQUIRE(spare.s != net::kNoSocket);
+        RawClient third(port);  // connected (the backlog), not served yet
+        REQUIRE(third.s != net::kNoSocket);
+        REQUIRE(third.send(RawClient::post(path, kPing)));
+        // the spare one is served: its ping is answered while the third still waits
+        REQUIRE(spare.send(RawClient::post(path, kPing)));
+        CHECK(spare.read_all().find("HTTP/1.1 200") == 0);
+        // once it ended, the third gets its answer (it waited, it was not refused)
+        const std::string thirdReply = third.read_all();
+        CHECK(thirdReply.find("HTTP/1.1 200") == 0);
+        CHECK(thirdReply.find("\"result\"") != std::string::npos);
         REQUIRE(first.send(RawClient::post(path, kPing)));
-        const std::string firstReply = first.read_all();
-        CHECK(firstReply.find("HTTP/1.1 200") == 0);
-        // once it ended, the second gets its answer (it waited, it was not refused)
-        const std::string secondReply = second.read_all();
-        CHECK(secondReply.find("HTTP/1.1 200") == 0);
-        CHECK(secondReply.find("\"result\"") != std::string::npos);
+        CHECK(first.read_all().find("HTTP/1.1 200") == 0);
     }
     // Many short connections one after the other: their threads are joined as new ones come, never piling up.
     for (int k = 0; k < 20; ++k) {
         RawClient c(port);
         REQUIRE(c.send(RawClient::post(path, kPing)));
         CHECK(c.read_all().find("HTTP/1.1 200") == 0);
-        CHECK(server.connection_threads() <= 1);
+        CHECK(server.connection_threads() <= 2);
     }
+    server.stop();
+    CHECK(server.connection_threads() == 0);
+}
+
+TEST_CASE("MCP over loopback HTTP: at the cap the longest-idle keep-alive connection is closed, so the next client gets in") {
+    CommandRegistry registry;
+    McpHttpServer server;
+    McpHttpOptions options;
+    options.maxConnections = 1;
+    options.receiveTimeout = std::chrono::seconds(120);  // far above the client's 30 s: only the eviction closes `keep`
+    auto started = server.start(
+        [&registry](std::string_view m, const McpHttpServer::Notify&) {
+            SimpleMcpHost host(registry, ".");
+            return McpServer(host).handle_message(m);
+        },
+        options);
+    REQUIRE(started);
+    const std::uint16_t port = port_of(*started);
+    const std::string path = path_of(*started);
+    RawClient keep(port);  // answered, then kept alive: it holds the only slot
+    REQUIRE(keep.send(RawClient::post(path, kPing, false)));
+    const std::string first = keep.read_response();
+    CHECK(first.find("HTTP/1.1 200") == 0);
+    CHECK(first.find("Keep-Alive: timeout=5\r\n") != std::string::npos);  // a client lets an idle connection go soon
+    // A second client takes the spare slot; the idle keep-alive one is closed for it, and the next answer is served.
+    const auto t0 = std::chrono::steady_clock::now();
+    RawClient next(port);
+    REQUIRE(next.send(RawClient::post(path, kPing)));
+    CHECK(next.read_all().find("HTTP/1.1 200") == 0);
+    CHECK(keep.read_all().empty());  // closed by the server, well before any timeout
+    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::seconds(20));
     server.stop();
     CHECK(server.connection_threads() == 0);
 }
@@ -349,7 +398,7 @@ TEST_CASE("MCP over loopback HTTP: a body over the cap gets 413 with a JSON-RPC 
     server.stop();
 }
 
-TEST_CASE("MCP over loopback HTTP: a cancel on another connection stops the request; it gets 202 and no result") {
+TEST_CASE("MCP over loopback HTTP: a cancel on another connection stops the request; it gets no result") {
     if (!ai::http_has_libcurl() && ai::which("curl").empty()) {
         MESSAGE("no HTTP client (libcurl or the curl executable); skipped");
         return;
@@ -391,7 +440,21 @@ TEST_CASE("MCP over loopback HTTP: a cancel on another connection stops the requ
     CHECK(send(*url, R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":41}})").status == 202);
     caller.join();
     CHECK(sawCancel);
-    CHECK(callReply.status == 202);  // no response for a cancelled request
+    CHECK(callReply.status == 200);  // an empty event stream: no response for a cancelled request
     CHECK(callReply.body.empty());
+    // A client that does not take event streams gets 204 No Content instead.
+    started = false;
+    sawCancel = false;
+    RawClient plain(port_of(*url));
+    REQUIRE(plain.send(RawClient::post(path_of(*url),
+                                       R"({"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"test_block","arguments":{}}})")));
+    const auto end2 = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!started && std::chrono::steady_clock::now() < end2) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    REQUIRE(started);
+    CHECK(send(*url, R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":42}})").status == 202);
+    const std::string plainReply = plain.read_all();
+    CHECK(plainReply.find("HTTP/1.1 204") == 0);
+    CHECK(plainReply.find("Content-Length") == std::string::npos);
+    CHECK(sawCancel);
     server.stop();
 }

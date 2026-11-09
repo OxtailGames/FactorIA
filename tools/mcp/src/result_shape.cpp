@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <exception>
+#include <initializer_list>
 
 namespace fa::mcp_detail {
 
@@ -211,48 +212,41 @@ constexpr std::array<const char*, 16> kNarrowingNames = {"filter", "query", "pat
                                                           "category", "kind", "heading", "section", "fields", "depth",
                                                           "maxDepth", "entity", "name"};
 
+std::string lower(std::string s) {
+    for (char& c : s)
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    return s;
+}
+
 template <std::size_t N>
-std::vector<std::string> properties_named(const Json& inputSchema, const std::array<const char*, N>& names) {
+bool named(const std::string& key, const std::array<const char*, N>& names) {
+    return std::find_if(names.begin(), names.end(), [&](const char* n) { return key == n; }) != names.end();
+}
+
+bool paging_name(const std::string& key) {
+    if (named(key, kPagingNames)) return true;
+    const std::string l = lower(key);
+    for (const char* part : {"offset", "limit", "cursor", "page"})
+        if (l.find(part) != std::string::npos) return true;
+    return false;
+}
+
+// The properties of `inputSchema` for which `pick` is true, in the schema's own order.
+template <typename Pick>
+std::vector<std::string> properties_where(const Json& inputSchema, Pick pick) {
     std::vector<std::string> out;
     if (!inputSchema.is_object() || !inputSchema.contains("properties") || !inputSchema["properties"].is_object()) return out;
     const Json& props = inputSchema["properties"];
-    for (auto it = props.begin(); it != props.end(); ++it)  // the schema's own order
-        if (std::find_if(names.begin(), names.end(), [&](const char* n) { return it.key() == n; }) != names.end())
-            out.push_back(it.key());
+    for (auto it = props.begin(); it != props.end(); ++it)
+        if (pick(it.key())) out.push_back(it.key());
     return out;
-}
-
-std::string brief(const Json& v) {
-    if (v.is_array()) return "[" + std::to_string(v.size()) + (v.size() == 1 ? " item]" : " items]");
-    if (v.is_object()) return "{" + std::to_string(v.size()) + (v.size() == 1 ? " key}" : " keys}");
-    if (v.is_string()) {
-        const std::string& s = v.get_ref<const std::string&>();
-        constexpr std::size_t kShown = 80;
-        if (s.size() <= kShown) return v.dump(-1, ' ', false, Json::error_handler_t::replace);
-        return Json(std::string(utf8_prefix(s, kShown)) + "...").dump(-1, ' ', false, Json::error_handler_t::replace) +
-               " (" + std::to_string(s.size()) + " bytes)";
-    }
-    return v.dump(-1, ' ', false, Json::error_handler_t::replace);
 }
 
 }  // namespace
 
-std::vector<std::string> paging_arguments(const Json& inputSchema) { return properties_named(inputSchema, kPagingNames); }
-std::vector<std::string> narrowing_arguments(const Json& inputSchema) { return properties_named(inputSchema, kNarrowingNames); }
-
-std::string summarize_result(const Json& result) {
-    constexpr std::size_t kMaxFields = 12, kMaxBytes = 600;
-    if (!result.is_object()) return "Result: " + brief(result) + ".";
-    if (result.empty()) return "Done: the result is an empty object (in structuredContent).";
-    std::string s = "Result (in structuredContent): ";
-    std::size_t shown = 0;
-    for (auto it = result.begin(); it != result.end(); ++it) {
-        if (shown == kMaxFields || s.size() > kMaxBytes) break;
-        s += (shown ? ", " : "") + it.key() + " " + brief(it.value());
-        ++shown;
-    }
-    if (shown < result.size()) s += ", and " + std::to_string(result.size() - shown) + " more fields";
-    return s + ".";
+std::vector<std::string> paging_arguments(const Json& inputSchema) { return properties_where(inputSchema, paging_name); }
+std::vector<std::string> narrowing_arguments(const Json& inputSchema) {
+    return properties_where(inputSchema, [](const std::string& key) { return !paging_name(key) && named(key, kNarrowingNames); });
 }
 
 }  // namespace fa::mcp_detail

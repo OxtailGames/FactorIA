@@ -159,9 +159,6 @@ const std::vector<std::string>& mcp_supported_protocols() {
     return v;
 }
 
-// Versions are dates (YYYY-MM-DD): they compare as strings.
-bool mcp_protocol_has_structured_content(std::string_view protocolVersion) { return protocolVersion >= "2025-06-18"; }
-
 void McpSession::set_handshake(Handshake h) {
     std::lock_guard<std::mutex> lock(mu_);
     handshake_ = std::move(h);
@@ -172,10 +169,21 @@ McpSession::Handshake McpSession::handshake() const {
     return handshake_;
 }
 
+void McpSession::expect_request(const Json& id) {
+    std::lock_guard<std::mutex> lock(mu_);
+    queued_.emplace(id.dump(), false);
+}
+
 std::shared_ptr<std::atomic<bool>> McpSession::begin_request(const Json& id) {
     auto flag = std::make_shared<std::atomic<bool>>(false);
+    const std::string key = id.dump();
     std::lock_guard<std::mutex> lock(mu_);
-    inFlight_.emplace(id.dump(), flag);
+    const auto queued = queued_.find(key);  // the first one queued with this id is the one that starts
+    if (queued != queued_.end()) {
+        flag->store(queued->second);
+        queued_.erase(queued);
+    }
+    inFlight_.emplace(key, flag);
     return flag;
 }
 
@@ -191,15 +199,23 @@ bool McpSession::end_request(const Json& id, const std::shared_ptr<std::atomic<b
 }
 
 bool McpSession::cancel(const Json& id) {
+    const std::string key = id.dump();
     std::lock_guard<std::mutex> lock(mu_);
-    const auto range = inFlight_.equal_range(id.dump());
+    const auto range = inFlight_.equal_range(key);
     for (auto it = range.first; it != range.second; ++it) it->second->store(true);
-    return range.first != range.second;
+    const auto queued = queued_.equal_range(key);
+    for (auto it = queued.first; it != queued.second; ++it) it->second = true;
+    return range.first != range.second || queued.first != queued.second;
 }
 
 std::size_t McpSession::requests_in_flight() const {
     std::lock_guard<std::mutex> lock(mu_);
     return inFlight_.size();
+}
+
+std::size_t McpSession::requests_queued() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return queued_.size();
 }
 
 std::string mcp_tool_name(std::string_view commandName) {
@@ -347,11 +363,9 @@ std::vector<std::string> McpServer::pending_tool_notices() const {
     return out;
 }
 
-// The result of a tools/call, with the notices that wait for one added as a last text block (and, for a structured result,
-// as `_factoriaNotice` in structuredContent, which some clients show the model instead of the text).
+// The result of a tools/call, with the notices that wait for one added as a last text block.
 Json McpServer::call_tool(const Json& params, const std::atomic<bool>* cancel) {
-    bool structured = false;
-    Json out = run_tool(params, cancel, structured);
+    Json out = run_tool(params, cancel);
     std::string text;
     {
         std::lock_guard<std::mutex> lock(noticeMutex_);
@@ -360,13 +374,10 @@ Json McpServer::call_tool(const Json& params, const std::atomic<bool>* cancel) {
     }
     if (!text.empty() && out.contains("content") && out["content"].is_array())
         out["content"].push_back(Json::object({{"type", "text"}, {"text", "[FactorIA notice] " + text}}));
-    if (!text.empty() && structured && out.contains("structuredContent") && out["structuredContent"].is_object())
-        out["structuredContent"]["_factoriaNotice"] = text;
     return out;
 }
 
-Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel, bool& structured) {
-    structured = false;
+Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel) {
     if (!params.is_object() || !params.contains("name") || !params["name"].is_string())
         throw CommandError("invalid_params", "tools/call needs params.name (string).");
     const std::string toolName = params["name"].get<std::string>();
@@ -467,10 +478,9 @@ Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel, bo
 
     // Over the cap: cut down, with a `_truncated` note that says how to get the rest (the cut result stays valid JSON).
     const bool over = mcp_detail::json_size(result) > resultCap_;
-    std::string truncation;
     auto shape = [&](Json value) {
         mcp_detail::ShapedResult shaped = mcp_detail::shape_result(std::move(value), resultCap_);
-        truncation = mcp_detail::truncation_note(shaped, resultCap_, pagingArgs, narrowingArgs);
+        const std::string truncation = mcp_detail::truncation_note(shaped, resultCap_, pagingArgs, narrowingArgs);
         const Json mark = Json::object({{"note", truncation}});
         Json out;
         if (shaped.value.is_object()) {
@@ -485,16 +495,8 @@ Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel, bo
         return out;
     };
 
-    // Sent once: structuredContent plus a one-line summary for a client that reads it, the JSON as text otherwise.
-    structured = mcp_protocol_has_structured_content(protocol_) && result.is_object() && !result.contains("$image");
-    if (structured) {
-        std::string summary = mcp_detail::summarize_result(result);
-        Json sent = over ? shape(std::move(result)) : std::move(result);
-        if (!truncation.empty()) summary += "\n" + truncation;
-        return Json::object({{"content", Json::array({Json::object({{"type", "text"}, {"text", std::move(summary)}})})},
-                             {"structuredContent", std::move(sent)},
-                             {"isError", false}});
-    }
+    // Sent once, as text: every client reads `content` (MCP asks a server that sends structuredContent to send the same
+    // JSON as text too, so it would go twice; no tool declares an outputSchema that would call for it).
     std::string text;
     if (over) {
         text = dump_line(shape(std::move(result)));
@@ -620,10 +622,12 @@ std::optional<Json> McpServer::handle_one(const Json& msg) {
     }
     const std::shared_ptr<std::atomic<bool>> cancel = session_->begin_request(id);
     std::optional<Json> response;
-    try {
-        response = handle_request(method, params, id, cancel.get());
-    } catch (const std::exception& e) {
-        response = error_response(id, kInternalError, std::string("Internal error: ") + e.what());
+    if (!cancel->load()) {  // set already: cancelled while it waited in the transport's queue, so it does not run
+        try {
+            response = handle_request(method, params, id, cancel.get());
+        } catch (const std::exception& e) {
+            response = error_response(id, kInternalError, std::string("Internal error: ") + e.what());
+        }
     }
     if (session_->end_request(id, cancel)) return std::nullopt;  // cancelled while it ran: no response at all
     return response;

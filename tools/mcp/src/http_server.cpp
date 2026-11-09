@@ -52,11 +52,21 @@ std::string size_text(std::size_t bytes) {
 bool reply(Socket s, int status, const char* reason, const std::string& body, bool keepAlive, const char* extra = "") {
     std::string out = "HTTP/1.1 " + std::to_string(status) + " " + reason + "\r\n";
     if (!body.empty()) out += "Content-Type: application/json\r\n";
-    out += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+    if (status != 204) out += "Content-Length: " + std::to_string(body.size()) + "\r\n";  // 204 has no body and no length
     out += extra;
     if (!keepAlive) out += "Connection: close\r\n";
     out += "\r\n" + body;
     return send_all(s, out) && keepAlive;
+}
+
+// A request (a method and an id), alone or in a batch: what must get a response, unless it was cancelled.
+bool carries_request(const std::string& body) {
+    const Json parsed = Json::parse(body, nullptr, false);
+    auto is_request = [](const Json& m) {
+        return m.is_object() && m.contains("method") && m.contains("id") && !m["id"].is_null();
+    };
+    if (parsed.is_array()) return std::any_of(parsed.begin(), parsed.end(), is_request);
+    return is_request(parsed);
 }
 
 std::string random_token() {
@@ -80,7 +90,13 @@ struct McpHttpServer::Impl {
     std::condition_variable slotFree;  // a connection ended, or stop()
     bool stopping = false;
     int active = 0;  // connections being served
-    std::vector<Socket> clients;
+    // The connections being served, by number. `idle`: kept alive after an answer, waiting for the next request.
+    struct Connection {
+        Socket socket = kNoSocket;
+        bool idle = false;
+        std::chrono::steady_clock::time_point idleSince;
+    };
+    std::map<std::uint64_t, Connection> connections;
     std::map<std::uint64_t, std::thread> threads;  // by connection number
     std::vector<std::uint64_t> finished;           // connections whose thread is ending: joined by the accept thread
     std::uint64_t nextConnection = 0;
@@ -101,14 +117,52 @@ struct McpHttpServer::Impl {
         for (std::thread& t : done) t.join();
     }
 
+    // Over maxConnections (the spare slot is in use): the connection that has idled longest since its last answer is
+    // closed, so the next client (a notifications/cancelled for a call that runs) is not left waiting behind connections
+    // that only keep alive. Under `mu`.
+    void close_oldest_idle_locked() {
+        auto oldest = connections.end();
+        for (auto it = connections.begin(); it != connections.end(); ++it)
+            if (it->second.idle && (oldest == connections.end() || it->second.idleSince < oldest->second.idleSince)) oldest = it;
+        if (oldest == connections.end()) return;
+        oldest->second.idle = false;                  // closed once
+        net::shutdown_socket(oldest->second.socket);  // its thread's recv() ends; the thread closes the socket
+    }
+
+    // A connection waits for its next request (`idle`) or got one. Returns false when it should end instead: it has
+    // answered a request, and the server is over maxConnections.
+    bool set_idle(std::uint64_t id, bool idle) {
+        std::lock_guard<std::mutex> lock(mu);
+        auto it = connections.find(id);
+        if (it == connections.end()) return !idle;
+        if (idle && active > options.maxConnections) return false;
+        it->second.idle = idle;
+        if (idle) it->second.idleSince = std::chrono::steady_clock::now();
+        return true;
+    }
+
     void accept_loop() {
         for (;;) {
             reap();
             {
-                // Bounded: beyond maxConnections the next client waits in the listen backlog until a connection ends.
+                // Bounded: maxConnections, plus one spare slot so that a client gets in when every connection is taken
+                // (a cancel for a call that runs). Beyond that the next client waits in the listen backlog until a
+                // connection ends.
                 std::unique_lock<std::mutex> lock(mu);
-                slotFree.wait(lock, [this] { return stopping || active < options.maxConnections; });
+                slotFree.wait(lock, [this] { return stopping || active <= options.maxConnections; });
                 if (stopping) return;
+            }
+            // Polled, so that stop() needs no connection to wake a blocked accept() (one could not get through a full
+            // backlog on macOS and Windows).
+            const int ready = net::wait_readable(listener, 100);
+            {
+                std::lock_guard<std::mutex> lock(mu);
+                if (stopping) return;
+            }
+            if (ready == 0) continue;
+            if (ready < 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                continue;
             }
             Socket c = net::accept_connection(listener);
             reap();  // connections that ended while accept() waited: their threads go before a new one starts
@@ -124,16 +178,17 @@ struct McpHttpServer::Impl {
             }
             const int timeoutMs = static_cast<int>(std::min<long long>(options.receiveTimeout.count(), 24LL * 3600 * 1000));
             net::set_io_timeouts(c, timeoutMs, timeoutMs);  // a silent or stuck client frees its slot
-            clients.push_back(c);
-            ++active;
             const std::uint64_t id = nextConnection++;
+            connections[id].socket = c;
+            ++active;
+            if (active > options.maxConnections) close_oldest_idle_locked();
             threads.emplace(id, std::thread([this, c, id] {
                 std::string buf;
-                while (serve_one(c, buf)) {
-                }
+                bool answered = false;
+                while (serve_one(c, id, answered, buf)) answered = true;
                 {
                     std::lock_guard<std::mutex> lock(mu);
-                    clients.erase(std::find(clients.begin(), clients.end(), c));  // stop() must not touch it any more
+                    connections.erase(id);  // stop() must not touch its socket any more
                 }
                 close_socket(c);
                 {
@@ -146,12 +201,19 @@ struct McpHttpServer::Impl {
         }
     }
 
-    // Reads and answers one request (HTTP/1.1, keep-alive); false when the connection is done.
-    bool serve_one(Socket c, std::string& buf) {
+    // Reads and answers one request (HTTP/1.1, keep-alive); false when the connection is done. `answered`: the connection
+    // answered a request before, so while it waits for the next one it is idle (close_oldest_idle_locked may close it).
+    bool serve_one(Socket c, std::uint64_t id, bool answered, std::string& buf) {
+        bool idle = answered && buf.empty();
+        if (idle && !set_idle(id, true)) return false;
         std::size_t headEnd;
         while ((headEnd = buf.find("\r\n\r\n")) == std::string::npos) {
             if (buf.size() > kMaxHeader) return reply(c, 431, "Request Header Fields Too Large", "", false);
             const Received got = receive(c, buf);
+            if (idle) {
+                idle = false;
+                set_idle(id, false);
+            }
             if (got == Received::Failed && !buf.empty()) return reply(c, 408, "Request Timeout", "", false);  // half a request
             if (got != Received::Data) return false;
         }
@@ -262,7 +324,17 @@ struct McpHttpServer::Impl {
         lock.unlock();
         pending.get();
         const char* extra = keepAlive ? keepAliveHeader.c_str() : "";
-        if (!call->response) return reply(c, 202, "Accepted", "", keepAlive, extra);
+        if (!call->response) {
+            // No reply: 202 for notifications and responses only. A request that has none was cancelled
+            // (notifications/cancelled) and never gets one: a client that takes event streams gets an empty one, which
+            // ends with the connection (MCP Streamable HTTP lets the server close a stream before the response); one that
+            // does not gets 204.
+            if (!carries_request(body)) return reply(c, 202, "Accepted", "", keepAlive, extra);
+            if (!canStream) return reply(c, 204, "No Content", "", keepAlive, extra);
+            send_all(c, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n"
+                        "Connection: close\r\n\r\n");
+            return false;
+        }
         return reply(c, 200, "OK", *call->response, keepAlive, extra);
     }
 };
@@ -306,8 +378,10 @@ Result<std::string> McpHttpServer::start(StreamHandler handler, const McpHttpOpt
     m.options = options;
     m.options.maxConnections = std::max(1, options.maxConnections);
     m.options.receiveTimeout = std::max(options.receiveTimeout, std::chrono::milliseconds(1));
-    // Below the receive timeout, so a client stops reusing an idle connection before the server closes it.
-    const long long idleSeconds = std::max<long long>(1, m.options.receiveTimeout.count() * 2 / 3 / 1000);
+    // Short (5 s at most), so a client lets an idle connection go soon and frees its slot; below the receive timeout, so
+    // a client stops reusing an idle connection before the server closes it.
+    const long long idleSeconds =
+        std::max<long long>(1, std::min<long long>(5, m.options.receiveTimeout.count() * 2 / 3 / 1000));
     m.keepAliveHeader = "Keep-Alive: timeout=" + std::to_string(idleSeconds) + "\r\n";
     m.path = "/mcp/" + random_token();
     m.url = "http://127.0.0.1:" + std::to_string(m.port) + m.path;
@@ -322,12 +396,11 @@ void McpHttpServer::stop() {
     {
         std::lock_guard<std::mutex> lock(m.mu);
         m.stopping = true;
-        for (Socket c : m.clients) net::shutdown_socket(c);  // wakes the connection threads blocked in recv()
+        for (const auto& [id, conn] : m.connections) net::shutdown_socket(conn.socket);  // wakes threads blocked in recv()
     }
     m.slotFree.notify_all();  // an accept loop waiting for a free slot
-    // Wake accept(): shutdown() does on Linux, a connection does everywhere (it sees `stopping` and returns).
-    net::shutdown_socket(m.listener);
-    close_socket(net::connect_loopback(m.port));
+    // The accept loop polls the listener and sees `stopping` within 100 ms: no connection is needed to wake it, so a full
+    // backlog cannot hold stop() up.
     m.acceptThread.join();
     std::map<std::uint64_t, std::thread> threads;
     {
