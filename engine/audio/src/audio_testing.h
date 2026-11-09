@@ -25,6 +25,14 @@ struct AudioTestAccess {
     static void set_stream_service(Audio& audio, bool on);
     // What a frame does with a device: commit, refill, take what came back.
     static void pump(Audio& audio);
+    // The voices the game side still has in its mirror, stopped ones included: a voice leaves it only when the mixer says
+    // it ended, so 0 means the mixer has acknowledged every stop (active_voices() does not count a stopped voice).
+    static std::size_t mirror_voices(Audio& audio);
+    // The mixer's position in a voice's clip, in 44100 Hz frames (-1: the mixer has no such voice). Read from the thread that
+    // renders (the null device, or a manual device while nothing renders).
+    static double voice_position(Audio& audio, VoiceId voice);
+    // Commands waiting in the game side's staging queue (a stalled device).
+    static std::size_t staged_commands(Audio& audio);
     // The songs the music cache holds ("song|mode") and their bytes, in key order.
     static std::vector<std::pair<std::string, std::size_t>> music_cache(Audio& audio);
 };

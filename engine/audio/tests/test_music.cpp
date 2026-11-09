@@ -570,6 +570,22 @@ TEST_CASE("music player: a clip stinger starts on the bar line and ducks the mus
     CHECK_FALSE(idle.audio.music_play_stinger(idle.world, idle.e, spec).ok());   // both given
 }
 
+TEST_CASE("music player: a clip stinger has a higher priority than the default, so a full mixer replaces a sound for it") {
+    PlayerFx fx;
+    fx.step(0.7);
+    PlayParams loop;
+    loop.loop = true;
+    for (int i = 0; i < 64; ++i) REQUIRE(fx.audio.play("sounds/sine.wav", loop) != 0);  // 64 effects as loud as the stinger
+    CHECK(fx.audio.play("sounds/sine.wav", loop) == 0);  // the 65th is refused: same priority, not louder
+    MusicStingerSpec spec;
+    spec.clip = "sounds/sine.wav";
+    spec.quantize = MusicQuantize::None;
+    REQUIRE(fx.audio.music_play_stinger(fx.world, fx.e, spec).ok());
+    const Json st = fx.audio.stats();
+    CHECK(st.at("voicesStolen").get<int>() == 1);
+    CHECK(st.at("voicesRejected").get<int>() == 1);  // the 65th effect only
+}
+
 TEST_CASE("music player: crossfading to another song keeps playing and reports the new one") {
     PlayerFx fx;
     fx.step(0.7);
@@ -811,7 +827,7 @@ float render_device(Audio& audio, int blocks) {
 }  // namespace
 
 TEST_CASE("music player: with a device thread the song loads on a job and the transport's commands mix without allocating") {
-    REQUIRE(jobs::start(jobs::Settings::threads(2)));
+    audio_test::JobPool pool(jobs::Settings::threads(2));
     {
         PlayerFx fx;
         fx.mp().quantize = MusicQuantize::Beat;
@@ -854,5 +870,4 @@ TEST_CASE("music player: with a device thread the song loads on a job and the tr
         CHECK(fx.mp().playing);
         CHECK_MESSAGE(allocs == 0, "the device callback allocated " << allocs << " times while the music played");
     }
-    jobs::stop();
 }

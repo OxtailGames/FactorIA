@@ -302,10 +302,23 @@ class Mixer;
 // starts of music, the recorder) are never dropped, they free or end something the game side waits for.
 enum class CmdKind : std::uint8_t { Droppable, Lossy, Keep };
 
+// What a Droppable or Lossy command sets, so that a dropped one is not lost for good: the game side marks that voice, bus or
+// music player and sends its current state again once the staging queue has emptied (Audio::Impl::resync_dropped).
+enum class SyncTarget : std::uint8_t { None, Voice, Bus, Music };
+constexpr std::uint32_t kSyncAllBuses = 0xffffffffu;  // a snapshot sets every bus
+
+// A Keep command that a later one with the same key makes useless (Audio::Impl::send, "coalesce"): the key is the kind in the
+// top byte and a voice id below. 0 = never coalesced.
+enum class CoalesceKind : std::uint8_t { None, Retune, Paused, ResetFx, StopAll };
+constexpr std::uint64_t coalesce_key(CoalesceKind k, std::uint32_t id = 0) { return (std::uint64_t(k) << 32) | id; }
+
 struct Cmd {
     std::uint64_t seq = 0;     // increasing; the mixer publishes the last one it applied
     std::uint64_t batch = 0;   // the commands of one API call: committed together, so applied in the same block
     CmdKind kind = CmdKind::Keep;
+    SyncTarget sync = SyncTarget::None;  // Droppable/Lossy: what a drop leaves out of step
+    std::uint32_t syncId = 0;            // the voice id or bus index (kSyncAllBuses: all of them)
+    std::uint64_t coalesceKey = 0;       // Keep: see CoalesceKind
     VoiceIdT play = 0;         // a play: the voice it starts (dropping it ends that voice on the game side)
     std::function<void(Mixer&, Cmd&)> run;  // runs on the mixer thread: no allocation, no lock
     // Carried to the mixer, or back from it to be freed on the game side with the command.
