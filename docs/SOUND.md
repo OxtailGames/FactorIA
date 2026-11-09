@@ -467,7 +467,10 @@ device block grows them once, the first time), the ducking gains and the list of
 (`build_mix_order`, called by `set_buses`), outside the callback, and the callback only writes into them. A new bus table is
 therefore ready before the next block. Two things still allocate on purpose: recording (`start_recording` appends every block
 to a vector; it is a diagnostic, not part of a shipped game) and the single log line of the first callback after a device starts.
-The callback still takes the lock (`std::mutex`), so a long call into `Audio` from the main thread can delay a block; the
-lock-free mixer is a separate step. `engine/audio/tests/test_audio_realtime.cpp` counts the heap allocations of the mixing thread
+The callback can still free memory (a voice that ends is erased, and its stream or the last reference to its clip is released, on
+the audio thread). The test counts calls to `operator new` only, so a `malloc` made inside the C decoders (stb_vorbis, minimp3,
+dr_wav, qoa) while a streamed clip decodes in the callback is not covered. The callback still takes the lock (`std::mutex`), so a
+long call into `Audio` from the main thread can delay a block; the lock-free mixer is a separate step (M91.4).
+`engine/audio/tests/test_audio_realtime.cpp` counts the heap allocations of the mixing thread
 (a replaced global `operator new` in the test binary, counting only inside an `AllocCounter::Scope`) over voices on several buses
 with a low-pass, a reverb, ducking, a streamed clip, a PCM voice and ended voices, and expects zero.

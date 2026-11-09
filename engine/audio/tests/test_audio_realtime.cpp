@@ -37,12 +37,17 @@ std::size_t allocations_while_mixing(Fixture& fx, double seconds) {
 TEST_CASE("audio callback: the counter sees this thread's allocations and only while a scope is alive") {
     {
         AllocCounter::Scope scope;
-        auto* p = new int[16];
-        CHECK(scope.count() >= 1);
-        delete[] p;
+        void* p = AllocCounter::allocate_for_test(16);
+        CHECK(scope.count() == 1);
+        {
+            AllocCounter::Scope inner;
+            AllocCounter::release_for_test(AllocCounter::allocate_for_test(8));
+            CHECK(inner.count() == 1);
+        }
+        CHECK(scope.count() == 2);  // the inner scope's allocation is also the outer one's
+        AllocCounter::release_for_test(p);
     }
-    auto* q = new int(3);  // outside a scope: not counted, and the next scope starts from zero
-    delete q;
+    AllocCounter::release_for_test(AllocCounter::allocate_for_test(8));  // outside a scope: not counted
     AllocCounter::Scope scope;
     CHECK(scope.count() == 0);
 }
@@ -83,6 +88,7 @@ TEST_CASE("audio callback: mixing voices on several buses with effects and ducki
     fx.audio.push_pcm(pcm, st.data(), 22050);
 
     fx.run(0.2);  // warm-up: whatever the first blocks set up lazily
+    CHECK(fx.audio.take_ended_voices().empty());  // a game takes them every frame: it must not cost the mixer its capacity
 
     // The voiceover starts after the warm-up, so the ducking attacks, holds and releases inside the counted blocks.
     const VoiceId vo = fx.audio.play("sounds/short.wav", on("voiceover", false, true));

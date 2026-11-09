@@ -8,8 +8,14 @@
 namespace audio_test {
 
 struct AllocCounter {
-    // Allocations (operator new calls, every form) made by this thread since the innermost Scope began.
+    // Allocations (operator new calls, every form) made by this thread since the innermost Scope began. A Scope that ends adds
+    // its count to the Scope around it.
     static std::size_t count();
+
+    // A call to ::operator new / ::operator delete the compiler cannot see through (they live in alloc_counter.cpp), for the
+    // test of the counter itself: `new int` whose pointer never escapes may be removed by the optimizer.
+    static void* allocate_for_test(std::size_t size);
+    static void release_for_test(void* p);
 
     struct Scope {
         Scope();
@@ -19,7 +25,8 @@ struct AllocCounter {
         std::size_t count() const { return AllocCounter::count(); }
 
     private:
-        bool previous_;
+        bool previousCounting_;
+        std::size_t previousCount_;
     };
 };
 
