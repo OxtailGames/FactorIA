@@ -168,7 +168,7 @@ TEST_CASE("schema: an invalid pattern is a teaching error, in the validation and
     // A property named like a data keyword ("default", "enum"...) holds a schema and is checked; the keyword itself is data.
     auto named = check_schema_patterns(Json::parse(R"({"type":"object","properties":{
         "default":{"type":"string","pattern":"(open"},
-        "enum":{"type":"string","pattern":"[z-a]"}}})"));
+        "enum":{"type":"string","pattern":"[abc"}}})"));
     REQUIRE(named.size() == 2);
     std::vector<std::string> pointers{named[0].pointer, named[1].pointer};
     std::sort(pointers.begin(), pointers.end());
