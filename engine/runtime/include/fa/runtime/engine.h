@@ -369,6 +369,10 @@ struct HeadlessRunOptions {
     // for (a run that quits early ends below the total). The CLI prints it as progress lines.
     std::function<void(int written, int total)> videoProgress;
     bool failOnScriptError = true;
+    // The script watchdog stopped a callback (ScriptSystem::watchdog_cuts): the run is not valid (its result depends on the
+    // machine's speed), so the exit code is 1 and the report has "watchdogCuts" and "replayValid": false. Only a tool that
+    // wants the partial result anyway (script.trace) turns this off; the report still lists the cuts.
+    bool failOnWatchdogCut = true;
     // Profile the run (fa/core/profiler.h): report["profile"] summarises the frames after `profileWarmup` (the first frames
     // load assets and warm caches): per system and per behaviour class ms, GPU ms or null + reason, memory. Wall-clock
     // numbers, never part of the state or replay. perf.profile uses it.

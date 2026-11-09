@@ -28,6 +28,10 @@
 #                 backend=apple" and an answer to a Game Center call ("probe unlock="), so the Swift runtime, StoreKit and GameKit
 #                 are linked into the app and the backend is registered. A purchase or a sign-in needs an Apple Account: manual.)
 #
+#   (1d. det hash only with FA_IOS_DET_HASH=1: the game runs tools/cli/tests/determinism_probe.js, whose "FA_DET_HASH ..." line (Math, 2D and
+#                 3D physics, nav) must carry the hashes of tools/cli/tests/determinism_expected.txt, the ones every desktop
+#                 computes (scripts/det-hash-check.sh).)
+#
 # The app must be built for the simulator (`cmake --build --preset ios-simulator ... -sdk iphonesimulator`). The
 # first simulator boot takes 5-7 minutes on a hosted runner and slows a build on the same machine, so CI runs
 # `--boot` in the background on one runner while another builds the app, and waits for it before the smoke test.
@@ -191,6 +195,14 @@ if [ -n "${FA_IOS_APPLE_PROBE:-}" ]; then
         fail "apple: no 'probe backend=apple' in the console: the game does not run the backend \"apple\" (platform.backend)"
     wait_for_log "probe unlock=" 20 ||
         fail "apple: no 'probe unlock=' in the console: a Game Center call was never answered by the Swift plugin"
+fi
+
+# ---- 1d. det hash ---------------------------------------------------------------------------------------------------
+if [ -n "${FA_IOS_DET_HASH:-}" ]; then
+    wait_for_log "FA_DET_HASH " 60 ||
+        fail "det hash: no 'FA_DET_HASH ' line in the console within 60s: the determinism probe did not reach its step 60 or its script failed"
+    "$(dirname "$0")/det-hash-check.sh" "$OUT/console.log" | tee -a "$OUT/summary.txt"
+    [ "${PIPESTATUS[0]}" -eq 0 ] || fail "det hash: the replay hashes of this platform differ from the committed ones (lines above)"
 fi
 
 # ---- 2. audio -------------------------------------------------------------------------------------------------------

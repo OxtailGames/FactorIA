@@ -7,6 +7,9 @@
 #
 #   scripts/web-smoke.sh <factoria> <web player folder> [work dir (default build/web-smoke)]
 #
+# The game also runs tools/cli/tests/determinism_probe.js (M91.3); its "FA_DET_HASH ..." console line (Math, 2D and 3D physics, nav)
+# must carry the hashes of tools/cli/tests/determinism_expected.txt, the committed values every desktop CI job compares with (scripts/det-hash-check.sh).
+#
 # Needs Node 22+, Chrome/Chromium (or CHROME_BIN) and python3. Exit code 0 = the game ran.
 set -euo pipefail
 
@@ -35,8 +38,10 @@ scene = json.load(open(path))
 scene["entities"].append({"id": "smoke_name", "components": {
     "TextField": {"size": [300, 48], "anchor": [0.5, 0.0], "pivot": [0.5, 0.0], "layer": 500, "autoFocus": True},
     "Script": {"path": "scripts/smoke_text.js"}}})
+scene["entities"].append({"id": "detProbe", "name": "Determinism probe", "components": {"Script": {"path": "scripts/determinism_probe.js"}}})
 json.dump(scene, open(path, "w"), indent=2)
 PY
+cp "$here/tools/cli/tests/determinism_probe.js" "$work/game/scripts/determinism_probe.js"
 "$factoria" export "$work/game" --platform web --player "$player" --out "$work/export"
 
 dir="$(find "$work/export" -maxdepth 1 -type d -name '*-web' | head -n 1)"
@@ -55,5 +60,12 @@ assert size <= 500 * 1000 * 1000, "itch.io takes at most 500 MB"
 assert z.testzip() is None, "the zip is corrupt"
 PY
 
+# --also: the run only passes once the probe's line was in the console too (it comes after 60 fixed steps). The console is kept in a
+# log so the hashes can be compared.
+set +e
 node "$here/platforms/web/smoke.mjs" "$dir" --timeout 90 --screenshot "$work/web-smoke.png" \
-    --type hello --expect "smoke text: "
+    --type hello --expect "smoke text: " --also "FA_DET_HASH " 2>&1 | tee "$work/console.log"
+smoke_status="${PIPESTATUS[0]}"
+set -e
+"$here/scripts/det-hash-check.sh" "$work/console.log" || smoke_status=1
+exit "$smoke_status"

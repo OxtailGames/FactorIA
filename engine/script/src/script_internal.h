@@ -114,6 +114,15 @@ struct ScriptSystem::Impl {
     std::vector<Rejection> pendingRejections;
     void flush_rejections();
 
+    // ---- watchdog cuts (ScriptSystem::watchdog_cuts): every consumer of `timedOut` that is not a debugger terminate calls
+    // record_cut, so a cut is never only a line in the log that a duplicate or a quiet call can drop.
+    std::uint64_t cutCount = 0;
+    std::vector<ScriptWatchdogCut> cuts;  // the first kMaxCuts
+    static constexpr std::size_t kMaxCuts = 100;
+    // `label` is "path#method" (a behaviour), or a free text ("eval", "test 'x'"); `file` names the script when the label
+    // has none (a test file, a module being loaded).
+    void record_cut(const std::string& label, const std::string& file, const std::string& limit);
+
     // ---- guard (timeouts)
     // A guard limits the CPU time this thread spends in the script (a loaded machine, a script waiting on a native or a
     // debugger pause are not charged) and, as a hard cap for a script blocked forever, the wall clock: kWallCapFactor times
