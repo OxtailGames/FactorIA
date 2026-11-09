@@ -47,12 +47,10 @@ ShapedResult shape_result(Json value, std::size_t cap);
 std::string truncation_note(const ShapedResult& shaped, std::size_t cap, const std::vector<std::string>& pagingArgs,
                             const std::vector<std::string>& narrowingArgs);
 
-// The arguments of `inputSchema` (a command's) that page through a result, and those that narrow it.
+// The arguments of `inputSchema` (a command's) that page through a result, and those that narrow it, in the schema's
+// order: a known name (offset, limit, cursor, startLine, filter, path...), or for paging a name that contains offset,
+// limit, cursor or page in any case (pageToken, entityLimit). An argument counts once, as paging first.
 std::vector<std::string> paging_arguments(const Json& inputSchema);
 std::vector<std::string> narrowing_arguments(const Json& inputSchema);
-
-// One short line about an object result for the text block next to structuredContent: its fields, with scalar values
-// shown and arrays and objects counted.
-std::string summarize_result(const Json& result);
 
 }  // namespace fa::mcp_detail

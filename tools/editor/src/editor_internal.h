@@ -100,8 +100,10 @@ enum class PlayState { Edit, Playing, Paused };
 class MainThreadQueue {
 public:
     // Called from worker threads. Blocks until the main thread ran the command, the queue was closed, or `cancel` became
-    // true (that run was stopped: its job is dropped if it has not started, other runs' jobs are not touched). `tag` is
-    // handed back by current_tag() while the job runs.
+    // true (that run was stopped: its job is dropped if it has not started, other runs' jobs are not touched), or the
+    // calling thread's request cancel flag (command_cancel_flag(): an MCP client's notifications/cancelled) became true,
+    // with the same effect. A job the main thread already runs finishes there. `tag` is handed back by current_tag() while
+    // the job runs.
     CommandResult call(const std::string& name, const Json& args, const std::atomic<bool>* cancel, const std::string& tag = {});
     // Main thread: runs queued jobs (each through `run`) until `budgetMs` is used up (at least one job runs; the rest
     // stay queued for the next frame so the UI keeps updating). Returns how many ran. `run` may call take_current() and

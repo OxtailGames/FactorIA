@@ -69,6 +69,10 @@ struct Listener {
 Result<Listener> listen_tcp(bool allInterfaces, int backlog = 16);
 // accept(); kNoSocket when the listener was shut down or the call failed.
 Socket accept_connection(Socket listener);
+// Waits at most `timeoutMs` for `s` to be readable (a listener: a connection to accept; a connection: data or its end).
+// 1 = readable, 0 = the time ran out, -1 = an error (the socket was closed or shut down on some systems). A loop that
+// polls with it can see a stop flag without a connection to wake it.
+int wait_readable(Socket s, int timeoutMs);
 // A client connection to 127.0.0.1:<port>; kNoSocket when it fails. For waking an accept() and for tests.
 Socket connect_loopback(std::uint16_t port);
 

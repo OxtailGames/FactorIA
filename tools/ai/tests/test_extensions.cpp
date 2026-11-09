@@ -636,13 +636,13 @@ TEST_CASE("claude-code run: the plugins, the private settings file and the skill
     CHECK(argv.find("--plugin-dir\n" + (home.path / "plugins" / "notes").string() + "\n") != std::string::npos);
     CHECK(argv.find("--setting-sources\nproject,local\n") != std::string::npos);
     // the hooks settings file and the generated skills plugin live in the project's .factoria/ai while the run lasts
-    CHECK(argv.find(proj.str() + "/.factoria/ai/settings-claude-code-") != std::string::npos);
-    CHECK(argv.find("--plugin-dir\n" + proj.str() + "/.factoria/ai/ext-skills-claude-code-") != std::string::npos);
+    CHECK(argv.find(proj.str() + "/.factoria/ai/fa-run-settings-claude-code-") != std::string::npos);
+    CHECK(argv.find("--plugin-dir\n" + proj.str() + "/.factoria/ai/fa-run-ext-skills-claude-code-") != std::string::npos);
     // ... and are gone afterwards
     std::size_t leftovers = 0;
     for (const auto& entry : fsys::directory_iterator(proj.path / ".factoria" / "ai")) {
         const std::string name = entry.path().filename().string();
-        if (name.rfind("settings-", 0) == 0 || name.rfind("ext-skills-", 0) == 0) ++leftovers;
+        if (name.rfind("fa-run-", 0) == 0) ++leftovers;
     }
     CHECK(leftovers == 0);
 

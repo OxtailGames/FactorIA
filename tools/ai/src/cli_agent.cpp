@@ -57,6 +57,8 @@ std::string run_file_tag() {
 // the first kMaxSweptEntries entries of the folder are looked at (a count, never a time).
 constexpr std::size_t kMaxSweptEntries = 4096;
 constexpr auto kStaleRunFileAge = std::chrono::hours(24);
+// Every file and folder a run writes in .factoria/ai starts with this, and the sweep looks at nothing else.
+constexpr const char* kRunFilePrefix = "fa-run-";
 
 void sweep_stale_run_files(const fsys::path& aiDir) {
     std::error_code ec;
@@ -67,11 +69,7 @@ void sweep_stale_run_files(const fsys::path& aiDir) {
     for (std::size_t seen = 0; it != end && seen < kMaxSweptEntries; it.increment(ec), ++seen) {
         if (ec) break;
         const std::string name = fs::path_to_utf8(it->path().filename());
-        const bool runFile = (name.rfind("mcp-", 0) == 0 && name.size() > 5 && name.compare(name.size() - 5, 5, ".json") == 0) ||
-                             (name.rfind("settings-", 0) == 0 && name.size() > 5 &&
-                              name.compare(name.size() - 5, 5, ".json") == 0) ||
-                             name.rfind("ext-skills-", 0) == 0;
-        if (!runFile) continue;
+        if (name.rfind(kRunFilePrefix, 0) != 0) continue;  // only what a run wrote: fa-run-mcp-*, fa-run-settings-*, ...
         std::error_code tec;
         const auto when = it->last_write_time(tec);
         if (!tec && now - when > kStaleRunFileAge) stale.push_back(it->path());
@@ -378,9 +376,11 @@ std::vector<std::string> with_end_of_options(ProviderKind kind, std::vector<std:
     // Claude Code (commander) and Codex (clap) both end their options at "--" and take the prompt as their last
     // positional argument. A generic CLI may not ("sh -c '...' sh {prompt}" would get "--" as $1): left as written.
     if (kind != ProviderKind::ClaudeCode && kind != ProviderKind::Codex) return tmpl;
-    if (std::find(tmpl.begin(), tmpl.end(), "--") != tmpl.end()) return tmpl;  // the template ends the options itself
     const auto at = std::find(tmpl.begin(), tmpl.end(), "{prompt}");
     if (at == tmpl.end()) return tmpl;  // no prompt argument (stdin), or one inside a larger element ("--ask={prompt}")
+    // The template ends the options itself. Only a "--" right before the prompt counts: one elsewhere may be a flag's value
+    // ("--sep", "--").
+    if (at != tmpl.begin() && *(at - 1) == "--") return tmpl;
     // The prompt is a positional argument unless it is the value of the flag before it. Claude Code's -p/--print takes no
     // value (the usual `claude -p {prompt}`); another flag right before it may take one, so the template stays as it is.
     if (at != tmpl.begin()) {
@@ -881,7 +881,8 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         std::error_code ec;
         fsys::create_directories(aiDir, ec);
         sweep_stale_run_files(aiDir);
-        const fsys::path file = aiDir / fs::path_from_utf8("mcp-" + cfg_.name + "-" + run_file_tag() + ".json");
+        const fsys::path file =
+            aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "mcp-" + cfg_.name + "-" + run_file_tag() + ".json");
         runFiles.push_back(file);  // pushed first: a half-written file goes too
         const Json config = req.toolServers.empty() ? make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl)
                                                     : make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl, req.toolServers);
@@ -911,14 +912,14 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
             const std::string tag = cfg_.name + "-" + run_file_tag();
             if (wantsHooks) {
                 // Hooks run programs, and a hook's command line may carry a secret: owner-only, like the MCP config.
-                const fsys::path file = aiDir / fs::path_from_utf8("settings-" + tag + ".json");
+                const fsys::path file = aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "settings-" + tag + ".json");
                 runFiles.push_back(file);
                 if (auto ok = write_private_file(fs::path_to_utf8(file), dump_pretty(Json::object({{"hooks", cliHooks}})) + "\n"); !ok)
                     return ok.error();
                 settingsPath = host_utf8(file);
             }
             if (wantsSkills) {
-                const fsys::path skills = aiDir / fs::path_from_utf8("ext-skills-" + tag);
+                const fsys::path skills = aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "ext-skills-" + tag);
                 runFiles.push_back(skills);
                 if (auto ok = write_skills_plugin(fs::path_to_utf8(skills), req.skillDirs); !ok) return ok.error();
                 pluginDirs.push_back(host_utf8(skills));
@@ -950,11 +951,20 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     const std::size_t templateArgs = expanded.size();
     apply_role_restrictions(cfg_.kind, cfg_.argv.empty(), req, expanded);
     apply_extension_args(cfg_.kind, templateHasPluginDirs, templateHasSettings, req, pluginDirs, settingsPath, expanded);
-    // The flags added above go before a "--" of the template (with_end_of_options puts one before the prompt): after it
-    // they would be read as more of the prompt. Only a literal "--" of the template counts (a prompt "--" is not one).
-    if (const auto end = std::find(expanded.begin(), expanded.begin() + static_cast<std::ptrdiff_t>(templateArgs), "--");
-        std::find(tmpl.begin(), tmpl.end(), "--") != tmpl.end() && end != expanded.begin() + static_cast<std::ptrdiff_t>(templateArgs))
-        std::rotate(end, expanded.begin() + static_cast<std::ptrdiff_t>(templateArgs), expanded.end());
+    // The flags added above go before the "--" that ends the template's options (with_end_of_options puts one right before
+    // the prompt): after it they would be read as more of the prompt. Only that "--" counts: not a prompt that is "--", nor
+    // a "--" elsewhere in the template, which may be a flag's value ("--sep", "--").
+    if (std::adjacent_find(tmpl.begin(), tmpl.end(), [](const std::string& a, const std::string& b) {
+            return a == "--" && b == "{prompt}";
+        }) != tmpl.end()) {
+        for (std::size_t i = templateArgs; i >= 2; --i) {  // the last such pair: the template's, after anything it expands
+            if (expanded[i - 2] == "--" && expanded[i - 1] == effective.prompt) {
+                std::rotate(expanded.begin() + static_cast<std::ptrdiff_t>(i - 2),
+                            expanded.begin() + static_cast<std::ptrdiff_t>(templateArgs), expanded.end());
+                break;
+            }
+        }
+    }
     if (cfg_.kind == ProviderKind::Codex && cfg_.argv.empty() && !req.toolServers.empty()) {
         auto extra = codex_tool_server_args(req.toolServers, po.env);
         auto stdinMarker = std::find(expanded.begin(), expanded.end(), "-");
